@@ -2521,9 +2521,17 @@ enum TrackID
 #endif
     TRACK_TR1_CAVES     = 5,
     TRACK_TR1_SECRET    = 13,
+#if defined(__SATURN__)
+    // The Saturn disc has no ambient loops: as in the original, these levels
+    // are silent between the music their triggers play.
+    TRACK_TR1_CISTERN   = TRACK_NONE,
+    TRACK_TR1_WIND      = TRACK_NONE,
+    TRACK_TR1_PYRAMID   = TRACK_NONE,
+#else
     TRACK_TR1_CISTERN   = 57,
     TRACK_TR1_WIND      = 58,
     TRACK_TR1_PYRAMID   = 59,
+#endif
     TRACK_TR1_CUT_1     = 23,
     TRACK_TR1_CUT_2     = 25,
     TRACK_TR1_CUT_3     = 24,

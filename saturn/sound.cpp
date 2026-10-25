@@ -32,7 +32,7 @@
 
 // Audio tracks on the disc
 #define TRACK_FIRST     2
-#define TRACK_LAST      57
+#define TRACK_LAST      58
 
 extern Level level;
 
@@ -187,9 +187,8 @@ void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
     return &voice;
 }
 
-// Track numbers match the original disc up to 56 (the Caves play 5, as in the
-// original). OpenLara's ambient tracks 57-59 are PC numbers whose Saturn
-// equivalents are not known yet; they play nothing.
+// OpenLara's track numbers are the original disc's (the Caves play 5 and the
+// cutscenes 22-25, as in the original).
 static bool trackOnDisc(int32 track)
 {
     return track >= TRACK_FIRST && track < TRACK_LAST;
