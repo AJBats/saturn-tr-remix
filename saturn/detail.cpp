@@ -5,21 +5,14 @@
 #include "hw.h"
 #include "system.h"
 
-// Largest full-res set is LEVEL8A's, 263 KB. High work RAM, so SCU DMA can
-// read it (it can't reach low work RAM).
-#define DATA_MAX        (272 * 1024)
-#define MAX_KEYS        (DATA_MAX / DETAIL_UNIT)
+// High work RAM, so SCU DMA can read it (it can't reach low work RAM).
+#define DATA_MAX        DETAIL_DATA_MAX
+#define MAX_KEYS        DETAIL_MAX_KEYS
 #define MAX_SLOTS       128
 #define MAX_UPLOADS     32      // per frame, 2 KB each (8 for the original's near quadrants)
 #define NO_KEY          0xFFFF
-#define KEY_QUADS       0x8000  // Slot.key: the texture as quadrants
+#define KEY_QUADS       0x8000  // DetailSlot.key: the texture as quadrants
 #define ITEM_DATA_MAX   (72 * 1024) // LEVEL4's are 70 KB
-
-struct Slot
-{
-    uint16_t key;
-    uint32_t frame;     // last frame drawn with it
-};
 
 struct Upload
 {
@@ -32,12 +25,12 @@ struct Upload
 static uint8_t gData[DATA_MAX] __attribute__((aligned(16)));
 static uint32_t gDataSize;
 
-static uint8_t gKeySlot[2][MAX_KEYS];   // whole, quadrants: slot + 1, 0 when not cached
+uint8_t gDetailKeys[2][MAX_KEYS];
 static bool gWhole;                     // the layout of gData
-static Slot gSlots[MAX_SLOTS];
+DetailSlot gDetailSlots[MAX_SLOTS];
 static int32_t gSlotCount;
 uint32_t gDetailVramStart;
-static uint32_t gFrame;
+uint32_t gDetailFrame;
 
 static Upload gUploads[MAX_UPLOADS];
 static int32_t gUploadCount;
@@ -68,14 +61,14 @@ void detailInit(uint32_t vramStart, uint32_t dataSize)
         gSlotCount = MAX_SLOTS;
     }
 
-    memset(gKeySlot, 0, sizeof(gKeySlot));
+    memset(gDetailKeys, 0, sizeof(gDetailKeys));
     gWhole = true;
 
-    gFrame = 1;
+    gDetailFrame = 1;
     for (int32_t i = 0; i < gSlotCount; i++)
     {
-        gSlots[i].key = NO_KEY;
-        gSlots[i].frame = 0;
+        gDetailSlots[i].key = NO_KEY;
+        gDetailSlots[i].frame = 0;
     }
 
     gUploadCount = 0;
@@ -101,11 +94,11 @@ void detailItemInit(uint32_t size)
 
 static void emptySlots()
 {
-    memset(gKeySlot, 0, sizeof(gKeySlot));
+    memset(gDetailKeys, 0, sizeof(gDetailKeys));
     for (int32_t i = 0; i < gSlotCount; i++)
     {
-        gSlots[i].key = NO_KEY;
-        gSlots[i].frame = 0;
+        gDetailSlots[i].key = NO_KEY;
+        gDetailSlots[i].frame = 0;
     }
 }
 
@@ -125,7 +118,7 @@ void detailResume()
     gSuspended = false;
 }
 
-int32_t detailSlot(uint32_t key, uint32_t texSize, bool quads)
+int32_t detailSlotMiss(uint32_t key, uint32_t texSize, bool quads)
 {
     uint32_t w = (texSize >> 8) * 8;
     uint32_t h = texSize & 0xFF;
@@ -133,25 +126,19 @@ int32_t detailSlot(uint32_t key, uint32_t texSize, bool quads)
     if (gSuspended || key >= MAX_KEYS || key * DETAIL_UNIT + size > gDataSize)
         return -1;
 
-    uint8_t* keySlot = gKeySlot[quads];
-    uint32_t cached = keySlot[key];
-    if (cached)
-    {
-        gSlots[cached - 1].frame = gFrame;
-        return cached - 1;
-    }
+    uint8_t* keySlot = gDetailKeys[quads];
 
     if (gUploadCount == gUploadMax)
         return -1;
 
     // least recently drawn slot not in use this frame
     int32_t victim = -1;
-    uint32_t oldest = gFrame;
+    uint32_t oldest = gDetailFrame;
     for (int32_t i = 0; i < gSlotCount; i++)
     {
-        if (gSlots[i].frame < oldest)
+        if (gDetailSlots[i].frame < oldest)
         {
-            oldest = gSlots[i].frame;
+            oldest = gDetailSlots[i].frame;
             victim = i;
         }
     }
@@ -159,12 +146,12 @@ int32_t detailSlot(uint32_t key, uint32_t texSize, bool quads)
     if (victim < 0)
         return -1;
 
-    Slot &slot = gSlots[victim];
+    DetailSlot &slot = gDetailSlots[victim];
     if (slot.key != NO_KEY) {
-        gKeySlot[slot.key >> 15][slot.key & ~KEY_QUADS] = 0;
+        gDetailKeys[slot.key >> 15][slot.key & ~KEY_QUADS] = 0;
     }
     slot.key = key | (quads ? KEY_QUADS : 0);
-    slot.frame = gFrame;
+    slot.frame = gDetailFrame;
     keySlot[key] = victim + 1;
 
     Upload &upload = gUploads[gUploadCount++];
@@ -231,7 +218,7 @@ void detailFlush()
     }
     gStats.detailUploads = gUploadCount;
     gUploadCount = 0;
-    gFrame++;
+    gDetailFrame++;
 }
 
 
