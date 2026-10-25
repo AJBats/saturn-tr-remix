@@ -515,6 +515,10 @@ class Packer:
             out.pack("2B3hHH", it["type"], it["room"], it["x"] - room.x, it["y"], it["z"] - room.z,
                      intensity, it["flags"] | (quadrant(it["rotation"]) << 14))
 
+        camera_frames = out.align4()
+        for frame in lvl.camera_frames:
+            out.pack("8h", *frame)
+
         palette = out.align4()
         colors = self.palette + [0] * (256 - len(self.palette))
         out.pack("256H", *colors)
@@ -539,12 +543,12 @@ class Packer:
         header = struct.pack(">I14H", 0x53415431,     # 'SAT1'
             0, len(lvl.rooms), len(lvl.models), len(lvl.mesh_offsets), len(lvl.static_meshes),
             len(lvl.sprite_sequences), len(lvl.sound_sources), len(lvl.boxes), textures_count,
-            len(lvl.sprite_textures), len(lvl.items), len(lvl.cameras), 0, len(offsets))
+            len(lvl.sprite_textures), len(lvl.items), len(lvl.cameras), len(lvl.camera_frames), len(offsets))
         header += struct.pack(">35I",
             palette, 0, 0, rooms, floors, mesh_base, mesh_offsets_pos, anims, states, ranges,
             commands, nodes, frames, models, static_meshes, textures, sprites, sprite_sequences,
             cameras, sound_sources, boxes, overlaps, *zones, anim_tex, items,
-            0, sound_map, sound_infos, 0, sound_offsets)
+            camera_frames, sound_map, sound_infos, 0, sound_offsets)
         assert len(header) == 172
         out.b[0:172] = header
         return bytes(out.b)
@@ -581,6 +585,21 @@ def borrow_title_glyphs(lvl, data_dir):
     lvl.sprite_sequences[seq] = (ITEM["GLYPHS"], title_count, new_start)
 
 
+def read_camera_frames(lvl, data_dir):
+    """A cutscene's camera path, CINDATA/<level>.CIN: a frame count, then per
+    frame the target, the position, fov and roll as 16-bit values. Unlike the
+    rest of the disc, these files are little-endian."""
+    lvl.camera_frames = []
+    path = os.path.join(data_dir, "..", "CINDATA", lvl.name + ".CIN")
+    if not os.path.exists(path):
+        return
+    data = open(path, "rb").read()
+    count = struct.unpack_from("<H", data)[0]
+    if len(data) != 2 + count * 16:
+        raise ValueError(f"{path}: {len(data)} bytes for {count} frames")
+    lvl.camera_frames = [struct.unpack_from("<8h", data, 2 + i * 16) for i in range(count)]
+
+
 def move_lara(lvl, room_index, sector=None):
     room = lvl.rooms[room_index]
     best = None
@@ -605,6 +624,7 @@ def main():
     data_dir, name, out_path = sys.argv[1:4]
     lvl = trsat.load(data_dir, name)
     borrow_title_glyphs(lvl, data_dir)
+    read_camera_frames(lvl, data_dir)
     if os.environ.get("LARA_START"):
         start = [int(v) for v in os.environ["LARA_START"].split(":")]
         move_lara(lvl, start[0], tuple(start[1:]) if len(start) == 3 else None)
