@@ -102,10 +102,10 @@ $(BUILD)/0MAIN.elf: $(patsubst %,$(BUILD)/obj/%.o,$(GAME_SRC)) saturn/saturn.ld
 
 # Levels packed from the original disc's DATA files (tools/pack_level.py).
 LEVELS  := LEVEL1
-GAME_DISC := $(foreach l,$(LEVELS),DATA/$(l).PKD=build/data/$(l).PKD)
+GAME_DISC := $(foreach l,$(LEVELS),DATA/$(l).PKD=build/data/$(l).PKD DATA/$(l).TEX=build/data/$(l).TEX)
 
-build/data/%.PKD: tools/pack_level.py tools/trsat.py openlara/common.h $(DISC)/filelist.txt
-	$(PY) tools/pack_level.py $(DISC)/files/DATA $* $@
+build/data/%.PKD build/data/%.TEX &: tools/pack_level.py tools/trsat.py openlara/common.h saturn/vram.h $(DISC)/filelist.txt
+	$(PY) tools/pack_level.py $(DISC)/files/DATA $* build/data/$*.PKD
 
 disc: $(BUILD)/disc/tomb.cue
 $(eval $(call DISC_RULE,$(BUILD),$(GAME_DISC)))

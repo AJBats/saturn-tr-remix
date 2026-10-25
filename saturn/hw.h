@@ -34,6 +34,9 @@ typedef struct {
 #define CMD_END         0x8000
 
 #define PMOD_GOURAUD    0x0004
+#define PMOD_LUT16      0x0008  /* 4-bit pixels through a 16-colour lookup table */
+#define PMOD_SPD_OFF    0x0040  /* pixel code 0 is drawn, not transparent */
+#define PMOD_ECD_OFF    0x0080  /* end codes are ordinary pixels */
 #define PMOD_NO_ECD_SPD 0x00C0  /* disable end codes and transparent pixels */
 
 /* SCU DMA level 0 */

@@ -5,6 +5,7 @@
 #include "common.h"
 #include "hw.h"
 #include "system.h"
+#include "vram.h"
 
 struct Vertex
 {
@@ -46,12 +47,9 @@ enum ClipFlags {
     CLIP_DISCARD = (CLIP_LEFT | CLIP_RIGHT | CLIP_TOP | CLIP_BOTTOM | CLIP_PLANE)
 };
 
-// VDP1 VRAM: slots 0-2 set up clipping, slot 3 jumps to the command bank
-// VDP1 should draw. Banks alternate so one can be filled while the other draws.
-#define MAX_CMDS            2048
-#define VRAM_SLOT_JUMP      3
-#define VRAM_CMD_BANK(i)    (0x00100 + (i) * MAX_CMDS * 32)
-#define VRAM_GOURAUD_BANK(i) (0x20100 + (i) * MAX_CMDS * 8)
+// Command banks (see vram.h) alternate so one can be filled while VDP1
+// draws the other.
+#define MAX_CMDS            VRAM_MAX_CMDS
 
 extern Level level;
 
@@ -433,12 +431,31 @@ X_INLINE uint16 shadeGouraud(uint32 g)
     return (c << 10) | (c << 5) | c;
 }
 
-X_INLINE uint16 faceColor(uint32 flags)
+#define TEX_ATTR_DIR  0x0030 // VDP1 flip bits, stored in CMDCTRL layout
+
+// Fills the command fields that depend on the face's colour or texture.
+X_INLINE void faceMaterial(vdp1_cmd_t* cmd, uint32 flags)
 {
     uint32 type = (flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK;
-    if (type == FACE_TYPE_F)
-        return level.palette[flags & FACE_TEXTURE];
-    return level.textures[flags & FACE_TEXTURE].color; // TODO textures
+    const Texture* tex = (type == FACE_TYPE_F) ? NULL : level.textures + (flags & FACE_TEXTURE);
+
+    if (tex && tex->srca)
+    {
+        cmd->ctrl = CMD_DISTORTED_SPRITE | (tex->attr & TEX_ATTR_DIR);
+        cmd->pmod = PMOD_ECD_OFF | PMOD_LUT16 | PMOD_GOURAUD;
+        if (!(tex->attr & TEX_ATTR_AKILL)) {
+            cmd->pmod |= PMOD_SPD_OFF; // colour 0 is opaque
+        }
+        cmd->colr = tex->colr;
+        cmd->srca = tex->srca;
+        cmd->size = tex->size;
+    }
+    else
+    {
+        cmd->ctrl = CMD_POLYGON;
+        cmd->pmod = PMOD_NO_ECD_SPD | PMOD_GOURAUD;
+        cmd->colr = tex ? tex->color : level.palette[flags & FACE_TEXTURE];
+    }
 }
 
 void flush_c()
@@ -475,10 +492,8 @@ void flush_c()
             const Vertex* v3 = gVertices + face->indices[3];
 
             vdp1_cmd_t* cmd = gCmds + count;
-            cmd->ctrl = CMD_POLYGON;
             cmd->link = 0;
-            cmd->pmod = PMOD_NO_ECD_SPD | PMOD_GOURAUD;
-            cmd->colr = faceColor(flags);
+            faceMaterial(cmd, flags);
             cmd->xa = v0->x; cmd->ya = v0->y;
             cmd->xb = v1->x; cmd->yb = v1->y;
             cmd->xc = v2->x; cmd->yc = v2->y;

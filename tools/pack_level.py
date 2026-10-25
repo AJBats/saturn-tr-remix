@@ -6,11 +6,12 @@ The table layouts follow OpenLara's 32X packer (src/platform/gba/packer/
 out_32X.h), which targets the same big-endian SH-2 core, with Saturn face
 and texture layouts. Input is the original Saturn level files (tools/trsat.py).
 
-Texture table: [room textures][object textures][item textures]. Each entry
-holds VDP1 command fields; until texture upload exists they are zero apart
-from the size, attributes and an average colour used for flat shading.
+Texture entries hold VDP1 command fields addressing the texture blob, which
+the game loads into VDP1 VRAM at VRAM_TEX_BASE (saturn/vram.h), plus an
+average colour for untextured drawing.
 
 usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD>
+       (also writes <out>.TEX, the texture blob loaded at VRAM_TEX_BASE)
 """
 import math
 import os
@@ -26,6 +27,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FACE_TYPE_F, FACE_TYPE_FT, FACE_TYPE_FTA = 1, 2, 3
 FACE_TYPE_SHIFT = 14
 TEX_ATTR_AKILL = 1
+FACE_TEXTURE_MAX = 0x3FFF
 
 NODE_FLAG_ROTX, NODE_FLAG_ROTY, NODE_FLAG_ROTZ = 1 << 2, 1 << 3, 1 << 4
 
@@ -39,6 +41,17 @@ def item_types():
 
 
 ITEM = item_types()
+
+
+def vram_tex_base():
+    src = open(os.path.join(ROOT, "saturn", "vram.h")).read()
+    return int(re.search(r"#define VRAM_TEX_BASE\s+(0x[0-9A-Fa-f]+)", src).group(1), 16)
+
+
+VRAM_TEX_BASE = vram_tex_base()
+
+# VDP1 CMDCTRL direction bits, kept in texture attributes
+TEX_ATTR_FLIP_H = 0x10
 
 # Joints rotated by enemy AI (head tracking), from OpenLara's TR1_PC::fixHeadMask.
 HEAD_JOINTS = {
@@ -115,16 +128,79 @@ def texture_average(data, tile, clut, w, h, transparent):
     return 0x8000 | ((b // n) << 10) | ((g // n) << 5) | (r // n)
 
 
+class TextureTable:
+    """Texture entries as VDP1 command fields, plus the blob loaded at
+    VRAM_TEX_BASE. Room textures (quarter-res ROOMTQTR) come first with fixed
+    indices (animated texture ranges refer to them); object texture variants
+    are added as faces use them."""
+
+    def __init__(self, lvl):
+        self.lvl = lvl
+        self.blob = bytearray()
+        self.obj_off = self.add_segment(lvl.object_tex_data)
+        self.room_off = self.add_segment(lvl.room_tex_qtr)
+        self.spr_off = self.add_segment(lvl.sprite_tex_data)
+        if len(self.blob) > 0x80000 - VRAM_TEX_BASE:
+            raise ValueError(f"textures need {len(self.blob)} bytes of VDP1 VRAM")
+        self.entries = []
+        self.index = {}
+        for t in lvl.room_textures:
+            self.entries.append(self.entry(lvl.room_tex_qtr, self.room_off, t, t["tile"], 0))
+
+    def add_segment(self, data):
+        while len(self.blob) & 7:
+            self.blob.append(0)
+        off = len(self.blob)
+        self.blob += data
+        return off
+
+    def entry(self, data, seg_off, t, tile, attr):
+        base = VRAM_TEX_BASE + seg_off
+        srca = (base + tile * 8) >> 3
+        colr = (base + ((t["clut"] + tile) & 0xFFFF) * 8) >> 3
+        color = texture_average(data, tile, t["clut"], t["w"], t["h"], attr & TEX_ATTR_AKILL)
+        return [srca, colr, ((t["w"] // 8) << 8) | t["h"], attr, color]
+
+    def room(self, tex, transparent):
+        if transparent:
+            self.entries[tex][3] |= TEX_ATTR_AKILL
+        return tex
+
+    def object(self, tex, variant, attr):
+        key = ("obj", tex, variant, attr)
+        if key not in self.index:
+            t = self.lvl.object_textures[tex]
+            tile = t["tile"] if variant == 0 else t["sub"][variant - 1]
+            self.index[key] = len(self.entries)
+            self.entries.append(self.entry(self.lvl.object_tex_data, self.obj_off, t, tile, attr))
+        return self.index[key]
+
+    def item(self, tex, attr):
+        """Inventory item textures are not in VRAM yet: flat colour only."""
+        key = ("item", tex, attr)
+        if key not in self.index:
+            t = self.lvl.item_textures[tex]
+            color = texture_average(self.lvl.item_tex_data, t["tile"], t["clut"], t["w"], t["h"],
+                                    attr & TEX_ATTR_AKILL)
+            self.index[key] = len(self.entries)
+            self.entries.append([0, 0, ((t["w"] // 8) << 8) | t["h"], attr, color])
+        return self.index[key]
+
+    def pack(self):
+        return b"".join(struct.pack(">6H", *e, 0) for e in self.entries)
+
+
+# Saturn triangle flip code (top 4 bits of the face flags) to the texture
+# variant holding the triangle's pixels: 0 = tile, n = sub[n - 1].
+TRIANGLE_VARIANT = {0: 0, 10: 0, 2: 1, 8: 1, 4: 2, 14: 2, 6: 3, 12: 3}
+
+
 class Packer:
     def __init__(self, lvl):
         self.lvl = lvl
         self.meshes = trsat.meshes(lvl)
         self.palette = []           # RGB555 colours of coloured faces
-        self.room_tex_base = 0
-        self.obj_tex_base = len(lvl.room_textures)
-        self.item_tex_base = self.obj_tex_base + len(lvl.object_textures)
-        self.room_transparent = set()
-        self.obj_transparent = set()
+        self.textures = TextureTable(lvl)
         self.item_tex_index = {t["index"]: i for i, t in enumerate(lvl.item_textures)}
         self.inventory_meshes = set()
         for m in lvl.models:
@@ -156,14 +232,12 @@ class Packer:
 
             quads = out.align4()
             for v0, v1, v2, v3, tex, transp in room.quads:
-                if transp:
-                    self.room_transparent.add(tex)
                 ftype = FACE_TYPE_FTA if transp else FACE_TYPE_FT
-                out.pack("I4H", (ftype << FACE_TYPE_SHIFT) | (self.room_tex_base + tex), v0, v1, v2, v3)
+                out.pack("I4H", (ftype << FACE_TYPE_SHIFT) | self.textures.room(tex, transp), v0, v1, v2, v3)
 
             triangles = out.align4()
             for v0, v1, v2, tex in room.triangles:
-                out.pack("I4H", (FACE_TYPE_FT << FACE_TYPE_SHIFT) | (self.room_tex_base + tex), v0, v1, v2, 0)
+                out.pack("I4H", (FACE_TYPE_FT << FACE_TYPE_SHIFT) | self.textures.room(tex, False), v0, v1, v2, 0)
 
             vertices = out.align4()
             for x, y, z, color in room.vertices:
@@ -219,20 +293,23 @@ class Packer:
         if ftype in (trsat.MESH_T_COLOR, trsat.MESH_R_COLOR):
             return (FACE_TYPE_F << FACE_TYPE_SHIFT) | self.color_index(flags)
 
-        if ftype in trsat.MESH_TRIANGLES:
-            tex = flags & 0x0FFF
-        else:
-            tex = flags >> 4
         transp = ftype in (trsat.MESH_T_TEX_TRANSP, trsat.MESH_R_TRANSP, trsat.MESH_R_FLIP_TRANSP)
+        attr = TEX_ATTR_AKILL if transp else 0
+        if ftype in trsat.MESH_TRIANGLES:
+            tex, variant = flags & 0x0FFF, TRIANGLE_VARIANT[flags >> 12]
+        else:
+            tex, variant = flags >> 4, 0
+            if ftype in (trsat.MESH_R_FLIP_TEX, trsat.MESH_R_FLIP_TRANSP):
+                attr |= TEX_ATTR_FLIP_H
 
         if mesh_index in self.inventory_meshes:
-            index = self.item_tex_base + self.item_tex_index.get(tex, 0)
+            index = self.textures.item(self.item_tex_index.get(tex, 0), attr)
         else:
             if tex >= len(lvl.object_textures):
                 raise ValueError(f"mesh {mesh_index}: texture {tex} out of range")
-            index = self.obj_tex_base + tex
-        if transp:
-            self.obj_transparent.add(index)
+            index = self.textures.object(tex, variant, attr)
+        if index > FACE_TEXTURE_MAX:
+            raise ValueError("texture index does not fit the face flags")
         return ((FACE_TYPE_FTA if transp else FACE_TYPE_FT) << FACE_TYPE_SHIFT) | index
 
     def write_mesh(self, out, index, mesh):
@@ -274,13 +351,6 @@ class Packer:
                     for joint, mask in joints:
                         nodes[m["node"] + joint * 4] |= mask
         return nodes
-
-    # --- textures --------------------------------------------------------
-
-    def texture_entry(self, data, t, transparent):
-        color = texture_average(data, t["tile"], t["clut"], t["w"], t["h"], transparent)
-        attr = TEX_ATTR_AKILL if transparent else 0
-        return struct.pack(">6H", 0, 0, ((t["w"] // 8) << 8) | t["h"], attr, color, 0)
 
     # --- level -----------------------------------------------------------
 
@@ -349,17 +419,14 @@ class Packer:
             out.pack("6h", *s["cbox"])
 
         textures = out.align4()
-        for i, t in enumerate(lvl.room_textures):
-            out.raw(self.texture_entry(lvl.room_tex_qtr, t, i in self.room_transparent))
-        for i, t in enumerate(lvl.object_textures):
-            out.raw(self.texture_entry(lvl.object_tex_data, t, self.obj_tex_base + i in self.obj_transparent))
-        for i, t in enumerate(lvl.item_textures):
-            out.raw(self.texture_entry(lvl.item_tex_data, t, self.item_tex_base + i in self.obj_transparent))
-        textures_count = len(lvl.room_textures) + len(lvl.object_textures) + len(lvl.item_textures)
+        out.raw(self.textures.pack())
+        textures_count = len(self.textures.entries)
 
         sprites = out.align4()
+        spr_base = VRAM_TEX_BASE + self.textures.spr_off
         for s in lvl.sprite_textures:
-            out.pack("4H4h", 0, 0, ((s["w"] // 8) << 8) | s["h"], TEX_ATTR_AKILL, s["l"], s["t"], s["r"], s["b"])
+            out.pack("4H4h", (spr_base + s["tile"] * 8) >> 3, (spr_base + s["clut"] * 8) >> 3,
+                     ((s["w"] // 8) << 8) | s["h"], TEX_ATTR_AKILL, s["l"], s["t"], s["r"], s["b"])
 
         sprite_sequences = out.align4()
         for stype, count, start in lvl.sprite_sequences:
@@ -393,7 +460,7 @@ class Packer:
         for first, last in lvl.anim_ranges:
             out.pack("h", last - first)
             for t in range(first, last + 1):
-                out.pack("H", self.room_tex_base + t)
+                out.pack("H", t)
 
         items = out.align4()
         for it in lvl.items:
@@ -428,11 +495,16 @@ def s32(v):
 def main():
     data_dir, name, out_path = sys.argv[1:4]
     lvl = trsat.load(data_dir, name)
-    data = Packer(lvl).pack()
+    packer = Packer(lvl)
+    data = packer.pack()
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with open(out_path, "wb") as f:
         f.write(data)
-    print(f"{name}: {len(data)} bytes -> {out_path}")
+    tex_path = os.path.splitext(out_path)[0] + ".TEX"
+    with open(tex_path, "wb") as f:
+        f.write(packer.textures.blob)
+    print(f"{name}: {len(data)} bytes -> {out_path}, {len(packer.textures.blob)} bytes -> {tex_path}, "
+          f"{len(packer.textures.entries)} textures")
 
 
 if __name__ == "__main__":

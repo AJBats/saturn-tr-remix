@@ -2,6 +2,8 @@
 
 #include "common.h"
 #include "cd.h"
+#include "hw.h"
+#include "vram.h"
 
 // Packed levels load into low work RAM, which nothing else uses.
 #define LEVEL_ADDR  ((uint8*)0x00200000)
@@ -50,16 +52,25 @@ const void* osLoadScreen(LevelID id)
     return NULL;
 }
 
-const void* osLoadLevel(LevelID id)
+static void loadOrHalt(const char* name, const char* ext, void* dst, uint32 maxSize)
 {
     char path[32] = "DATA/";
-    strcat(path, (const char*)gLevelInfo[id].data);
-    strcat(path, ".PKD");
+    strcat(path, name);
+    strcat(path, ext);
 
-    if (cdLoadFile(path, LEVEL_ADDR, LEVEL_MAX) <= 0)
+    if (cdLoadFile(path, dst, maxSize) <= 0)
     {
         while (1); // TODO error screen
     }
+}
+
+const void* osLoadLevel(LevelID id)
+{
+    const char* name = (const char*)gLevelInfo[id].data;
+
+    // textures go straight to VDP1 VRAM, where the level's texture entries point
+    loadOrHalt(name, ".TEX", (void*)(VDP1_VRAM + VRAM_TEX_BASE), VRAM_TEX_SIZE);
+    loadOrHalt(name, ".PKD", LEVEL_ADDR, LEVEL_MAX);
 
     return LEVEL_ADDR;
 }
