@@ -30,8 +30,12 @@
 
 // VDP1 frame sequencing (after libyaul's variable-interval mode): a plot is
 // started once the command list is uploaded; at the vblank-in after VDP1
-// finishes, a frame buffer change is requested with vblank erase on; at
-// vblank-out the change has happened and VDP1 can take the next list.
+// finishes, a frame buffer change is requested; by the first line of the
+// display the change has happened and VDP1 can take the next list.
+//
+// On hardware the vblank-out interrupt and the vblank flag come a few lines
+// before that line: a plot started then is aborted and VDP1 locks up, never
+// ending the list (Mednafen holds the flag until line 0, so it can't show).
 //
 // The next list may be uploaded as soon as VDP1 has drawn the last one, before
 // the change: its plot then waits for the vblank-out (gPlotQueued), and the
@@ -77,6 +81,12 @@ extern "C" void vblankInHandler(const uint32_t* irqStack)
     }
 }
 
+// The frame buffer change is complete by then.
+static void waitDisplayStart()
+{
+    while (vdp2Line() >= SCREEN_HEIGHT);
+}
+
 static void plotStart()
 {
     gPlotStart = timerTicks();
@@ -90,8 +100,7 @@ extern "C" void vblankOutHandler()
     if (gVdp1State == VDP1_CHANGING)
     {
         VDP1_TVMR = 0;
-        // a plot started before the change completes would lock VDP1 up
-        while (VDP2_TVSTAT & TVSTAT_VBLANK);
+        waitDisplayStart();
         gVdp1State = VDP1_IDLE;
 
         if (gOnNextFrame)
@@ -171,7 +180,7 @@ static void vdp1Init()
 
     waitVblank();
     VDP1_FBCR = FBCR_FCM | FBCR_FCT;
-    while (VDP2_TVSTAT & TVSTAT_VBLANK);
+    waitDisplayStart();
     gVdp1State = VDP1_IDLE;
 }
 
