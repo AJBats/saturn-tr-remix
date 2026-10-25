@@ -451,121 +451,264 @@ struct Enemy : ItemObj
         tinfo.target->hit(damage, offset, 0);
     }
 
+    // TR1's box test (TRX Box_BadFloor): a floor the creature can't step to
+    // from the height of its box, a blocked or missing box, or a step down
+    // into a box higher than the one its path goes through next.
+    bool badFloor(int32 x, int32 y, int32 z, int32 boxHeight, int32 nextHeight)
+    {
+        const Sector* sector = room->getRoom(x, y, z)->getSector(x, z);
+        if (sector->boxIndex == NO_BOX)
+            return true;
+
+        const Box &b = level.boxes[sector->boxIndex];
+        if (b.overlap & extraE->nav.mask)
+            return true;
+
+        int32 d = boxHeight - b.floor;
+        if (d > extraE->nav.stepHeight || d < extraE->nav.dropHeight)
+            return true;
+
+        return d < -extraE->nav.stepHeight && b.floor > nextHeight;
+    }
+
+    // A moving creature ahead of this one in its room's list and nearer than
+    // this one's radius, as TR1 tests: each pair once, so the later one gives
+    // way and the two part.
+    bool overlapsCreature()
+    {
+        if (!hSpeed || health <= 0)
+            return false;
+
+        int32 r2 = X_SQR(int32(radius));
+        for (ItemObj* item = room->firstItem; item && item != this; item = item->nextItem)
+        {
+            if (item->type == ITEM_LARA || !item->hSpeed || (item->flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_ACTIVE)
+                continue;
+
+            int32 dx = item->pos.x - pos.x;
+            int32 dy = item->pos.y - pos.y;
+            int32 dz = item->pos.z - pos.z;
+            if (X_SQR(dx) + X_SQR(dy) + X_SQR(dz) < r2)
+                return true;
+        }
+        return false;
+    }
+
+    // The floor height of a sector's box, and of the next box on the path
+    // from it, or the given height for a sector without a box.
+    void boxHeights(const Sector* sector, int32 none, int32 &height, int32 &nextHeight)
+    {
+        if (sector->boxIndex == NO_BOX)
+        {
+            height = nextHeight = none;
+            return;
+        }
+        height = level.boxes[sector->boxIndex].floor;
+        uint16 next = extraE->nav.cells[sector->boxIndex].end;
+        nextHeight = (next != NO_BOX) ? level.boxes[next].floor : height;
+    }
+
+    // TR1's CreatureAnimation (TRX Creature_Animate) once the animation has
+    // moved the creature: one that walked into a sector it can't stand in is
+    // put back on its side of the sector edge, and one within its radius of
+    // such a sector is pushed clear of it, so it slides along walls and ledges
+    // instead of stopping dead; one that overlaps a creature ahead of it goes
+    // back where it was.
     void updateLocation()
     {
-        Room* oldRoom = room;
+        const vec3i old = tinfo.pos;
+        const uint16* zones = getZones();
+
+        int32 y = pos.y + getFrame()->box.minY;
+        int32 boxHeight = (tinfo.boxIndex == NO_BOX) ? roomFloor : level.boxes[tinfo.boxIndex].floor;
+
+        const Sector* sector = room->getRoom(pos.x, y, pos.z)->getSector(pos.x, pos.z);
+        int32 height, nextHeight;
+        boxHeights(sector, boxHeight, height, nextHeight);
+
+        if (sector->boxIndex == NO_BOX ||
+            (extraE->nav.zoneType != ZONE_FLY && tinfo.boxIndex != NO_BOX && zones[tinfo.boxIndex] != zones[sector->boxIndex]) ||
+            (boxHeight - height > extraE->nav.stepHeight) ||
+            (boxHeight - height < extraE->nav.dropHeight))
+        {
+            // back to the edge it crossed (TR1 compares z by the x sector too)
+            int32 cell = pos.x >> 10;
+            int32 oldX = old.x >> 10;
+            int32 oldZ = old.z >> 10;
+
+            if (cell < oldX) {
+                pos.x = old.x & ~1023;
+            } else if (cell > oldX) {
+                pos.x = old.x | 1023;
+            }
+
+            if (cell < oldZ) {
+                pos.z = old.z & ~1023;
+            } else if (cell > oldZ) {
+                pos.z = old.z | 1023;
+            }
+
+            sector = room->getRoom(pos.x, y, pos.z)->getSector(pos.x, pos.z);
+            boxHeights(sector, boxHeight, height, nextHeight);
+        }
+
+        // pushed clear of bad floor within its radius of the sector's sides
+        int32 x = pos.x;
+        int32 z = pos.z;
+        int32 px = x & 1023;
+        int32 pz = z & 1023;
+        int32 r = radius;
+        int32 shiftX = 0;
+        int32 shiftZ = 0;
+
+        if (pz < r)
+        {
+            if (badFloor(x, y, z - r, height, nextHeight)) {
+                shiftZ = r - pz;
+            }
+
+            if (px < r)
+            {
+                if (badFloor(x - r, y, z, height, nextHeight)) {
+                    shiftX = r - px;
+                } else if (!shiftZ && badFloor(x - r, y, z - r, height, nextHeight)) {
+                    if (angle.y > -ANGLE_135 && angle.y < ANGLE_45) {
+                        shiftZ = r - pz;
+                    } else {
+                        shiftX = r - px;
+                    }
+                }
+            }
+            else if (px > 1024 - r)
+            {
+                if (badFloor(x + r, y, z, height, nextHeight)) {
+                    shiftX = 1024 - r - px;
+                } else if (!shiftZ && badFloor(x + r, y, z - r, height, nextHeight)) {
+                    if (angle.y > -ANGLE_45 && angle.y < ANGLE_135) {
+                        shiftZ = r - pz;
+                    } else {
+                        shiftX = 1024 - r - px;
+                    }
+                }
+            }
+        }
+        else if (pz > 1024 - r)
+        {
+            if (badFloor(x, y, z + r, height, nextHeight)) {
+                shiftZ = 1024 - r - pz;
+            }
+
+            if (px < r)
+            {
+                if (badFloor(x - r, y, z, height, nextHeight)) {
+                    shiftX = r - px;
+                } else if (!shiftZ && badFloor(x - r, y, z + r, height, nextHeight)) {
+                    if (angle.y > -ANGLE_45 && angle.y < ANGLE_135) {
+                        shiftX = r - px;
+                    } else {
+                        shiftZ = 1024 - r - pz;
+                    }
+                }
+            }
+            else if (px > 1024 - r)
+            {
+                if (badFloor(x + r, y, z, height, nextHeight)) {
+                    shiftX = 1024 - r - px;
+                } else if (!shiftZ && badFloor(x + r, y, z + r, height, nextHeight)) {
+                    if (angle.y > -ANGLE_135 && angle.y < ANGLE_45) {
+                        shiftX = 1024 - r - px;
+                    } else {
+                        shiftZ = 1024 - r - pz;
+                    }
+                }
+            }
+        }
+        else if (px < r)
+        {
+            if (badFloor(x - r, y, z, height, nextHeight)) {
+                shiftX = r - px;
+            }
+        }
+        else if (px > 1024 - r)
+        {
+            if (badFloor(x + r, y, z, height, nextHeight)) {
+                shiftX = 1024 - r - px;
+            }
+        }
+
+        if (shiftX || shiftZ)
+        {
+            pos.x += shiftX;
+            pos.z += shiftZ;
+            angle.y += tinfo.turn; // turns twice as fast against a wall
+            tinfo.tilt <<= 1;
+        }
+
+        if (overlapsCreature())
+        {
+            pos = old;
+            return;
+        }
 
         updateRoom();
 
-        int32 h = pos.y - roomFloor; 
-        bool badPos = (h > extraE->nav.stepHeight) || (h < extraE->nav.dropHeight);
-
-        if (!badPos)
+        if (extraE->nav.zoneType == ZONE_FLY)
         {
-            if (extraE->nav.zoneType == ZONE_FLY)
+            int32 dy = X_CLAMP(tinfo.waypoint.y - pos.y, -extraE->nav.vSpeed, extraE->nav.vSpeed);
+            int32 fy = pos.y + dy;
+
+            const Sector* s = room->getSector(pos.x, pos.z);
+
+            int32 floor = s->getFloor(pos.x, fy, pos.z);
+            if (fy > floor)
             {
-                int32 dy = X_CLAMP(tinfo.waypoint.y - pos.y, -extraE->nav.vSpeed, extraE->nav.vSpeed);
-                int32 y = pos.y + dy;
-
-                const Sector* sector = room->getSector(pos.x, pos.z);
-
-                int32 floor = sector->getFloor(pos.x, y, pos.z);
-                if (y > floor)
+                if (pos.y > floor)
                 {
-                    if (pos.y > floor)
-                    {
-                        pos.x = tinfo.pos.x;
-                        pos.z = tinfo.pos.z;
-                        dy = -extraE->nav.vSpeed; // go up
-                    } else {
-                        pos.y = floor;
-                        dy = 0;
-                    }
-                }
-
-                int32 ceiling = sector->getCeiling(pos.x, y, pos.z);
-                if (y < ceiling)
-                {
-                    if (pos.y < ceiling)
-                    {
-                        pos.x = tinfo.pos.x;
-                        pos.z = tinfo.pos.z;
-                        dy = extraE->nav.vSpeed; // go down
-                    } else {
-                        pos.y = ceiling;
-                        dy = 0;
-                    }
-                }
-
-                // update vertical position
-                pos.y += dy;
-
-                // update pitch
-                int32 pitch = 0;
-                if (hSpeed) {
-                    pitch = phd_atan(hSpeed, -dy);
-                }
-                angle.x = angleLerp(angle.x, pitch, ANGLE_1);
-
-                updateRoom();
-            } else {
-                if (pos.y > roomFloor) {
-                    pos.y = roomFloor;
-                } else if (pos.y < roomFloor - 64) {
-                    pos.y += 64;
+                    pos.x = old.x;
+                    pos.z = old.z;
+                    dy = -extraE->nav.vSpeed; // go up
                 } else {
-                    pos.y = roomFloor;
+                    pos.y = floor;
+                    dy = 0;
                 }
             }
-        }
 
-        if (!badPos) // check for enemy vs enemy collision
-        {
-            ItemObj* item = room->firstItem;
-            while (item)
+            int32 ceiling = s->getCeiling(pos.x, fy, pos.z);
+            if (fy < ceiling)
             {
-                if (item->type != ITEM_LARA && item != this && item->health > 0 && ((item->flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_ACTIVE))
+                if (pos.y < ceiling)
                 {
-                    int32 dx = item->pos.x - pos.x;
-                    int32 dz = item->pos.z - pos.z;
-                    int32 d = fastLength(dx, dz);
-
-                    if ((d < (radius << 1)) && hSpeed)
-                    {
-                        tinfo.turn = ANGLE(8);
-                        badPos = true;
-                        break;
-                    }
+                    pos.x = old.x;
+                    pos.z = old.z;
+                    dy = extraE->nav.vSpeed; // go down
+                } else {
+                    pos.y = ceiling;
+                    dy = 0;
                 }
-                item = item->nextItem;
             }
-        }
 
-        if (!badPos) // check for wrong zone or wall
-        {
-            const uint16* zones = getZones();
-            uint32 boxIndex = room->getSector(pos.x, pos.z)->boxIndex;
-            badPos = (boxIndex == NO_BOX) || (tinfo.zoneIndex != zones[boxIndex]);
-        }
+            pos.y += dy;
 
-        if (badPos)
-        {
-            angle.y += tinfo.turn; // apply turn again for double rotation speed if blocked by something
-            pos = tinfo.pos;
-
-            if (room != oldRoom)
-            {
-                room->remove(this);
-                oldRoom->add(this);
+            int32 pitch = 0;
+            if (hSpeed) {
+                pitch = phd_atan(hSpeed, -dy);
             }
-        }
+            angle.x = angleLerp(angle.x, pitch, ANGLE_1);
 
-    #ifdef _DEBUG
-        {// TODO investigate enemies respawn
-            const Sector* sector = room->getSector(pos.x, pos.z);
-            ASSERT(sector->boxIndex != NO_BOX);
+            updateRoom();
         }
-    #endif
+        else
+        {
+            // follows the floor, rising at most a quarter step a frame
+            if (pos.y > roomFloor) {
+                pos.y = roomFloor;
+            } else if (roomFloor - pos.y > 64) {
+                pos.y += 64;
+            } else {
+                pos.y = roomFloor;
+            }
+            angle.x = 0;
+        }
     }
 
     virtual void activate()

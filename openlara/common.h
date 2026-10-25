@@ -503,6 +503,7 @@ extern uint8* vramPtr;
 #define ANGLE_1         (ANGLE_360 / 360)
 #define ANGLE_45        (ANGLE_360 / 8)      // != 45 * ANGLE_1 !!!
 #define ANGLE_90        (ANGLE_360 / 4)      // != 90 * ANGLE_1 !!!
+#define ANGLE_135       (ANGLE_90 + ANGLE_45)
 #define ANGLE_180      -(ANGLE_360 / 2)      // INT16_MIN
 #define ANGLE(x)        ((x) * ANGLE_1)
 #define ANGLE_SHIFT_45  13
