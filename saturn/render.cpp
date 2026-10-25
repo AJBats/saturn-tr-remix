@@ -534,6 +534,125 @@ X_INLINE void faceMaterial(uint32* w, uint32 flags)
     w[1] = pair(PMOD_NO_ECD_SPD | PMOD_GOURAUD, color);
 }
 
+// A face's VDP1 command, but for its link to its gouraud table (w[7]), and
+// that table. 'room' for the slave's faces; 'dim' behind the inventory.
+static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, bool dim)
+{
+    uint32 flags = face->flags;
+    uint32 type = (flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK;
+    const Vertex* v0 = gVertices + face->indices[0];
+
+    switch (type)
+    {
+        case FACE_TYPE_SPRITE:
+        {
+            const Sprite* sprite = level.sprites + (flags & FACE_TEXTURE);
+            w[0] = (CMD_SCALED_SPRITE | (sprite->attr & TEX_ATTR_DIR)) << 16;
+            w[1] = pair(PMOD_ECD_OFF | PMOD_LUT16 | PMOD_GOURAUD, sprite->colr);
+            w[2] = pair(sprite->srca, sprite->size);
+            w[3] = v0[0].xy;
+            w[5] = v0[1].xy;
+            grd[0] = grd[1] = shadePair(v0->g, v0->g);
+            break;
+        }
+
+        case FACE_TYPE_FILL_S:
+            w[0] = CMD_POLYGON << 16;
+            w[1] = pair(PMOD_NO_ECD_SPD | PMOD_SHADOW, RGB(0, 0, 0));
+            setRect(w, v0, v0 + 1);
+            break;
+
+        case FACE_TYPE_LINE_H:
+        case FACE_TYPE_LINE_V:
+            w[0] = CMD_POLYGON << 16;
+            w[1] = pair(PMOD_NO_ECD_SPD, uint16(v0->z));
+            setRect(w, v0, v0 + 1);
+            break;
+
+        default:
+        {
+            const Vertex* v1 = gVertices + face->indices[1];
+            const Vertex* v2 = gVertices + face->indices[2];
+
+            if (type == FACE_TYPE_SHADOW)
+            {
+                w[0] = CMD_POLYGON << 16;
+                w[1] = pair(PMOD_NO_ECD_SPD | PMOD_SHADOW, RGB(0, 0, 0));
+            }
+            else
+            {
+                faceMaterial(w, flags);
+            }
+
+            if (flags & FACE_PARALLELOGRAM)
+            {
+                // v0, x, y; the fourth corner is x + y - v0
+                uint32 p = pair(vdp1Coord(v1->x + v2->x - v0->x), vdp1Coord(v1->y + v2->y - v0->y));
+
+                bool half = gShadeHalf && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim && !(flags & FACE_WATER);
+
+                if (flags & FACE_V0_AT_D)
+                {
+                    w[3] = v1->xy;
+                    w[4] = p;
+                    w[5] = v2->xy;
+                    w[6] = v0->xy;
+                    if (!(half && shadeHalf(w, grd, flags, v1, v1, v2, v0)))
+                    {
+                        grd[0] = gouraudPair(flags, dim, v1, v1);
+                        grd[1] = gouraudPair(flags, dim, v2, v0);
+                    }
+                }
+                else
+                {
+                    w[3] = v0->xy;
+                    w[4] = v1->xy;
+                    w[5] = p;
+                    w[6] = v2->xy;
+                    if (!(half && shadeHalf(w, grd, flags, v0, v1, v2, v2)))
+                    {
+                        grd[0] = gouraudPair(flags, dim, v0, v1);
+                        grd[1] = gouraudPair(flags, dim, v2, v2);
+                    }
+                }
+
+                if (gTexelView == TEXEL_VIEW_SIZE && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW) {
+                    texelTint(w, grd, flags, false, 0);
+                }
+                break;
+            }
+
+            const Vertex* v3 = gVertices + face->indices[3];
+
+            // VDP1 draws a quad as lines from edge AD to edge BC, each
+            // ending at its first pixel past the frame once it has
+            // been on it. A quad further off the frame on its AD side
+            // is drawn as B A D C, mirrored, so its lines start on it.
+            if (((v0->clip | v1->clip | v2->clip | v3->clip) & CLIP_FRAME) &&
+                offFrame(v0) + offFrame(v3) > offFrame(v1) + offFrame(v2))
+            {
+                const Vertex* t = v0; v0 = v1; v1 = t;
+                t = v2; v2 = v3; v3 = t;
+                w[0] ^= CMD_FLIP_H << 16;
+            }
+
+            w[3] = v0->xy;
+            w[4] = v1->xy;
+            w[5] = v2->xy;
+            w[6] = v3->xy;
+            bool half = gShadeHalf && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim && !(flags & FACE_WATER);
+            if (!(half && shadeHalf(w, grd, flags, v0, v1, v2, v3)))
+            {
+                grd[0] = gouraudPair(flags, dim, v0, v1);
+                grd[1] = gouraudPair(flags, dim, v2, v3);
+            }
+            if (gTexelView && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW) {
+                texelTint(w, grd, flags, room, X_MAX(X_MAX(v0->z, v1->z), X_MAX(v2->z, v3->z)));
+            }
+        }
+    }
+}
+
 void flush_c()
 {
     uint32 start = timerTicks();
@@ -569,142 +688,33 @@ void flush_c()
 
     // far to near; in each bucket rooms (the slave's) before what stands in them
     for (int32 i = OT_SIZE - 1; i >= 0; i--)
-    for (int32 list = 0; list < 2; list++)
     {
-        Face** ot = list ? gOT : roomOT;
-        if (!ot)
+        Face* rooms = roomOT ? roomOT[i] : NULL;
+        Face* meshes = gOT[i];
+        if (!rooms && !meshes)
             continue;
 
-        for (Face* face = ot[i]; face; face = face->next)
-        {
-            uint32 flags = face->flags;
-            uint32 type = (flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK;
-
-            // rooms, and what was drawn with them, behind the inventory
-            bool dim = gInventoryFrame && (!list || face < gDimFacesEnd);
-
-            if (count == MAX_CMDS - 1)
-                break;
-
-            const Vertex* v0 = gVertices + face->indices[0];
-
-            uint32* w = gCmds[count].w;
-            uint32* grd = gGouraud[count];
-            w[7] = pair(grdBase + count, 0);
-
-            switch (type)
-            {
-                case FACE_TYPE_SPRITE:
-                {
-                    const Sprite* sprite = level.sprites + (flags & FACE_TEXTURE);
-                    w[0] = (CMD_SCALED_SPRITE | (sprite->attr & TEX_ATTR_DIR)) << 16;
-                    w[1] = pair(PMOD_ECD_OFF | PMOD_LUT16 | PMOD_GOURAUD, sprite->colr);
-                    w[2] = pair(sprite->srca, sprite->size);
-                    w[3] = v0[0].xy;
-                    w[5] = v0[1].xy;
-                    grd[0] = grd[1] = shadePair(v0->g, v0->g);
-                    break;
-                }
-
-                case FACE_TYPE_FILL_S:
-                    w[0] = CMD_POLYGON << 16;
-                    w[1] = pair(PMOD_NO_ECD_SPD | PMOD_SHADOW, RGB(0, 0, 0));
-                    setRect(w, v0, v0 + 1);
-                    break;
-
-                case FACE_TYPE_LINE_H:
-                case FACE_TYPE_LINE_V:
-                    w[0] = CMD_POLYGON << 16;
-                    w[1] = pair(PMOD_NO_ECD_SPD, uint16(v0->z));
-                    setRect(w, v0, v0 + 1);
-                    break;
-
-                default:
-                {
-                    const Vertex* v1 = gVertices + face->indices[1];
-                    const Vertex* v2 = gVertices + face->indices[2];
-
-                    if (type == FACE_TYPE_SHADOW)
-                    {
-                        w[0] = CMD_POLYGON << 16;
-                        w[1] = pair(PMOD_NO_ECD_SPD | PMOD_SHADOW, RGB(0, 0, 0));
-                    }
-                    else
-                    {
-                        faceMaterial(w, flags);
-                    }
-
-                    if (flags & FACE_PARALLELOGRAM)
-                    {
-                        // v0, x, y; the fourth corner is x + y - v0
-                        uint32 p = pair(vdp1Coord(v1->x + v2->x - v0->x), vdp1Coord(v1->y + v2->y - v0->y));
-
-                        bool half = gShadeHalf && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim && !(flags & FACE_WATER);
-
-                        if (flags & FACE_V0_AT_D)
-                        {
-                            w[3] = v1->xy;
-                            w[4] = p;
-                            w[5] = v2->xy;
-                            w[6] = v0->xy;
-                            if (!(half && shadeHalf(w, grd, flags, v1, v1, v2, v0)))
-                            {
-                                grd[0] = gouraudPair(flags, dim, v1, v1);
-                                grd[1] = gouraudPair(flags, dim, v2, v0);
-                            }
-                        }
-                        else
-                        {
-                            w[3] = v0->xy;
-                            w[4] = v1->xy;
-                            w[5] = p;
-                            w[6] = v2->xy;
-                            if (!(half && shadeHalf(w, grd, flags, v0, v1, v2, v2)))
-                            {
-                                grd[0] = gouraudPair(flags, dim, v0, v1);
-                                grd[1] = gouraudPair(flags, dim, v2, v2);
-                            }
-                        }
-
-                        if (gTexelView == TEXEL_VIEW_SIZE && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW) {
-                            texelTint(w, grd, flags, false, 0);
-                        }
-                        break;
-                    }
-
-                    const Vertex* v3 = gVertices + face->indices[3];
-
-                    // VDP1 draws a quad as lines from edge AD to edge BC, each
-                    // ending at its first pixel past the frame once it has
-                    // been on it. A quad further off the frame on its AD side
-                    // is drawn as B A D C, mirrored, so its lines start on it.
-                    if (((v0->clip | v1->clip | v2->clip | v3->clip) & CLIP_FRAME) &&
-                        offFrame(v0) + offFrame(v3) > offFrame(v1) + offFrame(v2))
-                    {
-                        const Vertex* t = v0; v0 = v1; v1 = t;
-                        t = v2; v2 = v3; v3 = t;
-                        w[0] ^= CMD_FLIP_H << 16;
-                    }
-
-                    w[3] = v0->xy;
-                    w[4] = v1->xy;
-                    w[5] = v2->xy;
-                    w[6] = v3->xy;
-                    bool half = gShadeHalf && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim && !(flags & FACE_WATER);
-                    if (!(half && shadeHalf(w, grd, flags, v0, v1, v2, v3)))
-                    {
-                        grd[0] = gouraudPair(flags, dim, v0, v1);
-                        grd[1] = gouraudPair(flags, dim, v2, v3);
-                    }
-                    if (gTexelView && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW) {
-                        texelTint(w, grd, flags, !list, X_MAX(X_MAX(v0->z, v1->z), X_MAX(v2->z, v3->z)));
-                    }
-                }
-            }
-
-            count++;
+        if (rooms) {
+            roomOT[i] = NULL;
         }
-        ot[i] = NULL;
+        gOT[i] = NULL;
+
+        for (int32 list = 0; list < 2; list++)
+        {
+            for (Face* face = list ? meshes : rooms; face; face = face->next)
+            {
+                if (count == MAX_CMDS - 1)
+                    break;
+
+                // rooms, and what was drawn with them, behind the inventory
+                bool dim = gInventoryFrame && (!list || face < gDimFacesEnd);
+
+                uint32* w = gCmds[count].w;
+                w[7] = pair(grdBase + count, 0);
+                faceCommand(face, w, gGouraud[count], !list, dim);
+                count++;
+            }
+        }
     }
 
     gCmds[count].w[0] = CMD_END << 16;
