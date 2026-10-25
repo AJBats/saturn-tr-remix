@@ -1,0 +1,5 @@
+# Game data and third-party reference sources (copyrighted / separately licensed)
+external_resources/
+
+build/
+__pycache__/
