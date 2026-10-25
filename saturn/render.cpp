@@ -117,8 +117,9 @@ extern "C" void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst
 // every face outside it.
 //
 // A mesh whose bounding sphere (a centre and radius, or NULL) is wholly in
-// view, projected at its nearest, skips the per-vertex clamps and clip flags.
-void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, const int8* normals, const uint8* shades,
+// view, projected at its nearest, skips the per-vertex clamps and clip flags;
+// true for those.
+bool transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, const int8* normals, const uint8* shades,
                    const vec3s* center, int32 radius)
 {
     const Matrix &m = matrixGet();
@@ -162,7 +163,26 @@ void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, con
     }
 
     transformMeshAsm(vertices, count, gVerticesBase, &xf);
+    return xf.inside;
 }
+
+// What meshfaces.s needs to add a mesh's faces.
+struct MeshFaces
+{
+    const Vertex* vertices;
+    int32 base;         // minus gVertices' address / 8: a vertex's index is its address / 8 + base
+    FaceList* list;
+    uint32 flags;       // gMeshFaceFlags
+    int32 inside;       // no vertex has clip flags
+};
+
+static_assert(offsetof(FaceList, ot) == 8 && offsetof(FaceList, groups) == 12 && OT_GROUP_SHIFT == 5 &&
+              OT_SHIFT == 4 && sizeof(MeshQuad) == 6 && sizeof(MeshTriangle) == 6 &&
+              offsetof(MeshFaces, inside) == 16 && FACE_TRIANGLE == int32(0x80000000) &&
+              CLIP_DISCARD == 0x3E && CLIP_PLANE == 0x20, "layouts and constants shared with meshfaces.s");
+
+extern "C" void faceAddMeshQuadsAsm(const MeshQuad* polys, int32 count, MeshFaces* mf);
+extern "C" void faceAddMeshTrianglesAsm(const MeshTriangle* polys, int32 count, MeshFaces* mf);
 
 void faceAddMeshQuads(const MeshQuad* polys, int32 count)
 {
@@ -1029,14 +1049,26 @@ void renderMesh(const Mesh* mesh)
     MeshTriangle* triangles = (MeshTriangle*)ptr;
 
     uint32 start = timerTicks();
-    transformMesh(vertices, vCount, mesh->intensity, normals, shades, &mesh->center, mesh->bound);
+    bool inside = transformMesh(vertices, vCount, mesh->intensity, normals, shades, &mesh->center, mesh->bound);
 
-    if (mesh->rCount > 0) {
-        faceAddMeshQuads(quads, mesh->rCount);
+    if (gFlatDist)
+    {
+        if (mesh->rCount > 0) {
+            faceAddMeshQuads(quads, mesh->rCount);
+        }
+        if (mesh->tCount > 0) {
+            faceAddMeshTriangles(triangles, mesh->tCount);
+        }
     }
-
-    if (mesh->tCount > 0) {
-        faceAddMeshTriangles(triangles, mesh->tCount);
+    else
+    {
+        MeshFaces mf = { gVerticesBase, -int32(uint32(gVertices) >> 3), &gFaceList, gMeshFaceFlags, inside };
+        if (mesh->rCount > 0) {
+            faceAddMeshQuadsAsm(quads, mesh->rCount, &mf);
+        }
+        if (mesh->tCount > 0) {
+            faceAddMeshTrianglesAsm(triangles, mesh->tCount, &mf);
+        }
     }
 
     gVerticesBase += vCount;
