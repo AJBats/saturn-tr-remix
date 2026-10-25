@@ -31,6 +31,10 @@
 // started once the command list is uploaded; at the vblank-in after VDP1
 // finishes, a frame buffer change is requested with vblank erase on; at
 // vblank-out the change has happened and VDP1 can take the next list.
+//
+// The next list may be uploaded as soon as VDP1 has drawn the last one, before
+// the change: its plot then waits for the vblank-out (gPlotQueued), and the
+// CPUs go on with the frame after.
 enum Vdp1State
 {
     VDP1_IDLE,
@@ -39,6 +43,8 @@ enum Vdp1State
 };
 
 static volatile int32_t gVdp1State;
+static volatile bool gVdp1Drawn = true;    // the last plot has finished
+static volatile bool gPlotQueued;          // a plot waits for the change
 static uint32_t gPlotStart;
 static void (*volatile gOnNextFrame)();
 
@@ -69,6 +75,14 @@ extern "C" void vblankInHandler()
     }
 }
 
+static void plotStart()
+{
+    gPlotStart = timerTicks();
+    gVdp1Drawn = false;
+    gVdp1State = VDP1_PLOTTING;
+    VDP1_PTMR = 1;
+}
+
 extern "C" void vblankOutHandler()
 {
     if (gVdp1State == VDP1_CHANGING)
@@ -84,24 +98,39 @@ extern "C" void vblankOutHandler()
             gOnNextFrame = nullptr;
         }
     }
+
+    // also a plot queued just after the change
+    if (gVdp1State == VDP1_IDLE && gPlotQueued)
+    {
+        gPlotQueued = false;
+        plotStart();
+    }
 }
 
 extern "C" void spriteEndHandler()
 {
     gStats.vdp1EndLine = vdp2Line();
     gStats.vdp1Ticks = (timerTicks() - gPlotStart) & 0xFFFF;
+    gVdp1Drawn = true;
 }
 
 void vdp1WaitIdle()
 {
-    while (gVdp1State != VDP1_IDLE);
+    while (gVdp1State != VDP1_IDLE || gPlotQueued);
+}
+
+void vdp1WaitDrawn()
+{
+    while (gPlotQueued || !gVdp1Drawn);
 }
 
 void vdp1Plot()
 {
-    gPlotStart = timerTicks();
-    gVdp1State = VDP1_PLOTTING;
-    VDP1_PTMR = 1;
+    if (gVdp1State == VDP1_IDLE) {
+        plotStart();
+    } else {
+        gPlotQueued = true;
+    }
 }
 
 void vdp1OnNextFrame(void (*fn)())

@@ -824,9 +824,9 @@ static void flushFar()
 // them, from gCmds[count] on. Returns the next free command.
 //
 // flush.s builds them but behind the inventory or in the texel views, on
-// both CPUs: the slave the far buckets holding up to half the faces (counted
-// by groups of buckets in the CPUs' face lists), this CPU the rest, in the
-// commands after them.
+// both CPUs: the slave the far buckets holding up to 45% of the faces
+// (counted by groups of buckets in the CPUs' face lists; it starts a little
+// later, with its cache empty), this CPU the rest, in the commands after them.
 static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
 {
     uint32 grdBase = VRAM_GOURAUD_BASE >> 3;
@@ -843,7 +843,7 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
         while (split > 0)
         {
             int32 faces = roomGroups[split - 1] + gFaceList.groups[split - 1];
-            if ((farFaces + faces) * 2 > total)
+            if ((farFaces + faces) * 20 > total * 9)
                 break;
             farFaces += faces;
             split--;
@@ -869,7 +869,9 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
 
         if (splitBucket < OT_SIZE)
         {
+            uint32 waitStart = timerTicks();
             slaveWait();
+            gStats.farWaitTicks = (timerTicks() - waitStart) & 0xFFFF;
             cachePurge(); // the slave emptied buckets of gOT that this CPU may hold
 
             // its faces fill the commands before this CPU's but for a cap
@@ -955,7 +957,7 @@ void flush_c()
     gStats.faces = count;
 
     uint32 waitStart = timerTicks();
-    vdp1WaitIdle();
+    vdp1WaitDrawn();
     gStats.waitTicks = (timerTicks() - waitStart) & 0xFFFF;
 
     uint32 dmaStart = timerTicks();

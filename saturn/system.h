@@ -39,6 +39,7 @@ struct FrameStats
     uint32_t slaveFaceTicks;  // slave: room face setup
     uint32_t slaveIdleTicks;  // slave: waiting for rooms to be queued
     uint32_t dmaTicks;      // flush: texture uploads and command DMA
+    uint32_t farWaitTicks;  // flush: waiting for the slave's commands after building ours
 };
 
 extern FrameStats gStats;
@@ -53,9 +54,11 @@ void smpcCommand(uint8_t command);
 // (vertical sync lines read as higher values still).
 uint32_t vdp2Line();
 
-// VDP1 draws one command list per displayed frame: wait until it is idle
-// (previous frame drawn and on screen), upload the next list, then plot.
+// VDP1 draws one command list per displayed frame: wait until it has drawn
+// the last list (vdp1WaitDrawn; or until that is on screen too, vdp1WaitIdle),
+// upload the next, then plot, which starts once the last is on screen.
 void vdp1WaitIdle();
+void vdp1WaitDrawn();
 void vdp1Plot();
 
 // Calls fn from the vblank-out interrupt once the next frame VDP1 draws is on
