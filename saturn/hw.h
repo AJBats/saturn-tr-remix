@@ -17,6 +17,7 @@
 #define VDP1_EWRR   REG16(0x25D0000A)
 #define VDP1_ENDR   REG16(0x25D0000C)
 #define VDP1_EDSR   REG16(0x25D00010)
+#define VDP1_COPR   REG16(0x25D00014)   /* the command being drawn, address / 8 */
 
 /* VDP1 command table entry (32 bytes, in VDP1 VRAM) */
 typedef struct {

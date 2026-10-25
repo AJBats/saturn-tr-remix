@@ -2,7 +2,8 @@
 !
 ! The BIOS dispatcher calls these as subroutines (they return with rts) and
 ! does not save the caller-saved registers, so the entries do, then call the
-! C handlers.
+! C handlers with the stack holding all that (crash.cpp reads the interrupted
+! context from it).
 
     .macro IRQ_ENTRY name, handler
     .text
@@ -24,7 +25,7 @@
 
     mov.l   1f, r0
     jsr     @r0
-    nop
+    mov     r15, r4
 
     ldc.l   @r15+, gbr
     lds.l   @r15+, macl
@@ -47,6 +48,32 @@
     IRQ_ENTRY _vblankInEntry, _vblankInHandler
     IRQ_ENTRY _vblankOutEntry, _vblankOutHandler
     IRQ_ENTRY _spriteEndEntry, _spriteEndHandler
+
+! CPU exceptions, on either CPU: crashException with the exception frame (PC,
+! SR), PR, the vector and whether it is the slave. It doesn't return.
+    .macro EXC_ENTRY name, vector, slave
+    .text
+    .align 2
+    .global \name
+\name:
+    mov     r15, r4
+    sts     pr, r5
+    mov     #\vector, r6
+    mov.l   1f, r0
+    jmp     @r0
+    mov     #\slave, r7
+    .align 2
+1:  .long _crashException
+    .endm
+
+    EXC_ENTRY _crashIllegalEntry, 4, 0
+    EXC_ENTRY _crashSlotEntry, 6, 0
+    EXC_ENTRY _crashAddressEntry, 9, 0
+    EXC_ENTRY _crashDmaEntry, 10, 0
+    EXC_ENTRY _crashSlaveIllegalEntry, 4, 1
+    EXC_ENTRY _crashSlaveSlotEntry, 6, 1
+    EXC_ENTRY _crashSlaveAddressEntry, 9, 1
+    EXC_ENTRY _crashSlaveDmaEntry, 10, 1
 
 ! Slave CPU entry after SMPC SSHON (the BIOS has set its stack): mask
 ! interrupts, then run slaveMain.

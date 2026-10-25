@@ -1,6 +1,7 @@
 // Saturn system setup shared by the game and test programs.
 
 #include "system.h"
+#include "crash.h"
 #include "hw.h"
 
 #define BACK_COLOR_ADDR 0x7FFFE  // last word of VDP2 VRAM
@@ -56,9 +57,10 @@ extern "C" void vblankInEntry();
 extern "C" void vblankOutEntry();
 extern "C" void spriteEndEntry();
 
-extern "C" void vblankInHandler()
+extern "C" void vblankInHandler(const uint32_t* irqStack)
 {
     gVblankCount++;
+    crashWatchdog(irqStack);
 
     if (gVdp1State == VDP1_PLOTTING)
     {
@@ -138,6 +140,11 @@ void vdp1OnNextFrame(void (*fn)())
     gOnNextFrame = fn;
 }
 
+uint32_t vdp1DebugState()
+{
+    return (uint32_t(gVdp1State) << 24) | (uint32_t(gPlotQueued) << 16) | (uint32_t(gVdp1Drawn) << 8);
+}
+
 static void vdp2Init()
 {
     VDP2_TVMD = 0;
@@ -178,11 +185,11 @@ void smpcCommand(uint8_t command)
 
 void systemInit()
 {
-    // 352x240 like the original game; the 352-dot clock also runs the CPUs
-    // 6.6% faster. The BIOS handles the SMPC's NMI and resets the VDPs.
-    if (BIOS_SYSCK != 1) {
-        BIOS_CHG_SYSCK(1);
-    }
+    // 352x240; the 352-dot clock also runs the CPUs 6.6% faster. The BIOS
+    // handles the SMPC's NMI and resets the VDPs. Its record of the clock
+    // (BIOS_SYSCK) can be stale: booted from an optical drive emulator's menu
+    // it read 1 on the 320-dot clock, and the TV couldn't hold the picture.
+    BIOS_CHG_SYSCK(1);
 
     vdp2Init();
     vdp1Init();

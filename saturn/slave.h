@@ -22,6 +22,9 @@ void slaveRun(void (*task)());
 // Waits until the slave's task returns.
 void slaveWait();
 
+// The task the slave is running, or nullptr.
+void (*slaveTask())();
+
 // Drops this CPU's cached copies of memory.
 void cachePurge();
 

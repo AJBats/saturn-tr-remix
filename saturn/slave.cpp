@@ -87,6 +87,11 @@ void slaveRun(void (*task)())
     *uncached(&gTask) = task;
 }
 
+void (*slaveTask())()
+{
+    return *uncached(&gTask);
+}
+
 void slaveWait()
 {
     while (*uncached(&gTask)) {

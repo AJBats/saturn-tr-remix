@@ -2,6 +2,7 @@
 
 #include "game.h"
 #include "cd.h"
+#include "crash.h"
 #include "debug.h"
 #include "fmv.h"
 #include "hw.h"
@@ -51,6 +52,7 @@ int main()
 {
     systemInit();
     screenInit();
+    crashInit();
     slaveInit();
     cdInit();
     sndInit();

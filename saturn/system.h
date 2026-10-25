@@ -63,6 +63,9 @@ void vdp1Plot();
 // screen (nullptr cancels). Call with VDP1 idle, so that frame is a new one.
 void vdp1OnNextFrame(void (*fn)());
 
+// The frame sequencing's state, for the crash screen (crash.cpp).
+uint32_t vdp1DebugState();
+
 // Free-running timer at Pphi/128, 16 bits; subtract readings modulo 0x10000.
 uint32_t timerTicks();
 

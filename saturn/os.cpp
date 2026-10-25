@@ -3,6 +3,7 @@
 #include "common.h"
 #include "backup.h"
 #include "cd.h"
+#include "crash.h"
 #include "detail.h"
 #include "fmv.h"
 #include "hw.h"
@@ -179,6 +180,7 @@ const void* osLoadLevel(LevelID id)
 {
     const char* name = (const char*)gLevelInfo[id].data;
 
+    crashHold(true);
     playVideos(id);
     screenShow(loadingPicture(id), id == LVL_TR1_TITLE ? 352 : 320);
 
@@ -202,5 +204,6 @@ const void* osLoadLevel(LevelID id)
     detailItemInit(X_MAX(0, cdLoadFile(path, detailItemData(), detailItemDataMax())));
 
     screenRelease(false);
+    crashHold(false);
     return LEVEL_ADDR;
 }
