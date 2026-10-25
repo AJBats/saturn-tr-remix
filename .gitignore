@@ -7,3 +7,5 @@ __pycache__/
 tools/crash_dumps/
 # Mednafen MCP screenshot scratch file
 mcp_screenshot.png
+# Pinned SH-2 toolchain (tools/setup_toolchain.py)
+toolchain/

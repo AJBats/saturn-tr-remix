@@ -168,6 +168,8 @@
     #define FRAME_HEIGHT 224
 
     #define USE_FMT     (LVL_FMT_PKD)
+
+    #include <stdint.h>
 #else
     #error unsupported platform
 #endif

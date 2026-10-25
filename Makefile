@@ -3,22 +3,42 @@
 # external_resources/ (gitignored) must contain the Tomb Raider (USA) Redump
 # image extracted to external_resources/tomb_raider_usa/.
 #
-#   make disc     build/disc/tomb.cue (our 0MAIN.BIN + the original audio tracks)
+#   make disc     $(BUILD)/disc/tomb.cue (our 0MAIN.BIN + the original audio tracks)
+#   make bench    $(BUILD)/bench/disc/tomb.cue (CPU benchmark, see saturn/bench/)
 #   make ghidra   headless analysis of the original 0MAIN.BIN
+#
+# First run: python tools/setup_toolchain.py (pinned GCC 14.2 into toolchain/).
+# Toolchain, flags and output directory can be overridden, e.g.
+#   make bench SH_BIN=... SH_PREFIX=sh-elf- OPT=-O2 BUILD=build/gcc9-O2
 
 PY      ?= python -I
 GHIDRA  ?= C:/Users/albat/Documents/ghidra_12.0_PUBLIC_20251205/ghidra_12.0_PUBLIC
-SH_BIN  ?= C:/Users/albat/saturndev/saturn-sdk/toolchain/bin
+OPT     ?= -Os
+BUILD   ?= build
 
-# cc1.exe loads its DLLs from the toolchain's bin directory via PATH.
-export PATH := $(SH_BIN);$(PATH)
+# Pinned toolchain: GCC 14.2.0 sh2eb-elf, installed by tools/setup_toolchain.py.
+TOOLCHAIN := toolchain/gcc-14.2.0
+SH_PREFIX ?= sh2eb-elf-
+ifeq ($(OS),Windows_NT)
+SH_BIN  ?= $(TOOLCHAIN)/sh2eb-elf/bin
+PATHSEP := ;
+else
+SH_BIN  ?= $(TOOLCHAIN)/linux/sh2eb-elf/bin
+PATHSEP := :
+endif
 
-CC      := sh-elf-gcc
-CXX     := sh-elf-g++
-OBJCOPY := sh-elf-objcopy
-CFLAGS  := -m2 -mb -O2 -Wall -D__SATURN__ -Isaturn -Iopenlara
-CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit 	-fno-asynchronous-unwind-tables -Wno-class-memaccess
-LDFLAGS := -nostdlib -T saturn/saturn.ld -Wl,-Map=build/0MAIN.map
+# Tools are found through PATH (cc1.exe also loads its DLLs from there).
+export PATH := $(abspath $(SH_BIN))$(PATHSEP)$(PATH)
+
+CC      := $(SH_PREFIX)gcc
+CXX     := $(SH_PREFIX)g++
+OBJCOPY := $(SH_PREFIX)objcopy
+CFLAGS  := -m2 -mb $(OPT) -Wall -D__SATURN__ -Isaturn -Iopenlara
+# -fno-lifetime-dse: OpenLara sets ItemObj fields and then placement-news the
+# subclass over them (ItemObj::init); the constructors read those fields.
+CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
+	-fno-asynchronous-unwind-tables -fno-lifetime-dse -Wno-class-memaccess
+LDFLAGS := -nostdlib -T saturn/saturn.ld -Wl,--no-warn-rwx-segments
 
 ER      := external_resources
 ORIG    := $(ER)/tomb_raider_usa
@@ -28,38 +48,53 @@ DISC    := $(ER)/disc
 MAIN    := $(DISC)/files/0MAIN.BIN
 GH_OUT  := build/ghidra
 
-SAT_SRC := $(wildcard saturn/*.c saturn/*.cpp saturn/*.s) openlara/common.cpp
-SAT_OBJ := $(patsubst %,build/obj/%.o,$(SAT_SRC))
+PLATFORM := $(wildcard saturn/*.c saturn/*.cpp saturn/*.s) openlara/common.cpp
+GAME_OBJ := $(patsubst %,$(BUILD)/obj/%.o,$(PLATFORM))
+BENCH_OBJ := $(patsubst %,$(BUILD)/obj/%.o,$(filter-out saturn/main.cpp,$(PLATFORM)) saturn/bench/bench.cpp)
 HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h)
 
-.PHONY: all disc extract ghidra
+.PHONY: all disc bench extract ghidra check-toolchain
+
+# keep intermediate files (0MAIN.BIN) produced through pattern rules
+.SECONDARY:
 
 all: disc
 
-build/obj/%.c.o: %.c $(HEADERS)
+check-toolchain:
+	@test -d "$(SH_BIN)" || { echo "No SH toolchain at $(SH_BIN): run python tools/setup_toolchain.py"; exit 1; }
+
+$(BUILD)/obj/%.c.o: %.c $(HEADERS) | check-toolchain
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/obj/%.cpp.o: %.cpp $(HEADERS)
+$(BUILD)/obj/%.cpp.o: %.cpp $(HEADERS) | check-toolchain
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-build/obj/%.s.o: %.s
+$(BUILD)/obj/%.s.o: %.s | check-toolchain
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/0MAIN.elf: $(SAT_OBJ) saturn/saturn.ld
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(SAT_OBJ) -lc -lgcc
-
-build/0MAIN.BIN: build/0MAIN.elf
+%/0MAIN.BIN: %/0MAIN.elf
 	$(OBJCOPY) -O binary $< $@
 
-disc: build/disc/tomb.cue
-
-build/disc/tomb.cue: build/0MAIN.BIN $(wildcard disc/*) tools/mkdisc.py $(DISC)/filelist.txt
-	$(PY) tools/mkdisc.py --ip $(DISC)/IP.BIN --cue "$(ORIGCUE)" --out build/disc --name tomb \
-		0MAIN.BIN=build/0MAIN.BIN \
+%/disc/tomb.cue: %/0MAIN.BIN $(wildcard disc/*) tools/mkdisc.py $(DISC)/filelist.txt
+	$(PY) tools/mkdisc.py --ip $(DISC)/IP.BIN --cue "$(ORIGCUE)" --out $*/disc --name tomb \
+		0MAIN.BIN=$*/0MAIN.BIN \
 		ABS.TXT=disc/ABS.TXT BIB.TXT=disc/BIB.TXT CPY.TXT=disc/CPY.TXT
+
+# The game.
+$(BUILD)/0MAIN.elf: $(GAME_OBJ) saturn/saturn.ld
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(BUILD)/0MAIN.map -o $@ $(GAME_OBJ) -lc -lgcc
+
+disc: $(BUILD)/disc/tomb.cue
+
+# CPU benchmark of engine hot paths, for comparing compilers and flags.
+$(BUILD)/bench/0MAIN.elf: $(BENCH_OBJ) saturn/saturn.ld
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(BUILD)/bench/0MAIN.map -o $@ $(BENCH_OBJ) -lc -lgcc
+
+bench: $(BUILD)/bench/disc/tomb.cue
 
 extract: $(DISC)/filelist.txt
 

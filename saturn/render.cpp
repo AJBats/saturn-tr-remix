@@ -65,6 +65,8 @@ static ALIGN16 vdp1_cmd_t gCmds[MAX_CMDS];
 static ALIGN16 uint16 gGouraud[MAX_CMDS][4];
 static int32 gBank;
 
+int32 gRenderFaceCount; // VDP1 polygons emitted by the last flush
+
 static volatile vdp1_cmd_t* const gVdp1Cmds = (volatile vdp1_cmd_t*)VDP1_VRAM;
 
 static void dmaToVram(const void* src, uint32 dst, uint32 size)
@@ -487,6 +489,7 @@ void flush_c()
     }
 
     gCmds[count].ctrl = CMD_END;
+    gRenderFaceCount = count;
 
     dmaToVram(gCmds, VDP1_VRAM + VRAM_CMD_BANK(bank), (count + 1) * sizeof(vdp1_cmd_t));
     dmaToVram(gGouraud, VDP1_VRAM + VRAM_GOURAUD_BANK(bank), count * 8);
