@@ -97,16 +97,16 @@ void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, con
     };
     const int32 tx = m.e03, ty = m.e13, tz = m.e23;
 
-    int32 vg = X_CLAMP((intensity + gLightAmbient) >> 8, 0, 31);
+    int32 vg = X_CLAMP(asr16<8>(intensity + gLightAmbient), 0, 31);
 
     // the light's direction in the mesh's own space, 128 long
     int32 lx = 0, ly = 0, lz = 0;
     if (normals && gLightRange)
     {
         const vec3i &l = gLightView;
-        lx = (m.e00 * l.x + m.e10 * l.y + m.e20 * l.z) >> (FIXED_SHIFT + 7);
-        ly = (m.e01 * l.x + m.e11 * l.y + m.e21 * l.z) >> (FIXED_SHIFT + 7);
-        lz = (m.e02 * l.x + m.e12 * l.y + m.e22 * l.z) >> (FIXED_SHIFT + 7);
+        lx = asr16<FIXED_SHIFT + 7>(m.e00 * l.x + m.e10 * l.y + m.e20 * l.z);
+        ly = asr16<FIXED_SHIFT + 7>(m.e01 * l.x + m.e11 * l.y + m.e21 * l.z);
+        lz = asr16<FIXED_SHIFT + 7>(m.e02 * l.x + m.e12 * l.y + m.e22 * l.z);
     } else {
         normals = NULL;
     }
@@ -146,12 +146,12 @@ void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, con
         {
             int32 d = normals[0] * lx + normals[1] * ly + normals[2] * lz;
             normals += 4;
-            int32 shade = gLightAmbient - ((d * gLightRange) >> 14);
-            res->g = X_CLAMP(shade >> 8, 0, 31);
+            int32 shade = gLightAmbient - asr16<14>(d * gLightRange);
+            res->g = X_CLAMP(asr16<8>(shade), 0, 31);
         }
         else if (shades)
         {
-            res->g = X_CLAMP((gLightAmbient + (*shades++ << 5)) >> 8, 0, 31);
+            res->g = X_CLAMP(asr16<8>(gLightAmbient + (*shades++ << 5)), 0, 31);
         }
         else
         {
@@ -690,6 +690,7 @@ void flush_c()
     vdp1WaitIdle();
     gStats.waitTicks = (timerTicks() - waitStart) & 0xFFFF;
 
+    uint32 dmaStart = timerTicks();
     detailFlush();
     if (gItemTextures && !gInventoryFrame)
     {
@@ -703,6 +704,7 @@ void flush_c()
     dmaCopy(gGouraud, VDP1_VRAM + VRAM_GOURAUD_BASE, count * sizeof(gGouraud[0]));
     dmaWait();
     vdp1Plot();
+    gStats.dmaTicks = (timerTicks() - dmaStart) & 0xFFFF;
 
     gStats.flushTicks = ((timerTicks() - start) & 0xFFFF) - gStats.waitTicks - gStats.slaveWaitTicks;
 }

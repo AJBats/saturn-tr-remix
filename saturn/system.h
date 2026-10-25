@@ -38,6 +38,7 @@ struct FrameStats
     uint32_t slaveXformTicks; // slave: room vertex transform
     uint32_t slaveFaceTicks;  // slave: room face setup
     uint32_t slaveIdleTicks;  // slave: waiting for rooms to be queued
+    uint32_t dmaTicks;      // flush: texture uploads and command DMA
 };
 
 extern FrameStats gStats;
