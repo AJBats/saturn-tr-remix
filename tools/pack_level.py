@@ -445,8 +445,14 @@ class Packer:
         if len(mesh.vertices) > 255:
             raise ValueError(f"mesh {index}: {len(mesh.vertices)} vertices")
         lighting = MESH_LIGHT_NORMALS if mesh.normals else MESH_LIGHT_SHADES if mesh.intensities else 0
+        # the radius is for collision, and often leaves vertices out
+        cx, cy, cz = mesh.center
+        bound = math.ceil(max((math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2)
+                               for x, y, z in mesh.vertices), default=0))
+        if bound > 0x7FFF:
+            raise ValueError(f"mesh {index}: bounding radius {bound}")
         out.pack("4hH2B4h", *mesh.center, mesh.radius, intensity, len(mesh.vertices), lighting,
-                 len(quads), len(tris), 0, 0)
+                 len(quads), len(tris), bound, 0)
         for v in mesh.vertices:
             out.pack("3h", *v)
         if mesh.normals:

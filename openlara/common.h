@@ -1011,13 +1011,17 @@ enum MeshLighting {
 
 struct Mesh {
     vec3s center;
-    int16 radius;
+    int16 radius;   // for collision: not every vertex lies within it
     uint16 intensity;
     uint8 vCount;
     uint8 hasNormals; // MeshLighting
     int16 rCount;
     int16 tCount;
+#ifdef __SATURN__
+    int16 bound;    // radius about the centre that every vertex lies within
+#else
     int16 crCount;
+#endif
     int16 ctCount;
     // data...
 };

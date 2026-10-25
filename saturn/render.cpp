@@ -1029,7 +1029,7 @@ void renderMesh(const Mesh* mesh)
     MeshTriangle* triangles = (MeshTriangle*)ptr;
 
     uint32 start = timerTicks();
-    transformMesh(vertices, vCount, mesh->intensity, normals, shades, &mesh->center, mesh->radius);
+    transformMesh(vertices, vCount, mesh->intensity, normals, shades, &mesh->center, mesh->bound);
 
     if (mesh->rCount > 0) {
         faceAddMeshQuads(quads, mesh->rCount);
