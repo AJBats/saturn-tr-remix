@@ -26,7 +26,8 @@ usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD>
        sound samples)
 
 For testing, LARA_START=<room> in the environment starts Lara in that room,
-on the walkable floor nearest its centre.
+on the walkable floor nearest its centre; LARA_START=<room>:<x>:<z> on that
+sector.
 """
 import math
 import os
@@ -543,11 +544,13 @@ def s32(v):
     return v - 0x100000000 if v >= 0x80000000 else v
 
 
-def move_lara(lvl, room_index):
+def move_lara(lvl, room_index, sector=None):
     room = lvl.rooms[room_index]
     best = None
     for sx in range(1, room.x_sectors - 1):
         for sz in range(1, room.z_sectors - 1):
+            if sector and (sx, sz) != sector:
+                continue
             _, box, below, floor, _, _ = room.sectors[sx * room.z_sectors + sz]
             if box == 0xFFFF or below != 0xFF or floor == -127:
                 continue
@@ -565,7 +568,8 @@ def main():
     data_dir, name, out_path = sys.argv[1:4]
     lvl = trsat.load(data_dir, name)
     if os.environ.get("LARA_START"):
-        move_lara(lvl, int(os.environ["LARA_START"]))
+        start = [int(v) for v in os.environ["LARA_START"].split(":")]
+        move_lara(lvl, start[0], tuple(start[1:]) if len(start) == 3 else None)
     packer = Packer(lvl)
     data = packer.pack()
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
