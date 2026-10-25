@@ -2129,6 +2129,18 @@ struct Gunman : Enemy
             animSet(level.models[type].animIndex + anim, true);
         }
     }
+
+    // some leave what they carried where they fall (TR1's SpawnItem)
+    void drop(ItemType type)
+    {
+        if (!level.models[type].count)
+            return;
+
+        ItemObj* item = ItemObj::add(type, room, pos, angle.y);
+        if (item) {
+            item->flags &= ~ITEM_FLAG_STATUS;
+        }
+    }
 };
 
 
@@ -2286,6 +2298,9 @@ struct Pierre : Larson
             turnSpeed++;
         }
         deathAnim(ANIM_DEATH);
+        if (health <= 0) {
+            drop(ITEM_SCION_PICKUP_DROP);
+        }
     }
 
     virtual int32 updateState()
@@ -2353,6 +2368,9 @@ struct Skater : Gunman
     {
         Enemy::hit(damage, point, SND_HIT_SKATER);
         deathAnim(ANIM_DEATH);
+        if (health <= 0) {
+            drop(ITEM_UZIS);
+        }
     }
 
     virtual int32 updateState()
@@ -2463,6 +2481,9 @@ struct Cowboy : Gunman
     {
         Enemy::hit(damage, point, soundId);
         deathAnim(ANIM_DEATH);
+        if (health <= 0) {
+            drop(ITEM_MAGNUMS);
+        }
     }
 
     virtual int32 updateState()
@@ -2570,6 +2591,9 @@ struct MrT : Gunman
     {
         Enemy::hit(damage, point, soundId);
         deathAnim(ANIM_DEATH);
+        if (health <= 0) {
+            drop(ITEM_SHOTGUN);
+        }
     }
 
     virtual int32 updateState()
