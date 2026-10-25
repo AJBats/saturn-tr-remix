@@ -141,9 +141,9 @@ bool transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, con
 
     if (center)
     {
-        int32 cx = (m.e00 * center->x + m.e01 * center->y + m.e02 * center->z + m.e03) >> FIXED_SHIFT;
-        int32 cy = (m.e10 * center->x + m.e11 * center->y + m.e12 * center->z + m.e13) >> FIXED_SHIFT;
-        int32 cz = (m.e20 * center->x + m.e21 * center->y + m.e22 * center->z + m.e23) >> FIXED_SHIFT;
+        int32 cx = sar<FIXED_SHIFT>(m.e00 * center->x + m.e01 * center->y + m.e02 * center->z + m.e03);
+        int32 cy = sar<FIXED_SHIFT>(m.e10 * center->x + m.e11 * center->y + m.e12 * center->z + m.e13);
+        int32 cz = sar<FIXED_SHIFT>(m.e20 * center->x + m.e21 * center->y + m.e22 * center->z + m.e23);
         int32 zNear = cz - radius;
         // a screen coordinate is about 256 * view / z from the centre; a few
         // pixels' margin covers the divide table's rounding
@@ -155,9 +155,9 @@ bool transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, con
     if (normals && gLightRange)
     {
         const vec3i &l = gLightView;
-        xf.lx = (m.e00 * l.x + m.e10 * l.y + m.e20 * l.z) >> (FIXED_SHIFT + 7);
-        xf.ly = (m.e01 * l.x + m.e11 * l.y + m.e21 * l.z) >> (FIXED_SHIFT + 7);
-        xf.lz = (m.e02 * l.x + m.e12 * l.y + m.e22 * l.z) >> (FIXED_SHIFT + 7);
+        xf.lx = sar<FIXED_SHIFT + 7>(m.e00 * l.x + m.e10 * l.y + m.e20 * l.z);
+        xf.ly = sar<FIXED_SHIFT + 7>(m.e01 * l.x + m.e11 * l.y + m.e21 * l.z);
+        xf.lz = sar<FIXED_SHIFT + 7>(m.e02 * l.x + m.e12 * l.y + m.e22 * l.z);
         xf.normals = normals;
         xf.shades = NULL;
     }
@@ -296,16 +296,16 @@ int32 sphereIsVisible_c(int32 sx, int32 sy, int32 sz, int32 r)
     int32 x = DP33(m.e00, m.e01, m.e02, sx, sy, sz);
     int32 y = DP33(m.e10, m.e11, m.e12, sx, sy, sz);
 
-    x >>= FIXED_SHIFT;
-    y >>= FIXED_SHIFT;
-    z >>= FIXED_SHIFT;
+    x = sar<FIXED_SHIFT>(x);
+    y = sar<FIXED_SHIFT>(y);
+    z = sar<FIXED_SHIFT>(z);
 
     z = PERSPECTIVE_DZ(z);
     if (z >= DIV_TABLE_SIZE) z = DIV_TABLE_SIZE - 1;
     int32 d = FixedInvU(z);
-    x = (x * d) >> 12;
-    y = (y * d) >> 12;
-    r = (r * d) >> 12;
+    x = sar<12>(x * d);
+    y = sar<12>(y * d);
+    r = sar<12>(r * d);
 
     x += (FRAME_WIDTH  / 2);
     y += (FRAME_HEIGHT / 2);

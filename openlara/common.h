@@ -329,6 +329,21 @@ X_INLINE int32 abs(int32 x) {
 }
 #endif
 
+// v >> N, arithmetic. The SH-2 shifts by 1, 2, 8 and 16 bits, and GCC has it
+// call a library routine for most arithmetic shifts by a constant; shifting
+// the value biased to unsigned takes a few instructions and gives the same.
+#if defined(__SATURN__)
+template <int N>
+X_INLINE int32 sar(int32 v) {
+    return int32((uint32(v) ^ 0x80000000u) >> N) - (1 << (31 - N));
+}
+#else
+template <int N>
+X_INLINE int32 sar(int32 v) {
+    return v >> N;
+}
+#endif
+
 #if defined(__GBA__) || defined(__NDS__) || defined(__32X__) || defined(__SATURN__)
     #define int2str(x,str) itoa(x, str, 10)
 #elif defined(__3DO__)
@@ -527,8 +542,8 @@ X_INLINE void X_SWAP(T &a, T &b)
 #define X_SQR(x)         ((x) * (x))
 #define X_COUNT(x)       int32(sizeof(x) / sizeof(x[0]))
 
-#define X_ROTX(x,y,s,c)  (((x) * (c) - (y) * (s)) >> FIXED_SHIFT)
-#define X_ROTY(x,y,s,c)  (((y) * (c) + (x) * (s)) >> FIXED_SHIFT)
+#define X_ROTX(x,y,s,c)  sar<FIXED_SHIFT>((x) * (c) - (y) * (s))
+#define X_ROTY(x,y,s,c)  sar<FIXED_SHIFT>((y) * (c) + (x) * (s))
 #define X_ROTXY(x,y,s,c) {\
     int32 _x = X_ROTX(x,y,s,c);\
     int32 _y = X_ROTY(x,y,s,c);\
