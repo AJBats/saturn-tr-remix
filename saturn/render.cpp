@@ -474,7 +474,7 @@ X_INLINE int32 offFrame(const Vertex* v)
 {
     int32 x = v->x;
     int32 y = v->y;
-    return X_MAX(0, -x) + X_MAX(0, x - (FRAME_WIDTH - 1)) + X_MAX(0, -y) + X_MAX(0, y - (FRAME_HEIGHT - 1));
+    return X_MAX(0, -x) + X_MAX(0, x - FRAME_WIDTH) + X_MAX(0, -y) + X_MAX(0, y - FRAME_HEIGHT);
 }
 
 // The command words that depend on the face's colour or texture.
@@ -653,38 +653,77 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
     }
 }
 
-void flush_c()
+static void faceSlow(const Face* face, uint32* w, uint32* grd, int32 room)
 {
-    uint32 start = timerTicks();
+    faceCommand(face, w, grd, room, false);
+}
 
-    RoomStats rooms = {};
-    Face** roomOT = roomsFinish(rooms);
-    gStats.slaveWaitTicks = (timerTicks() - start) & 0xFFFF;
+// What flush.s needs to build the commands of a frame's faces.
+struct FlushXform
+{
+    Face** roomOT;
+    Face** meshOT;
+    int32 buckets;
+    const Vertex* vertices;
+    uint32* cmd;            // the next command; returned
+    uint32* cmdEnd;         // the last, kept for the end
+    uint32* grd;            // the next gouraud table; returned
+    uint32 grdLink;         // the next command's w[7]; returned
+    const Texture* textures;
+    const uint16* palette;
+    const uint16* shadeGouraud;
+    const uint8* shadeLevel;
+    const uint8* halfLevel;
+    int32 half;
+    uint32 detailVram;
+    void (*slow)(const Face* face, uint32* w, uint32* grd, int32 room);
+};
 
-    gStats.vertices = (gVerticesBase - gVertices) + rooms.vertices;
-    gStats.roomVertices = rooms.vertices;
-    gStats.detailFaces = rooms.detailFaces;
-    gStats.detailMisses = rooms.detailMisses;
-    gStats.nearNoDetail = rooms.nearNoDetail;
-    gStats.nearTriangles = rooms.nearTriangles;
-    gStats.flatFaces = rooms.flatFaces + gMeshFlatFaces;
-    gMeshFlatFaces = 0;
-    gStats.slaveXformTicks = rooms.xformTicks;
-    gStats.slaveFaceTicks = rooms.faceTicks;
-    gStats.slaveIdleTicks = rooms.idleTicks;
-    gStats.roomTicks = gRoomTicks;
-    gStats.meshTicks = gMeshTicks;
-    gRoomTicks = gMeshTicks = 0;
+static_assert(offsetof(FlushXform, vertices) == 12 && offsetof(FlushXform, grdLink) == 28 &&
+              offsetof(FlushXform, textures) == 32 && offsetof(FlushXform, half) == 52 &&
+              offsetof(FlushXform, slow) == 60, "FlushXform layout is shared with flush.s");
+static_assert(sizeof(Face) == 16 && offsetof(Face, next) == 4 && offsetof(Face, indices) == 8 &&
+              sizeof(Texture) == 12 && offsetof(Texture, attr) == 6 && offsetof(Texture, color) == 8 &&
+              sizeof(Command) == 32 && sizeof(gGouraud[0]) == 8, "layouts read by flush.s");
+static_assert(FACE_WATER == (1 << 30) && FACE_DETAIL == (1 << 29) && FACE_PARALLELOGRAM == (1 << 28) &&
+              FACE_DETAIL_WHOLE == (1 << 27) && FACE_V0_AT_D == (1 << 27) && FACE_DETAIL_SLOT_SHIFT == 20 &&
+              FACE_DETAIL_QUAD_SHIFT == 18 && FACE_TYPE_SHIFT == 14 && FACE_TEXTURE == 0x3FFF &&
+              FACE_TYPE_F == 1 && FACE_TYPE_FT == 2 && FACE_TYPE_GTA == 5 && FACE_TYPE_AVG == 10 &&
+              TEX_ATTR_AKILL == 1 && TEX_ATTR_DIR == 0x30 && CMD_FLIP_H == 0x10 && DETAIL_SLOT_SIZE == 2048 &&
+              FRAME_WIDTH == 352 && FRAME_HEIGHT == 240 && VDP1_COORD_MAX == 1023 && VDP1_COORD_MIN == -1024,
+              "constants repeated in flush.s");
 
-    gVerticesBase = gVertices;
+extern "C" void flushAsm(FlushXform* xf);
 
-    if (gFaceList.next == gFaces && !roomOT)
-        return;
-
-    gFaceList.next = gFaces;
-
+// The commands of the faces in both ordering tables, far to near, emptying
+// them, from gCmds[count] on. Returns the next free command. flush.s builds
+// them but behind the inventory or in the texel views.
+static int32 flushFaces(Face** roomOT, int32 count)
+{
     uint32 grdBase = VRAM_GOURAUD_BASE >> 3;
-    int32 count = 1; // gCmds[0] clears the frame (renderInit)
+
+    if (roomOT && !gInventoryFrame && !gTexelView)
+    {
+        FlushXform xf;
+        xf.roomOT = roomOT;
+        xf.meshOT = gOT;
+        xf.buckets = OT_SIZE;
+        xf.vertices = gVertices;
+        xf.cmd = gCmds[count].w;
+        xf.cmdEnd = gCmds[MAX_CMDS - 1].w;
+        xf.grd = gGouraud[count];
+        xf.grdLink = pair(grdBase + count, 0);
+        xf.textures = level.textures;
+        xf.palette = level.palette;
+        xf.shadeGouraud = gShadeGouraud;
+        xf.shadeLevel = gShadeLevel;
+        xf.halfLevel = gHalfLevel;
+        xf.half = gShadeHalf;
+        xf.detailVram = gDetailVramStart;
+        xf.slow = faceSlow;
+        flushAsm(&xf);
+        return (xf.cmd - gCmds[0].w) / 8;
+    }
 
     // far to near; in each bucket rooms (the slave's) before what stands in them
     for (int32 i = OT_SIZE - 1; i >= 0; i--)
@@ -716,6 +755,41 @@ void flush_c()
             }
         }
     }
+
+    return count;
+}
+
+void flush_c()
+{
+    uint32 start = timerTicks();
+
+    RoomStats rooms = {};
+    Face** roomOT = roomsFinish(rooms);
+    gStats.slaveWaitTicks = (timerTicks() - start) & 0xFFFF;
+
+    gStats.vertices = (gVerticesBase - gVertices) + rooms.vertices;
+    gStats.roomVertices = rooms.vertices;
+    gStats.detailFaces = rooms.detailFaces;
+    gStats.detailMisses = rooms.detailMisses;
+    gStats.nearNoDetail = rooms.nearNoDetail;
+    gStats.nearTriangles = rooms.nearTriangles;
+    gStats.flatFaces = rooms.flatFaces + gMeshFlatFaces;
+    gMeshFlatFaces = 0;
+    gStats.slaveXformTicks = rooms.xformTicks;
+    gStats.slaveFaceTicks = rooms.faceTicks;
+    gStats.slaveIdleTicks = rooms.idleTicks;
+    gStats.roomTicks = gRoomTicks;
+    gStats.meshTicks = gMeshTicks;
+    gRoomTicks = gMeshTicks = 0;
+
+    gVerticesBase = gVertices;
+
+    if (gFaceList.next == gFaces && !roomOT)
+        return;
+
+    gFaceList.next = gFaces;
+
+    int32 count = flushFaces(roomOT, 1); // gCmds[0] clears the frame (renderInit)
 
     gCmds[count].w[0] = CMD_END << 16;
     gRenderFaceCount = count;

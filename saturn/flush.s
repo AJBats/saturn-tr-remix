@@ -1,0 +1,567 @@
+! Flush's command building for the master CPU (render.cpp flush_c): walks the
+! two ordering tables far to near, emptying them, and builds each face's VDP1
+! command and gouraud table as faceCommand does. Faces of the common kinds
+! (coloured, mean-coloured and textured, out of water) are built here; the
+! rest go to the C function.
+!
+! void flushAsm(FlushXform* xf)
+!
+! FlushXform (render.cpp):
+!   +0  Face** roomOT           the slave's ordering table
+!   +4  Face** meshOT           the master's
+!   +8  int32 buckets           OT_SIZE
+!   +12 const Vertex* vertices  gVertices
+!   +16 uint32* cmd             the next command; returned
+!   +20 uint32* cmdEnd          the last command slot, kept for the end
+!   +24 uint32* grd             the next gouraud table; returned
+!   +28 uint32 grdLink          the next command's last word, its gouraud
+!                               table's address / 8 << 16; returned
+!   +32 const Texture* textures
+!   +36 const uint16* palette
+!   +40 const uint16* shadeGouraud
+!   +44 const uint8* shadeLevel
+!   +48 const uint8* halfLevel
+!   +52 int32 half              gShadeHalf
+!   +56 uint32 detailVram       gDetailVramStart
+!   +60 void (*slow)(const Face* face, uint32* w, uint32* grd, int32 room)
+!
+! Face: uint32 flags; Face* next; int16 indices[4].
+! Vertex: int16 x, y; int16 z; uint8 g, clip.
+! Texture: uint16 srca, colr, size, attr, color, reserved (4-byte aligned).
+
+    .equ    FACE_WATER_BIT,     30
+    .equ    CLIP_FRAME,         1
+
+    .text
+    .align 2
+    .global _flushAsm
+
+! acc (r14) op= how far vertex v lies off the frame (offFrame); r0, r1, r3
+    .macro  OFF v, op, inv
+    mov.l   @\v, r3
+    mov     r3, r1
+    shlr16  r1
+    exts.w  r1, r1              ! x
+    cmp/pz  r1
+    bt      1f
+    bra     2f
+    \inv    r1, r14             ! left of the frame by -x
+1:  mov     #88, r0
+    shll2   r0                  ! FRAME_WIDTH
+    cmp/gt  r0, r1
+    bf      2f
+    sub     r0, r1
+    \op     r1, r14             ! right of it
+2:  exts.w  r3, r1              ! y
+    cmp/pz  r1
+    bt      3f
+    bra     4f
+    \inv    r1, r14
+3:  mov     #60, r0
+    shll2   r0                  ! FRAME_HEIGHT
+    cmp/gt  r0, r1
+    bf      4f
+    sub     r0, r1
+    \op     r1, r14
+4:
+    .endm
+
+! r within VDP1_COORD_MIN .. VDP1_COORD_MAX; r0
+    .macro  CLAMP r
+    mov     #4, r0
+    shll8   r0
+    add     #-1, r0             ! 1023
+    cmp/gt  r0, \r
+    bf      1f
+    mov     r0, \r
+1:  not     r0, r0              ! -1024
+    cmp/ge  r0, \r
+    bt      2f
+    mov     r0, \r
+2:
+    .endm
+
+! vertex index 'disp' of the face (r9) to a vertex pointer in r; r0
+    .macro  VERTEX disp, r
+    mov.w   @(\disp, r9), r0
+    shll2   r0
+    shll    r0
+    mov     r0, \r
+    add     r12, \r
+    .endm
+
+! level L (doubled) to the gouraud colour that keeps it at half luminance:
+! r1, r2, r14 point into halfLevel by the texture's mean red, green, blue; r0, r3
+    .macro  HALF L
+    mov     \L, r0
+    mov.b   @(r0, r14), r3      ! blue
+    mov.b   @(r0, r2), \L       ! green
+    shll2   r3
+    shll2   r3
+    shll    r3
+    or      \L, r3
+    mov.b   @(r0, r1), \L       ! red
+    shll2   r3
+    shll2   r3
+    shll    r3
+    or      r3, \L
+    .endm
+
+! the gouraud colour of shade g (r) in place; r1 = shadeGouraud, r0
+    .macro  SHADE r
+    add     \r, \r
+    mov     \r, r0
+    mov.w   @(r0, r1), \r
+    .endm
+
+_flushAsm:
+    mov.l   r8, @-r15
+    mov.l   r9, @-r15
+    mov.l   r10, @-r15
+    mov.l   r11, @-r15
+    mov.l   r12, @-r15
+    mov.l   r13, @-r15
+    mov.l   r14, @-r15
+    sts.l   pr, @-r15
+    add     #-12, r15           ! the bucket's meshes, its offset, room or not
+
+    mov     r4, r8
+    mov.l   @(12, r8), r12      ! vertices
+    mov.l   @(16, r8), r10      ! cmd
+    mov.l   @(24, r8), r11      ! grd
+    mov.l   @(28, r8), r13      ! grdLink
+    mov.l   @(8, r8), r14
+    add     #-1, r14
+    shll2   r14                 ! the last bucket's offset
+    mov.l   @(0, r8), r4
+    mov.l   @(4, r8), r5
+
+    ! far to near, skipping buckets empty in both tables
+.Lscan:
+    mov     r14, r0
+    mov.l   @(r0, r4), r1
+    mov.l   @(r0, r5), r2
+    mov     r1, r3
+    or      r2, r3
+    tst     r3, r3
+    bf      .Lbucket
+.Lnext:
+    add     #-4, r14
+    cmp/pz  r14
+    bt      .Lscan
+    bra     .Lend
+    nop
+
+.Lbucket:
+    mov     #0, r3
+    mov.l   r3, @(r0, r4)       ! empty for the next frame
+    mov.l   r3, @(r0, r5)
+    mov.l   r2, @r15
+    mov.l   r14, @(4, r15)
+    mov     #1, r0
+    mov.l   r0, @(8, r15)       ! rooms first
+    mov     r1, r9
+
+.Llist:
+    tst     r9, r9
+    bt      .LlistDone
+.Lface:
+    mov.l   @(20, r8), r0
+    cmp/eq  r0, r10
+    bt      .LlistDone          ! out of commands
+    bra     .Lemit
+    nop
+.Lfaced:
+    add     #32, r10
+    add     #8, r11
+    mov     #1, r0
+    shll16  r0
+    add     r0, r13
+    mov.l   @(4, r9), r9        ! next
+    tst     r9, r9
+    bf      .Lface
+.LlistDone:
+    mov.l   @(8, r15), r0
+    tst     r0, r0
+    bt      .LbucketDone
+    mov     #0, r0
+    mov.l   r0, @(8, r15)       ! then the meshes
+    bra     .Llist
+    mov.l   @r15, r9
+.LbucketDone:
+    mov.l   @(4, r15), r14
+    mov.l   @(0, r8), r4
+    bra     .Lnext
+    mov.l   @(4, r8), r5
+
+.Lend:
+    mov.l   r10, @(16, r8)
+    mov.l   r11, @(24, r8)
+    mov.l   r13, @(28, r8)
+    add     #12, r15
+    lds.l   @r15+, pr
+    mov.l   @r15+, r14
+    mov.l   @r15+, r13
+    mov.l   @r15+, r12
+    mov.l   @r15+, r11
+    mov.l   @r15+, r10
+    mov.l   @r15+, r9
+    rts
+    mov.l   @r15+, r8
+
+    ! anything else: faceCommand
+.Lslow:
+    mov     r9, r4
+    mov     r10, r5
+    mov     r11, r6
+    mov.l   @(8, r15), r7
+    mov.l   @(60, r8), r0
+    jsr     @r0
+    nop
+    bra     .Lfaced
+    nop
+
+    ! one face (r9) to the command at r10 and the gouraud table at r11
+    .align 2
+.Lemit:
+    mov.l   r13, @(28, r10)     ! w[7]
+    mov.l   @r9, r1             ! flags
+    mov     r1, r0
+    shll    r0
+    cmp/pz  r0
+    bf      .Lslow              ! underwater
+    mov     r1, r0
+    shlr8   r0
+    shlr2   r0
+    shlr2   r0
+    shlr2   r0
+    and     #15, r0             ! type
+    mov     r0, r7
+    mov.w   .LtexMask, r0
+    and     r1, r0
+    mov     r0, r2              ! its texture, or colour for FACE_TYPE_F
+    mov     r7, r0
+    cmp/eq  #1, r0
+    bt      .Lpalette
+
+    mov     r2, r0
+    add     r0, r0
+    add     r2, r0
+    shll2   r0
+    mov.l   @(32, r8), r2
+    add     r0, r2              ! tex
+    mov     r7, r0
+    cmp/eq  #10, r0
+    bt      .LtexColour         ! FACE_TYPE_AVG
+    add     #-2, r0
+    mov     #3, r7
+    cmp/hi  r7, r0
+    bt      .Lslow              ! not FT, FTA, GT or GTA
+
+    mov.l   @r2, r3             ! srca << 16 | colr
+    mov     r3, r4
+    shlr16  r4                  ! srca
+    tst     r4, r4
+    bt      .LtexColour         ! no character: drawn in its colour
+
+    mov.l   @(4, r2), r6        ! size << 16 | attr
+    mov     r6, r0
+    tst     #1, r0              ! TEX_ATTR_AKILL
+    mov     #0x0C, r0           ! PMOD_LUT16 | PMOD_GOURAUD
+    bf      1f
+    or      #0x40, r0           ! colour 0 is opaque
+1:  mov.l   .LfacePara, r7
+    tst     r7, r1
+    bf      2f
+    or      #0x80, r0           ! end codes trim only parallelograms
+2:  shll16  r0
+    extu.w  r3, r3
+    or      r0, r3              ! w[1]
+    mov.l   r3, @(4, r10)
+    mov.w   .LdirMask, r0
+    and     r6, r0
+    or      #2, r0              ! CMD_DISTORTED_SPRITE
+    shll16  r0
+    mov.l   r0, @r10            ! w[0]
+
+    mov     r6, r5
+    shlr16  r5                  ! size
+    mov.l   .LfaceDetail, r0
+    tst     r0, r1
+    bt      .Lw2
+
+    ! a cached full-res texture: its slot
+    mov     r1, r0
+    shlr16  r0
+    shlr2   r0
+    shlr2   r0
+    and     #0x7F, r0           ! FACE_DETAIL_SLOT
+    shll8   r0
+    shll2   r0
+    shll    r0                  ! * DETAIL_SLOT_SIZE
+    mov.l   @(56, r8), r4
+    add     r0, r4
+    mov.l   .LfaceBit27, r0
+    tst     r0, r1
+    bt      .Lquadrant
+    bra     .LdetailSrca
+    shll    r5                  ! whole: twice the width and height
+.Lquadrant:
+    mov     r1, r0
+    shlr16  r0
+    shlr2   r0
+    and     #3, r0              ! FACE_DETAIL_QUAD
+    mov     r5, r7
+    shlr8   r7
+    extu.b  r5, r6
+    mulu.w  r7, r6
+    sts     macl, r6
+    shll2   r6                  ! a quadrant's bytes
+    mulu.w  r0, r6
+    sts     macl, r0
+    add     r0, r4
+.LdetailSrca:
+    shlr2   r4
+    shlr    r4
+.Lw2:
+    shll16  r4
+    or      r5, r4
+    bra     .Lgeometry
+    mov.l   r4, @(8, r10)       ! w[2]
+
+    .align 2
+.LfaceDetail:   .long   0x20000000  ! FACE_DETAIL
+.LfacePara:     .long   0x10000000  ! FACE_PARALLELOGRAM
+.LfaceBit27:    .long   0x08000000  ! FACE_DETAIL_WHOLE
+.LtexMask:      .short  0x3FFF      ! FACE_TEXTURE
+.LdirMask:      .short  0x0030      ! TEX_ATTR_DIR
+
+.Lpalette:
+    mov     r2, r0
+    add     r0, r0
+    mov.l   @(36, r8), r3
+    mov.w   @(r0, r3), r0
+    extu.w  r0, r0
+    bra     .Lpolygon
+    mov     #0, r2              ! no half luminance
+
+.LtexColour:
+    mov.l   @(8, r2), r0
+    shlr16  r0                  ! colour
+.Lpolygon:
+    mov     #4, r3
+    shll16  r3
+    mov.l   r3, @r10            ! w[0]: CMD_POLYGON
+    mov.l   .LpolyW1, r3
+    or      r0, r3
+    mov.l   r3, @(4, r10)       ! w[1]
+
+    ! r1 flags, r2 the texture for half luminance or 0; the corners to
+    ! r4 .. r7 for their shades
+.Lgeometry:
+    VERTEX  8, r4
+    VERTEX  10, r5
+    VERTEX  12, r6
+    mov.l   .LfacePara2, r0
+    tst     r0, r1
+    bt      .Lquad
+    bra     .Lparallelogram
+    nop
+.Lquad:
+    VERTEX  14, r7
+
+    mov.b   @(7, r4), r0
+    mov     r0, r14
+    mov.b   @(7, r5), r0
+    or      r0, r14
+    mov.b   @(7, r6), r0
+    or      r0, r14
+    mov.b   @(7, r7), r0
+    or      r14, r0
+    tst     #CLIP_FRAME, r0
+    bt      .LquadCorners
+
+    ! further off the frame on the AD side: B A D C, mirrored
+    mov     #0, r14
+    OFF     r4, add, sub
+    OFF     r7, add, sub
+    OFF     r5, sub, add
+    OFF     r6, sub, add
+    cmp/pl  r14
+    bf      .LquadCorners
+    mov     r4, r0
+    mov     r5, r4
+    mov     r0, r5
+    mov     r6, r0
+    mov     r7, r6
+    mov     r0, r7
+    mov.l   @r10, r0
+    mov.l   .LflipH, r1
+    xor     r1, r0
+    mov.l   r0, @r10
+.LquadCorners:
+    mov.l   @r4, r0
+    mov.l   r0, @(12, r10)
+    mov.l   @r5, r0
+    mov.l   r0, @(16, r10)
+    mov.l   @r6, r0
+    mov.l   r0, @(20, r10)
+    mov.l   @r7, r0
+    bra     .Lgouraud
+    mov.l   r0, @(24, r10)
+
+    ! v0, v1, v2; the fourth corner is v1 + v2 - v0
+.Lparallelogram:
+    mov.w   @r5, r3
+    mov.w   @r6, r0
+    add     r0, r3
+    mov.w   @r4, r0
+    sub     r0, r3
+    CLAMP   r3
+    mov.l   @r5, r0
+    exts.w  r0, r1
+    mov.l   @r6, r0
+    exts.w  r0, r0
+    add     r0, r1
+    mov.l   @r4, r0
+    exts.w  r0, r0
+    sub     r0, r1
+    CLAMP   r1
+    shll16  r3
+    extu.w  r1, r1
+    or      r1, r3              ! the fourth corner
+    mov.l   @r9, r1
+    mov.l   .LfaceV0AtD, r0
+    tst     r0, r1
+    bt      .LparaA
+    ! v0 at D: v1, p, v2, v0
+    mov.l   @r5, r0
+    mov.l   r0, @(12, r10)
+    mov.l   r3, @(16, r10)
+    mov.l   @r6, r0
+    mov.l   r0, @(20, r10)
+    mov.l   @r4, r0
+    mov.l   r0, @(24, r10)
+    mov     r4, r7
+    bra     .Lgouraud
+    mov     r5, r4
+    ! v0 at A: v0, v1, p, v2
+.LparaA:
+    mov.l   @r4, r0
+    mov.l   r0, @(12, r10)
+    mov.l   @r5, r0
+    mov.l   r0, @(16, r10)
+    mov.l   r3, @(20, r10)
+    mov.l   @r6, r0
+    mov.l   r0, @(24, r10)
+    mov     r6, r7
+
+    ! the corners' shades
+.Lgouraud:
+    mov.b   @(6, r4), r0
+    extu.b  r0, r4
+    mov.b   @(6, r5), r0
+    extu.b  r0, r5
+    mov.b   @(6, r6), r0
+    extu.b  r0, r6
+    mov.b   @(6, r7), r0
+    extu.b  r0, r7
+    tst     r2, r2
+    bt      .Lplain
+    mov.l   @(52, r8), r0
+    tst     r0, r0
+    bt      .Lplain
+
+    ! half luminance when darkened by a third of the texture's mean luma
+    mov.l   @(44, r8), r1       ! shadeLevel
+    mov     r4, r0
+    mov.b   @(r0, r1), r3
+    mov     r5, r0
+    mov.b   @(r0, r1), r0
+    add     r0, r3
+    mov     r6, r0
+    mov.b   @(r0, r1), r0
+    add     r0, r3
+    mov     r7, r0
+    mov.b   @(r0, r1), r0
+    add     r0, r3
+    mov     #64, r0
+    sub     r3, r0
+    mov     r0, r3
+    shll2   r0
+    shll    r0
+    add     r0, r3              ! (64 - levels) * 9
+    mov.l   @(4, r2), r0
+    extu.w  r0, r0
+    shlr8   r0
+    shll2   r0                  ! mean luma * 4
+    cmp/gt  r3, r0
+    bt      .Lplain
+
+    mov     r4, r0
+    mov.b   @(r0, r1), r4
+    mov     r5, r0
+    mov.b   @(r0, r1), r5
+    mov     r6, r0
+    mov.b   @(r0, r1), r6
+    mov     r7, r0
+    mov.b   @(r0, r1), r7
+    add     r4, r4
+    add     r5, r5
+    add     r6, r6
+    add     r7, r7
+    mov.l   @(8, r2), r3
+    shlr16  r3                  ! the texture's mean colour
+    mov.l   @(48, r8), r14      ! halfLevel
+    mov     r3, r0
+    and     #31, r0
+    mov     r14, r1
+    add     r0, r1
+    mov     r3, r0
+    shlr2   r0
+    shlr2   r0
+    shlr    r0
+    and     #31, r0
+    mov     r14, r2
+    add     r0, r2
+    mov     r3, r0
+    shlr8   r0
+    shlr2   r0
+    and     #31, r0
+    add     r0, r14
+    HALF    r4
+    HALF    r5
+    HALF    r6
+    HALF    r7
+    shll16  r4
+    or      r5, r4
+    mov.l   r4, @r11
+    shll16  r6
+    or      r7, r6
+    mov.l   r6, @(4, r11)
+    mov.l   @(4, r10), r0
+    mov     #2, r3
+    shll16  r3
+    or      r3, r0              ! PMOD_GOURAUD to PMOD_GOURAUD_HALF
+    bra     .Lfaced
+    mov.l   r0, @(4, r10)
+
+.Lplain:
+    mov.l   @(40, r8), r1       ! shadeGouraud
+    SHADE   r4
+    SHADE   r5
+    SHADE   r6
+    SHADE   r7
+    shll16  r4
+    or      r5, r4
+    mov.l   r4, @r11
+    shll16  r6
+    or      r7, r6
+    bra     .Lfaced
+    mov.l   r6, @(4, r11)
+
+    .align 2
+.LfacePara2:    .long   0x10000000  ! FACE_PARALLELOGRAM
+.LfaceV0AtD:    .long   0x08000000  ! FACE_V0_AT_D
+.LflipH:        .long   0x00100000  ! CMD_FLIP_H << 16
+.LpolyW1:       .long   0x00C40000  ! (PMOD_NO_ECD_SPD | PMOD_GOURAUD) << 16
