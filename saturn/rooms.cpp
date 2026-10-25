@@ -167,9 +167,7 @@ static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
     if (gNextVertex + 5 > gVertices + MAX_VERTICES || gFaceList.next + 4 > gFaceList.end)
         return false;
 
-    uint32 size = tex->size;
-    uint32 quadrant = (size >> 8) * 4 * (size & 0xFF);
-    int32 slot = detailSlot(tex->reserved - 1, quadrant * 4);
+    int32 slot = detailSlot(tex->reserved - 1, tex->size, true);
     if (slot < 0)
         return false;
 
@@ -218,8 +216,7 @@ static uint32 wholeTexture(uint32 flags)
     if (!tex->reserved)
         return flags;
 
-    uint32 size = tex->size;
-    int32 slot = detailSlot(tex->reserved - 1, (size >> 8) * 16 * (size & 0xFF));
+    int32 slot = detailSlot(tex->reserved - 1, tex->size, false);
     if (slot < 0)
     {
         gSlaveStats.detailMisses++;
@@ -255,10 +252,11 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
         if (checkBackface(v0, v1, v2))
             continue;
 
+        int32 zMin = X_MIN(v0->z, X_MIN(v1->z, X_MIN(v2->z, v3->z)));
         int32 zMax = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z)));
         const Texture* tex = level.textures + (flags & FACE_TEXTURE);
 
-        if (faceFlat(flags, X_MIN(v0->z, X_MIN(v1->z, X_MIN(v2->z, v3->z))), tex))
+        if (faceFlat(flags, zMin, tex))
         {
             if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
                 continue;
@@ -267,6 +265,12 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
         }
         else if (!gSaturnLod)
         {
+            // crossing the near plane: split, so the quarters in front of it
+            // are drawn rather than the whole face culled
+            if (zMin < DETAIL_DIST && ((c0 | c1 | c2 | c3) & CLIP_PLANE) && tex->reserved &&
+                faceAddRoomQuadDetail(polys, tex, v0, v1, v2, v3))
+                continue;
+
             if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
                 continue;
             flags = wholeTexture(flags);

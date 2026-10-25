@@ -3,11 +3,11 @@
 // RAM, and the VRAM left over after the blob is a cache of slots holding the
 // textures in use.
 //
-// The set loads as whole textures, drawn on faces at any distance. The
-// original's way (gSaturnLod) draws quarter-res textures but for faces near the
-// camera, which it splits 2x2, each quarter with one quadrant of the full-res
+// The set loads as whole textures, drawn on faces at any distance. Faces near
+// the camera split 2x2, each quarter drawn with one quadrant of the full-res
 // texture: four tiles the size of the quarter-res one, clockwise from top
-// left, all drawn with its colour table.
+// left, all drawn with its colour table. The original's way (gSaturnLod) draws
+// quarter-res textures but for those quarters, and keeps the set as quadrants.
 #ifndef DETAIL_H
 #define DETAIL_H
 
@@ -24,10 +24,11 @@ uint32_t detailDataMax();
 // end of VRAM.
 void detailInit(uint32_t vramStart, uint32_t dataSize);
 
-// Cache slot for the texture with this key (Texture.reserved - 1), queueing
-// its 'size' bytes for upload if it is not cached. -1 when every slot is in
-// use this frame or the frame's upload budget is spent.
-int32_t detailSlot(uint32_t key, uint32_t size);
+// Cache slot for the texture with this key (Texture.reserved - 1) and
+// quarter-res size (Texture.size), whole or as quadrants, queueing it for
+// upload if it is not cached. -1 when every slot is in use this frame or the
+// frame's upload budget is spent.
+int32_t detailSlot(uint32_t key, uint32_t texSize, bool quads);
 
 // VDP1 VRAM offset of a slot.
 extern uint32_t gDetailVramStart;
@@ -36,8 +37,9 @@ inline uint32_t detailSlotAddr(int32_t slot)
     return gDetailVramStart + slot * DETAIL_SLOT_SIZE;
 }
 
-// Rearranges the full-res set between whole textures and quadrants (for faces
-// split near the camera, gSaturnLod), and empties the cache. Each of the
+// Rearranges the full-res set between whole textures and quadrants (for
+// gSaturnLod, which draws only quadrants), and empties the cache. Slots in
+// the layout the set is not in are rearranged as they upload. Each of the
 // level's room textures names its block (reserved) and quadrant size.
 struct Texture;
 void detailSetWhole(bool whole, const Texture* textures, int32_t count);
