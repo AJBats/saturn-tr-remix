@@ -1192,9 +1192,145 @@ struct Bat : Enemy
 };
 
 
+// The crocodile on land, the alligator in water (TR1's CrocodileControl and
+// AlligatorControl).
 struct Crocodile : Enemy
 {
+    enum {
+        HIT_MASK = 0x3FC,
+        DIST_BITE = 435,
+        DIST_FAST_TURN = 3 * 1024,
+        DAMAGE_BITE = 100,
+        ANIM_DEATH_LAND = 11,
+        ANIM_DEATH_WATER = 4
+    };
+
+    enum {
+        STATE_NONE,
+        STATE_STOP,
+        STATE_RUN,
+        STATE_WALK,
+        STATE_FAST_TURN,
+        STATE_ATTACK,
+        STATE_ATTACK_2,
+        STATE_DEATH
+    };
+
+    enum {
+        STATE_SWIM = 1,
+        STATE_SWIM_ATTACK,
+        STATE_SWIM_DEATH
+    };
+
     Crocodile(Room* room) : Enemy(room, 20, 341, 600, AGGRESSION_LVL_2) {}
+
+    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    {
+        Enemy::hit(damage, point, soundId);
+
+        if (health <= 0) {
+            bool water = (type == ITEM_CROCODILE_WATER);
+            animSet(level.models[type].animIndex + (water ? ANIM_DEATH_WATER : ANIM_DEATH_LAND), true);
+        }
+    }
+
+    virtual int32 updateState()
+    {
+        if (health <= 0)
+            return goalState;
+
+        if (type == ITEM_CROCODILE_WATER)
+        {
+            extraE->maxTurn = ENEMY_TURN_2 + ANGLE(1);
+
+            if (state == STATE_SWIM)
+            {
+                if (tinfo.canAttack && hitMask)
+                    return STATE_SWIM_ATTACK;
+            }
+            else if (state == STATE_SWIM_ATTACK)
+            {
+                if (frameIndex == level.anims[animIndex].frameBegin) {
+                    nextState = STATE_NONE;
+                }
+                if (!tinfo.canAttack || !hitMask)
+                    return STATE_SWIM;
+                if (!nextState)
+                {
+                    bite(DAMAGE_BITE, _vec3i(5, -21, 467), 9);
+                    nextState = STATE_SWIM;
+                }
+            }
+            return goalState;
+        }
+
+        bool fastTurn = (mood == MOOD_ATTACK) && (tinfo.dist > DIST_FAST_TURN) &&
+                        (abs(tinfo.angle) > ANGLE_90);
+
+        if (state == STATE_FAST_TURN) {
+            angle.y += ANGLE(6);
+            extraE->maxTurn = 0;
+        } else {
+            extraE->maxTurn = ENEMY_TURN_2 + ANGLE(1);
+        }
+
+        switch (state)
+        {
+            case STATE_STOP:
+            {
+                if (tinfo.canAttack && tinfo.dist < DIST_BITE)
+                    return STATE_ATTACK;
+                if (mood == MOOD_ESCAPE)
+                    return STATE_RUN;
+                if (mood == MOOD_ATTACK)
+                    return fastTurn ? STATE_FAST_TURN : STATE_RUN;
+                if (mood == MOOD_STALK)
+                    return STATE_WALK;
+                break;
+            }
+
+            case STATE_WALK:
+            {
+                if (tinfo.front && (hitMask & HIT_MASK))
+                    return STATE_STOP;
+                if (mood == MOOD_ATTACK || mood == MOOD_ESCAPE)
+                    return STATE_RUN;
+                if (mood == MOOD_SLEEP)
+                    return STATE_STOP;
+                break;
+            }
+
+            case STATE_FAST_TURN:
+            {
+                if (abs(tinfo.angle) < ANGLE_90)
+                    return STATE_WALK;
+                break;
+            }
+
+            case STATE_RUN:
+            {
+                if (tinfo.front && (hitMask & HIT_MASK))
+                    return STATE_STOP;
+                if (mood == MOOD_STALK)
+                    return STATE_WALK;
+                if (mood == MOOD_SLEEP || fastTurn)
+                    return STATE_STOP;
+                break;
+            }
+
+            case STATE_ATTACK:
+            {
+                if (!nextState)
+                {
+                    bite(DAMAGE_BITE, _vec3i(5, -21, 467), 9);
+                    nextState = STATE_STOP;
+                }
+                break;
+            }
+        }
+
+        return goalState;
+    }
 
     virtual void initExtra()
     {
@@ -1221,9 +1357,112 @@ struct Lion : Enemy
         }
     }
 
+    enum {
+        HIT_MASK = 0x380066,
+        DIST_POUNCE = 1024,
+        DAMAGE_BITE = 250,
+        DAMAGE_POUNCE = 150,
+        ANIM_DEATH_LION = 7,
+        ANIM_DEATH_PUMA = 4
+    };
+
+    enum {
+        STATE_NONE,
+        STATE_STOP,
+        STATE_WALK,
+        STATE_RUN,
+        STATE_POUNCE,
+        STATE_DEATH,
+        STATE_WARNING,
+        STATE_BITE
+    };
+
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
         Enemy::hit(damage, point, (type == ITEM_PUMA) ? 0 : SND_HIT_LION);
+
+        if (health <= 0) {
+            int32 anim = (type == ITEM_PUMA) ? ANIM_DEATH_PUMA : ANIM_DEATH_LION;
+            animSet(level.models[type].animIndex + anim + RAND_LOGIC(2), true);
+        }
+    }
+
+    // TR1's LionControl
+    virtual int32 updateState()
+    {
+        if (health <= 0)
+            return goalState;
+
+        switch (state)
+        {
+            case STATE_STOP:
+            {
+                if (nextState)
+                    return nextState;
+                if (mood == MOOD_SLEEP)
+                    return STATE_WALK;
+                if (tinfo.front && (hitMask & HIT_MASK))
+                    return STATE_BITE;
+                if (tinfo.front && tinfo.dist < DIST_POUNCE)
+                    return STATE_POUNCE;
+                return STATE_RUN;
+            }
+
+            case STATE_WALK:
+            {
+                extraE->maxTurn = ENEMY_TURN_2;
+
+                if (mood != MOOD_SLEEP)
+                    return STATE_STOP;
+                if (rand_logic() < 128)
+                {
+                    nextState = STATE_WARNING;
+                    return STATE_STOP;
+                }
+                break;
+            }
+
+            case STATE_RUN:
+            {
+                extraE->maxTurn = ENEMY_TURN_5;
+                tinfo.tilt = tinfo.turn;
+
+                if (mood == MOOD_SLEEP)
+                    return STATE_STOP;
+                if (tinfo.front && tinfo.dist < DIST_POUNCE)
+                    return STATE_STOP;
+                if (tinfo.front && (hitMask & HIT_MASK))
+                    return STATE_STOP;
+                if (mood != MOOD_ESCAPE && rand_logic() < 128)
+                {
+                    nextState = STATE_WARNING;
+                    return STATE_STOP;
+                }
+                break;
+            }
+
+            case STATE_POUNCE:
+            {
+                if (!nextState && (hitMask & HIT_MASK))
+                {
+                    tinfo.target->hit(DAMAGE_POUNCE, pos, 0);
+                    nextState = STATE_STOP;
+                }
+                break;
+            }
+
+            case STATE_BITE:
+            {
+                if (!nextState && (hitMask & HIT_MASK))
+                {
+                    bite(DAMAGE_BITE, _vec3i(-2, -10, 132), 21);
+                    nextState = STATE_STOP;
+                }
+                break;
+            }
+        }
+
+        return goalState;
     }
 
     virtual void initExtra()
@@ -1234,9 +1473,145 @@ struct Lion : Enemy
 };
 
 
+// TR1's ApeControl, without the vault onto blocks. turnSpeed keeps its
+// flags: provoked, and a pending quarter turn either way.
 struct Gorilla : Enemy
 {
-    Gorilla(Room* room) : Enemy(room, 22, 341, 250, AGGRESSION_LVL_MAX) {}
+    enum {
+        HIT_MASK = 0xFF00,
+        DIST_ATTACK = 430,
+        DIST_PANIC = 2 * 1024,
+        DAMAGE = 200,
+        ANIM_DEATH = 7,
+
+        FLAG_ATTACK = 1,
+        FLAG_TURN_L = 2,
+        FLAG_TURN_R = 4
+    };
+
+    enum {
+        STATE_NONE,
+        STATE_STOP,
+        STATE_WALK,
+        STATE_RUN,
+        STATE_ATTACK,
+        STATE_DEATH,
+        STATE_WARNING_1,
+        STATE_WARNING_2,
+        STATE_RUN_LEFT,
+        STATE_RUN_RIGHT,
+        STATE_JUMP
+    };
+
+    Gorilla(Room* room) : Enemy(room, 22, 341, 250, AGGRESSION_LVL_MAX)
+    {
+        turnSpeed = 0;
+    }
+
+    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    {
+        Enemy::hit(damage, point, soundId);
+        turnSpeed |= FLAG_ATTACK;
+
+        if (health <= 0) {
+            animSet(level.models[type].animIndex + ANIM_DEATH + RAND_LOGIC(2), true);
+        }
+    }
+
+    virtual int32 updateState()
+    {
+        if (health <= 0)
+            return goalState;
+
+        if (tinfo.dist < DIST_PANIC) {
+            turnSpeed |= FLAG_ATTACK;
+        }
+
+        switch (state)
+        {
+            case STATE_STOP:
+            {
+                if (turnSpeed & FLAG_TURN_L)
+                {
+                    angle.y -= ANGLE_90;
+                    turnSpeed &= ~FLAG_TURN_L;
+                }
+                else if (turnSpeed & FLAG_TURN_R)
+                {
+                    angle.y += ANGLE_90;
+                    turnSpeed &= ~FLAG_TURN_R;
+                }
+
+                if (nextState)
+                    return nextState;
+                if (tinfo.canAttack && tinfo.dist < DIST_ATTACK)
+                    return STATE_ATTACK;
+                if (!(turnSpeed & FLAG_ATTACK) && checkZone() && tinfo.front)
+                {
+                    int32 r = rand_logic() >> 5;
+                    if (r < 160) return STATE_JUMP;
+                    if (r < 320) return STATE_WARNING_1;
+                    if (r < 480) return STATE_WARNING_2;
+                    extraE->maxTurn = 0;
+                    return (r < 752) ? STATE_RUN_LEFT : STATE_RUN_RIGHT;
+                }
+                return STATE_RUN;
+            }
+
+            case STATE_RUN:
+            {
+                extraE->maxTurn = ENEMY_TURN_5;
+
+                if (!turnSpeed && abs(tinfo.angle) < ANGLE_45)
+                    return STATE_STOP;
+                if (tinfo.front && (hitMask & HIT_MASK))
+                {
+                    nextState = STATE_ATTACK;
+                    return STATE_STOP;
+                }
+                if (mood != MOOD_ESCAPE)
+                {
+                    int32 r = rand_logic();
+                    if (r < 160) { nextState = STATE_JUMP; return STATE_STOP; }
+                    if (r < 320) { nextState = STATE_WARNING_1; return STATE_STOP; }
+                    if (r < 480) { nextState = STATE_WARNING_2; return STATE_STOP; }
+                }
+                break;
+            }
+
+            case STATE_RUN_LEFT:
+            {
+                if (!(turnSpeed & FLAG_TURN_R))
+                {
+                    angle.y -= ANGLE_90;
+                    turnSpeed |= FLAG_TURN_R;
+                }
+                return STATE_STOP;
+            }
+
+            case STATE_RUN_RIGHT:
+            {
+                if (!(turnSpeed & FLAG_TURN_L))
+                {
+                    angle.y += ANGLE_90;
+                    turnSpeed |= FLAG_TURN_L;
+                }
+                return STATE_STOP;
+            }
+
+            case STATE_ATTACK:
+            {
+                if (!nextState && (hitMask & HIT_MASK))
+                {
+                    bite(DAMAGE, _vec3i(0, -19, 75), 15);
+                    nextState = STATE_STOP;
+                }
+                break;
+            }
+        }
+
+        return goalState;
+    }
 
     virtual void initExtra()
     {
@@ -1250,9 +1625,114 @@ struct Rat : Enemy
 {
     Rat(Room* room) : Enemy(room, 5, 204, 200, AGGRESSION_LVL_2) {}
 
+    enum {
+        HIT_MASK = 0x300018F,
+        DIST_BITE = 341,
+        DIST_CHARGE = 1536,
+        DAMAGE = 20,
+        ANIM_DEATH_LAND = 8,
+        ANIM_DEATH_WATER = 2
+    };
+
+    enum {
+        STATE_NONE,
+        STATE_STOP,
+        STATE_CHARGE,
+        STATE_RUN,
+        STATE_BITE,
+        STATE_DEATH,
+        STATE_POSE
+    };
+
+    enum {
+        STATE_SWIM = 1,
+        STATE_SWIM_BITE
+    };
+
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
         Enemy::hit(damage, point, SND_HIT_RAT);
+
+        if (health <= 0) {
+            bool water = (type == ITEM_RAT_WATER);
+            animSet(level.models[type].animIndex + (water ? ANIM_DEATH_WATER : ANIM_DEATH_LAND), true);
+        }
+    }
+
+    // TR1's RatControl and VoleControl
+    virtual int32 updateState()
+    {
+        if (health <= 0)
+            return goalState;
+
+        extraE->maxTurn = ANGLE(6);
+
+        if (type == ITEM_RAT_WATER)
+        {
+            extraE->maxTurn = ANGLE(3);
+
+            if (state == STATE_SWIM)
+            {
+                if (tinfo.front && (hitMask & HIT_MASK))
+                    return STATE_SWIM_BITE;
+            }
+            else if (state == STATE_SWIM_BITE)
+            {
+                if (!nextState && tinfo.front && (hitMask & HIT_MASK))
+                {
+                    bite(DAMAGE, _vec3i(0, -11, 108), 3);
+                    nextState = STATE_SWIM;
+                }
+                return STATE_NONE;
+            }
+            return goalState;
+        }
+
+        switch (state)
+        {
+            case STATE_STOP:
+            {
+                if (nextState)
+                    return nextState;
+                if (tinfo.canAttack && tinfo.dist < DIST_BITE)
+                    return STATE_BITE;
+                return STATE_RUN;
+            }
+
+            case STATE_RUN:
+            {
+                if (tinfo.front && (hitMask & HIT_MASK))
+                    return STATE_STOP;
+                if (tinfo.canAttack && tinfo.dist < DIST_CHARGE)
+                    return STATE_CHARGE;
+                if (tinfo.front && rand_logic() < 256)
+                {
+                    nextState = STATE_POSE;
+                    return STATE_STOP;
+                }
+                break;
+            }
+
+            case STATE_BITE:
+            case STATE_CHARGE:
+            {
+                if (!nextState && tinfo.front && (hitMask & HIT_MASK))
+                {
+                    bite(DAMAGE, _vec3i(0, -11, 108), 3);
+                    nextState = (state == STATE_BITE) ? STATE_STOP : STATE_RUN;
+                }
+                break;
+            }
+
+            case STATE_POSE:
+            {
+                if (mood != MOOD_SLEEP || rand_logic() < 256)
+                    return STATE_STOP;
+                break;
+            }
+        }
+
+        return goalState;
     }
 };
 
@@ -1498,44 +1978,603 @@ struct Centaur : Enemy
 };
 
 
+// The mummy in Khamoon stands until shot or touched, then topples (TR1's
+// MummyControl).
 struct Mummy : Enemy
 {
-    Mummy(Room* room) : Enemy(room, 18, 10, 0, AGGRESSION_LVL_MAX) {}
-};
+    enum {
+        STATE_NONE,
+        STATE_STOP,
+        STATE_DEATH
+    };
 
-
-struct Larson : Enemy
-{
-    Larson(Room* room) : Enemy(room, 50, 102, 0, AGGRESSION_LVL_MAX) {}
-};
-
-
-struct Pierre : Enemy
-{
-    Pierre(Room* room) : Enemy(room, 70, 102, 0, AGGRESSION_LVL_MAX) {}
-};
-
-
-struct Skater : Enemy
-{
-    Skater(Room* room) : Enemy(room, 125, 204, 0, AGGRESSION_LVL_MAX) {}
-
-    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    Mummy(Room* room) : Enemy(room, 18, 10, 0, AGGRESSION_LVL_MAX)
     {
-        Enemy::hit(damage, point, SND_HIT_SKATER);
+        visibleMask = 0xFFFF87FF;
+    }
+
+    virtual int32 updateState()
+    {
+        extraE->maxTurn = 0;
+
+        if (state == STATE_STOP && (health <= 0 || hitMask))
+            return STATE_DEATH;
+
+        return goalState;
     }
 };
 
 
-struct Cowboy : Enemy
+// People with guns (TR1's Larson, Pierre, the skater, the cowboy and Mr. T).
+// turnSpeed counts shots within a burst, as the original's creature flags do.
+struct Gunman : Enemy
 {
-    Cowboy(Room* room) : Enemy(room, 150, 102, 0, AGGRESSION_LVL_MAX) {}
+    enum {
+        DIST_SHOOT = 7 * 1024
+    };
+
+    Gunman(Room* room, int32 _health, int32 _radius) : Enemy(room, _health, _radius, 0, AGGRESSION_LVL_MAX)
+    {
+        turnSpeed = 0;
+    }
+
+    // TR1's Targetable: ahead, in range and in sight
+    bool canShoot()
+    {
+        if (!tinfo.target || !tinfo.front || tinfo.dist >= DIST_SHOOT)
+            return false;
+
+        Location from, to;
+        from.room = room;
+        from.pos = _vec3i(pos.x, pos.y - 768, pos.z);
+        to.room = tinfo.target->room;
+        to.pos = _vec3i(tinfo.target->pos.x, tinfo.target->pos.y - 768, tinfo.target->pos.z);
+        return trace(from, to, false);
+    }
+
+    // TR1's ShotLara: the nearer, the likelier a hit; a miss ricochets by her
+    bool shoot(int32 damage, const vec3i &muzzle, int32 joint, int32 dist)
+    {
+        if (!tinfo.target || dist >= DIST_SHOOT)
+            return false;
+
+        const int32 range = X_SQR(DIST_SHOOT >> 4);
+        bool hit = rand_logic() < (range - X_SQR(dist >> 4)) / (range / 0x7FFF) - 0x2000;
+
+        if (hit) {
+            bite(damage, muzzle, joint);
+        } else {
+            vec3i p = tinfo.target->pos;
+            p.x += (rand_logic() - 0x4000) >> 6;
+            p.y -= 512 + (rand_logic() >> 5);
+            p.z += (rand_logic() - 0x4000) >> 6;
+            fxRicochet(tinfo.target->room, p, true);
+        }
+        return hit;
+    }
+
+    void deathAnim(int32 anim)
+    {
+        if (health <= 0) {
+            animSet(level.models[type].animIndex + anim, true);
+        }
+    }
 };
 
 
-struct MrT : Enemy
+struct Larson : Gunman
 {
-    MrT(Room* room) : Enemy(room, 200, 102, 0, AGGRESSION_LVL_MAX) {}
+    enum {
+        DIST_WALK = 3 * 1024,
+        DAMAGE = 50,
+        ANIM_DEATH = 15,
+        POSE_CHANCE = 0x60
+    };
+
+    enum {
+        STATE_NONE,
+        STATE_STOP,
+        STATE_WALK,
+        STATE_RUN,
+        STATE_AIM,
+        STATE_DEATH,
+        STATE_POSE,
+        STATE_SHOOT
+    };
+
+    Larson(Room* room) : Gunman(room, 50, 102) {}
+
+    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    {
+        Enemy::hit(damage, point, soundId);
+        deathAnim(ANIM_DEATH);
+    }
+
+    // TR1's LarsonControl; Pierre's is the same with two guns and a nerve
+    // that breaks (see Pierre)
+    int32 updatePerson(int32 damage, bool twoGuns)
+    {
+        switch (state)
+        {
+            case STATE_STOP:
+            {
+                if (nextState)
+                    return nextState;
+                if (mood == MOOD_SLEEP)
+                    return (rand_logic() < POSE_CHANCE) ? STATE_POSE : STATE_WALK;
+                if (mood == MOOD_ESCAPE)
+                    return STATE_RUN;
+                return STATE_WALK;
+            }
+
+            case STATE_POSE:
+            {
+                if (mood != MOOD_SLEEP)
+                    return STATE_STOP;
+                if (rand_logic() < POSE_CHANCE)
+                {
+                    nextState = STATE_WALK;
+                    return STATE_STOP;
+                }
+                break;
+            }
+
+            case STATE_WALK:
+            {
+                extraE->maxTurn = ANGLE(3);
+
+                if (mood == MOOD_SLEEP && rand_logic() < POSE_CHANCE)
+                    nextState = STATE_POSE;
+                else if (mood == MOOD_ESCAPE)
+                    nextState = STATE_RUN;
+                else if (canShoot())
+                    nextState = STATE_AIM;
+                else if (!tinfo.front || tinfo.dist > DIST_WALK)
+                    nextState = STATE_RUN;
+                else
+                    break;
+                return STATE_STOP;
+            }
+
+            case STATE_RUN:
+            {
+                extraE->maxTurn = ANGLE(6);
+                tinfo.tilt = tinfo.turn >> 1;
+
+                if (mood == MOOD_SLEEP && rand_logic() < POSE_CHANCE)
+                    nextState = STATE_POSE;
+                else if (canShoot())
+                    nextState = STATE_AIM;
+                else if (tinfo.front && tinfo.dist < DIST_WALK)
+                    nextState = STATE_WALK;
+                else
+                    break;
+                return STATE_STOP;
+            }
+
+            case STATE_AIM:
+            {
+                if (nextState)
+                    return nextState;
+                return canShoot() ? STATE_SHOOT : STATE_STOP;
+            }
+
+            case STATE_SHOOT:
+            {
+                if (!nextState)
+                {
+                    if (twoGuns) {
+                        shoot(damage >> 1, _vec3i(60, 200, 0), 11, tinfo.dist);
+                        shoot(damage >> 1, _vec3i(-57, 200, 0), 14, tinfo.dist);
+                    } else {
+                        shoot(damage, _vec3i(-60, 170, 0), 14, tinfo.dist);
+                    }
+                    nextState = STATE_AIM;
+                }
+                if (mood == MOOD_ESCAPE && (!twoGuns || rand_logic() > 0x2000)) {
+                    nextState = STATE_STOP;
+                }
+                break;
+            }
+        }
+
+        return goalState;
+    }
+
+    virtual int32 updateState()
+    {
+        if (health <= 0)
+            return goalState;
+        return updatePerson(DAMAGE, false);
+    }
+};
+
+
+// Pierre can't be killed until the level means him to be (his trigger has
+// spent itself): until then he runs off at 40 health, and vanishes once out
+// of the camera's sight for a while.
+struct Pierre : Larson
+{
+    enum {
+        DAMAGE = 50,
+        ANIM_DEATH = 12,
+        HEALTH_RUN = 40,
+        DISAPPEAR = 10
+    };
+
+    Pierre(Room* room) : Larson(room)
+    {
+        health = 70;
+    }
+
+    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    {
+        Enemy::hit(damage, point, soundId);
+
+        if (!(flags & ITEM_FLAG_ONCE) && health <= HEALTH_RUN) {
+            health = HEALTH_RUN;
+            turnSpeed++;
+        }
+        deathAnim(ANIM_DEATH);
+    }
+
+    virtual int32 updateState()
+    {
+        if (health <= 0)
+            return goalState;
+
+        if (turnSpeed) {
+            mood = MOOD_ESCAPE;
+        }
+
+        int32 goal = updatePerson(DAMAGE, true);
+
+        if (turnSpeed)
+        {
+            Location from = playersExtra[0].camera.view;
+            Location to;
+            to.room = room;
+            to.pos = _vec3i(pos.x, pos.y - 1024, pos.z);
+
+            if (trace(from, to, false)) {
+                turnSpeed = 1;
+            } else if (++turnSpeed > DISAPPEAR) {
+                health = NOT_ENEMY;
+                flags &= ~ITEM_FLAG_STATUS;
+                flags |= ITEM_FLAG_STATUS_INVISIBLE;
+                disable();
+                deactivate();
+            }
+        }
+
+        return goal;
+    }
+};
+
+
+// The skater kid shoots from his board, stopping at middle range
+// (TR1's SkateKidControl); the board is drawn with him.
+struct Skater : Gunman
+{
+    enum {
+        DIST_STOP = 4 * 1024,
+        DIST_DONT_STOP = 2560,
+        DIST_TOO_CLOSE = 1024,
+        DAMAGE_STOP = 50,
+        DAMAGE_SKATE = 40,
+        ANIM_DEATH = 13
+    };
+
+    enum {
+        STATE_STOP,
+        STATE_SHOOT_1,
+        STATE_SKATE,
+        STATE_PUSH,
+        STATE_SHOOT_2,
+        STATE_DEATH
+    };
+
+    Skater(Room* room) : Gunman(room, 125, 204)
+    {
+        state = STATE_SKATE;
+    }
+
+    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    {
+        Enemy::hit(damage, point, SND_HIT_SKATER);
+        deathAnim(ANIM_DEATH);
+    }
+
+    virtual int32 updateState()
+    {
+        if (health <= 0)
+            return goalState;
+
+        extraE->maxTurn = ANGLE(4);
+
+        switch (state)
+        {
+            case STATE_STOP:
+            {
+                turnSpeed = 0;
+                if (nextState)
+                    return nextState;
+                return canShoot() ? STATE_SHOOT_1 : STATE_SKATE;
+            }
+
+            case STATE_SKATE:
+            {
+                turnSpeed = 0;
+                if (rand_logic() < 0x200)
+                    return STATE_PUSH;
+                if (canShoot())
+                {
+                    if (tinfo.dist > DIST_DONT_STOP && tinfo.dist < DIST_STOP && mood != MOOD_ESCAPE)
+                        return STATE_STOP;
+                    return STATE_SHOOT_2;
+                }
+                break;
+            }
+
+            case STATE_PUSH:
+            {
+                if (rand_logic() < 0x400)
+                    return STATE_SKATE;
+                break;
+            }
+
+            case STATE_SHOOT_1:
+            case STATE_SHOOT_2:
+            {
+                if (!turnSpeed && canShoot())
+                {
+                    int32 damage = (state == STATE_SHOOT_1) ? DAMAGE_STOP : DAMAGE_SKATE;
+                    shoot(damage, _vec3i(0, 150, 34), 7, tinfo.dist);
+                    shoot(damage, _vec3i(0, 150, 37), 4, tinfo.dist);
+                    turnSpeed = 1;
+                }
+                if (mood == MOOD_ESCAPE || tinfo.dist < DIST_TOO_CLOSE) {
+                    nextState = STATE_SKATE;
+                }
+                break;
+            }
+        }
+
+        return goalState;
+    }
+
+    virtual void draw()
+    {
+        Gunman::draw();
+
+        if (!level.models[ITEM_SKATEBOARD].count)
+            return;
+
+        // the board, in step with him
+        uint8 oldType = type;
+        uint16 oldAnim = animIndex;
+        uint16 oldFrame = frameIndex;
+        const Model &kid = level.models[ITEM_SKATER];
+        const Model &board = level.models[ITEM_SKATEBOARD];
+        type = ITEM_SKATEBOARD;
+        animIndex = board.animIndex + (oldAnim - kid.animIndex);
+        frameIndex = level.anims[animIndex].frameBegin + (oldFrame - level.anims[oldAnim].frameBegin);
+        Gunman::draw();
+        type = oldType;
+        animIndex = oldAnim;
+        frameIndex = oldFrame;
+    }
+};
+
+
+// The cowboy fires both revolvers, the second a few frames after the first
+// (TR1's CowboyControl).
+struct Cowboy : Gunman
+{
+    enum {
+        DIST_WALK = 3 * 1024,
+        DAMAGE = 70,
+        ANIM_DEATH = 7
+    };
+
+    enum {
+        STATE_NONE,
+        STATE_STOP,
+        STATE_WALK,
+        STATE_RUN,
+        STATE_AIM,
+        STATE_DEATH,
+        STATE_SHOOT
+    };
+
+    Cowboy(Room* room) : Gunman(room, 150, 102) {}
+
+    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    {
+        Enemy::hit(damage, point, soundId);
+        deathAnim(ANIM_DEATH);
+    }
+
+    virtual int32 updateState()
+    {
+        if (health <= 0)
+            return goalState;
+
+        switch (state)
+        {
+            case STATE_STOP:
+            {
+                if (nextState)
+                    return nextState;
+                if (canShoot())
+                    return STATE_AIM;
+                return (mood == MOOD_SLEEP) ? STATE_WALK : STATE_RUN;
+            }
+
+            case STATE_WALK:
+            {
+                extraE->maxTurn = ANGLE(3);
+
+                if (mood == MOOD_ESCAPE || !tinfo.front)
+                    nextState = STATE_RUN;
+                else if (canShoot())
+                    nextState = STATE_AIM;
+                else if (tinfo.dist > DIST_WALK)
+                    nextState = STATE_RUN;
+                else
+                    break;
+                return STATE_STOP;
+            }
+
+            case STATE_RUN:
+            {
+                extraE->maxTurn = ANGLE(6);
+                tinfo.tilt = tinfo.turn >> 1;
+
+                if (mood != MOOD_ESCAPE || tinfo.front)
+                {
+                    if (canShoot())
+                        nextState = STATE_AIM;
+                    else if (tinfo.front && tinfo.dist < DIST_WALK)
+                        nextState = STATE_WALK;
+                    else
+                        break;
+                    return STATE_STOP;
+                }
+                break;
+            }
+
+            case STATE_AIM:
+            {
+                turnSpeed = 0;
+                if (nextState)
+                    return STATE_STOP;
+                return canShoot() ? STATE_SHOOT : STATE_STOP;
+            }
+
+            case STATE_SHOOT:
+            {
+                if (turnSpeed == 0) {
+                    shoot(DAMAGE, _vec3i(1, 200, 41), 5, tinfo.dist);
+                } else if (turnSpeed == 6 && canShoot()) {
+                    shoot(DAMAGE, _vec3i(-2, 200, 40), 8, tinfo.dist);
+                }
+                turnSpeed++;
+                if (mood == MOOD_ESCAPE) {
+                    nextState = STATE_RUN;
+                }
+                break;
+            }
+        }
+
+        return goalState;
+    }
+};
+
+
+// Mr. T and his shotgun (TR1's BaldyControl): as the cowboy, one heavy shot.
+struct MrT : Gunman
+{
+    enum {
+        DIST_WALK = 4 * 1024,
+        DAMAGE = 150,
+        ANIM_DEATH = 14
+    };
+
+    enum {
+        STATE_NONE,
+        STATE_STOP,
+        STATE_WALK,
+        STATE_RUN,
+        STATE_AIM,
+        STATE_DEATH,
+        STATE_SHOOT
+    };
+
+    MrT(Room* room) : Gunman(room, 200, 102)
+    {
+        state = STATE_RUN;
+    }
+
+    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    {
+        Enemy::hit(damage, point, soundId);
+        deathAnim(ANIM_DEATH);
+    }
+
+    virtual int32 updateState()
+    {
+        if (health <= 0)
+            return goalState;
+
+        switch (state)
+        {
+            case STATE_STOP:
+            {
+                if (nextState)
+                    return nextState;
+                if (canShoot())
+                    return STATE_AIM;
+                return (mood == MOOD_SLEEP) ? STATE_WALK : STATE_RUN;
+            }
+
+            case STATE_WALK:
+            {
+                extraE->maxTurn = ANGLE(3);
+
+                if (mood == MOOD_ESCAPE || !tinfo.front)
+                    nextState = STATE_RUN;
+                else if (canShoot())
+                    nextState = STATE_AIM;
+                else if (tinfo.dist > DIST_WALK)
+                    nextState = STATE_RUN;
+                else
+                    break;
+                return STATE_STOP;
+            }
+
+            case STATE_RUN:
+            {
+                extraE->maxTurn = ANGLE(6);
+                tinfo.tilt = tinfo.turn >> 1;
+
+                if (mood != MOOD_ESCAPE || tinfo.front)
+                {
+                    if (canShoot())
+                        nextState = STATE_AIM;
+                    else if (tinfo.front && tinfo.dist < DIST_WALK)
+                        nextState = STATE_WALK;
+                    else
+                        break;
+                    return STATE_STOP;
+                }
+                break;
+            }
+
+            case STATE_AIM:
+            {
+                turnSpeed = 0;
+                if (nextState)
+                    return STATE_STOP;
+                return canShoot() ? STATE_SHOOT : STATE_STOP;
+            }
+
+            case STATE_SHOOT:
+            {
+                if (!turnSpeed)
+                {
+                    shoot(DAMAGE, _vec3i(-20, 440, 20), 9, tinfo.dist >> 1);
+                    turnSpeed = 1;
+                }
+                if (mood == MOOD_ESCAPE) {
+                    nextState = STATE_RUN;
+                }
+                break;
+            }
+        }
+
+        return goalState;
+    }
 };
 
 

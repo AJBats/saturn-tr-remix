@@ -1372,7 +1372,7 @@ struct TrapSlam : Object
                 lara->hit(400, pos, 0);
 
                 for (int32 i = 0; i < 2; i++) {
-                    fxBlood(getJoint(i, _vec3i(-23 + i * 94, 0, -1718)), angle.y, 0);
+                    fxBlood(pos + getJoint(i, _vec3i(-23 + i * 94, 0, -1718)), angle.y, 0);
                 }
             }
         }
