@@ -29,7 +29,7 @@ int32 alignOffset(int32 a, int32 b)
 
 void* soundPlay(int16 id, const vec3i* pos)
 {
-#if defined(__32X__) || defined(__WIN32__) || defined(__SATURN__) // TODO
+#if defined(__32X__) || defined(__WIN32__) // TODO
     return NULL;
 #endif
 
@@ -92,7 +92,7 @@ void* soundPlay(int16 id, const vec3i* pos)
 
 void soundStop(int16 id)
 {
-#if defined(__32X__) || defined(__WIN32__) || defined(__SATURN__) // TODO
+#if defined(__32X__) || defined(__WIN32__) // TODO
     return;
 #endif
 

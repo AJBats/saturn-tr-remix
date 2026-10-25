@@ -5,6 +5,7 @@
 #include "hw.h"
 #include "input.h"
 #include "slave.h"
+#include "sound.h"
 #include "system.h"
 
 // make START_LEVEL=LVL_TR1_2 ... starts elsewhere, for testing
@@ -86,6 +87,7 @@ int main()
         uint32 t0 = timerTicks();
         updateInput();
         gameUpdate(delta);
+        sndFrame();
         uint32 t1 = timerTicks();
         gameRender();
         renderSwap();

@@ -4,6 +4,7 @@
 #include "cd.h"
 #include "detail.h"
 #include "hw.h"
+#include "sound.h"
 #include "vram.h"
 
 // Packed levels load into low work RAM, which nothing else uses.
@@ -77,6 +78,13 @@ const void* osLoadLevel(LevelID id)
     detailInit(VRAM_TEX_BASE + texSize, subSize);
 
     loadOrHalt(name, ".PKD", LEVEL_ADDR, LEVEL_MAX);
+
+    // sound effects straight to sound RAM (some cutscenes have none)
+    char path[32] = "DATA/";
+    strcat(path, name);
+    strcat(path, ".SFX");
+    sndStop();
+    cdLoadFile(path, (void*)(SOUND_RAM + SOUND_SAMPLES_ADDR), SOUND_RAM_SIZE - SOUND_SAMPLES_ADDR);
 
     return LEVEL_ADDR;
 }

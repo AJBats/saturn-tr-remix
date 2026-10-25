@@ -16,9 +16,14 @@ into VDP1 VRAM for faces near the camera: per texture, four quadrants in
 clockwise order from top left, each the size of the quarter-res tile and
 using its colour table.
 
+Sound effects keep the original's samples (16-bit PCM at 5512.5 Hz). They
+go to a separate file the game loads into sound RAM; the PKD holds the sound
+map, the sound infos and each sample's offset in that file.
+
 usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD>
-       (also writes <out>.TEX, the texture blob loaded at VRAM_TEX_BASE, and
-       <out>.SUB, the full-resolution room textures)
+       (also writes <out>.TEX, the texture blob loaded at VRAM_TEX_BASE,
+       <out>.SUB, the full-resolution room textures, and <out>.SFX, the
+       sound samples)
 
 For testing, LARA_START=<room> in the environment starts Lara in that room,
 on the walkable floor nearest its centre.
@@ -503,14 +508,32 @@ class Packer:
         colors = self.palette + [0] * (256 - len(self.palette))
         out.pack("256H", *colors)
 
+        sound_map = out.align4()
+        out.pack(f"{len(lvl.sound_map)}h", *lvl.sound_map)
+
+        sound_infos = out.align4()
+        for info in lvl.sound_infos:
+            out.pack("4H", *info)
+
+        # offsets of the samples in the .SFX file, and its size after the last
+        sound_offsets = out.align4()
+        offsets, self.sfx = [], bytearray()
+        for i in range(len(lvl.samples)):
+            offsets.append(len(self.sfx))
+            self.sfx += lvl.samples[i]
+            while len(self.sfx) & 3:
+                self.sfx.append(0)
+        out.pack(f"{len(offsets) + 1}i", *offsets, len(self.sfx))
+
         header = struct.pack(">I14H", 0x53415431,     # 'SAT1'
             0, len(lvl.rooms), len(lvl.models), len(lvl.mesh_offsets), len(lvl.static_meshes),
             len(lvl.sprite_sequences), len(lvl.sound_sources), len(lvl.boxes), textures_count,
-            len(lvl.sprite_textures), len(lvl.items), len(lvl.cameras), 0, 0)
+            len(lvl.sprite_textures), len(lvl.items), len(lvl.cameras), 0, len(offsets))
         header += struct.pack(">35I",
             palette, 0, 0, rooms, floors, mesh_base, mesh_offsets_pos, anims, states, ranges,
             commands, nodes, frames, models, static_meshes, textures, sprites, sprite_sequences,
-            cameras, sound_sources, boxes, overlaps, *zones, anim_tex, items, 0, 0, 0, 0, 0)
+            cameras, sound_sources, boxes, overlaps, *zones, anim_tex, items,
+            0, sound_map, sound_infos, 0, sound_offsets)
         assert len(header) == 172
         out.b[0:172] = header
         return bytes(out.b)
@@ -554,8 +577,12 @@ def main():
     sub_path = os.path.splitext(out_path)[0] + ".SUB"
     with open(sub_path, "wb") as f:
         f.write(lvl.room_tex_sub)
+    sfx_path = os.path.splitext(out_path)[0] + ".SFX"
+    with open(sfx_path, "wb") as f:
+        f.write(packer.sfx)
     print(f"{name}: {len(data)} bytes -> {out_path}, {len(packer.textures.blob)} bytes -> {tex_path}, "
-          f"{len(lvl.room_tex_sub)} bytes -> {sub_path}, {len(packer.textures.entries)} textures")
+          f"{len(lvl.room_tex_sub)} bytes -> {sub_path}, {len(packer.sfx)} bytes -> {sfx_path}, "
+          f"{len(packer.textures.entries)} textures")
 
 
 if __name__ == "__main__":
