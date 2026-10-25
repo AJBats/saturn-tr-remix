@@ -470,22 +470,48 @@ _flushAsm:
     bt      .Lplain
     mov.l   @(52, r8), r0
     tst     r0, r0
-    bt      .Lplain
+    bf      .Lhalf
 
+    ! the corners' shades as they are
+.Lplain:
+    mov.l   @(40, r8), r1       ! shadeGouraud
+    SHADE   r4
+    SHADE   r5
+    SHADE   r6
+    SHADE   r7
+    shll16  r4
+    or      r5, r4
+    mov.l   r4, @r11
+    shll16  r6
+    or      r7, r6
+    bra     .Lfaced
+    mov.l   r6, @(4, r11)
+
+.Lhalf:
     ! half luminance when darkened by a third of the texture's mean luma
     mov.l   @(44, r8), r1       ! shadeLevel
     mov     r4, r0
     mov.b   @(r0, r1), r3
+    mov     r3, r14             ! the brightest corner's level
     mov     r5, r0
     mov.b   @(r0, r1), r0
     add     r0, r3
-    mov     r6, r0
+    cmp/gt  r14, r0
+    bf      1f
+    mov     r0, r14
+1:  mov     r6, r0
     mov.b   @(r0, r1), r0
     add     r0, r3
-    mov     r7, r0
+    cmp/gt  r14, r0
+    bf      2f
+    mov     r0, r14
+2:  mov     r7, r0
     mov.b   @(r0, r1), r0
     add     r0, r3
-    mov     #64, r0
+    cmp/gt  r14, r0
+    bf      3f
+    mov     r0, r14
+3:  mov     #64, r0
     sub     r3, r0
     mov     r0, r3
     shll2   r0
@@ -496,6 +522,31 @@ _flushAsm:
     shlr8   r0
     shll2   r0                  ! mean luma * 4
     cmp/gt  r3, r0
+    bt      .Lplain
+
+    ! and no channel of the brightest corner past gouraud 31: m + 2L - 16
+    add     r14, r14
+    mov     #47, r0
+    sub     r14, r0
+    mov     r0, r14             ! the brightest channel the corners allow
+    mov.l   @(8, r2), r3
+    shlr16  r3                  ! the texture's mean colour
+    mov     r3, r0
+    and     #31, r0
+    cmp/gt  r14, r0
+    bt      .Lplain
+    mov     r3, r0
+    shlr2   r0
+    shlr2   r0
+    shlr    r0
+    and     #31, r0
+    cmp/gt  r14, r0
+    bt      .Lplain
+    mov     r3, r0
+    shlr8   r0
+    shlr2   r0
+    and     #31, r0
+    cmp/gt  r14, r0
     bt      .Lplain
 
     mov     r4, r0
@@ -545,20 +596,6 @@ _flushAsm:
     or      r3, r0              ! PMOD_GOURAUD to PMOD_GOURAUD_HALF
     bra     .Lfaced
     mov.l   r0, @(4, r10)
-
-.Lplain:
-    mov.l   @(40, r8), r1       ! shadeGouraud
-    SHADE   r4
-    SHADE   r5
-    SHADE   r6
-    SHADE   r7
-    shll16  r4
-    or      r5, r4
-    mov.l   r4, @r11
-    shll16  r6
-    or      r7, r6
-    bra     .Lfaced
-    mov.l   r6, @(4, r11)
 
     .align 2
 .LfacePara2:    .long   0x10000000  ! FACE_PARALLELOGRAM

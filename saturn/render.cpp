@@ -446,8 +446,11 @@ static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room, int
 // gouraud levels are raised to keep each corner as bright as it was. Halving
 // (t + g - 16) leaves t / 2 + (g - 16) / 2, so for corner level L and mean m
 // per channel, g = m + 2 (L - 16) + 16 = m + 2L - 16, which gHalfLevel holds
-// within 0 .. 31 (indexed by m + 2L). Texture.attr's high byte holds the
-// texture's mean luma (renderLevelInit). False for a face drawn as usual.
+// within 0 .. 31 (indexed by m + 2L). A face with a corner too bright for that
+// (m + 2L - 16 past 31 in a channel) is drawn as usual: held at 31, the corner
+// would come out darker and tinted, unlike the faces beside it. Texture.attr's
+// high byte holds the texture's mean luma (renderLevelInit). False for a face
+// drawn as usual.
 static uint8 gHalfLevel[32 + 64];
 
 X_INLINE uint32 halfGouraud(const uint8* r, const uint8* g, const uint8* b, int32 level)
@@ -468,6 +471,10 @@ X_INLINE bool shadeHalf(uint32* w, uint32* grd, uint32 flags, const Vertex* a, c
         return false;
 
     uint32 color = tex->color;
+    int32 lmax = X_MAX(X_MAX(la, lb), X_MAX(lc, ld));
+    int32 mmax = X_MAX(int32(color & 31), X_MAX(int32((color >> 5) & 31), int32((color >> 10) & 31)));
+    if (mmax + 2 * lmax - 16 > 31)
+        return false;
     const uint8* r = gHalfLevel + (color & 31);
     const uint8* g = gHalfLevel + ((color >> 5) & 31);
     const uint8* bl = gHalfLevel + ((color >> 10) & 31);
