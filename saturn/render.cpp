@@ -303,6 +303,7 @@ int32 sphereIsVisible_c(int32 sx, int32 sy, int32 sz, int32 r)
 }
 
 #define TEX_ATTR_DIR  0x0030 // VDP1 flip bits, stored in CMDCTRL layout
+#define CMD_FLIP_H    0x0010
 
 X_INLINE uint32 pair(uint32 hi, uint32 lo)
 {
@@ -466,6 +467,14 @@ X_INLINE void setRect(uint32* w, const Vertex* pos, const Vertex* size)
     w[4] = pair(x1, y0);
     w[5] = pair(x1, y1);
     w[6] = pair(x0, y1);
+}
+
+// How far a corner lies off the frame, in pixels across and down.
+X_INLINE int32 offFrame(const Vertex* v)
+{
+    int32 x = v->x;
+    int32 y = v->y;
+    return X_MAX(0, -x) + X_MAX(0, x - (FRAME_WIDTH - 1)) + X_MAX(0, -y) + X_MAX(0, y - (FRAME_HEIGHT - 1));
 }
 
 // The command words that depend on the face's colour or texture.
@@ -664,6 +673,19 @@ void flush_c()
                     }
 
                     const Vertex* v3 = gVertices + face->indices[3];
+
+                    // VDP1 draws a quad as lines from edge AD to edge BC, each
+                    // ending at its first pixel past the frame once it has
+                    // been on it. A quad further off the frame on its AD side
+                    // is drawn as B A D C, mirrored, so its lines start on it.
+                    if (((v0->clip | v1->clip | v2->clip | v3->clip) & CLIP_FRAME) &&
+                        offFrame(v0) + offFrame(v3) > offFrame(v1) + offFrame(v2))
+                    {
+                        const Vertex* t = v0; v0 = v1; v1 = t;
+                        t = v2; v2 = v3; v3 = t;
+                        w[0] ^= CMD_FLIP_H << 16;
+                    }
+
                     w[3] = v0->xy;
                     w[4] = v1->xy;
                     w[5] = v2->xy;
