@@ -36,7 +36,8 @@ usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD>
 
 For testing, LARA_START=<room> in the environment starts Lara in that room,
 on the walkable floor nearest its centre; LARA_START=<room>:<x>:<z> on that
-sector.
+sector; LARA_START=<room>:<x>:<z>:<degrees> also turns her to that heading,
+to the nearest quarter turn (items keep only that).
 """
 import math
 import os
@@ -762,7 +763,10 @@ def main():
     read_camera_frames(lvl, data_dir)
     if os.environ.get("LARA_START"):
         start = [int(v) for v in os.environ["LARA_START"].split(":")]
-        move_lara(lvl, start[0], tuple(start[1:]) if len(start) == 3 else None)
+        move_lara(lvl, start[0], tuple(start[1:3]) if len(start) >= 3 else None)
+        if len(start) == 4:
+            lara = next(it for it in lvl.items if it["type"] == ITEM["LARA"])
+            lara["rotation"] = (round(start[3] / 90) * 0x4000) & 0xFFFF
     packer = Packer(lvl)
     data = packer.pack()
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
