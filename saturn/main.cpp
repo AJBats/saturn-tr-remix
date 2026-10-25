@@ -34,7 +34,7 @@ static void updateInput()
 // after it starts (about 10 lines).
 static bool inPadWindow()
 {
-    return (VDP2_TVSTAT & TVSTAT_VBLANK) && VDP2_VCNT >= FRAME_HEIGHT + 12;
+    return (VDP2_TVSTAT & TVSTAT_VBLANK) && vdp2Line() >= FRAME_HEIGHT + 12;
 }
 
 int main()

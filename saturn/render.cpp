@@ -7,6 +7,9 @@
 #include "system.h"
 #include "vram.h"
 
+static_assert(FRAME_WIDTH == SCREEN_WIDTH && FRAME_HEIGHT == SCREEN_HEIGHT,
+              "OpenLara frame size must match the display mode");
+
 struct Vertex
 {
     int16 x;

@@ -5,13 +5,6 @@
 #include "input.h"
 #include "hw.h"
 
-#define SMPC_REG(x) (*(volatile uint8_t*)(0x20100000 + (x)))
-#define SMPC_IREG(n) SMPC_REG(0x01 + (n) * 2)
-#define SMPC_COMREG SMPC_REG(0x1F)
-#define SMPC_OREG(n) SMPC_REG(0x21 + (n) * 2)
-#define SMPC_SR     SMPC_REG(0x61)
-#define SMPC_SF     SMPC_REG(0x63)
-
 #define INTBACK     0x10
 #define IREG1_PEN   0x08    // peripheral data enable, 15-byte mode for both ports
 #define IREG0_BREAK 0x40

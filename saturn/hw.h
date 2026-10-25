@@ -53,6 +53,7 @@ typedef struct {
 /* VDP2 */
 #define VDP2_VRAM   0x25E00000
 #define VDP2_TVMD   REG16(0x25F80000)
+#define VDP2_EXTEN  REG16(0x25F80002)   /* reading it latches HCNT/VCNT */
 #define VDP2_TVSTAT REG16(0x25F80004)
 #define VDP2_VCNT   REG16(0x25F8000A)
 #define VDP2_BGON   REG16(0x25F80020)
@@ -67,8 +68,18 @@ typedef struct {
 #define VDP2_CLOFEN REG16(0x25F80110)
 
 #define TVMD_DISP       0x8000
+#define TVMD_VRES_240   0x0010
+#define TVMD_HRES_352   0x0001
 #define TVSTAT_VBLANK   0x0008
 #define SPCTL_SPCLMD    0x0020
+
+/* SMPC (odd bytes only) */
+#define SMPC_REG(x)     (*(volatile uint8_t*)(0x20100000 + (x)))
+#define SMPC_IREG(n)    SMPC_REG(0x01 + (n) * 2)
+#define SMPC_COMREG     SMPC_REG(0x1F)
+#define SMPC_OREG(n)    SMPC_REG(0x21 + (n) * 2)
+#define SMPC_SR         SMPC_REG(0x61)
+#define SMPC_SF         SMPC_REG(0x63)
 
 /* 15-bit colour; bit 15 marks an RGB (non-palette) pixel for VDP1 */
 #define RGB(r, g, b) (0x8000 | ((b) << 10) | ((g) << 5) | (r))

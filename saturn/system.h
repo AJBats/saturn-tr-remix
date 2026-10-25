@@ -4,6 +4,10 @@
 
 #include <stdint.h>
 
+// Display mode set by systemInit: 352x240 non-interlaced, like the original.
+#define SCREEN_WIDTH    352
+#define SCREEN_HEIGHT   240
+
 // Counts vblank-ins once systemInit has installed the interrupt.
 extern volatile uint32_t gVblankCount;
 
@@ -29,6 +33,10 @@ extern FrameStats gStats;
 
 void systemInit();
 void waitVblank();
+
+// Current scanline: 0 at the top of the display, counting on through vblank
+// (vertical sync lines read as higher values still).
+uint32_t vdp2Line();
 
 // VDP1 draws one command list per displayed frame: wait until it is idle
 // (previous frame drawn and on screen), upload the next list, then plot.

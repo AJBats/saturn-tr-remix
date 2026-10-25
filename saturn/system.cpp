@@ -8,6 +8,8 @@
 // BIOS services (function pointers in the BIOS table)
 #define BIOS_SET_SINT   (*(void (**)(uint32_t, void (*)()))0x06000300)  // raw interrupt vector
 #define BIOS_CHG_SCUIM  (*(void (**)(uint32_t, uint32_t))0x06000344)    // SCU mask = (mask & and) | or
+#define BIOS_CHG_SYSCK  (*(void (**)(uint32_t))0x06000320)  // 0: 320-dot clock, 1: 352-dot
+#define BIOS_SYSCK      (*(volatile uint32_t*)0x06000324)   // current clock setting
 
 #define VECTOR_VBLANK_IN    0x40
 #define VECTOR_VBLANK_OUT   0x41
@@ -80,7 +82,7 @@ extern "C" void vblankOutHandler()
 
 extern "C" void spriteEndHandler()
 {
-    gStats.vdp1EndLine = VDP2_VCNT;
+    gStats.vdp1EndLine = vdp2Line();
     gStats.vdp1Ticks = (timerTicks() - gPlotStart) & 0xFFFF;
 }
 
@@ -109,15 +111,15 @@ static void vdp2Init()
     VDP2_BKTAU = (BACK_COLOR_ADDR >> 17) & 7;
     VDP2_BKTAL = (BACK_COLOR_ADDR >> 1) & 0xFFFF;
 
-    VDP2_TVMD = TVMD_DISP;  // 320x224, non-interlaced
+    VDP2_TVMD = TVMD_DISP | TVMD_VRES_240 | TVMD_HRES_352; // non-interlaced
 }
 
 static void vdp1Init()
 {
-    VDP1_TVMR = 0;          // 320x224, 16bpp
+    VDP1_TVMR = 0;          // 16bpp
     VDP1_EWDR = 0;          // erase to transparent
     VDP1_EWLR = 0;
-    VDP1_EWRR = (40 << 9) | 223;
+    VDP1_EWRR = ((SCREEN_WIDTH / 8) << 9) | (SCREEN_HEIGHT - 1);
     VDP1_PTMR = 0;          // plot only when asked
 
     waitVblank();
@@ -128,6 +130,12 @@ static void vdp1Init()
 
 void systemInit()
 {
+    // 352x240 like the original game; the 352-dot clock also runs the CPUs
+    // 6.6% faster. The BIOS handles the SMPC's NMI and resets the VDPs.
+    if (BIOS_SYSCK != 1) {
+        BIOS_CHG_SYSCK(1);
+    }
+
     vdp2Init();
     vdp1Init();
 
@@ -143,6 +151,12 @@ void waitVblank()
 {
     while (VDP2_TVSTAT & TVSTAT_VBLANK);
     while (!(VDP2_TVSTAT & TVSTAT_VBLANK));
+}
+
+uint32_t vdp2Line()
+{
+    (void)VDP2_EXTEN;   // latch the counter
+    return VDP2_VCNT & 0x1FF;
 }
 
 uint32_t timerTicks()
