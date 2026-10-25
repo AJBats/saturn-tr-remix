@@ -79,12 +79,16 @@ const void* osLoadLevel(LevelID id)
 
     loadOrHalt(name, ".PKD", LEVEL_ADDR, LEVEL_MAX);
 
-    // sound effects straight to sound RAM (some cutscenes have none)
+    // sound effects straight to sound RAM, and inventory item textures (some
+    // cutscenes have neither)
     char path[32] = "DATA/";
     strcat(path, name);
     strcat(path, ".SFX");
     sndStop();
     cdLoadFile(path, (void*)(SOUND_RAM + SOUND_SAMPLES_ADDR), SOUND_RAM_SIZE - SOUND_SAMPLES_ADDR);
+
+    strcpy(path + strlen(path) - 3, "ITX");
+    detailItemInit(X_MAX(0, cdLoadFile(path, detailItemData(), detailItemDataMax())));
 
     return LEVEL_ADDR;
 }

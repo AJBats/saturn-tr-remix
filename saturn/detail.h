@@ -37,4 +37,13 @@ inline uint32_t detailSlotAddr(int32_t slot)
 // be idle: slots replaced this frame may hold textures it drew last frame.
 void detailFlush();
 
+// Inventory item textures (DATA/<level>.ITX) use the cache's VRAM while the
+// inventory is open: suspending empties and stops the cache and puts them
+// there at the next detailFlush.
+uint8_t* detailItemData();
+uint32_t detailItemDataMax();
+void detailItemInit(uint32_t size);
+void detailSuspend();
+void detailResume();
+
 #endif

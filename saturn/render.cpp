@@ -41,8 +41,20 @@ union Command
 static ALIGN16 Command gCmds[MAX_CMDS];
 static ALIGN16 uint32 gGouraud[MAX_CMDS][2];
 
-// TR shade 0 (lit) .. 31 (dark) as a VDP1 gouraud entry (16 = colour unchanged)
+// TR shade 0 (lit) .. 31 (dark) as a VDP1 gouraud entry (16 = colour unchanged),
+// and dimmed, for the scene behind the inventory
 static uint16 gShadeGouraud[32];
+static uint16 gDimGouraud[32];
+
+extern Lara* players[MAX_PLAYERS];
+
+// The inventory draws over the paused game: copyBackground returns this
+// marker, and renderBackground redraws the scene behind it, dimmed, each
+// frame. Its item textures replace the full-res room texture cache meanwhile.
+static uint8 gSceneBackground;
+static bool gInventoryFrame;    // renderBackground ran this frame
+static bool gItemTextures;      // item textures are in VRAM
+static Face* gDimFacesEnd;      // the master's faces before this are the scene
 
 int32 gRenderFaceCount; // VDP1 polygons emitted by the last flush
 
@@ -174,7 +186,7 @@ void faceAddMeshTriangles(const MeshTriangle* polys, int32 count)
         flags |= FACE_TRIANGLE;
 
         uint32 arrangement = polys->indices[3];
-        if (((flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) != FACE_TYPE_F)
+        if (((flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) != FACE_TYPE_F && !(arrangement & 0x80))
         {
             flags |= FACE_PARALLELOGRAM;
             if (arrangement & 1) {
@@ -271,8 +283,10 @@ X_INLINE uint32 waterGouraud(const Vertex* v)
     return (c << 10) | (c << 5) | r;
 }
 
-X_INLINE uint32 gouraudPair(uint32 flags, const Vertex* a, const Vertex* b)
+X_INLINE uint32 gouraudPair(uint32 flags, bool dim, const Vertex* a, const Vertex* b)
 {
+    if (dim)
+        return (gDimGouraud[a->g] << 16) | gDimGouraud[b->g];
     if (flags & FACE_WATER)
         return (waterGouraud(a) << 16) | waterGouraud(b);
     return shadePair(a->g, b->g);
@@ -375,6 +389,9 @@ void flush_c()
             uint32 flags = face->flags;
             uint32 type = (flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK;
 
+            // rooms, and what was drawn with them, behind the inventory
+            bool dim = gInventoryFrame && (!list || face < gDimFacesEnd);
+
             if (count == MAX_CMDS - 1)
                 break;
 
@@ -437,8 +454,8 @@ void flush_c()
                             w[4] = p;
                             w[5] = v2->xy;
                             w[6] = v0->xy;
-                            grd[0] = gouraudPair(flags, v1, v1);
-                            grd[1] = gouraudPair(flags, v2, v0);
+                            grd[0] = gouraudPair(flags, dim, v1, v1);
+                            grd[1] = gouraudPair(flags, dim, v2, v0);
                         }
                         else
                         {
@@ -446,8 +463,8 @@ void flush_c()
                             w[4] = v1->xy;
                             w[5] = p;
                             w[6] = v2->xy;
-                            grd[0] = gouraudPair(flags, v0, v1);
-                            grd[1] = gouraudPair(flags, v2, v2);
+                            grd[0] = gouraudPair(flags, dim, v0, v1);
+                            grd[1] = gouraudPair(flags, dim, v2, v2);
                         }
                         break;
                     }
@@ -457,8 +474,8 @@ void flush_c()
                     w[4] = v1->xy;
                     w[5] = v2->xy;
                     w[6] = v3->xy;
-                    grd[0] = gouraudPair(flags, v0, v1);
-                    grd[1] = gouraudPair(flags, v2, v3);
+                    grd[0] = gouraudPair(flags, dim, v0, v1);
+                    grd[1] = gouraudPair(flags, dim, v2, v3);
                 }
             }
 
@@ -476,6 +493,14 @@ void flush_c()
     gStats.waitTicks = (timerTicks() - waitStart) & 0xFFFF;
 
     detailFlush();
+    if (gItemTextures && !gInventoryFrame)
+    {
+        detailResume();
+        gItemTextures = false;
+    }
+    gInventoryFrame = false;
+    gDimFacesEnd = gFaces;
+
     dmaCopy(gCmds, VDP1_VRAM + VRAM_FRAME_CMDS, (count + 1) * sizeof(Command));
     dmaCopy(gGouraud, VDP1_VRAM + VRAM_GOURAUD_BASE, count * sizeof(gGouraud[0]));
     dmaWait();
@@ -490,7 +515,10 @@ void renderInit()
     {
         uint32 c = 31 - g;
         gShadeGouraud[g] = (c << 10) | (c << 5) | c;
+        uint32 d = X_MAX(int32(c) - 8, 0);
+        gDimGouraud[g] = (d << 10) | (d << 5) | d;
     }
+    gDimFacesEnd = gFaces;
 
     // The frame's first command clears it, as the original does: vblank erase
     // can't cover a 352-wide frame in time. A scaled sprite of colour 0 with
@@ -806,10 +834,24 @@ void renderBar(int32 x, int32 y, int32 width, int32 value, BarType type)
 
 void renderBackground(const void* background)
 {
-    // TODO
+    gInventoryFrame = true;
+    if (!gItemTextures)
+    {
+        detailSuspend();
+        gItemTextures = true;
+    }
+
+    ItemObj* lara = (ItemObj*)(void*)players[0];
+    if (background != &gSceneBackground || !lara)
+        return;
+
+    Camera &camera = lara->extraL->camera;
+    matrixSetView(camera.view.pos, camera.angle.x, camera.angle.y);
+    drawRooms(&camera);
+    gDimFacesEnd = gFaceList.next;
 }
 
 void* copyBackground()
 {
-    return NULL;
+    return &gSceneBackground;
 }

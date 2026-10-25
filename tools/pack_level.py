@@ -20,10 +20,14 @@ Sound effects keep the original's samples (16-bit PCM at 5512.5 Hz). They
 go to a separate file the game loads into sound RAM; the PKD holds the sound
 map, the sound infos and each sample's offset in that file.
 
+Inventory item textures go to another file, which the game puts in the VRAM
+after the blob (where full-res room textures are cached during play) while
+the inventory is open.
+
 usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD>
        (also writes <out>.TEX, the texture blob loaded at VRAM_TEX_BASE,
-       <out>.SUB, the full-resolution room textures, and <out>.SFX, the
-       sound samples)
+       <out>.SUB, the full-resolution room textures, <out>.SFX, the sound
+       samples, and <out>.ITX, the inventory item textures)
 
 For testing, LARA_START=<room> in the environment starts Lara in that room,
 on the walkable floor nearest its centre; LARA_START=<room>:<x>:<z> on that
@@ -157,8 +161,10 @@ class TextureTable:
         self.obj_off = self.add_segment(lvl.object_tex_data)
         self.room_off = self.add_segment(lvl.room_tex_qtr)
         self.spr_off = self.add_segment(lvl.sprite_tex_data)
-        if len(self.blob) > 0x80000 - VRAM_TEX_BASE:
-            raise ValueError(f"textures need {len(self.blob)} bytes of VDP1 VRAM")
+        # the VRAM after the blob: full-res room texture cache, or item textures
+        self.cache_off = (len(self.blob) + 31) & ~31
+        if self.cache_off + len(lvl.item_tex_data) > 0x80000 - VRAM_TEX_BASE:
+            raise ValueError(f"textures need {self.cache_off + len(lvl.item_tex_data)} bytes of VDP1 VRAM")
         self.entries = []
         self.index = {}
         for t in lvl.room_textures:
@@ -204,14 +210,12 @@ class TextureTable:
         return self.index[key]
 
     def item(self, tex, attr):
-        """Inventory item textures are not in VRAM yet: flat colour only."""
+        """Inventory item textures, in VRAM after the blob while the inventory is open."""
         key = ("item", tex, attr)
         if key not in self.index:
             t = self.lvl.item_textures[tex]
-            color = texture_average(self.lvl.item_tex_data, t["tile"], t["clut"], t["w"], t["h"],
-                                    attr & TEX_ATTR_AKILL)
             self.index[key] = len(self.entries)
-            self.entries.append([0, 0, ((t["w"] // 8) << 8) | t["h"], attr, color, 0])
+            self.entries.append(self.entry(self.lvl.item_tex_data, self.cache_off, t, t["tile"], attr))
         return self.index[key]
 
     def pack(self):
@@ -226,6 +230,7 @@ class TextureTable:
 # bit 0: v0 at corner D (else A), bit 1: the other two corners swapped.
 TRIANGLE_VARIANT = {0: 1, 10: 1, 2: 2, 8: 2, 4: 3, 14: 3, 6: 4, 12: 4}
 TRIANGLE_ARRANGEMENT = {0: 0, 4: 0, 10: 2, 14: 2, 2: 1, 6: 1, 8: 3, 12: 3}
+TRIANGLE_PLAIN = 0x80   # a textured triangle drawn without the parallelogram
 
 
 class Packer:
@@ -358,8 +363,12 @@ class Packer:
         for ftype, idx, flags in quads:
             out.pack("H4B", self.mesh_face_flags(index, ftype, flags), *idx)
         for ftype, idx, flags in tris:
-            textured = ftype != trsat.MESH_T_COLOR
-            arrangement = TRIANGLE_ARRANGEMENT[flags >> 12] if textured else 0
+            if ftype == trsat.MESH_T_COLOR:
+                arrangement = 0
+            elif index in self.inventory_meshes:
+                arrangement = TRIANGLE_PLAIN    # item textures have no triangle variants
+            else:
+                arrangement = TRIANGLE_ARRANGEMENT[flags >> 12]
             out.pack("H4B", self.mesh_face_flags(index, ftype, flags), *idx, arrangement)
 
     # --- animation -------------------------------------------------------
@@ -585,6 +594,8 @@ def main():
     sfx_path = os.path.splitext(out_path)[0] + ".SFX"
     with open(sfx_path, "wb") as f:
         f.write(packer.sfx)
+    with open(os.path.splitext(out_path)[0] + ".ITX", "wb") as f:
+        f.write(lvl.item_tex_data)
     print(f"{name}: {len(data)} bytes -> {out_path}, {len(packer.textures.blob)} bytes -> {tex_path}, "
           f"{len(lvl.room_tex_sub)} bytes -> {sub_path}, {len(packer.sfx)} bytes -> {sfx_path}, "
           f"{len(packer.textures.entries)} textures")
