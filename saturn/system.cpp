@@ -24,7 +24,6 @@
 #define FRT_TCR     (*(volatile uint8_t*)0xFFFFFE16)
 
 #define EDSR_CEF    0x0002  // VDP1 finished drawing the current frame
-#define TVMR_VBE    0x0008  // erase the frame buffer during vblank
 #define FBCR_FCM    0x0002  // manual frame buffer change
 #define FBCR_FCT    0x0001  // change frame buffers at the next field
 
@@ -58,7 +57,7 @@ extern "C" void vblankInHandler()
     {
         if (VDP1_EDSR & EDSR_CEF)
         {
-            VDP1_TVMR = TVMR_VBE;
+            VDP1_TVMR = 0;          // no vblank erase: each frame starts with a clear
             VDP1_FBCR = FBCR_FCM | FBCR_FCT;
             gVdp1State = VDP1_CHANGING;
         }

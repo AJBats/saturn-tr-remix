@@ -167,7 +167,8 @@ class TextureTable:
             self.entries.append(e)
 
     def add_segment(self, data):
-        while len(self.blob) & 7:
+        # colour lookup tables in VRAM must be 32-byte aligned
+        while len(self.blob) & 31:
             self.blob.append(0)
         off = len(self.blob)
         self.blob += data

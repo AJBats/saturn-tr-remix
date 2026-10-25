@@ -360,7 +360,7 @@ void flush_c()
     gFaceList.next = gFaces;
 
     uint32 grdBase = VRAM_GOURAUD_BASE >> 3;
-    int32 count = 0;
+    int32 count = 1; // gCmds[0] clears the frame (renderInit)
 
     // far to near; in each bucket rooms (the slave's) before what stands in them
     for (int32 i = OT_SIZE - 1; i >= 0; i--)
@@ -490,6 +490,21 @@ void renderInit()
     {
         uint32 c = 31 - g;
         gShadeGouraud[g] = (c << 10) | (c << 5) | c;
+    }
+
+    // The frame's first command clears it, as the original does: vblank erase
+    // can't cover a 352-wide frame in time. A scaled sprite of colour 0 with
+    // transparency off writes 0 (VDP2 shows the back colour) everywhere.
+    REG32(VDP1_VRAM + VRAM_CLEAR_TEX) = 0;
+    REG32(VDP1_VRAM + VRAM_CLEAR_TEX + 4) = 0;
+    {
+        uint32* w = gCmds[0].w;
+        w[0] = CMD_SCALED_SPRITE << 16;
+        w[1] = pair(PMOD_SPD_OFF, 0);
+        w[2] = pair(VRAM_CLEAR_TEX >> 3, (1 << 8) | 1);
+        w[3] = pair(0, 0);
+        w[5] = pair(FRAME_WIDTH - 1, FRAME_HEIGHT - 1);
+        w[7] = 0;
     }
 
     // slots 0-2: system clip, user clip, local coordinates; frame commands follow

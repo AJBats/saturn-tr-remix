@@ -25,7 +25,7 @@ static void updateInput()
         { PAD_A,     IK_A     }, { PAD_B,     IK_B     }, { PAD_C, IK_C },
         { PAD_X,     IK_X     }, { PAD_Y,     IK_Y     }, { PAD_Z, IK_Z },
         { PAD_L,     IK_L     }, { PAD_R,     IK_R     },
-        { PAD_START, IK_START }
+        { PAD_START, IK_SELECT }    // inventory, as in the original (IK_START is a free camera)
     };
 
     keys = 0;
