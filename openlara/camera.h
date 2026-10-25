@@ -99,6 +99,7 @@ void Camera::init(ItemObj* lara)
     timer = 0;
     index = -1;
     lastIndex = -1;
+    shake = 0;
 
     mode = CAMERA_MODE_FOLLOW;
 
@@ -507,7 +508,15 @@ void Camera::update()
     vec3i dir = target.pos - view.pos;
     anglesFromVector(dir.x, dir.y, dir.z, angle.x, angle.y);
 
-    matrixSetView(view.pos, angle.x, angle.y);
+    // earthquakes and stomps bob the view: sin(7 pi t) * t * 48, t in seconds
+    vec3i pos = view.pos;
+    if (shake > 0)
+    {
+        pos.y += (sin(shake * (7 * ANGLE_180 / 30)) * shake * 48 / 30) >> FIXED_SHIFT;
+        shake--;
+    }
+
+    matrixSetView(pos, angle.x, angle.y);
 }
 
 void Camera::toCombat()

@@ -257,9 +257,167 @@ void updateFading(int32 frames)
     palSet(level.palette, gSettings.video_gamma << 4, gBrightness);
 }
 
+// Swaps every room that has an alternate with it: geometry, sectors and
+// portals change, the items stay. Resting blocks raise the floor they stand on,
+// so they lift it from the old version and put it on the new.
+static void flipBlocks(Room* room, int32 offset)
+{
+    for (ItemObj* item = room->firstItem; item; item = item->nextItem)
+    {
+        if (item->type < ITEM_BLOCK_1 || item->type > ITEM_BLOCK_4)
+            continue;
+
+        uint32 status = item->flags & ITEM_FLAG_STATUS;
+        if (status == ITEM_FLAG_STATUS_INVISIBLE || status == ITEM_FLAG_STATUS_ACTIVE)
+            continue;
+
+        ((Block*)item)->updateFloor(offset);
+    }
+}
+
+void flipMap()
+{
+    for (int32 i = 0; i < level.roomsCount; i++)
+    {
+        Room* room = rooms + i;
+        if (room->alternateRoom == NO_ROOM)
+            continue;
+
+        Room* alt = rooms + room->alternateRoom;
+
+        flipBlocks(room, 1024);
+
+        X_SWAP(room->info, alt->info);
+        X_SWAP(room->sectors, alt->sectors);
+        X_SWAP(room->data, alt->data);
+
+        flipBlocks(room, -1024);
+    }
+
+    gSaveGame.flipped ^= 1;
+}
+
+void shakeCamera(int32 frames, bool add)
+{
+    for (int32 i = 0; i < MAX_PLAYERS; i++)
+    {
+        if (!players[i])
+            continue;
+
+        Camera &camera = players[i]->extraL->camera;
+        camera.shake = add ? camera.shake + frames : frames;
+    }
+}
+
+// Level effects, from triggers and animations (OpenLara's Level::setEffect
+// and updateEffect), in 30 Hz frames.
+static int32 gEffect = FX_NONE;
+static int32 gEffectTimer;
+static int32 gEffectIdx;
+
+void setEffect(int32 effect, const ItemObj* item)
+{
+    gEffect = effect;
+    gEffectTimer = 0;
+    gEffectIdx = 0;
+
+    switch (effect)
+    {
+        case FX_FLOOR_SHAKE:
+        {
+            // up to half a second, fading out 15 sectors away
+            const int32 range = (15 * 1024) >> 4;
+            for (int32 i = 0; i < MAX_PLAYERS; i++)
+            {
+                if (!players[i] || !item)
+                    continue;
+
+                Camera &camera = players[i]->extraL->camera;
+                int32 dx = (item->pos.x - camera.view.pos.x) >> 4;
+                int32 dy = (item->pos.y - camera.view.pos.y) >> 4;
+                int32 dz = (item->pos.z - camera.view.pos.z) >> 4;
+                if (X_MAX(X_MAX(abs(dx), abs(dy)), abs(dz)) >= range)
+                    continue;
+
+                int32 d2 = dx * dx + dy * dy + dz * dz;
+                camera.shake = X_MAX(0, 15 * (range * range - d2) / (range * range));
+            }
+            gEffect = FX_NONE;
+            break;
+        }
+
+        case FX_FLOOD:
+            soundPlay(SND_FLOOD, NULL);
+            break;
+
+        case FX_STAIRS2SLOPE:
+            soundPlay(SND_STAIRS2SLOPE, NULL);
+            break;
+
+        case FX_EXPLOSION:
+            soundPlay(SND_TNT, NULL);
+            shakeCamera(30, false);
+            break;
+    }
+}
+
+static void updateEffect(int32 frames)
+{
+    if (gEffect == FX_NONE)
+        return;
+
+    gEffectTimer += frames;
+
+    switch (gEffect)
+    {
+        case FX_TR1_FLICKER:
+        {
+            // the lights go out and come back: the rooms flip back and forth
+            static const uint8 times[] = { 90, 93, 105, 108, 123 };
+            while (gEffectIdx < 5 && gEffectTimer > times[gEffectIdx])
+            {
+                gEffectIdx++;
+                flipMap();
+            }
+            if (gEffectIdx == 5) {
+                gEffect = FX_NONE;
+            }
+            break;
+        }
+
+        case FX_EARTHQUAKE:
+        {
+            static const struct { uint8 time; int16 sound; uint8 shake; } steps[] = {
+                {  0, SND_ROCK,    30 },
+                {  3, SND_STOMP,   0  },
+                { 18, SND_BOULDER, 15 },
+                { 33, SND_ROCK,    0  },
+                { 48, SND_BOULDER, 15 },
+                { 69, SND_BOULDER, 15 },
+            };
+            while (gEffectIdx < 6 && gEffectTimer > steps[gEffectIdx].time)
+            {
+                soundPlay(steps[gEffectIdx].sound, NULL);
+                if (steps[gEffectIdx].shake) {
+                    shakeCamera(steps[gEffectIdx].shake, gEffectIdx > 0);
+                }
+                gEffectIdx++;
+            }
+            if (gEffectIdx == 6) {
+                gEffect = FX_NONE;
+            }
+            break;
+        }
+
+        default:
+            gEffect = FX_NONE;
+    }
+}
+
 void updateLevel(int32 frames)
 {
     updateFading(frames);
+    updateEffect(frames);
 
     gCausticsFrame += frames;
 

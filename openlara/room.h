@@ -967,6 +967,9 @@ void checkTrigger(const FloorData* fd, ItemObj* lara)
         }
     }
 
+    bool needFlip = false;
+    int32 effect = FX_NONE;
+
     while (1)
     {
         uint16 triggerCmd = *fd++;
@@ -1050,20 +1053,52 @@ void checkTrigger(const FloorData* fd, ItemObj* lara)
             }
 
             case TRIGGER_ACTION_FLOW:
-                // TODO flow
+            {
+                if (lara) {
+                    lara->extraL->flowSink = level.cameras + FD_ARGS(triggerCmd);
+                }
                 break;
+            }
 
             case TRIGGER_ACTION_FLIP:
-                // TODO flipmap
+            {
+                uint8 &flip = gSaveGame.flipmaps[FD_ARGS(triggerCmd)];
+
+                if (flip & FLIP_FLAG_ONCE)
+                    break;
+
+                if (FD_TRIGGER_TYPE(cmd) == TRIGGER_TYPE_SWITCH) {
+                    flip ^= FD_MASK(data);
+                } else {
+                    flip |= FD_MASK(data);
+                }
+
+                bool active = (flip & FLIP_FLAG_MASK) == FLIP_FLAG_MASK;
+                if (active && FD_ONCE(data)) {
+                    flip |= FLIP_FLAG_ONCE;
+                }
+
+                if (active != (gSaveGame.flipped != 0)) {
+                    needFlip = true;
+                }
                 break;
+            }
 
             case TRIGGER_ACTION_FLIP_ON:
-                // TODO flipmap
+            {
+                if ((gSaveGame.flipmaps[FD_ARGS(triggerCmd)] & FLIP_FLAG_MASK) == FLIP_FLAG_MASK && !gSaveGame.flipped) {
+                    needFlip = true;
+                }
                 break;
+            }
 
             case TRIGGER_ACTION_FLIP_OFF:
-                // TODO flipmap
+            {
+                if ((gSaveGame.flipmaps[FD_ARGS(triggerCmd)] & FLIP_FLAG_MASK) == FLIP_FLAG_MASK && gSaveGame.flipped) {
+                    needFlip = true;
+                }
                 break;
+            }
 
             case TRIGGER_ACTION_CAMERA_TARGET:
             {
@@ -1106,7 +1141,7 @@ void checkTrigger(const FloorData* fd, ItemObj* lara)
             }
 
             case TRIGGER_ACTION_EFFECT:
-                // TODO effect
+                effect = FD_ARGS(triggerCmd);
                 break;
 
             case TRIGGER_ACTION_SECRET:
@@ -1132,6 +1167,13 @@ void checkTrigger(const FloorData* fd, ItemObj* lara)
         if (FD_END(triggerCmd))
             break;
     };
+
+    // a trigger's effect comes with its flip
+    if (needFlip)
+    {
+        flipMap();
+        setEffect(effect, lara);
+    }
 
     if (cameraItem && (camera->mode == CAMERA_MODE_FIXED || camera->mode == CAMERA_MODE_OBJECT))
     {

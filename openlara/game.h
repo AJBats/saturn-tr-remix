@@ -14,11 +14,13 @@ EWRAM_DATA LevelID gNextLevel = LVL_MAX;
 
 void nextLevel(LevelID next)
 {
+#if !defined(__SATURN__) // the Saturn has every level
     if ((next == LVL_TR1_3A) && (inventory.state == INV_STATE_NONE)) // alpha version
     {
         inventory.open(players[0], INV_PAGE_END);
         return;
     }
+#endif
     gNextLevel = next;
 }
 
@@ -56,6 +58,13 @@ bool gameLoad()
     gLevelID = (LevelID)gSaveGame.level;
     startLevel(gLevelID);
     gSaveGame = tmp;
+
+    // the level loads unflipped
+    if (gSaveGame.flipped)
+    {
+        gSaveGame.flipped = 0;
+        flipMap();
+    }
 
     inventory.setSlots(gSaveGame.invSlots);
 
@@ -140,6 +149,7 @@ void gameLoadLevel(const void* data)
     gCurTrack = -1;
 
     readLevel((uint8*)data);
+    setEffect(FX_NONE, NULL);
 
     // prepare rooms
     for (int32 i = 0; i < level.roomsCount; i++)

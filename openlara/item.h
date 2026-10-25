@@ -376,9 +376,17 @@ void ItemObj::animCmd(bool fx, const Anim* anim)
                             break;
                         }
 
-                    /*
-                        case FX_FLOOR_SHAKE    : ASSERT(false);
-                    */
+                        case FX_FLOOR_SHAKE :
+                        {
+                            setEffect(FX_FLOOR_SHAKE, this);
+                            break;
+                        }
+
+                        case FX_FLIP_MAP :
+                        {
+                            flipMap();
+                            break;
+                        }
 
                         case FX_LARA_NORMAL :
                         {

@@ -33,6 +33,7 @@ bool read_PKD(DataStream &f)
 
             room->sectors = room->data.sectors;
             room->firstItem = NULL;
+            room->alternateRoom = room->info->alternateRoom;
         }
     }
 

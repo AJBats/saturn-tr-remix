@@ -3078,6 +3078,41 @@ struct Lara : ItemObj
         extraL->camera.targetAngle.x = ANGLE(-22);
     }
 
+    // The water current a FLOW trigger sets for the frame (TR1's
+    // LaraWaterCurrent): Lara drifts towards the sink, at its speed, along a path
+    // through the boxes as a swimming creature would take.
+    void updateFlow()
+    {
+        const FixedCamera* sink = extraL->flowSink;
+        extraL->flowSink = NULL;
+
+        if (!sink)
+            return;
+
+        uint32 boxIndex = room->getSector(pos.x, pos.z)->boxIndex;
+        if (boxIndex == NO_BOX)
+            return;
+
+        Nav &nav = extraL->nav;
+        if (extraL->navSink != sink)
+        {
+            nav.stepHeight = 20 * 1024;
+            nav.dropHeight = -20 * 1024;
+            nav.vSpeed = 256;
+            nav.init(boxIndex);
+            nav.nextBox = sink->flags; // a sink's flags are its box
+            nav.pos = sink->pos;
+            extraL->navSink = sink;
+        }
+
+        vec3i target = nav.getWaypoint(boxIndex, pos);
+
+        int32 speed = sink->roomIndex * 6; // ... and its room its strength
+        pos.x += X_CLAMP(target.x - pos.x, -speed, speed);
+        pos.y += X_CLAMP(target.y - pos.y, -speed, speed);
+        pos.z += X_CLAMP(target.z - pos.z, -speed, speed);
+    }
+
     void updateUnder()
     {
         cinfo.trigger     = NULL;
@@ -3092,6 +3127,8 @@ struct Lara : ItemObj
         cinfo.stopOnLava  = false;
 
         updateState();
+
+        updateFlow();
 
         angle.z = angleDec(angle.z, ANGLE(2));
         turnSpeed = angleDec(turnSpeed, ANGLE(2));
@@ -3891,6 +3928,10 @@ struct Lara : ItemObj
             } else {
                 oxygen = X_MIN(oxygen + 10, LARA_MAX_OXYGEN);
             }
+        }
+
+        if (waterState != WATER_STATE_UNDER) {
+            extraL->flowSink = NULL; // currents pull only under water
         }
 
         switch (waterState)

@@ -505,6 +505,14 @@ extern uint8* vramPtr;
 #define X_CLAMP(x, a, b) ((x) < (a) ? (a) : ((x) > (b) ? (b) : (x)))
 #define X_MIN(a,b)       ((a) < (b) ? (a) : (b))
 #define X_MAX(a,b)       ((a) > (b) ? (a) : (b))
+
+template <class T>
+X_INLINE void X_SWAP(T &a, T &b)
+{
+    T t = a;
+    a = b;
+    b = t;
+}
 #define X_SQR(x)         ((x) * (x))
 #define X_COUNT(x)       int32(sizeof(x) / sizeof(x[0]))
 
@@ -934,7 +942,7 @@ struct Room {
     RoomData data;
 
     RectMinMax clip;
-    uint8 _reserved;
+    uint8 alternateRoom; // the room flip maps swap with this one, or NO_ROOM (info is swapped with the rest)
     bool visible;
 
     void modify();
@@ -1392,6 +1400,8 @@ struct Camera {
     bool lastFixed;
     bool center;
 
+    int32 shake; // frames left of shaking
+
     void initCinematic();
     void updateCinematic();
 
@@ -1580,7 +1590,9 @@ struct ExtraInfoLara
 
     int16 ammo[WEAPON_MAX]; // TODO make global
 
-    Nav nav;
+    Nav nav;                        // paths the water current (TR1's LOT for Lara)
+    const FixedCamera* flowSink;    // the current's sink, from this frame's trigger
+    const FixedCamera* navSink;     // the sink nav leads to
 
     uint16 lastInput;
     int8 healthTimer;
@@ -1742,7 +1754,11 @@ struct ItemObj
 #define TRACK_FLAG_ONCE     32
 #define TRACK_FLAG_MASK     31
 
-#define SAVEGAME_VER    2
+#define MAX_FLIPMAPS        16
+#define FLIP_FLAG_ONCE      32
+#define FLIP_FLAG_MASK      31
+
+#define SAVEGAME_VER    3
 #define SAVEGAME_SIZE   (8 * 1024)  // 8k EWRAM
 
 struct SaveGame
@@ -1764,6 +1780,7 @@ struct SaveGame
     uint16 flipped;
     uint8  tracks[64];
     uint16 invSlots[64];
+    uint8  flipmaps[MAX_FLIPMAPS];
 };
 
 #define SETTINGS_VER    3
@@ -2901,6 +2918,8 @@ bool usePickup(ItemObj* item);
 
 void startLevel(LevelID id);
 void nextLevel(LevelID next);
+void flipMap();
+void setEffect(int32 effect, const ItemObj* item);
 bool gameSave();
 bool gameLoad();
 
