@@ -1,7 +1,7 @@
-! Room vertex transform for the slave CPU (rooms.cpp, transformRoom): the C
-! version's arithmetic, with the matrix rows on the multiply-accumulate unit
-! and each vertex written as two longwords. Rooms with water caustics use the
-! C version.
+! Room vertex transform for the slave CPU (rooms.cpp): projectRoomPoint's
+! arithmetic, with the matrix rows on the multiply-accumulate unit and each
+! vertex written as two longwords. Water rooms add caustics to the shade and
+! ripple on screen.
 !
 ! void transformRoomAsm(const RoomVertex* src, int32 count, Vertex* dst, RoomXform* xf)
 !
@@ -12,6 +12,10 @@
 !   +36 int32 x0, y0, x1, y1    viewport
 !   +52 const uint16* divTable
 !   +56 int32 zMin, zMax    near and far planes << 8
+!   +64 const int8* wibble  ripple offsets (32), or NULL for rooms not under water
+!   +68 int32 phase         ripple phase
+!   +72 const int16* caustics   shade offsets (32), by vertex index
+!   +76 int32 count         the room's vertex count
 !
 ! Vertex (render.h): int16 x, y; int16 z; uint8 g, clip.
 
@@ -202,20 +206,60 @@ _transformRoomAsm:
     bf      19f
     add     #CLIP_BOTTOM, r14
 19:
-    ! fog: g += (z - FOG_MIN) >> 7, at most 31
+    shll8   r3                  ! shade << 8 from here
+    mov     #64, r0
+    mov.l   @(r0, r7), r9       ! ripple table: under water only
+    tst     r9, r9
+    bt      22f
+
+    ! caustics: shade += caustics[vertex index & 31], within 0..8191
+    mov     #72, r0
+    mov.l   @(r0, r7), r1       ! caustics
+    mov     #76, r0
+    mov.l   @(r0, r7), r0
+    sub     r5, r0              ! index = count - vertices left
+    and     #31, r0
+    add     r0, r0
+    mov.w   @(r0, r1), r0
+    add     r0, r3
+    cmp/pz  r3
+    bt      21f
+    mov     #0, r3
+21: mov.w   .LshadeMax, r1
+    cmp/gt  r1, r3
+    bf      23f
+    mov     r1, r3
+23:
+    ! ripple of what is on the frame: x, y += wibble[(phase + x or y) & 31]
+    mov     r14, r0
+    tst     #CLIP_FRAME, r0
+    bf      22f
+    mov     #68, r0
+    mov.l   @(r0, r7), r1
+    mov     r12, r0
+    add     r1, r0
+    and     #31, r0
+    mov.b   @(r0, r9), r0
+    add     r0, r12
+    mov     r13, r0
+    add     r1, r0
+    and     #31, r0
+    mov.b   @(r0, r9), r0
+    add     r0, r13
+22:
+    ! fog: shade += (z - FOG_MIN) << 1, at most 8191
     mov.w   .LfogMin, r1
     mov     r11, r0
     sub     r1, r0
     cmp/pl  r0
     bf      20f
     shll    r0
-    shlr8   r0
     add     r0, r3
-    mov     #31, r1
+    mov.w   .LshadeMax, r1
     cmp/gt  r1, r3
     bf      20f
     mov     r1, r3
-20:
+20: shlr8   r3
     ! store x|y, z|g|clip
     shll16  r12
     extu.w  r13, r13
@@ -251,3 +295,4 @@ _transformRoomAsm:
 .LframeHeight:  .short  240         ! FRAME_HEIGHT
 .LcoordMax:     .short  1023        ! VDP1_COORD_MAX
 .LfogMin:       .short  8192        ! FOG_MIN
+.LshadeMax:     .short  8191        ! shade << 8 at its darkest

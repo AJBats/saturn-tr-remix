@@ -34,7 +34,6 @@ enum Kernel {
 };
 
 extern int32 gRenderFaceCount;
-void transformRoom(const RoomVertex* vertices, int32 count, bool underwater);
 
 #define GRID_X 16
 #define GRID_Z 32

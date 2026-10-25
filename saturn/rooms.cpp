@@ -61,21 +61,28 @@ struct RoomXform
     int32 x0, y0, x1, y1;   // viewport
     const uint16* divTable;
     int32 zMin, zMax;       // near and far planes << 8
+    const int8* wibble;     // gWibble for water rooms, else NULL
+    int32 phase;            // ... its phase
+    const int16* caustics;  // shade offsets by vertex index, for water rooms
+    int32 count;            // vertices
 };
 
 static_assert(offsetof(RoomXform, rows) == 6 && offsetof(RoomXform, tx) == 24 &&
               offsetof(RoomXform, x0) == 36 && offsetof(RoomXform, divTable) == 52 &&
-              offsetof(RoomXform, zMin) == 56, "RoomXform layout is shared with xform.s");
+              offsetof(RoomXform, zMin) == 56 && offsetof(RoomXform, wibble) == 64 &&
+              offsetof(RoomXform, caustics) == 72 && offsetof(RoomXform, count) == 76,
+              "RoomXform layout is shared with xform.s");
 static_assert(sizeof(Vertex) == 8 && offsetof(Vertex, z) == 4 && offsetof(Vertex, clip) == 7,
               "Vertex layout is shared with xform.s");
 static_assert(sizeof(RoomVertex) == 4, "xform.s reads RoomVertex as x, y, z, g bytes");
 static_assert(FRAME_WIDTH == 352 && FRAME_HEIGHT == 240 && VDP1_COORD_MAX == 1023 &&
-              FOG_MIN == 8192 && FOG_SHIFT == 1 && PROJ_SHIFT == 4 && CLIP_PLANE == 32,
-              "constants repeated in xform.s");
+              FOG_MIN == 8192 && FOG_SHIFT == 1 && PROJ_SHIFT == 4 && CLIP_PLANE == 32 &&
+              MAX_CAUSTICS == 32 && MAX_RAND_TABLE == 32, "constants repeated in xform.s");
 
 extern "C" void transformRoomAsm(const RoomVertex* src, int32 count, Vertex* dst, RoomXform* xf);
 
 static RoomXform gXform;
+static int16 gRoomCaustics[MAX_RAND_TABLE];
 static RectMinMax gViewport;
 static const RoomVertex* gRoomVertices;
 static Vertex* gNextVertex; // the room's vertices, then those its split faces add
@@ -129,35 +136,6 @@ X_INLINE void projectRoomPoint(int16 vx, int16 vy, int16 vz, Vertex* res)
 
     if (gRoomFaceFlags & FACE_WATER) {
         wibble(res, gWibblePhase);
-    }
-}
-
-static void transformRoom(const RoomVertex* vertices, int32 count, bool underwater, int32 causticsFrame)
-{
-    Vertex* res = gNextVertex;
-
-    for (int32 i = 0; i < count; i++, res++)
-    {
-        projectRoomPoint(vertices->x << 2, vertices->y << 2, vertices->z << 2, res);
-        int32 vg = vertices->g << 8;
-        vertices++;
-
-        if (underwater)
-        {
-            int32 causticsValue = gCaustics[(gRandTable[i & (MAX_RAND_TABLE - 1)] + causticsFrame) & (MAX_CAUSTICS - 1)];
-            vg = X_CLAMP(vg + causticsValue, 0, 8191);
-        }
-
-        int32 z = res->z;
-        if (z > FOG_MIN)
-        {
-            vg += (z - FOG_MIN) << FOG_SHIFT;
-            if (vg > 8191) {
-                vg = 8191;
-            }
-        }
-
-        res->g = uint32(vg) >> 8;
     }
 }
 
@@ -338,29 +316,37 @@ static void renderRoomJob(const RoomJob &job)
 
     uint32 t0 = timerTicks();
     Vertex* roomBase = gNextVertex;
+
+    RoomXform &xf = gXform;
+    const int16* rows = &gMatrix.m00;
+    for (int32 i = 0; i < 9; i++) {
+        xf.rows[i] = rows[i];
+    }
+    xf.tx = gMatrix.tx;
+    xf.ty = gMatrix.ty;
+    xf.tz = gMatrix.tz;
+    xf.x0 = gViewport.x0;
+    xf.y0 = gViewport.y0;
+    xf.x1 = gViewport.x1;
+    xf.y1 = gViewport.y1;
+    xf.divTable = divTable;
+    xf.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
+    xf.zMax = VIEW_MAX_F >> (FIXED_SHIFT - 8);
+    xf.wibble = water ? gWibble : NULL;
+    xf.phase = job.causticsFrame;
+    xf.caustics = gRoomCaustics;
+    xf.count = vCount;
+
+    // caustics shimmer under water: each vertex's shade moves along the
+    // caustics wave from its own random start
     if (water)
     {
-        transformRoom(data.vertices, vCount, true, job.causticsFrame);
-    }
-    else
-    {
-        RoomXform &xf = gXform;
-        const int16* rows = &gMatrix.m00;
-        for (int32 i = 0; i < 9; i++) {
-            xf.rows[i] = rows[i];
+        for (int32 i = 0; i < MAX_RAND_TABLE; i++) {
+            gRoomCaustics[i] = gCaustics[(gRandTable[i] + job.causticsFrame) & (MAX_CAUSTICS - 1)];
         }
-        xf.tx = gMatrix.tx;
-        xf.ty = gMatrix.ty;
-        xf.tz = gMatrix.tz;
-        xf.x0 = gViewport.x0;
-        xf.y0 = gViewport.y0;
-        xf.x1 = gViewport.x1;
-        xf.y1 = gViewport.y1;
-        xf.divTable = divTable;
-        xf.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
-        xf.zMax = VIEW_MAX_F >> (FIXED_SHIFT - 8);
-        transformRoomAsm(data.vertices, vCount, roomBase, &xf);
     }
+
+    transformRoomAsm(data.vertices, vCount, roomBase, &xf);
     gNextVertex += vCount;
     gSlaveStats.vertices += vCount;
 
