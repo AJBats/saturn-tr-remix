@@ -1254,6 +1254,31 @@ struct Lara : ItemObj
     {
         s_ignoreEnemy();
         flags &= ~ITEM_FLAG_GRAVITY;
+
+        // gold creeps up from her feet (the special model is a golden Lara)
+        static const struct { uint8 frame; uint16 mask; } gold[] = {
+            {   5, (1 << JOINT_LEG_L3) | (1 << JOINT_LEG_R3) },
+            {  70, (1 << JOINT_LEG_L2) },
+            {  90, (1 << JOINT_LEG_L1) },
+            { 100, (1 << JOINT_LEG_R2) },
+            { 120, (1 << JOINT_HIPS) | (1 << JOINT_LEG_R1) },
+            { 135, (1 << JOINT_TORSO) },
+            { 150, (1 << JOINT_ARM_L1) },
+            { 163, (1 << JOINT_ARM_L2) },
+            { 174, (1 << JOINT_ARM_L3) },
+            { 186, (1 << JOINT_ARM_R1) },
+            { 195, (1 << JOINT_ARM_R2) },
+            { 218, (1 << JOINT_ARM_R3) },
+            { 225, (1 << JOINT_HEAD) },
+        };
+
+        int32 frame = frameIndex - level.anims[animIndex].frameBegin;
+        for (int32 i = 0; i < X_COUNT(gold); i++)
+        {
+            if (frame == gold[i].frame) {
+                meshSwap(ITEM_LARA_SPEC, gold[i].mask);
+            }
+        }
     }
 
     S_HANDLER( STATE_SWAN_DIVE )

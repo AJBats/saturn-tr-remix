@@ -1402,8 +1402,13 @@ struct Camera {
 
     int32 shake; // frames left of shaking
 
+    vec3i cutPos;   // an in-level cinematic's origin and heading
+    int16 cutAngle;
+
     void initCinematic();
     void updateCinematic();
+    void doCutscene(const vec3i &pos, int16 angleY);
+    bool updateCutscene();
 
     void init(ItemObj* lara);
     Location getLocationForAngle(int32 angle, int32 distH, int32 distV);

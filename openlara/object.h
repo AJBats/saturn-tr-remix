@@ -54,6 +54,21 @@ const int16 LIMIT_HOLE[] = {
     ANGLE(10), ANGLE(30), ANGLE(10)
 };
 
+const int16 LIMIT_SCION[] = {
+    -256, 256, 540, 740, -350, -200,
+    ANGLE(10), 0, 0
+};
+
+const int16 LIMIT_SCION_HOLDER[] = {
+    -256, 256, 206, 306, -862, -200,
+    ANGLE(10), 0, 0
+};
+
+const int16 LIMIT_MIDAS[] = {
+    -700, 700, 284, 996, -700, 700,
+    ANGLE(10), ANGLE(30), ANGLE(10)
+};
+
 
 struct Object : ItemObj
 {
@@ -541,8 +556,61 @@ struct Pickup : Object
         return false;
     }
 
+    // The scions take Lara's special animation, under the level's cinematic
+    // camera (TR1's PickUpScionCollision).
+    void collideScion(Lara* lara)
+    {
+        bool holder = (type == ITEM_SCION_PICKUP_HOLDER);
+
+        angle.x = 0;
+        angle.z = 0;
+        if (!holder) {
+            angle.y = lara->angle.y;
+        }
+
+        if (!checkLimit(lara, holder ? LIMIT_SCION_HOLDER : LIMIT_SCION))
+            return;
+
+        if (lara->state == Lara::STATE_PICKUP)
+        {
+            if (lara->frameIndex != level.anims[lara->animIndex].frameBegin + 44)
+                return;
+
+            inventory.add((ItemType)type);
+            gSaveGame.pickups++;
+            room->remove(this);
+            flags &= ~ITEM_FLAG_STATUS;
+            flags |= ITEM_FLAG_STATUS_INVISIBLE;
+        }
+        else if (lara->state == Lara::STATE_STOP)
+        {
+            if (lara->extraL->weaponState != WEAPON_STATE_FREE)
+                return;
+
+            if (!(lara->input & IN_ACTION) || (lara->flags & ITEM_FLAG_GRAVITY))
+                return;
+
+            if (holder) {
+                lara->moveTo(_vec3i(0, 280, -(LARA_RADIUS + 512)), this, false);
+            } else {
+                lara->moveTo(_vec3i(0, 640, -310), this, false);
+            }
+
+            lara->animSet(level.models[ITEM_LARA_SPEC].animIndex, false);
+            lara->state = lara->goalState = Lara::STATE_PICKUP;
+            lara->extraL->weaponState = WEAPON_STATE_BUSY;
+            lara->extraL->camera.doCutscene(lara->pos, lara->angle.y - ANGLE_90);
+        }
+    }
+
     virtual void collide(Lara* lara, CollisionInfo* cinfo)
     {
+        if (type == ITEM_SCION_PICKUP_QUALOPEC || type == ITEM_SCION_PICKUP_HOLDER)
+        {
+            collideScion(lara);
+            return;
+        }
+
         angle.y = lara->angle.y;
         angle.z = 0;
 
@@ -715,6 +783,68 @@ struct PuzzleHole : Hole
         }
 
         apply(327, lara, Lara::STATE_USE_PUZZLE);
+    }
+};
+
+
+// King Midas' hand turns lead bars to gold, and Lara too if she steps onto
+// it (TR1's MidasCollision).
+struct MidasHand : Object
+{
+    MidasHand(Room* room) : Object(room) {}
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        if ((lara->flags & ITEM_FLAG_GRAVITY) || lara->state != Lara::STATE_STOP)
+            return;
+
+        if (abs(lara->pos.x - pos.x) < 512 && abs(lara->pos.z - pos.z) < 512)
+        {
+            lara->animSet(level.models[ITEM_LARA_SPEC].animIndex + 1, false);
+            lara->state = lara->goalState = Lara::STATE_DEATH_MIDAS;
+            lara->health = -1;
+            lara->oxygen = -1;
+            lara->extraL->weaponState = WEAPON_STATE_BUSY;
+            lara->extraL->camera.doCutscene(lara->pos, 0);
+            return;
+        }
+
+        if (lara->extraL->weaponState != WEAPON_STATE_FREE)
+            return;
+
+        if (!(lara->input & IN_ACTION) && (inventory.useSlot == SLOT_MAX))
+            return;
+
+        angle.y = (uint16(lara->angle.y + ANGLE_45) >> ANGLE_SHIFT_90) << ANGLE_SHIFT_90;
+
+        if (!checkLimit(lara, LIMIT_MIDAS))
+            return;
+
+        if (inventory.useSlot == SLOT_MAX)
+        {
+            if (inventory.numKeys > 0) {
+                inventory.open(lara, INV_PAGE_USE, type);
+                return;
+            }
+        }
+        else
+        {
+            bool leadbar = (inventory.useSlot == SLOT_LEADBAR);
+            inventory.useSlot = SLOT_MAX;
+
+            if (leadbar)
+            {
+                inventory.remove(SLOT_LEADBAR, 1);
+                inventory.add(ITEM_PUZZLE_1);
+
+                lara->animSet(level.models[ITEM_LARA_SPEC].animIndex, false);
+                lara->state = lara->goalState = Lara::STATE_USE_MIDAS;
+                lara->extraL->weaponState = WEAPON_STATE_BUSY;
+                lara->extraL->camera.doCutscene(lara->pos, lara->angle.y);
+                return;
+            }
+        }
+        soundPlay(SND_NO, &lara->pos);
     }
 };
 

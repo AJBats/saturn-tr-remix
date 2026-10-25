@@ -314,6 +314,7 @@ struct Inventory
             case ITEM_KEYHOLE_2    : return SLOT_KEY_ITEM_2;
             case ITEM_KEYHOLE_3    : return SLOT_KEY_ITEM_3;
             case ITEM_KEYHOLE_4    : return SLOT_KEY_ITEM_4;
+            case ITEM_MIDAS_HAND   : return SLOT_LEADBAR;
             default                : ;
         }
         return SLOT_MAX;

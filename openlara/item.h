@@ -388,6 +388,12 @@ void ItemObj::animCmd(bool fx, const Anim* anim)
                             break;
                         }
 
+                        case FX_FINISH_LEVEL :
+                        {
+                            nextLevel(LevelID(gLevelID + 1));
+                            break;
+                        }
+
                         case FX_LARA_NORMAL :
                         {
                             ASSERT(type == ITEM_LARA);
@@ -1596,7 +1602,7 @@ ItemObj* ItemObj::init(Room* room)
         // INIT_ITEM( PUZZLE_DONE_4         , ??? );
         INIT_ITEM( LEADBAR               , Pickup );
         // INIT_ITEM( INV_LEADBAR           , ??? );
-        // INIT_ITEM( MIDAS_HAND            , ??? );
+        INIT_ITEM( MIDAS_HAND            , MidasHand );
         INIT_ITEM( KEY_ITEM_1            , Pickup );
         INIT_ITEM( KEY_ITEM_2            , Pickup );
         INIT_ITEM( KEY_ITEM_3            , Pickup );
@@ -1611,10 +1617,10 @@ ItemObj* ItemObj::init(Room* room)
         INIT_ITEM( KEYHOLE_4             , KeyHole );
         // INIT_ITEM( UNUSED_4              , ??? );
         // INIT_ITEM( UNUSED_5              , ??? );
-        // INIT_ITEM( SCION_PICKUP_QUALOPEC , ??? );
+        INIT_ITEM( SCION_PICKUP_QUALOPEC , Pickup );
         INIT_ITEM( SCION_PICKUP_DROP     , Pickup );
         INIT_ITEM( SCION_TARGET          , ViewTarget );
-        // INIT_ITEM( SCION_PICKUP_HOLDER   , ??? );
+        INIT_ITEM( SCION_PICKUP_HOLDER   , Pickup );
         // INIT_ITEM( SCION_HOLDER          , ??? );
         // INIT_ITEM( UNUSED_6              , ??? );
         // INIT_ITEM( UNUSED_7              , ??? );

@@ -76,6 +76,59 @@ void Camera::updateCinematic()
     }
 }
 
+// In-level cinematics (the scions, the Midas hand) play the level's camera
+// frames around a point, as TR1's CAM_CINEMATIC does.
+void Camera::doCutscene(const vec3i &pos, int16 angleY)
+{
+    if (!level.cameraFramesCount)
+        return;
+
+    mode = CAMERA_MODE_CUTSCENE;
+    cutPos = pos;
+    cutAngle = angleY;
+    timer = 0;
+}
+
+// False once the frames have run out while Lara lives: she gets her camera back.
+bool Camera::updateCutscene()
+{
+    if (timer >= level.cameraFramesCount)
+    {
+        if (laraItem->health > 0)
+        {
+            mode = CAMERA_MODE_FOLLOW;
+            timer = 0;
+            return false;
+        }
+        timer = level.cameraFramesCount - 1;
+    }
+
+    const CameraFrame &frame = level.cameraFrames[timer++];
+
+    int32 s, c;
+    sincos(cutAngle, s, c);
+
+    vec3i eye, at;
+    eye.x = cutPos.x + ((frame.pos.x * c + frame.pos.z * s) >> FIXED_SHIFT);
+    eye.y = cutPos.y + frame.pos.y;
+    eye.z = cutPos.z + ((frame.pos.z * c - frame.pos.x * s) >> FIXED_SHIFT);
+    at.x = cutPos.x + ((frame.target.x * c + frame.target.z * s) >> FIXED_SHIFT);
+    at.y = cutPos.y + frame.target.y;
+    at.z = cutPos.z + ((frame.target.z * c - frame.target.x * s) >> FIXED_SHIFT);
+
+    vec3i dir = at - eye;
+    anglesFromVector(dir.x, dir.y, dir.z, angle.x, angle.y);
+
+    view.pos = eye;
+    Room* nextRoom = view.room->getRoom(eye.x, eye.y, eye.z);
+    if (nextRoom) {
+        view.room = nextRoom;
+    }
+
+    matrixSetView(eye, angle.x, angle.y);
+    return true;
+}
+
 void Camera::init(ItemObj* lara)
 {
     ASSERT(lara->extraL);
@@ -411,6 +464,9 @@ void Camera::lookAt(int32 offset)
 
 void Camera::update()
 {
+    if (mode == CAMERA_MODE_CUTSCENE && updateCutscene())
+        return;
+
     if (mode == CAMERA_MODE_FREE)
     {
         updateFree();
