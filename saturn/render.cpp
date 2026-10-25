@@ -368,6 +368,7 @@ X_INLINE uint32 gouraudPair(uint32 flags, bool dim, const Vertex* a, const Verte
 }
 
 int32 gTexelView;
+int32 gBenchMode;
 int32 gDarkFaces = DARK_CONTRAST;
 int32 gFlatDist;
 
@@ -798,6 +799,32 @@ static_assert(FACE_WATER == (1 << 30) && FACE_DETAIL == (1 << 29) && FACE_PARALL
 
 extern "C" void flushAsm(FlushXform* xf);
 
+// The frame's commands 1 .. count - 1 rebuilt for gBenchMode.
+static void benchCommands(int32 count)
+{
+    gCmds[0].w[0] = (CMD_SCALED_SPRITE | (gBenchMode == BENCH_NO_CLEAR ? CMD_SKIP : 0)) << 16;
+
+    if (gBenchMode != BENCH_HSS && gBenchMode != BENCH_NO_GOURAUD && gBenchMode != BENCH_NO_TEXTURE)
+        return;
+
+    for (int32 i = 1; i < count; i++)
+    {
+        uint32* w = gCmds[i].w;
+        uint32 type = (w[0] >> 16) & 15;
+        if (type != CMD_DISTORTED_SPRITE && type != CMD_POLYGON)
+            continue;
+
+        if (gBenchMode == BENCH_HSS && type == CMD_DISTORTED_SPRITE) {
+            w[1] |= PMOD_HSS << 16;
+        } else if (gBenchMode == BENCH_NO_GOURAUD && (w[1] & (PMOD_GOURAUD << 16))) {
+            w[1] &= ~(7 << 16);
+        } else if (gBenchMode == BENCH_NO_TEXTURE && type == CMD_DISTORTED_SPRITE) {
+            w[0] = (w[0] & ~(15 << 16)) | (CMD_POLYGON << 16);
+            w[1] = pair(PMOD_NO_ECD_SPD | PMOD_GOURAUD, RGB(16, 16, 16));
+        }
+    }
+}
+
 // Buckets first .. first + count - 1 of both tables to commands from slot
 // cmd on, up to slot end.
 static void flushXformInit(FlushXform &xf, Face** roomOT, int32 first, int32 count, int32 cmd, int32 end)
@@ -960,6 +987,7 @@ void flush_c()
     gCmds[count].w[0] = CMD_END << 16;
     gRenderFaceCount = count;
     gStats.faces = count;
+    benchCommands(count);
 
     uint32 waitStart = timerTicks();
     vdp1WaitDrawn();

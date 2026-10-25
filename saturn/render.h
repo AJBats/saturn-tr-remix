@@ -190,6 +190,20 @@ extern int32 gTexelView;
 // see-through texels keep their texture.
 extern int32 gFlatDist;
 
+// Hardware measurements (debug.cpp, HW_LOG builds): the frame's commands
+// built another way, to see what VDP1's time goes on.
+enum BenchMode
+{
+    BENCH_BASE,
+    BENCH_HSS,          // textured faces with high-speed shrink
+    BENCH_FLAT,         // far faces flat (debug.cpp sets gFlatDist)
+    BENCH_NO_GOURAUD,
+    BENCH_NO_TEXTURE,   // textured faces as grey polygons
+    BENCH_NO_CLEAR,     // the frame isn't cleared first
+    BENCH_COUNT
+};
+extern int32 gBenchMode;
+
 X_INLINE bool faceFlat(uint32 flags, int32 zMin, const Texture* tex)
 {
     return gFlatDist && zMin > gFlatDist && !(tex->attr & TEX_ATTR_AKILL)

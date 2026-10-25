@@ -39,7 +39,7 @@ ifdef START_LEVEL
 CFLAGS  += -DSTART_LEVEL=$(START_LEVEL)   # testing: touch saturn/main.cpp when changing it
 endif
 ifdef HW_LOG
-CFLAGS  += -DHW_LOG     # testing on hardware: the boot log and stats on screen; touch saturn/crash.cpp saturn/debug.cpp when changing it
+CFLAGS  += -DHW_LOG     # testing on hardware: the boot log, stats and measurements on screen; touch saturn/crash.cpp saturn/debug.cpp when changing it
 endif
 # -fno-lifetime-dse: OpenLara sets ItemObj fields and then placement-news the
 # subclass over them (ItemObj::init); the constructors read those fields.

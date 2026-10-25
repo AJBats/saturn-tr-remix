@@ -32,6 +32,7 @@ static int32 gShadeCurve;
 static int32 gFarFaces;
 #ifdef HW_LOG
 static bool gShowStats = true;  // hardware tests: the numbers in the photos
+static void benchUpdate();
 #else
 static bool gShowStats;
 #endif
@@ -113,6 +114,10 @@ void debugUpdate()
     if (pressed & PAD_C) {
         step(OPTION_DARK, 1);
     }
+
+#ifdef HW_LOG
+    benchUpdate();
+#endif
 }
 
 static char* append(char* p, const char* text)
@@ -139,6 +144,71 @@ static uint32 framePercent(uint32 ticks)
 {
     return ticks * 100 / 7457;
 }
+
+#ifdef HW_LOG
+// Hardware measurements without a second pad: every 4 seconds of play the
+// frames are built another way (gBenchMode), and a table keeps each way's
+// averages over its last 3 seconds: one photo after a full round.
+#define BENCH_WINDOW    240     // vblanks each way lasts
+#define BENCH_SETTLE    60      // the first of them aren't averaged
+
+static const char* const kBenchNames[BENCH_COUNT] = {
+    "Base", "HSS", "Flat 8", "No gouraud", "No texture", "No clear"
+};
+
+static struct { uint32 vdp1, cpu, fps; } gBench[BENCH_COUNT];
+
+static void benchUpdate()
+{
+    static uint32 start;
+    static uint32 frames, vdp1, cpu;
+
+    if (!start) {
+        start = gVblankCount;
+    }
+
+    uint32 t = gVblankCount - start;
+    if (t >= BENCH_SETTLE)
+    {
+        frames++;
+        vdp1 += gStats.vdp1Ticks;
+        cpu += gStats.updateTicks + gStats.renderTicks - gStats.waitTicks;
+    }
+
+    if (t < BENCH_WINDOW)
+        return;
+
+    if (frames)
+    {
+        gBench[gBenchMode].vdp1 = framePercent(vdp1 / frames);
+        gBench[gBenchMode].cpu = framePercent(cpu / frames);
+        gBench[gBenchMode].fps = frames * 60 / (t - BENCH_SETTLE);
+    }
+
+    gBenchMode = (gBenchMode + 1) % BENCH_COUNT;
+    gFlatDist = (gBenchMode == BENCH_FLAT) ? 8 * 1024 : kFarDist[gFarFaces];
+    start = gVblankCount;
+    frames = vdp1 = cpu = 0;
+}
+
+static void benchDraw()
+{
+    char text[64];
+    for (int32 i = 0; i < BENCH_COUNT; i++)
+    {
+        char* p = append(text, i == gBenchMode ? "> " : "  ");
+        p = append(p, kBenchNames[i]);
+        p = append(p, "  ");
+        if (gBench[i].fps)
+        {
+            p = appendStat(p, "vdp1 ", gBench[i].vdp1);
+            p = appendStat(p, "cpu ", gBench[i].cpu);
+            appendStat(p, "fps ", gBench[i].fps);
+        }
+        drawText(16, 30 + i * 18, text, TEXT_ALIGN_LEFT);
+    }
+}
+#endif
 
 void osDrawDebug()
 {
@@ -183,4 +253,10 @@ void osDrawDebug()
         appendStat(p, "uploads ", gStats.detailUploads);
         drawText(0, y, text, TEXT_ALIGN_CENTER);
     }
+
+#ifdef HW_LOG
+    if (!gMenuOpen) {
+        benchDraw();
+    }
+#endif
 }
