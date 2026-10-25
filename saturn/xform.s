@@ -44,6 +44,50 @@ _transformRoomAsm:
     nop
 .Lbegin:
     mov.l   @(52, r7), r10      ! divTable
+    bra     .Lloop
+    nop
+
+    ! the loop's rare cases, here where its conditional branches reach
+.LzNear:
+    mov     r0, r11             ! behind the near plane
+    bra     .LzChecked
+    mov     #CLIP_PLANE, r14
+.LzFar:
+    mov     r0, r11             ! past the far plane
+    bra     .LzChecked
+    mov     #CLIP_PLANE, r14
+
+.LclampXY:                      ! r1 = the largest x, y; r2 = -r1
+    cmp/gt  r1, r12
+    bf      1f
+    mov     r1, r12
+1:  cmp/ge  r2, r12
+    bt      2f
+    mov     r2, r12
+2:  cmp/gt  r1, r13
+    bf      3f
+    mov     r1, r13
+3:  cmp/ge  r2, r13
+    bt      4f
+    mov     r2, r13
+4:  bra     .LclampedXY
+    nop
+
+.LclampP:                       ! r1 = the largest projected x, y; r2 = -r1
+    cmp/gt  r1, r12
+    bf      1f
+    mov     r1, r12
+1:  cmp/ge  r2, r12
+    bt      2f
+    mov     r2, r12
+2:  cmp/gt  r1, r13
+    bf      3f
+    mov     r1, r13
+3:  cmp/ge  r2, r13
+    bt      4f
+    mov     r2, r13
+4:  bra     .LclampedP
+    nop
 
 .Lloop:
     ! unpack x, y, z (256 world units) times 4 into the scratch vector; g to r3
@@ -77,15 +121,11 @@ _transformRoomAsm:
     ! near and far planes: clamp z, flag the vertex
     mov.l   @(56, r7), r0
     cmp/gt  r0, r11
-    bt      1f
-    mov     r0, r11
-    mov     #CLIP_PLANE, r14
-1:  mov.l   @(60, r7), r0
+    bf      .LzNear
+    mov.l   @(60, r7), r0
     cmp/ge  r0, r11
-    bf      2f
-    mov     r0, r11
-    mov     #CLIP_PLANE, r14
-2:
+    bt      .LzFar
+.LzChecked:
     ! x = tx + v . row0, y = ty + v . row1
     mov.l   @(24, r7), r0
     lds     r0, macl
@@ -105,21 +145,21 @@ _transformRoomAsm:
     mov.l   .LxyMax, r1
     sts     macl, r13
 
-    ! x, y to 16-bit view coordinates: clamp, >> 8
+    ! x, y to 16-bit view coordinates: clamp, >> 8. Each within -max .. max
+    ! is x + max within 0 .. 2 max, unsigned.
+    mov     r1, r8
+    add     r8, r8              ! 2 max (r8 is free after the multiplies)
+    mov     r12, r0
+    add     r1, r0
+    cmp/hi  r8, r0
+    bt/s    .LclampXY
     neg     r1, r2
-    cmp/gt  r1, r12
-    bf      3f
-    mov     r1, r12
-3:  cmp/ge  r2, r12
-    bt      4f
-    mov     r2, r12
-4:  cmp/gt  r1, r13
-    bf      5f
-    mov     r1, r13
-5:  cmp/ge  r2, r13
-    bt      6f
-    mov     r2, r13
-6:  shlr8   r12
+    mov     r13, r0
+    add     r1, r0
+    cmp/hi  r8, r0
+    bt      .LclampXY
+.LclampedXY:
+    shlr8   r12
     exts.w  r12, r12
     shlr8   r13
     exts.w  r13, r13
@@ -138,20 +178,19 @@ _transformRoomAsm:
     muls.w  r0, r13
     mov.l   .LpMax, r1
     sts     macl, r13
+    mov     r1, r8
+    add     r8, r8
+    mov     r12, r0
+    add     r1, r0
+    cmp/hi  r8, r0
+    bt/s    .LclampP
     neg     r1, r2
-    cmp/gt  r1, r12
-    bf      7f
-    mov     r1, r12
-7:  cmp/ge  r2, r12
-    bt      8f
-    mov     r2, r12
-8:  cmp/gt  r1, r13
-    bf      9f
-    mov     r1, r13
-9:  cmp/ge  r2, r13
-    bt      10f
-    mov     r2, r13
-10: shlr8   r12
+    mov     r13, r0
+    add     r1, r0
+    cmp/hi  r8, r0
+    bt      .LclampP
+.LclampedP:
+    shlr8   r12
     shlr2   r12
     shlr2   r12
     exts.w  r12, r12
@@ -188,21 +227,21 @@ _transformRoomAsm:
     bt      12f
     mov     r2, r13
 12:
-    ! viewport
+    ! viewport (each delay slot loads the next bound)
     mov.l   @(36, r7), r0
     cmp/gt  r12, r0
-    bf      16f
+    bf/s    16f
+    mov.l   @(44, r7), r0
     add     #CLIP_LEFT, r14
-16: mov.l   @(44, r7), r0
-    cmp/gt  r0, r12
-    bf      17f
+16: cmp/gt  r0, r12
+    bf/s    17f
+    mov.l   @(40, r7), r0
     add     #CLIP_RIGHT, r14
-17: mov.l   @(40, r7), r0
-    cmp/gt  r13, r0
-    bf      18f
+17: cmp/gt  r13, r0
+    bf/s    18f
+    mov.l   @(48, r7), r0
     add     #CLIP_TOP, r14
-18: mov.l   @(48, r7), r0
-    cmp/gt  r0, r13
+18: cmp/gt  r0, r13
     bf      19f
     add     #CLIP_BOTTOM, r14
 19:
