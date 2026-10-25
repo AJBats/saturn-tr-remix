@@ -38,6 +38,9 @@ CFLAGS  := -m2 -mb $(OPT) -Wall -D__SATURN__ -Isaturn -Iopenlara
 ifdef START_LEVEL
 CFLAGS  += -DSTART_LEVEL=$(START_LEVEL)   # testing: touch saturn/main.cpp when changing it
 endif
+ifdef HW_LOG
+CFLAGS  += -DHW_LOG     # testing on hardware: the boot log on screen; touch saturn/crash.cpp when changing it
+endif
 # -fno-lifetime-dse: OpenLara sets ItemObj fields and then placement-news the
 # subclass over them (ItemObj::init); the constructors read those fields.
 CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \

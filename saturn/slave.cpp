@@ -1,6 +1,7 @@
 // Slave SH-2 start-up and task hand-off (after libyaul's polling mode).
 
 #include "slave.h"
+#include "crash.h"
 #include "system.h"
 
 #define BIOS_SET_UINT       (*(void (**)(uint32_t, void (*)()))0x06000310)  // CPU interrupt vector
@@ -20,6 +21,7 @@
 #define CCR_CP              0x10    // purge all lines
 
 static void (*volatile gTask)();
+static volatile bool gStarted;
 
 extern "C" uint8_t gSlaveStack[4096] __attribute__((aligned(16)));
 uint8_t gSlaveStack[4096];
@@ -56,6 +58,7 @@ extern "C" void slaveMain()
     asm volatile("ldc %0, sr" : : "r"(0xF0)); // no interrupts on the slave
     cachePurge();
     FRT_TCR = 2; // its own free-running timer, at the master's rate (timerTicks)
+    *uncached(&gStarted) = true;
 
     while (1)
     {
@@ -80,6 +83,12 @@ void slaveInit()
     BIOS_SLAVE_ENTRY = uint32_t(slaveEntry);
     BIOS_SLAVE_STACK = uint32_t(gSlaveStack + sizeof(gSlaveStack));
     smpcCommand(SMPC_SSHON);
+
+    uint32_t wait = 0;
+    while (!*uncached(&gStarted) && wait < 0x100000) {
+        wait++;
+    }
+    crashLog("SLAVE", *uncached(&gStarted) ? wait : 0xFFFFFFFF);
 }
 
 void slaveRun(void (*task)())

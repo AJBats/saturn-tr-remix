@@ -3,6 +3,7 @@
 
 #include "screen.h"
 #include "cd.h"
+#include "crash.h"
 #include "hw.h"
 #include "system.h"
 
@@ -95,6 +96,7 @@ void screenShow(const char* name, int32_t width)
     }
 
     VDP2_BGON = BGON_N0ON;
+    crashLogShow();
 }
 
 volatile uint16_t* screenBlank()

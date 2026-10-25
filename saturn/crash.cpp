@@ -1,4 +1,5 @@
-// Crash screen (see crash.h). Each screen is a column of 8-digit hex numbers:
+// Crash screen (see crash.h). On the left, a column of 8-digit hex numbers;
+// on the right, the log's last lines.
 //
 // red (master) or magenta (slave) exception:
 //   0  vector: 4 illegal instruction, 6 illegal slot, 9 address error, 10 DMA address error
@@ -38,46 +39,135 @@ extern "C" void crashSlaveAddressEntry();
 extern "C" void crashSlaveDmaEntry();
 
 static volatile bool gCrashed;  // a screen is up: leave it
-static bool gHold;
+static bool gHold = true;       // until the first level has loaded
 
-// 3 x 5 hex digits, a bit per pixel from the top left
-static const uint16_t kDigits[16] = {
-    0x7B6F, 0x2C97, 0x73E7, 0x73CF, 0x5BC9, 0x79CF, 0x79EF, 0x7249,
-    0x7BEF, 0x7BCF, 0x7BED, 0x6BAE, 0x7927, 0x6B6E, 0x79E7, 0x79E4
+#define LOG_LINES   16
+
+static struct { const char* label; uint32_t value; } gLog[LOG_LINES];
+static int32_t gLogCount;
+
+// 3 x 5 pixels, rows from the top
+static const char* const kDigits[16] = {
+    "111101101101111", "010110010010111", "111001111100111", "111001111001111",
+    "101101111001001", "111100111001111", "111100111101111", "111001001001001",
+    "111101111101111", "111101111001111", "010101111101101", "110101110101110",
+    "011100100100011", "110101101101110", "111100110100111", "111100110100100"
+};
+static const char* const kLetters[26] = {
+    "010101111101101", "110101110101110", "011100100100011", "110101101101110",
+    "111100110100111", "111100110100100", "011100101101011", "101101111101101",
+    "111010010010111", "001001001101010", "101101110101101", "100100100100111",
+    "101111111101101", "110101101101101", "010101101101010", "110101110100100",
+    "010101101110011", "110101110101101", "011100010001110", "111010010010010",
+    "101101101101111", "101101101101010", "101101111111101", "101101010101101",
+    "101101010010010", "111001010100111"
 };
 
-#define SCALE   3
-#define LEFT    48
-#define TOP     32
-#define ROW     24
-
-static void number(volatile uint16_t* bitmap, int32_t row, uint32_t value)
+static const char* glyph(char c)
 {
-    for (int32_t d = 0; d < 8; d++)
+    if (c >= '0' && c <= '9')
+        return kDigits[c - '0'];
+    if (c >= 'A' && c <= 'Z')
+        return kLetters[c - 'A'];
+    return nullptr;
+}
+
+#define BITMAP_PITCH    512
+
+static void character(volatile uint16_t* bitmap, int32_t x0, int32_t y0, int32_t scale, const char* g)
+{
+    for (int32_t y = 0; y < 5 * scale; y++)
     {
-        uint16_t glyph = kDigits[(value >> (28 - d * 4)) & 15];
-        int32_t x0 = LEFT + d * 4 * SCALE;
-        int32_t y0 = TOP + row * ROW;
-        for (int32_t y = 0; y < 5 * SCALE; y++)
+        for (int32_t x = 0; x < 3 * scale; x++)
         {
-            for (int32_t x = 0; x < 3 * SCALE; x++)
-            {
-                if (glyph & (0x4000 >> ((y / SCALE) * 3 + x / SCALE))) {
-                    bitmap[(y0 + y) * 512 + x0 + x] = RGB(31, 31, 31);
-                }
+            if (g[(y / scale) * 3 + x / scale] == '1') {
+                bitmap[(y0 + y) * BITMAP_PITCH + x0 + x] = RGB(31, 31, 31);
             }
         }
     }
+}
+
+// Text and an 8-digit hex number from x0; returns the width
+static int32_t text(volatile uint16_t* bitmap, int32_t x0, int32_t y0, int32_t scale, const char* label, bool hex, uint32_t value)
+{
+    int32_t x = x0;
+    for (const char* p = label; *p; p++, x += 4 * scale)
+    {
+        const char* g = glyph(*p);
+        if (g) {
+            character(bitmap, x, y0, scale, g);
+        }
+    }
+    if (hex)
+    {
+        if (*label) {
+            x += 4 * scale;
+        }
+        for (int32_t d = 0; d < 8; d++, x += 4 * scale) {
+            character(bitmap, x, y0, scale, kDigits[(value >> (28 - d * 4)) & 15]);
+        }
+    }
+    return x - x0;
+}
+
+static void logLines(volatile uint16_t* bitmap, int32_t x0, int32_t y0, bool box)
+{
+    for (int32_t i = 0; i < gLogCount; i++)
+    {
+        int32_t y = y0 + i * 12;
+        if (box)
+        {
+            for (int32_t r = -2; r < 12; r++) {
+                for (int32_t x = x0 - 2; x < x0 + 120; x++) {
+                    bitmap[(y + r) * BITMAP_PITCH + x] = RGB(0, 0, 0);
+                }
+            }
+        }
+        text(bitmap, x0, y, 2, gLog[i].label, true, gLog[i].value);
+    }
+}
+
+void crashLog(const char* label, uint32_t value)
+{
+    if (gLogCount == LOG_LINES)
+    {
+        for (int32_t i = 1; i < LOG_LINES; i++) {
+            gLog[i - 1] = gLog[i];
+        }
+        gLogCount--;
+    }
+    gLog[gLogCount].label = label;
+    gLog[gLogCount].value = value;
+    gLogCount++;
+
+#ifdef HW_LOG
+    crashLogShow();
+#endif
+}
+
+void crashLogShow()
+{
+#ifdef HW_LOG
+    if (!gCrashed) {
+        logLines((volatile uint16_t*)VDP2_VRAM, 24, 16, true);
+    }
+#endif
 }
 
 static volatile uint16_t* screen(uint16_t color)
 {
     gCrashed = true;
     volatile uint16_t* bitmap = screenBlank();
-    for (int32_t i = 0; i < 512 * SCREEN_HEIGHT; i++) {
+    for (int32_t i = 0; i < BITMAP_PITCH * SCREEN_HEIGHT; i++) {
         bitmap[i] = color;
     }
+    logLines(bitmap, 192, 32, false);
     return bitmap;
+}
+
+static void number(volatile uint16_t* bitmap, int32_t row, uint32_t value)
+{
+    text(bitmap, 48, 32 + row * 24, 3, "", true, value);
 }
 
 // irq.s: the CPU's exception frame (PC, SR), its PR, the vector and the CPU
@@ -105,6 +195,11 @@ void crashInit()
     BIOS_SET_UINT(SLAVE_VECTOR + 6, crashSlaveSlotEntry);
     BIOS_SET_UINT(SLAVE_VECTOR + 9, crashSlaveAddressEntry);
     BIOS_SET_UINT(SLAVE_VECTOR + 10, crashSlaveDmaEntry);
+
+#ifdef HW_LOG
+    screenBlank();
+    crashLogShow();
+#endif
 }
 
 void crashHold(bool hold)
@@ -117,8 +212,7 @@ void crashWatchdog(const uint32_t* irqStack)
     static uint32_t frames;
     static uint32_t still;
 
-    // the game loop hasn't started, or may stand still
-    if (gCrashed || gHold || !gStats.frames || gStats.frames != frames)
+    if (gCrashed || gHold || gStats.frames != frames)
     {
         frames = gStats.frames;
         still = 0;

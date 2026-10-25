@@ -169,6 +169,7 @@ static uint32 loadOrHalt(const char* name, const char* ext, void* dst, uint32 ma
     strcat(path, ext);
 
     int32 size = cdLoadFile(path, dst, maxSize);
+    crashLog(ext + 1, size);
     if (size <= 0)
     {
         while (1); // TODO error screen
@@ -181,6 +182,7 @@ const void* osLoadLevel(LevelID id)
     const char* name = (const char*)gLevelInfo[id].data;
 
     crashHold(true);
+    crashLog("LEVEL", id);
     playVideos(id);
     screenShow(loadingPicture(id), id == LVL_TR1_TITLE ? 352 : 320);
 

@@ -183,16 +183,33 @@ void smpcCommand(uint8_t command)
     while (SMPC_SF & 1);
 }
 
+// The SMPC's status (INTBACK without peripheral data): the area code << 8 |
+// system status 1, whose bit 6 (DOTSEL) is set on the 352-dot clock.
+static uint32_t smpcStatus()
+{
+    waitVblank();
+    while (SMPC_SF & 1);
+    SMPC_SF = 1;
+    SMPC_IREG(0) = 0x01;
+    SMPC_IREG(1) = 0x00;
+    SMPC_IREG(2) = 0xF0;
+    SMPC_COMREG = 0x10;     // INTBACK
+    while (SMPC_SF & 1);
+    return (SMPC_OREG(9) << 8) | SMPC_OREG(10);
+}
+
 void systemInit()
 {
     // 352x240; the 352-dot clock also runs the CPUs 6.6% faster. The BIOS
     // handles the SMPC's NMI and resets the VDPs. Its record of the clock
     // (BIOS_SYSCK) can be stale: booted from an optical drive emulator's menu
     // it read 1 on the 320-dot clock, and the TV couldn't hold the picture.
+    crashLog("SYSCK", BIOS_SYSCK);
     BIOS_CHG_SYSCK(1);
 
     vdp2Init();
     vdp1Init();
+    crashLog("SMPC", smpcStatus());
 
     FRT_TCR = 2;            // Pphi / 128
 

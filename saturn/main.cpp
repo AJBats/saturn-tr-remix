@@ -54,8 +54,9 @@ int main()
     screenInit();
     crashInit();
     slaveInit();
-    cdInit();
+    crashLog("CD", cdInit());
     sndInit();
+    crashLog("SOUND", 0);
 
     gLevelID = START_LEVEL;
 
@@ -111,6 +112,9 @@ int main()
         gStats.updateTicks = (t1 - t0) & 0xFFFF;
         gStats.renderTicks = (t2 - t1) & 0xFFFF;
         gStats.frames++;
+        if (gStats.frames <= 3) {
+            crashLog("FRAME", gStats.frames);
+        }
 
         fpsFrames++;
         if (gVblankCount - fpsStart >= 60)
