@@ -158,10 +158,16 @@ static const char* const kBenchNames[BENCH_COUNT] = {
 
 static struct { uint32 vdp1, cpu, fps; } gBench[BENCH_COUNT];
 
+// and the base way's CPU time by stage, as gStats keeps it
+enum { SPLIT_UPDATE, SPLIT_MESH, SPLIT_SLAVE_WAIT, SPLIT_FLUSH, SPLIT_XFORM, SPLIT_FACES, SPLIT_COUNT };
+static const char* const kSplitNames[SPLIT_COUNT] = { "upd ", "mesh ", "swait ", "flush ", "xform ", "faces " };
+static uint32 gSplit[SPLIT_COUNT];
+
 static void benchUpdate()
 {
     static uint32 start;
     static uint32 frames, vdp1, cpu;
+    static uint32 split[SPLIT_COUNT];
 
     if (!start) {
         start = gVblankCount;
@@ -173,6 +179,12 @@ static void benchUpdate()
         frames++;
         vdp1 += gStats.vdp1Ticks;
         cpu += gStats.updateTicks + gStats.renderTicks - gStats.waitTicks;
+        split[SPLIT_UPDATE] += gStats.updateTicks;
+        split[SPLIT_MESH] += gStats.meshTicks;
+        split[SPLIT_SLAVE_WAIT] += gStats.slaveWaitTicks;
+        split[SPLIT_FLUSH] += gStats.flushTicks;
+        split[SPLIT_XFORM] += gStats.slaveXformTicks;
+        split[SPLIT_FACES] += gStats.slaveFaceTicks;
     }
 
     if (t < BENCH_WINDOW)
@@ -183,7 +195,14 @@ static void benchUpdate()
         gBench[gBenchMode].vdp1 = framePercent(vdp1 / frames);
         gBench[gBenchMode].cpu = framePercent(cpu / frames);
         gBench[gBenchMode].fps = frames * 60 / (t - BENCH_SETTLE);
+        if (gBenchMode == BENCH_BASE)
+        {
+            for (int32 i = 0; i < SPLIT_COUNT; i++) {
+                gSplit[i] = framePercent(split[i] / frames);
+            }
+        }
     }
+    memset(split, 0, sizeof(split));
 
     gBenchMode = (gBenchMode + 1) % BENCH_COUNT;
     gFlatDist = (gBenchMode == BENCH_FLAT) ? 8 * 1024 : kFarDist[gFarFaces];
@@ -207,6 +226,18 @@ static void benchDraw()
         }
         drawText(16, 30 + i * 18, text, TEXT_ALIGN_LEFT);
     }
+
+    // the master's stages, then the slave's
+    char* p = append(text, "  ");
+    for (int32 i = 0; i < SPLIT_XFORM; i++) {
+        p = appendStat(p, kSplitNames[i], gSplit[i]);
+    }
+    drawText(16, 30 + BENCH_COUNT * 18, text, TEXT_ALIGN_LEFT);
+    p = append(text, "  slave  ");
+    for (int32 i = SPLIT_XFORM; i < SPLIT_COUNT; i++) {
+        p = appendStat(p, kSplitNames[i], gSplit[i]);
+    }
+    drawText(16, 30 + (BENCH_COUNT + 1) * 18, text, TEXT_ALIGN_LEFT);
 }
 #endif
 
