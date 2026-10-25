@@ -420,35 +420,37 @@ static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room, int
 // at half luminance, which scales its texels as the PS1 shades, and its
 // gouraud levels are raised to keep each corner as bright as it was. Halving
 // (t + g - 16) leaves t / 2 + (g - 16) / 2, so for corner level L and mean m
-// per channel, g = m + 2 (L - 16) + 16.
-static void shadeHalf(uint32* w, uint32* grd, const Texture* tex)
-{
-    int32 level[4] = {
-        int32(grd[0] >> 16) & 31, int32(grd[0]) & 31,
-        int32(grd[1] >> 16) & 31, int32(grd[1]) & 31
-    };
-    int32 sum = level[0] + level[1] + level[2] + level[3];
+// per channel, g = m + 2 (L - 16) + 16 = m + 2L - 16, which gHalfLevel holds
+// within 0 .. 31 (indexed by m + 2L). Texture.attr's high byte holds the
+// texture's mean luma (renderLevelInit). False for a face drawn as usual.
+static uint8 gHalfLevel[32 + 64];
 
-    uint32 color = tex->color;
-    int32 mean[3] = { int32(color & 31), int32((color >> 5) & 31), int32((color >> 10) & 31) };
-    int32 meanLuma = mean[0] + mean[1] + mean[2];
+X_INLINE uint32 halfGouraud(const uint8* r, const uint8* g, const uint8* b, int32 level)
+{
+    return r[level * 2] | (g[level * 2] << 5) | (b[level * 2] << 10);
+}
+
+X_INLINE bool shadeHalf(uint32* w, uint32* grd, uint32 flags, const Vertex* a, const Vertex* b, const Vertex* c, const Vertex* d)
+{
+    const Texture* tex = level.textures + (flags & FACE_TEXTURE);
+    int32 la = gShadeLevel[a->g];
+    int32 lb = gShadeLevel[b->g];
+    int32 lc = gShadeLevel[c->g];
+    int32 ld = gShadeLevel[d->g];
 
     // average darkening (64 - sum) / 4 against a third of the mean luma / 3
-    if ((64 - sum) * 9 < meanLuma * 4)
-        return;
+    if ((64 - (la + lb + lc + ld)) * 9 < int32(tex->attr >> 8) * 4)
+        return false;
 
-    uint32 out[4];
-    for (int32 i = 0; i < 4; i++)
-    {
-        int32 offset = 2 * (level[i] - 16) + 16;
-        int32 r = X_CLAMP(mean[0] + offset, 0, 31);
-        int32 g = X_CLAMP(mean[1] + offset, 0, 31);
-        int32 b = X_CLAMP(mean[2] + offset, 0, 31);
-        out[i] = (b << 10) | (g << 5) | r;
-    }
-    grd[0] = (out[0] << 16) | out[1];
-    grd[1] = (out[2] << 16) | out[3];
+    uint32 color = tex->color;
+    const uint8* r = gHalfLevel + (color & 31);
+    const uint8* g = gHalfLevel + ((color >> 5) & 31);
+    const uint8* bl = gHalfLevel + ((color >> 10) & 31);
+
+    grd[0] = (halfGouraud(r, g, bl, la) << 16) | halfGouraud(r, g, bl, lb);
+    grd[1] = (halfGouraud(r, g, bl, lc) << 16) | halfGouraud(r, g, bl, ld);
     w[1] = (w[1] & ~(7 << 16)) | (PMOD_GOURAUD_HALF << 16);
+    return true;
 }
 
 X_INLINE void setRect(uint32* w, const Vertex* pos, const Vertex* size)
@@ -625,14 +627,19 @@ void flush_c()
                         // v0, x, y; the fourth corner is x + y - v0
                         uint32 p = pair(vdp1Coord(v1->x + v2->x - v0->x), vdp1Coord(v1->y + v2->y - v0->y));
 
+                        bool half = gShadeHalf && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim && !(flags & FACE_WATER);
+
                         if (flags & FACE_V0_AT_D)
                         {
                             w[3] = v1->xy;
                             w[4] = p;
                             w[5] = v2->xy;
                             w[6] = v0->xy;
-                            grd[0] = gouraudPair(flags, dim, v1, v1);
-                            grd[1] = gouraudPair(flags, dim, v2, v0);
+                            if (!(half && shadeHalf(w, grd, flags, v1, v1, v2, v0)))
+                            {
+                                grd[0] = gouraudPair(flags, dim, v1, v1);
+                                grd[1] = gouraudPair(flags, dim, v2, v0);
+                            }
                         }
                         else
                         {
@@ -640,13 +647,13 @@ void flush_c()
                             w[4] = v1->xy;
                             w[5] = p;
                             w[6] = v2->xy;
-                            grd[0] = gouraudPair(flags, dim, v0, v1);
-                            grd[1] = gouraudPair(flags, dim, v2, v2);
+                            if (!(half && shadeHalf(w, grd, flags, v0, v1, v2, v2)))
+                            {
+                                grd[0] = gouraudPair(flags, dim, v0, v1);
+                                grd[1] = gouraudPair(flags, dim, v2, v2);
+                            }
                         }
 
-                        if (gShadeHalf && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim) {
-                            shadeHalf(w, grd, level.textures + (flags & FACE_TEXTURE));
-                        }
                         if (gTexelView == TEXEL_VIEW_SIZE && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW) {
                             texelTint(w, grd, flags, false, 0);
                         }
@@ -658,11 +665,11 @@ void flush_c()
                     w[4] = v1->xy;
                     w[5] = v2->xy;
                     w[6] = v3->xy;
-                    grd[0] = gouraudPair(flags, dim, v0, v1);
-                    grd[1] = gouraudPair(flags, dim, v2, v3);
-
-                    if (gShadeHalf && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim && !(flags & FACE_WATER)) {
-                        shadeHalf(w, grd, level.textures + (flags & FACE_TEXTURE));
+                    bool half = gShadeHalf && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim && !(flags & FACE_WATER);
+                    if (!(half && shadeHalf(w, grd, flags, v0, v1, v2, v3)))
+                    {
+                        grd[0] = gouraudPair(flags, dim, v0, v1);
+                        grd[1] = gouraudPair(flags, dim, v2, v3);
                     }
                     if (gTexelView && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW) {
                         texelTint(w, grd, flags, !list, X_MAX(X_MAX(v0->z, v1->z), X_MAX(v2->z, v3->z)));
@@ -776,6 +783,17 @@ void renderSwap()
 
 void renderLevelInit()
 {
+    for (int32 i = 0; i < int32(sizeof(gHalfLevel)); i++) {
+        gHalfLevel[i] = X_CLAMP(i - 16, 0, 31);
+    }
+
+    // each texture's mean luma, for shadeHalf
+    for (int32 i = 0; i < level.texturesCount; i++)
+    {
+        Texture &t = level.textures[i];
+        uint32 c = t.color;
+        t.attr = (t.attr & 0xFF) | (((c & 31) + ((c >> 5) & 31) + ((c >> 10) & 31)) << 8);
+    }
 }
 
 void renderLevelFree()
