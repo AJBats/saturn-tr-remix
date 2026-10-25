@@ -13,6 +13,7 @@ SECTIONS
     .text : {
         KEEP(*(.text.start))
         *(.text .text.*)
+        __text_end = .;
     } > HWRAM
 
     .rodata : { *(.rodata .rodata.*) } > HWRAM

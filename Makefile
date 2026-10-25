@@ -4,7 +4,8 @@
 # image extracted to external_resources/tomb_raider_usa/.
 #
 #   make disc     $(BUILD)/disc/tomb.cue (our 0MAIN.BIN + the original audio tracks)
-#   make bench    $(BUILD)/bench/disc/tomb.cue (CPU benchmark, see saturn/bench/)
+#   make bench    $(BUILD)/bench/disc/tomb.cue (CPU benchmark, saturn/progs/bench.cpp)
+#   make cdtest   $(BUILD)/cdtest/disc/tomb.cue (CD loader self-test)
 #   make ghidra   headless analysis of the original 0MAIN.BIN
 #
 # First run: python tools/setup_toolchain.py (pinned GCC 14.2 into toolchain/).
@@ -48,12 +49,30 @@ DISC    := $(ER)/disc
 MAIN    := $(DISC)/files/0MAIN.BIN
 GH_OUT  := build/ghidra
 
-PLATFORM := $(wildcard saturn/*.c saturn/*.cpp saturn/*.s) openlara/common.cpp
-GAME_OBJ := $(patsubst %,$(BUILD)/obj/%.o,$(PLATFORM))
-BENCH_OBJ := $(patsubst %,$(BUILD)/obj/%.o,$(filter-out saturn/main.cpp,$(PLATFORM)) saturn/bench/bench.cpp)
+# The game: every platform source plus the OpenLara core.
+GAME_SRC := $(wildcard saturn/*.c saturn/*.cpp saturn/*.s) openlara/common.cpp
+ENGINE_SRC := $(filter-out saturn/main.cpp,$(GAME_SRC))
+HW_SRC  := saturn/crt0.s saturn/system.cpp saturn/cd.cpp
+
+# Test programs in saturn/progs/, each built onto its own disc by `make NAME`.
+# NAME_DISC lists extra disc files as DISCPATH=SRCPATH.
+PROGS   := bench cdtest
+bench_SRC  := $(ENGINE_SRC) saturn/progs/bench.cpp
+cdtest_SRC := $(HW_SRC) saturn/progs/cdtest.cpp
+cdtest_DISC := DATA/LEVEL1.SAT=$(DISC)/files/DATA/LEVEL1.SAT
+
+DISC_TXT := ABS.TXT=disc/ABS.TXT BIB.TXT=disc/BIB.TXT CPY.TXT=disc/CPY.TXT
+
+# $(call DISC_RULE,dir,extra entries): dir/disc/tomb.cue holding dir/0MAIN.BIN
+define DISC_RULE
+$(1)/disc/tomb.cue: $(1)/0MAIN.BIN $(wildcard disc/*) tools/mkdisc.py $(DISC)/filelist.txt $(foreach e,$(2),$(lastword $(subst =, ,$(e))))
+	$$(PY) tools/mkdisc.py --ip $(DISC)/IP.BIN --cue "$(ORIGCUE)" --out $(1)/disc --name tomb \
+		0MAIN.BIN=$(1)/0MAIN.BIN $(DISC_TXT) $(2)
+endef
+
 HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h)
 
-.PHONY: all disc bench extract ghidra check-toolchain
+.PHONY: all disc $(PROGS) extract ghidra check-toolchain
 
 # keep intermediate files (0MAIN.BIN) produced through pattern rules
 .SECONDARY:
@@ -78,23 +97,21 @@ $(BUILD)/obj/%.s.o: %.s | check-toolchain
 %/0MAIN.BIN: %/0MAIN.elf
 	$(OBJCOPY) -O binary $< $@
 
-%/disc/tomb.cue: %/0MAIN.BIN $(wildcard disc/*) tools/mkdisc.py $(DISC)/filelist.txt
-	$(PY) tools/mkdisc.py --ip $(DISC)/IP.BIN --cue "$(ORIGCUE)" --out $*/disc --name tomb \
-		0MAIN.BIN=$*/0MAIN.BIN \
-		ABS.TXT=disc/ABS.TXT BIB.TXT=disc/BIB.TXT CPY.TXT=disc/CPY.TXT
-
-# The game.
-$(BUILD)/0MAIN.elf: $(GAME_OBJ) saturn/saturn.ld
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(BUILD)/0MAIN.map -o $@ $(GAME_OBJ) -lc -lgcc
+$(BUILD)/0MAIN.elf: $(patsubst %,$(BUILD)/obj/%.o,$(GAME_SRC)) saturn/saturn.ld
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
 
 disc: $(BUILD)/disc/tomb.cue
+$(eval $(call DISC_RULE,$(BUILD),))
 
-# CPU benchmark of engine hot paths, for comparing compilers and flags.
-$(BUILD)/bench/0MAIN.elf: $(BENCH_OBJ) saturn/saturn.ld
-	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(BUILD)/bench/0MAIN.map -o $@ $(BENCH_OBJ) -lc -lgcc
+define PROG_RULES
+$(BUILD)/$(1)/0MAIN.elf: $$(patsubst %,$(BUILD)/obj/%.o,$$($(1)_SRC)) saturn/saturn.ld
+	@mkdir -p $$(@D)
+	$$(CXX) $$(CXXFLAGS) $$(LDFLAGS) -Wl,-Map=$$(@D)/0MAIN.map -o $$@ $$(filter %.o,$$^) -lc -lgcc
 
-bench: $(BUILD)/bench/disc/tomb.cue
+$(1): $(BUILD)/$(1)/disc/tomb.cue
+$$(eval $$(call DISC_RULE,$(BUILD)/$(1),$$($(1)_DISC)))
+endef
+$(foreach p,$(PROGS),$(eval $(call PROG_RULES,$(p))))
 
 extract: $(DISC)/filelist.txt
 
