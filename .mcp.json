@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "mednafen": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "tools/mednafen/mcp_server.py",
+        "--ipc-dir",
+        "build/mcp_ipc",
+        "--home-dir",
+        "build/mednafen_home",
+        "--cue",
+        "external_resources/tomb_raider_usa/Tomb Raider (USA).cue"
+      ],
+      "env": {}
+    }
+  }
+}

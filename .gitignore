@@ -3,3 +3,5 @@ external_resources/
 
 build/
 __pycache__/
+# Mednafen MCP server writes crash dumps beside its checkout
+tools/crash_dumps/
