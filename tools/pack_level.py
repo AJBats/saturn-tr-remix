@@ -19,6 +19,9 @@ using its colour table.
 usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD>
        (also writes <out>.TEX, the texture blob loaded at VRAM_TEX_BASE, and
        <out>.SUB, the full-resolution room textures)
+
+For testing, LARA_START=<room> in the environment starts Lara in that room,
+on the walkable floor nearest its centre.
 """
 import math
 import os
@@ -517,9 +520,29 @@ def s32(v):
     return v - 0x100000000 if v >= 0x80000000 else v
 
 
+def move_lara(lvl, room_index):
+    room = lvl.rooms[room_index]
+    best = None
+    for sx in range(1, room.x_sectors - 1):
+        for sz in range(1, room.z_sectors - 1):
+            _, box, below, floor, _, _ = room.sectors[sx * room.z_sectors + sz]
+            if box == 0xFFFF or below != 0xFF or floor == -127:
+                continue
+            d = (sx - room.x_sectors / 2) ** 2 + (sz - room.z_sectors / 2) ** 2
+            if best is None or d < best[0]:
+                best = (d, sx, sz, floor)
+    if best is None:
+        raise ValueError(f"room {room_index}: no walkable sector")
+    _, sx, sz, floor = best
+    lara = next(it for it in lvl.items if it["type"] == ITEM["LARA"])
+    lara.update(room=room_index, x=room.x + sx * 1024 + 512, y=floor * 256, z=room.z + sz * 1024 + 512)
+
+
 def main():
     data_dir, name, out_path = sys.argv[1:4]
     lvl = trsat.load(data_dir, name)
+    if os.environ.get("LARA_START"):
+        move_lara(lvl, int(os.environ["LARA_START"]))
     packer = Packer(lvl)
     data = packer.pack()
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
