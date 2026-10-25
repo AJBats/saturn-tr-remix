@@ -10,12 +10,13 @@ Texture entries hold VDP1 command fields addressing the texture blob, which
 the game loads into VDP1 VRAM at VRAM_TEX_BASE (saturn/vram.h), plus an
 average colour for untextured drawing.
 
-Room textures in the blob are the quarter-resolution set. The full-resolution
-set (ROOMTSUB) goes to a separate file the game keeps in work RAM and streams
-into VDP1 VRAM as faces use it: per texture, the whole texture (twice the
-quarter-res tile's size each way, with its colour table). The original stores
-it as four quadrants for faces split near the camera; the game rearranges it
-so when drawing that way (saturn/detail.h).
+Room textures are drawn from the full-resolution set (ROOMTSUB), which goes
+to a separate file the game keeps in work RAM and streams into VDP1 VRAM as
+faces use it (saturn/detail.h): per texture, the whole texture. The original
+stores it as four quadrants, for faces split near the camera, and draws the
+rest with a quarter-resolution set (ROOMTQTR), which the blob leaves out but
+for its colour tables. The game rearranges a texture into quadrants for the
+faces it splits.
 
 Sound effects keep the original's samples (16-bit PCM at 5512.5 Hz). They
 go to a separate file the game loads into sound RAM; the PKD holds the sound
@@ -132,20 +133,15 @@ def shade_from_color16(c):
     return 31 - (c & 31)
 
 
-def texture_average(data, tile, clut, w, h, transparent, end_codes=False, colors=None):
-    """Average RGB555 colour of a 4-bit CLUT character, leaving out colour 0
-    when it is transparent and colour 15 when it is VDP1's end code (the
-    triangle variants of object textures fill their unused half with it).
-    With 'colors', those stand in for its colour table."""
-    pix = tile << 3
-    lut = (clut + tile) << 3
-    if lut + 32 > len(data) or pix + w * h // 2 > len(data):
+def texture_average(pixels, colors, transparent, end_codes=False):
+    """Average RGB555 colour of 4-bit pixels drawn with 16 colours, leaving out
+    colour 0 when it is transparent and colour 15 when it is VDP1's end code
+    (the triangle variants of object textures fill their unused half with it).
+    Grey without pixels."""
+    if pixels is None:
         return 0x8000 | (16 << 10) | (16 << 5) | 16
-    if colors is None:
-        colors = struct.unpack_from(">16H", data, lut)
     r = g = b = n = 0
-    for i in range(w * h // 2):
-        byte = data[pix + i]
+    for byte in pixels:
         for idx in (byte >> 4, byte & 15):
             if (transparent and idx == 0) or (end_codes and idx == 15):
                 continue
@@ -161,27 +157,40 @@ def texture_average(data, tile, clut, w, h, transparent, end_codes=False, colors
 
 class TextureTable:
     """Texture entries as VDP1 command fields, plus the blob loaded at
-    VRAM_TEX_BASE. Room textures (quarter-res ROOMTQTR) come first with fixed
-    indices (animated texture ranges refer to them); object texture variants
-    are added as faces use them."""
+    VRAM_TEX_BASE. Room textures come first with fixed indices (animated
+    texture ranges refer to them): they have no character in the blob (srca
+    0), only their colour tables, and their size is a quadrant's, half the
+    full-res texture's each way. Object texture variants are added as faces
+    use them."""
 
     def __init__(self, lvl):
         self.lvl = lvl
+        self.sub = whole_textures(lvl)
         self.blob = bytearray()
         self.obj_off = self.add_segment(lvl.object_tex_data)
-        self.room_off = self.add_segment(lvl.room_tex_qtr)
+        self.room_off = self.add_segment(b"".join(lvl.room_tex_qtr[self.room_lut(t):self.room_lut(t) + 32]
+                                                  for t in lvl.room_textures))
         self.spr_off = self.add_segment(lvl.sprite_tex_data)
         # the VRAM after the blob: full-res room texture cache, or item textures
         self.cache_off = (len(self.blob) + 31) & ~31
         if self.cache_off + len(lvl.item_tex_data) > 0x80000 - VRAM_TEX_BASE:
             raise ValueError(f"textures need {self.cache_off + len(lvl.item_tex_data)} bytes of VDP1 VRAM")
-        self.entries = []
-        self.averages = []  # how each entry's mean colour was taken, for the remastered one
+        self.entries = []   # srca, colr, size, attr, full-res key
+        self.sources = []   # each entry's pixels, colours, colour table's blob offset (None outside it), end codes
         self.index = {}
-        for t in lvl.room_textures:
-            e = self.entry(lvl.room_tex_qtr, self.room_off, t, t["tile"], 0)
-            e[5] = self.detail_key(t)
-            self.entries.append(e)
+        for i, t in enumerate(lvl.room_textures):
+            pix = t["sub"][0] * 8
+            n = t["w"] * t["h"] * 2  # the whole full-res texture
+            lut = self.room_lut(t)
+            colr = self.room_off + i * 32
+            if pix + n > len(self.sub) or lut + 32 > len(lvl.room_tex_qtr):
+                raise ValueError(f"room texture outside the level's data: {t}")
+            self.sources.append((self.sub[pix:pix + n], struct.unpack_from(">16H", lvl.room_tex_qtr, lut), colr, False))
+            self.entries.append([0, (VRAM_TEX_BASE + colr) >> 3, ((t["w"] // 8) << 8) | t["h"], 0, self.detail_key(t)])
+
+    @staticmethod
+    def room_lut(t):
+        return ((t["clut"] + t["tile"]) & 0xFFFF) * 8
 
     def add_segment(self, data):
         # colour lookup tables in VRAM must be 32-byte aligned
@@ -192,12 +201,19 @@ class TextureTable:
         return off
 
     def entry(self, data, seg_off, t, tile, attr, end_codes=False):
+        """Texture t's tile in 'data', at seg_off in the blob (or in the VRAM
+        after it, for item textures)."""
+        pix = tile * 8
+        lut = ((t["clut"] + tile) & 0xFFFF) * 8
+        n = t["w"] * t["h"] // 2
+        if pix + n > len(data) or lut + 32 > len(data):
+            self.sources.append((None, None, None, False))
+        else:
+            in_blob = seg_off != self.cache_off
+            self.sources.append((data[pix:pix + n], struct.unpack_from(">16H", data, lut),
+                                 seg_off + lut if in_blob else None, end_codes))
         base = VRAM_TEX_BASE + seg_off
-        srca = (base + tile * 8) >> 3
-        colr = (base + ((t["clut"] + tile) & 0xFFFF) * 8) >> 3
-        args = (data, tile, t["clut"], t["w"], t["h"], attr & TEX_ATTR_AKILL, end_codes)
-        self.averages.append((args, seg_off == self.cache_off))
-        return [srca, colr, ((t["w"] // 8) << 8) | t["h"], attr, texture_average(*args), 0]
+        return [(base + pix) >> 3, (base + lut) >> 3, ((t["w"] // 8) << 8) | t["h"], attr, 0]
 
     @staticmethod
     def detail_key(t):
@@ -236,10 +252,11 @@ class TextureTable:
         (Texture.contrast)."""
         remastered = dict(self.remastered_palettes())
         out = []
-        for e, (args, item) in zip(self.entries, self.averages):
-            colors = None if item else remastered.get(e[1] * 8 - VRAM_TEX_BASE)
-            alt = e[4] if colors is None else texture_average(*args, colors=colors)
-            out.append(struct.pack(">8H", *e, alt, 0))
+        for e, (pixels, colors, lut, end_codes) in zip(self.entries, self.sources):
+            transparent = e[3] & TEX_ATTR_AKILL
+            mean = texture_average(pixels, colors, transparent, end_codes)
+            alt = texture_average(pixels, remastered[lut], transparent, end_codes) if lut in remastered else mean
+            out.append(struct.pack(">8H", *e[:4], mean, e[4], alt, 0))
         return b"".join(out)
 
     def remastered_palettes(self):
@@ -249,25 +266,20 @@ class TextureTable:
         uses = {}  # table offset -> [use count per index]
         akill = set()
 
-        def count(srca, colr, size, attr):
-            pix = srca * 8 - VRAM_TEX_BASE
-            lut = colr * 8 - VRAM_TEX_BASE
-            n = (size >> 8) * 8 * (size & 0xFF) // 2
-            if pix + n > len(self.blob) or lut + 32 > len(self.blob):
-                return  # inventory item textures live outside the blob
+        def count(pixels, lut, attr):
             counts = uses.setdefault(lut, [0] * 16)
-            for b in self.blob[pix:pix + n]:
+            for b in pixels:
                 counts[b >> 4] += 1
                 counts[b & 15] += 1
             if attr & TEX_ATTR_AKILL:
                 akill.add(lut)
 
-        for srca, colr, size, attr, *_ in self.entries:
-            count(srca, colr, size, attr)
-        spr_base = VRAM_TEX_BASE + self.spr_off
+        for e, (pixels, _, lut, _) in zip(self.entries, self.sources):
+            if lut is not None:  # inventory item textures live outside the blob
+                count(pixels, lut, e[3])
         for s in self.lvl.sprite_textures:
-            count((spr_base + s["tile"] * 8) >> 3, (spr_base + s["clut"] * 8) >> 3,
-                  ((s["w"] // 8) << 8) | s["h"], TEX_ATTR_AKILL)
+            pix = self.spr_off + s["tile"] * 8
+            count(self.blob[pix:pix + s["w"] * s["h"] // 2], self.spr_off + s["clut"] * 8, TEX_ATTR_AKILL)
 
         out = []
         for lut, counts in sorted(uses.items()):
@@ -777,7 +789,7 @@ def main():
         f.write(packer.textures.blob)
     sub_path = os.path.splitext(out_path)[0] + ".SUB"
     with open(sub_path, "wb") as f:
-        f.write(whole_textures(lvl))
+        f.write(packer.textures.sub)
     sfx_path = os.path.splitext(out_path)[0] + ".SFX"
     with open(sfx_path, "wb") as f:
         f.write(packer.sfx)

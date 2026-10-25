@@ -38,10 +38,10 @@ enum FaceType {
 
 #define FACE_TRIANGLE   (1 << 31)
 #define FACE_WATER      (1 << 30)   // underwater: red fades with distance (see waterGouraud)
-#define FACE_DETAIL     (1 << 29)   // full-res quadrant of a cached room texture
+#define FACE_DETAIL     (1 << 29)   // a quadrant of a cached room texture
 #define FACE_PARALLELOGRAM  (1 << 28)   // mesh triangle drawn as a parallelogram, see faceAddMeshTriangles
 #define FACE_V0_AT_D        (1 << 27)   // ... with its first vertex at corner D (else A)
-#define FACE_DETAIL_WHOLE   (1 << 27)   // room face: the cached full-res texture whole
+#define FACE_DETAIL_WHOLE   (1 << 27)   // room face: the cached texture whole
 #define FACE_DETAIL_SLOT_SHIFT  20      // 7 bits
 #define FACE_DETAIL_QUAD_SHIFT  18
 #define FACE_TYPE_SHIFT 14
@@ -169,26 +169,21 @@ X_INLINE void projectView(int16 x, int16 y, int32 z, uint32 clip, const RectMinM
     res->z = z;
 }
 
-// Room quads whose farthest vertex is nearer than this are split 2x2 and drawn
-// with full-res textures, as in the original game.
+// Room quads crossing the near plane nearer than this are split 2x2, so the
+// quarters in front of it are drawn rather than the whole face culled.
 #define DETAIL_DIST     4096
 
 // Debug views (the debug pad's B cycles them).
 enum TexelView
 {
     TEXEL_VIEW_OFF,
-    TEXEL_VIEW_LOD,     // room faces by texture resolution: green full, red
-                        // quarter though near, blue quarter and far
+    TEXEL_VIEW_LOD,     // room faces by the texture cache: green cached, red
+                        // missed (drawn in the mean colour), yellow flat
     TEXEL_VIEW_SIZE,    // textured faces by how big a texel is on screen: green
                         // up to a pixel, yellow 2, red 4, magenta more
     TEXEL_VIEW_COUNT
 };
 extern int32 gTexelView;
-
-// Room faces are drawn with their full-res texture whole at any distance
-// (cache permitting), as the PS1 draws them. With this set, the original's way:
-// the quarter-res set, with full-res quadrants for faces near the camera.
-extern bool gSaturnLod;
 
 // Far LOD, after XL2's Irreel: textured faces wholly beyond this depth are
 // drawn as flat polygons in their texture's mean colour (0: never). Faces with
@@ -236,10 +231,8 @@ void renderPalettesSwapped();
 struct RoomStats
 {
     uint32 vertices;    // room vertices transformed
-    uint32 detailFaces; // room quads split for full-res textures
-    uint32 detailMisses;  // near room quads left at quarter res: no cache slot or upload this frame
-    uint32 nearNoDetail;  // near room quads whose texture has no full-res version
-    uint32 nearTriangles; // near room triangles, which have no full-res path
+    uint32 detailFaces; // room faces drawn with cached textures
+    uint32 detailMisses;  // ... in their mean colour: no cache slot or upload this frame
     uint32 flatFaces;     // room faces drawn flat (gFlatDist)
     uint32 xformTicks;  // slave time transforming vertices (its own FRT)
     uint32 faceTicks;   // ... adding faces

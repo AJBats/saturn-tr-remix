@@ -28,6 +28,7 @@
 ! Face: uint32 flags; Face* next; int16 indices[4].
 ! Vertex: int16 x, y; int16 z; uint8 g, clip.
 ! Texture: uint16 srca, colr, size, attr, color, reserved, altColor, contrast.
+! Room textures have no character (srca 0) but in the cache (FACE_DETAIL).
 
     .equ    FACE_WATER_BIT,     30
     .equ    CLIP_FRAME,         1
@@ -258,11 +259,15 @@ _flushAsm:
     bt      .Lslow              ! not FT, FTA, GT or GTA
 
     mov.l   @r2, r3             ! srca << 16 | colr
+    mov.l   .LfaceDetail, r5
+    tst     r5, r1
+    bf      .Lcharacter         ! a room texture in the cache
     mov     r3, r4
     shlr16  r4                  ! srca
     tst     r4, r4
-    bt      .LtexColour         ! no character: drawn in its colour
+    bt      .Luncached          ! a room texture the cache missed
 
+.Lcharacter:
     mov.l   @(4, r2), r6        ! size << 16 | attr
     mov     r6, r0
     tst     #1, r0              ! TEX_ATTR_AKILL
@@ -283,11 +288,10 @@ _flushAsm:
     shll16  r0
     mov.l   r0, @r10            ! w[0]
 
+    tst     r5, r1              ! FACE_DETAIL
     mov     r6, r5
+    bt/s    .Lw2
     shlr16  r5                  ! size
-    mov.l   .LfaceDetail, r0
-    tst     r0, r1
-    bt      .Lw2
 
     ! a cached full-res texture: its slot
     mov     r1, r0
@@ -344,9 +348,23 @@ _flushAsm:
     bra     .Lpolygon
     mov     #0, r2              ! no half luminance
 
+.Luncached:
+    mov.w   @(6, r2), r0
+    tst     #1, r0              ! TEX_ATTR_AKILL
+    bt      .LtexColour         ! drawn in its colour
+    mov     #0x40, r0
+    shll8   r0
+    shll16  r0
+    bra     .Lfaced
+    mov.l   r0, @r10            ! w[0]: CMD_SKIP, see-through texels can't be one colour
+
 .LtexColour:
+    mov.w   @(14, r2), r0
+    tst     r0, r0
     mov.l   @(8, r2), r0
+    bt/s    .Lpolygon
     shlr16  r0                  ! colour
+    mov     #0, r2              ! a room texture: its tables of less contrast are for texels
 .Lpolygon:
     mov     #4, r3
     shll16  r3

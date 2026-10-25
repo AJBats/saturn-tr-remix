@@ -158,9 +158,9 @@ static void faceAddDetailQuad(uint32 flags, const Vertex* v0, const Vertex* v1, 
 }
 
 // Splits a room quad near the camera into four, each drawn with one quadrant
-// of the full-res texture. The new vertices are projected from room space, so
-// the split also reduces the distortion of affine texture mapping. False when
-// the texture can't be cached this frame.
+// of its texture. The new vertices are projected from room space, so the
+// split also reduces the distortion of affine texture mapping. False when the
+// texture can't be cached this frame.
 static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
                                   const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
 {
@@ -208,8 +208,8 @@ static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
     return true;
 }
 
-// A face drawn with its full-res texture whole, at any distance, if the cache
-// has room for it.
+// A face drawn with its texture whole, if the cache has room for it; in its
+// mean colour if not.
 static uint32 wholeTexture(uint32 flags)
 {
     const Texture* tex = level.textures + (flags & FACE_TEXTURE);
@@ -263,7 +263,7 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
             flags = flatFlags(flags);
             gSlaveStats.flatFaces++;
         }
-        else if (!gSaturnLod)
+        else
         {
             // crossing the near plane: split, so the quarters in front of it
             // are drawn rather than the whole face culled
@@ -275,27 +275,6 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
                 continue;
             flags = wholeTexture(flags);
         }
-        else
-        {
-            if (zMax < DETAIL_DIST)
-            {
-                if (tex->reserved && faceAddRoomQuadDetail(polys, tex, v0, v1, v2, v3))
-                    continue;
-            }
-
-            if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
-                continue;
-
-            if (zMax < DETAIL_DIST)
-            {
-                if (tex->reserved) {
-                    gSlaveStats.detailMisses++;
-                } else {
-                    gSlaveStats.nearNoDetail++;
-                }
-            }
-        }
-
 
         Face* f = faceAdd(gFaceList, zMax >> OT_SHIFT);
         f->flags = flags;
@@ -335,10 +314,8 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
         if (faceFlat(flags, X_MIN(v0->z, X_MIN(v1->z, v2->z)), level.textures + (flags & FACE_TEXTURE))) {
             flags = flatFlags(flags);
             gSlaveStats.flatFaces++;
-        } else if (!gSaturnLod) {
+        } else {
             flags = wholeTexture(flags);
-        } else if (zMax < DETAIL_DIST) {
-            gSlaveStats.nearTriangles++;
         }
         int32 depth = zMax >> OT_SHIFT;
 
@@ -434,7 +411,7 @@ static void renderRoomJob(const RoomJob &job)
     gSlaveStats.vertices += vCount;
 
     uint32 t1 = timerTicks();
-    if (gSaturnLod || gFlatDist)
+    if (gFlatDist)
     {
         if (info->quadsCount > 0) {
             faceAddRoomQuads(roomBase, data.quads, info->quadsCount);

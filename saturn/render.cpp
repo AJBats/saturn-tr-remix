@@ -368,7 +368,6 @@ X_INLINE uint32 gouraudPair(uint32 flags, bool dim, const Vertex* a, const Verte
 }
 
 int32 gTexelView;
-bool gSaturnLod;
 int32 gDarkFaces = DARK_CONTRAST;
 int32 gFlatDist;
 
@@ -391,7 +390,7 @@ X_INLINE int16 cmdX(uint32 w) { return int16(w >> 16); }
 X_INLINE int16 cmdY(uint32 w) { return int16(w); }
 
 // Tints a textured face for the debug views, from its finished command words.
-static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room, int32 zMax)
+static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room)
 {
     int32 dr = -6, dg = -6, db = -6;
 
@@ -405,10 +404,8 @@ static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room, int
             dr = 10; dg = 10;           // flat
         } else if (flags & FACE_DETAIL) {
             dg = 10;
-        } else if (zMax < DETAIL_DIST) {
-            dr = 12;
         } else {
-            db = 10;
+            dr = 12;                    // missed the cache
         }
     }
     else
@@ -478,6 +475,10 @@ X_INLINE bool shadeDark(uint32* w, uint32* grd, uint32 flags, const Vertex* a, c
     // average darkening (64 - sum) / 4 against a third of the mean luma / 3
     int32 dark = (64 - (la + lb + lc + ld)) * 9;
     int32 third = int32(tex->attr >> 8) * 4;
+
+    // a room face drawn in its mean colour: the tables are for its texels
+    if (tex->contrast && ((w[0] >> 16) & 15) == CMD_POLYGON)
+        return false;
 
     if (gDarkFaces == DARK_CONTRAST && tex->contrast)
     {
@@ -586,8 +587,9 @@ X_INLINE void faceMaterial(uint32* w, uint32 flags)
     }
     else
     {
+        // room textures have no character but in the cache
         const Texture* tex = level.textures + (flags & FACE_TEXTURE);
-        if (tex->srca)
+        if (tex->srca || (flags & FACE_DETAIL))
         {
             uint32 pmod = PMOD_LUT16 | PMOD_GOURAUD;
             if (!(flags & FACE_PARALLELOGRAM)) {
@@ -618,6 +620,11 @@ X_INLINE void faceMaterial(uint32* w, uint32 flags)
             w[0] = (CMD_DISTORTED_SPRITE | (tex->attr & TEX_ATTR_DIR)) << 16;
             w[1] = pair(pmod, tex->colr);
             w[2] = pair(srca, size);
+            return;
+        }
+        if (tex->attr & TEX_ATTR_AKILL)
+        {
+            w[0] = CMD_SKIP << 16; // see-through texels can't be one colour: left out
             return;
         }
         color = tex->color;
@@ -711,7 +718,7 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
                 }
 
                 if (gTexelView == TEXEL_VIEW_SIZE && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW) {
-                    texelTint(w, grd, flags, false, 0);
+                    texelTint(w, grd, flags, false);
                 }
                 break;
             }
@@ -742,7 +749,7 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
                 grd[1] = gouraudPair(flags, dim, v2, v3);
             }
             if (gTexelView && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW) {
-                texelTint(w, grd, flags, room, X_MAX(X_MAX(v0->z, v1->z), X_MAX(v2->z, v3->z)));
+                texelTint(w, grd, flags, room);
             }
         }
     }
@@ -931,8 +938,6 @@ void flush_c()
     gStats.roomVertices = rooms.vertices;
     gStats.detailFaces = rooms.detailFaces;
     gStats.detailMisses = rooms.detailMisses;
-    gStats.nearNoDetail = rooms.nearNoDetail;
-    gStats.nearTriangles = rooms.nearTriangles;
     gStats.flatFaces = rooms.flatFaces + gMeshFlatFaces;
     gMeshFlatFaces = 0;
     gStats.slaveXformTicks = rooms.xformTicks;

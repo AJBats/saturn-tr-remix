@@ -1,12 +1,11 @@
 // The debug pad (port 2). Mednafen keys in brackets:
 //   START [Tab]       opens and closes the menu
 //   up/down [arrows]  pick an option, left/right change it
-//   A [P], B [H], C [G]  step the palette, view and textures options
+//   A [P], B [H], C [G]  step the palette, view and dark faces options
 // Changes show for a moment at the bottom of the screen.
 
 #include "debug.h"
 #include "common.h"
-#include "detail.h"
 #include "input.h"
 #include "palettes.h"
 #include "render.h"
@@ -21,11 +20,10 @@ struct Option
     void (*set)(int32 value);
 };
 
-static const char* const kTextures[] = { "Full res", "Saturn LOD" };
 static const char* const kCurves[] = { "Saturn", "Soft", "Softer" };
 static const char* const kDark[] = { "Add", "Half luminance", "Contrast steps" };
 static const char* const kPalette[] = { "Saturn", "Remastered" };
-static const char* const kViews[] = { "Normal", "Resolution", "Texel size" };
+static const char* const kViews[] = { "Normal", "Texture cache", "Texel size" };
 static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kFar[] = { "Textured", "Flat past 16", "Flat past 12", "Flat past 8" };
 static const int32 kFarDist[] = { 0, 16 * 1024, 12 * 1024, 8 * 1024 };
@@ -35,9 +33,6 @@ static int32 gFarFaces;
 static bool gShowStats;
 
 static const Option gOptions[] = {
-    { "Textures", kTextures, 2,
-        [] { return int32(gSaturnLod); },
-        [](int32 v) { gSaturnLod = v; detailSetWhole(!v, level.textures, level.texturesCount); } },
     { "Shading", kCurves, SHADE_CURVE_COUNT,
         [] { return gShadeCurve; },
         [](int32 v) { gShadeCurve = v; renderSetShadeCurve(v); } },
@@ -58,7 +53,7 @@ static const Option gOptions[] = {
         [](int32 v) { gShowStats = v; } }
 };
 
-enum { OPTION_TEXTURES, OPTION_SHADING, OPTION_DARK, OPTION_FAR, OPTION_PALETTE, OPTION_VIEW, OPTION_STATS, OPTION_COUNT };
+enum { OPTION_SHADING, OPTION_DARK, OPTION_FAR, OPTION_PALETTE, OPTION_VIEW, OPTION_STATS, OPTION_COUNT };
 
 static uint16 gPad;
 static bool gMenuOpen;
@@ -112,7 +107,7 @@ void debugUpdate()
         step(OPTION_VIEW, 1);
     }
     if (pressed & PAD_C) {
-        step(OPTION_TEXTURES, 1);
+        step(OPTION_DARK, 1);
     }
 }
 
@@ -171,12 +166,11 @@ void osDrawDebug()
 
     if (gShowStats || gTexelView)
     {
-        // room faces drawn full res; left at quarter res for want of a cache
-        // slot or upload; near ones without a full-res texture; near triangles
-        char* p = appendStat(text, "full ", gStats.detailFaces);
+        // room faces drawn with cached textures; in their mean colour for want
+        // of a cache slot or upload; flat for distance
+        char* p = appendStat(text, "cached ", gStats.detailFaces);
         p = appendStat(p, "missed ", gStats.detailMisses);
-        p = appendStat(p, "flat ", gStats.flatFaces);
-        appendStat(p, "tri ", gStats.nearTriangles);
+        appendStat(p, "flat ", gStats.flatFaces);
         drawText(0, y, text, TEXT_ALIGN_CENTER);
         y -= 18;
 

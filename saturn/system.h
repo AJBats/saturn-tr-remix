@@ -28,11 +28,9 @@ struct FrameStats
     uint32_t vdp1Ticks;     // VDP1 drawing time of the last frame
     uint32_t waitTicks;     // CPU time spent waiting for VDP1 to become idle
     uint32_t slaveWaitTicks;// flush waiting for the slave to finish the rooms
-    uint32_t detailFaces;   // room quads split for full-res textures
-    uint32_t detailMisses;  // near room quads left at quarter res (RoomStats)
-    uint32_t nearNoDetail;
-    uint32_t nearTriangles;
-    uint32_t detailUploads; // full-res textures copied to the cache last frame
+    uint32_t detailFaces;   // room faces drawn with cached textures (RoomStats)
+    uint32_t detailMisses;  // room faces drawn in their mean colour for want of a slot or upload
+    uint32_t detailUploads; // room textures copied to the cache last frame
     uint32_t flatFaces;     // faces drawn flat for distance (rooms and meshes)
     uint32_t roomVertices;  // room vertices transformed
     uint32_t slaveXformTicks; // slave: room vertex transform

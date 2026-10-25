@@ -31,6 +31,7 @@ typedef struct {
 #define CMD_USER_CLIP   0x0008
 #define CMD_SYSTEM_CLIP 0x0009
 #define CMD_LOCAL_COORD 0x000A
+#define CMD_SKIP        0x4000  /* JP=100: don't draw, continue with the next */
 #define CMD_SKIP_JUMP   0x5000  /* JP=101: don't draw, continue at CMDLINK */
 #define CMD_END         0x8000
 

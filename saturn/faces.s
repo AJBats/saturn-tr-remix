@@ -2,7 +2,7 @@
 ! dropped, the rest linked into the bucket of their depth. The master adds
 ! mesh faces (render.cpp faceAddMeshQuads, faceAddMeshTriangles), the slave
 ! room faces (rooms.cpp faceAddRoomQuads, faceAddRoomTriangles). Far faces
-! drawn flat (gFlatDist) and the original's texture LOD (gSaturnLod) stay in C.
+! drawn flat (gFlatDist) stay in C.
 !
 ! void faceAddMeshQuadsAsm(const MeshQuad* polys, int32 count, MeshFaces* mf)
 ! void faceAddMeshTrianglesAsm(const MeshTriangle* polys, int32 count, MeshFaces* mf)
@@ -352,7 +352,7 @@ _faceAddMeshTrianglesAsm:
     shlr2   r13
     .endm
 
-! flags r14, with the face's full-res texture whole if the cache has it
+! flags r14, with the face's texture whole if the cache has it
 ! (wholeTexture), to the face at r10; r0..r3
     .macro  WHOLE
     mov.w   .LtexMask\@, r0
