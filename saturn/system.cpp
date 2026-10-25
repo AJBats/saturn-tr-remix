@@ -196,12 +196,28 @@ void smpcCommand(uint8_t command)
     while (SMPC_SF & 1);
 }
 
-// The SMPC's status (INTBACK without peripheral data): the area code << 8 |
-// system status 1, whose bit 6 (DOTSEL) is set on the 352-dot clock.
+#define SMPC_SR_NPE     0x20    // an INTBACK holds more peripheral data
+#define SMPC_BREAK      0x40    // IREG0: end that INTBACK
+#define SMPC_DOTSEL     0x40    // system status 1: the 352-dot clock
+
+// Lets a running command finish, and ends an INTBACK still holding peripheral
+// data: the SMPC takes no other command meanwhile.
+static void smpcIdle()
+{
+    while (SMPC_SF & 1);
+    if (SMPC_SR & SMPC_SR_NPE)
+    {
+        SMPC_IREG(0) = SMPC_BREAK;
+        while (SMPC_SF & 1);
+    }
+}
+
+// The SMPC's status (INTBACK without peripheral data, which needs no vblank:
+// just after a clock change VDP2 is reset and has none): the area code << 8 |
+// system status 1 (SMPC_DOTSEL).
 static uint32_t smpcStatus()
 {
-    waitVblank();
-    while (SMPC_SF & 1);
+    smpcIdle();
     SMPC_SF = 1;
     SMPC_IREG(0) = 0x01;
     SMPC_IREG(1) = 0x00;
@@ -214,15 +230,26 @@ static uint32_t smpcStatus()
 void systemInit()
 {
     // 352x240; the 352-dot clock also runs the CPUs 6.6% faster. The BIOS
-    // handles the SMPC's NMI and resets the VDPs. Its record of the clock
-    // (BIOS_SYSCK) can be stale: booted from an optical drive emulator's menu
-    // it read 1 on the 320-dot clock, and the TV couldn't hold the picture.
+    // handles the SMPC's NMI and resets the VDPs. On a Saturn booted from an
+    // optical drive emulator's menu the change didn't always take (VDP2 then
+    // runs 352-dot timing on the 320-dot clock: 56 Hz, and the TV can't hold
+    // the picture), so the SMPC is left idle first, and the change repeats
+    // until the SMPC reports the 352-dot clock.
     crashLog("SYSCK", BIOS_SYSCK);
-    BIOS_CHG_SYSCK(1);
+    uint32_t status = smpcStatus();
+    crashLog("CLOCK0", status);
+    uint32_t tries = 0;
+    do
+    {
+        smpcIdle();
+        BIOS_CHG_SYSCK(1);
+        tries++;
+        status = smpcStatus();
+    } while (!(status & SMPC_DOTSEL) && tries < 4);
+    crashLog("CLOCK", (tries << 16) | status);
 
     vdp2Init();
     vdp1Init();
-    crashLog("SMPC", smpcStatus());
 
     FRT_TCR = 2;            // Pphi / 128
 
