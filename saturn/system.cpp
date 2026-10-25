@@ -68,7 +68,10 @@ extern "C" void vblankInHandler(const uint32_t* irqStack)
 
     if (gVdp1State == VDP1_PLOTTING)
     {
-        if (VDP1_EDSR & EDSR_CEF)
+        // CEF can still hold the last list's end for a moment after a plot
+        // starts, and changing frame buffers under a plot locks VDP1 up (on
+        // hardware): this plot's sprite-end interrupt must have come too
+        if (gVdp1Drawn && (VDP1_EDSR & EDSR_CEF))
         {
             VDP1_TVMR = 0;          // no vblank erase: each frame starts with a clear
             VDP1_FBCR = FBCR_FCM | FBCR_FCT;
@@ -113,6 +116,7 @@ extern "C" void vblankOutHandler()
     // also a plot queued just after the change
     if (gVdp1State == VDP1_IDLE && gPlotQueued)
     {
+        waitDisplayStart();
         gPlotQueued = false;
         plotStart();
     }

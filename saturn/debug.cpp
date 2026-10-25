@@ -30,7 +30,11 @@ static const int32 kFarDist[] = { 0, 16 * 1024, 12 * 1024, 8 * 1024 };
 
 static int32 gShadeCurve;
 static int32 gFarFaces;
+#ifdef HW_LOG
+static bool gShowStats = true;  // hardware tests: the numbers in the photos
+#else
 static bool gShowStats;
+#endif
 
 static const Option gOptions[] = {
     { "Shading", kCurves, SHADE_CURVE_COUNT,
