@@ -5,6 +5,7 @@
 #include "fmv.h"
 #include "hw.h"
 #include "input.h"
+#include "palettes.h"
 #include "screen.h"
 #include "slave.h"
 #include "sound.h"
@@ -18,6 +19,35 @@
 int32 fps;
 
 static uint16 gPad;
+static uint16 gDebugPad;
+
+static const char* gDebugMessage;
+static uint32 gDebugMessageEnd;
+
+static void debugMessage(const char* text)
+{
+    gDebugMessage = text;
+    gDebugMessageEnd = gVblankCount + 120;
+}
+
+const char* osDebugMessage()
+{
+    return int32(gDebugMessageEnd - gVblankCount) > 0 ? gDebugMessage : NULL;
+}
+
+// The debug pad on port 2 (Mednafen: P is its A): A swaps the colour tables.
+static void updateDebug()
+{
+    uint16 pad = padDebug();
+    uint16 pressed = pad & ~gDebugPad;
+    gDebugPad = pad;
+
+    if (pressed & PAD_A)
+    {
+        palettesToggle();
+        debugMessage(palettesRemastered() ? "Remastered palette" : "Saturn palette");
+    }
+}
 
 static void updateInput()
 {
@@ -97,6 +127,7 @@ int main()
 
         uint32 t0 = timerTicks();
         updateInput();
+        updateDebug();
         gameUpdate(delta);
         sndFrame();
         uint32 t1 = timerTicks();

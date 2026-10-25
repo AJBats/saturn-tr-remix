@@ -24,10 +24,14 @@ Inventory item textures go to another file, which the game puts in the VRAM
 after the blob (where full-res room textures are cached during play) while
 the inventory is open.
 
+The remastered colour tables go to another file, which the game swaps with
+the original ones in VRAM to compare them (saturn/palettes.h).
+
 usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD>
        (also writes <out>.TEX, the texture blob loaded at VRAM_TEX_BASE,
        <out>.SUB, the full-resolution room textures, <out>.SFX, the sound
-       samples, and <out>.ITX, the inventory item textures)
+       samples, <out>.ITX, the inventory item textures, and <out>.PAL, the
+       remastered colour tables)
 
 For testing, LARA_START=<room> in the environment starts Lara in that room,
 on the walkable floor nearest its centre; LARA_START=<room>:<x>:<z> on that
@@ -220,6 +224,81 @@ class TextureTable:
 
     def pack(self):
         return b"".join(struct.pack(">6H", *e) for e in self.entries)
+
+    def remastered_palettes(self):
+        """The blob's colour tables made to suit VDP1's gouraud shading, as
+        (blob offset, 16 colours) for each that changes. Each table's colours
+        are weighed by how often its textures use them."""
+        uses = {}  # table offset -> [use count per index]
+        akill = set()
+
+        def count(srca, colr, size, attr):
+            pix = srca * 8 - VRAM_TEX_BASE
+            lut = colr * 8 - VRAM_TEX_BASE
+            n = (size >> 8) * 8 * (size & 0xFF) // 2
+            if pix + n > len(self.blob) or lut + 32 > len(self.blob):
+                return  # inventory item textures live outside the blob
+            counts = uses.setdefault(lut, [0] * 16)
+            for b in self.blob[pix:pix + n]:
+                counts[b >> 4] += 1
+                counts[b & 15] += 1
+            if attr & TEX_ATTR_AKILL:
+                akill.add(lut)
+
+        for srca, colr, size, attr, _color, _reserved in self.entries:
+            count(srca, colr, size, attr)
+        spr_base = VRAM_TEX_BASE + self.spr_off
+        for s in self.lvl.sprite_textures:
+            count((spr_base + s["tile"] * 8) >> 3, (spr_base + s["clut"] * 8) >> 3,
+                  ((s["w"] // 8) << 8) | s["h"], TEX_ATTR_AKILL)
+
+        out = []
+        for lut, counts in sorted(uses.items()):
+            colors = list(struct.unpack_from(">16H", self.blob, lut))
+            if lut in akill:
+                counts[0] = 0  # transparent
+            new = remaster_palette(colors, counts, keep_first=lut in akill)
+            if new != colors:
+                out.append((lut, new))
+        return out
+
+
+# Colour tables remastered for VDP1's gouraud shading, which adds to or takes
+# from each 5-bit channel instead of scaling it. Darkening takes the dark
+# colours of a texture to black first (speckle) and its weakest channels first
+# (a colour cast), so the dark colours are drawn toward the texture's mean and
+# a little toward grey. The bright end is left alone, washing out under bright
+# light as the original does.
+PALETTE_GAIN = 1.10      # the PS1's brightness: the Saturn's tables are ~10% darker
+PALETTE_LIFT = 0.55      # dark colours keep this much of their distance below the mean
+PALETTE_DESAT = 0.35     # and their weak channels move this far toward their grey
+
+
+def remaster_palette(colors, counts, keep_first):
+    def channels(c):
+        return [c & 31, (c >> 5) & 31, (c >> 10) & 31]
+
+    def luma(ch):
+        return 0.30 * ch[0] + 0.59 * ch[1] + 0.11 * ch[2]
+
+    total = sum(counts)
+    if total == 0:
+        return colors
+    mean = [sum(channels(c)[k] * n for c, n in zip(colors, counts)) / total * PALETTE_GAIN for k in range(3)]
+    mean_luma = luma(mean)
+    out = []
+    for i, c in enumerate(colors):
+        if (keep_first and i == 0) or c & 0x7FFF == 0:
+            out.append(c)
+            continue
+        ch = [q * PALETTE_GAIN for q in channels(c)]
+        if luma(ch) < mean_luma:
+            ch = [m + (q - m) * PALETTE_LIFT for q, m in zip(ch, mean)]
+            grey = luma(ch)
+            ch = [q + (grey - q) * PALETTE_DESAT if q < grey else q for q in ch]
+        r, g, b = (max(0, min(31, round(q))) for q in ch)
+        out.append((c & 0x8000) | (b << 10) | (g << 5) | r)
+    return out
 
 
 # Textured mesh triangles, after the original's handlers (0x0603E6D0, one per
@@ -658,9 +737,14 @@ def main():
         f.write(packer.sfx)
     with open(os.path.splitext(out_path)[0] + ".ITX", "wb") as f:
         f.write(lvl.item_tex_data)
+    palettes = packer.textures.remastered_palettes()
+    with open(os.path.splitext(out_path)[0] + ".PAL", "wb") as f:
+        f.write(struct.pack(">I", len(palettes)))
+        for lut, colors in palettes:
+            f.write(struct.pack(">I16H", lut, *colors))
     print(f"{name}: {len(data)} bytes -> {out_path}, {len(packer.textures.blob)} bytes -> {tex_path}, "
           f"{len(lvl.room_tex_sub)} bytes -> {sub_path}, {len(packer.sfx)} bytes -> {sfx_path}, "
-          f"{len(packer.textures.entries)} textures")
+          f"{len(packer.textures.entries)} textures, {len(palettes)} colour tables remastered")
 
 
 if __name__ == "__main__":

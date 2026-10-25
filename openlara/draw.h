@@ -937,6 +937,10 @@ void drawHUD(Lara* lara)
 
 void drawFPS()
 {
+#if defined(__SATURN__)
+    drawText(0, FRAME_HEIGHT - 20, osDebugMessage(), TEXT_ALIGN_CENTER);
+#endif
+
 #ifdef __GBA__
     if (gLevelID == LVL_TR1_TITLE)
     {

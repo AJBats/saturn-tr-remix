@@ -6,6 +6,7 @@
 #include "detail.h"
 #include "fmv.h"
 #include "hw.h"
+#include "palettes.h"
 #include "screen.h"
 #include "sound.h"
 #include "vram.h"
@@ -182,6 +183,7 @@ const void* osLoadLevel(LevelID id)
 
     // textures go straight to VDP1 VRAM, where the level's texture entries point
     uint32 texSize = loadOrHalt(name, ".TEX", (void*)(VDP1_VRAM + VRAM_TEX_BASE), VRAM_TEX_SIZE);
+    palettesLoad(name);
     uint32 subSize = loadOrHalt(name, ".SUB", detailData(), detailDataMax());
     detailInit(VRAM_TEX_BASE + texSize, subSize);
 

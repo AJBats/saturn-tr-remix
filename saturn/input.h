@@ -1,4 +1,5 @@
-// Saturn control pad on port 1, read through SMPC INTBACK.
+// Saturn control pads read through SMPC INTBACK: the player's on port 1, and
+// a debug pad on port 2 for development toggles.
 #ifndef INPUT_H
 #define INPUT_H
 
@@ -22,5 +23,8 @@
 // the previous request and issues the next one. Returns the buttons held
 // (PAD_* bits) as of the last completed read.
 uint16_t padUpdate();
+
+// The debug pad's buttons as of the same read (0 when none is connected).
+uint16_t padDebug();
 
 #endif
