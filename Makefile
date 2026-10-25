@@ -35,6 +35,9 @@ CC      := $(SH_PREFIX)gcc
 CXX     := $(SH_PREFIX)g++
 OBJCOPY := $(SH_PREFIX)objcopy
 CFLAGS  := -m2 -mb $(OPT) -Wall -D__SATURN__ -Isaturn -Iopenlara
+ifdef START_LEVEL
+CFLAGS  += -DSTART_LEVEL=$(START_LEVEL)   # testing: touch saturn/main.cpp when changing it
+endif
 # -fno-lifetime-dse: OpenLara sets ItemObj fields and then placement-news the
 # subclass over them (ItemObj::init); the constructors read those fields.
 CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
@@ -101,7 +104,8 @@ $(BUILD)/0MAIN.elf: $(patsubst %,$(BUILD)/obj/%.o,$(GAME_SRC)) saturn/saturn.ld
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
 
 # Levels packed from the original disc's DATA files (tools/pack_level.py).
-LEVELS  := LEVEL1
+LEVELS  := GYM LEVEL1 LEVEL2 LEVEL3A LEVEL3B LEVEL4 LEVEL5 LEVEL6 LEVEL7A LEVEL7B \
+           LEVEL8A LEVEL8B LEVEL8C LEVEL10A LEVEL10B LEVEL10C CUT1 CUT2 CUT3 CUT4
 GAME_DISC := $(foreach l,$(LEVELS),$(foreach e,PKD TEX SUB,DATA/$(l).$(e)=build/data/$(l).$(e)))
 
 build/data/%.PKD build/data/%.TEX build/data/%.SUB &: tools/pack_level.py tools/trsat.py openlara/common.h saturn/vram.h $(DISC)/filelist.txt

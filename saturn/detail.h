@@ -10,7 +10,7 @@
 
 #include <stdint.h>
 
-#define DETAIL_UNIT         512     // Texture.reserved = full-res offset / DETAIL_UNIT + 1
+#define DETAIL_UNIT         256     // Texture.reserved = full-res offset / DETAIL_UNIT + 1
 #define DETAIL_SLOT_SIZE    2048    // four 32x32 4-bit quadrants
 
 // Buffer the level's full-res textures load into.

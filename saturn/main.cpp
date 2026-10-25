@@ -7,6 +7,11 @@
 #include "slave.h"
 #include "system.h"
 
+// make START_LEVEL=LVL_TR1_2 ... starts elsewhere, for testing
+#ifndef START_LEVEL
+    #define START_LEVEL LVL_TR1_1 // TODO title screen and menus
+#endif
+
 int32 fps;
 
 static uint16 gPad;
@@ -45,7 +50,7 @@ int main()
     cdInit();
     sndInit();
 
-    gLevelID = LVL_TR1_1; // TODO title screen and menus
+    gLevelID = START_LEVEL;
 
     gameInit();
 

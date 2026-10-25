@@ -38,7 +38,7 @@ FACE_TYPE_F, FACE_TYPE_FT, FACE_TYPE_FTA = 1, 2, 3
 FACE_TYPE_SHIFT = 14
 TEX_ATTR_AKILL = 1
 FACE_TEXTURE_MAX = 0x3FFF
-DETAIL_UNIT = 512   # Texture.reserved: full-res offset / DETAIL_UNIT + 1
+DETAIL_UNIT = 256   # Texture.reserved: full-res offset / DETAIL_UNIT + 1
 
 NODE_FLAG_ROTX, NODE_FLAG_ROTY, NODE_FLAG_ROTZ = 1 << 2, 1 << 3, 1 << 4
 
