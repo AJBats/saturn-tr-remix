@@ -48,6 +48,8 @@ static Face* gSlaveOT[OT_SIZE];
 static RoomStats gSlaveStats;
 
 static FaceList gFaceList;
+static uint32 gRoomFaceFlags;   // FACE_WATER for water rooms
+static int32 gWibblePhase;      // drifts the ripple of water rooms
 static RoomMatrix gMatrix;
 
 // What xform.s needs to transform a room's vertices.
@@ -78,6 +80,24 @@ static RectMinMax gViewport;
 static const RoomVertex* gRoomVertices;
 static Vertex* gNextVertex; // the room's vertices, then those its split faces add
 
+// Water rooms ripple on screen, as in the original (0x06042D34): each
+// projected coordinate moves by up to 2 pixels along a sine wave that runs
+// across the screen and drifts with time.
+static const int8 gWibble[32] = {
+    0, 0, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 0,
+    0, 0, -1, -1, -1, -2, -2, -2, -2, -2, -2, -2, -1, -1, -1, 0
+};
+
+X_INLINE void wibble(Vertex* res, int32 phase)
+{
+    if (res->clip & CLIP_FRAME)
+        return;
+    int32 x = res->x;
+    int32 y = res->y;
+    res->x = x + gWibble[(phase + x) & 31];
+    res->y = y + gWibble[(phase + y) & 31];
+}
+
 // Projects a point in room space (vertex units * 4); sets everything but the
 // shade.
 X_INLINE void projectRoomPoint(int16 vx, int16 vy, int16 vz, Vertex* res)
@@ -106,6 +126,10 @@ X_INLINE void projectRoomPoint(int16 vx, int16 vy, int16 vz, Vertex* res)
     y = asr16<8>(X_CLAMP(y, -ASR16_MAX(8), ASR16_MAX(8)));
 
     projectView(x, y, uint32(z) >> 8, clip, gViewport, res);
+
+    if (gRoomFaceFlags & FACE_WATER) {
+        wibble(res, gWibblePhase);
+    }
 }
 
 static void transformRoom(const RoomVertex* vertices, int32 count, bool underwater, int32 causticsFrame)
@@ -202,7 +226,7 @@ static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
     m30->g = (v3->g + v0->g) >> 1;
     mc->g = (v0->g + v1->g + v2->g + v3->g) >> 2;
 
-    uint32 flags = poly->flags | FACE_DETAIL | (slot << FACE_DETAIL_SLOT_SHIFT);
+    uint32 flags = poly->flags | gRoomFaceFlags | FACE_DETAIL | (slot << FACE_DETAIL_SLOT_SHIFT);
     faceAddDetailQuad(flags | (0 << FACE_DETAIL_QUAD_SHIFT), v0, m01, mc, m30);
     faceAddDetailQuad(flags | (1 << FACE_DETAIL_QUAD_SHIFT), m01, v1, m12, mc);
     faceAddDetailQuad(flags | (2 << FACE_DETAIL_QUAD_SHIFT), mc, m12, v2, m23);
@@ -219,7 +243,7 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
         if (gFaceList.next == gFaceList.end)
             return;
 
-        uint32 flags = polys->flags;
+        uint32 flags = polys->flags | gRoomFaceFlags;
         const Vertex* v0 = v + polys->indices[0];
         const Vertex* v1 = v + polys->indices[1];
         const Vertex* v2 = v + polys->indices[2];
@@ -249,9 +273,6 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
         if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
             continue;
 
-        if ((c0 | c1 | c2 | c3) & CLIP_FRAME) {
-            flags |= FACE_CLIPPED;
-        }
 
         Face* f = faceAdd(gFaceList, zMax >> OT_SHIFT);
         f->flags = flags;
@@ -269,7 +290,7 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
         if (gFaceList.next == gFaceList.end)
             return;
 
-        uint32 flags = polys->flags;
+        uint32 flags = polys->flags | gRoomFaceFlags;
         const Vertex* v0 = v + polys->indices[0];
         const Vertex* v1 = v + polys->indices[1];
         const Vertex* v2 = v + polys->indices[2];
@@ -281,9 +302,6 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
         if (cullFace(c0 & c1 & c2, c0 | c1 | c2))
             continue;
 
-        if ((c0 | c1 | c2) & CLIP_FRAME) {
-            flags |= FACE_CLIPPED;
-        }
 
         if (checkBackface(v0, v1, v2))
             continue;
@@ -310,13 +328,17 @@ static void renderRoomJob(const RoomJob &job)
     if (gNextVertex + vCount > gVertices + MAX_VERTICES)
         return;
 
+    bool water = ROOM_FLAG_WATER(info->flags);
+
     gMatrix = job.matrix;
     gViewport = job.viewport;
     gRoomVertices = data.vertices;
+    gRoomFaceFlags = water ? FACE_WATER : 0;
+    gWibblePhase = job.causticsFrame;
 
     uint32 t0 = timerTicks();
     Vertex* roomBase = gNextVertex;
-    if (ROOM_FLAG_WATER(info->flags))
+    if (water)
     {
         transformRoom(data.vertices, vCount, true, job.causticsFrame);
     }

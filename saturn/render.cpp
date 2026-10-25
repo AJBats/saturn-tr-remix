@@ -56,9 +56,13 @@ void setViewport(const RectMinMax &vp)
     viewport = vp;
 }
 
+// Meshes drawn while this is set (items in water rooms) get FACE_WATER.
+static uint32 gMeshFaceFlags;
+
+// OpenLara selects palette 1 for whatever is in a water room.
 void setPaletteIndex(int32 index)
 {
-    // TODO underwater tint via VDP2 color offset
+    gMeshFaceFlags = index ? FACE_WATER : 0;
 }
 
 // Mesh vertices are 16-bit, so the rotation multiplies are 16x16 too; the
@@ -113,7 +117,7 @@ void faceAddMeshQuads(const MeshQuad* polys, int32 count)
 
     for (int32 i = 0; i < count; i++, polys++)
     {
-        uint32 flags = polys->flags;
+        uint32 flags = polys->flags | gMeshFaceFlags;
         const Vertex* v0 = v + polys->indices[0];
         const Vertex* v1 = v + polys->indices[1];
         const Vertex* v2 = v + polys->indices[2];
@@ -130,9 +134,6 @@ void faceAddMeshQuads(const MeshQuad* polys, int32 count)
         if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
             continue;
 
-        if ((c0 | c1 | c2 | c3) & CLIP_FRAME) {
-            flags |= FACE_CLIPPED;
-        }
 
         int32 depth = uint32(v0->z + v1->z + v2->z + v3->z) >> (2 + OT_SHIFT);
 
@@ -155,7 +156,7 @@ void faceAddMeshTriangles(const MeshTriangle* polys, int32 count)
 
     for (int32 i = 0; i < count; i++, polys++)
     {
-        uint32 flags = polys->flags;
+        uint32 flags = polys->flags | gMeshFaceFlags;
         const Vertex* v0 = v + polys->indices[0];
         const Vertex* v1 = v + polys->indices[1];
         const Vertex* v2 = v + polys->indices[2];
@@ -170,9 +171,6 @@ void faceAddMeshTriangles(const MeshTriangle* polys, int32 count)
         if (cullFace(c0 & c1 & c2, c0 | c1 | c2))
             continue;
 
-        if ((c0 | c1 | c2) & CLIP_FRAME) {
-            flags |= FACE_CLIPPED;
-        }
         flags |= FACE_TRIANGLE;
 
         uint32 arrangement = polys->indices[3];
@@ -255,6 +253,29 @@ X_INLINE int32 vdp1Coord(int32 v)
 X_INLINE uint32 shadePair(uint32 g0, uint32 g1)
 {
     return (gShadeGouraud[g0] << 16) | gShadeGouraud[g1];
+}
+
+// Underwater, as in the original (0x06042D34): red loses 2 steps for every
+// 1024 units beyond the first 1024, so distant things fade to teal.
+X_INLINE uint32 waterGouraud(const Vertex* v)
+{
+    int32 c = 31 - v->g;
+    int32 r = c;
+    if (v->z > 1024)
+    {
+        r -= X_MIN(31, ((v->z - 1024) >> 10) << 1);
+        if (r < 0) {
+            r = 0;
+        }
+    }
+    return (c << 10) | (c << 5) | r;
+}
+
+X_INLINE uint32 gouraudPair(uint32 flags, const Vertex* a, const Vertex* b)
+{
+    if (flags & FACE_WATER)
+        return (waterGouraud(a) << 16) | waterGouraud(b);
+    return shadePair(a->g, b->g);
 }
 
 X_INLINE void setRect(uint32* w, const Vertex* pos, const Vertex* size)
@@ -416,8 +437,8 @@ void flush_c()
                             w[4] = p;
                             w[5] = v2->xy;
                             w[6] = v0->xy;
-                            grd[0] = shadePair(v1->g, v1->g);
-                            grd[1] = shadePair(v2->g, v0->g);
+                            grd[0] = gouraudPair(flags, v1, v1);
+                            grd[1] = gouraudPair(flags, v2, v0);
                         }
                         else
                         {
@@ -425,8 +446,8 @@ void flush_c()
                             w[4] = v1->xy;
                             w[5] = p;
                             w[6] = v2->xy;
-                            grd[0] = shadePair(v0->g, v1->g);
-                            grd[1] = shadePair(v2->g, v2->g);
+                            grd[0] = gouraudPair(flags, v0, v1);
+                            grd[1] = gouraudPair(flags, v2, v2);
                         }
                         break;
                     }
@@ -436,8 +457,8 @@ void flush_c()
                     w[4] = v1->xy;
                     w[5] = v2->xy;
                     w[6] = v3->xy;
-                    grd[0] = shadePair(v0->g, v1->g);
-                    grd[1] = shadePair(v2->g, v3->g);
+                    grd[0] = gouraudPair(flags, v0, v1);
+                    grd[1] = gouraudPair(flags, v2, v3);
                 }
             }
 

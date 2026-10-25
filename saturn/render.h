@@ -36,7 +36,7 @@ enum FaceType {
 };
 
 #define FACE_TRIANGLE   (1 << 31)
-#define FACE_CLIPPED    (1 << 30)
+#define FACE_WATER      (1 << 30)   // underwater: red fades with distance (see waterGouraud)
 #define FACE_DETAIL     (1 << 29)   // full-res quadrant of a cached room texture
 #define FACE_PARALLELOGRAM  (1 << 28)   // mesh triangle drawn as a parallelogram, see faceAddMeshTriangles
 #define FACE_V0_AT_D        (1 << 27)   // ... with its first vertex at corner D (else A)
