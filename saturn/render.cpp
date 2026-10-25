@@ -108,6 +108,11 @@ void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, con
         normals = NULL;
     }
 
+    // Meshes are clipped to the frame, not to their room's portal window, as
+    // OpenLara does: Lara climbing into a room seen through a small portal
+    // would otherwise lose every face outside it.
+    static const RectMinMax frame(0, 0, FRAME_WIDTH, FRAME_HEIGHT);
+
     Vertex* res = gVerticesBase;
 
     for (int32 i = 0; i < count; i++, res++, vertices++)
@@ -132,7 +137,7 @@ void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, con
         int32 x = asr16<FIXED_SHIFT>(dot3(v, rows, tx));
         int32 y = asr16<FIXED_SHIFT>(dot3(v, rows + 3, ty));
 
-        projectView(x, y, uint32(z) >> FIXED_SHIFT, clip, viewport, res);
+        projectView(x, y, uint32(z) >> FIXED_SHIFT, clip, frame, res);
 
         if (normals)
         {
@@ -540,8 +545,9 @@ void flush_c()
 
 void renderInit()
 {
-    // the core's divide table stops at 1024; the view reaches further here
-    for (int32 i = 1025; i < DIV_TABLE_SIZE; i++) {
+    // The core's divide table holds 1 .. 1023 (its last entry is 0, past the
+    // far plane there); the view reaches further here.
+    for (int32 i = 1024; i < DIV_TABLE_SIZE; i++) {
         divTable[i] = (1 << 16) / i;
     }
 
