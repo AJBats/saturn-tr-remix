@@ -369,6 +369,17 @@ X_INLINE uint32 gouraudPair(uint32 flags, bool dim, const Vertex* a, const Verte
 
 int32 gTexelView;
 int32 gBenchMode;
+uint32 gTexturePmod = PMOD_LUT16 | PMOD_GOURAUD | PMOD_HSS;
+
+void renderSetFastShrink(bool on)
+{
+    gTexturePmod = PMOD_LUT16 | PMOD_GOURAUD | (on ? PMOD_HSS : 0);
+}
+
+bool renderFastShrink()
+{
+    return gTexturePmod & PMOD_HSS;
+}
 int32 gDarkFaces = DARK_CONTRAST;
 int32 gFlatDist;
 
@@ -592,7 +603,7 @@ X_INLINE void faceMaterial(uint32* w, uint32 flags)
         const Texture* tex = level.textures + (flags & FACE_TEXTURE);
         if (tex->srca || (flags & FACE_DETAIL))
         {
-            uint32 pmod = PMOD_LUT16 | PMOD_GOURAUD;
+            uint32 pmod = gTexturePmod;
             if (!(flags & FACE_PARALLELOGRAM)) {
                 pmod |= PMOD_ECD_OFF; // end codes trim parallelograms to their triangle
             }
@@ -804,7 +815,7 @@ static void benchCommands(int32 count)
 {
     gCmds[0].w[0] = (CMD_SCALED_SPRITE | (gBenchMode == BENCH_NO_CLEAR ? CMD_SKIP : 0)) << 16;
 
-    if (gBenchMode != BENCH_HSS && gBenchMode != BENCH_NO_GOURAUD && gBenchMode != BENCH_NO_TEXTURE)
+    if (gBenchMode != BENCH_EXACT && gBenchMode != BENCH_NO_GOURAUD && gBenchMode != BENCH_NO_TEXTURE)
         return;
 
     for (int32 i = 1; i < count; i++)
@@ -814,8 +825,8 @@ static void benchCommands(int32 count)
         if (type != CMD_DISTORTED_SPRITE && type != CMD_POLYGON)
             continue;
 
-        if (gBenchMode == BENCH_HSS && type == CMD_DISTORTED_SPRITE) {
-            w[1] |= PMOD_HSS << 16;
+        if (gBenchMode == BENCH_EXACT && type == CMD_DISTORTED_SPRITE) {
+            w[1] &= ~(PMOD_HSS << 16);
         } else if (gBenchMode == BENCH_NO_GOURAUD && (w[1] & (PMOD_GOURAUD << 16))) {
             w[1] &= ~(7 << 16);
         } else if (gBenchMode == BENCH_NO_TEXTURE && type == CMD_DISTORTED_SPRITE) {

@@ -271,7 +271,8 @@ _flushAsm:
     mov.l   @(4, r2), r6        ! size << 16 | attr
     mov     r6, r0
     tst     #1, r0              ! TEX_ATTR_AKILL
-    mov     #0x0C, r0           ! PMOD_LUT16 | PMOD_GOURAUD
+    mov.l   .LtexturePmod, r0
+    mov.l   @r0, r0             ! PMOD_LUT16 | PMOD_GOURAUD, and high-speed shrink
     bf      1f
     or      #0x40, r0           ! colour 0 is opaque
 1:  mov.l   .LfacePara, r7
@@ -334,6 +335,7 @@ _flushAsm:
 
     .align 2
 .LfaceDetail:   .long   0x20000000  ! FACE_DETAIL
+.LtexturePmod:  .long   _gTexturePmod
 .LfacePara:     .long   0x10000000  ! FACE_PARALLELOGRAM
 .LfaceBit27:    .long   0x08000000  ! FACE_DETAIL_WHOLE
 .LtexMask:      .short  0x3FFF      ! FACE_TEXTURE

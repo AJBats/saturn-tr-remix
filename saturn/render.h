@@ -190,12 +190,20 @@ extern int32 gTexelView;
 // see-through texels keep their texture.
 extern int32 gFlatDist;
 
+// Textured faces' draw mode but for transparency and end codes: 16-colour
+// tables and gouraud, with high-speed shrink by default (as PowerSlave draws:
+// a reduced texture is read every other texel and line, which on a Saturn
+// takes a sixth off VDP1's time in a busy view). flush.s reads it too.
+extern "C" uint32 gTexturePmod;
+void renderSetFastShrink(bool on);
+bool renderFastShrink();
+
 // Hardware measurements (debug.cpp, HW_LOG builds): the frame's commands
 // built another way, to see what VDP1's time goes on.
 enum BenchMode
 {
     BENCH_BASE,
-    BENCH_HSS,          // textured faces with high-speed shrink
+    BENCH_EXACT,        // textured faces without high-speed shrink
     BENCH_FLAT,         // far faces flat (debug.cpp sets gFlatDist)
     BENCH_NO_GOURAUD,
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
