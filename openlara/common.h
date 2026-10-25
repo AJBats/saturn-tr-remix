@@ -2952,6 +2952,9 @@ void dmaCopy(const void* src, void* dst, uint32 size);
 
 // system
 int32 osGetSystemTimeMS();
+#if defined(__SATURN__)
+void osGameComplete();
+#endif
 bool osSaveSettings();
 bool osLoadSettings();
 bool osCheckSave();

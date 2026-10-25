@@ -19,6 +19,12 @@ int cdRead(uint32_t lba, uint32_t size, void* dst);
 // cdFind + cdRead. Returns the file size, or a negative error.
 int32_t cdLoadFile(const char* path, void* dst, uint32_t maxSize);
 
+// Streaming: cdStreamStart begins reading sectors from lba without waiting;
+// cdStreamRead then moves up to maxSectors of those that have arrived into
+// dst and returns how many (0 if none yet), or a negative error.
+int cdStreamStart(uint32_t lba, uint32_t sectors);
+int32_t cdStreamRead(void* dst, uint32_t maxSectors);
+
 // Plays an audio track once, to its end; reads stop it.
 int cdPlayTrack(uint32_t track);
 void cdStopAudio();

@@ -4,6 +4,7 @@
 #include "backup.h"
 #include "cd.h"
 #include "detail.h"
+#include "fmv.h"
 #include "hw.h"
 #include "screen.h"
 #include "sound.h"
@@ -24,6 +25,17 @@ int32 osGetSystemTimeMS()
 #define SAVE_FILE       "TOMBR_SAVE"
 
 static uint8 gSaveBuffer[SAVEGAME_SIZE];
+
+// The level last loaded, and whether the next load skips its video: a saved
+// game or a restart goes straight back in.
+static LevelID gLoadedLevel = LVL_MAX;
+static bool gSkipVideo;
+static bool gGameComplete;
+
+void osGameComplete()
+{
+    gGameComplete = true;
+}
 
 bool osSaveSettings()
 {
@@ -70,6 +82,7 @@ bool osLoadGame()
 
     gSaveGame = save;
     memcpy(gSaveData, gSaveBuffer + sizeof(save), save.dataSize);
+    gSkipVideo = true;
     return true;
 }
 
@@ -89,6 +102,44 @@ const void* osLoadScreen(LevelID id)
     screenShow("USAOPT", 352);
     screenRelease(true);
     return &gTitlePicture;
+}
+
+// The original's videos, each before its level (as its own debug menu pairs
+// them), and the ending's
+static const char* levelVideo(LevelID id)
+{
+    switch (id)
+    {
+        case LVL_TR1_GYM : return "MANSION";
+        case LVL_TR1_1   : return "SNOW";
+        case LVL_TR1_4   : return "LIFT";
+        case LVL_TR1_8A  : return "VISION";
+        case LVL_TR1_10A : return "CANYON";
+        case LVL_TR1_10B : return "PYRAMID";
+        case LVL_TR1_10C : return "PRISON";
+        default          : return NULL;
+    }
+}
+
+static void playVideos(LevelID id)
+{
+    if (gGameComplete && id == LVL_TR1_TITLE)
+    {
+        gGameComplete = false;
+        fmvPlay("END");
+        fmvPicture("CRED224", 320, 60 * 8);
+        fmvPicture("ENDPG224", 352, 60 * 8);
+        return;
+    }
+
+    bool fresh = (id != gLoadedLevel) && !gSkipVideo;
+    gLoadedLevel = id;
+    gSkipVideo = false;
+
+    const char* video = levelVideo(id);
+    if (fresh && video) {
+        fmvPlay(video);
+    }
 }
 
 // The original's loading pictures, one per area
@@ -125,6 +176,7 @@ const void* osLoadLevel(LevelID id)
 {
     const char* name = (const char*)gLevelInfo[id].data;
 
+    playVideos(id);
     screenShow(loadingPicture(id), id == LVL_TR1_TITLE ? 352 : 320);
 
     // textures go straight to VDP1 VRAM, where the level's texture entries point

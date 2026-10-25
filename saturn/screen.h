@@ -11,6 +11,10 @@ void screenInit();
 // place of the game's frame until screenRelease.
 void screenShow(const char* name, int32_t width);
 
+// A black picture to draw into, in place of the game's frame until
+// screenRelease: the bitmap, 512 pixels a line, its top left at the screen's.
+volatile uint16_t* screenBlank();
+
 // The game's frames show again from the next one VDP1 draws: over the picture
 // with keepPicture (VDP1 clears to transparent), or on black.
 void screenRelease(bool keepPicture);

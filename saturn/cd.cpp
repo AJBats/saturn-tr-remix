@@ -295,6 +295,26 @@ int cdRead(uint32_t lba, uint32_t size, void* dst)
     return 0;
 }
 
+int cdStreamStart(uint32_t lba, uint32_t sectors)
+{
+    int ret;
+    if ((ret = cmdResetSelector(0, 0)) != 0) return ret;
+    if ((ret = cmdConnectCdDevice(0)) != 0) return ret;
+    return cmdPlay(LBA_TO_FAD(lba), sectors);
+}
+
+int32_t cdStreamRead(void* dst, uint32_t maxSectors)
+{
+    uint32_t ready = cmdSectorCount(0);
+    if (ready > maxSectors)
+        ready = maxSectors;
+    if (ready == 0)
+        return 0;
+
+    int ret = transfer((uint8_t*)dst, ready * CD_SECTOR_SIZE);
+    return ret ? ret : int32_t(ready);
+}
+
 static uint32_t be32(const uint8_t* p)
 {
     return (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];

@@ -2,6 +2,7 @@
 
 #include "game.h"
 #include "cd.h"
+#include "fmv.h"
 #include "hw.h"
 #include "input.h"
 #include "screen.h"
@@ -54,6 +55,14 @@ int main()
     sndInit();
 
     gLevelID = START_LEVEL;
+
+    // the original's opening: publisher, developer, then the story's start
+    if (gLevelID == LVL_TR1_TITLE)
+    {
+        fmvPicture("EIDOS224", 320, 60 * 3);
+        fmvPlay("CORELOGO");
+        fmvPlay("CAFE");
+    }
 
     gameInit();
 

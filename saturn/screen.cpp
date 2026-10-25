@@ -97,6 +97,20 @@ void screenShow(const char* name, int32_t width)
     VDP2_BGON = BGON_N0ON;
 }
 
+volatile uint16_t* screenBlank()
+{
+    vdp1OnNextFrame(nullptr);
+    hideFrames();
+
+    volatile uint32_t* dst = (volatile uint32_t*)VDP2_VRAM;
+    for (uint32_t i = 0; i < BITMAP_WIDTH * BITMAP_HEIGHT / 2; i++) {
+        dst[i] = 0;
+    }
+
+    VDP2_BGON = BGON_N0ON;
+    return (volatile uint16_t*)VDP2_VRAM;
+}
+
 void screenRelease(bool keepPicture)
 {
     vdp1WaitIdle();
