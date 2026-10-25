@@ -23,7 +23,7 @@ void Nav::init(uint32 boxIndex)
     headBox = NO_BOX;
     tailBox = NO_BOX;
 
-    mask = 0x400;
+    mask = 0x4000; // TR1's BLOCKED box flag (0x400 took overlap indices from 1024 on for it)
 
     for (int32 i = 0; i < level.boxesCount; i++)
     {
