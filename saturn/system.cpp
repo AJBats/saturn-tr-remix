@@ -9,8 +9,12 @@
 #define BIOS_SET_SINT   (*(void (**)(uint32_t, void (*)()))0x06000300)  // raw interrupt vector
 #define BIOS_CHG_SCUIM  (*(void (**)(uint32_t, uint32_t))0x06000344)    // SCU mask = (mask & and) | or
 
-#define VECTOR_VBLANK_IN 0x40
-#define SCU_IMS_VBLANK_IN 0x0001
+#define VECTOR_VBLANK_IN    0x40
+#define VECTOR_VBLANK_OUT   0x41
+#define VECTOR_SPRITE_END   0x4D
+#define SCU_IMS_VBLANK_IN   0x0001
+#define SCU_IMS_VBLANK_OUT  0x0002
+#define SCU_IMS_SPRITE_END  0x2000
 
 #define FRT_FTCSR   (*(volatile uint8_t*)0xFFFFFE11)
 #define FRT_FRCH    (*(volatile uint8_t*)0xFFFFFE12)
@@ -18,18 +22,78 @@
 #define FRT_TCR     (*(volatile uint8_t*)0xFFFFFE16)
 
 #define EDSR_CEF    0x0002  // VDP1 finished drawing the current frame
+#define TVMR_VBE    0x0008  // erase the frame buffer during vblank
+#define FBCR_FCM    0x0002  // manual frame buffer change
+#define FBCR_FCT    0x0001  // change frame buffers at the next field
+
+// VDP1 frame sequencing (after libyaul's variable-interval mode): a plot is
+// started once the command list is uploaded; at the vblank-in after VDP1
+// finishes, a frame buffer change is requested with vblank erase on; at
+// vblank-out the change has happened and VDP1 can take the next list.
+enum Vdp1State
+{
+    VDP1_IDLE,
+    VDP1_PLOTTING,
+    VDP1_CHANGING
+};
+
+static volatile int32_t gVdp1State;
+static uint32_t gPlotStart;
 
 volatile uint32_t gVblankCount;
 FrameStats gStats;
 
-extern "C" void vblankInEntry();   // irq.s: saves registers, calls vblankInHandler
+// irq.s entries: save registers, call the handlers below
+extern "C" void vblankInEntry();
+extern "C" void vblankOutEntry();
+extern "C" void spriteEndEntry();
 
 extern "C" void vblankInHandler()
 {
     gVblankCount++;
-    if (!(VDP1_EDSR & EDSR_CEF)) {
-        gStats.vdp1Late++;
+
+    if (gVdp1State == VDP1_PLOTTING)
+    {
+        if (VDP1_EDSR & EDSR_CEF)
+        {
+            VDP1_TVMR = TVMR_VBE;
+            VDP1_FBCR = FBCR_FCM | FBCR_FCT;
+            gVdp1State = VDP1_CHANGING;
+        }
+        else
+        {
+            gStats.vdp1Late++;
+        }
     }
+}
+
+extern "C" void vblankOutHandler()
+{
+    if (gVdp1State == VDP1_CHANGING)
+    {
+        VDP1_TVMR = 0;
+        // a plot started before the change completes would lock VDP1 up
+        while (VDP2_TVSTAT & TVSTAT_VBLANK);
+        gVdp1State = VDP1_IDLE;
+    }
+}
+
+extern "C" void spriteEndHandler()
+{
+    gStats.vdp1EndLine = VDP2_VCNT;
+    gStats.vdp1Ticks = (timerTicks() - gPlotStart) & 0xFFFF;
+}
+
+void vdp1WaitIdle()
+{
+    while (gVdp1State != VDP1_IDLE);
+}
+
+void vdp1Plot()
+{
+    gPlotStart = timerTicks();
+    gVdp1State = VDP1_PLOTTING;
+    VDP1_PTMR = 1;
 }
 
 static void vdp2Init()
@@ -51,11 +115,15 @@ static void vdp2Init()
 static void vdp1Init()
 {
     VDP1_TVMR = 0;          // 320x224, 16bpp
-    VDP1_FBCR = 0;          // swap and erase every field
     VDP1_EWDR = 0;          // erase to transparent
     VDP1_EWLR = 0;
     VDP1_EWRR = (40 << 9) | 223;
-    VDP1_PTMR = 2;          // draw at every frame change
+    VDP1_PTMR = 0;          // plot only when asked
+
+    waitVblank();
+    VDP1_FBCR = FBCR_FCM | FBCR_FCT;
+    while (VDP2_TVSTAT & TVSTAT_VBLANK);
+    gVdp1State = VDP1_IDLE;
 }
 
 void systemInit()
@@ -66,7 +134,9 @@ void systemInit()
     FRT_TCR = 2;            // Pphi / 128
 
     BIOS_SET_SINT(VECTOR_VBLANK_IN, vblankInEntry);
-    BIOS_CHG_SCUIM(~SCU_IMS_VBLANK_IN, 0);
+    BIOS_SET_SINT(VECTOR_VBLANK_OUT, vblankOutEntry);
+    BIOS_SET_SINT(VECTOR_SPRITE_END, spriteEndEntry);
+    BIOS_CHG_SCUIM(~(SCU_IMS_VBLANK_IN | SCU_IMS_VBLANK_OUT | SCU_IMS_SPRITE_END), 0);
 }
 
 void waitVblank()

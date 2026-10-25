@@ -17,12 +17,23 @@ struct FrameStats
     uint32_t faces;         // polygons sent to VDP1
     uint32_t vdp1Late;      // vblanks where VDP1 had not finished drawing
     uint32_t frames;        // frames rendered since boot
+    uint32_t roomTicks;     // renderRoom: room vertex transform + face bucketing
+    uint32_t meshTicks;     // renderMesh: mesh vertex transform + face bucketing
+    uint32_t vdp1EndLine;   // scanline where VDP1 last finished drawing
+    uint32_t vertices;      // vertices transformed in the last frame
+    uint32_t vdp1Ticks;     // VDP1 drawing time of the last frame
+    uint32_t waitTicks;     // CPU time spent waiting for VDP1 to become idle
 };
 
 extern FrameStats gStats;
 
 void systemInit();
 void waitVblank();
+
+// VDP1 draws one command list per displayed frame: wait until it is idle
+// (previous frame drawn and on screen), upload the next list, then plot.
+void vdp1WaitIdle();
+void vdp1Plot();
 
 // Free-running timer at Pphi/128, 16 bits; subtract readings modulo 0x10000.
 uint32_t timerTicks();

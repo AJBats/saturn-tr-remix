@@ -4,10 +4,11 @@
 ! does not save the caller-saved registers, so the entries do, then call the
 ! C handlers.
 
+    .macro IRQ_ENTRY name, handler
     .text
     .align 2
-    .global _vblankInEntry
-_vblankInEntry:
+    .global \name
+\name:
     mov.l   r0, @-r15
     mov.l   r1, @-r15
     mov.l   r2, @-r15
@@ -21,7 +22,7 @@ _vblankInEntry:
     sts.l   macl, @-r15
     stc.l   gbr, @-r15
 
-    mov.l   handler, r0
+    mov.l   1f, r0
     jsr     @r0
     nop
 
@@ -40,4 +41,9 @@ _vblankInEntry:
     mov.l   @r15+, r0
 
     .align 2
-handler:    .long _vblankInHandler
+1:  .long \handler
+    .endm
+
+    IRQ_ENTRY _vblankInEntry, _vblankInHandler
+    IRQ_ENTRY _vblankOutEntry, _vblankOutHandler
+    IRQ_ENTRY _spriteEndEntry, _spriteEndHandler

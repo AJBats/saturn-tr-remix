@@ -37,6 +37,10 @@ enum FaceType {
 #define FACE_GOURAUD    (2 << FACE_TYPE_SHIFT)
 #define FACE_TEXTURE    0x3FFF
 
+// VDP1 vertex coordinates are 11 bits plus sign
+#define VDP1_COORD_MIN  -1024
+#define VDP1_COORD_MAX  1023
+
 enum ClipFlags {
     CLIP_FRAME   = 1 << 0,
     CLIP_LEFT    = 1 << 1,
@@ -47,8 +51,6 @@ enum ClipFlags {
     CLIP_DISCARD = (CLIP_LEFT | CLIP_RIGHT | CLIP_TOP | CLIP_BOTTOM | CLIP_PLANE)
 };
 
-// Command banks (see vram.h) alternate so one can be filled while VDP1
-// draws the other.
 #define MAX_CMDS            VRAM_MAX_CMDS
 
 extern Level level;
@@ -60,11 +62,14 @@ ALIGN16 Vertex gVertices[MAX_VERTICES];
 ALIGN16 Face gFaces[MAX_FACES];
 Face* gOT[OT_SIZE];
 
+// Built in work RAM while VDP1 draws the previous frame, then DMAed to VRAM.
 static ALIGN16 vdp1_cmd_t gCmds[MAX_CMDS];
 static ALIGN16 uint16 gGouraud[MAX_CMDS][4];
-static int32 gBank;
 
 int32 gRenderFaceCount; // VDP1 polygons emitted by the last flush
+
+static uint32 gRoomTicks;
+static uint32 gMeshTicks;
 
 static volatile vdp1_cmd_t* const gVdp1Cmds = (volatile vdp1_cmd_t*)VDP1_VRAM;
 
@@ -103,6 +108,15 @@ X_INLINE Face* faceAdd(int32 depth)
     gOT[depth] = face;
 
     return face;
+}
+
+// Faces wholly outside one clip plane are dropped. So are faces crossing the
+// near plane for now: a distorted sprite can't be clipped (it always maps the
+// whole texture), and a projected vertex just in front of the camera lands
+// far outside VDP1's coordinate range.
+X_INLINE bool cullFace(uint32 clipAnd, uint32 clipOr)
+{
+    return (clipAnd & CLIP_DISCARD) || (clipOr & CLIP_PLANE);
 }
 
 X_INLINE bool checkBackface(const Vertex *a, const Vertex *b, const Vertex *c)
@@ -178,11 +192,11 @@ void transformRoom(const RoomVertex* vertices, int32 count, bool underwater)
         x += (FRAME_WIDTH  >> 1);
         y += (FRAME_HEIGHT >> 1);
 
-        res->x = x;
-        res->y = y;
+        res->clip = clip | clipFlags(x, y);
+        res->x = X_CLAMP(x, VDP1_COORD_MIN, VDP1_COORD_MAX);
+        res->y = X_CLAMP(y, VDP1_COORD_MIN, VDP1_COORD_MAX);
         res->z = z;
         res->g = vg >> 8;
-        res->clip = clip | clipFlags(x, y);
     }
 }
 
@@ -223,11 +237,11 @@ void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity)
         x += (FRAME_WIDTH  >> 1);
         y += (FRAME_HEIGHT >> 1);
 
-        res->x = x;
-        res->y = y;
+        res->clip = clip | clipFlags(x, y);
+        res->x = X_CLAMP(x, VDP1_COORD_MIN, VDP1_COORD_MAX);
+        res->y = X_CLAMP(y, VDP1_COORD_MIN, VDP1_COORD_MAX);
         res->z = z;
         res->g = vg;
-        res->clip = clip | clipFlags(x, y);
     }
 }
 
@@ -248,7 +262,7 @@ void faceAddRoomQuads(const RoomQuad* polys, int32 count)
         uint32 c2 = v2->clip;
         uint32 c3 = v3->clip;
 
-        if (c0 & c1 & c2 & c3 & CLIP_DISCARD)
+        if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
             continue;
 
         if ((c0 | c1 | c2 | c3) & CLIP_FRAME) {
@@ -284,7 +298,7 @@ void faceAddRoomTriangles(const RoomTriangle* polys, int32 count)
         uint32 c1 = v1->clip;
         uint32 c2 = v2->clip;
 
-        if (c0 & c1 & c2 & CLIP_DISCARD)
+        if (cullFace(c0 & c1 & c2, c0 | c1 | c2))
             continue;
 
         if ((c0 | c1 | c2) & CLIP_FRAME) {
@@ -327,7 +341,7 @@ void faceAddMeshQuads(const MeshQuad* polys, int32 count)
         uint32 c2 = v2->clip;
         uint32 c3 = v3->clip;
 
-        if (c0 & c1 & c2 & c3 & CLIP_DISCARD)
+        if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
             continue;
 
         if ((c0 | c1 | c2 | c3) & CLIP_FRAME) {
@@ -363,7 +377,7 @@ void faceAddMeshTriangles(const MeshTriangle* polys, int32 count)
         uint32 c1 = v1->clip;
         uint32 c2 = v2->clip;
 
-        if (c0 & c1 & c2 & CLIP_DISCARD)
+        if (cullFace(c0 & c1 & c2, c0 | c1 | c2))
             continue;
 
         if ((c0 | c1 | c2) & CLIP_FRAME) {
@@ -462,6 +476,11 @@ void flush_c()
 {
     uint32 start = timerTicks();
 
+    gStats.vertices = gVerticesBase - gVertices;
+    gStats.roomTicks = gRoomTicks;
+    gStats.meshTicks = gMeshTicks;
+    gRoomTicks = gMeshTicks = 0;
+
     gVerticesBase = gVertices;
 
     if (gFacesBase == gFaces)
@@ -469,8 +488,7 @@ void flush_c()
 
     gFacesBase = gFaces;
 
-    int32 bank = gBank ^ 1;
-    uint32 grdBase = VRAM_GOURAUD_BANK(bank) >> 3;
+    uint32 grdBase = VRAM_GOURAUD_BASE >> 3;
     int32 count = 0;
 
     for (int32 i = OT_SIZE - 1; i >= 0; i--)
@@ -515,12 +533,16 @@ void flush_c()
     gRenderFaceCount = count;
     gStats.faces = count;
 
-    dmaToVram(gCmds, VDP1_VRAM + VRAM_CMD_BANK(bank), (count + 1) * sizeof(vdp1_cmd_t));
-    dmaToVram(gGouraud, VDP1_VRAM + VRAM_GOURAUD_BANK(bank), count * 8);
-    dmaWait();
+    uint32 waitStart = timerTicks();
+    vdp1WaitIdle();
+    gStats.waitTicks = (timerTicks() - waitStart) & 0xFFFF;
 
-    gBank = bank;
-    gStats.flushTicks = (timerTicks() - start) & 0xFFFF;
+    dmaToVram(gCmds, VDP1_VRAM + VRAM_FRAME_CMDS, (count + 1) * sizeof(vdp1_cmd_t));
+    dmaToVram(gGouraud, VDP1_VRAM + VRAM_GOURAUD_BASE, count * 8);
+    dmaWait();
+    vdp1Plot();
+
+    gStats.flushTicks = ((timerTicks() - start) & 0xFFFF) - gStats.waitTicks;
 }
 
 void renderInit()
@@ -528,8 +550,8 @@ void renderInit()
     gVerticesBase = gVertices;
     gFacesBase = gFaces;
 
-    // slots 0-3: system clip, user clip, local coordinates, jump to bank
-    for (int32 i = 0; i <= VRAM_SLOT_JUMP; i++) {
+    // slots 0-2: system clip, user clip, local coordinates; frame commands follow
+    for (int32 i = 0; i < 3; i++) {
         gVdp1Cmds[i].link = 0;
         gVdp1Cmds[i].pmod = 0;
     }
@@ -544,22 +566,17 @@ void renderInit()
     gVdp1Cmds[2].ctrl = CMD_LOCAL_COORD;
     gVdp1Cmds[2].xa = 0;
     gVdp1Cmds[2].ya = 0;
-    gVdp1Cmds[VRAM_SLOT_JUMP].ctrl = CMD_SKIP_JUMP;
-    gVdp1Cmds[VRAM_SLOT_JUMP].link = VRAM_CMD_BANK(0) >> 3;
-
-    ((volatile vdp1_cmd_t*)(VDP1_VRAM + VRAM_CMD_BANK(0)))->ctrl = CMD_END;
-    ((volatile vdp1_cmd_t*)(VDP1_VRAM + VRAM_CMD_BANK(1)))->ctrl = CMD_END;
-    gBank = 0;
+    ((volatile vdp1_cmd_t*)(VDP1_VRAM + VRAM_FRAME_CMDS))->ctrl = CMD_END;
 }
 
 void renderFree()
 {
 }
 
-// Called during vblank: point VDP1 at the bank flush() just filled.
+// flush() hands each frame to VDP1; frame buffers change in the vblank
+// interrupts (system.cpp).
 void renderSwap()
 {
-    gVdp1Cmds[VRAM_SLOT_JUMP].link = VRAM_CMD_BANK(gBank) >> 3;
 }
 
 void renderLevelInit()
@@ -580,6 +597,8 @@ void renderRoom(Room* room)
     if (vCount <= 0)
         return;
 
+    uint32 start = timerTicks();
+
     if ((gVerticesBase - gVertices) + vCount > MAX_VERTICES)
     {
         ASSERT(false);
@@ -597,6 +616,7 @@ void renderRoom(Room* room)
     }
 
     gVerticesBase += vCount;
+    gRoomTicks += (timerTicks() - start) & 0xFFFF;
 }
 
 void renderMesh(const Mesh* mesh)
@@ -628,6 +648,7 @@ void renderMesh(const Mesh* mesh)
 
     MeshTriangle* triangles = (MeshTriangle*)ptr;
 
+    uint32 start = timerTicks();
     transformMesh(vertices, vCount, mesh->intensity);
 
     if (mesh->rCount > 0) {
@@ -639,6 +660,7 @@ void renderMesh(const Mesh* mesh)
     }
 
     gVerticesBase += vCount;
+    gMeshTicks += (timerTicks() - start) & 0xFFFF;
 }
 
 void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
