@@ -40,7 +40,7 @@
 !
 ! RoomQuad, RoomTriangle: uint32 flags; uint16 indices[4].
 ! Vertex: int16 x, y; int16 z; uint8 g, clip. Face: flags, next, int16 indices[4].
-! Texture: uint16 srca, colr, size, attr, color, reserved.
+! Texture: uint16 srca, colr, size, attr, color, reserved, altColor, contrast.
 
     .equ    CLIP_DISCARD,   0x3E
     .equ    CLIP_PLANE,     0x20
@@ -357,9 +357,7 @@ _faceAddMeshTrianglesAsm:
     .macro  WHOLE
     mov.w   .LtexMask\@, r0
     and     r14, r0
-    mov     r0, r1
-    add     r0, r0
-    add     r1, r0
+    shll2   r0
     shll2   r0
     mov.l   @(16, r6), r1
     add     r0, r1              ! the texture

@@ -102,6 +102,17 @@ static void emptySlots()
     }
 }
 
+uint32_t detailReserveTop(uint32_t size)
+{
+    int32_t slots = (size + DETAIL_SLOT_SIZE - 1) / DETAIL_SLOT_SIZE;
+    if (slots > gSlotCount / 2)
+        return 0;
+
+    gSlotCount -= slots;
+    emptySlots();
+    return detailSlotAddr(gSlotCount);
+}
+
 void detailSuspend()
 {
     if (gSuspended)

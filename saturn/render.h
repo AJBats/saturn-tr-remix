@@ -216,8 +216,21 @@ enum ShadeCurve
     SHADE_CURVE_COUNT
 };
 void renderSetShadeCurve(int32 curve);
-// and dark faces drawn at half luminance, with gouraud making up the rest.
-extern bool gShadeHalf;
+// and how faces darkened by a third of their texture's mean are drawn.
+enum DarkFaces
+{
+    DARK_ADD,       // by gouraud alone, as the original
+    DARK_HALF,      // at half luminance, gouraud making up the rest
+    DARK_CONTRAST,  // room textures through tables of less contrast as they
+                    // darken, by eighths down to a half; the rest as DARK_HALF
+    DARK_COUNT
+};
+extern int32 gDarkFaces;
+
+// The colour tables have swapped between the original and remastered sets
+// (palettes.cpp): textures take the other set's mean colours, and the tables
+// of less contrast are made again.
+void renderPalettesSwapped();
 
 // rooms.cpp: rooms are drawn on the slave CPU.
 struct RoomStats

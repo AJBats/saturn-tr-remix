@@ -21,13 +21,13 @@
 !   +40 const uint16* shadeGouraud
 !   +44 const uint8* shadeLevel
 !   +48 const uint8* halfLevel
-!   +52 int32 half              gShadeHalf
+!   +52 int32 dark              gDarkFaces: 0 add, 1 half luminance, 2 contrast
 !   +56 uint32 detailVram       gDetailVramStart
 !   +60 void (*slow)(const Face* face, uint32* w, uint32* grd, int32 room)
 !
 ! Face: uint32 flags; Face* next; int16 indices[4].
 ! Vertex: int16 x, y; int16 z; uint8 g, clip.
-! Texture: uint16 srca, colr, size, attr, color, reserved (4-byte aligned).
+! Texture: uint16 srca, colr, size, attr, color, reserved, altColor, contrast.
 
     .equ    FACE_WATER_BIT,     30
     .equ    CLIP_FRAME,         1
@@ -245,8 +245,7 @@ _flushAsm:
     bt      .Lpalette
 
     mov     r2, r0
-    add     r0, r0
-    add     r2, r0
+    shll2   r0
     shll2   r0
     mov.l   @(32, r8), r2
     add     r0, r2              ! tex
@@ -487,6 +486,38 @@ _flushAsm:
     bra     .Lfaced
     mov.l   r6, @(4, r11)
 
+    ! the table of less contrast, by eighths as the darkening (r3) passes
+    ! a twelfth of the mean, a sixth, a quarter and a third (shadeDark)
+.Lcontrast:
+    mov     r0, r14             ! the 7/8 table
+    mov.l   @(4, r2), r0
+    extu.w  r0, r0
+    shlr8   r0
+    shll2   r0                  ! mean luma * 4: a third of it, in r3's units
+    shll2   r3
+    mov     r0, r1
+    cmp/ge  r1, r3
+    bf      .Lplain
+    add     r0, r1
+    cmp/ge  r1, r3
+    bf      .Lcontrasted
+    add     #4, r14
+    add     r0, r1
+    cmp/ge  r1, r3
+    bf      .Lcontrasted
+    add     #4, r14
+    add     r0, r1
+    cmp/ge  r1, r3
+    bf      .Lcontrasted
+    add     #4, r14
+.Lcontrasted:
+    mov.l   @(4, r10), r0
+    shlr16  r0
+    shll16  r0
+    or      r14, r0
+    bra     .Lplain
+    mov.l   r0, @(4, r10)       ! w[1]: the table
+
 .Lhalf:
     ! half luminance when darkened by a third of the texture's mean luma
     mov.l   @(44, r8), r1       ! shadeLevel
@@ -517,6 +548,14 @@ _flushAsm:
     shll2   r0
     shll    r0
     add     r0, r3              ! (64 - levels) * 9
+    mov.l   @(52, r8), r0
+    cmp/eq  #2, r0
+    bf      .LhalfTest
+    mov.w   @(14, r2), r0
+    extu.w  r0, r0
+    tst     r0, r0
+    bf      .Lcontrast          ! a room texture with tables of less contrast
+.LhalfTest:
     mov.l   @(4, r2), r0
     extu.w  r0, r0
     shlr8   r0

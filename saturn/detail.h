@@ -56,6 +56,10 @@ inline int32_t detailSlot(uint32_t key, uint32_t texSize, bool quads)
     return detailSlotMiss(key, texSize, quads);
 }
 
+// Takes at least 'size' bytes off the top of the cache for other tables and
+// empties it; their VDP1 VRAM offset, or 0 if they don't fit.
+uint32_t detailReserveTop(uint32_t size);
+
 // VDP1 VRAM offset of a slot.
 extern uint32_t gDetailVramStart;
 inline uint32_t detailSlotAddr(int32_t slot)

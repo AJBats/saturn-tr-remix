@@ -1125,6 +1125,8 @@ struct Texture
     uint16 attr;    // TEX_ATTR_* flags
     uint16 color;   // average RGB555 colour, for untextured drawing
     uint16 reserved;
+    uint16 altColor;    // the average under the other set of colour tables (saturn/palettes.h)
+    uint16 contrast;    // CMDCOLR of its table at 7/8 contrast, then 6/8, 5/8, 4/8; 0 for none
 #else
     uint32 tile;
     uint32 uv01;

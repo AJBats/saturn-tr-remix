@@ -131,15 +131,17 @@ def shade_from_color16(c):
     return 31 - (c & 31)
 
 
-def texture_average(data, tile, clut, w, h, transparent, end_codes=False):
+def texture_average(data, tile, clut, w, h, transparent, end_codes=False, colors=None):
     """Average RGB555 colour of a 4-bit CLUT character, leaving out colour 0
     when it is transparent and colour 15 when it is VDP1's end code (the
-    triangle variants of object textures fill their unused half with it)."""
+    triangle variants of object textures fill their unused half with it).
+    With 'colors', those stand in for its colour table."""
     pix = tile << 3
     lut = (clut + tile) << 3
     if lut + 32 > len(data) or pix + w * h // 2 > len(data):
         return 0x8000 | (16 << 10) | (16 << 5) | 16
-    colors = struct.unpack_from(">16H", data, lut)
+    if colors is None:
+        colors = struct.unpack_from(">16H", data, lut)
     r = g = b = n = 0
     for i in range(w * h // 2):
         byte = data[pix + i]
@@ -173,6 +175,7 @@ class TextureTable:
         if self.cache_off + len(lvl.item_tex_data) > 0x80000 - VRAM_TEX_BASE:
             raise ValueError(f"textures need {self.cache_off + len(lvl.item_tex_data)} bytes of VDP1 VRAM")
         self.entries = []
+        self.averages = []  # how each entry's mean colour was taken, for the remastered one
         self.index = {}
         for t in lvl.room_textures:
             e = self.entry(lvl.room_tex_qtr, self.room_off, t, t["tile"], 0)
@@ -191,8 +194,9 @@ class TextureTable:
         base = VRAM_TEX_BASE + seg_off
         srca = (base + tile * 8) >> 3
         colr = (base + ((t["clut"] + tile) & 0xFFFF) * 8) >> 3
-        color = texture_average(data, tile, t["clut"], t["w"], t["h"], attr & TEX_ATTR_AKILL, end_codes)
-        return [srca, colr, ((t["w"] // 8) << 8) | t["h"], attr, color, 0]
+        args = (data, tile, t["clut"], t["w"], t["h"], attr & TEX_ATTR_AKILL, end_codes)
+        self.averages.append((args, seg_off == self.cache_off))
+        return [srca, colr, ((t["w"] // 8) << 8) | t["h"], attr, texture_average(*args), 0]
 
     @staticmethod
     def detail_key(t):
@@ -226,7 +230,16 @@ class TextureTable:
         return self.index[key]
 
     def pack(self):
-        return b"".join(struct.pack(">6H", *e) for e in self.entries)
+        """Each entry: srca, colr, size, attr, mean colour, full-res key, mean
+        colour under the remastered colour tables, and 0 for the game to fill
+        (Texture.contrast)."""
+        remastered = dict(self.remastered_palettes())
+        out = []
+        for e, (args, item) in zip(self.entries, self.averages):
+            colors = None if item else remastered.get(e[1] * 8 - VRAM_TEX_BASE)
+            alt = e[4] if colors is None else texture_average(*args, colors=colors)
+            out.append(struct.pack(">8H", *e, alt, 0))
+        return b"".join(out)
 
     def remastered_palettes(self):
         """The blob's colour tables made to suit VDP1's gouraud shading, as
@@ -248,7 +261,7 @@ class TextureTable:
             if attr & TEX_ATTR_AKILL:
                 akill.add(lut)
 
-        for srca, colr, size, attr, _color, _reserved in self.entries:
+        for srca, colr, size, attr, *_ in self.entries:
             count(srca, colr, size, attr)
         spr_base = VRAM_TEX_BASE + self.spr_off
         for s in self.lvl.sprite_textures:

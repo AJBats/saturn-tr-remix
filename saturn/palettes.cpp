@@ -3,7 +3,7 @@
 // the buffer, so one swap goes either way.
 
 #include "palettes.h"
-#include "common.h"
+#include "render.h"
 #include "cd.h"
 #include "hw.h"
 #include "vram.h"
@@ -61,8 +61,10 @@ void palettesLoad(const char* level)
 void palettesToggle()
 {
     gRemastered = !gRemastered;
-    if (gRemastered != gInVram) {
+    if (gRemastered != gInVram)
+    {
         swap();
+        renderPalettesSwapped();
     }
 }
 

@@ -7,6 +7,7 @@
 #include "render.h"
 #include "detail.h"
 #include "hw.h"
+#include "palettes.h"
 #include "slave.h"
 #include "system.h"
 #include "vram.h"
@@ -368,7 +369,7 @@ X_INLINE uint32 gouraudPair(uint32 flags, bool dim, const Vertex* a, const Verte
 
 int32 gTexelView;
 bool gSaturnLod;
-bool gShadeHalf = true;
+int32 gDarkFaces = DARK_CONTRAST;
 int32 gFlatDist;
 
 // Adds to each channel of a pair of gouraud values, within 0 .. 31.
@@ -441,7 +442,7 @@ static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room, int
     grd[1] = tintPair(grd[1], dr, dg, db);
 }
 
-// gShadeHalf: a face darkened by at least a third of its texture's mean is drawn
+// DARK_HALF: a face darkened by at least a third of its texture's mean is drawn
 // at half luminance, which scales its texels as the PS1 shades, and its
 // gouraud levels are raised to keep each corner as bright as it was. Halving
 // (t + g - 16) leaves t / 2 + (g - 16) / 2, so for corner level L and mean m
@@ -449,8 +450,16 @@ static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room, int
 // within 0 .. 31 (indexed by m + 2L). A face with a corner too bright for that
 // (m + 2L - 16 past 31 in a channel) is drawn as usual: held at 31, the corner
 // would come out darker and tinted, unlike the faces beside it. Texture.attr's
-// high byte holds the texture's mean luma (renderLevelInit). False for a face
-// drawn as usual.
+// high byte holds the texture's mean luma (renderLevelInit).
+//
+// Half luminance halves the texels' distance from the mean: the faces beside
+// one drawn as usual show it as a step in contrast. DARK_CONTRAST draws room
+// textures through tables of their colours brought towards the mean instead,
+// at 7/8 of the contrast for darkening of a twelfth of the mean, by eighths to
+// 4/8 at a third (where 4/8 matches half luminance); gouraud goes as usual.
+//
+// True when the gouraud table is filled; false for the caller to fill it as
+// usual (w[1] may have taken a table of less contrast).
 static uint8 gHalfLevel[32 + 64];
 
 X_INLINE uint32 halfGouraud(const uint8* r, const uint8* g, const uint8* b, int32 level)
@@ -458,7 +467,7 @@ X_INLINE uint32 halfGouraud(const uint8* r, const uint8* g, const uint8* b, int3
     return r[level * 2] | (g[level * 2] << 5) | (b[level * 2] << 10);
 }
 
-X_INLINE bool shadeHalf(uint32* w, uint32* grd, uint32 flags, const Vertex* a, const Vertex* b, const Vertex* c, const Vertex* d)
+X_INLINE bool shadeDark(uint32* w, uint32* grd, uint32 flags, const Vertex* a, const Vertex* b, const Vertex* c, const Vertex* d)
 {
     const Texture* tex = level.textures + (flags & FACE_TEXTURE);
     int32 la = gShadeLevel[a->g];
@@ -467,7 +476,22 @@ X_INLINE bool shadeHalf(uint32* w, uint32* grd, uint32 flags, const Vertex* a, c
     int32 ld = gShadeLevel[d->g];
 
     // average darkening (64 - sum) / 4 against a third of the mean luma / 3
-    if ((64 - (la + lb + lc + ld)) * 9 < int32(tex->attr >> 8) * 4)
+    int32 dark = (64 - (la + lb + lc + ld)) * 9;
+    int32 third = int32(tex->attr >> 8) * 4;
+
+    if (gDarkFaces == DARK_CONTRAST && tex->contrast)
+    {
+        int32 k = 0;
+        for (int32 step = third; k < 4 && dark * 4 >= step; step += third) {
+            k++;
+        }
+        if (k) {
+            w[1] = (w[1] & 0xFFFF0000) | (tex->contrast + (k - 1) * 4);
+        }
+        return false;
+    }
+
+    if (dark < third)
         return false;
 
     uint32 color = tex->color;
@@ -503,6 +527,47 @@ X_INLINE int32 offFrame(const Vertex* v)
     int32 x = v->x;
     int32 y = v->y;
     return X_MAX(0, -x) + X_MAX(0, x - FRAME_WIDTH) + X_MAX(0, -y) + X_MAX(0, y - FRAME_HEIGHT);
+}
+
+// Room textures' colour tables at 7/8, 6/8, 5/8 and 4/8 of their contrast
+// about the texture's mean colour (DARK_CONTRAST). A pixel code 0 that is
+// transparent stays as it is.
+#define CONTRAST_TABLES 4
+
+static void buildContrast()
+{
+    for (int32 i = 0; i < level.texturesCount; i++)
+    {
+        const Texture &t = level.textures[i];
+        if (!t.contrast)
+            continue;
+
+        const volatile uint16* lut = (const volatile uint16*)(VDP1_VRAM + t.colr * 8);
+        volatile uint16* out = (volatile uint16*)(VDP1_VRAM + t.contrast * 8);
+        uint32 m = t.color;
+        int32 mr = m & 31;
+        int32 mg = (m >> 5) & 31;
+        int32 mb = (m >> 10) & 31;
+
+        for (int32 k = 1; k <= CONTRAST_TABLES; k++)
+        {
+            int32 c = 8 - k;
+            for (int32 j = 0; j < 16; j++)
+            {
+                uint32 col = lut[j];
+                if (j == 0 && (t.attr & TEX_ATTR_AKILL))
+                {
+                    *out++ = col;
+                    continue;
+                }
+                // m (8 - c) + col c >= 0, eighths
+                uint32 r = (mr * (8 - c) + int32(col & 31) * c + 4) >> 3;
+                uint32 g = (mg * (8 - c) + int32((col >> 5) & 31) * c + 4) >> 3;
+                uint32 b = (mb * (8 - c) + int32((col >> 10) & 31) * c + 4) >> 3;
+                *out++ = (col & 0x8000) | (b << 10) | (g << 5) | r;
+            }
+        }
+    }
 }
 
 // The command words that depend on the face's colour or texture.
@@ -617,7 +682,8 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
                 // v0, x, y; the fourth corner is x + y - v0
                 uint32 p = pair(vdp1Coord(v1->x + v2->x - v0->x), vdp1Coord(v1->y + v2->y - v0->y));
 
-                bool half = gShadeHalf && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim && !(flags & FACE_WATER);
+                bool dark = gDarkFaces != DARK_ADD && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim &&
+                            !(flags & FACE_WATER);
 
                 if (flags & FACE_V0_AT_D)
                 {
@@ -625,7 +691,7 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
                     w[4] = p;
                     w[5] = v2->xy;
                     w[6] = v0->xy;
-                    if (!(half && shadeHalf(w, grd, flags, v1, v1, v2, v0)))
+                    if (!(dark && shadeDark(w, grd, flags, v1, v1, v2, v0)))
                     {
                         grd[0] = gouraudPair(flags, dim, v1, v1);
                         grd[1] = gouraudPair(flags, dim, v2, v0);
@@ -637,7 +703,7 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
                     w[4] = v1->xy;
                     w[5] = p;
                     w[6] = v2->xy;
-                    if (!(half && shadeHalf(w, grd, flags, v0, v1, v2, v2)))
+                    if (!(dark && shadeDark(w, grd, flags, v0, v1, v2, v2)))
                     {
                         grd[0] = gouraudPair(flags, dim, v0, v1);
                         grd[1] = gouraudPair(flags, dim, v2, v2);
@@ -668,8 +734,9 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
             w[4] = v1->xy;
             w[5] = v2->xy;
             w[6] = v3->xy;
-            bool half = gShadeHalf && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim && !(flags & FACE_WATER);
-            if (!(half && shadeHalf(w, grd, flags, v0, v1, v2, v3)))
+            bool dark = gDarkFaces != DARK_ADD && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim &&
+                        !(flags & FACE_WATER);
+            if (!(dark && shadeDark(w, grd, flags, v0, v1, v2, v3)))
             {
                 grd[0] = gouraudPair(flags, dim, v0, v1);
                 grd[1] = gouraudPair(flags, dim, v2, v3);
@@ -702,16 +769,17 @@ struct FlushXform
     const uint16* shadeGouraud;
     const uint8* shadeLevel;
     const uint8* halfLevel;
-    int32 half;
+    int32 dark;             // gDarkFaces
     uint32 detailVram;
     void (*slow)(const Face* face, uint32* w, uint32* grd, int32 room);
 };
 
 static_assert(offsetof(FlushXform, vertices) == 12 && offsetof(FlushXform, grdLink) == 28 &&
-              offsetof(FlushXform, textures) == 32 && offsetof(FlushXform, half) == 52 &&
+              offsetof(FlushXform, textures) == 32 && offsetof(FlushXform, dark) == 52 &&
               offsetof(FlushXform, slow) == 60, "FlushXform layout is shared with flush.s");
 static_assert(sizeof(Face) == 16 && offsetof(Face, next) == 4 && offsetof(Face, indices) == 8 &&
-              sizeof(Texture) == 12 && offsetof(Texture, attr) == 6 && offsetof(Texture, color) == 8 &&
+              sizeof(Texture) == 16 && offsetof(Texture, attr) == 6 && offsetof(Texture, color) == 8 &&
+              offsetof(Texture, contrast) == 14 && DARK_CONTRAST == 2 &&
               sizeof(Command) == 32 && sizeof(gGouraud[0]) == 8, "layouts read by flush.s");
 static_assert(FACE_WATER == (1 << 30) && FACE_DETAIL == (1 << 29) && FACE_PARALLELOGRAM == (1 << 28) &&
               FACE_DETAIL_WHOLE == (1 << 27) && FACE_V0_AT_D == (1 << 27) && FACE_DETAIL_SLOT_SHIFT == 20 &&
@@ -740,7 +808,7 @@ static void flushXformInit(FlushXform &xf, Face** roomOT, int32 first, int32 cou
     xf.shadeGouraud = gShadeGouraud;
     xf.shadeLevel = gShadeLevel;
     xf.halfLevel = gHalfLevel;
-    xf.half = gShadeHalf;
+    xf.dark = gDarkFaces;
     xf.detailVram = gDetailVramStart;
     xf.slow = faceSlow;
 }
@@ -895,6 +963,7 @@ void flush_c()
     if (gItemTextures && !gInventoryFrame)
     {
         detailResume();
+        buildContrast(); // the item textures may have covered the tables
         gItemTextures = false;
     }
     gInventoryFrame = false;
@@ -983,19 +1052,65 @@ void renderSwap()
 {
 }
 
-void renderLevelInit()
+// Each texture's mean luma, for shadeDark.
+static void textureLuma()
 {
-    for (int32 i = 0; i < int32(sizeof(gHalfLevel)); i++) {
-        gHalfLevel[i] = X_CLAMP(i - 16, 0, 31);
-    }
-
-    // each texture's mean luma, for shadeHalf
     for (int32 i = 0; i < level.texturesCount; i++)
     {
         Texture &t = level.textures[i];
         uint32 c = t.color;
         t.attr = (t.attr & 0xFF) | (((c & 31) + ((c >> 5) & 31) + ((c >> 10) & 31)) << 8);
     }
+}
+
+void renderPalettesSwapped()
+{
+    for (int32 i = 0; i < level.texturesCount; i++)
+    {
+        Texture &t = level.textures[i];
+        uint16 c = t.color;
+        t.color = t.altColor;
+        t.altColor = c;
+    }
+    textureLuma();
+    buildContrast();
+}
+
+void renderLevelInit()
+{
+    for (int32 i = 0; i < int32(sizeof(gHalfLevel)); i++) {
+        gHalfLevel[i] = X_CLAMP(i - 16, 0, 31);
+    }
+
+    if (palettesRemastered())
+    {
+        for (int32 i = 0; i < level.texturesCount; i++)
+        {
+            Texture &t = level.textures[i];
+            uint16 c = t.color;
+            t.color = t.altColor;
+            t.altColor = c;
+        }
+    }
+    textureLuma();
+
+    // room textures' tables of less contrast at the top of VDP1 VRAM
+    int32 rooms = 0;
+    for (int32 i = 0; i < level.texturesCount; i++) {
+        rooms += level.textures[i].reserved != 0;
+    }
+    uint32 vram = rooms ? detailReserveTop(rooms * CONTRAST_TABLES * 32) : 0;
+    for (int32 i = 0; i < level.texturesCount; i++)
+    {
+        Texture &t = level.textures[i];
+        t.contrast = 0;
+        if (vram && t.reserved)
+        {
+            t.contrast = vram >> 3;
+            vram += CONTRAST_TABLES * 32;
+        }
+    }
+    buildContrast();
 }
 
 void renderLevelFree()

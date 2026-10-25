@@ -372,7 +372,8 @@ struct RoomFaces
 static_assert(offsetof(RoomFaces, textures) == 16 && offsetof(RoomFaces, end) == 28 &&
               offsetof(RoomFaces, frame) == 40 && offsetof(RoomFaces, miss) == 48 &&
               sizeof(RoomQuad) == 12 && sizeof(RoomTriangle) == 12 && sizeof(DetailSlot) == 8 &&
-              offsetof(DetailSlot, frame) == 4 && DETAIL_MAX_KEYS == 1088 &&
+              offsetof(DetailSlot, frame) == 4 && DETAIL_MAX_KEYS == 1088 && sizeof(Texture) == 16 &&
+              offsetof(Texture, size) == 4 && offsetof(Texture, reserved) == 10 &&
               (FACE_DETAIL | FACE_DETAIL_WHOLE) == 0x28000000 && FACE_DETAIL_SLOT_SHIFT == 20,
               "layouts and constants shared with faces.s");
 
