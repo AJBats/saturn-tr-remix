@@ -178,11 +178,36 @@ static int cmdConnectCdDevice(uint8_t filter)
     return cmdChecked(ESEL, 0x3000, 0, filter << 8, 0);
 }
 
+static bool gAudio;    // a track was started and nothing has stopped it since
+
 static int cmdPlay(uint32_t fad, uint32_t sectors)
 {
+    gAudio = false;
     CD_HIRQ = ~(PEND | CSCT);
     // bit 7 of the low byte marks the position as a FAD, not a track number
     return cmdChecked(0, 0x1080 | (fad >> 16), fad, 0x0080 | (sectors >> 16), sectors);
+}
+
+int cdPlayTrack(uint32_t track)
+{
+    CD_HIRQ = ~PEND;
+    // positions as track << 8 | index: index 1 up to the track's last index
+    int ret = cmdChecked(0, 0x1000, (track << 8) | 1, 0x0000, (track << 8) | 99);
+    gAudio = (ret == 0);
+    return ret;
+}
+
+void cdStopAudio()
+{
+    if (!gAudio)
+        return;
+    gAudio = false;
+    cmdChecked(0, 0x11FF, 0xFFFF, 0, 0); // seek to "pause"
+}
+
+bool cdAudioPlaying()
+{
+    return gAudio && !(CD_HIRQ & PEND);
 }
 
 static int cmdSectorCount(uint8_t buffer)

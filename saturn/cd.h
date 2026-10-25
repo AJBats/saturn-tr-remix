@@ -19,4 +19,9 @@ int cdRead(uint32_t lba, uint32_t size, void* dst);
 // cdFind + cdRead. Returns the file size, or a negative error.
 int32_t cdLoadFile(const char* path, void* dst, uint32_t maxSize);
 
+// Plays an audio track once, to its end; reads stop it.
+int cdPlayTrack(uint32_t track);
+void cdStopAudio();
+bool cdAudioPlaying();
+
 #endif

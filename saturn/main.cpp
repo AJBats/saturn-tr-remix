@@ -41,6 +41,7 @@ int main()
 {
     systemInit();
     cdInit();
+    sndInit();
 
     gLevelID = LVL_TR1_1; // TODO title screen and menus
 
