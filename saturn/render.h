@@ -1,0 +1,180 @@
+// Saturn renderer internals shared by the master's renderer (render.cpp) and
+// the room renderer the slave CPU runs (rooms.cpp).
+#ifndef RENDER_H
+#define RENDER_H
+
+#include "common.h"
+
+struct Vertex
+{
+    union
+    {
+        struct
+        {
+            int16 x;
+            int16 y;
+        };
+        uint32 xy; // both, as a VDP1 command's vertex word (big-endian)
+    };
+    int16 z;
+    uint8 g;
+    uint8 clip;
+};
+
+enum FaceType {
+    FACE_TYPE_SHADOW,
+    FACE_TYPE_F,
+    FACE_TYPE_FT,
+    FACE_TYPE_FTA,
+    FACE_TYPE_GT,
+    FACE_TYPE_GTA,
+    FACE_TYPE_SPRITE,
+    FACE_TYPE_FILL_S,
+    FACE_TYPE_LINE_H,
+    FACE_TYPE_LINE_V,
+    FACE_TYPE_MAX
+};
+
+#define FACE_TRIANGLE   (1 << 31)
+#define FACE_CLIPPED    (1 << 30)
+#define FACE_DETAIL     (1 << 29)   // full-res quadrant of a cached room texture
+#define FACE_PARALLELOGRAM  (1 << 28)   // mesh triangle drawn as a parallelogram, see faceAddMeshTriangles
+#define FACE_V0_AT_D        (1 << 27)   // ... with its first vertex at corner D (else A)
+#define FACE_DETAIL_SLOT_SHIFT  20
+#define FACE_DETAIL_QUAD_SHIFT  18
+#define FACE_TYPE_SHIFT 14
+#define FACE_TYPE_MASK  15
+#define FACE_GOURAUD    (2 << FACE_TYPE_SHIFT)
+#define FACE_TEXTURE    0x3FFF
+
+// VDP1 vertex coordinates are 11 bits plus sign
+#define VDP1_COORD_MIN  -1024
+#define VDP1_COORD_MAX  1023
+
+enum ClipFlags {
+    CLIP_FRAME   = 1 << 0,
+    CLIP_LEFT    = 1 << 1,
+    CLIP_RIGHT   = 1 << 2,
+    CLIP_TOP     = 1 << 3,
+    CLIP_BOTTOM  = 1 << 4,
+    CLIP_PLANE   = 1 << 5,
+    CLIP_DISCARD = (CLIP_LEFT | CLIP_RIGHT | CLIP_TOP | CLIP_BOTTOM | CLIP_PLANE)
+};
+
+// gVertices is split between the CPUs: the master's meshes, sprites and 2D
+// below MASTER_VERTICES, the slave's rooms above. Face indices address all of it.
+#define MASTER_VERTICES 2048
+extern Vertex gVertices[MAX_VERTICES];
+
+// A CPU's faces: a pool and an ordering table. flush merges the two CPUs'.
+struct FaceList
+{
+    Face* next;
+    Face* end;
+    Face** ot;
+};
+
+X_INLINE Face* faceAdd(FaceList &list, int32 depth)
+{
+    ASSERT(depth >= 0 && depth < OT_SIZE);
+
+    Face* face = list.next++;
+    face->next = list.ot[depth];
+    list.ot[depth] = face;
+
+    return face;
+}
+
+// SH-2 has no barrel shifter, and GCC calls a library routine for most
+// arithmetic right shifts by a constant. When the result fits in 16 bits, a
+// logical shift (built from the 1, 2, 8 and 16 bit shift instructions) and a
+// sign extension give the same value.
+template <int N>
+X_INLINE int32 asr16(int32 v)
+{
+    return int16(uint32(v) >> N);
+}
+
+// Largest value whose shift right by N fits in 16 bits.
+#define ASR16_MAX(N)    (0x7FFF << (N))
+
+// t + a . b for three 16-bit values each, on the multiply-accumulate unit.
+X_INLINE int32 dot3(const int16* a, const int16* b, int32 t)
+{
+    int32 r;
+    asm("lds    %3, macl\n\t"
+        "mac.w  @%1+, @%2+\n\t"
+        "mac.w  @%1+, @%2+\n\t"
+        "mac.w  @%1+, @%2+\n\t"
+        "sts    macl, %0"
+        : "=r"(r), "+r"(a), "+r"(b)
+        : "r"(t), "m"(*(const int16 (*)[3])a), "m"(*(const int16 (*)[3])b)
+        : "mach", "macl");
+    return r;
+}
+
+// Faces wholly outside one clip plane are dropped. So are faces crossing the
+// near plane for now: a distorted sprite can't be clipped (it always maps the
+// whole texture), and a projected vertex just in front of the camera lands
+// far outside VDP1's coordinate range.
+X_INLINE bool cullFace(uint32 clipAnd, uint32 clipOr)
+{
+    return (clipAnd & CLIP_DISCARD) || (clipOr & CLIP_PLANE);
+}
+
+X_INLINE bool checkBackface(const Vertex *a, const Vertex *b, const Vertex *c)
+{
+    return (b->x - a->x) * (c->y - a->y) <= (c->x - a->x) * (b->y - a->y);
+}
+
+// Projects a view-space point (MODEHW's PERSPECTIVE) and fills in everything
+// but the shade. x and y fit in 16 bits; z is within the view range.
+X_INLINE void projectView(int16 x, int16 y, int32 z, uint32 clip, const RectMinMax &vp, Vertex* res)
+{
+    uint32 dz = uint32(z) >> PROJ_SHIFT;
+    if (dz >= DIV_TABLE_SIZE) {
+        dz = DIV_TABLE_SIZE - 1;
+    }
+    int16 d = FixedInvU(dz); // at most 1 << 14 from VIEW_MIN on
+
+    const int32 limit = 2047 << (16 - PROJ_SHIFT);
+    int32 sx = asr16<16 - PROJ_SHIFT>(X_CLAMP(x * d, -limit, limit)) + (FRAME_WIDTH  >> 1);
+    int32 sy = asr16<16 - PROJ_SHIFT>(X_CLAMP(y * d, -limit, limit)) + (FRAME_HEIGHT >> 1);
+
+    if (uint32(sx) > FRAME_WIDTH || uint32(sy) > FRAME_HEIGHT)
+    {
+        clip |= CLIP_FRAME;
+        sx = X_CLAMP(sx, VDP1_COORD_MIN, VDP1_COORD_MAX);
+        sy = X_CLAMP(sy, VDP1_COORD_MIN, VDP1_COORD_MAX);
+    }
+
+    if (sx < vp.x0) clip |= CLIP_LEFT;
+    if (sx > vp.x1) clip |= CLIP_RIGHT;
+    if (sy < vp.y0) clip |= CLIP_TOP;
+    if (sy > vp.y1) clip |= CLIP_BOTTOM;
+
+    res->clip = clip;
+    res->x = sx;
+    res->y = sy;
+    res->z = z;
+}
+
+// rooms.cpp: rooms are drawn on the slave CPU.
+struct RoomStats
+{
+    uint32 vertices;    // room vertices transformed
+    uint32 detailFaces; // room quads split for full-res textures
+    uint32 xformTicks;  // slave time transforming vertices (its own FRT)
+    uint32 faceTicks;   // ... adding faces
+    uint32 idleTicks;   // ... waiting for rooms to be queued
+};
+
+// Queues a room for the slave, with the current matrix and viewport.
+void roomsQueue(const Room* room);
+
+// Waits for the slave to finish the frame's rooms; returns its ordering
+// table (whose lists flush consumes and clears), or NULL if no rooms were
+// queued.
+Face** roomsFinish(RoomStats &stats);
+
+#endif

@@ -47,3 +47,25 @@
     IRQ_ENTRY _vblankInEntry, _vblankInHandler
     IRQ_ENTRY _vblankOutEntry, _vblankOutHandler
     IRQ_ENTRY _spriteEndEntry, _spriteEndHandler
+
+! Slave CPU entry after SMPC SSHON (the BIOS has set its stack): mask
+! interrupts, then run slaveMain.
+    .global _slaveEntry
+    .align 2
+_slaveEntry:
+    mov.l   1f, r0
+    ldc     r0, sr
+    mov.l   2f, r0
+    jmp     @r0
+    nop
+
+    .align 2
+1:  .long 0xF0
+2:  .long _slaveMain
+
+! Slave interrupts that may arrive before slaveEntry masks them.
+    .global _slaveIgnoreIrq
+    .align 2
+_slaveIgnoreIrq:
+    rte
+    nop

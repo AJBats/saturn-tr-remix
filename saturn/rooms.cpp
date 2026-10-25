@@ -1,0 +1,433 @@
+// Room rendering on the slave SH-2. renderRoom (on the master) queues each
+// visible room with its matrix and portal viewport; the slave transforms the
+// room's vertices and adds its faces to its own face list, which flush merges
+// with the master's. The master carries on with meshes meanwhile.
+
+#include <stddef.h>
+
+#include "render.h"
+#include "detail.h"
+#include "slave.h"
+#include "system.h"
+
+#define MAX_ROOM_JOBS   64
+
+// Room quads whose farthest vertex is nearer than this are split 2x2 and drawn
+// with full-res textures, as in the original game.
+#define DETAIL_DIST     4096
+
+extern Level level;
+
+// The room matrix for 16x16 multiplies: the rotation fits in 16 bits, and
+// room vertex units (256 world units) times 4 keep the products in 32 bits,
+// so (m * v + t) >> 8 is the view position in world units.
+struct RoomMatrix
+{
+    int16 m00, m01, m02, m10, m11, m12, m20, m21, m22;
+    int32 tx, ty, tz;
+};
+
+struct RoomJob
+{
+    const Room* room;
+    RoomMatrix matrix;
+    RectMinMax viewport;
+    int32 causticsFrame;
+};
+
+// Master side. Jobs are written cached (memory is write-through) and read by
+// the slave uncached; the counters are read and written uncached.
+static RoomJob gJobs[MAX_ROOM_JOBS];
+static uint32 gJobCount;
+static volatile uint32 gJobsQueued;
+static volatile uint32 gJobsClosed;
+
+// Slave side.
+static Face gSlaveFaces[MAX_FACES];
+static Face* gSlaveOT[OT_SIZE];
+static RoomStats gSlaveStats;
+
+static FaceList gFaceList;
+static RoomMatrix gMatrix;
+
+// What xform.s needs to transform a room's vertices.
+struct RoomXform
+{
+    int16 v[3];             // scratch: the vertex being transformed, times 4
+    int16 rows[9];          // gMatrix's rotation
+    int32 tx, ty, tz;       // gMatrix's translation
+    int32 x0, y0, x1, y1;   // viewport
+    const uint16* divTable;
+    int32 zMin, zMax;       // near and far planes << 8
+};
+
+static_assert(offsetof(RoomXform, rows) == 6 && offsetof(RoomXform, tx) == 24 &&
+              offsetof(RoomXform, x0) == 36 && offsetof(RoomXform, divTable) == 52 &&
+              offsetof(RoomXform, zMin) == 56, "RoomXform layout is shared with xform.s");
+static_assert(sizeof(Vertex) == 8 && offsetof(Vertex, z) == 4 && offsetof(Vertex, clip) == 7,
+              "Vertex layout is shared with xform.s");
+static_assert(sizeof(RoomVertex) == 4, "xform.s reads RoomVertex as x, y, z, g bytes");
+static_assert(FRAME_WIDTH == 352 && FRAME_HEIGHT == 240 && VDP1_COORD_MAX == 1023 &&
+              FOG_MIN == 8192 && FOG_SHIFT == 1 && PROJ_SHIFT == 4 && CLIP_PLANE == 32,
+              "constants repeated in xform.s");
+
+extern "C" void transformRoomAsm(const RoomVertex* src, int32 count, Vertex* dst, RoomXform* xf);
+
+static RoomXform gXform;
+static RectMinMax gViewport;
+static const RoomVertex* gRoomVertices;
+static Vertex* gNextVertex; // the room's vertices, then those its split faces add
+
+// Projects a point in room space (vertex units * 4); sets everything but the
+// shade.
+X_INLINE void projectRoomPoint(int16 vx, int16 vy, int16 vz, Vertex* res)
+{
+    const RoomMatrix &m = gMatrix;
+    const int16* rows = &m.m00;
+    const int16 v[3] = { vx, vy, vz };
+
+    int32 z = dot3(v, rows + 6, m.tz);
+    uint32 clip = 0;
+
+    if (z <= (VIEW_MIN_F >> (FIXED_SHIFT - 8))) {
+        clip = CLIP_PLANE;
+        z = VIEW_MIN_F >> (FIXED_SHIFT - 8);
+    }
+
+    if (z >= (VIEW_MAX_F >> (FIXED_SHIFT - 8))) {
+        clip = CLIP_PLANE;
+        z = VIEW_MAX_F >> (FIXED_SHIFT - 8);
+    }
+
+    int32 x = dot3(v, rows, m.tx);
+    int32 y = dot3(v, rows + 3, m.ty);
+
+    x = asr16<8>(X_CLAMP(x, -ASR16_MAX(8), ASR16_MAX(8)));
+    y = asr16<8>(X_CLAMP(y, -ASR16_MAX(8), ASR16_MAX(8)));
+
+    projectView(x, y, uint32(z) >> 8, clip, gViewport, res);
+}
+
+static void transformRoom(const RoomVertex* vertices, int32 count, bool underwater, int32 causticsFrame)
+{
+    Vertex* res = gNextVertex;
+
+    for (int32 i = 0; i < count; i++, res++)
+    {
+        projectRoomPoint(vertices->x << 2, vertices->y << 2, vertices->z << 2, res);
+        int32 vg = vertices->g << 8;
+        vertices++;
+
+        if (underwater)
+        {
+            int32 causticsValue = gCaustics[(gRandTable[i & (MAX_RAND_TABLE - 1)] + causticsFrame) & (MAX_CAUSTICS - 1)];
+            vg = X_CLAMP(vg + causticsValue, 0, 8191);
+        }
+
+        int32 z = res->z;
+        if (z > FOG_MIN)
+        {
+            vg += (z - FOG_MIN) << FOG_SHIFT;
+            if (vg > 8191) {
+                vg = 8191;
+            }
+        }
+
+        res->g = uint32(vg) >> 8;
+    }
+}
+
+// Adds one quarter of a split room quad; corners clockwise from the one at
+// the texture's top left.
+static void faceAddDetailQuad(uint32 flags, const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
+{
+    uint32 c0 = v0->clip;
+    uint32 c1 = v1->clip;
+    uint32 c2 = v2->clip;
+    uint32 c3 = v3->clip;
+
+    if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
+        return;
+
+    int32 depth = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z))) >> OT_SHIFT;
+
+    Face* f = faceAdd(gFaceList, depth);
+    f->flags = flags;
+    f->indices[0] = v0 - gVertices;
+    f->indices[1] = v1 - gVertices;
+    f->indices[2] = v2 - gVertices;
+    f->indices[3] = v3 - gVertices;
+}
+
+// Splits a room quad near the camera into four, each drawn with one quadrant
+// of the full-res texture. The new vertices are projected from room space, so
+// the split also reduces the distortion of affine texture mapping. False when
+// the texture can't be cached this frame.
+static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
+                                  const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
+{
+    if (gNextVertex + 5 > gVertices + MAX_VERTICES || gFaceList.next + 4 > gFaceList.end)
+        return false;
+
+    uint32 size = tex->size;
+    uint32 quadrant = (size >> 8) * 4 * (size & 0xFF);
+    int32 slot = detailSlot(tex->reserved - 1, quadrant * 4);
+    if (slot < 0)
+        return false;
+
+    const RoomVertex* r0 = gRoomVertices + poly->indices[0];
+    const RoomVertex* r1 = gRoomVertices + poly->indices[1];
+    const RoomVertex* r2 = gRoomVertices + poly->indices[2];
+    const RoomVertex* r3 = gRoomVertices + poly->indices[3];
+
+    // edge midpoints and the centre, in room space
+    Vertex* m01 = gNextVertex;
+    Vertex* m12 = m01 + 1;
+    Vertex* m23 = m01 + 2;
+    Vertex* m30 = m01 + 3;
+    Vertex* mc  = m01 + 4;
+    gNextVertex += 5;
+
+    projectRoomPoint((r0->x + r1->x) << 1, (r0->y + r1->y) << 1, (r0->z + r1->z) << 1, m01);
+    projectRoomPoint((r1->x + r2->x) << 1, (r1->y + r2->y) << 1, (r1->z + r2->z) << 1, m12);
+    projectRoomPoint((r2->x + r3->x) << 1, (r2->y + r3->y) << 1, (r2->z + r3->z) << 1, m23);
+    projectRoomPoint((r3->x + r0->x) << 1, (r3->y + r0->y) << 1, (r3->z + r0->z) << 1, m30);
+    projectRoomPoint(r0->x + r1->x + r2->x + r3->x,
+                     r0->y + r1->y + r2->y + r3->y,
+                     r0->z + r1->z + r2->z + r3->z, mc);
+
+    m01->g = (v0->g + v1->g) >> 1;
+    m12->g = (v1->g + v2->g) >> 1;
+    m23->g = (v2->g + v3->g) >> 1;
+    m30->g = (v3->g + v0->g) >> 1;
+    mc->g = (v0->g + v1->g + v2->g + v3->g) >> 2;
+
+    uint32 flags = poly->flags | FACE_DETAIL | (slot << FACE_DETAIL_SLOT_SHIFT);
+    faceAddDetailQuad(flags | (0 << FACE_DETAIL_QUAD_SHIFT), v0, m01, mc, m30);
+    faceAddDetailQuad(flags | (1 << FACE_DETAIL_QUAD_SHIFT), m01, v1, m12, mc);
+    faceAddDetailQuad(flags | (2 << FACE_DETAIL_QUAD_SHIFT), mc, m12, v2, m23);
+    faceAddDetailQuad(flags | (3 << FACE_DETAIL_QUAD_SHIFT), m30, mc, m23, v3);
+
+    gSlaveStats.detailFaces++;
+    return true;
+}
+
+static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count)
+{
+    for (int32 i = 0; i < count; i++, polys++)
+    {
+        if (gFaceList.next == gFaceList.end)
+            return;
+
+        uint32 flags = polys->flags;
+        const Vertex* v0 = v + polys->indices[0];
+        const Vertex* v1 = v + polys->indices[1];
+        const Vertex* v2 = v + polys->indices[2];
+        const Vertex* v3 = v + polys->indices[3];
+
+        uint32 c0 = v0->clip;
+        uint32 c1 = v1->clip;
+        uint32 c2 = v2->clip;
+        uint32 c3 = v3->clip;
+
+        // all four corners beyond one frame edge
+        if (c0 & c1 & c2 & c3 & CLIP_DISCARD)
+            continue;
+
+        if (checkBackface(v0, v1, v2))
+            continue;
+
+        int32 zMax = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z)));
+
+        if (zMax < DETAIL_DIST)
+        {
+            const Texture* tex = level.textures + (flags & FACE_TEXTURE);
+            if (tex->reserved && faceAddRoomQuadDetail(polys, tex, v0, v1, v2, v3))
+                continue;
+        }
+
+        if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
+            continue;
+
+        if ((c0 | c1 | c2 | c3) & CLIP_FRAME) {
+            flags |= FACE_CLIPPED;
+        }
+
+        Face* f = faceAdd(gFaceList, zMax >> OT_SHIFT);
+        f->flags = flags;
+        f->indices[0] = v0 - gVertices;
+        f->indices[1] = v1 - gVertices;
+        f->indices[2] = v2 - gVertices;
+        f->indices[3] = v3 - gVertices;
+    }
+}
+
+static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int32 count)
+{
+    for (int32 i = 0; i < count; i++, polys++)
+    {
+        if (gFaceList.next == gFaceList.end)
+            return;
+
+        uint32 flags = polys->flags;
+        const Vertex* v0 = v + polys->indices[0];
+        const Vertex* v1 = v + polys->indices[1];
+        const Vertex* v2 = v + polys->indices[2];
+
+        uint32 c0 = v0->clip;
+        uint32 c1 = v1->clip;
+        uint32 c2 = v2->clip;
+
+        if (cullFace(c0 & c1 & c2, c0 | c1 | c2))
+            continue;
+
+        if ((c0 | c1 | c2) & CLIP_FRAME) {
+            flags |= FACE_CLIPPED;
+        }
+
+        if (checkBackface(v0, v1, v2))
+            continue;
+
+        flags |= FACE_TRIANGLE;
+
+        int32 depth = X_MAX(v0->z, X_MAX(v1->z, v2->z)) >> OT_SHIFT;
+
+        Face* f = faceAdd(gFaceList, depth);
+        f->flags = flags;
+        f->indices[0] = v0 - gVertices;
+        f->indices[1] = v1 - gVertices;
+        f->indices[2] = v2 - gVertices;
+        f->indices[3] = v2 - gVertices;
+    }
+}
+
+static void renderRoomJob(const RoomJob &job)
+{
+    const RoomInfo* info = job.room->info;
+    const RoomData &data = job.room->data;
+    int32 vCount = info->verticesCount;
+
+    if (gNextVertex + vCount > gVertices + MAX_VERTICES)
+        return;
+
+    gMatrix = job.matrix;
+    gViewport = job.viewport;
+    gRoomVertices = data.vertices;
+
+    uint32 t0 = timerTicks();
+    Vertex* roomBase = gNextVertex;
+    if (ROOM_FLAG_WATER(info->flags))
+    {
+        transformRoom(data.vertices, vCount, true, job.causticsFrame);
+    }
+    else
+    {
+        RoomXform &xf = gXform;
+        const int16* rows = &gMatrix.m00;
+        for (int32 i = 0; i < 9; i++) {
+            xf.rows[i] = rows[i];
+        }
+        xf.tx = gMatrix.tx;
+        xf.ty = gMatrix.ty;
+        xf.tz = gMatrix.tz;
+        xf.x0 = gViewport.x0;
+        xf.y0 = gViewport.y0;
+        xf.x1 = gViewport.x1;
+        xf.y1 = gViewport.y1;
+        xf.divTable = divTable;
+        xf.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
+        xf.zMax = VIEW_MAX_F >> (FIXED_SHIFT - 8);
+        transformRoomAsm(data.vertices, vCount, roomBase, &xf);
+    }
+    gNextVertex += vCount;
+    gSlaveStats.vertices += vCount;
+
+    uint32 t1 = timerTicks();
+    if (info->quadsCount > 0) {
+        faceAddRoomQuads(roomBase, data.quads, info->quadsCount);
+    }
+
+    if (info->trianglesCount > 0) {
+        faceAddRoomTriangles(roomBase, data.triangles, info->trianglesCount);
+    }
+    uint32 t2 = timerTicks();
+
+    gSlaveStats.xformTicks += (t1 - t0) & 0xFFFF;
+    gSlaveStats.faceTicks += (t2 - t1) & 0xFFFF;
+}
+
+// The slave's task for a frame: draw rooms as they are queued until the
+// master closes the queue.
+static void roomBatch()
+{
+    gFaceList.next = gSlaveFaces;
+    gFaceList.end = gSlaveFaces + MAX_FACES;
+    gFaceList.ot = gSlaveOT;
+    gNextVertex = gVertices + MASTER_VERTICES;
+    gSlaveStats = RoomStats();
+
+    uint32 done = 0;
+    uint32 idleStart = timerTicks();
+    while (1)
+    {
+        uint32 queued = *uncached(&gJobsQueued);
+        if (done == queued)
+        {
+            if (!*uncached(&gJobsClosed))
+                continue;
+            // the last job may have been queued just before the queue closed
+            if (done == *uncached(&gJobsQueued))
+                break;
+            continue;
+        }
+
+        asm volatile("" : : : "memory"); // read the job only after its count
+        uint32 t = timerTicks();
+        gSlaveStats.idleTicks += (t - idleStart) & 0xFFFF;
+        renderRoomJob(*uncached(gJobs + done));
+        idleStart = timerTicks();
+        done++;
+    }
+}
+
+void roomsQueue(const Room* room)
+{
+    if (room->info->verticesCount <= 0 || gJobCount == MAX_ROOM_JOBS)
+        return;
+
+    const Matrix &m = matrixGet();
+    RoomJob &job = gJobs[gJobCount];
+    job.room = room;
+    job.matrix.m00 = m.e00; job.matrix.m01 = m.e01; job.matrix.m02 = m.e02;
+    job.matrix.m10 = m.e10; job.matrix.m11 = m.e11; job.matrix.m12 = m.e12;
+    job.matrix.m20 = m.e20; job.matrix.m21 = m.e21; job.matrix.m22 = m.e22;
+    job.matrix.tx = m.e03 >> (FIXED_SHIFT - 8);
+    job.matrix.ty = m.e13 >> (FIXED_SHIFT - 8);
+    job.matrix.tz = m.e23 >> (FIXED_SHIFT - 8);
+    job.viewport = viewport;
+    job.causticsFrame = gCausticsFrame;
+
+    if (gJobCount == 0) {
+        slaveRun(roomBatch);
+    }
+
+    gJobCount++;
+    *uncached(&gJobsQueued) = gJobCount;
+}
+
+Face** roomsFinish(RoomStats &stats)
+{
+    if (gJobCount == 0)
+        return NULL;
+
+    *uncached(&gJobsClosed) = 1;
+    slaveWait();
+    cachePurge();
+
+    gJobCount = 0;
+    *uncached(&gJobsQueued) = 0;
+    *uncached(&gJobsClosed) = 0;
+
+    stats = gSlaveStats;
+    return gSlaveOT;
+}

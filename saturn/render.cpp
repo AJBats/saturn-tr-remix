@@ -2,7 +2,7 @@
 // 32X port), with the ordering table flushed into a VDP1 command list instead
 // of a software rasterizer.
 
-#include "common.h"
+#include "render.h"
 #include "detail.h"
 #include "hw.h"
 #include "system.h"
@@ -11,87 +11,43 @@
 static_assert(FRAME_WIDTH == SCREEN_WIDTH && FRAME_HEIGHT == SCREEN_HEIGHT,
               "OpenLara frame size must match the display mode");
 
-struct Vertex
-{
-    int16 x;
-    int16 y;
-    int16 z;
-    uint8 g;
-    uint8 clip;
-};
-
-enum FaceType {
-    FACE_TYPE_SHADOW,
-    FACE_TYPE_F,
-    FACE_TYPE_FT,
-    FACE_TYPE_FTA,
-    FACE_TYPE_GT,
-    FACE_TYPE_GTA,
-    FACE_TYPE_SPRITE,
-    FACE_TYPE_FILL_S,
-    FACE_TYPE_LINE_H,
-    FACE_TYPE_LINE_V,
-    FACE_TYPE_MAX
-};
-
-#define FACE_TRIANGLE   (1 << 31)
-#define FACE_CLIPPED    (1 << 30)
-#define FACE_DETAIL     (1 << 29)   // full-res quadrant of a cached room texture
-#define FACE_PARALLELOGRAM  (1 << 28)   // mesh triangle drawn as a parallelogram, see faceAddMeshTriangles
-#define FACE_V0_AT_D        (1 << 27)   // ... with its first vertex at corner D (else A)
-#define FACE_DETAIL_SLOT_SHIFT  20
-#define FACE_DETAIL_QUAD_SHIFT  18
-#define FACE_TYPE_SHIFT 14
-#define FACE_TYPE_MASK  15
-#define FACE_GOURAUD    (2 << FACE_TYPE_SHIFT)
-#define FACE_TEXTURE    0x3FFF
-
-// VDP1 vertex coordinates are 11 bits plus sign
-#define VDP1_COORD_MIN  -1024
-#define VDP1_COORD_MAX  1023
-
 // 2D faces keep their rectangle in two vertices: position, then size. Lines
 // keep their RGB colour in the first vertex's z.
 #define BAR_HEIGHT      5
 
-enum ClipFlags {
-    CLIP_FRAME   = 1 << 0,
-    CLIP_LEFT    = 1 << 1,
-    CLIP_RIGHT   = 1 << 2,
-    CLIP_TOP     = 1 << 3,
-    CLIP_BOTTOM  = 1 << 4,
-    CLIP_PLANE   = 1 << 5,
-    CLIP_DISCARD = (CLIP_LEFT | CLIP_RIGHT | CLIP_TOP | CLIP_BOTTOM | CLIP_PLANE)
-};
-
 #define MAX_CMDS            VRAM_MAX_CMDS
-
-// Room quads whose farthest vertex is nearer than this are split 2x2 and drawn
-// with full-res textures, as in the original game.
-#define DETAIL_DIST         4096
 
 extern Level level;
 
-Vertex* gVerticesBase;
-Face* gFacesBase;
-
 ALIGN16 Vertex gVertices[MAX_VERTICES];
-ALIGN16 Face gFaces[MAX_FACES];
-Face* gOT[OT_SIZE];
+
+// The master's faces: meshes, sprites, shadows and 2D. Rooms are drawn by the
+// slave into its own list (rooms.cpp).
+static ALIGN16 Face gFaces[MAX_FACES];
+static Face* gOT[OT_SIZE];
+static FaceList gFaceList = { gFaces, gFaces + MAX_FACES, gOT };
+
+static Vertex* gVerticesBase = gVertices;
 
 // Built in work RAM while VDP1 draws the previous frame, then DMAed to VRAM.
-static ALIGN16 vdp1_cmd_t gCmds[MAX_CMDS];
-static ALIGN16 uint16 gGouraud[MAX_CMDS][4];
+// Commands are written as 32-bit words (pairs of fields, big-endian): every
+// store goes through the write-through cache to memory, so fewer is faster.
+union Command
+{
+    vdp1_cmd_t cmd;
+    uint32 w[8];    // ctrl|link, pmod|colr, srca|size, A, B, C, D, grda|0
+};
+
+static ALIGN16 Command gCmds[MAX_CMDS];
+static ALIGN16 uint32 gGouraud[MAX_CMDS][2];
+
+// TR shade 0 (lit) .. 31 (dark) as a VDP1 gouraud entry (16 = colour unchanged)
+static uint16 gShadeGouraud[32];
 
 int32 gRenderFaceCount; // VDP1 polygons emitted by the last flush
 
 static uint32 gRoomTicks;
 static uint32 gMeshTicks;
-
-// The room being drawn: its vertices, and where vertices made by splitting
-// its faces go (after the room's own).
-static const RoomVertex* gRoomVertices;
-static Vertex* gExtraVertices;
 
 static volatile vdp1_cmd_t* const gVdp1Cmds = (volatile vdp1_cmd_t*)VDP1_VRAM;
 
@@ -105,317 +61,49 @@ void setPaletteIndex(int32 index)
     // TODO underwater tint via VDP2 color offset
 }
 
-X_INLINE Face* faceAdd(int32 depth)
-{
-    ASSERT(depth >= 0 && depth < OT_SIZE);
-
-    Face* face = gFacesBase++;
-    face->next = gOT[depth];
-    gOT[depth] = face;
-
-    return face;
-}
-
-// Faces wholly outside one clip plane are dropped. So are faces crossing the
-// near plane for now: a distorted sprite can't be clipped (it always maps the
-// whole texture), and a projected vertex just in front of the camera lands
-// far outside VDP1's coordinate range.
-X_INLINE bool cullFace(uint32 clipAnd, uint32 clipOr)
-{
-    return (clipAnd & CLIP_DISCARD) || (clipOr & CLIP_PLANE);
-}
-
-X_INLINE bool checkBackface(const Vertex *a, const Vertex *b, const Vertex *c)
-{
-    return (b->x - a->x) * (c->y - a->y) <= (c->x - a->x) * (b->y - a->y);
-}
-
-X_INLINE uint32 clipFlags(int32 x, int32 y)
-{
-    uint32 clip = 0;
-
-    if ((x < 0 || x > FRAME_WIDTH) || (y < 0 || y > FRAME_HEIGHT)) {
-        clip |= CLIP_FRAME;
-    }
-
-    if (x < viewport.x0) clip |= CLIP_LEFT;
-    if (x > viewport.x1) clip |= CLIP_RIGHT;
-    if (y < viewport.y0) clip |= CLIP_TOP;
-    if (y > viewport.y1) clip |= CLIP_BOTTOM;
-
-    return clip;
-}
-
-// Projects a point in room space (vertex units << 8) with the room's matrix;
-// sets everything but the shade.
-X_INLINE void projectRoomPoint(int32 vx, int32 vy, int32 vz, Vertex* res)
-{
-    const Matrix &m = matrixGet();
-    int32 x = DP43(m.e00, m.e01, m.e02, m.e03, vx, vy, vz);
-    int32 y = DP43(m.e10, m.e11, m.e12, m.e13, vx, vy, vz);
-    int32 z = DP43(m.e20, m.e21, m.e22, m.e23, vx, vy, vz);
-
-    uint32 clip = 0;
-
-    if (z <= VIEW_MIN_F) {
-        clip = CLIP_PLANE;
-        z = VIEW_MIN_F;
-    }
-
-    if (z >= VIEW_MAX_F) {
-        clip = CLIP_PLANE;
-        z = VIEW_MAX_F;
-    }
-
-    x >>= FIXED_SHIFT;
-    y >>= FIXED_SHIFT;
-    z >>= FIXED_SHIFT;
-
-    PERSPECTIVE(x, y, z);
-
-    x += (FRAME_WIDTH  >> 1);
-    y += (FRAME_HEIGHT >> 1);
-
-    res->clip = clip | clipFlags(x, y);
-    res->x = X_CLAMP(x, VDP1_COORD_MIN, VDP1_COORD_MAX);
-    res->y = X_CLAMP(y, VDP1_COORD_MIN, VDP1_COORD_MAX);
-    res->z = z;
-}
-
-void transformRoom(const RoomVertex* vertices, int32 count, bool underwater)
-{
-    Vertex* res = gVerticesBase;
-
-    for (int32 i = 0; i < count; i++, res++)
-    {
-        projectRoomPoint(vertices->x << 8, vertices->y << 8, vertices->z << 8, res);
-        int32 vg = vertices->g << 8;
-        vertices++;
-
-        if (underwater)
-        {
-            int32 causticsValue = gCaustics[(gRandTable[i & (MAX_RAND_TABLE - 1)] + gCausticsFrame) & (MAX_CAUSTICS - 1)];
-            vg = X_CLAMP(vg + causticsValue, 0, 8191);
-        }
-
-        int32 z = res->z;
-        if (z > FOG_MIN)
-        {
-            vg += (z - FOG_MIN) << FOG_SHIFT;
-            if (vg > 8191) {
-                vg = 8191;
-            }
-        }
-
-        res->g = vg >> 8;
-    }
-}
-
+// Mesh vertices are 16-bit, so the rotation multiplies are 16x16 too; the
+// translation stays pre-scaled by 1 << FIXED_SHIFT.
 void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity)
 {
-    Vertex* res = gVerticesBase;
+    // the rotation's rows as 16-bit values, multiplied straight from the
+    // vertex array (MeshVertex is three int16); the translation stays
+    // pre-scaled by 1 << FIXED_SHIFT
+    const Matrix &m = matrixGet();
+    const int16 rows[9] = {
+        int16(m.e00), int16(m.e01), int16(m.e02),
+        int16(m.e10), int16(m.e11), int16(m.e12),
+        int16(m.e20), int16(m.e21), int16(m.e22)
+    };
+    const int32 tx = m.e03, ty = m.e13, tz = m.e23;
 
     int32 vg = X_CLAMP((intensity + gLightAmbient) >> 8, 0, 31);
 
-    for (int32 i = 0; i < count; i++, res++)
+    Vertex* res = gVerticesBase;
+
+    for (int32 i = 0; i < count; i++, res++, vertices++)
     {
-        int32 vx = vertices->x;
-        int32 vy = vertices->y;
-        int32 vz = vertices->z;
-        vertices++;
+        const int16* v = &vertices->x;
 
-        const Matrix &m = matrixGet();
-
-        // int32 matrices keep the translation pre-scaled (MATRIX_FIXED_SHIFT 0)
-        int32 x = DP43(m.e00, m.e01, m.e02, m.e03, vx, vy, vz) >> FIXED_SHIFT;
-        int32 y = DP43(m.e10, m.e11, m.e12, m.e13, vx, vy, vz) >> FIXED_SHIFT;
-        int32 z = DP43(m.e20, m.e21, m.e22, m.e23, vx, vy, vz) >> FIXED_SHIFT;
-
+        int32 z = dot3(v, rows + 6, tz);
         uint32 clip = 0;
 
-        if (z <= (VIEW_MIN_F >> FIXED_SHIFT)) {
+        if (z <= VIEW_MIN_F) {
             clip = CLIP_PLANE;
-            z = VIEW_MIN_F >> FIXED_SHIFT;
+            z = VIEW_MIN_F;
         }
 
-        if (z >= (VIEW_MAX_F >> FIXED_SHIFT)) {
+        if (z >= VIEW_MAX_F) {
             clip = CLIP_PLANE;
-            z = VIEW_MAX_F >> FIXED_SHIFT;
+            z = VIEW_MAX_F;
         }
 
-        PERSPECTIVE(x, y, z);
+        // meshes reach the transform only when their sphere is in view, so
+        // view x and y fit in 16 bits
+        int32 x = asr16<FIXED_SHIFT>(dot3(v, rows, tx));
+        int32 y = asr16<FIXED_SHIFT>(dot3(v, rows + 3, ty));
 
-        x += (FRAME_WIDTH  >> 1);
-        y += (FRAME_HEIGHT >> 1);
-
-        res->clip = clip | clipFlags(x, y);
-        res->x = X_CLAMP(x, VDP1_COORD_MIN, VDP1_COORD_MAX);
-        res->y = X_CLAMP(y, VDP1_COORD_MIN, VDP1_COORD_MAX);
-        res->z = z;
+        projectView(x, y, uint32(z) >> FIXED_SHIFT, clip, viewport, res);
         res->g = vg;
-    }
-}
-
-// Adds one quarter of a split room quad; corners clockwise from the one at
-// the texture's top left.
-static void faceAddDetailQuad(uint32 flags, const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
-{
-    uint32 c0 = v0->clip;
-    uint32 c1 = v1->clip;
-    uint32 c2 = v2->clip;
-    uint32 c3 = v3->clip;
-
-    if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
-        return;
-
-    int32 depth = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z))) >> OT_SHIFT;
-
-    Face* f = faceAdd(depth);
-    f->flags = flags;
-    f->indices[0] = v0 - gVertices;
-    f->indices[1] = v1 - gVertices;
-    f->indices[2] = v2 - gVertices;
-    f->indices[3] = v3 - gVertices;
-}
-
-// Splits a room quad near the camera into four, each drawn with one quadrant
-// of the full-res texture. The new vertices are projected from room space, so
-// the split also reduces the distortion of affine texture mapping. False when
-// the texture can't be cached this frame.
-static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
-                                  const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
-{
-    if ((gExtraVertices - gVertices) + 5 > MAX_VERTICES || (gFacesBase - gFaces) + 4 > MAX_FACES)
-        return false;
-
-    uint32 size = tex->size;
-    uint32 quadrant = (size >> 8) * 4 * (size & 0xFF);
-    int32 slot = detailSlot(tex->reserved - 1, quadrant * 4);
-    if (slot < 0)
-        return false;
-
-    const RoomVertex* r0 = gRoomVertices + poly->indices[0];
-    const RoomVertex* r1 = gRoomVertices + poly->indices[1];
-    const RoomVertex* r2 = gRoomVertices + poly->indices[2];
-    const RoomVertex* r3 = gRoomVertices + poly->indices[3];
-
-    // edge midpoints and the centre, in room space
-    Vertex* m01 = gExtraVertices;
-    Vertex* m12 = m01 + 1;
-    Vertex* m23 = m01 + 2;
-    Vertex* m30 = m01 + 3;
-    Vertex* mc  = m01 + 4;
-    gExtraVertices += 5;
-
-    projectRoomPoint((r0->x + r1->x) << 7, (r0->y + r1->y) << 7, (r0->z + r1->z) << 7, m01);
-    projectRoomPoint((r1->x + r2->x) << 7, (r1->y + r2->y) << 7, (r1->z + r2->z) << 7, m12);
-    projectRoomPoint((r2->x + r3->x) << 7, (r2->y + r3->y) << 7, (r2->z + r3->z) << 7, m23);
-    projectRoomPoint((r3->x + r0->x) << 7, (r3->y + r0->y) << 7, (r3->z + r0->z) << 7, m30);
-    projectRoomPoint((r0->x + r1->x + r2->x + r3->x) << 6,
-                     (r0->y + r1->y + r2->y + r3->y) << 6,
-                     (r0->z + r1->z + r2->z + r3->z) << 6, mc);
-
-    m01->g = (v0->g + v1->g) >> 1;
-    m12->g = (v1->g + v2->g) >> 1;
-    m23->g = (v2->g + v3->g) >> 1;
-    m30->g = (v3->g + v0->g) >> 1;
-    mc->g = (v0->g + v1->g + v2->g + v3->g) >> 2;
-
-    uint32 flags = poly->flags | FACE_DETAIL | (slot << FACE_DETAIL_SLOT_SHIFT);
-    faceAddDetailQuad(flags | (0 << FACE_DETAIL_QUAD_SHIFT), v0, m01, mc, m30);
-    faceAddDetailQuad(flags | (1 << FACE_DETAIL_QUAD_SHIFT), m01, v1, m12, mc);
-    faceAddDetailQuad(flags | (2 << FACE_DETAIL_QUAD_SHIFT), mc, m12, v2, m23);
-    faceAddDetailQuad(flags | (3 << FACE_DETAIL_QUAD_SHIFT), m30, mc, m23, v3);
-
-    return true;
-}
-
-void faceAddRoomQuads(const RoomQuad* polys, int32 count)
-{
-    const Vertex* v = gVerticesBase;
-
-    for (int32 i = 0; i < count; i++, polys++)
-    {
-        uint32 flags = polys->flags;
-        const Vertex* v0 = v + polys->indices[0];
-        const Vertex* v1 = v + polys->indices[1];
-        const Vertex* v2 = v + polys->indices[2];
-        const Vertex* v3 = v + polys->indices[3];
-
-        uint32 c0 = v0->clip;
-        uint32 c1 = v1->clip;
-        uint32 c2 = v2->clip;
-        uint32 c3 = v3->clip;
-
-        // all four corners beyond one frame edge
-        if (c0 & c1 & c2 & c3 & CLIP_DISCARD)
-            continue;
-
-        if (checkBackface(v0, v1, v2))
-            continue;
-
-        int32 zMax = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z)));
-
-        if (zMax < DETAIL_DIST)
-        {
-            const Texture* tex = level.textures + (flags & FACE_TEXTURE);
-            if (tex->reserved && faceAddRoomQuadDetail(polys, tex, v0, v1, v2, v3))
-                continue;
-        }
-
-        if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
-            continue;
-
-        if ((c0 | c1 | c2 | c3) & CLIP_FRAME) {
-            flags |= FACE_CLIPPED;
-        }
-
-        int32 depth = zMax >> OT_SHIFT;
-
-        Face* f = faceAdd(depth);
-        f->flags = flags;
-        f->indices[0] = v0 - gVertices;
-        f->indices[1] = v1 - gVertices;
-        f->indices[2] = v2 - gVertices;
-        f->indices[3] = v3 - gVertices;
-    }
-}
-
-void faceAddRoomTriangles(const RoomTriangle* polys, int32 count)
-{
-    const Vertex* v = gVerticesBase;
-
-    for (int32 i = 0; i < count; i++, polys++)
-    {
-        uint32 flags = polys->flags;
-        const Vertex* v0 = v + polys->indices[0];
-        const Vertex* v1 = v + polys->indices[1];
-        const Vertex* v2 = v + polys->indices[2];
-
-        uint32 c0 = v0->clip;
-        uint32 c1 = v1->clip;
-        uint32 c2 = v2->clip;
-
-        if (cullFace(c0 & c1 & c2, c0 | c1 | c2))
-            continue;
-
-        if ((c0 | c1 | c2) & CLIP_FRAME) {
-            flags |= FACE_CLIPPED;
-        }
-
-        if (checkBackface(v0, v1, v2))
-            continue;
-
-        flags |= FACE_TRIANGLE;
-
-        int32 depth = X_MAX(v0->z, X_MAX(v1->z, v2->z)) >> OT_SHIFT;
-
-        Face* f = faceAdd(depth);
-        f->flags = flags;
-        f->indices[0] = v0 - gVertices;
-        f->indices[1] = v1 - gVertices;
-        f->indices[2] = v2 - gVertices;
-        f->indices[3] = v2 - gVertices;
     }
 }
 
@@ -446,9 +134,9 @@ void faceAddMeshQuads(const MeshQuad* polys, int32 count)
             flags |= FACE_CLIPPED;
         }
 
-        int32 depth = (v0->z + v1->z + v2->z + v3->z) >> (2 + OT_SHIFT);
+        int32 depth = uint32(v0->z + v1->z + v2->z + v3->z) >> (2 + OT_SHIFT);
 
-        Face* f = faceAdd(depth);
+        Face* f = faceAdd(gFaceList, depth);
         f->flags = flags;
         f->indices[0] = v0 - gVertices;
         f->indices[1] = v1 - gVertices;
@@ -499,9 +187,9 @@ void faceAddMeshTriangles(const MeshTriangle* polys, int32 count)
             }
         }
 
-        int32 depth = (v0->z + v1->z + v2->z + v2->z) >> (2 + OT_SHIFT);
+        int32 depth = uint32(v0->z + v1->z + v2->z + v2->z) >> (2 + OT_SHIFT);
 
-        Face* f = faceAdd(depth);
+        Face* f = faceAdd(gFaceList, depth);
         f->flags = flags;
         f->indices[0] = v0 - gVertices;
         f->indices[1] = v1 - gVertices;
@@ -552,91 +240,116 @@ int32 sphereIsVisible_c(int32 sx, int32 sy, int32 sz, int32 r)
     return 1;
 }
 
-// TR shade 0 (lit) .. 31 (dark) as a VDP1 gouraud entry (16 = colour unchanged)
-X_INLINE uint16 shadeGouraud(uint32 g)
-{
-    uint32 c = 31 - g;
-    return (c << 10) | (c << 5) | c;
-}
-
 #define TEX_ATTR_DIR  0x0030 // VDP1 flip bits, stored in CMDCTRL layout
 
-X_INLINE int16 vdp1Coord(int32 v)
+X_INLINE uint32 pair(uint32 hi, uint32 lo)
+{
+    return (hi << 16) | (lo & 0xFFFF);
+}
+
+X_INLINE int32 vdp1Coord(int32 v)
 {
     return X_CLAMP(v, VDP1_COORD_MIN, VDP1_COORD_MAX);
 }
 
-X_INLINE void setRect(vdp1_cmd_t* cmd, const Vertex* pos, const Vertex* size)
+X_INLINE uint32 shadePair(uint32 g0, uint32 g1)
 {
-    int16 x0 = pos->x;
-    int16 y0 = pos->y;
-    int16 x1 = x0 + size->x - 1;
-    int16 y1 = y0 + size->y - 1;
-    cmd->xa = x0; cmd->ya = y0;
-    cmd->xb = x1; cmd->yb = y0;
-    cmd->xc = x1; cmd->yc = y1;
-    cmd->xd = x0; cmd->yd = y1;
+    return (gShadeGouraud[g0] << 16) | gShadeGouraud[g1];
 }
 
-// Fills the command fields that depend on the face's colour or texture.
-X_INLINE void faceMaterial(vdp1_cmd_t* cmd, uint32 flags)
+X_INLINE void setRect(uint32* w, const Vertex* pos, const Vertex* size)
+{
+    int32 x0 = pos->x;
+    int32 y0 = pos->y;
+    int32 x1 = x0 + size->x - 1;
+    int32 y1 = y0 + size->y - 1;
+    w[3] = pair(x0, y0);
+    w[4] = pair(x1, y0);
+    w[5] = pair(x1, y1);
+    w[6] = pair(x0, y1);
+}
+
+// The command words that depend on the face's colour or texture.
+X_INLINE void faceMaterial(uint32* w, uint32 flags)
 {
     uint32 type = (flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK;
-    const Texture* tex = (type == FACE_TYPE_F) ? NULL : level.textures + (flags & FACE_TEXTURE);
+    uint32 color;
 
-    if (tex && tex->srca)
+    if (type == FACE_TYPE_F)
     {
-        cmd->ctrl = CMD_DISTORTED_SPRITE | (tex->attr & TEX_ATTR_DIR);
-        cmd->pmod = PMOD_ECD_OFF | PMOD_LUT16 | PMOD_GOURAUD;
-        if (!(tex->attr & TEX_ATTR_AKILL)) {
-            cmd->pmod |= PMOD_SPD_OFF; // colour 0 is opaque
-        }
-        cmd->colr = tex->colr;
-        cmd->srca = tex->srca;
-        cmd->size = tex->size;
-
-        if (flags & FACE_PARALLELOGRAM) {
-            cmd->pmod &= ~PMOD_ECD_OFF; // end codes trim the parallelogram to the triangle
-        }
-
-        if (flags & FACE_DETAIL)
-        {
-            int32 slot = (flags >> FACE_DETAIL_SLOT_SHIFT) & 0xFF;
-            uint32 quad = (flags >> FACE_DETAIL_QUAD_SHIFT) & 3;
-            uint32 quadSize = (tex->size >> 8) * 4 * (tex->size & 0xFF);
-            cmd->srca = (detailSlotAddr(slot) + quad * quadSize) >> 3;
-        }
+        color = level.palette[flags & FACE_TEXTURE];
     }
     else
     {
-        cmd->ctrl = CMD_POLYGON;
-        cmd->pmod = PMOD_NO_ECD_SPD | PMOD_GOURAUD;
-        cmd->colr = tex ? tex->color : level.palette[flags & FACE_TEXTURE];
+        const Texture* tex = level.textures + (flags & FACE_TEXTURE);
+        if (tex->srca)
+        {
+            uint32 pmod = PMOD_LUT16 | PMOD_GOURAUD;
+            if (!(flags & FACE_PARALLELOGRAM)) {
+                pmod |= PMOD_ECD_OFF; // end codes trim parallelograms to their triangle
+            }
+            if (!(tex->attr & TEX_ATTR_AKILL)) {
+                pmod |= PMOD_SPD_OFF; // colour 0 is opaque
+            }
+
+            uint32 srca = tex->srca;
+            if (flags & FACE_DETAIL)
+            {
+                int32 slot = (flags >> FACE_DETAIL_SLOT_SHIFT) & 0xFF;
+                uint32 quad = (flags >> FACE_DETAIL_QUAD_SHIFT) & 3;
+                uint32 quadSize = (tex->size >> 8) * 4 * (tex->size & 0xFF);
+                srca = (detailSlotAddr(slot) + quad * quadSize) >> 3;
+            }
+
+            w[0] = (CMD_DISTORTED_SPRITE | (tex->attr & TEX_ATTR_DIR)) << 16;
+            w[1] = pair(pmod, tex->colr);
+            w[2] = pair(srca, tex->size);
+            return;
+        }
+        color = tex->color;
     }
+
+    w[0] = CMD_POLYGON << 16;
+    w[1] = pair(PMOD_NO_ECD_SPD | PMOD_GOURAUD, color);
 }
 
 void flush_c()
 {
     uint32 start = timerTicks();
 
-    gStats.vertices = gVerticesBase - gVertices;
+    RoomStats rooms = {};
+    Face** roomOT = roomsFinish(rooms);
+    gStats.slaveWaitTicks = (timerTicks() - start) & 0xFFFF;
+
+    gStats.vertices = (gVerticesBase - gVertices) + rooms.vertices;
+    gStats.roomVertices = rooms.vertices;
+    gStats.detailFaces = rooms.detailFaces;
+    gStats.slaveXformTicks = rooms.xformTicks;
+    gStats.slaveFaceTicks = rooms.faceTicks;
+    gStats.slaveIdleTicks = rooms.idleTicks;
     gStats.roomTicks = gRoomTicks;
     gStats.meshTicks = gMeshTicks;
     gRoomTicks = gMeshTicks = 0;
 
     gVerticesBase = gVertices;
 
-    if (gFacesBase == gFaces)
+    if (gFaceList.next == gFaces && !roomOT)
         return;
 
-    gFacesBase = gFaces;
+    gFaceList.next = gFaces;
 
     uint32 grdBase = VRAM_GOURAUD_BASE >> 3;
     int32 count = 0;
 
+    // far to near; in each bucket rooms (the slave's) before what stands in them
     for (int32 i = OT_SIZE - 1; i >= 0; i--)
+    for (int32 list = 0; list < 2; list++)
     {
-        for (Face* face = gOT[i]; face; face = face->next)
+        Face** ot = list ? gOT : roomOT;
+        if (!ot)
+            continue;
+
+        for (Face* face = ot[i]; face; face = face->next)
         {
             uint32 flags = face->flags;
             uint32 type = (flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK;
@@ -646,105 +359,94 @@ void flush_c()
 
             const Vertex* v0 = gVertices + face->indices[0];
 
-            vdp1_cmd_t* cmd = gCmds + count;
-            cmd->link = 0;
-            cmd->grda = grdBase + count;
-            uint16* grd = gGouraud[count];
+            uint32* w = gCmds[count].w;
+            uint32* grd = gGouraud[count];
+            w[7] = pair(grdBase + count, 0);
 
             switch (type)
             {
                 case FACE_TYPE_SPRITE:
                 {
                     const Sprite* sprite = level.sprites + (flags & FACE_TEXTURE);
-                    cmd->ctrl = CMD_SCALED_SPRITE | (sprite->attr & TEX_ATTR_DIR);
-                    cmd->pmod = PMOD_ECD_OFF | PMOD_LUT16 | PMOD_GOURAUD;
-                    cmd->colr = sprite->colr;
-                    cmd->srca = sprite->srca;
-                    cmd->size = sprite->size;
-                    cmd->xa = v0[0].x; cmd->ya = v0[0].y;
-                    cmd->xc = v0[1].x; cmd->yc = v0[1].y;
-                    grd[0] = grd[1] = grd[2] = grd[3] = shadeGouraud(v0->g);
+                    w[0] = (CMD_SCALED_SPRITE | (sprite->attr & TEX_ATTR_DIR)) << 16;
+                    w[1] = pair(PMOD_ECD_OFF | PMOD_LUT16 | PMOD_GOURAUD, sprite->colr);
+                    w[2] = pair(sprite->srca, sprite->size);
+                    w[3] = v0[0].xy;
+                    w[5] = v0[1].xy;
+                    grd[0] = grd[1] = shadePair(v0->g, v0->g);
                     break;
                 }
 
                 case FACE_TYPE_FILL_S:
-                    cmd->ctrl = CMD_POLYGON;
-                    cmd->pmod = PMOD_NO_ECD_SPD | PMOD_SHADOW;
-                    cmd->colr = RGB(0, 0, 0);
-                    setRect(cmd, v0, v0 + 1);
+                    w[0] = CMD_POLYGON << 16;
+                    w[1] = pair(PMOD_NO_ECD_SPD | PMOD_SHADOW, RGB(0, 0, 0));
+                    setRect(w, v0, v0 + 1);
                     break;
 
                 case FACE_TYPE_LINE_H:
                 case FACE_TYPE_LINE_V:
-                    cmd->ctrl = CMD_POLYGON;
-                    cmd->pmod = PMOD_NO_ECD_SPD;
-                    cmd->colr = uint16(v0->z);
-                    setRect(cmd, v0, v0 + 1);
+                    w[0] = CMD_POLYGON << 16;
+                    w[1] = pair(PMOD_NO_ECD_SPD, uint16(v0->z));
+                    setRect(w, v0, v0 + 1);
                     break;
 
                 default:
                 {
                     const Vertex* v1 = gVertices + face->indices[1];
                     const Vertex* v2 = gVertices + face->indices[2];
-                    const Vertex* v3 = gVertices + face->indices[3];
 
                     if (type == FACE_TYPE_SHADOW)
                     {
-                        cmd->ctrl = CMD_POLYGON;
-                        cmd->pmod = PMOD_NO_ECD_SPD | PMOD_SHADOW;
-                        cmd->colr = RGB(0, 0, 0);
+                        w[0] = CMD_POLYGON << 16;
+                        w[1] = pair(PMOD_NO_ECD_SPD | PMOD_SHADOW, RGB(0, 0, 0));
                     }
                     else
                     {
-                        faceMaterial(cmd, flags);
+                        faceMaterial(w, flags);
                     }
 
                     if (flags & FACE_PARALLELOGRAM)
                     {
                         // v0, x, y; the fourth corner is x + y - v0
-                        int16 px = vdp1Coord(v1->x + v2->x - v0->x);
-                        int16 py = vdp1Coord(v1->y + v2->y - v0->y);
-                        uint16 g0 = shadeGouraud(v0->g);
-                        uint16 g1 = shadeGouraud(v1->g);
-                        uint16 g2 = shadeGouraud(v2->g);
+                        uint32 p = pair(vdp1Coord(v1->x + v2->x - v0->x), vdp1Coord(v1->y + v2->y - v0->y));
 
                         if (flags & FACE_V0_AT_D)
                         {
-                            cmd->xa = v1->x; cmd->ya = v1->y;
-                            cmd->xb = px;    cmd->yb = py;
-                            cmd->xc = v2->x; cmd->yc = v2->y;
-                            cmd->xd = v0->x; cmd->yd = v0->y;
-                            grd[0] = g1; grd[1] = g1; grd[2] = g2; grd[3] = g0;
+                            w[3] = v1->xy;
+                            w[4] = p;
+                            w[5] = v2->xy;
+                            w[6] = v0->xy;
+                            grd[0] = shadePair(v1->g, v1->g);
+                            grd[1] = shadePair(v2->g, v0->g);
                         }
                         else
                         {
-                            cmd->xa = v0->x; cmd->ya = v0->y;
-                            cmd->xb = v1->x; cmd->yb = v1->y;
-                            cmd->xc = px;    cmd->yc = py;
-                            cmd->xd = v2->x; cmd->yd = v2->y;
-                            grd[0] = g0; grd[1] = g1; grd[2] = g2; grd[3] = g2;
+                            w[3] = v0->xy;
+                            w[4] = v1->xy;
+                            w[5] = p;
+                            w[6] = v2->xy;
+                            grd[0] = shadePair(v0->g, v1->g);
+                            grd[1] = shadePair(v2->g, v2->g);
                         }
                         break;
                     }
 
-                    cmd->xa = v0->x; cmd->ya = v0->y;
-                    cmd->xb = v1->x; cmd->yb = v1->y;
-                    cmd->xc = v2->x; cmd->yc = v2->y;
-                    cmd->xd = v3->x; cmd->yd = v3->y;
-
-                    grd[0] = shadeGouraud(v0->g);
-                    grd[1] = shadeGouraud(v1->g);
-                    grd[2] = shadeGouraud(v2->g);
-                    grd[3] = shadeGouraud(v3->g);
+                    const Vertex* v3 = gVertices + face->indices[3];
+                    w[3] = v0->xy;
+                    w[4] = v1->xy;
+                    w[5] = v2->xy;
+                    w[6] = v3->xy;
+                    grd[0] = shadePair(v0->g, v1->g);
+                    grd[1] = shadePair(v2->g, v3->g);
                 }
             }
 
             count++;
         }
-        gOT[i] = NULL;
+        ot[i] = NULL;
     }
 
-    gCmds[count].ctrl = CMD_END;
+    gCmds[count].w[0] = CMD_END << 16;
     gRenderFaceCount = count;
     gStats.faces = count;
 
@@ -753,18 +455,21 @@ void flush_c()
     gStats.waitTicks = (timerTicks() - waitStart) & 0xFFFF;
 
     detailFlush();
-    dmaCopy(gCmds, VDP1_VRAM + VRAM_FRAME_CMDS, (count + 1) * sizeof(vdp1_cmd_t));
-    dmaCopy(gGouraud, VDP1_VRAM + VRAM_GOURAUD_BASE, count * 8);
+    dmaCopy(gCmds, VDP1_VRAM + VRAM_FRAME_CMDS, (count + 1) * sizeof(Command));
+    dmaCopy(gGouraud, VDP1_VRAM + VRAM_GOURAUD_BASE, count * sizeof(gGouraud[0]));
     dmaWait();
     vdp1Plot();
 
-    gStats.flushTicks = ((timerTicks() - start) & 0xFFFF) - gStats.waitTicks;
+    gStats.flushTicks = ((timerTicks() - start) & 0xFFFF) - gStats.waitTicks - gStats.slaveWaitTicks;
 }
 
 void renderInit()
 {
-    gVerticesBase = gVertices;
-    gFacesBase = gFaces;
+    for (int32 g = 0; g < 32; g++)
+    {
+        uint32 c = 31 - g;
+        gShadeGouraud[g] = (c << 10) | (c << 5) | c;
+    }
 
     // slots 0-2: system clip, user clip, local coordinates; frame commands follow
     for (int32 i = 0; i < 3; i++) {
@@ -809,32 +514,8 @@ void clear()
 
 void renderRoom(Room* room)
 {
-    int32 vCount = room->info->verticesCount;
-    if (vCount <= 0)
-        return;
-
     uint32 start = timerTicks();
-
-    if ((gVerticesBase - gVertices) + vCount > MAX_VERTICES)
-    {
-        ASSERT(false);
-        return;
-    }
-
-    transformRoom(room->data.vertices, vCount, ROOM_FLAG_WATER(room->info->flags));
-
-    gRoomVertices = room->data.vertices;
-    gExtraVertices = gVerticesBase + vCount;
-
-    if (room->info->quadsCount > 0) {
-        faceAddRoomQuads(room->data.quads, room->info->quadsCount);
-    }
-
-    if (room->info->trianglesCount > 0) {
-        faceAddRoomTriangles(room->data.triangles, room->info->trianglesCount);
-    }
-
-    gVerticesBase = gExtraVertices;
+    roomsQueue(room);
     gRoomTicks += (timerTicks() - start) & 0xFFFF;
 }
 
@@ -844,14 +525,14 @@ void renderMesh(const Mesh* mesh)
     if (vCount <= 0)
         return;
 
-    if ((gVerticesBase - gVertices) + vCount > MAX_VERTICES)
+    if ((gVerticesBase - gVertices) + vCount > MASTER_VERTICES)
     {
         ASSERT(false);
         return;
     }
 
     int32 fCount = mesh->rCount + mesh->tCount;
-    if ((gFacesBase - gFaces) + fCount > MAX_FACES)
+    if ((gFaceList.next - gFaces) + fCount > MAX_FACES)
     {
         ASSERT(false);
         return;
@@ -891,7 +572,7 @@ static const MeshQuad gShadowQuads[] = {
 
 void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
 {
-    if (gVerticesBase - gVertices + 8 > MAX_VERTICES || gFacesBase - gFaces + 3 > MAX_FACES)
+    if (gVerticesBase - gVertices + 8 > MASTER_VERTICES || gFaceList.next - gFaces + 3 > MAX_FACES)
     {
         ASSERT(false);
         return;
@@ -927,7 +608,7 @@ void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
 // rotation.
 void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index)
 {
-    if (gVerticesBase - gVertices + 2 > MAX_VERTICES || gFacesBase - gFaces + 1 > MAX_FACES)
+    if (gVerticesBase - gVertices + 2 > MASTER_VERTICES || gFaceList.next - gFaces + 1 > MAX_FACES)
     {
         ASSERT(false);
         return;
@@ -986,14 +667,14 @@ void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index)
     gVerticesBase += 2;
 
     // drawn in front of the geometry it stands on
-    Face* f = faceAdd(X_MAX(0, z - 128) >> OT_SHIFT);
+    Face* f = faceAdd(gFaceList, X_MAX(0, z - 128) >> OT_SHIFT);
     f->flags = (FACE_TYPE_SPRITE << FACE_TYPE_SHIFT) | index;
     f->indices[0] = v - gVertices;
 }
 
 void renderGlyph(int32 vx, int32 vy, int32 index)
 {
-    if (gVerticesBase - gVertices + 2 > MAX_VERTICES || gFacesBase - gFaces + 1 > MAX_FACES)
+    if (gVerticesBase - gVertices + 2 > MASTER_VERTICES || gFaceList.next - gFaces + 1 > MAX_FACES)
     {
         ASSERT(false);
         return;
@@ -1017,14 +698,14 @@ void renderGlyph(int32 vx, int32 vy, int32 index)
     v[1].y = b;
     gVerticesBase += 2;
 
-    Face* f = faceAdd(0);
+    Face* f = faceAdd(gFaceList, 0);
     f->flags = (FACE_TYPE_SPRITE << FACE_TYPE_SHIFT) | index;
     f->indices[0] = v - gVertices;
 }
 
 static void renderRect(int32 x, int32 y, int32 width, int32 height, uint32 type, uint16 color, int32 z)
 {
-    if (gVerticesBase - gVertices + 2 > MAX_VERTICES || gFacesBase - gFaces + 1 > MAX_FACES)
+    if (gVerticesBase - gVertices + 2 > MASTER_VERTICES || gFaceList.next - gFaces + 1 > MAX_FACES)
     {
         ASSERT(false);
         return;
@@ -1038,7 +719,7 @@ static void renderRect(int32 x, int32 y, int32 width, int32 height, uint32 type,
     v[1].y = height;
     gVerticesBase += 2;
 
-    Face* f = faceAdd(z);
+    Face* f = faceAdd(gFaceList, z);
     f->flags = type << FACE_TYPE_SHIFT;
     f->indices[0] = v - gVertices;
 }

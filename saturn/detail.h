@@ -27,7 +27,11 @@ void detailInit(uint32_t vramStart, uint32_t dataSize);
 int32_t detailSlot(uint32_t key, uint32_t size);
 
 // VDP1 VRAM offset of a slot.
-uint32_t detailSlotAddr(int32_t slot);
+extern uint32_t gDetailVramStart;
+inline uint32_t detailSlotAddr(int32_t slot)
+{
+    return gDetailVramStart + slot * DETAIL_SLOT_SIZE;
+}
 
 // Uploads the textures queued this frame and starts the next frame. VDP1 must
 // be idle: slots replaced this frame may hold textures it drew last frame.

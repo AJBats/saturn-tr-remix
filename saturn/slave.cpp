@@ -1,0 +1,95 @@
+// Slave SH-2 start-up and task hand-off (after libyaul's polling mode).
+
+#include "slave.h"
+#include "system.h"
+
+#define BIOS_SET_UINT       (*(void (**)(uint32_t, void (*)()))0x06000310)  // CPU interrupt vector
+#define BIOS_SLAVE_ENTRY    (*(volatile uint32_t*)0x06000250)   // where the slave starts after SSHON
+#define BIOS_SLAVE_STACK    (*(volatile uint32_t*)0x060002AC)   // its stack, if not 0
+
+// The slave's blanking interrupts (the BIOS jumps to the entry with them
+// enabled; the entry masks them at once)
+#define VECTOR_SLAVE_HBLANK_IN  (0x100 + 0x41)
+#define VECTOR_SLAVE_VBLANK_IN  (0x100 + 0x43)
+
+#define SMPC_SSHON          0x02
+#define SMPC_SSHOFF         0x03
+
+#define CCR                 (*(volatile uint8_t*)0xFFFFFE92)
+#define CCR_CE              0x01    // cache enable
+#define CCR_CP              0x10    // purge all lines
+
+static void (*volatile gTask)();
+
+extern "C" uint8_t gSlaveStack[4096] __attribute__((aligned(16)));
+uint8_t gSlaveStack[4096];
+
+extern "C" void slaveEntry();     // irq.s: masks interrupts, jumps to slaveMain
+extern "C" void slaveIgnoreIrq(); // irq.s: rte
+
+// Polling without flooding the bus the other CPU is using.
+static inline void pause()
+{
+    for (int i = 0; i < 32; i++) {
+        asm volatile("nop");
+    }
+}
+
+// Must run from the cache-through mirror: the cache is off part of the time.
+static void __attribute__((noinline)) cachePurgeBody()
+{
+    uint8_t ccr = CCR & ~CCR_CE;
+    CCR = ccr;
+    CCR = ccr | CCR_CP;
+    CCR = ccr | CCR_CE;
+}
+
+void cachePurge()
+{
+    uncached(cachePurgeBody)();
+}
+
+#define FRT_TCR     (*(volatile uint8_t*)0xFFFFFE16)
+
+extern "C" void slaveMain()
+{
+    asm volatile("ldc %0, sr" : : "r"(0xF0)); // no interrupts on the slave
+    cachePurge();
+    FRT_TCR = 2; // its own free-running timer, at the master's rate (timerTicks)
+
+    while (1)
+    {
+        void (*task)() = *uncached(&gTask);
+        if (!task)
+        {
+            pause();
+            continue;
+        }
+
+        cachePurge();
+        task();
+        *uncached(&gTask) = nullptr;
+    }
+}
+
+void slaveInit()
+{
+    smpcCommand(SMPC_SSHOFF);
+    BIOS_SET_UINT(VECTOR_SLAVE_HBLANK_IN, slaveIgnoreIrq);
+    BIOS_SET_UINT(VECTOR_SLAVE_VBLANK_IN, slaveIgnoreIrq);
+    BIOS_SLAVE_ENTRY = uint32_t(slaveEntry);
+    BIOS_SLAVE_STACK = uint32_t(gSlaveStack + sizeof(gSlaveStack));
+    smpcCommand(SMPC_SSHON);
+}
+
+void slaveRun(void (*task)())
+{
+    *uncached(&gTask) = task;
+}
+
+void slaveWait()
+{
+    while (*uncached(&gTask)) {
+        pause();
+    }
+}

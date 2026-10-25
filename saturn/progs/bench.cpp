@@ -9,6 +9,8 @@
 //   0x00200040  faces emitted by the last flush (sanity check)
 
 #include "game.h"
+#include "render.h"
+#include "slave.h"
 #include "system.h"
 
 int32 fps;
@@ -158,7 +160,13 @@ static void kernelTransform()
     matrixTranslateAbs(gBenchInfo.x << 8, gBenchInfo.yTop, gBenchInfo.z << 8);
     for (int32 i = 0; i < 50; i++)
     {
-        transformRoom(gBenchVertices, gBenchInfo.verticesCount, false);
+        // room transform and face setup, on the slave
+        renderRoom(&gBenchRoom);
+        RoomStats stats;
+        Face** ot = roomsFinish(stats);
+        for (int32 j = 0; j < OT_SIZE; j++) {
+            ot[j] = NULL;
+        }
     }
     matrixPop();
 }
@@ -207,6 +215,7 @@ int main()
     asm volatile("ldc %0, sr" : : "r"(0xF0));   // mask interrupts
 
     systemInit();
+    slaveInit();
     renderInit();
     setViewport(RectMinMax(0, 0, FRAME_WIDTH, FRAME_HEIGHT));
     initData();

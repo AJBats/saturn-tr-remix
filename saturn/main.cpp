@@ -4,6 +4,7 @@
 #include "cd.h"
 #include "hw.h"
 #include "input.h"
+#include "slave.h"
 #include "system.h"
 
 int32 fps;
@@ -40,6 +41,7 @@ static bool inPadWindow()
 int main()
 {
     systemInit();
+    slaveInit();
     cdInit();
     sndInit();
 

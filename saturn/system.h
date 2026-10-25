@@ -21,18 +21,27 @@ struct FrameStats
     uint32_t faces;         // polygons sent to VDP1
     uint32_t vdp1Late;      // vblanks where VDP1 had not finished drawing
     uint32_t frames;        // frames rendered since boot
-    uint32_t roomTicks;     // renderRoom: room vertex transform + face bucketing
+    uint32_t roomTicks;     // renderRoom: queueing rooms for the slave
     uint32_t meshTicks;     // renderMesh: mesh vertex transform + face bucketing
     uint32_t vdp1EndLine;   // scanline where VDP1 last finished drawing
     uint32_t vertices;      // vertices transformed in the last frame
     uint32_t vdp1Ticks;     // VDP1 drawing time of the last frame
     uint32_t waitTicks;     // CPU time spent waiting for VDP1 to become idle
+    uint32_t slaveWaitTicks;// flush waiting for the slave to finish the rooms
+    uint32_t detailFaces;   // room quads split for full-res textures
+    uint32_t roomVertices;  // room vertices transformed
+    uint32_t slaveXformTicks; // slave: room vertex transform
+    uint32_t slaveFaceTicks;  // slave: room face setup
+    uint32_t slaveIdleTicks;  // slave: waiting for rooms to be queued
 };
 
 extern FrameStats gStats;
 
 void systemInit();
 void waitVblank();
+
+// Issues an SMPC command with no parameters and waits for it to finish.
+void smpcCommand(uint8_t command);
 
 // Current scanline: 0 at the top of the display, counting on through vblank
 // (vertical sync lines read as higher values still).

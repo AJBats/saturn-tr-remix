@@ -128,6 +128,14 @@ static void vdp1Init()
     gVdp1State = VDP1_IDLE;
 }
 
+void smpcCommand(uint8_t command)
+{
+    while (SMPC_SF & 1);
+    SMPC_SF = 1;
+    SMPC_COMREG = command;
+    while (SMPC_SF & 1);
+}
+
 void systemInit()
 {
     // 352x240 like the original game; the 352-dot clock also runs the CPUs

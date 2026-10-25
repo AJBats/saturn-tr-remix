@@ -31,7 +31,7 @@ static uint32_t gDataSize;
 static uint8_t gKeySlot[MAX_KEYS];  // slot + 1, 0 when not cached
 static Slot gSlots[MAX_SLOTS];
 static int32_t gSlotCount;
-static uint32_t gVramStart;
+uint32_t gDetailVramStart;
 static uint32_t gFrame;
 
 static Upload gUploads[MAX_UPLOADS];
@@ -49,10 +49,10 @@ uint32_t detailDataMax()
 
 void detailInit(uint32_t vramStart, uint32_t dataSize)
 {
-    gVramStart = (vramStart + 7) & ~7;
+    gDetailVramStart = (vramStart + 7) & ~7;
     gDataSize = dataSize;
 
-    gSlotCount = (0x80000 - gVramStart) / DETAIL_SLOT_SIZE;
+    gSlotCount = (0x80000 - gDetailVramStart) / DETAIL_SLOT_SIZE;
     if (gSlotCount > MAX_SLOTS) {
         gSlotCount = MAX_SLOTS;
     }
@@ -115,11 +115,6 @@ int32_t detailSlot(uint32_t key, uint32_t size)
     upload.size = size;
 
     return victim;
-}
-
-uint32_t detailSlotAddr(int32_t slot)
-{
-    return gVramStart + slot * DETAIL_SLOT_SIZE;
 }
 
 void detailFlush()
