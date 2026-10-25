@@ -25,6 +25,7 @@ typedef struct {
     uint16_t grda, _pad;
 } vdp1_cmd_t;
 
+#define CMD_SCALED_SPRITE    0x0001  /* ZP 0: corners A (top left) and C (bottom right) */
 #define CMD_DISTORTED_SPRITE 0x0002
 #define CMD_POLYGON     0x0004
 #define CMD_USER_CLIP   0x0008
@@ -33,6 +34,7 @@ typedef struct {
 #define CMD_SKIP_JUMP   0x5000  /* JP=101: don't draw, continue at CMDLINK */
 #define CMD_END         0x8000
 
+#define PMOD_SHADOW     0x0001  /* halve the frame buffer pixel under the shape */
 #define PMOD_GOURAUD    0x0004
 #define PMOD_LUT16      0x0008  /* 4-bit pixels through a 16-colour lookup table */
 #define PMOD_SPD_OFF    0x0040  /* pixel code 0 is drawn, not transparent */

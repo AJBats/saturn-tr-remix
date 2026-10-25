@@ -37,6 +37,8 @@ enum FaceType {
 #define FACE_TRIANGLE   (1 << 31)
 #define FACE_CLIPPED    (1 << 30)
 #define FACE_DETAIL     (1 << 29)   // full-res quadrant of a cached room texture
+#define FACE_PARALLELOGRAM  (1 << 28)   // mesh triangle drawn as a parallelogram, see faceAddMeshTriangles
+#define FACE_V0_AT_D        (1 << 27)   // ... with its first vertex at corner D (else A)
 #define FACE_DETAIL_SLOT_SHIFT  20
 #define FACE_DETAIL_QUAD_SHIFT  18
 #define FACE_TYPE_SHIFT 14
@@ -47,6 +49,10 @@ enum FaceType {
 // VDP1 vertex coordinates are 11 bits plus sign
 #define VDP1_COORD_MIN  -1024
 #define VDP1_COORD_MAX  1023
+
+// 2D faces keep their rectangle in two vertices: position, then size. Lines
+// keep their RGB colour in the first vertex's z.
+#define BAR_HEIGHT      5
 
 enum ClipFlags {
     CLIP_FRAME   = 1 << 0,
@@ -451,6 +457,10 @@ void faceAddMeshQuads(const MeshQuad* polys, int32 count)
     }
 }
 
+// Textured triangles are drawn as the original does: the parallelogram v0, x,
+// x + y - v0, y, with a texture whose end codes stop each line at the
+// triangle's far edge. The fourth byte of the indices says where v0 goes
+// (bit 0: corner D, else A) and whether x, y are v2, v1 (bit 1).
 void faceAddMeshTriangles(const MeshTriangle* polys, int32 count)
 {
     const Vertex* v = gVerticesBase;
@@ -476,6 +486,18 @@ void faceAddMeshTriangles(const MeshTriangle* polys, int32 count)
             flags |= FACE_CLIPPED;
         }
         flags |= FACE_TRIANGLE;
+
+        uint32 arrangement = polys->indices[3];
+        if (((flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) != FACE_TYPE_F)
+        {
+            flags |= FACE_PARALLELOGRAM;
+            if (arrangement & 1) {
+                flags |= FACE_V0_AT_D;
+            }
+            if (arrangement & 2) {
+                const Vertex* t = v1; v1 = v2; v2 = t;
+            }
+        }
 
         int32 depth = (v0->z + v1->z + v2->z + v2->z) >> (2 + OT_SHIFT);
 
@@ -539,6 +561,23 @@ X_INLINE uint16 shadeGouraud(uint32 g)
 
 #define TEX_ATTR_DIR  0x0030 // VDP1 flip bits, stored in CMDCTRL layout
 
+X_INLINE int16 vdp1Coord(int32 v)
+{
+    return X_CLAMP(v, VDP1_COORD_MIN, VDP1_COORD_MAX);
+}
+
+X_INLINE void setRect(vdp1_cmd_t* cmd, const Vertex* pos, const Vertex* size)
+{
+    int16 x0 = pos->x;
+    int16 y0 = pos->y;
+    int16 x1 = x0 + size->x - 1;
+    int16 y1 = y0 + size->y - 1;
+    cmd->xa = x0; cmd->ya = y0;
+    cmd->xb = x1; cmd->yb = y0;
+    cmd->xc = x1; cmd->yc = y1;
+    cmd->xd = x0; cmd->yd = y1;
+}
+
 // Fills the command fields that depend on the face's colour or texture.
 X_INLINE void faceMaterial(vdp1_cmd_t* cmd, uint32 flags)
 {
@@ -555,6 +594,10 @@ X_INLINE void faceMaterial(vdp1_cmd_t* cmd, uint32 flags)
         cmd->colr = tex->colr;
         cmd->srca = tex->srca;
         cmd->size = tex->size;
+
+        if (flags & FACE_PARALLELOGRAM) {
+            cmd->pmod &= ~PMOD_ECD_OFF; // end codes trim the parallelogram to the triangle
+        }
 
         if (flags & FACE_DETAIL)
         {
@@ -598,31 +641,103 @@ void flush_c()
             uint32 flags = face->flags;
             uint32 type = (flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK;
 
-            if (type > FACE_TYPE_GTA)
-                continue; // TODO sprites, HUD
-
             if (count == MAX_CMDS - 1)
                 break;
 
             const Vertex* v0 = gVertices + face->indices[0];
-            const Vertex* v1 = gVertices + face->indices[1];
-            const Vertex* v2 = gVertices + face->indices[2];
-            const Vertex* v3 = gVertices + face->indices[3];
 
             vdp1_cmd_t* cmd = gCmds + count;
             cmd->link = 0;
-            faceMaterial(cmd, flags);
-            cmd->xa = v0->x; cmd->ya = v0->y;
-            cmd->xb = v1->x; cmd->yb = v1->y;
-            cmd->xc = v2->x; cmd->yc = v2->y;
-            cmd->xd = v3->x; cmd->yd = v3->y;
             cmd->grda = grdBase + count;
-
             uint16* grd = gGouraud[count];
-            grd[0] = shadeGouraud(v0->g);
-            grd[1] = shadeGouraud(v1->g);
-            grd[2] = shadeGouraud(v2->g);
-            grd[3] = shadeGouraud(v3->g);
+
+            switch (type)
+            {
+                case FACE_TYPE_SPRITE:
+                {
+                    const Sprite* sprite = level.sprites + (flags & FACE_TEXTURE);
+                    cmd->ctrl = CMD_SCALED_SPRITE | (sprite->attr & TEX_ATTR_DIR);
+                    cmd->pmod = PMOD_ECD_OFF | PMOD_LUT16 | PMOD_GOURAUD;
+                    cmd->colr = sprite->colr;
+                    cmd->srca = sprite->srca;
+                    cmd->size = sprite->size;
+                    cmd->xa = v0[0].x; cmd->ya = v0[0].y;
+                    cmd->xc = v0[1].x; cmd->yc = v0[1].y;
+                    grd[0] = grd[1] = grd[2] = grd[3] = shadeGouraud(v0->g);
+                    break;
+                }
+
+                case FACE_TYPE_FILL_S:
+                    cmd->ctrl = CMD_POLYGON;
+                    cmd->pmod = PMOD_NO_ECD_SPD | PMOD_SHADOW;
+                    cmd->colr = RGB(0, 0, 0);
+                    setRect(cmd, v0, v0 + 1);
+                    break;
+
+                case FACE_TYPE_LINE_H:
+                case FACE_TYPE_LINE_V:
+                    cmd->ctrl = CMD_POLYGON;
+                    cmd->pmod = PMOD_NO_ECD_SPD;
+                    cmd->colr = uint16(v0->z);
+                    setRect(cmd, v0, v0 + 1);
+                    break;
+
+                default:
+                {
+                    const Vertex* v1 = gVertices + face->indices[1];
+                    const Vertex* v2 = gVertices + face->indices[2];
+                    const Vertex* v3 = gVertices + face->indices[3];
+
+                    if (type == FACE_TYPE_SHADOW)
+                    {
+                        cmd->ctrl = CMD_POLYGON;
+                        cmd->pmod = PMOD_NO_ECD_SPD | PMOD_SHADOW;
+                        cmd->colr = RGB(0, 0, 0);
+                    }
+                    else
+                    {
+                        faceMaterial(cmd, flags);
+                    }
+
+                    if (flags & FACE_PARALLELOGRAM)
+                    {
+                        // v0, x, y; the fourth corner is x + y - v0
+                        int16 px = vdp1Coord(v1->x + v2->x - v0->x);
+                        int16 py = vdp1Coord(v1->y + v2->y - v0->y);
+                        uint16 g0 = shadeGouraud(v0->g);
+                        uint16 g1 = shadeGouraud(v1->g);
+                        uint16 g2 = shadeGouraud(v2->g);
+
+                        if (flags & FACE_V0_AT_D)
+                        {
+                            cmd->xa = v1->x; cmd->ya = v1->y;
+                            cmd->xb = px;    cmd->yb = py;
+                            cmd->xc = v2->x; cmd->yc = v2->y;
+                            cmd->xd = v0->x; cmd->yd = v0->y;
+                            grd[0] = g1; grd[1] = g1; grd[2] = g2; grd[3] = g0;
+                        }
+                        else
+                        {
+                            cmd->xa = v0->x; cmd->ya = v0->y;
+                            cmd->xb = v1->x; cmd->yb = v1->y;
+                            cmd->xc = px;    cmd->yc = py;
+                            cmd->xd = v2->x; cmd->yd = v2->y;
+                            grd[0] = g0; grd[1] = g1; grd[2] = g2; grd[3] = g2;
+                        }
+                        break;
+                    }
+
+                    cmd->xa = v0->x; cmd->ya = v0->y;
+                    cmd->xb = v1->x; cmd->yb = v1->y;
+                    cmd->xc = v2->x; cmd->yc = v2->y;
+                    cmd->xd = v3->x; cmd->yd = v3->y;
+
+                    grd[0] = shadeGouraud(v0->g);
+                    grd[1] = shadeGouraud(v1->g);
+                    grd[2] = shadeGouraud(v2->g);
+                    grd[3] = shadeGouraud(v3->g);
+                }
+            }
 
             count++;
         }
@@ -767,34 +882,209 @@ void renderMesh(const Mesh* mesh)
     gMeshTicks += (timerTicks() - start) & 0xFFFF;
 }
 
+// An octagon on the floor under the item, darkening what is drawn below it.
+static const MeshQuad gShadowQuads[] = {
+    { (FACE_TYPE_SHADOW << FACE_TYPE_SHIFT), {0, 1, 2, 7} },
+    { (FACE_TYPE_SHADOW << FACE_TYPE_SHIFT), {7, 2, 3, 6} },
+    { (FACE_TYPE_SHADOW << FACE_TYPE_SHIFT), {6, 3, 4, 5} }
+};
+
 void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
 {
-    // TODO
+    if (gVerticesBase - gVertices + 8 > MAX_VERTICES || gFacesBase - gFaces + 3 > MAX_FACES)
+    {
+        ASSERT(false);
+        return;
+    }
+
+    int16 xns1 = x - sx;
+    int16 xps1 = x + sx;
+    int16 xns2 = xns1 - sx;
+    int16 xps2 = xps1 + sx;
+
+    int16 zns1 = z - sz;
+    int16 zps1 = z + sz;
+    int16 zns2 = zns1 - sz;
+    int16 zps2 = zps1 + sz;
+
+    MeshVertex v[8];
+    v[0].x = xns1; v[0].y = 0; v[0].z = zps2;
+    v[1].x = xps1; v[1].y = 0; v[1].z = zps2;
+    v[2].x = xps2; v[2].y = 0; v[2].z = zps1;
+    v[3].x = xps2; v[3].y = 0; v[3].z = zns1;
+    v[4].x = xps1; v[4].y = 0; v[4].z = zns2;
+    v[5].x = xns1; v[5].y = 0; v[5].z = zns2;
+    v[6].x = xns2; v[6].y = 0; v[6].z = zns1;
+    v[7].x = xns2; v[7].y = 0; v[7].z = zps1;
+
+    transformMesh(v, 8, 0);
+    faceAddMeshQuads(gShadowQuads, 3);
+
+    gVerticesBase += 8;
 }
 
+// A sprite facing the camera at a world position; the matrix is the view
+// rotation.
 void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index)
 {
-    // TODO
+    if (gVerticesBase - gVertices + 2 > MAX_VERTICES || gFacesBase - gFaces + 1 > MAX_FACES)
+    {
+        ASSERT(false);
+        return;
+    }
+
+    const Matrix &m = matrixGet();
+
+    vx -= gCameraViewPos.x;
+    vy -= gCameraViewPos.y;
+    vz -= gCameraViewPos.z;
+
+    int32 z = DP33(m.e20, m.e21, m.e22, vx, vy, vz);
+
+    if (z < VIEW_MIN_F || z >= VIEW_MAX_F)
+        return;
+
+    int32 x = DP33(m.e00, m.e01, m.e02, vx, vy, vz) >> FIXED_SHIFT;
+    int32 y = DP33(m.e10, m.e11, m.e12, vx, vy, vz) >> FIXED_SHIFT;
+    z >>= FIXED_SHIFT;
+
+    const Sprite* sprite = level.sprites + index;
+
+    int32 l = x + sprite->l;
+    int32 r = x + sprite->r;
+    int32 t = y + sprite->t;
+    int32 b = y + sprite->b;
+
+    PERSPECTIVE(l, t, z);
+    PERSPECTIVE(r, b, z);
+
+    l += (FRAME_WIDTH >> 1);
+    r += (FRAME_WIDTH >> 1);
+    t += (FRAME_HEIGHT >> 1);
+    b += (FRAME_HEIGHT >> 1);
+
+    if (l >= viewport.x1 || r < viewport.x0 || t >= viewport.y1 || b < viewport.y0)
+        return;
+
+    if (l == r || t == b)
+        return;
+
+    if (z > FOG_MIN)
+    {
+        vg += (z - FOG_MIN) << FOG_SHIFT;
+        if (vg > 8191) {
+            vg = 8191;
+        }
+    }
+
+    Vertex* v = gVerticesBase;
+    v[0].x = vdp1Coord(l);
+    v[0].y = vdp1Coord(t);
+    v[0].g = vg >> 8;
+    v[1].x = vdp1Coord(r);
+    v[1].y = vdp1Coord(b);
+    gVerticesBase += 2;
+
+    // drawn in front of the geometry it stands on
+    Face* f = faceAdd(X_MAX(0, z - 128) >> OT_SHIFT);
+    f->flags = (FACE_TYPE_SPRITE << FACE_TYPE_SHIFT) | index;
+    f->indices[0] = v - gVertices;
 }
 
 void renderGlyph(int32 vx, int32 vy, int32 index)
 {
-    // TODO
+    if (gVerticesBase - gVertices + 2 > MAX_VERTICES || gFacesBase - gFaces + 1 > MAX_FACES)
+    {
+        ASSERT(false);
+        return;
+    }
+
+    const Sprite* sprite = level.sprites + index;
+
+    int32 l = vx + sprite->l;
+    int32 r = vx + sprite->r;
+    int32 t = vy + sprite->t;
+    int32 b = vy + sprite->b;
+
+    if (l == r || t == b || r < 0 || b < 0 || l >= FRAME_WIDTH || t >= FRAME_HEIGHT)
+        return;
+
+    Vertex* v = gVerticesBase;
+    v[0].x = l;
+    v[0].y = t;
+    v[0].g = 15;    // VDP1 gouraud 16: colours unchanged
+    v[1].x = r;
+    v[1].y = b;
+    gVerticesBase += 2;
+
+    Face* f = faceAdd(0);
+    f->flags = (FACE_TYPE_SPRITE << FACE_TYPE_SHIFT) | index;
+    f->indices[0] = v - gVertices;
 }
 
+static void renderRect(int32 x, int32 y, int32 width, int32 height, uint32 type, uint16 color, int32 z)
+{
+    if (gVerticesBase - gVertices + 2 > MAX_VERTICES || gFacesBase - gFaces + 1 > MAX_FACES)
+    {
+        ASSERT(false);
+        return;
+    }
+
+    Vertex* v = gVerticesBase;
+    v[0].x = x;
+    v[0].y = y;
+    v[0].z = int16(color);
+    v[1].x = width;
+    v[1].y = height;
+    gVerticesBase += 2;
+
+    Face* f = faceAdd(z);
+    f->flags = type << FACE_TYPE_SHIFT;
+    f->indices[0] = v - gVertices;
+}
+
+// Darkens the frame under the rectangle (VDP1 halves it; shade is ignored).
 void renderFill(int32 x, int32 y, int32 width, int32 height, int32 shade, int32 z)
 {
-    // TODO
+    renderRect(x, y, width, height, FACE_TYPE_FILL_S, 0, z);
 }
 
+// Border colours are grey levels 0..31.
 void renderBorder(int32 x, int32 y, int32 width, int32 height, int32 color1, int32 color2, int32 z)
 {
-    // TODO
+    uint16 c1 = RGB(color1, color1, color1);
+    uint16 c2 = RGB(color2, color2, color2);
+    renderRect(x + 1, y, width - 2, 1, FACE_TYPE_LINE_H, c1, z);
+    renderRect(x + 1, y + height - 1, width - 2, 1, FACE_TYPE_LINE_H, c2, z);
+    renderRect(x, y, 1, height, FACE_TYPE_LINE_V, c1, z);
+    renderRect(x + width - 1, y, 1, height, FACE_TYPE_LINE_V, c2, z);
 }
+
+// Bar rows top to bottom; health as in the original game.
+static const uint16 BAR_COLORS[BAR_MAX][BAR_HEIGHT] = {
+    { RGB(10,  6,  0), RGB(15, 11,  2), RGB(10,  6,  0), RGB( 7,  3,  0), RGB( 4,  0,  0) },
+    { RGB( 0,  8, 12), RGB( 4, 14, 18), RGB( 0,  8, 12), RGB( 0,  5,  9), RGB( 0,  2,  6) },
+    { RGB( 4, 12,  0), RGB( 9, 18,  2), RGB( 4, 12,  0), RGB( 2,  8,  0), RGB( 0,  4,  0) },
+    { RGB(14, 14, 14), RGB(20, 20, 20), RGB(14, 14, 14), RGB(10, 10, 10), RGB( 6,  6,  6) },
+};
 
 void renderBar(int32 x, int32 y, int32 width, int32 value, BarType type)
 {
-    // TODO
+    int32 w = value * width >> 8;
+
+    if (w > 0)
+    {
+        for (int32 i = 0; i < BAR_HEIGHT; i++) {
+            renderRect(x + 1, y + 1 + i, w, 1, FACE_TYPE_LINE_H, BAR_COLORS[type][i], 0);
+        }
+    }
+
+    if (w < width)
+    {
+        renderRect(x + 1 + w, y + 1, width - w, BAR_HEIGHT, FACE_TYPE_LINE_V, RGB(1, 1, 1), 0);
+    }
+
+    renderBorder(x, y, width + 2, BAR_HEIGHT + 2, 2, 2, 0);
 }
 
 void renderBackground(const void* background)

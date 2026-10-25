@@ -208,9 +208,14 @@ class TextureTable:
         return b"".join(struct.pack(">6H", *e) for e in self.entries)
 
 
-# Saturn triangle flip code (top 4 bits of the face flags) to the texture
-# variant holding the triangle's pixels: 0 = tile, n = sub[n - 1].
-TRIANGLE_VARIANT = {0: 0, 10: 0, 2: 1, 8: 1, 4: 2, 14: 2, 6: 3, 12: 3}
+# Textured mesh triangles, after the original's handlers (0x0603E6D0, one per
+# code in the top 3 bits of the face flags): each is drawn as the
+# parallelogram v0, v1, v1 + v2 - v0, with a texture variant whose end codes
+# stop every line at the triangle's far edge. Per code: the variant
+# (n = sub[n - 1]) and the corner arrangement packed with the indices,
+# bit 0: v0 at corner D (else A), bit 1: the other two corners swapped.
+TRIANGLE_VARIANT = {0: 1, 10: 1, 2: 2, 8: 2, 4: 3, 14: 3, 6: 4, 12: 4}
+TRIANGLE_ARRANGEMENT = {0: 0, 4: 0, 10: 2, 14: 2, 2: 1, 6: 1, 8: 3, 12: 3}
 
 
 class Packer:
@@ -343,7 +348,9 @@ class Packer:
         for ftype, idx, flags in quads:
             out.pack("H4B", self.mesh_face_flags(index, ftype, flags), *idx)
         for ftype, idx, flags in tris:
-            out.pack("H4B", self.mesh_face_flags(index, ftype, flags), *idx, 0)
+            textured = ftype != trsat.MESH_T_COLOR
+            arrangement = TRIANGLE_ARRANGEMENT[flags >> 12] if textured else 0
+            out.pack("H4B", self.mesh_face_flags(index, ftype, flags), *idx, arrangement)
 
     # --- animation -------------------------------------------------------
 
