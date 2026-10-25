@@ -1,0 +1,1 @@
+Builds on OpenLara (BSD-2-Clause, Timur Gagiev) and the SlaveDriver engine (GPL-3.0-or-later, Ezra Dreisbach / Lobotomy Software).

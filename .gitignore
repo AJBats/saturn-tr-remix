@@ -5,3 +5,5 @@ build/
 __pycache__/
 # Mednafen MCP server writes crash dumps beside its checkout
 tools/crash_dumps/
+# Mednafen MCP screenshot scratch file
+mcp_screenshot.png
