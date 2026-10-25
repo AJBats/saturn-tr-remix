@@ -887,7 +887,13 @@ void checkTrigger(const FloorData* fd, ItemObj* lara)
 
     if (FD_FLOOR_TYPE(*fd) == FLOOR_TYPE_LAVA)
     {
-        // TODO lava
+        // standing in it, or swimming, is fatal (TR1's LavaBurn)
+        if (lara && lara->health > 0 &&
+            (!(lara->flags & ITEM_FLAG_GRAVITY) || lara->waterState != WATER_STATE_ABOVE))
+        {
+            soundPlay(SND_LAVA, &lara->pos);
+            lara->hit(LARA_MAX_HEALTH, lara->pos, 0);
+        }
 
         if (FD_END(*fd))
             return;

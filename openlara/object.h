@@ -300,6 +300,8 @@ struct Door : Object
 
         Room* nextRoom;
 
+        blockBox(room->data.sectors[sector - room->sectors].boxIndex, close);
+
         if (close) {
             nextRoom = sector->getNextRoom();
 
@@ -314,8 +316,6 @@ struct Door : Object
 
             nextRoom = sector->getNextRoom();
         }
-
-        // TODO modify level.boxes
 
         if (!behind && nextRoom) {
             setDoorState(close, true, nextRoom, pos.x, pos.z); // use sector from item pos
@@ -1079,7 +1079,7 @@ struct Block : Object
             }
         }
 
-        // TODO modify level.boxes
+        blockBox(sector->boxIndex, offset < 0);
     }
 
     bool checkBlocking()
@@ -1309,6 +1309,8 @@ void alterFloor(ItemObj* item, int32 offset)
             sector->floor = NO_FLOOR;
         }
     }
+
+    blockBox(sector->boxIndex, offset < 0);
 }
 
 

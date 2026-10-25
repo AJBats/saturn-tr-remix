@@ -2926,6 +2926,24 @@ void nextLevel(LevelID next);
 void flipMap();
 void setEffect(int32 effect, const ItemObj* item);
 void shakeCamera(int32 frames, bool add);
+void* soundPlay(int16 id, const vec3i* pos);
+
+// TR1's box flags: a door or a block can stand in a blockable box, and blocks
+// it for enemies' paths while it does
+#define BOX_BLOCKABLE   0x8000
+#define BOX_BLOCKED     0x4000
+
+X_INLINE void blockBox(uint16 boxIndex, bool blocked)
+{
+    if (boxIndex == NO_BOX || !(level.boxes[boxIndex].overlap & BOX_BLOCKABLE))
+        return;
+
+    if (blocked) {
+        level.boxes[boxIndex].overlap |= BOX_BLOCKED;
+    } else {
+        level.boxes[boxIndex].overlap &= ~BOX_BLOCKED;
+    }
+}
 bool gameSave();
 bool gameLoad();
 
