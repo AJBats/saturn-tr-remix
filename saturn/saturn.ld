@@ -16,6 +16,16 @@ SECTIONS
     } > HWRAM
 
     .rodata : { *(.rodata .rodata.*) } > HWRAM
+
+    .init_array : {
+        . = ALIGN(4);
+        __init_array_start = .;
+        KEEP(*(SORT(.init_array.*)))
+        KEEP(*(.init_array))
+        KEEP(*(.ctors))
+        __init_array_end = .;
+    } > HWRAM
+
     .data : { *(.data .data.*) } > HWRAM
 
     .bss (NOLOAD) : {
@@ -28,4 +38,6 @@ SECTIONS
     } > HWRAM
 
     __stack_top = ORIGIN(HWRAM) + LENGTH(HWRAM);
+
+    /DISCARD/ : { *(.comment) *(.eh_frame) *(.eh_frame_hdr) }
 }

@@ -20,10 +20,21 @@ start:
     bra     1b
     add     #4, r1
 
-2:  mov.l   main, r0
+    ! run static constructors
+2:  mov.l   init_start, r8
+    mov.l   init_end, r9
+3:  cmp/hs  r9, r8
+    bt      4f
+    mov.l   @r8+, r0
     jsr     @r0
     nop
-3:  bra     3b
+    bra     3b
+    nop
+
+4:  mov.l   main, r0
+    jsr     @r0
+    nop
+5:  bra     5b
     nop
 
     .align 2
@@ -31,4 +42,6 @@ stack_top:  .long __stack_top
 ccr:        .long 0xFFFFFE92
 bss_start:  .long __bss_start
 bss_end:    .long __bss_end
+init_start: .long __init_array_start
+init_end:   .long __init_array_end
 main:       .long _main

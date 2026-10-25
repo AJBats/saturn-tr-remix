@@ -159,6 +159,15 @@
         MARS_CMD_CLEAR,
         MARS_CMD_FLUSH
     };
+#elif defined(__SATURN__)
+    #define USE_DIV_TABLE
+    #define CPU_BIG_ENDIAN
+
+    #define MODEHW
+    #define FRAME_WIDTH  320
+    #define FRAME_HEIGHT 224
+
+    #define USE_FMT     (LVL_FMT_PKD)
 #else
     #error unsupported platform
 #endif
@@ -306,13 +315,13 @@ inline void* operator new(size_t, void *ptr)
     return ptr;
 }
 
-#if defined(__3DO__) || defined(__32X__)
+#if defined(__3DO__) || defined(__32X__) || defined(__SATURN__)
 X_INLINE int32 abs(int32 x) {
     return (x >= 0) ? x : -x;
 }
 #endif
 
-#if defined(__GBA__) || defined(__NDS__) || defined(__32X__)
+#if defined(__GBA__) || defined(__NDS__) || defined(__32X__) || defined(__SATURN__)
     #define int2str(x,str) itoa(x, str, 10)
 #elif defined(__3DO__)
     #define int2str(x,str) sprintf(str, "%d", x)
@@ -637,7 +646,7 @@ struct Matrix
 
 struct RoomQuad
 {
-#if defined(__3DO__)
+#if defined(__3DO__) || defined(__SATURN__)
     uint32 flags;
     uint16 indices[4];
 #elif defined(__32X__)
@@ -652,7 +661,7 @@ struct RoomQuad
 
 struct RoomTriangle
 {
-#if defined(__3DO__)
+#if defined(__3DO__) || defined(__SATURN__)
     uint32 flags;
     uint16 indices[4];
 #elif defined(__32X__)
@@ -669,7 +678,7 @@ struct MeshQuad
 #if defined(__3DO__)
     uint32 flags;
     uint32 indices;
-#elif defined(__32X__)
+#elif defined(__32X__) || defined(__SATURN__)
     uint16 flags;
     uint8  indices[4];
 #else
@@ -684,7 +693,7 @@ struct MeshTriangle
 #if defined(__3DO__)
     uint32 flags;
     uint32 indices;
-#elif defined(__32X__)
+#elif defined(__32X__) || defined(__SATURN__)
     uint16 flags;
     uint8  indices[4];
 #else

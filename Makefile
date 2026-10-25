@@ -14,9 +14,11 @@ SH_BIN  ?= C:/Users/albat/saturndev/saturn-sdk/toolchain/bin
 export PATH := $(SH_BIN);$(PATH)
 
 CC      := sh-elf-gcc
+CXX     := sh-elf-g++
 OBJCOPY := sh-elf-objcopy
-CFLAGS  := -m2 -mb -O2 -Wall -Wextra -ffreestanding -fno-builtin -nostdlib
-LDFLAGS := -T saturn/saturn.ld -Wl,-Map=build/0MAIN.map
+CFLAGS  := -m2 -mb -O2 -Wall -D__SATURN__ -Isaturn -Iopenlara
+CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit 	-fno-asynchronous-unwind-tables -Wno-class-memaccess
+LDFLAGS := -nostdlib -T saturn/saturn.ld -Wl,-Map=build/0MAIN.map
 
 ER      := external_resources
 ORIG    := $(ER)/tomb_raider_usa
@@ -26,23 +28,28 @@ DISC    := $(ER)/disc
 MAIN    := $(DISC)/files/0MAIN.BIN
 GH_OUT  := build/ghidra
 
-SAT_SRC := $(wildcard saturn/*.c saturn/*.s)
-SAT_OBJ := $(patsubst saturn/%,build/obj/%.o,$(SAT_SRC))
+SAT_SRC := $(wildcard saturn/*.c saturn/*.cpp saturn/*.s) openlara/common.cpp
+SAT_OBJ := $(patsubst %,build/obj/%.o,$(SAT_SRC))
+HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h)
 
 .PHONY: all disc extract ghidra
 
 all: disc
 
-build/obj/%.c.o: saturn/%.c $(wildcard saturn/*.h)
+build/obj/%.c.o: %.c $(HEADERS)
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/obj/%.s.o: saturn/%.s
+build/obj/%.cpp.o: %.cpp $(HEADERS)
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+build/obj/%.s.o: %.s
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 build/0MAIN.elf: $(SAT_OBJ) saturn/saturn.ld
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SAT_OBJ) -lgcc
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $(SAT_OBJ) -lc -lgcc
 
 build/0MAIN.BIN: build/0MAIN.elf
 	$(OBJCOPY) -O binary $< $@
