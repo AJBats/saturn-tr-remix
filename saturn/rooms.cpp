@@ -351,6 +351,34 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
     }
 }
 
+// What faces.s needs to add a room's faces.
+struct RoomFaces
+{
+    const Vertex* vertices;
+    uint32 base;            // the room's first vertex's index in gVertices, in both halves
+    FaceList* list;
+    uint32 flags;           // gRoomFaceFlags
+    const Texture* textures;
+    int32 detailFaces;      // counted up
+    int32 detailMisses;
+    Face* end;              // the list's
+    const uint8* keys;      // gDetailKeys[0]
+    DetailSlot* slots;
+    uint32 frame;           // gDetailFrame
+    void (*quad)(const Vertex* v, const RoomQuad* polys, int32 count);
+    int32_t (*miss)(uint32_t key, uint32_t texSize, bool quads);
+};
+
+static_assert(offsetof(RoomFaces, textures) == 16 && offsetof(RoomFaces, end) == 28 &&
+              offsetof(RoomFaces, frame) == 40 && offsetof(RoomFaces, miss) == 48 &&
+              sizeof(RoomQuad) == 12 && sizeof(RoomTriangle) == 12 && sizeof(DetailSlot) == 8 &&
+              offsetof(DetailSlot, frame) == 4 && DETAIL_MAX_KEYS == 1088 &&
+              (FACE_DETAIL | FACE_DETAIL_WHOLE) == 0x28000000 && FACE_DETAIL_SLOT_SHIFT == 20,
+              "layouts and constants shared with faces.s");
+
+extern "C" void faceAddRoomQuadsAsm(const RoomQuad* polys, int32 count, RoomFaces* rf);
+extern "C" void faceAddRoomTrianglesAsm(const RoomTriangle* polys, int32 count, RoomFaces* rf);
+
 static void renderRoomJob(const RoomJob &job)
 {
     const RoomInfo* info = job.room->info;
@@ -405,12 +433,28 @@ static void renderRoomJob(const RoomJob &job)
     gSlaveStats.vertices += vCount;
 
     uint32 t1 = timerTicks();
-    if (info->quadsCount > 0) {
-        faceAddRoomQuads(roomBase, data.quads, info->quadsCount);
+    if (gSaturnLod || gFlatDist)
+    {
+        if (info->quadsCount > 0) {
+            faceAddRoomQuads(roomBase, data.quads, info->quadsCount);
+        }
+        if (info->trianglesCount > 0) {
+            faceAddRoomTriangles(roomBase, data.triangles, info->trianglesCount);
+        }
     }
-
-    if (info->trianglesCount > 0) {
-        faceAddRoomTriangles(roomBase, data.triangles, info->trianglesCount);
+    else
+    {
+        uint32 base = roomBase - gVertices;
+        RoomFaces rf = { roomBase, base * 0x10001, &gFaceList, gRoomFaceFlags, level.textures, 0, 0,
+                         gFaceList.end, gDetailKeys[0], gDetailSlots, gDetailFrame, faceAddRoomQuads, detailSlotMiss };
+        if (info->quadsCount > 0) {
+            faceAddRoomQuadsAsm(data.quads, info->quadsCount, &rf);
+        }
+        if (info->trianglesCount > 0) {
+            faceAddRoomTrianglesAsm(data.triangles, info->trianglesCount, &rf);
+        }
+        gSlaveStats.detailFaces += rf.detailFaces;
+        gSlaveStats.detailMisses += rf.detailMisses;
     }
     uint32 t2 = timerTicks();
 
