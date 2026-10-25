@@ -40,7 +40,7 @@ enum FaceType {
 #define FACE_DETAIL     (1 << 29)   // full-res quadrant of a cached room texture
 #define FACE_PARALLELOGRAM  (1 << 28)   // mesh triangle drawn as a parallelogram, see faceAddMeshTriangles
 #define FACE_V0_AT_D        (1 << 27)   // ... with its first vertex at corner D (else A)
-#define FACE_DETAIL_WHOLE   (1 << 27)   // room face: the cached full-res texture whole (gNoTextureLod)
+#define FACE_DETAIL_WHOLE   (1 << 27)   // room face: the cached full-res texture whole
 #define FACE_DETAIL_SLOT_SHIFT  20      // 7 bits
 #define FACE_DETAIL_QUAD_SHIFT  18
 #define FACE_TYPE_SHIFT 14
@@ -176,10 +176,23 @@ enum TexelView
 };
 extern int32 gTexelView;
 
-// Debug: room faces at every distance drawn with their full-res texture whole
-// (cache permitting), as the PS1 draws them, instead of the quarter-res set
-// with full-res quadrants near the camera.
-extern bool gNoTextureLod;
+// Room faces are drawn with their full-res texture whole at any distance
+// (cache permitting), as the PS1 draws them. With this set, the original's way:
+// the quarter-res set, with full-res quadrants for faces near the camera.
+extern bool gSaturnLod;
+
+// Shading options to compare (the debug menu):
+// how far shade darkens, SHADE_CURVE_*;
+enum ShadeCurve
+{
+    SHADE_CURVE_SATURN, // in even steps to black, as the original
+    SHADE_CURVE_SOFT,   // less in the middle, still to black
+    SHADE_CURVE_SOFTER,
+    SHADE_CURVE_COUNT
+};
+void renderSetShadeCurve(int32 curve);
+// and dark faces drawn at half luminance, with gouraud making up the rest.
+extern bool gShadeHalf;
 
 // rooms.cpp: rooms are drawn on the slave CPU.
 struct RoomStats

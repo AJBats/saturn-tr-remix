@@ -12,9 +12,10 @@ average colour for untextured drawing.
 
 Room textures in the blob are the quarter-resolution set. The full-resolution
 set (ROOMTSUB) goes to a separate file the game keeps in work RAM and streams
-into VDP1 VRAM for faces near the camera: per texture, four quadrants in
-clockwise order from top left, each the size of the quarter-res tile and
-using its colour table.
+into VDP1 VRAM as faces use it: per texture, the whole texture (twice the
+quarter-res tile's size each way, with its colour table). The original stores
+it as four quadrants for faces split near the camera; the game rearranges it
+so when drawing that way (saturn/detail.h).
 
 Sound effects keep the original's samples (16-bit PCM at 5512.5 Hz). They
 go to a separate file the game loads into sound RAM; the PKD holds the sound
@@ -647,6 +648,26 @@ class Packer:
         return bytes(out.b)
 
 
+def whole_textures(lvl):
+    """The full-res set with each texture's four quadrants (clockwise from top
+    left, as ROOMTSUB holds them) put together into one."""
+    out = bytearray(lvl.room_tex_sub)
+    done = set()
+    for t in lvl.room_textures:
+        offset, w, h = t["sub"][0] * 8, t["w"], t["h"]
+        if offset in done:
+            continue
+        done.add(offset)
+        row = w // 2
+        quad = row * h
+        for q, (ox, oy) in enumerate(((0, 0), (1, 0), (1, 1), (0, 1))):
+            for r in range(h):
+                src = offset + q * quad + r * row
+                dst = offset + (oy * h + r) * row * 2 + ox * row
+                out[dst:dst + row] = lvl.room_tex_sub[src:src + row]
+    return bytes(out)
+
+
 def s32(v):
     return v - 0x100000000 if v >= 0x80000000 else v
 
@@ -731,7 +752,7 @@ def main():
         f.write(packer.textures.blob)
     sub_path = os.path.splitext(out_path)[0] + ".SUB"
     with open(sub_path, "wb") as f:
-        f.write(lvl.room_tex_sub)
+        f.write(whole_textures(lvl))
     sfx_path = os.path.splitext(out_path)[0] + ".SFX"
     with open(sfx_path, "wb") as f:
         f.write(packer.sfx)

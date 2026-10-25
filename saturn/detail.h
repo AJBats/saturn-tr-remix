@@ -1,10 +1,13 @@
-// Full-resolution room textures for faces near the camera, after the original
-// game. The level's texture blob in VDP1 VRAM holds room textures at quarter
-// resolution; the full-resolution set stays in work RAM, and the VRAM left
-// over after the blob is a cache of slots holding the textures in use.
+// Full-resolution room textures. The level's texture blob in VDP1 VRAM holds
+// room textures at quarter resolution; the full-resolution set stays in work
+// RAM, and the VRAM left over after the blob is a cache of slots holding the
+// textures in use.
 //
-// A full-res texture is four quadrants, clockwise from top left, each the size
-// of the quarter-res tile and drawn with its colour table.
+// The set loads as whole textures, drawn on faces at any distance. The
+// original's way (gSaturnLod) draws quarter-res textures but for faces near the
+// camera, which it splits 2x2, each quarter with one quadrant of the full-res
+// texture: four tiles the size of the quarter-res one, clockwise from top
+// left, all drawn with its colour table.
 #ifndef DETAIL_H
 #define DETAIL_H
 
@@ -33,9 +36,9 @@ inline uint32_t detailSlotAddr(int32_t slot)
     return gDetailVramStart + slot * DETAIL_SLOT_SIZE;
 }
 
-// Rearranges the full-res set between quadrants (for faces split near the
-// camera) and whole textures (gNoTextureLod), and empties the cache. Each of
-// the level's room textures names its block (reserved) and quadrant size.
+// Rearranges the full-res set between whole textures and quadrants (for faces
+// split near the camera, gSaturnLod), and empties the cache. Each of the
+// level's room textures names its block (reserved) and quadrant size.
 struct Texture;
 void detailSetWhole(bool whole, const Texture* textures, int32_t count);
 

@@ -2,12 +2,10 @@
 
 #include "game.h"
 #include "cd.h"
-#include "detail.h"
+#include "debug.h"
 #include "fmv.h"
 #include "hw.h"
 #include "input.h"
-#include "palettes.h"
-#include "render.h"
 #include "screen.h"
 #include "slave.h"
 #include "sound.h"
@@ -21,96 +19,6 @@
 int32 fps;
 
 static uint16 gPad;
-static uint16 gDebugPad;
-
-static const char* gDebugMessage;
-static uint32 gDebugMessageEnd;
-
-static void debugMessage(const char* text)
-{
-    gDebugMessage = text;
-    gDebugMessageEnd = gVblankCount + 120;
-}
-
-static char* appendStat(char* p, const char* name, uint32 value)
-{
-    while (*name) {
-        *p++ = *name++;
-    }
-    int2str(int32(value), p);
-    while (*p) {
-        p++;
-    }
-    *p++ = ' ';
-    *p++ = ' ';
-    *p = 0;
-    return p;
-}
-
-// Share of a 30 fps frame (FRT ticks at the master's clock / 128).
-static uint32 framePercent(uint32 ticks)
-{
-    return ticks * 100 / 7457;
-}
-
-const char* osDebugMessage(int32 line)
-{
-    if (!gTexelView && !gNoTextureLod)
-        return line == 0 && int32(gDebugMessageEnd - gVblankCount) > 0 ? gDebugMessage : NULL;
-
-    static char text[64];
-    char* p = text;
-    if (line == 0)
-    {
-        if (int32(gDebugMessageEnd - gVblankCount) > 0)
-            return gDebugMessage;
-
-        // room faces drawn full res; left at quarter res for want of a cache
-        // slot or upload; near ones without a full-res texture; near triangles
-        p = appendStat(p, "full ", gStats.detailFaces);
-        p = appendStat(p, "missed ", gStats.detailMisses);
-        p = appendStat(p, "none ", gStats.nearNoDetail);
-        appendStat(p, "tri ", gStats.nearTriangles);
-    }
-    else
-    {
-        p = appendStat(p, "vdp1 ", framePercent(gStats.vdp1Ticks));
-        p = appendStat(p, "cpu ", framePercent(gStats.updateTicks + gStats.renderTicks - gStats.waitTicks));
-        appendStat(p, "uploads ", gStats.detailUploads);
-    }
-    return text;
-}
-
-// The debug pad on port 2 (Mednafen: P is its A, H its B, G its C): A swaps
-// the colour tables, B cycles the texture views, C turns texture LOD off.
-static void updateDebug()
-{
-    uint16 pad = padDebug();
-    uint16 pressed = pad & ~gDebugPad;
-    gDebugPad = pad;
-
-    if (pressed & PAD_A)
-    {
-        palettesToggle();
-        debugMessage(palettesRemastered() ? "Remastered palette" : "Saturn palette");
-    }
-
-    if (pressed & PAD_B)
-    {
-        static const char* const names[TEXEL_VIEW_COUNT] = {
-            "Normal view", "Texture resolution view", "Texel size view"
-        };
-        gTexelView = (gTexelView + 1) % TEXEL_VIEW_COUNT;
-        debugMessage(names[gTexelView]);
-    }
-
-    if (pressed & PAD_C)
-    {
-        gNoTextureLod = !gNoTextureLod;
-        detailSetWhole(gNoTextureLod, level.textures, level.texturesCount);
-        debugMessage(gNoTextureLod ? "Full-res textures everywhere" : "Saturn texture LOD");
-    }
-}
 
 static void updateInput()
 {
@@ -190,7 +98,7 @@ int main()
 
         uint32 t0 = timerTicks();
         updateInput();
-        updateDebug();
+        debugUpdate();
         gameUpdate(delta);
         sndFrame();
         uint32 t1 = timerTicks();

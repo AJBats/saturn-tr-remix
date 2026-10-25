@@ -210,8 +210,8 @@ static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
     return true;
 }
 
-// The PS1's way (gNoTextureLod): a face drawn with its full-res texture
-// whole, at any distance, if the cache has room for it.
+// A face drawn with its full-res texture whole, at any distance, if the cache
+// has room for it.
 static uint32 wholeTexture(uint32 flags)
 {
     const Texture* tex = level.textures + (flags & FACE_TEXTURE);
@@ -258,7 +258,7 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
         int32 zMax = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z)));
         const Texture* tex = level.textures + (flags & FACE_TEXTURE);
 
-        if (gNoTextureLod)
+        if (!gSaturnLod)
         {
             if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
                 continue;
@@ -321,7 +321,7 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
         flags |= FACE_TRIANGLE;
 
         int32 zMax = X_MAX(v0->z, X_MAX(v1->z, v2->z));
-        if (gNoTextureLod) {
+        if (!gSaturnLod) {
             flags = wholeTexture(flags);
         } else if (zMax < DETAIL_DIST) {
             gSlaveStats.nearTriangles++;

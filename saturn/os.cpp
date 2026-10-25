@@ -187,7 +187,7 @@ const void* osLoadLevel(LevelID id)
     palettesLoad(name);
     uint32 subSize = loadOrHalt(name, ".SUB", detailData(), detailDataMax());
     detailInit(VRAM_TEX_BASE + texSize, subSize);
-    gNoTextureLod = false; // the full-res set loads as quadrants
+    gSaturnLod = false; // the full-res set loads whole
 
     loadOrHalt(name, ".PKD", LEVEL_ADDR, LEVEL_MAX);
 

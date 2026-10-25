@@ -10,7 +10,7 @@
 #define DATA_MAX        (272 * 1024)
 #define MAX_KEYS        (DATA_MAX / DETAIL_UNIT)
 #define MAX_SLOTS       128
-#define MAX_UPLOADS     32      // per frame, 2 KB each: 8 normally, all with whole textures
+#define MAX_UPLOADS     32      // per frame, 2 KB each (8 for the original's near quadrants)
 #define NO_KEY          0xFFFF
 #define ITEM_DATA_MAX   (72 * 1024) // LEVEL4's are 70 KB
 
@@ -77,7 +77,7 @@ void detailInit(uint32_t vramStart, uint32_t dataSize)
     }
 
     gUploadCount = 0;
-    gUploadMax = 8;
+    gUploadMax = MAX_UPLOADS; // the set loads whole
     gSuspended = false;
     gItemUpload = false;
 }

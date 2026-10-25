@@ -41,8 +41,10 @@ union Command
 static ALIGN16 Command gCmds[MAX_CMDS];
 static ALIGN16 uint32 gGouraud[MAX_CMDS][2];
 
-// TR shade 0 (lit) .. 31 (dark) as a VDP1 gouraud entry (16 = colour unchanged),
-// and dimmed, for the scene behind the inventory
+// TR shade 0 (lit) .. 31 (dark) as a gouraud level (16 = colour unchanged:
+// brighter from shade 15 down, darker from 16 up, along the shading curve), as
+// a VDP1 gouraud entry, and dimmed, for the scene behind the inventory
+static uint8 gShadeLevel[32];
 static uint16 gShadeGouraud[32];
 static uint16 gDimGouraud[32];
 
@@ -305,7 +307,7 @@ X_INLINE uint32 shadePair(uint32 g0, uint32 g1)
 // 1024 units beyond the first 1024, so distant things fade to teal.
 X_INLINE uint32 waterGouraud(const Vertex* v)
 {
-    int32 c = 31 - v->g;
+    int32 c = gShadeLevel[v->g];
     int32 r = c;
     if (v->z > 1024)
     {
@@ -327,7 +329,8 @@ X_INLINE uint32 gouraudPair(uint32 flags, bool dim, const Vertex* a, const Verte
 }
 
 int32 gTexelView;
-bool gNoTextureLod;
+bool gSaturnLod;
+bool gShadeHalf;
 
 // Adds to each channel of a pair of gouraud values, within 0 .. 31.
 X_INLINE uint32 tintPair(uint32 pair, int32 dr, int32 dg, int32 db)
@@ -390,6 +393,41 @@ static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room, int
 
     grd[0] = tintPair(grd[0], dr, dg, db);
     grd[1] = tintPair(grd[1], dr, dg, db);
+}
+
+// gShadeHalf: a face darkened by at least a third of its texture's mean is drawn
+// at half luminance, which scales its texels as the PS1 shades, and its
+// gouraud levels are raised to keep each corner as bright as it was. Halving
+// (t + g - 16) leaves t / 2 + (g - 16) / 2, so for corner level L and mean m
+// per channel, g = m + 2 (L - 16) + 16.
+static void shadeHalf(uint32* w, uint32* grd, const Texture* tex)
+{
+    int32 level[4] = {
+        int32(grd[0] >> 16) & 31, int32(grd[0]) & 31,
+        int32(grd[1] >> 16) & 31, int32(grd[1]) & 31
+    };
+    int32 sum = level[0] + level[1] + level[2] + level[3];
+
+    uint32 color = tex->color;
+    int32 mean[3] = { int32(color & 31), int32((color >> 5) & 31), int32((color >> 10) & 31) };
+    int32 meanLuma = mean[0] + mean[1] + mean[2];
+
+    // average darkening (64 - sum) / 4 against a third of the mean luma / 3
+    if ((64 - sum) * 9 < meanLuma * 4)
+        return;
+
+    uint32 out[4];
+    for (int32 i = 0; i < 4; i++)
+    {
+        int32 offset = 2 * (level[i] - 16) + 16;
+        int32 r = X_CLAMP(mean[0] + offset, 0, 31);
+        int32 g = X_CLAMP(mean[1] + offset, 0, 31);
+        int32 b = X_CLAMP(mean[2] + offset, 0, 31);
+        out[i] = (b << 10) | (g << 5) | r;
+    }
+    grd[0] = (out[0] << 16) | out[1];
+    grd[1] = (out[2] << 16) | out[3];
+    w[1] = (w[1] & ~(7 << 16)) | (PMOD_GOURAUD_HALF << 16);
 }
 
 X_INLINE void setRect(uint32* w, const Vertex* pos, const Vertex* size)
@@ -579,6 +617,9 @@ void flush_c()
                             grd[1] = gouraudPair(flags, dim, v2, v2);
                         }
 
+                        if (gShadeHalf && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim) {
+                            shadeHalf(w, grd, level.textures + (flags & FACE_TEXTURE));
+                        }
                         if (gTexelView == TEXEL_VIEW_SIZE && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW) {
                             texelTint(w, grd, flags, false, 0);
                         }
@@ -593,6 +634,9 @@ void flush_c()
                     grd[0] = gouraudPair(flags, dim, v0, v1);
                     grd[1] = gouraudPair(flags, dim, v2, v3);
 
+                    if (gShadeHalf && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim && !(flags & FACE_WATER)) {
+                        shadeHalf(w, grd, level.textures + (flags & FACE_TEXTURE));
+                    }
                     if (gTexelView && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW) {
                         texelTint(w, grd, flags, !list, X_MAX(X_MAX(v0->z, v1->z), X_MAX(v2->z, v3->z)));
                     }
@@ -629,6 +673,25 @@ void flush_c()
     gStats.flushTicks = ((timerTicks() - start) & 0xFFFF) - gStats.waitTicks - gStats.slaveWaitTicks;
 }
 
+void renderSetShadeCurve(int32 curve)
+{
+    // shades 16 .. 31, how many steps darker
+    static const uint8 dark[SHADE_CURVE_COUNT][16] = {
+        { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 },
+        { 0, 1, 2, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 15, 16 },    // ^1.4
+        { 0, 0, 1, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 16 }     // ^1.8
+    };
+
+    for (int32 g = 0; g < 32; g++)
+    {
+        uint32 c = (g < 16) ? 31 - g : 16 - dark[curve][g - 16];
+        gShadeLevel[g] = c;
+        gShadeGouraud[g] = (c << 10) | (c << 5) | c;
+        uint32 d = X_MAX(int32(c) - 8, 0);
+        gDimGouraud[g] = (d << 10) | (d << 5) | d;
+    }
+}
+
 void renderInit()
 {
     // The core's divide table holds 1 .. 1023 (its last entry is 0, past the
@@ -637,13 +700,7 @@ void renderInit()
         divTable[i] = (1 << 16) / i;
     }
 
-    for (int32 g = 0; g < 32; g++)
-    {
-        uint32 c = 31 - g;
-        gShadeGouraud[g] = (c << 10) | (c << 5) | c;
-        uint32 d = X_MAX(int32(c) - 8, 0);
-        gDimGouraud[g] = (d << 10) | (d << 5) | d;
-    }
+    renderSetShadeCurve(SHADE_CURVE_SATURN);
     gDimFacesEnd = gFaces;
 
     // The frame's first command clears it, as the original does: vblank erase
