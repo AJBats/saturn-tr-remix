@@ -1076,10 +1076,21 @@ void renderPalettesSwapped()
     buildContrast();
 }
 
+// The level's texture entries, moved from low work RAM to where the CPUs read
+// faster.
+#define MAX_LEVEL_TEXTURES 1344 // LEVEL4 has 1313
+static Texture gTextures[MAX_LEVEL_TEXTURES];
+
 void renderLevelInit()
 {
     for (int32 i = 0; i < int32(sizeof(gHalfLevel)); i++) {
         gHalfLevel[i] = X_CLAMP(i - 16, 0, 31);
+    }
+
+    if (level.texturesCount <= MAX_LEVEL_TEXTURES)
+    {
+        memcpy(gTextures, level.textures, level.texturesCount * sizeof(Texture));
+        level.textures = gTextures;
     }
 
     if (palettesRemastered())
