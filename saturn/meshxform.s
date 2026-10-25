@@ -49,7 +49,9 @@ _transformMeshAsm:
     mov     #68, r0
     mov.l   @(r0, r7), r0
     tst     r0, r0
-    bf      .Lfast
+    bt      .Lloop
+    bra     .Lfast
+    nop
 
 .Lloop:
     ! z = tz + v . row2
@@ -202,31 +204,33 @@ _transformMeshAsm:
     bra     .Lloop              ! the loop is too long for a conditional branch
     add     #8, r6
 
-    ! the mesh is inside the frame: project only
+    ! the mesh is inside the frame: project only, the translation in r1..r3
+    ! and the frame's centre in r14
 .Lfast:
-    mov.l   @(28, r7), r0       ! z = tz + v . row2
-    lds     r0, macl
-    mov     r4, r8
+    mov.l   @(28, r7), r1       ! tz
+    mov.l   @(20, r7), r2       ! tx
+    mov.l   @(24, r7), r3       ! ty
+    mov.l   .Lcentre, r14
+.LfastLoop:
+    lds     r1, macl            ! z = tz + v . row2
     mov     r7, r9
     add     #12, r9
-    mac.w   @r8+, @r9+
-    mac.w   @r8+, @r9+
-    mac.w   @r8+, @r9+
-    mov.l   @(20, r7), r0       ! x = tx + v . row0
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    add     #-6, r4
     sts     macl, r11
-    lds     r0, macl
-    mov     r4, r8
+    lds     r2, macl            ! x = tx + v . row0
     mov     r7, r9
-    mac.w   @r8+, @r9+
-    mac.w   @r8+, @r9+
-    mac.w   @r8+, @r9+
-    mov.l   @(24, r7), r0       ! y = ty + v . row1
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    add     #-6, r4
     sts     macl, r12
-    lds     r0, macl
-    mov     r4, r8
-    mac.w   @r8+, @r9+
-    mac.w   @r8+, @r9+
-    mac.w   @r8+, @r9+
+    lds     r3, macl            ! y = ty + v . row1
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+          ! r4 at the next vertex
     shlr8   r12
     sts     macl, r13
     shlr2   r12
@@ -243,10 +247,9 @@ _transformMeshAsm:
     shlr2   r0
     add     r0, r0
     mov.w   @(r0, r10), r0      ! d
-    shlr8   r11
-    shlr2   r11
-    shlr2   r11
-    shlr2   r11
+    shll2   r11
+    shlr16  r11
+    shll16  r11                 ! z >> FIXED_SHIFT << 16 (z < 1 << 30)
     muls.w  r0, r12
     sts     macl, r12
     muls.w  r0, r13
@@ -255,23 +258,17 @@ _transformMeshAsm:
     shlr2   r12
     shlr2   r12
     exts.w  r12, r12
-    mov.w   .LhalfWidth, r0
-    add     r0, r12
     shlr8   r13
     shlr2   r13
     shlr2   r13
     exts.w  r13, r13
-    mov.w   .LhalfHeight, r0
-    add     r0, r13
     shll16  r12
-    extu.w  r13, r13
-    or      r13, r12
+    add     r13, r12            ! x << 16 + y, y borrowing from x when below 0,
+    add     r14, r12            ! which the centre's carry repays (y + 120 > 0)
     mov.l   r12, @r6
-    shll16  r11
     mov.l   r11, @(4, r6)
-    add     #6, r4
     dt      r5
-    bf/s    .Lfast
+    bf/s    .LfastLoop
     add     #8, r6
 
 .Lshade:
@@ -378,6 +375,7 @@ _transformMeshAsm:
 .LviewMin:      .long   0x00100000  ! VIEW_MIN_F
 .LviewMax:      .long   0x14000000  ! VIEW_MAX_F
 .LpMax:         .long   0x007FF000  ! projected 2047 << 12
+.Lcentre:       .long   0x00B00078  ! FRAME_WIDTH / 2 << 16 | FRAME_HEIGHT / 2
 .LhalfWidth:    .short  176         ! FRAME_WIDTH / 2
 .LhalfHeight:   .short  120         ! FRAME_HEIGHT / 2
 .LframeWidth:   .short  352         ! FRAME_WIDTH
