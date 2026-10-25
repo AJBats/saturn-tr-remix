@@ -7,6 +7,7 @@
 #include "fmv.h"
 #include "hw.h"
 #include "palettes.h"
+#include "render.h"
 #include "screen.h"
 #include "sound.h"
 #include "vram.h"
@@ -186,6 +187,7 @@ const void* osLoadLevel(LevelID id)
     palettesLoad(name);
     uint32 subSize = loadOrHalt(name, ".SUB", detailData(), detailDataMax());
     detailInit(VRAM_TEX_BASE + texSize, subSize);
+    gNoTextureLod = false; // the full-res set loads as quadrants
 
     loadOrHalt(name, ".PKD", LEVEL_ADDR, LEVEL_MAX);
 

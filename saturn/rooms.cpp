@@ -210,6 +210,26 @@ static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
     return true;
 }
 
+// The PS1's way (gNoTextureLod): a face drawn with its full-res texture
+// whole, at any distance, if the cache has room for it.
+static uint32 wholeTexture(uint32 flags)
+{
+    const Texture* tex = level.textures + (flags & FACE_TEXTURE);
+    if (!tex->reserved)
+        return flags;
+
+    uint32 size = tex->size;
+    int32 slot = detailSlot(tex->reserved - 1, (size >> 8) * 16 * (size & 0xFF));
+    if (slot < 0)
+    {
+        gSlaveStats.detailMisses++;
+        return flags;
+    }
+
+    gSlaveStats.detailFaces++;
+    return flags | FACE_DETAIL | FACE_DETAIL_WHOLE | (slot << FACE_DETAIL_SLOT_SHIFT);
+}
+
 static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count)
 {
     for (int32 i = 0; i < count; i++, polys++)
@@ -238,21 +258,30 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
         int32 zMax = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z)));
         const Texture* tex = level.textures + (flags & FACE_TEXTURE);
 
-        if (zMax < DETAIL_DIST)
+        if (gNoTextureLod)
         {
-            if (tex->reserved && faceAddRoomQuadDetail(polys, tex, v0, v1, v2, v3))
+            if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
                 continue;
+            flags = wholeTexture(flags);
         }
-
-        if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
-            continue;
-
-        if (zMax < DETAIL_DIST)
+        else
         {
-            if (tex->reserved) {
-                gSlaveStats.detailMisses++;
-            } else {
-                gSlaveStats.nearNoDetail++;
+            if (zMax < DETAIL_DIST)
+            {
+                if (tex->reserved && faceAddRoomQuadDetail(polys, tex, v0, v1, v2, v3))
+                    continue;
+            }
+
+            if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
+                continue;
+
+            if (zMax < DETAIL_DIST)
+            {
+                if (tex->reserved) {
+                    gSlaveStats.detailMisses++;
+                } else {
+                    gSlaveStats.nearNoDetail++;
+                }
             }
         }
 
@@ -292,7 +321,9 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
         flags |= FACE_TRIANGLE;
 
         int32 zMax = X_MAX(v0->z, X_MAX(v1->z, v2->z));
-        if (zMax < DETAIL_DIST) {
+        if (gNoTextureLod) {
+            flags = wholeTexture(flags);
+        } else if (zMax < DETAIL_DIST) {
             gSlaveStats.nearTriangles++;
         }
         int32 depth = zMax >> OT_SHIFT;

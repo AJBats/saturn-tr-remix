@@ -938,7 +938,8 @@ void drawHUD(Lara* lara)
 void drawFPS()
 {
 #if defined(__SATURN__)
-    drawText(0, FRAME_HEIGHT - 20, osDebugMessage(), TEXT_ALIGN_CENTER);
+    drawText(0, FRAME_HEIGHT - 20, osDebugMessage(0), TEXT_ALIGN_CENTER);
+    drawText(0, FRAME_HEIGHT - 38, osDebugMessage(1), TEXT_ALIGN_CENTER);
 #endif
 
 #ifdef __GBA__

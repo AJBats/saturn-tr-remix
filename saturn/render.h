@@ -40,7 +40,8 @@ enum FaceType {
 #define FACE_DETAIL     (1 << 29)   // full-res quadrant of a cached room texture
 #define FACE_PARALLELOGRAM  (1 << 28)   // mesh triangle drawn as a parallelogram, see faceAddMeshTriangles
 #define FACE_V0_AT_D        (1 << 27)   // ... with its first vertex at corner D (else A)
-#define FACE_DETAIL_SLOT_SHIFT  20
+#define FACE_DETAIL_WHOLE   (1 << 27)   // room face: the cached full-res texture whole (gNoTextureLod)
+#define FACE_DETAIL_SLOT_SHIFT  20      // 7 bits
 #define FACE_DETAIL_QUAD_SHIFT  18
 #define FACE_TYPE_SHIFT 14
 #define FACE_TYPE_MASK  15
@@ -163,9 +164,22 @@ X_INLINE void projectView(int16 x, int16 y, int32 z, uint32 clip, const RectMinM
 // with full-res textures, as in the original game.
 #define DETAIL_DIST     4096
 
-// Debug view: room faces tinted by the resolution of their texture (green
-// full, red quarter though near, blue quarter and far).
-extern bool gTexelView;
+// Debug views (the debug pad's B cycles them).
+enum TexelView
+{
+    TEXEL_VIEW_OFF,
+    TEXEL_VIEW_LOD,     // room faces by texture resolution: green full, red
+                        // quarter though near, blue quarter and far
+    TEXEL_VIEW_SIZE,    // textured faces by how big a texel is on screen: green
+                        // up to a pixel, yellow 2, red 4, magenta more
+    TEXEL_VIEW_COUNT
+};
+extern int32 gTexelView;
+
+// Debug: room faces at every distance drawn with their full-res texture whole
+// (cache permitting), as the PS1 draws them, instead of the quarter-res set
+// with full-res quadrants near the camera.
+extern bool gNoTextureLod;
 
 // rooms.cpp: rooms are drawn on the slave CPU.
 struct RoomStats

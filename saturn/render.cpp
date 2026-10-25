@@ -326,7 +326,8 @@ X_INLINE uint32 gouraudPair(uint32 flags, bool dim, const Vertex* a, const Verte
     return shadePair(a->g, b->g);
 }
 
-bool gTexelView;
+int32 gTexelView;
+bool gNoTextureLod;
 
 // Adds to each channel of a pair of gouraud values, within 0 .. 31.
 X_INLINE uint32 tintPair(uint32 pair, int32 dr, int32 dg, int32 db)
@@ -343,16 +344,50 @@ X_INLINE uint32 tintPair(uint32 pair, int32 dr, int32 dg, int32 db)
     return out;
 }
 
-X_INLINE void texelTint(uint32* grd, uint32 flags, int32 zMax)
+X_INLINE int16 cmdX(uint32 w) { return int16(w >> 16); }
+X_INLINE int16 cmdY(uint32 w) { return int16(w); }
+
+// Tints a textured face for the debug views, from its finished command words.
+static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room, int32 zMax)
 {
     int32 dr = -6, dg = -6, db = -6;
-    if (flags & FACE_DETAIL) {
-        dg = 10;
-    } else if (zMax < DETAIL_DIST) {
-        dr = 12;
-    } else {
-        db = 10;
+
+    if (gTexelView == TEXEL_VIEW_LOD)
+    {
+        if (!room)
+            return;
+        if (flags & FACE_DETAIL) {
+            dg = 10;
+        } else if (zMax < DETAIL_DIST) {
+            dr = 12;
+        } else {
+            db = 10;
+        }
     }
+    else
+    {
+        // twice the face's area on screen against its texels
+        int32 area2 = 0;
+        for (int32 i = 0; i < 4; i++)
+        {
+            uint32 a = w[3 + i];
+            uint32 b = w[3 + ((i + 1) & 3)];
+            area2 += cmdX(a) * cmdY(b) - cmdX(b) * cmdY(a);
+        }
+        area2 = abs(area2);
+        uint32 size = w[2] & 0xFFFF;
+        int32 texels = (size >> 8) * 8 * (size & 0xFF);
+        if (area2 <= 2 * texels) {
+            dg = 10;                    // a texel is at most a pixel
+        } else if (area2 <= 8 * texels) {
+            dr = 10; dg = 10;           // up to 2 x 2 pixels
+        } else if (area2 <= 32 * texels) {
+            dr = 12;                    // up to 4 x 4
+        } else {
+            dr = 12; db = 12;           // bigger
+        }
+    }
+
     grd[0] = tintPair(grd[0], dr, dg, db);
     grd[1] = tintPair(grd[1], dr, dg, db);
 }
@@ -393,17 +428,26 @@ X_INLINE void faceMaterial(uint32* w, uint32 flags)
             }
 
             uint32 srca = tex->srca;
+            uint32 size = tex->size;
             if (flags & FACE_DETAIL)
             {
-                int32 slot = (flags >> FACE_DETAIL_SLOT_SHIFT) & 0xFF;
-                uint32 quad = (flags >> FACE_DETAIL_QUAD_SHIFT) & 3;
-                uint32 quadSize = (tex->size >> 8) * 4 * (tex->size & 0xFF);
-                srca = (detailSlotAddr(slot) + quad * quadSize) >> 3;
+                int32 slot = (flags >> FACE_DETAIL_SLOT_SHIFT) & 0x7F;
+                if (flags & FACE_DETAIL_WHOLE)
+                {
+                    srca = detailSlotAddr(slot) >> 3;
+                    size = ((size >> 8) << 9) | ((size & 0xFF) << 1);
+                }
+                else
+                {
+                    uint32 quad = (flags >> FACE_DETAIL_QUAD_SHIFT) & 3;
+                    uint32 quadSize = (size >> 8) * 4 * (size & 0xFF);
+                    srca = (detailSlotAddr(slot) + quad * quadSize) >> 3;
+                }
             }
 
             w[0] = (CMD_DISTORTED_SPRITE | (tex->attr & TEX_ATTR_DIR)) << 16;
             w[1] = pair(pmod, tex->colr);
-            w[2] = pair(srca, tex->size);
+            w[2] = pair(srca, size);
             return;
         }
         color = tex->color;
@@ -534,6 +578,10 @@ void flush_c()
                             grd[0] = gouraudPair(flags, dim, v0, v1);
                             grd[1] = gouraudPair(flags, dim, v2, v2);
                         }
+
+                        if (gTexelView == TEXEL_VIEW_SIZE && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW) {
+                            texelTint(w, grd, flags, false, 0);
+                        }
                         break;
                     }
 
@@ -545,8 +593,8 @@ void flush_c()
                     grd[0] = gouraudPair(flags, dim, v0, v1);
                     grd[1] = gouraudPair(flags, dim, v2, v3);
 
-                    if (gTexelView && !list && type != FACE_TYPE_F) {
-                        texelTint(grd, flags, X_MAX(X_MAX(v0->z, v1->z), X_MAX(v2->z, v3->z)));
+                    if (gTexelView && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW) {
+                        texelTint(w, grd, flags, !list, X_MAX(X_MAX(v0->z, v1->z), X_MAX(v2->z, v3->z)));
                     }
                 }
             }

@@ -2,6 +2,7 @@
 
 #include "game.h"
 #include "cd.h"
+#include "detail.h"
 #include "fmv.h"
 #include "hw.h"
 #include "input.h"
@@ -46,29 +47,42 @@ static char* appendStat(char* p, const char* name, uint32 value)
     return p;
 }
 
-const char* osDebugMessage()
+// Share of a 30 fps frame (FRT ticks at the master's clock / 128).
+static uint32 framePercent(uint32 ticks)
 {
-    if (int32(gDebugMessageEnd - gVblankCount) > 0)
-        return gDebugMessage;
+    return ticks * 100 / 7457;
+}
 
-    if (gTexelView)
+const char* osDebugMessage(int32 line)
+{
+    if (!gTexelView && !gNoTextureLod)
+        return line == 0 && int32(gDebugMessageEnd - gVblankCount) > 0 ? gDebugMessage : NULL;
+
+    static char text[64];
+    char* p = text;
+    if (line == 0)
     {
-        // room faces near the camera: full res, quarter res for want of a
-        // cache slot, without a full-res texture, and triangles
-        static char text[64];
-        char* p = text;
+        if (int32(gDebugMessageEnd - gVblankCount) > 0)
+            return gDebugMessage;
+
+        // room faces drawn full res; left at quarter res for want of a cache
+        // slot or upload; near ones without a full-res texture; near triangles
         p = appendStat(p, "full ", gStats.detailFaces);
         p = appendStat(p, "missed ", gStats.detailMisses);
         p = appendStat(p, "none ", gStats.nearNoDetail);
         appendStat(p, "tri ", gStats.nearTriangles);
-        return text;
     }
-
-    return NULL;
+    else
+    {
+        p = appendStat(p, "vdp1 ", framePercent(gStats.vdp1Ticks));
+        p = appendStat(p, "cpu ", framePercent(gStats.updateTicks + gStats.renderTicks - gStats.waitTicks));
+        appendStat(p, "uploads ", gStats.detailUploads);
+    }
+    return text;
 }
 
-// The debug pad on port 2 (Mednafen: P is its A, H its B): A swaps the colour
-// tables, B the texture resolution view.
+// The debug pad on port 2 (Mednafen: P is its A, H its B, G its C): A swaps
+// the colour tables, B cycles the texture views, C turns texture LOD off.
 static void updateDebug()
 {
     uint16 pad = padDebug();
@@ -83,8 +97,18 @@ static void updateDebug()
 
     if (pressed & PAD_B)
     {
-        gTexelView = !gTexelView;
-        debugMessage(gTexelView ? "Texture resolution view" : "Normal view");
+        static const char* const names[TEXEL_VIEW_COUNT] = {
+            "Normal view", "Texture resolution view", "Texel size view"
+        };
+        gTexelView = (gTexelView + 1) % TEXEL_VIEW_COUNT;
+        debugMessage(names[gTexelView]);
+    }
+
+    if (pressed & PAD_C)
+    {
+        gNoTextureLod = !gNoTextureLod;
+        detailSetWhole(gNoTextureLod, level.textures, level.texturesCount);
+        debugMessage(gNoTextureLod ? "Full-res textures everywhere" : "Saturn texture LOD");
     }
 }
 

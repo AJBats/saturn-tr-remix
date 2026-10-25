@@ -33,6 +33,12 @@ inline uint32_t detailSlotAddr(int32_t slot)
     return gDetailVramStart + slot * DETAIL_SLOT_SIZE;
 }
 
+// Rearranges the full-res set between quadrants (for faces split near the
+// camera) and whole textures (gNoTextureLod), and empties the cache. Each of
+// the level's room textures names its block (reserved) and quadrant size.
+struct Texture;
+void detailSetWhole(bool whole, const Texture* textures, int32_t count);
+
 // Uploads the textures queued this frame and starts the next frame. VDP1 must
 // be idle: slots replaced this frame may hold textures it drew last frame.
 void detailFlush();

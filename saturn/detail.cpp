@@ -1,6 +1,7 @@
 // Full-resolution room texture cache (see detail.h).
 
 #include "detail.h"
+#include "common.h"
 #include "hw.h"
 #include "system.h"
 
@@ -9,7 +10,7 @@
 #define DATA_MAX        (272 * 1024)
 #define MAX_KEYS        (DATA_MAX / DETAIL_UNIT)
 #define MAX_SLOTS       128
-#define MAX_UPLOADS     8       // per frame, 2 KB each
+#define MAX_UPLOADS     32      // per frame, 2 KB each: 8 normally, all with whole textures
 #define NO_KEY          0xFFFF
 #define ITEM_DATA_MAX   (72 * 1024) // LEVEL4's are 70 KB
 
@@ -37,6 +38,7 @@ static uint32_t gFrame;
 
 static Upload gUploads[MAX_UPLOADS];
 static int32_t gUploadCount;
+static int32_t gUploadMax = 8;
 
 static uint8_t gItemData[ITEM_DATA_MAX] __attribute__((aligned(16)));
 static uint32_t gItemDataSize;
@@ -75,6 +77,7 @@ void detailInit(uint32_t vramStart, uint32_t dataSize)
     }
 
     gUploadCount = 0;
+    gUploadMax = 8;
     gSuspended = false;
     gItemUpload = false;
 }
@@ -130,7 +133,7 @@ int32_t detailSlot(uint32_t key, uint32_t size)
         return cached - 1;
     }
 
-    if (gUploadCount == MAX_UPLOADS)
+    if (gUploadCount == gUploadMax)
         return -1;
 
     // least recently drawn slot not in use this frame
@@ -175,6 +178,63 @@ void detailFlush()
     for (int32_t i = 0; i < gUploadCount; i++) {
         dmaCopy((const void*)gUploads[i].src, gUploads[i].dst, gUploads[i].size);
     }
+    gStats.detailUploads = gUploadCount;
     gUploadCount = 0;
     gFrame++;
+}
+
+// One texture's block: four w x h quadrants, clockwise from top left, or the
+// 2w x 2h texture they make.
+static void relayout(uint8_t* block, uint32_t w, uint32_t h, bool toWhole)
+{
+    static uint8_t tmp[DETAIL_SLOT_SIZE];
+    static const uint8_t ox[4] = { 0, 1, 1, 0 };
+    static const uint8_t oy[4] = { 0, 0, 1, 1 };
+
+    uint32_t row = w / 2; // bytes in a quadrant's row
+    uint32_t quad = row * h;
+    if (quad * 4 > sizeof(tmp))
+        return;
+
+    for (int32_t q = 0; q < 4; q++)
+    {
+        for (uint32_t r = 0; r < h; r++)
+        {
+            uint32_t quadOffset = q * quad + r * row;
+            uint32_t wholeOffset = (oy[q] * h + r) * row * 2 + ox[q] * row;
+            if (toWhole) {
+                memcpy(tmp + wholeOffset, block + quadOffset, row);
+            } else {
+                memcpy(tmp + quadOffset, block + wholeOffset, row);
+            }
+        }
+    }
+    memcpy(block, tmp, quad * 4);
+}
+
+void detailSetWhole(bool whole, const Texture* textures, int32_t count)
+{
+    static uint8_t done[MAX_KEYS];
+    memset(done, 0, sizeof(done));
+
+    for (int32_t i = 0; i < count; i++)
+    {
+        const Texture &t = textures[i];
+        uint32_t key = t.reserved - 1;
+        if (!t.reserved || key >= MAX_KEYS || done[key])
+            continue;
+        done[key] = 1;
+        relayout(gData + key * DETAIL_UNIT, (t.size >> 8) * 8, t.size & 0xFF, whole);
+    }
+
+    for (int32_t i = 0; i < gSlotCount; i++)
+    {
+        if (gSlots[i].key != NO_KEY) {
+            gKeySlot[gSlots[i].key] = 0;
+        }
+        gSlots[i].key = NO_KEY;
+        gSlots[i].frame = 0;
+    }
+    gUploadCount = 0;
+    gUploadMax = whole ? MAX_UPLOADS : 8;
 }

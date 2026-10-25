@@ -22,7 +22,7 @@ static struct
     PaletteEntry entries[MAX_PALETTES];
 } gPalettes;
 
-static bool gRemastered = true; // the player's pick
+static bool gRemastered = false; // the player's pick
 static bool gInVram;            // whether VRAM holds the remastered tables
 
 static void swap()
