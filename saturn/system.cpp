@@ -165,3 +165,19 @@ uint32_t timerTicks()
     uint32_t lo = FRT_FRCL;
     return (hi << 8) | lo;
 }
+
+void dmaCopy(const void* src, uint32_t dst, uint32_t size)
+{
+    dmaWait();
+    SCU_D0R = uint32_t(src);
+    SCU_D0W = dst;
+    SCU_D0C = size;
+    SCU_D0AD = 0x101;   // read +4, write +4
+    SCU_D0MD = 0x07;    // direct mode, start on CPU request
+    SCU_D0EN = 0x101;   // enable + start
+}
+
+void dmaWait()
+{
+    while (SCU_DSTA & DSTA_D0_BUSY);
+}

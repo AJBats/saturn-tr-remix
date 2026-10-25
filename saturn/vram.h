@@ -10,7 +10,8 @@
 #define VRAM_FRAME_CMDS     0x00060
 #define VRAM_GOURAUD_BASE   (VRAM_FRAME_CMDS + VRAM_MAX_CMDS * 32)
 
-// level textures (DATA/<level>.TEX) are loaded here, up to the end of VRAM
+// level textures (DATA/<level>.TEX) are loaded here; the rest of VRAM caches
+// full-res room textures (detail.h)
 #define VRAM_TEX_BASE       0x11860
 #define VRAM_TEX_SIZE       (0x80000 - VRAM_TEX_BASE)
 

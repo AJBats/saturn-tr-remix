@@ -46,4 +46,9 @@ void vdp1Plot();
 // Free-running timer at Pphi/128, 16 bits; subtract readings modulo 0x10000.
 uint32_t timerTicks();
 
+// SCU level 0 DMA from high work RAM to VDP1/VDP2 memory, started once the
+// previous transfer has finished.
+void dmaCopy(const void* src, uint32_t dst, uint32_t size);
+void dmaWait();
+
 #endif

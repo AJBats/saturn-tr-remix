@@ -3,6 +3,7 @@
 // of a software rasterizer.
 
 #include "common.h"
+#include "detail.h"
 #include "hw.h"
 #include "system.h"
 #include "vram.h"
@@ -35,6 +36,9 @@ enum FaceType {
 
 #define FACE_TRIANGLE   (1 << 31)
 #define FACE_CLIPPED    (1 << 30)
+#define FACE_DETAIL     (1 << 29)   // full-res quadrant of a cached room texture
+#define FACE_DETAIL_SLOT_SHIFT  20
+#define FACE_DETAIL_QUAD_SHIFT  18
 #define FACE_TYPE_SHIFT 14
 #define FACE_TYPE_MASK  15
 #define FACE_GOURAUD    (2 << FACE_TYPE_SHIFT)
@@ -56,6 +60,10 @@ enum ClipFlags {
 
 #define MAX_CMDS            VRAM_MAX_CMDS
 
+// Room quads whose farthest vertex is nearer than this are split 2x2 and drawn
+// with full-res textures, as in the original game.
+#define DETAIL_DIST         4096
+
 extern Level level;
 
 Vertex* gVerticesBase;
@@ -74,23 +82,12 @@ int32 gRenderFaceCount; // VDP1 polygons emitted by the last flush
 static uint32 gRoomTicks;
 static uint32 gMeshTicks;
 
+// The room being drawn: its vertices, and where vertices made by splitting
+// its faces go (after the room's own).
+static const RoomVertex* gRoomVertices;
+static Vertex* gExtraVertices;
+
 static volatile vdp1_cmd_t* const gVdp1Cmds = (volatile vdp1_cmd_t*)VDP1_VRAM;
-
-static void dmaToVram(const void* src, uint32 dst, uint32 size)
-{
-    while (SCU_DSTA & DSTA_D0_BUSY);
-    SCU_D0R = uint32(src);
-    SCU_D0W = dst;
-    SCU_D0C = size;
-    SCU_D0AD = 0x101;   // read +4, write +4
-    SCU_D0MD = 0x07;    // direct mode, start on CPU request
-    SCU_D0EN = 0x101;   // enable + start
-}
-
-static void dmaWait()
-{
-    while (SCU_DSTA & DSTA_D0_BUSY);
-}
 
 void setViewport(const RectMinMax &vp)
 {
@@ -143,34 +140,51 @@ X_INLINE uint32 clipFlags(int32 x, int32 y)
     return clip;
 }
 
+// Projects a point in room space (vertex units << 8) with the room's matrix;
+// sets everything but the shade.
+X_INLINE void projectRoomPoint(int32 vx, int32 vy, int32 vz, Vertex* res)
+{
+    const Matrix &m = matrixGet();
+    int32 x = DP43(m.e00, m.e01, m.e02, m.e03, vx, vy, vz);
+    int32 y = DP43(m.e10, m.e11, m.e12, m.e13, vx, vy, vz);
+    int32 z = DP43(m.e20, m.e21, m.e22, m.e23, vx, vy, vz);
+
+    uint32 clip = 0;
+
+    if (z <= VIEW_MIN_F) {
+        clip = CLIP_PLANE;
+        z = VIEW_MIN_F;
+    }
+
+    if (z >= VIEW_MAX_F) {
+        clip = CLIP_PLANE;
+        z = VIEW_MAX_F;
+    }
+
+    x >>= FIXED_SHIFT;
+    y >>= FIXED_SHIFT;
+    z >>= FIXED_SHIFT;
+
+    PERSPECTIVE(x, y, z);
+
+    x += (FRAME_WIDTH  >> 1);
+    y += (FRAME_HEIGHT >> 1);
+
+    res->clip = clip | clipFlags(x, y);
+    res->x = X_CLAMP(x, VDP1_COORD_MIN, VDP1_COORD_MAX);
+    res->y = X_CLAMP(y, VDP1_COORD_MIN, VDP1_COORD_MAX);
+    res->z = z;
+}
+
 void transformRoom(const RoomVertex* vertices, int32 count, bool underwater)
 {
     Vertex* res = gVerticesBase;
 
     for (int32 i = 0; i < count; i++, res++)
     {
-        int32 vx = vertices->x << 8;
-        int32 vy = vertices->y << 8;
-        int32 vz = vertices->z << 8;
+        projectRoomPoint(vertices->x << 8, vertices->y << 8, vertices->z << 8, res);
         int32 vg = vertices->g << 8;
         vertices++;
-
-        const Matrix &m = matrixGet();
-        int32 x = DP43(m.e00, m.e01, m.e02, m.e03, vx, vy, vz);
-        int32 y = DP43(m.e10, m.e11, m.e12, m.e13, vx, vy, vz);
-        int32 z = DP43(m.e20, m.e21, m.e22, m.e23, vx, vy, vz);
-
-        uint32 clip = 0;
-
-        if (z <= VIEW_MIN_F) {
-            clip = CLIP_PLANE;
-            z = VIEW_MIN_F;
-        }
-
-        if (z >= VIEW_MAX_F) {
-            clip = CLIP_PLANE;
-            z = VIEW_MAX_F;
-        }
 
         if (underwater)
         {
@@ -178,10 +192,7 @@ void transformRoom(const RoomVertex* vertices, int32 count, bool underwater)
             vg = X_CLAMP(vg + causticsValue, 0, 8191);
         }
 
-        x >>= FIXED_SHIFT;
-        y >>= FIXED_SHIFT;
-        z >>= FIXED_SHIFT;
-
+        int32 z = res->z;
         if (z > FOG_MIN)
         {
             vg += (z - FOG_MIN) << FOG_SHIFT;
@@ -190,15 +201,6 @@ void transformRoom(const RoomVertex* vertices, int32 count, bool underwater)
             }
         }
 
-        PERSPECTIVE(x, y, z);
-
-        x += (FRAME_WIDTH  >> 1);
-        y += (FRAME_HEIGHT >> 1);
-
-        res->clip = clip | clipFlags(x, y);
-        res->x = X_CLAMP(x, VDP1_COORD_MIN, VDP1_COORD_MAX);
-        res->y = X_CLAMP(y, VDP1_COORD_MIN, VDP1_COORD_MAX);
-        res->z = z;
         res->g = vg >> 8;
     }
 }
@@ -248,6 +250,80 @@ void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity)
     }
 }
 
+// Adds one quarter of a split room quad; corners clockwise from the one at
+// the texture's top left.
+static void faceAddDetailQuad(uint32 flags, const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
+{
+    uint32 c0 = v0->clip;
+    uint32 c1 = v1->clip;
+    uint32 c2 = v2->clip;
+    uint32 c3 = v3->clip;
+
+    if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
+        return;
+
+    int32 depth = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z))) >> OT_SHIFT;
+
+    Face* f = faceAdd(depth);
+    f->flags = flags;
+    f->indices[0] = v0 - gVertices;
+    f->indices[1] = v1 - gVertices;
+    f->indices[2] = v2 - gVertices;
+    f->indices[3] = v3 - gVertices;
+}
+
+// Splits a room quad near the camera into four, each drawn with one quadrant
+// of the full-res texture. The new vertices are projected from room space, so
+// the split also reduces the distortion of affine texture mapping. False when
+// the texture can't be cached this frame.
+static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
+                                  const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
+{
+    if ((gExtraVertices - gVertices) + 5 > MAX_VERTICES || (gFacesBase - gFaces) + 4 > MAX_FACES)
+        return false;
+
+    uint32 size = tex->size;
+    uint32 quadrant = (size >> 8) * 4 * (size & 0xFF);
+    int32 slot = detailSlot(tex->reserved - 1, quadrant * 4);
+    if (slot < 0)
+        return false;
+
+    const RoomVertex* r0 = gRoomVertices + poly->indices[0];
+    const RoomVertex* r1 = gRoomVertices + poly->indices[1];
+    const RoomVertex* r2 = gRoomVertices + poly->indices[2];
+    const RoomVertex* r3 = gRoomVertices + poly->indices[3];
+
+    // edge midpoints and the centre, in room space
+    Vertex* m01 = gExtraVertices;
+    Vertex* m12 = m01 + 1;
+    Vertex* m23 = m01 + 2;
+    Vertex* m30 = m01 + 3;
+    Vertex* mc  = m01 + 4;
+    gExtraVertices += 5;
+
+    projectRoomPoint((r0->x + r1->x) << 7, (r0->y + r1->y) << 7, (r0->z + r1->z) << 7, m01);
+    projectRoomPoint((r1->x + r2->x) << 7, (r1->y + r2->y) << 7, (r1->z + r2->z) << 7, m12);
+    projectRoomPoint((r2->x + r3->x) << 7, (r2->y + r3->y) << 7, (r2->z + r3->z) << 7, m23);
+    projectRoomPoint((r3->x + r0->x) << 7, (r3->y + r0->y) << 7, (r3->z + r0->z) << 7, m30);
+    projectRoomPoint((r0->x + r1->x + r2->x + r3->x) << 6,
+                     (r0->y + r1->y + r2->y + r3->y) << 6,
+                     (r0->z + r1->z + r2->z + r3->z) << 6, mc);
+
+    m01->g = (v0->g + v1->g) >> 1;
+    m12->g = (v1->g + v2->g) >> 1;
+    m23->g = (v2->g + v3->g) >> 1;
+    m30->g = (v3->g + v0->g) >> 1;
+    mc->g = (v0->g + v1->g + v2->g + v3->g) >> 2;
+
+    uint32 flags = poly->flags | FACE_DETAIL | (slot << FACE_DETAIL_SLOT_SHIFT);
+    faceAddDetailQuad(flags | (0 << FACE_DETAIL_QUAD_SHIFT), v0, m01, mc, m30);
+    faceAddDetailQuad(flags | (1 << FACE_DETAIL_QUAD_SHIFT), m01, v1, m12, mc);
+    faceAddDetailQuad(flags | (2 << FACE_DETAIL_QUAD_SHIFT), mc, m12, v2, m23);
+    faceAddDetailQuad(flags | (3 << FACE_DETAIL_QUAD_SHIFT), m30, mc, m23, v3);
+
+    return true;
+}
+
 void faceAddRoomQuads(const RoomQuad* polys, int32 count)
 {
     const Vertex* v = gVerticesBase;
@@ -265,6 +341,22 @@ void faceAddRoomQuads(const RoomQuad* polys, int32 count)
         uint32 c2 = v2->clip;
         uint32 c3 = v3->clip;
 
+        // all four corners beyond one frame edge
+        if (c0 & c1 & c2 & c3 & CLIP_DISCARD)
+            continue;
+
+        if (checkBackface(v0, v1, v2))
+            continue;
+
+        int32 zMax = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z)));
+
+        if (zMax < DETAIL_DIST)
+        {
+            const Texture* tex = level.textures + (flags & FACE_TEXTURE);
+            if (tex->reserved && faceAddRoomQuadDetail(polys, tex, v0, v1, v2, v3))
+                continue;
+        }
+
         if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
             continue;
 
@@ -272,10 +364,7 @@ void faceAddRoomQuads(const RoomQuad* polys, int32 count)
             flags |= FACE_CLIPPED;
         }
 
-        if (checkBackface(v0, v1, v2))
-            continue;
-
-        int32 depth = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z))) >> OT_SHIFT;
+        int32 depth = zMax >> OT_SHIFT;
 
         Face* f = faceAdd(depth);
         f->flags = flags;
@@ -466,6 +555,14 @@ X_INLINE void faceMaterial(vdp1_cmd_t* cmd, uint32 flags)
         cmd->colr = tex->colr;
         cmd->srca = tex->srca;
         cmd->size = tex->size;
+
+        if (flags & FACE_DETAIL)
+        {
+            int32 slot = (flags >> FACE_DETAIL_SLOT_SHIFT) & 0xFF;
+            uint32 quad = (flags >> FACE_DETAIL_QUAD_SHIFT) & 3;
+            uint32 quadSize = (tex->size >> 8) * 4 * (tex->size & 0xFF);
+            cmd->srca = (detailSlotAddr(slot) + quad * quadSize) >> 3;
+        }
     }
     else
     {
@@ -540,8 +637,9 @@ void flush_c()
     vdp1WaitIdle();
     gStats.waitTicks = (timerTicks() - waitStart) & 0xFFFF;
 
-    dmaToVram(gCmds, VDP1_VRAM + VRAM_FRAME_CMDS, (count + 1) * sizeof(vdp1_cmd_t));
-    dmaToVram(gGouraud, VDP1_VRAM + VRAM_GOURAUD_BASE, count * 8);
+    detailFlush();
+    dmaCopy(gCmds, VDP1_VRAM + VRAM_FRAME_CMDS, (count + 1) * sizeof(vdp1_cmd_t));
+    dmaCopy(gGouraud, VDP1_VRAM + VRAM_GOURAUD_BASE, count * 8);
     dmaWait();
     vdp1Plot();
 
@@ -610,6 +708,9 @@ void renderRoom(Room* room)
 
     transformRoom(room->data.vertices, vCount, ROOM_FLAG_WATER(room->info->flags));
 
+    gRoomVertices = room->data.vertices;
+    gExtraVertices = gVerticesBase + vCount;
+
     if (room->info->quadsCount > 0) {
         faceAddRoomQuads(room->data.quads, room->info->quadsCount);
     }
@@ -618,7 +719,7 @@ void renderRoom(Room* room)
         faceAddRoomTriangles(room->data.triangles, room->info->trianglesCount);
     }
 
-    gVerticesBase += vCount;
+    gVerticesBase = gExtraVertices;
     gRoomTicks += (timerTicks() - start) & 0xFFFF;
 }
 

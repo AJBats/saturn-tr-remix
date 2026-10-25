@@ -2,6 +2,7 @@
 
 #include "common.h"
 #include "cd.h"
+#include "detail.h"
 #include "hw.h"
 #include "vram.h"
 
@@ -52,16 +53,18 @@ const void* osLoadScreen(LevelID id)
     return NULL;
 }
 
-static void loadOrHalt(const char* name, const char* ext, void* dst, uint32 maxSize)
+static uint32 loadOrHalt(const char* name, const char* ext, void* dst, uint32 maxSize)
 {
     char path[32] = "DATA/";
     strcat(path, name);
     strcat(path, ext);
 
-    if (cdLoadFile(path, dst, maxSize) <= 0)
+    int32 size = cdLoadFile(path, dst, maxSize);
+    if (size <= 0)
     {
         while (1); // TODO error screen
     }
+    return size;
 }
 
 const void* osLoadLevel(LevelID id)
@@ -69,7 +72,10 @@ const void* osLoadLevel(LevelID id)
     const char* name = (const char*)gLevelInfo[id].data;
 
     // textures go straight to VDP1 VRAM, where the level's texture entries point
-    loadOrHalt(name, ".TEX", (void*)(VDP1_VRAM + VRAM_TEX_BASE), VRAM_TEX_SIZE);
+    uint32 texSize = loadOrHalt(name, ".TEX", (void*)(VDP1_VRAM + VRAM_TEX_BASE), VRAM_TEX_SIZE);
+    uint32 subSize = loadOrHalt(name, ".SUB", detailData(), detailDataMax());
+    detailInit(VRAM_TEX_BASE + texSize, subSize);
+
     loadOrHalt(name, ".PKD", LEVEL_ADDR, LEVEL_MAX);
 
     return LEVEL_ADDR;

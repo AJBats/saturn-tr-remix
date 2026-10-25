@@ -10,8 +10,15 @@ Texture entries hold VDP1 command fields addressing the texture blob, which
 the game loads into VDP1 VRAM at VRAM_TEX_BASE (saturn/vram.h), plus an
 average colour for untextured drawing.
 
+Room textures in the blob are the quarter-resolution set. The full-resolution
+set (ROOMTSUB) goes to a separate file the game keeps in work RAM and streams
+into VDP1 VRAM for faces near the camera: per texture, four quadrants in
+clockwise order from top left, each the size of the quarter-res tile and
+using its colour table.
+
 usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD>
-       (also writes <out>.TEX, the texture blob loaded at VRAM_TEX_BASE)
+       (also writes <out>.TEX, the texture blob loaded at VRAM_TEX_BASE, and
+       <out>.SUB, the full-resolution room textures)
 """
 import math
 import os
@@ -28,6 +35,7 @@ FACE_TYPE_F, FACE_TYPE_FT, FACE_TYPE_FTA = 1, 2, 3
 FACE_TYPE_SHIFT = 14
 TEX_ATTR_AKILL = 1
 FACE_TEXTURE_MAX = 0x3FFF
+DETAIL_UNIT = 512   # Texture.reserved: full-res offset / DETAIL_UNIT + 1
 
 NODE_FLAG_ROTX, NODE_FLAG_ROTY, NODE_FLAG_ROTZ = 1 << 2, 1 << 3, 1 << 4
 
@@ -145,7 +153,9 @@ class TextureTable:
         self.entries = []
         self.index = {}
         for t in lvl.room_textures:
-            self.entries.append(self.entry(lvl.room_tex_qtr, self.room_off, t, t["tile"], 0))
+            e = self.entry(lvl.room_tex_qtr, self.room_off, t, t["tile"], 0)
+            e[5] = self.detail_key(t)
+            self.entries.append(e)
 
     def add_segment(self, data):
         while len(self.blob) & 7:
@@ -159,7 +169,15 @@ class TextureTable:
         srca = (base + tile * 8) >> 3
         colr = (base + ((t["clut"] + tile) & 0xFFFF) * 8) >> 3
         color = texture_average(data, tile, t["clut"], t["w"], t["h"], attr & TEX_ATTR_AKILL)
-        return [srca, colr, ((t["w"] // 8) << 8) | t["h"], attr, color]
+        return [srca, colr, ((t["w"] // 8) << 8) | t["h"], attr, color, 0]
+
+    @staticmethod
+    def detail_key(t):
+        quadrant = t["w"] * t["h"] // 2
+        offset = t["sub"][0] * 8
+        if any(t["sub"][q] * 8 != offset + q * quadrant for q in range(4)) or offset % DETAIL_UNIT:
+            raise ValueError(f"room texture quadrants not contiguous: {t}")
+        return offset // DETAIL_UNIT + 1
 
     def room(self, tex, transparent):
         if transparent:
@@ -183,11 +201,11 @@ class TextureTable:
             color = texture_average(self.lvl.item_tex_data, t["tile"], t["clut"], t["w"], t["h"],
                                     attr & TEX_ATTR_AKILL)
             self.index[key] = len(self.entries)
-            self.entries.append([0, 0, ((t["w"] // 8) << 8) | t["h"], attr, color])
+            self.entries.append([0, 0, ((t["w"] // 8) << 8) | t["h"], attr, color, 0])
         return self.index[key]
 
     def pack(self):
-        return b"".join(struct.pack(">6H", *e, 0) for e in self.entries)
+        return b"".join(struct.pack(">6H", *e) for e in self.entries)
 
 
 # Saturn triangle flip code (top 4 bits of the face flags) to the texture
@@ -503,8 +521,11 @@ def main():
     tex_path = os.path.splitext(out_path)[0] + ".TEX"
     with open(tex_path, "wb") as f:
         f.write(packer.textures.blob)
+    sub_path = os.path.splitext(out_path)[0] + ".SUB"
+    with open(sub_path, "wb") as f:
+        f.write(lvl.room_tex_sub)
     print(f"{name}: {len(data)} bytes -> {out_path}, {len(packer.textures.blob)} bytes -> {tex_path}, "
-          f"{len(packer.textures.entries)} textures")
+          f"{len(lvl.room_tex_sub)} bytes -> {sub_path}, {len(packer.textures.entries)} textures")
 
 
 if __name__ == "__main__":
