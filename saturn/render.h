@@ -68,12 +68,18 @@ enum ClipFlags {
 #define MASTER_VERTICES 2048
 extern Vertex gVertices[MAX_VERTICES];
 
+// Ordering table buckets counted together, for flush to share the frame's
+// faces between the CPUs.
+#define OT_GROUP_SHIFT  5
+#define OT_GROUPS       ((OT_SIZE >> OT_GROUP_SHIFT) + 1)
+
 // A CPU's faces: a pool and an ordering table. flush merges the two CPUs'.
 struct FaceList
 {
     Face* next;
     Face* end;
     Face** ot;
+    uint16 groups[OT_GROUPS];   // faces in each group of buckets
 };
 
 X_INLINE Face* faceAdd(FaceList &list, int32 depth)
@@ -83,6 +89,7 @@ X_INLINE Face* faceAdd(FaceList &list, int32 depth)
     Face* face = list.next++;
     face->next = list.ot[depth];
     list.ot[depth] = face;
+    list.groups[depth >> OT_GROUP_SHIFT]++;
 
     return face;
 }
@@ -231,7 +238,7 @@ void roomsQueue(const Room* room);
 
 // Waits for the slave to finish the frame's rooms; returns its ordering
 // table (whose lists flush consumes and clears), or NULL if no rooms were
-// queued.
-Face** roomsFinish(RoomStats &stats);
+// queued, and its faces in each group of buckets.
+Face** roomsFinish(RoomStats &stats, const uint16* &groups);
 
 #endif

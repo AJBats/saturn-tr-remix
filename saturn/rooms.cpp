@@ -425,6 +425,7 @@ static void roomBatch()
     gFaceList.next = gSlaveFaces;
     gFaceList.end = gSlaveFaces + MAX_FACES;
     gFaceList.ot = gSlaveOT;
+    memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
     gNextVertex = gVertices + MASTER_VERTICES;
     gSlaveStats = RoomStats();
 
@@ -477,7 +478,7 @@ void roomsQueue(const Room* room)
     *uncached(&gJobsQueued) = gJobCount;
 }
 
-Face** roomsFinish(RoomStats &stats)
+Face** roomsFinish(RoomStats &stats, const uint16* &groups)
 {
     if (gJobCount == 0)
         return NULL;
@@ -491,5 +492,6 @@ Face** roomsFinish(RoomStats &stats)
     *uncached(&gJobsClosed) = 0;
 
     stats = gSlaveStats;
+    groups = gFaceList.groups;
     return gSlaveOT;
 }

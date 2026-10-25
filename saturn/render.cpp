@@ -7,6 +7,7 @@
 #include "render.h"
 #include "detail.h"
 #include "hw.h"
+#include "slave.h"
 #include "system.h"
 #include "vram.h"
 
@@ -695,34 +696,95 @@ static_assert(FACE_WATER == (1 << 30) && FACE_DETAIL == (1 << 29) && FACE_PARALL
 
 extern "C" void flushAsm(FlushXform* xf);
 
+// Buckets first .. first + count - 1 of both tables to commands from slot
+// cmd on, up to slot end.
+static void flushXformInit(FlushXform &xf, Face** roomOT, int32 first, int32 count, int32 cmd, int32 end)
+{
+    xf.roomOT = roomOT + first;
+    xf.meshOT = gOT + first;
+    xf.buckets = count;
+    xf.vertices = gVertices;
+    xf.cmd = gCmds[cmd].w;
+    xf.cmdEnd = gCmds[end].w;
+    xf.grd = gGouraud[cmd];
+    xf.grdLink = pair((VRAM_GOURAUD_BASE >> 3) + cmd, 0);
+    xf.textures = level.textures;
+    xf.palette = level.palette;
+    xf.shadeGouraud = gShadeGouraud;
+    xf.shadeLevel = gShadeLevel;
+    xf.halfLevel = gHalfLevel;
+    xf.half = gShadeHalf;
+    xf.detailVram = gDetailVramStart;
+    xf.slow = faceSlow;
+}
+
+static FlushXform gFarXform;
+
+static void flushFar()
+{
+    flushAsm(&gFarXform);
+}
+
 // The commands of the faces in both ordering tables, far to near, emptying
-// them, from gCmds[count] on. Returns the next free command. flush.s builds
-// them but behind the inventory or in the texel views.
-static int32 flushFaces(Face** roomOT, int32 count)
+// them, from gCmds[count] on. Returns the next free command.
+//
+// flush.s builds them but behind the inventory or in the texel views, on
+// both CPUs: the slave the far buckets holding up to half the faces (counted
+// by groups of buckets in the CPUs' face lists), this CPU the rest, in the
+// commands after them.
+static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
 {
     uint32 grdBase = VRAM_GOURAUD_BASE >> 3;
 
     if (roomOT && !gInventoryFrame && !gTexelView)
     {
-        FlushXform xf;
-        xf.roomOT = roomOT;
-        xf.meshOT = gOT;
-        xf.buckets = OT_SIZE;
-        xf.vertices = gVertices;
-        xf.cmd = gCmds[count].w;
-        xf.cmdEnd = gCmds[MAX_CMDS - 1].w;
-        xf.grd = gGouraud[count];
-        xf.grdLink = pair(grdBase + count, 0);
-        xf.textures = level.textures;
-        xf.palette = level.palette;
-        xf.shadeGouraud = gShadeGouraud;
-        xf.shadeLevel = gShadeLevel;
-        xf.halfLevel = gHalfLevel;
-        xf.half = gShadeHalf;
-        xf.detailVram = gDetailVramStart;
-        xf.slow = faceSlow;
-        flushAsm(&xf);
-        return (xf.cmd - gCmds[0].w) / 8;
+        int32 total = 0;
+        for (int32 i = 0; i < OT_GROUPS; i++) {
+            total += roomGroups[i] + gFaceList.groups[i];
+        }
+
+        int32 split = OT_GROUPS;
+        int32 farFaces = 0;
+        while (split > 0)
+        {
+            int32 faces = roomGroups[split - 1] + gFaceList.groups[split - 1];
+            if ((farFaces + faces) * 2 > total)
+                break;
+            farFaces += faces;
+            split--;
+        }
+
+        int32 splitBucket = X_MIN(split << OT_GROUP_SHIFT, OT_SIZE);
+        int32 nearStart = X_MIN(count + farFaces, MAX_CMDS - 1);
+
+        if (splitBucket < OT_SIZE)
+        {
+            flushXformInit(gFarXform, roomOT, splitBucket, OT_SIZE - splitBucket, count, nearStart);
+            slaveRun(flushFar);
+        }
+
+        int32 end = nearStart;
+        if (splitBucket > 0)
+        {
+            FlushXform xf;
+            flushXformInit(xf, roomOT, 0, splitBucket, nearStart, MAX_CMDS - 1);
+            flushAsm(&xf);
+            end = (xf.cmd - gCmds[0].w) / 8;
+        }
+
+        if (splitBucket < OT_SIZE)
+        {
+            slaveWait();
+            cachePurge(); // the slave emptied buckets of gOT that this CPU may hold
+
+            // its faces fill the commands before this CPU's but for a cap
+            int32 farEnd = (gFarXform.cmd - gCmds[0].w) / 8;
+            if (farEnd != nearStart) {
+                gCmds[farEnd].w[0] = pair(CMD_SKIP_JUMP, (VRAM_FRAME_CMDS + nearStart * sizeof(Command)) >> 3);
+            }
+        }
+
+        return end;
     }
 
     // far to near; in each bucket rooms (the slave's) before what stands in them
@@ -764,7 +826,8 @@ void flush_c()
     uint32 start = timerTicks();
 
     RoomStats rooms = {};
-    Face** roomOT = roomsFinish(rooms);
+    const uint16* roomGroups = NULL;
+    Face** roomOT = roomsFinish(rooms, roomGroups);
     gStats.slaveWaitTicks = (timerTicks() - start) & 0xFFFF;
 
     gStats.vertices = (gVerticesBase - gVertices) + rooms.vertices;
@@ -789,7 +852,8 @@ void flush_c()
 
     gFaceList.next = gFaces;
 
-    int32 count = flushFaces(roomOT, 1); // gCmds[0] clears the frame (renderInit)
+    int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (renderInit)
+    memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
 
     gCmds[count].w[0] = CMD_END << 16;
     gRenderFaceCount = count;
