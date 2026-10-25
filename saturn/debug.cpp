@@ -155,7 +155,7 @@ static uint32 framePercent(uint32 ticks)
 #define BENCH_SETTLE    60      // the first of them aren't averaged
 
 static const char* const kBenchNames[BENCH_COUNT] = {
-    "Base", "Exact shrink", "Flat 8", "No gouraud", "No texture", "No clear"
+    "Base", "LOD x1", "Turned", "Turned LOD", "No gouraud", "No texture"
 };
 
 static struct { uint32 vdp1, cpu, fps; } gBench[BENCH_COUNT];
@@ -207,7 +207,6 @@ static void benchUpdate()
     memset(split, 0, sizeof(split));
 
     gBenchMode = (gBenchMode + 1) % BENCH_COUNT;
-    gFlatDist = (gBenchMode == BENCH_FLAT) ? 8 * 1024 : kFarDist[gFarFaces];
     start = gVblankCount;
     frames = vdp1 = cpu = 0;
 }

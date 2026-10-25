@@ -203,11 +203,13 @@ bool renderFastShrink();
 enum BenchMode
 {
     BENCH_BASE,
-    BENCH_EXACT,        // textured faces without high-speed shrink
-    BENCH_FLAT,         // far faces flat (debug.cpp sets gFlatDist)
+    BENCH_LOD1,         // textures halved to at most one texel a pixel across
+                        // the face: what LOD would cost (the picture is wrong)
+    BENCH_TURNED,       // faces drawn with lines along their longer side (corners
+                        // turned; a textured one shows its texture sideways)
+    BENCH_TURNED_LOD1,  // both
     BENCH_NO_GOURAUD,
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
-    BENCH_NO_CLEAR,     // the frame isn't cleared first
     BENCH_COUNT
 };
 extern int32 gBenchMode;
