@@ -78,8 +78,10 @@ void setPaletteIndex(int32 index)
 }
 
 // Mesh vertices are 16-bit, so the rotation multiplies are 16x16 too; the
-// translation stays pre-scaled by 1 << FIXED_SHIFT.
-void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity)
+// translation stays pre-scaled by 1 << FIXED_SHIFT. Vertices are shaded as
+// TR1 does: by their normals against the brightest light (calcLightingDynamic),
+// by their own shades, or all alike.
+void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, const int8* normals, const uint8* shades)
 {
     // the rotation's rows as 16-bit values, multiplied straight from the
     // vertex array (MeshVertex is three int16); the translation stays
@@ -93,6 +95,18 @@ void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity)
     const int32 tx = m.e03, ty = m.e13, tz = m.e23;
 
     int32 vg = X_CLAMP((intensity + gLightAmbient) >> 8, 0, 31);
+
+    // the light's direction in the mesh's own space, 128 long
+    int32 lx = 0, ly = 0, lz = 0;
+    if (normals && gLightRange)
+    {
+        const vec3i &l = gLightView;
+        lx = (m.e00 * l.x + m.e10 * l.y + m.e20 * l.z) >> (FIXED_SHIFT + 7);
+        ly = (m.e01 * l.x + m.e11 * l.y + m.e21 * l.z) >> (FIXED_SHIFT + 7);
+        lz = (m.e02 * l.x + m.e12 * l.y + m.e22 * l.z) >> (FIXED_SHIFT + 7);
+    } else {
+        normals = NULL;
+    }
 
     Vertex* res = gVerticesBase;
 
@@ -119,7 +133,22 @@ void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity)
         int32 y = asr16<FIXED_SHIFT>(dot3(v, rows + 3, ty));
 
         projectView(x, y, uint32(z) >> FIXED_SHIFT, clip, viewport, res);
-        res->g = vg;
+
+        if (normals)
+        {
+            int32 d = normals[0] * lx + normals[1] * ly + normals[2] * lz;
+            normals += 4;
+            int32 shade = gLightAmbient - ((d * gLightRange) >> 14);
+            res->g = X_CLAMP(shade >> 8, 0, 31);
+        }
+        else if (shades)
+        {
+            res->g = X_CLAMP((gLightAmbient + (*shades++ << 5)) >> 8, 0, 31);
+        }
+        else
+        {
+            res->g = vg;
+        }
     }
 }
 
@@ -511,6 +540,11 @@ void flush_c()
 
 void renderInit()
 {
+    // the core's divide table stops at 1024; the view reaches further here
+    for (int32 i = 1025; i < DIV_TABLE_SIZE; i++) {
+        divTable[i] = (1 << 16) / i;
+    }
+
     for (int32 g = 0; g < 32; g++)
     {
         uint32 c = 31 - g;
@@ -607,13 +641,26 @@ void renderMesh(const Mesh* mesh)
     const MeshVertex* vertices = (MeshVertex*)ptr;
     ptr += vCount * sizeof(vertices[0]);
 
+    const int8* normals = NULL;
+    const uint8* shades = NULL;
+    if (mesh->hasNormals == MESH_LIGHT_NORMALS)
+    {
+        normals = (const int8*)ptr;
+        ptr += vCount * 4;
+    }
+    else if (mesh->hasNormals == MESH_LIGHT_SHADES)
+    {
+        shades = ptr;
+        ptr += (vCount + 1) & ~1;
+    }
+
     MeshQuad* quads = (MeshQuad*)ptr;
     ptr += mesh->rCount * sizeof(MeshQuad);
 
     MeshTriangle* triangles = (MeshTriangle*)ptr;
 
     uint32 start = timerTicks();
-    transformMesh(vertices, vCount, mesh->intensity);
+    transformMesh(vertices, vCount, mesh->intensity, normals, shades);
 
     if (mesh->rCount > 0) {
         faceAddMeshQuads(quads, mesh->rCount);
@@ -662,7 +709,7 @@ void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
     v[6].x = xns2; v[6].y = 0; v[6].z = zns1;
     v[7].x = xns2; v[7].y = 0; v[7].z = zps1;
 
-    transformMesh(v, 8, 0);
+    transformMesh(v, 8, 0, NULL, NULL);
     faceAddMeshQuads(gShadowQuads, 3);
 
     gVerticesBase += 8;

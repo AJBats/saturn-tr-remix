@@ -55,55 +55,88 @@ void drawLevelFree()
     renderLevelFree();
 }
 
+// TR1's S_CalculateLight: the room's ambient and its brightest light at the
+// point. Meshes with normals are lit half way between the two, brighter
+// facing that light and darker facing away (gLightView, gLightRange).
 void calcLightingDynamic(const Room* room, const vec3i &point)
 {
     const RoomInfo* info = room->info;
 
     gLightAmbient = (info->ambient << 5);
+    gLightRange = 0;
 
-    if (!info->lightsCount)
-        return;
-
-    gLightAmbient = 8191 - gLightAmbient;
-    int32 maxLum = 0;
-
-    for (int i = 0; i < info->lightsCount; i++)
+    if (info->lightsCount)
     {
-        const Light* light = room->data.lights + i;
+        int32 ambient = 8191 - gLightAmbient;
+        int32 maxLum = 0;
+        vec3i dir = _vec3i(0, 0, 0);
 
-        vec3i pos;
-        pos.x = light->pos.x + (info->x << 8);
-        pos.y = light->pos.y;
-        pos.z = light->pos.z + (info->z << 8);
+        for (int i = 0; i < info->lightsCount; i++)
+        {
+            const Light* light = room->data.lights + i;
 
-        int32 radius = light->radius << 8;
-        int32 intensity = light->intensity << 5;
+            vec3i pos;
+            pos.x = light->pos.x + (info->x << 8);
+            pos.y = light->pos.y;
+            pos.z = light->pos.z + (info->z << 8);
 
-        vec3i d = point - pos;
-        int32 dist = dot(d, d) >> 12;
-        int32 att = X_SQR(radius) >> 12;
+            int32 radius = light->radius << 8;
+            int32 intensity = light->intensity << 5;
 
-        int32 lum = (intensity * att) / (dist + att) + gLightAmbient;
+            vec3i d = point - pos;
+            int32 dist = dot(d, d) >> 12;
+            int32 att = X_SQR(radius) >> 12;
 
-        if (lum > maxLum) {
-            maxLum = lum;
+            int32 lum = (intensity * att) / (dist + att) + ambient;
+
+            if (lum > maxLum) {
+                maxLum = lum;
+                dir = pos - point;
+            }
+        }
+
+        int32 adder = (maxLum + ambient) >> 1;
+        gLightAmbient = 8191 - adder;
+        gLightRange = maxLum - adder;
+
+        if (gLightRange > 0)
+        {
+            dir.x >>= 4;
+            dir.y >>= 4;
+            dir.z >>= 4;
+            int32 len = phd_sqrt(X_SQR(dir.x) + X_SQR(dir.y) + X_SQR(dir.z));
+
+            if (len)
+            {
+                vec3i u;
+                u.x = (dir.x << FIXED_SHIFT) / len;
+                u.y = (dir.y << FIXED_SHIFT) / len;
+                u.z = (dir.z << FIXED_SHIFT) / len;
+
+                const int16* r = gViewRotation;
+                gLightView.x = (r[0] * u.x + r[1] * u.y + r[2] * u.z) >> FIXED_SHIFT;
+                gLightView.y = (r[3] * u.x + r[4] * u.y + r[5] * u.z) >> FIXED_SHIFT;
+                gLightView.z = (r[6] * u.x + r[7] * u.y + r[8] * u.z) >> FIXED_SHIFT;
+            } else {
+                gLightRange = 0;
+            }
         }
     }
 
-    gLightAmbient = 8191 - ((maxLum + gLightAmbient) >> 1);
-
     Matrix &m = matrixGet();
 
+    // the fog darkens the side facing the light to black too
     int32 fogZ = m.e23 >> (FIXED_SHIFT - MATRIX_FIXED_SHIFT);
     if (fogZ > FOG_MIN) {
         gLightAmbient += (fogZ - FOG_MIN) << FOG_SHIFT;
-        gLightAmbient = X_MIN(gLightAmbient, 8191);
+        gLightAmbient = X_MIN(gLightAmbient, 8191 + gLightRange);
     }
 }
 
 void calcLightingStatic(int32 intensity)
 {
     gLightAmbient = intensity - 4096;
+    gLightRange = 0;
 
     Matrix &m = matrixGet();
 
@@ -233,12 +266,14 @@ void drawFlash(const ExtraInfoLara::Arm::Flash &flash)
     matrixTranslateRel(0, flash.offset, 55);
     matrixRotateYXZ(-ANGLE_90, 0, flash.angle);
 
-    int32 tmp = gLightAmbient;
+    int32 ambient = gLightAmbient;
+    int32 range = gLightRange;
     calcLightingStatic(flash.intensity);
 
     drawMesh(level.models[ITEM_MUZZLE_FLASH].start);
 
-    gLightAmbient = tmp;
+    gLightAmbient = ambient;
+    gLightRange = range;
 
     matrixPop();
 }

@@ -76,7 +76,7 @@ static_assert(sizeof(Vertex) == 8 && offsetof(Vertex, z) == 4 && offsetof(Vertex
               "Vertex layout is shared with xform.s");
 static_assert(sizeof(RoomVertex) == 4, "xform.s reads RoomVertex as x, y, z, g bytes");
 static_assert(FRAME_WIDTH == 352 && FRAME_HEIGHT == 240 && VDP1_COORD_MAX == 1023 &&
-              FOG_MIN == 8192 && FOG_SHIFT == 1 && PROJ_SHIFT == 4 && CLIP_PLANE == 32 &&
+              FOG_MIN == 12288 && FOG_SHIFT == 0 && PROJ_SHIFT == 4 && CLIP_PLANE == 32 &&
               MAX_CAUSTICS == 32 && MAX_RAND_TABLE == 32, "constants repeated in xform.s");
 
 extern "C" void transformRoomAsm(const RoomVertex* src, int32 count, Vertex* dst, RoomXform* xf);

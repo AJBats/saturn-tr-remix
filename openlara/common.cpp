@@ -21,6 +21,9 @@ EWRAM_DATA int32 gCurTrack;
 EWRAM_DATA int32 gAnimTexFrame;
 
 int32 gLightAmbient;
+vec3i gLightView;
+int32 gLightRange;
+int16 gViewRotation[9];
 int32 gRandTable[MAX_RAND_TABLE];
 int32 gCaustics[MAX_CAUSTICS];
 int32 gCausticsFrame;
@@ -1474,6 +1477,10 @@ void matrixSetView(const vec3i &pos, int32 angleX, int32 angleY)
     m.e23 = 0;
 
     gCameraViewPos = pos;
+
+    gViewRotation[0] = m.e00; gViewRotation[1] = m.e01; gViewRotation[2] = m.e02;
+    gViewRotation[3] = m.e10; gViewRotation[4] = m.e11; gViewRotation[5] = m.e12;
+    gViewRotation[6] = m.e20; gViewRotation[7] = m.e21; gViewRotation[8] = m.e22;
 }
 
 void CollisionInfo::setSide(CollisionInfo::SideType st, int32 floor, int32 ceiling)

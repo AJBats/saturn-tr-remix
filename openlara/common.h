@@ -163,6 +163,12 @@
     #define USE_DIV_TABLE
     #define CPU_BIG_ENDIAN
 
+    // the original's view depth: 20 sectors, fading from 12 to black at 20
+    #define VIEW_DIST       (1024 * 20)
+    #define FOG_MIN         (1024 * 12)
+    #define FOG_SHIFT       0
+    #define DIV_TABLE_SIZE  1281 // projection divides up to VIEW_DIST >> PROJ_SHIFT
+
     #define MODEHW
     #define FRAME_WIDTH  352
     #define FRAME_HEIGHT 240
@@ -471,9 +477,13 @@ extern uint8* vramPtr;
 #endif
 
 #define FOV_SHIFT       3
-#define FOG_SHIFT       1
+#ifndef FOG_SHIFT
+    #define FOG_SHIFT   1
+#endif
 #define FOG_MAX         VIEW_DIST
-#define FOG_MIN         (FOG_MAX - 2048)
+#ifndef FOG_MIN
+    #define FOG_MIN     (FOG_MAX - 2048)
+#endif
 #define VIEW_MIN_F      (64 << FIXED_SHIFT)
 #define VIEW_MAX_F      (VIEW_DIST << FIXED_SHIFT)
 
@@ -529,7 +539,9 @@ X_INLINE void X_SWAP(T &a, T &b)
 #define DP33(ax,ay,az,bx,by,bz)     (ax * bx + ay * by + az * bz)
 
 #ifdef USE_DIV_TABLE
-    #define DIV_TABLE_SIZE   1025 // to compare with #1024 without extra LDR
+    #ifndef DIV_TABLE_SIZE
+        #define DIV_TABLE_SIZE   1025 // to compare with #1024 without extra LDR
+    #endif
     #define FixedInvS(x)     ((x < 0) ? -divTable[abs(x)] : divTable[x])
     #define FixedInvU(x)     divTable[x]
     extern divTableInt divTable[DIV_TABLE_SIZE];
@@ -987,12 +999,21 @@ struct Model {
 
 #define FILE_MODEL_SIZE (sizeof(Model) - 2) // -padding
 
+// What follows a mesh's vertices (tools/pack_level.py): nothing, a normal per
+// vertex (int8 x, y, z, pad; 127 long), or a shade per vertex (intensity >> 5,
+// padded to an even count).
+enum MeshLighting {
+    MESH_LIGHT_FLAT,
+    MESH_LIGHT_NORMALS,
+    MESH_LIGHT_SHADES
+};
+
 struct Mesh {
     vec3s center;
     int16 radius;
     uint16 intensity;
     uint8 vCount;
-    uint8 hasNormals;
+    uint8 hasNormals; // MeshLighting
     int16 rCount;
     int16 tCount;
     int16 crCount;
@@ -2634,6 +2655,9 @@ extern int32 gCurTrack;
 extern int32 gAnimTexFrame;
 extern int32 gBrightness;
 extern int32 gLightAmbient;
+extern vec3i gLightView;    // toward the brightest light, in view space (1 << FIXED_SHIFT long)
+extern int32 gLightRange;   // what facing it adds to the light, and facing away takes off (0: none)
+extern int16 gViewRotation[9];
 extern int32 gRandTable[MAX_RAND_TABLE];
 extern int32 gCaustics[MAX_CAUSTICS];
 extern int32 gCausticsFrame;

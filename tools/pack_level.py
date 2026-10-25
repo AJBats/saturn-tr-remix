@@ -232,6 +232,10 @@ TRIANGLE_VARIANT = {0: 1, 10: 1, 2: 2, 8: 2, 4: 3, 14: 3, 6: 4, 12: 4}
 TRIANGLE_ARRANGEMENT = {0: 0, 4: 0, 10: 2, 14: 2, 2: 1, 6: 1, 8: 3, 12: 3}
 TRIANGLE_PLAIN = 0x80   # a textured triangle drawn without the parallelogram
 
+# Mesh.hasNormals: what follows a mesh's vertices
+MESH_LIGHT_NORMALS = 1  # an 8-bit normal (and a pad byte) per vertex
+MESH_LIGHT_SHADES = 2   # a shade per vertex (intensity >> 5), padded to even
+
 
 class Packer:
     def __init__(self, lvl):
@@ -351,15 +355,25 @@ class Packer:
         return ((FACE_TYPE_FTA if transp else FACE_TYPE_FT) << FACE_TYPE_SHIFT) | index
 
     def write_mesh(self, out, index, mesh):
+        """Vertices are followed by their lighting: normals (as 8-bit vectors)
+        for meshes lit by the room's lights, or shades for pre-lit ones."""
         quads = [f for f in mesh.faces if len(f[1]) == 4]
         tris = [f for f in mesh.faces if len(f[1]) == 3]
         intensity = sum(mesh.intensities) // len(mesh.intensities) if mesh.intensities else 0
         if len(mesh.vertices) > 255:
             raise ValueError(f"mesh {index}: {len(mesh.vertices)} vertices")
-        out.pack("4hH2B4h", *mesh.center, mesh.radius, intensity, len(mesh.vertices), 0,
+        lighting = MESH_LIGHT_NORMALS if mesh.normals else MESH_LIGHT_SHADES if mesh.intensities else 0
+        out.pack("4hH2B4h", *mesh.center, mesh.radius, intensity, len(mesh.vertices), lighting,
                  len(quads), len(tris), 0, 0)
         for v in mesh.vertices:
             out.pack("3h", *v)
+        if mesh.normals:
+            for n in mesh.normals:  # 16384 long; 127 here
+                out.pack("4b", *(max(-127, min(127, c >> 7)) for c in n), 0)
+        elif mesh.intensities:
+            out.pack(f"{len(mesh.intensities)}B", *(max(0, min(255, i >> 5)) for i in mesh.intensities))
+            if len(mesh.intensities) & 1:
+                out.pack("B", 0)
         for ftype, idx, flags in quads:
             out.pack("H4B", self.mesh_face_flags(index, ftype, flags), *idx)
         for ftype, idx, flags in tris:

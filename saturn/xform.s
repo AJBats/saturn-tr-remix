@@ -247,13 +247,12 @@ _transformRoomAsm:
     mov.b   @(r0, r9), r0
     add     r0, r13
 22:
-    ! fog: shade += (z - FOG_MIN) << 1, at most 8191
+    ! fog: shade += z - FOG_MIN, at most 8191
     mov.w   .LfogMin, r1
     mov     r11, r0
     sub     r1, r0
     cmp/pl  r0
     bf      20f
-    shll    r0
     add     r0, r3
     mov.w   .LshadeMax, r1
     cmp/gt  r1, r3
@@ -294,5 +293,5 @@ _transformRoomAsm:
 .LframeWidth:   .short  352         ! FRAME_WIDTH
 .LframeHeight:  .short  240         ! FRAME_HEIGHT
 .LcoordMax:     .short  1023        ! VDP1_COORD_MAX
-.LfogMin:       .short  8192        ! FOG_MIN
+.LfogMin:       .short  12288       ! FOG_MIN
 .LshadeMax:     .short  8191        ! shade << 8 at its darkest
