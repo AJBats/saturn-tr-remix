@@ -132,7 +132,8 @@ static void playVideos(LevelID id)
         return;
     }
 
-    bool fresh = (id != gLoadedLevel) && !gSkipVideo;
+    // the first load is the title, or a level started directly for testing
+    bool fresh = (id != gLoadedLevel) && !gSkipVideo && (gLoadedLevel != LVL_MAX);
     gLoadedLevel = id;
     gSkipVideo = false;
 
