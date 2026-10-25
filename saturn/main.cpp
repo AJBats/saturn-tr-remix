@@ -6,6 +6,7 @@
 #include "hw.h"
 #include "input.h"
 #include "palettes.h"
+#include "render.h"
 #include "screen.h"
 #include "slave.h"
 #include "sound.h"
@@ -30,12 +31,44 @@ static void debugMessage(const char* text)
     gDebugMessageEnd = gVblankCount + 120;
 }
 
-const char* osDebugMessage()
+static char* appendStat(char* p, const char* name, uint32 value)
 {
-    return int32(gDebugMessageEnd - gVblankCount) > 0 ? gDebugMessage : NULL;
+    while (*name) {
+        *p++ = *name++;
+    }
+    int2str(int32(value), p);
+    while (*p) {
+        p++;
+    }
+    *p++ = ' ';
+    *p++ = ' ';
+    *p = 0;
+    return p;
 }
 
-// The debug pad on port 2 (Mednafen: P is its A): A swaps the colour tables.
+const char* osDebugMessage()
+{
+    if (int32(gDebugMessageEnd - gVblankCount) > 0)
+        return gDebugMessage;
+
+    if (gTexelView)
+    {
+        // room faces near the camera: full res, quarter res for want of a
+        // cache slot, without a full-res texture, and triangles
+        static char text[64];
+        char* p = text;
+        p = appendStat(p, "full ", gStats.detailFaces);
+        p = appendStat(p, "missed ", gStats.detailMisses);
+        p = appendStat(p, "none ", gStats.nearNoDetail);
+        appendStat(p, "tri ", gStats.nearTriangles);
+        return text;
+    }
+
+    return NULL;
+}
+
+// The debug pad on port 2 (Mednafen: P is its A, H its B): A swaps the colour
+// tables, B the texture resolution view.
 static void updateDebug()
 {
     uint16 pad = padDebug();
@@ -46,6 +79,12 @@ static void updateDebug()
     {
         palettesToggle();
         debugMessage(palettesRemastered() ? "Remastered palette" : "Saturn palette");
+    }
+
+    if (pressed & PAD_B)
+    {
+        gTexelView = !gTexelView;
+        debugMessage(gTexelView ? "Texture resolution view" : "Normal view");
     }
 }
 

@@ -326,6 +326,37 @@ X_INLINE uint32 gouraudPair(uint32 flags, bool dim, const Vertex* a, const Verte
     return shadePair(a->g, b->g);
 }
 
+bool gTexelView;
+
+// Adds to each channel of a pair of gouraud values, within 0 .. 31.
+X_INLINE uint32 tintPair(uint32 pair, int32 dr, int32 dg, int32 db)
+{
+    uint32 out = 0;
+    for (int32 i = 0; i < 2; i++)
+    {
+        uint32 c = pair >> (16 * i);
+        int32 r = X_CLAMP(int32(c & 31) + dr, 0, 31);
+        int32 g = X_CLAMP(int32((c >> 5) & 31) + dg, 0, 31);
+        int32 b = X_CLAMP(int32((c >> 10) & 31) + db, 0, 31);
+        out |= ((b << 10) | (g << 5) | r) << (16 * i);
+    }
+    return out;
+}
+
+X_INLINE void texelTint(uint32* grd, uint32 flags, int32 zMax)
+{
+    int32 dr = -6, dg = -6, db = -6;
+    if (flags & FACE_DETAIL) {
+        dg = 10;
+    } else if (zMax < DETAIL_DIST) {
+        dr = 12;
+    } else {
+        db = 10;
+    }
+    grd[0] = tintPair(grd[0], dr, dg, db);
+    grd[1] = tintPair(grd[1], dr, dg, db);
+}
+
 X_INLINE void setRect(uint32* w, const Vertex* pos, const Vertex* size)
 {
     int32 x0 = pos->x;
@@ -393,6 +424,9 @@ void flush_c()
     gStats.vertices = (gVerticesBase - gVertices) + rooms.vertices;
     gStats.roomVertices = rooms.vertices;
     gStats.detailFaces = rooms.detailFaces;
+    gStats.detailMisses = rooms.detailMisses;
+    gStats.nearNoDetail = rooms.nearNoDetail;
+    gStats.nearTriangles = rooms.nearTriangles;
     gStats.slaveXformTicks = rooms.xformTicks;
     gStats.slaveFaceTicks = rooms.faceTicks;
     gStats.slaveIdleTicks = rooms.idleTicks;
@@ -510,6 +544,10 @@ void flush_c()
                     w[6] = v3->xy;
                     grd[0] = gouraudPair(flags, dim, v0, v1);
                     grd[1] = gouraudPair(flags, dim, v2, v3);
+
+                    if (gTexelView && !list && type != FACE_TYPE_F) {
+                        texelTint(grd, flags, X_MAX(X_MAX(v0->z, v1->z), X_MAX(v2->z, v3->z)));
+                    }
                 }
             }
 

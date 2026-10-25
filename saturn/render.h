@@ -159,11 +159,22 @@ X_INLINE void projectView(int16 x, int16 y, int32 z, uint32 clip, const RectMinM
     res->z = z;
 }
 
+// Room quads whose farthest vertex is nearer than this are split 2x2 and drawn
+// with full-res textures, as in the original game.
+#define DETAIL_DIST     4096
+
+// Debug view: room faces tinted by the resolution of their texture (green
+// full, red quarter though near, blue quarter and far).
+extern bool gTexelView;
+
 // rooms.cpp: rooms are drawn on the slave CPU.
 struct RoomStats
 {
     uint32 vertices;    // room vertices transformed
     uint32 detailFaces; // room quads split for full-res textures
+    uint32 detailMisses;  // near room quads left at quarter res: no cache slot or upload this frame
+    uint32 nearNoDetail;  // near room quads whose texture has no full-res version
+    uint32 nearTriangles; // near room triangles, which have no full-res path
     uint32 xformTicks;  // slave time transforming vertices (its own FRT)
     uint32 faceTicks;   // ... adding faces
     uint32 idleTicks;   // ... waiting for rooms to be queued

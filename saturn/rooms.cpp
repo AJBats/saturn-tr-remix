@@ -12,10 +12,6 @@
 
 #define MAX_ROOM_JOBS   64
 
-// Room quads whose farthest vertex is nearer than this are split 2x2 and drawn
-// with full-res textures, as in the original game.
-#define DETAIL_DIST     4096
-
 extern Level level;
 
 // The room matrix for 16x16 multiplies: the rotation fits in 16 bits, and
@@ -240,16 +236,25 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
             continue;
 
         int32 zMax = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z)));
+        const Texture* tex = level.textures + (flags & FACE_TEXTURE);
 
         if (zMax < DETAIL_DIST)
         {
-            const Texture* tex = level.textures + (flags & FACE_TEXTURE);
             if (tex->reserved && faceAddRoomQuadDetail(polys, tex, v0, v1, v2, v3))
                 continue;
         }
 
         if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
             continue;
+
+        if (zMax < DETAIL_DIST)
+        {
+            if (tex->reserved) {
+                gSlaveStats.detailMisses++;
+            } else {
+                gSlaveStats.nearNoDetail++;
+            }
+        }
 
 
         Face* f = faceAdd(gFaceList, zMax >> OT_SHIFT);
@@ -286,7 +291,11 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
 
         flags |= FACE_TRIANGLE;
 
-        int32 depth = X_MAX(v0->z, X_MAX(v1->z, v2->z)) >> OT_SHIFT;
+        int32 zMax = X_MAX(v0->z, X_MAX(v1->z, v2->z));
+        if (zMax < DETAIL_DIST) {
+            gSlaveStats.nearTriangles++;
+        }
+        int32 depth = zMax >> OT_SHIFT;
 
         Face* f = faceAdd(gFaceList, depth);
         f->flags = flags;

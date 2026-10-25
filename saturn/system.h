@@ -29,6 +29,9 @@ struct FrameStats
     uint32_t waitTicks;     // CPU time spent waiting for VDP1 to become idle
     uint32_t slaveWaitTicks;// flush waiting for the slave to finish the rooms
     uint32_t detailFaces;   // room quads split for full-res textures
+    uint32_t detailMisses;  // near room quads left at quarter res (RoomStats)
+    uint32_t nearNoDetail;
+    uint32_t nearTriangles;
     uint32_t roomVertices;  // room vertices transformed
     uint32_t slaveXformTicks; // slave: room vertex transform
     uint32_t slaveFaceTicks;  // slave: room face setup
