@@ -131,8 +131,10 @@ def shade_from_color16(c):
     return 31 - (c & 31)
 
 
-def texture_average(data, tile, clut, w, h, transparent):
-    """Average RGB555 colour of a 4-bit CLUT character."""
+def texture_average(data, tile, clut, w, h, transparent, end_codes=False):
+    """Average RGB555 colour of a 4-bit CLUT character, leaving out colour 0
+    when it is transparent and colour 15 when it is VDP1's end code (the
+    triangle variants of object textures fill their unused half with it)."""
     pix = tile << 3
     lut = (clut + tile) << 3
     if lut + 32 > len(data) or pix + w * h // 2 > len(data):
@@ -142,7 +144,7 @@ def texture_average(data, tile, clut, w, h, transparent):
     for i in range(w * h // 2):
         byte = data[pix + i]
         for idx in (byte >> 4, byte & 15):
-            if transparent and idx == 0:
+            if (transparent and idx == 0) or (end_codes and idx == 15):
                 continue
             c = colors[idx]
             r += c & 31
@@ -185,11 +187,11 @@ class TextureTable:
         self.blob += data
         return off
 
-    def entry(self, data, seg_off, t, tile, attr):
+    def entry(self, data, seg_off, t, tile, attr, end_codes=False):
         base = VRAM_TEX_BASE + seg_off
         srca = (base + tile * 8) >> 3
         colr = (base + ((t["clut"] + tile) & 0xFFFF) * 8) >> 3
-        color = texture_average(data, tile, t["clut"], t["w"], t["h"], attr & TEX_ATTR_AKILL)
+        color = texture_average(data, tile, t["clut"], t["w"], t["h"], attr & TEX_ATTR_AKILL, end_codes)
         return [srca, colr, ((t["w"] // 8) << 8) | t["h"], attr, color, 0]
 
     @staticmethod
@@ -211,7 +213,7 @@ class TextureTable:
             t = self.lvl.object_textures[tex]
             tile = t["tile"] if variant == 0 else t["sub"][variant - 1]
             self.index[key] = len(self.entries)
-            self.entries.append(self.entry(self.lvl.object_tex_data, self.obj_off, t, tile, attr))
+            self.entries.append(self.entry(self.lvl.object_tex_data, self.obj_off, t, tile, attr, variant != 0))
         return self.index[key]
 
     def item(self, tex, attr):
