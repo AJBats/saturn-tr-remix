@@ -1,0 +1,3 @@
+[submodule "tools/mednafen"]
+	path = tools/mednafen
+	url = https://github.com/AJBats/mednafen-saturn-debug
