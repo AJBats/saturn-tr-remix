@@ -2925,6 +2925,7 @@ void startLevel(LevelID id);
 void nextLevel(LevelID next);
 void flipMap();
 void setEffect(int32 effect, const ItemObj* item);
+void shakeCamera(int32 frames, bool add);
 bool gameSave();
 bool gameLoad();
 

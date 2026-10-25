@@ -1255,4 +1255,939 @@ struct Block : Object
     }
 };
 
+// TR1's traps and set pieces the core lacked, after the original game's logic
+// (as TR1X/TRX and OpenLara reproduce it). They keep their state in the item's
+// spare fields: subclasses can't add members.
+
+enum TrapState {
+    TRAP_SET,
+    TRAP_ACTIVATE,
+    TRAP_WORKING
+};
+
+// Moving traps sense Lara through their spheres while working, and are solid
+// otherwise (TR1's TrapCollision).
+void collideTrap(Object* item, Lara* lara, CollisionInfo* cinfo)
+{
+    uint32 status = item->flags & ITEM_FLAG_STATUS;
+    if (status == ITEM_FLAG_STATUS_ACTIVE) {
+        item->updateHitMask(lara, cinfo);
+    } else if (status != ITEM_FLAG_STATUS_INVISIBLE) {
+        item->collideDefault(lara, cinfo);
+    }
+}
+
+void bleed(Lara* lara, int32 count, int32 speed)
+{
+    for (int32 i = 0; i < count; i++)
+    {
+        vec3i offset = _vec3i((rand_logic() - 0x4000) >> 8, -(rand_logic() >> 6), (rand_logic() - 0x4000) >> 8);
+        lara->fxBlood(lara->pos + offset, lara->angle.y + ((rand_logic() - 0x4000) >> 3), speed);
+    }
+}
+
+void killLara(Lara* lara, int32 anim, int32 state)
+{
+    lara->health = 0;
+    lara->animSet(anim, true);
+    lara->state = lara->goalState = state;
+    lara->flags &= ~ITEM_FLAG_GRAVITY;
+}
+
+// Raises (negative offset) or lowers the floor of the item's sector.
+void alterFloor(ItemObj* item, int32 offset)
+{
+    item->room->modify();
+
+    Sector* sector = (Sector*)item->room->getSector(item->pos.x, item->pos.z);
+
+    if (sector->floor == NO_FLOOR) {
+        sector->floor = sector->ceiling + (offset >> 8);
+    } else {
+        sector->floor += (offset >> 8);
+        if (sector->floor == sector->ceiling) {
+            sector->floor = NO_FLOOR;
+        }
+    }
+}
+
+
+struct TrapSpikes : Object
+{
+    TrapSpikes(Room* room) : Object(room) {}
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        if (lara->health <= 0)
+            return;
+
+        if (!updateHitMask(lara, cinfo))
+            return;
+
+        int32 count = rand_logic() / 24576;
+
+        if (lara->flags & ITEM_FLAG_GRAVITY)
+        {
+            if (lara->vSpeed > 0) { // landing on them is fatal
+                lara->health = 1;
+                count = 20;
+            }
+        }
+        else if (lara->hSpeed < 30)
+        {
+            return;
+        }
+
+        lara->hit(15, pos, 0);
+        bleed(lara, count, 20);
+
+        if (lara->health <= 0)
+        {
+            killLara(lara, Lara::ANIM_DEATH_SPIKES, Lara::STATE_DEATH);
+            lara->pos.y = pos.y;
+        }
+    }
+};
+
+
+// Jaws that snap while triggered (TR1's teeth trap).
+struct TrapSlam : Object
+{
+    enum {
+        STATE_NICE,
+        STATE_NASTY
+    };
+
+    TrapSlam(Room* room) : Object(room) {}
+
+    virtual void update()
+    {
+        if (isActive())
+        {
+            goalState = STATE_NASTY;
+
+            if (hitMask && state == STATE_NASTY)
+            {
+                Lara* lara = getLara(pos);
+                lara->hit(400, pos, 0);
+
+                for (int32 i = 0; i < 2; i++) {
+                    fxBlood(getJoint(i, _vec3i(-23 + i * 94, 0, -1718)), angle.y, 0);
+                }
+            }
+        }
+        else
+        {
+            goalState = STATE_NICE;
+        }
+
+        animProcess();
+    }
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        collideTrap(this, lara, cinfo);
+    }
+};
+
+
+// Damocles' swords spin overhead and drop on Lara as she passes under.
+// turnSpeed is the spin, headOffset and aggression the drift as it falls.
+struct TrapSword : Object
+{
+    TrapSword(Room* room) : Object(room)
+    {
+        angle.y = rand_logic();
+        turnSpeed = (rand_logic() - 0x4000) >> 4;
+        vSpeed = 50;
+        updateRoom();
+    }
+
+    virtual void update()
+    {
+        if (flags & ITEM_FLAG_GRAVITY)
+        {
+            angle.y += turnSpeed;
+            vSpeed += (vSpeed < 128) ? GRAVITY : 1;
+            pos.y += vSpeed;
+            pos.x += int16(headOffset);
+            pos.z += int16(aggression);
+
+            updateRoom();
+
+            if (pos.y > roomFloor)
+            {
+                soundPlay(SND_SWORD, &pos);
+                pos.y = roomFloor + 10;
+                flags &= ~(ITEM_FLAG_GRAVITY | ITEM_FLAG_STATUS);
+                flags |= ITEM_FLAG_STATUS_INACTIVE;
+                deactivate();
+            }
+        }
+        else if (pos.y != roomFloor)
+        {
+            angle.y += turnSpeed;
+
+            Lara* lara = getLara(pos);
+            vec3i d = lara->pos - pos;
+
+            if (abs(d.x) <= 1536 && abs(d.z) <= 1536 && d.y > 0 && d.y < 3072)
+            {
+                headOffset = d.x >> 5;
+                aggression = d.z >> 5;
+                flags |= ITEM_FLAG_GRAVITY;
+            }
+        }
+    }
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        if (!collideBounds(lara, cinfo))
+            return;
+
+        if (cinfo->enemyPush) {
+            collidePush(lara, cinfo, false);
+        }
+
+        if (flags & ITEM_FLAG_GRAVITY)
+        {
+            lara->hit(100, pos, 0);
+            bleed(lara, 1, lara->hSpeed);
+        }
+    }
+};
+
+
+struct TrapCeiling : Object
+{
+    TrapCeiling(Room* room) : Object(room) {}
+
+    virtual void update()
+    {
+        if (state == TRAP_SET)
+        {
+            goalState = TRAP_ACTIVATE;
+            flags |= ITEM_FLAG_GRAVITY;
+        }
+        else if (state == TRAP_ACTIVATE && hitMask)
+        {
+            getLara(pos)->hit(300, pos, 0);
+        }
+
+        animProcess();
+
+        if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INACTIVE)
+        {
+            deactivate();
+            return;
+        }
+
+        updateRoom();
+
+        if (state == TRAP_ACTIVATE && pos.y >= roomFloor)
+        {
+            pos.y = roomFloor;
+            vSpeed = 0;
+            flags &= ~ITEM_FLAG_GRAVITY;
+            goalState = TRAP_WORKING;
+        }
+    }
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        collideTrap(this, lara, cinfo);
+    }
+};
+
+
+// A boulder: drops to the floor, rolls until something stops it, and crushes
+// Lara on the way (TR1's RollingBallControl).
+struct TrapBoulder : Object
+{
+    TrapBoulder(Room* room) : Object(room)
+    {
+        updateRoom();
+    }
+
+    virtual void update()
+    {
+        if ((flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_ACTIVE)
+            return;
+
+        if (pos.y < roomFloor)
+        {
+            if (!(flags & ITEM_FLAG_GRAVITY))
+            {
+                flags |= ITEM_FLAG_GRAVITY;
+                vSpeed = -10;
+            }
+        }
+        else if (state == TRAP_SET)
+        {
+            goalState = TRAP_ACTIVATE;
+        }
+
+        vec3i oldPos = pos;
+
+        animProcess();
+        updateRoom();
+        checkTrigger(gLastFloorData, NULL);
+
+        if (pos.y >= roomFloor - 256)
+        {
+            flags &= ~ITEM_FLAG_GRAVITY;
+            vSpeed = 0;
+            pos.y = roomFloor;
+        }
+
+        // stopped by a wall or a step up half a sector ahead
+        int32 s, c;
+        sincos(angle.y, s, c);
+        int32 x = pos.x + (512 * s >> FIXED_SHIFT);
+        int32 z = pos.z + (512 * c >> FIXED_SHIFT);
+
+        Room* nextRoom = room->getRoom(x, pos.y, z);
+        if (nextRoom->getSector(x, z)->getFloor(x, pos.y, z) < pos.y)
+        {
+            pos.x = oldPos.x;
+            pos.y = roomFloor;
+            pos.z = oldPos.z;
+            hSpeed = 0;
+            vSpeed = 0;
+            hitMask = 0;
+            flags &= ~ITEM_FLAG_STATUS;
+            flags |= ITEM_FLAG_STATUS_INACTIVE;
+            deactivate();
+        }
+    }
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        if ((flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_ACTIVE)
+        {
+            if ((flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE) {
+                collideDefault(lara, cinfo);
+            }
+            return;
+        }
+
+        if (!updateHitMask(lara, cinfo))
+            return;
+
+        if (lara->flags & ITEM_FLAG_GRAVITY)
+        {
+            if (cinfo->enemyPush) {
+                collidePush(lara, cinfo, true);
+            }
+            lara->hit(100, pos, 0);
+            bleed(lara, 1, hSpeed);
+        }
+        else if (lara->health > 0)
+        {
+            if (lara->room != room)
+            {
+                lara->room->remove(lara);
+                room->add(lara);
+            }
+
+            lara->angle = _vec3s(0, angle.y, 0);
+            killLara(lara, Lara::ANIM_DEATH_BOULDER, Lara::STATE_SPECIAL);
+            bleed(lara, 15, hSpeed * 2);
+        }
+    }
+};
+
+
+struct MovingObject : Object // TR1's moving bar
+{
+    MovingObject(Room* room) : Object(room) {}
+
+    virtual void update()
+    {
+        goalState = isActive() ? 1 : 0;
+        animProcess();
+        updateRoom();
+    }
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        collideDefault(lara, cinfo);
+    }
+};
+
+
+// A rolling block: two sectors tall where it rests, it rolls a sector along
+// when triggered (TR1's moving block; OpenLara's MovingBlock).
+struct MovingBlock : Object
+{
+    enum {
+        STATE_BEGIN,
+        STATE_END,
+        STATE_MOVE
+    };
+
+    MovingBlock(Room* room) : Object(room)
+    {
+        if ((flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE) {
+            alterFloor(this, -2048);
+        }
+    }
+
+    virtual void update()
+    {
+        if (isActive())
+        {
+            if (state == STATE_BEGIN)
+            {
+                alterFloor(this, 2048);
+                goalState = STATE_END;
+            }
+        }
+        else if (state == STATE_END)
+        {
+            alterFloor(this, 2048);
+            goalState = STATE_BEGIN;
+        }
+
+        animProcess();
+        updateRoom();
+
+        if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INACTIVE)
+        {
+            flags &= ~ITEM_FLAG_STATUS;
+            flags |= ITEM_FLAG_STATUS_ACTIVE;
+            pos.x = (pos.x & ~1023) + 512;
+            pos.z = (pos.z & ~1023) + 512;
+            alterFloor(this, -2048);
+            room->getSector(pos.x, pos.z)->getFloor(pos.x, pos.y, pos.z);
+            checkTrigger(gLastFloorData, NULL);
+        }
+    }
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        collideDefault(lara, cinfo);
+    }
+};
+
+
+struct Drawbridge : Object
+{
+    enum {
+        STATE_UP,
+        STATE_DOWN
+    };
+
+    Drawbridge(Room* room) : Object(room) {}
+
+    virtual void update()
+    {
+        goalState = isActive() ? STATE_DOWN : STATE_UP;
+        animProcess();
+        updateRoom();
+    }
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        if (state == STATE_UP) {
+            collideDefault(lara, cinfo);
+        }
+    }
+};
+
+
+// Lava pushing along a corridor (Atlantis, the Pyramid): fatal to touch.
+// headOffset marks it stopped.
+struct TrapLava : Object
+{
+    TrapLava(Room* room) : Object(room) {}
+
+    virtual void update()
+    {
+        if (!isActive())
+            return;
+
+        updateRoom();
+
+        if (!headOffset)
+        {
+            vec3i ahead = pos;
+            int32 s, c;
+            sincos(angle.y, s, c);
+            pos.x += 25 * s >> FIXED_SHIFT;
+            pos.z += 25 * c >> FIXED_SHIFT;
+            ahead.x += 2048 * s >> FIXED_SHIFT;
+            ahead.z += 2048 * c >> FIXED_SHIFT;
+
+            Room* nextRoom = room->getRoom(ahead.x, ahead.y, ahead.z);
+            if (nextRoom->getSector(ahead.x, ahead.z)->getFloor(ahead.x, ahead.y, ahead.z) != pos.y) {
+                headOffset = 1;
+            }
+        }
+
+        if (hitMask)
+        {
+            Lara* lara = getLara(pos);
+            if (lara->health > 0) {
+                lara->hit(LARA_MAX_HEALTH, pos, 0);
+            }
+        }
+    }
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        collideDefault(lara, cinfo);
+    }
+};
+
+
+// Thor's hammer: teases, then swings down in front of it, crushing Lara
+// there, and stays as a block two sectors high. The head is a second item,
+// animated with the handle; headOffset holds its index.
+struct HammerBlock : Object
+{
+    HammerBlock(Room* room) : Object(room) {}
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        if (!collideBounds(lara, cinfo))
+            return;
+
+        if (cinfo->enemyPush && state != 2) {
+            collidePush(lara, cinfo, false);
+        }
+    }
+};
+
+struct HammerHandle : Object
+{
+    enum {
+        STATE_SET,
+        STATE_TEASE,
+        STATE_ACTIVE,
+        STATE_DONE
+    };
+
+    HammerHandle(Room* room) : Object(room)
+    {
+        ItemObj* head = ItemObj::add(ITEM_HAMMER_BLOCK, room, pos, angle.y);
+        headOffset = head ? uint16(head - items) + 1 : 0;
+    }
+
+    ItemObj* getHead() const
+    {
+        return headOffset ? items + headOffset - 1 : NULL;
+    }
+
+    vec3i headPos() const
+    {
+        int32 s, c;
+        sincos(angle.y, s, c);
+        return _vec3i(pos.x + (3072 * s >> FIXED_SHIFT), pos.y, pos.z + (3072 * c >> FIXED_SHIFT));
+    }
+
+    virtual void update()
+    {
+        switch (state)
+        {
+            case STATE_SET:
+                if (isActive()) {
+                    goalState = STATE_TEASE;
+                } else {
+                    deactivate();
+                    flags &= ~ITEM_FLAG_STATUS;
+                }
+                break;
+
+            case STATE_TEASE:
+                goalState = isActive() ? STATE_ACTIVE : STATE_SET;
+                break;
+
+            case STATE_ACTIVE:
+            {
+                Lara* lara = getLara(pos);
+                vec3i h = headPos();
+                if (frameIndex - level.anims[animIndex].frameBegin > 30 && lara->health > 0 &&
+                    abs(lara->pos.x - h.x) < 520 && abs(lara->pos.z - h.z) < 520 &&
+                    lara->pos.y - LARA_HEIGHT <= pos.y)
+                {
+                    lara->pos.y = roomFloor;
+                    killLara(lara, Lara::ANIM_DEATH_BOULDER, Lara::STATE_SPECIAL);
+                }
+                break;
+            }
+
+            case STATE_DONE:
+            {
+                vec3i h = headPos();
+                room->getRoom(h.x, h.y, h.z)->getSector(h.x, h.z)->getFloor(h.x, h.y, h.z);
+                checkTrigger(gLastFloorData, NULL);
+                flags &= ~ITEM_FLAG_STATUS;
+                flags |= ITEM_FLAG_STATUS_INACTIVE;
+                deactivate();
+                break;
+            }
+        }
+
+        animProcess();
+        updateRoom();
+
+        ItemObj* head = getHead();
+        if (head)
+        {
+            const Model &handleModel = level.models[ITEM_HAMMER_HANDLE];
+            const Model &headModel = level.models[ITEM_HAMMER_BLOCK];
+            int32 frame = frameIndex - level.anims[animIndex].frameBegin;
+            head->animSet(headModel.animIndex + (animIndex - handleModel.animIndex), false, frame);
+            head->state = state;
+        }
+    }
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        if (!collideBounds(lara, cinfo))
+            return;
+
+        if (cinfo->enemyPush) {
+            collidePush(lara, cinfo, false);
+        }
+    }
+};
+
+
+// Thor's lightning: while triggered, strikes on and off, through Lara if she
+// is near, and lights the room (its flip map) while it does (TR1's
+// LightningControl, without the bolt itself). headOffset counts down the
+// strike, aggression is 1 while striking.
+struct Lightning : Object
+{
+    Lightning(Room* room) : Object(room)
+    {
+        headOffset = 1;
+    }
+
+    virtual void update()
+    {
+        if (!isActive())
+        {
+            headOffset = 1;
+            aggression = 0;
+            if (gSaveGame.flipped) {
+                flipMap();
+            }
+            deactivate();
+            flags &= ~ITEM_FLAG_STATUS;
+            return;
+        }
+
+        if (--headOffset)
+            return;
+
+        if (aggression)
+        {
+            aggression = 0;
+            headOffset = 35 + ((rand_logic() * 45) >> 15);
+            if (gSaveGame.flipped) {
+                flipMap();
+            }
+        }
+        else
+        {
+            aggression = 1;
+            headOffset = 20;
+
+            Lara* lara = getLara(pos);
+            vec3i d = lara->pos - pos;
+            if (abs(d.x) < 2560 && abs(d.z) < 2560 && abs(d.y) < 3072 &&
+                X_SQR(d.x >> 4) + X_SQR(d.z >> 4) < X_SQR(2560 >> 4))
+            {
+                lara->hit(400, pos, 0);
+            }
+
+            if (!gSaveGame.flipped) {
+                flipMap();
+            }
+            soundPlay(SND_LIGHTNING, &pos);
+        }
+    }
+
+    virtual void draw() {}
+};
+
+
+// A fire, for as long as its emitter is triggered: too near it singes Lara,
+// in it she burns.
+struct Flame : Object
+{
+    Flame(Room* room) : Object(room)
+    {
+        frameIndex = 0;
+        activate();
+    }
+
+    virtual void update()
+    {
+        if (++frameIndex >= -level.models[type].count) {
+            frameIndex = 0;
+        }
+
+        soundPlay(SND_FLAME, &pos);
+
+        Lara* lara = getLara(pos);
+        vec3i d = lara->pos - pos;
+        if (lara->health > 0 && abs(d.x) < 600 && abs(d.z) < 600 && abs(d.y) < 1024)
+        {
+            int32 dist = X_SQR(d.x >> 2) + X_SQR(d.z >> 2);
+            lara->hit((dist < X_SQR(300 >> 2)) ? 7 : 3, pos, 0);
+        }
+    }
+};
+
+struct FlameEmitter : Object // headOffset: the flame's item index + 1
+{
+    FlameEmitter(Room* room) : Object(room) {}
+
+    virtual void update()
+    {
+        if (isActive())
+        {
+            if (!headOffset)
+            {
+                ItemObj* flame = ItemObj::add(ITEM_FLAME, room, pos, 0);
+                headOffset = flame ? uint16(flame - items) + 1 : 0;
+            }
+        }
+        else if (headOffset)
+        {
+            items[headOffset - 1].remove();
+            headOffset = 0;
+        }
+    }
+
+    virtual void draw() {}
+};
+
+
+// Statues and eggs hold a creature that bursts out when Lara comes near;
+// headOffset holds its item index + 1.
+ItemObj* spawnHidden(ItemObj* holder, ItemType type)
+{
+    if (!level.models[type].count)
+        return NULL;
+
+    ItemObj* item = ItemObj::add(type, holder->room, holder->pos, holder->angle.y);
+    if (!item)
+        return NULL;
+
+    item->flags &= ~ITEM_FLAG_STATUS;
+    item->flags |= ITEM_FLAG_STATUS_INVISIBLE;
+    return item;
+}
+
+void wake(ItemObj* item)
+{
+    item->flags |= ITEM_FLAG_MASK;
+    item->flags &= ~ITEM_FLAG_STATUS;
+    item->flags |= ITEM_FLAG_STATUS_ACTIVE;
+    item->activate();
+}
+
+struct CentaurStatue : Object
+{
+    CentaurStatue(Room* room) : Object(room)
+    {
+        ItemObj* centaur = spawnHidden(this, ITEM_CENTAUR);
+        if (centaur) {
+            centaur->animSet(level.models[ITEM_CENTAUR].animIndex + 7, true, 36); // rearing
+        }
+        headOffset = centaur ? uint16(centaur - items) + 1 : 0;
+        activate();
+    }
+
+    virtual void update()
+    {
+        Lara* lara = getLara(pos);
+        vec3i d = lara->pos - pos;
+
+        if (d.y > -1024 && d.y < 1024 && abs(d.x) < 3584 && abs(d.z) < 3584 &&
+            X_SQR(d.x >> 4) + X_SQR(d.z >> 4) < X_SQR(3584 >> 4))
+        {
+            soundPlay(SND_EXPLOSION, &pos);
+            if (headOffset) {
+                wake(items + headOffset - 1);
+            }
+            flags &= ~ITEM_FLAG_STATUS;
+            flags |= ITEM_FLAG_STATUS_INVISIBLE;
+            deactivate();
+        }
+    }
+};
+
+struct MutantEgg : Object
+{
+    enum {
+        STATE_SET,
+        STATE_EXPLODE
+    };
+
+    MutantEgg(Room* room) : Object(room)
+    {
+        ItemType type;
+        switch ((flags & ITEM_FLAG_MASK) >> ITEM_FLAGS_MASK_SHIFT)
+        {
+            case 1  : type = ITEM_MUTANT_2; break; // the shooter
+            case 2  : type = ITEM_CENTAUR;  break;
+            case 4  : type = ITEM_ADAM;     break;
+            case 8  : type = ITEM_MUTANT_3; break; // walking
+            default : type = ITEM_MUTANT_1;        // winged
+        }
+
+        ItemObj* creature = spawnHidden(this, type);
+        headOffset = creature ? uint16(creature - items) + 1 : 0;
+
+        flags &= ~ITEM_FLAG_MASK;
+        visibleMask = 0xFF0001FF;
+    }
+
+    virtual void update()
+    {
+        if (goalState != STATE_EXPLODE)
+        {
+            bool explode = (flags & ITEM_FLAG_ONCE) || (type == ITEM_MUTANT_EGG_BIG);
+
+            if (!explode)
+            {
+                vec3i d = getLara(pos)->pos - pos;
+                explode = abs(d.x) < 4096 && abs(d.y) < 4096 && abs(d.z) < 4096;
+            }
+
+            if (explode)
+            {
+                goalState = STATE_EXPLODE;
+                visibleMask = 0xFFFFFF;
+                flags &= ~ITEM_FLAG_COLLISION;
+                if (headOffset) {
+                    wake(items + headOffset - 1);
+                }
+            }
+        }
+
+        animProcess();
+    }
+};
+
+
+// Natla's mines: the cabin crane drops in three stages, then the cabin is
+// gone and its flip map shows where it fell.
+struct Cabin : Object
+{
+    enum {
+        STATE_START,
+        STATE_DROP_1,
+        STATE_DROP_2,
+        STATE_DROP_3,
+        STATE_FINISH
+    };
+
+    Cabin(Room* room) : Object(room) {}
+
+    virtual void update()
+    {
+        if ((flags & ITEM_FLAG_MASK) == ITEM_FLAG_MASK)
+        {
+            switch (state)
+            {
+                case STATE_START  : goalState = STATE_DROP_1; break;
+                case STATE_DROP_1 : goalState = STATE_DROP_2; break;
+                case STATE_DROP_2 : goalState = STATE_DROP_3; break;
+            }
+            flags &= ~ITEM_FLAG_MASK;
+        }
+
+        if (state == STATE_FINISH)
+        {
+            gSaveGame.flipmaps[3] = FLIP_FLAG_MASK | FLIP_FLAG_ONCE;
+            flipMap();
+            flags &= ~ITEM_FLAG_STATUS;
+            flags |= ITEM_FLAG_STATUS_INVISIBLE;
+            deactivate();
+            return;
+        }
+
+        animProcess();
+    }
+};
+
+
+struct Boat : Object
+{
+    enum {
+        STATE_EMPTY,
+        STATE_SET,
+        STATE_MOVE,
+        STATE_STOP
+    };
+
+    Boat(Room* room) : Object(room) {}
+
+    virtual void update()
+    {
+        switch (state)
+        {
+            case STATE_SET  : goalState = STATE_MOVE; break;
+            case STATE_MOVE : goalState = STATE_STOP; break;
+            case STATE_STOP :
+                flags &= ~ITEM_FLAG_STATUS;
+                flags |= ITEM_FLAG_STATUS_INVISIBLE;
+                deactivate();
+                return;
+        }
+
+        animProcess();
+    }
+};
+
+
+// The Great Pyramid shakes while triggered, now and then bringing down a
+// ceiling or setting a fire in the room.
+struct Earthquake : Object
+{
+    Earthquake(Room* room) : Object(room) {}
+
+    virtual void update()
+    {
+        if (!isActive())
+            return;
+
+        int32 r = rand_logic();
+        if (r < 0x400)
+        {
+            shakeCamera(15, false);
+            soundPlay(SND_ROCK, NULL);
+        }
+        else if (r < 0x800)
+        {
+            shakeCamera(5, false);
+            soundPlay(SND_BOULDER, NULL);
+        }
+
+        r = rand_logic();
+        if (r < 1024)
+        {
+            ItemType wanted = (r < 512) ? ITEM_FLAME_EMITTER : ITEM_TRAP_CEILING;
+            for (ItemObj* item = room->firstItem; item; item = item->nextItem)
+            {
+                if (item->type == wanted && !(item->flags & ITEM_FLAG_ACTIVE) &&
+                    (item->flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INACTIVE)
+                {
+                    wake(item);
+                    break;
+                }
+            }
+        }
+    }
+
+    virtual void draw() {}
+};
+
 #endif

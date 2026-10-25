@@ -811,10 +811,10 @@ int32 ItemObj::getDrawBridgeFloor(int32 x, int32 z) const
     int32 dx = (pos.x >> 10) - (x >> 10);
     int32 dz = (pos.z >> 10) - (z >> 10);
 
-    if (((dx == 0) && ((dz == -1) || (dz == -2)) && (angle.y ==  ANGLE_0))   ||
-        ((dx == 0) && ((dz ==  1) || (dz ==  2)) && (angle.y ==  ANGLE_180)) ||
-        ((dz == 0) && ((dx == -1) || (dz == -2)) && (angle.y ==  ANGLE_90))  ||
-        ((dz == 0) && ((dx ==  1) || (dz ==  2)) && (angle.y == -ANGLE_90)))
+    if (((dx == 0) && ((dz ==  1) || (dz ==  2)) && (angle.y ==  ANGLE_0))   ||
+        ((dx == 0) && ((dz == -1) || (dz == -2)) && (angle.y ==  ANGLE_180)) ||
+        ((dz == 0) && ((dx ==  1) || (dx ==  2)) && (angle.y ==  ANGLE_90))  ||
+        ((dz == 0) && ((dx == -1) || (dx == -2)) && (angle.y == -ANGLE_90)))
     {
         return pos.y;
     }
@@ -847,6 +847,22 @@ void ItemObj::getItemFloorCeiling(int32 x, int32 y, int32 z, int32* floor, int32
         case ITEM_BRIDGE_TILT_2:
         {
             h = getBridgeFloor(x, z);
+            break;
+        }
+        case ITEM_HAMMER_HANDLE:
+        {
+            // the fallen head, two sectors high, three sectors ahead
+            if (state != 3 || y > pos.y)
+                return;
+
+            int32 s, c;
+            sincos(angle.y, s, c);
+            int32 hx = pos.x + (3072 * s >> FIXED_SHIFT);
+            int32 hz = pos.z + (3072 * c >> FIXED_SHIFT);
+            if ((hx >> 10) != (x >> 10) || (hz >> 10) != (z >> 10))
+                return;
+
+            h = pos.y - 2048;
             break;
         }
         case ITEM_TRAP_DOOR_1:
@@ -1511,23 +1527,23 @@ ItemObj* ItemObj::init(Room* room)
         INIT_ITEM( ADAM                  , Adam );
         INIT_ITEM( TRAP_FLOOR            , TrapFloor );
         INIT_ITEM( TRAP_SWING_BLADE      , TrapSwingBlade );
-        // INIT_ITEM( TRAP_SPIKES           , ??? );
-        // INIT_ITEM( TRAP_BOULDER          , ??? );
+        INIT_ITEM( TRAP_SPIKES           , TrapSpikes );
+        INIT_ITEM( TRAP_BOULDER          , TrapBoulder );
         INIT_ITEM( DART                  , Dart );
         INIT_ITEM( TRAP_DART_EMITTER     , TrapDartEmitter );
-        // INIT_ITEM( DRAWBRIDGE            , ??? );
-        // INIT_ITEM( TRAP_SLAM             , ??? );
-        // INIT_ITEM( TRAP_SWORD            , ??? );
-        // INIT_ITEM( HAMMER_HANDLE         , ??? );
-        // INIT_ITEM( HAMMER_BLOCK          , ??? );
-        // INIT_ITEM( LIGHTNING             , ??? );
-        // INIT_ITEM( MOVING_OBJECT         , ??? );
+        INIT_ITEM( DRAWBRIDGE            , Drawbridge );
+        INIT_ITEM( TRAP_SLAM             , TrapSlam );
+        INIT_ITEM( TRAP_SWORD            , TrapSword );
+        INIT_ITEM( HAMMER_HANDLE         , HammerHandle );
+        INIT_ITEM( HAMMER_BLOCK          , HammerBlock );
+        INIT_ITEM( LIGHTNING             , Lightning );
+        INIT_ITEM( MOVING_OBJECT         , MovingObject );
         INIT_ITEM( BLOCK_1               , Block );
         INIT_ITEM( BLOCK_2               , Block );
         INIT_ITEM( BLOCK_3               , Block );
         INIT_ITEM( BLOCK_4               , Block );
-        // INIT_ITEM( MOVING_BLOCK          , ??? );
-        // INIT_ITEM( TRAP_CEILING          , ??? );
+        INIT_ITEM( MOVING_BLOCK          , MovingBlock );
+        INIT_ITEM( TRAP_CEILING          , TrapCeiling );
         // INIT_ITEM( TRAP_FLOOR_LOD        , ??? );
         INIT_ITEM( SWITCH                , Switch );
         INIT_ITEM( SWITCH_WATER          , SwitchWater );
@@ -1635,9 +1651,9 @@ ItemObj* ItemObj::init(Room* room)
         INIT_ITEM( BLOOD                 , SpriteEffect );
         // INIT_ITEM( UNUSED_12             , ??? );
         INIT_ITEM( SMOKE                 , SpriteEffect );
-        // INIT_ITEM( CENTAUR_STATUE        , ??? );
-        // INIT_ITEM( CABIN                 , ??? );
-        // INIT_ITEM( MUTANT_EGG_SMALL      , ??? );
+        INIT_ITEM( CENTAUR_STATUE        , CentaurStatue );
+        INIT_ITEM( CABIN                 , Cabin );
+        INIT_ITEM( MUTANT_EGG_SMALL      , MutantEgg );
         INIT_ITEM( RICOCHET              , SpriteEffect );
         INIT_ITEM( SPARKLES              , SpriteEffect );
         // INIT_ITEM( MUZZLE_FLASH          , ??? );
@@ -1652,12 +1668,12 @@ ItemObj* ItemObj::init(Room* room)
         // INIT_ITEM( UNUSED_16             , ??? );
         // INIT_ITEM( LAVA_PARTICLE         , ??? );
         INIT_ITEM( LAVA_EMITTER          , LavaEmitter );
-        // INIT_ITEM( FLAME                 , ??? );
-        // INIT_ITEM( FLAME_EMITTER         , ??? );
-        // INIT_ITEM( TRAP_LAVA             , ??? );
-        // INIT_ITEM( MUTANT_EGG_BIG        , ??? );
-        // INIT_ITEM( BOAT                  , ??? );
-        // INIT_ITEM( EARTHQUAKE            , ??? );
+        INIT_ITEM( FLAME                 , Flame );
+        INIT_ITEM( FLAME_EMITTER         , FlameEmitter );
+        INIT_ITEM( TRAP_LAVA             , TrapLava );
+        INIT_ITEM( MUTANT_EGG_BIG        , MutantEgg );
+        INIT_ITEM( BOAT                  , Boat );
+        INIT_ITEM( EARTHQUAKE            , Earthquake );
         // INIT_ITEM( UNUSED_17             , ??? );
         // INIT_ITEM( UNUSED_18             , ??? );
         // INIT_ITEM( UNUSED_19             , ??? );
