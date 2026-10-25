@@ -72,6 +72,7 @@ void setViewport(const RectMinMax &vp)
 
 // Meshes drawn while this is set (items in water rooms) get FACE_WATER.
 static uint32 gMeshFaceFlags;
+static uint32 gMeshFlatFaces;   // mesh faces drawn flat this frame
 
 // OpenLara selects palette 1 for whatever is in a water room.
 void setPaletteIndex(int32 index)
@@ -182,6 +183,11 @@ void faceAddMeshQuads(const MeshQuad* polys, int32 count)
         if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
             continue;
 
+        if (faceFlat(flags, X_MIN(X_MIN(v0->z, v1->z), X_MIN(v2->z, v3->z)), level.textures + (flags & FACE_TEXTURE)))
+        {
+            flags = flatFlags(flags);
+            gMeshFlatFaces++;
+        }
 
         int32 depth = uint32(v0->z + v1->z + v2->z + v3->z) >> (2 + OT_SHIFT);
 
@@ -221,8 +227,15 @@ void faceAddMeshTriangles(const MeshTriangle* polys, int32 count)
 
         flags |= FACE_TRIANGLE;
 
+        if (faceFlat(flags, X_MIN(v0->z, X_MIN(v1->z, v2->z)), level.textures + (flags & FACE_TEXTURE)))
+        {
+            flags = flatFlags(flags);
+            gMeshFlatFaces++;
+        }
+
         uint32 arrangement = polys->indices[3];
-        if (((flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) != FACE_TYPE_F && !(arrangement & 0x80))
+        uint32 type = (flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK;
+        if (type != FACE_TYPE_F && type != FACE_TYPE_AVG && !(arrangement & 0x80))
         {
             flags |= FACE_PARALLELOGRAM;
             if (arrangement & 1) {
@@ -330,7 +343,8 @@ X_INLINE uint32 gouraudPair(uint32 flags, bool dim, const Vertex* a, const Verte
 
 int32 gTexelView;
 bool gSaturnLod;
-bool gShadeHalf;
+bool gShadeHalf = true;
+int32 gFlatDist;
 
 // Adds to each channel of a pair of gouraud values, within 0 .. 31.
 X_INLINE uint32 tintPair(uint32 pair, int32 dr, int32 dg, int32 db)
@@ -355,11 +369,15 @@ static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room, int
 {
     int32 dr = -6, dg = -6, db = -6;
 
+    bool flat = ((flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) == FACE_TYPE_AVG;
+
     if (gTexelView == TEXEL_VIEW_LOD)
     {
-        if (!room)
+        if (!room && !flat)
             return;
-        if (flags & FACE_DETAIL) {
+        if (flat) {
+            dr = 10; dg = 10;           // flat
+        } else if (flags & FACE_DETAIL) {
             dg = 10;
         } else if (zMax < DETAIL_DIST) {
             dr = 12;
@@ -369,6 +387,9 @@ static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room, int
     }
     else
     {
+        if (flat)
+            return;
+
         // twice the face's area on screen against its texels
         int32 area2 = 0;
         for (int32 i = 0; i < 4; i++)
@@ -452,6 +473,10 @@ X_INLINE void faceMaterial(uint32* w, uint32 flags)
     {
         color = level.palette[flags & FACE_TEXTURE];
     }
+    else if (type == FACE_TYPE_AVG)
+    {
+        color = level.textures[flags & FACE_TEXTURE].color;
+    }
     else
     {
         const Texture* tex = level.textures + (flags & FACE_TEXTURE);
@@ -509,6 +534,8 @@ void flush_c()
     gStats.detailMisses = rooms.detailMisses;
     gStats.nearNoDetail = rooms.nearNoDetail;
     gStats.nearTriangles = rooms.nearTriangles;
+    gStats.flatFaces = rooms.flatFaces + gMeshFlatFaces;
+    gMeshFlatFaces = 0;
     gStats.slaveXformTicks = rooms.xformTicks;
     gStats.slaveFaceTicks = rooms.faceTicks;
     gStats.slaveIdleTicks = rooms.idleTicks;

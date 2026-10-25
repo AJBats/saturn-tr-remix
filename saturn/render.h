@@ -32,6 +32,7 @@ enum FaceType {
     FACE_TYPE_FILL_S,
     FACE_TYPE_LINE_H,
     FACE_TYPE_LINE_V,
+    FACE_TYPE_AVG,      // a textured face drawn flat in its texture's mean colour (far LOD)
     FACE_TYPE_MAX
 };
 
@@ -181,6 +182,22 @@ extern int32 gTexelView;
 // the quarter-res set, with full-res quadrants for faces near the camera.
 extern bool gSaturnLod;
 
+// Far LOD, after XL2's Irreel: textured faces wholly beyond this depth are
+// drawn as flat polygons in their texture's mean colour (0: never). Faces with
+// see-through texels keep their texture.
+extern int32 gFlatDist;
+
+X_INLINE bool faceFlat(uint32 flags, int32 zMin, const Texture* tex)
+{
+    return gFlatDist && zMin > gFlatDist && !(tex->attr & TEX_ATTR_AKILL)
+        && ((flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) != FACE_TYPE_F;
+}
+
+X_INLINE uint32 flatFlags(uint32 flags)
+{
+    return (flags & ~(FACE_TYPE_MASK << FACE_TYPE_SHIFT)) | (FACE_TYPE_AVG << FACE_TYPE_SHIFT);
+}
+
 // Shading options to compare (the debug menu):
 // how far shade darkens, SHADE_CURVE_*;
 enum ShadeCurve
@@ -202,6 +219,7 @@ struct RoomStats
     uint32 detailMisses;  // near room quads left at quarter res: no cache slot or upload this frame
     uint32 nearNoDetail;  // near room quads whose texture has no full-res version
     uint32 nearTriangles; // near room triangles, which have no full-res path
+    uint32 flatFaces;     // room faces drawn flat (gFlatDist)
     uint32 xformTicks;  // slave time transforming vertices (its own FRT)
     uint32 faceTicks;   // ... adding faces
     uint32 idleTicks;   // ... waiting for rooms to be queued

@@ -33,6 +33,7 @@ struct FrameStats
     uint32_t nearNoDetail;
     uint32_t nearTriangles;
     uint32_t detailUploads; // full-res textures copied to the cache last frame
+    uint32_t flatFaces;     // faces drawn flat for distance (rooms and meshes)
     uint32_t roomVertices;  // room vertices transformed
     uint32_t slaveXformTicks; // slave: room vertex transform
     uint32_t slaveFaceTicks;  // slave: room face setup

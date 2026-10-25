@@ -27,8 +27,11 @@ static const char* const kDark[] = { "Add", "Half luminance" };
 static const char* const kPalette[] = { "Saturn", "Remastered" };
 static const char* const kViews[] = { "Normal", "Resolution", "Texel size" };
 static const char* const kOnOff[] = { "Off", "On" };
+static const char* const kFar[] = { "Textured", "Flat past 16", "Flat past 12", "Flat past 8" };
+static const int32 kFarDist[] = { 0, 16 * 1024, 12 * 1024, 8 * 1024 };
 
 static int32 gShadeCurve;
+static int32 gFarFaces;
 static bool gShowStats;
 
 static const Option gOptions[] = {
@@ -41,6 +44,9 @@ static const Option gOptions[] = {
     { "Dark faces", kDark, 2,
         [] { return int32(gShadeHalf); },
         [](int32 v) { gShadeHalf = v; } },
+    { "Far faces", kFar, 4,
+        [] { return gFarFaces; },
+        [](int32 v) { gFarFaces = v; gFlatDist = kFarDist[v]; } },
     { "Palette", kPalette, 2,
         [] { return int32(palettesRemastered()); },
         [](int32 v) { if (v != palettesRemastered()) palettesToggle(); } },
@@ -52,7 +58,7 @@ static const Option gOptions[] = {
         [](int32 v) { gShowStats = v; } }
 };
 
-enum { OPTION_TEXTURES, OPTION_SHADING, OPTION_DARK, OPTION_PALETTE, OPTION_VIEW, OPTION_STATS, OPTION_COUNT };
+enum { OPTION_TEXTURES, OPTION_SHADING, OPTION_DARK, OPTION_FAR, OPTION_PALETTE, OPTION_VIEW, OPTION_STATS, OPTION_COUNT };
 
 static uint16 gPad;
 static bool gMenuOpen;
@@ -169,7 +175,7 @@ void osDrawDebug()
         // slot or upload; near ones without a full-res texture; near triangles
         char* p = appendStat(text, "full ", gStats.detailFaces);
         p = appendStat(p, "missed ", gStats.detailMisses);
-        p = appendStat(p, "none ", gStats.nearNoDetail);
+        p = appendStat(p, "flat ", gStats.flatFaces);
         appendStat(p, "tri ", gStats.nearTriangles);
         drawText(0, y, text, TEXT_ALIGN_CENTER);
         y -= 18;

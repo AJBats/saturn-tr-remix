@@ -258,7 +258,14 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
         int32 zMax = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z)));
         const Texture* tex = level.textures + (flags & FACE_TEXTURE);
 
-        if (!gSaturnLod)
+        if (faceFlat(flags, X_MIN(v0->z, X_MIN(v1->z, X_MIN(v2->z, v3->z))), tex))
+        {
+            if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
+                continue;
+            flags = flatFlags(flags);
+            gSlaveStats.flatFaces++;
+        }
+        else if (!gSaturnLod)
         {
             if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
                 continue;
@@ -321,7 +328,10 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
         flags |= FACE_TRIANGLE;
 
         int32 zMax = X_MAX(v0->z, X_MAX(v1->z, v2->z));
-        if (!gSaturnLod) {
+        if (faceFlat(flags, X_MIN(v0->z, X_MIN(v1->z, v2->z)), level.textures + (flags & FACE_TEXTURE))) {
+            flags = flatFlags(flags);
+            gSlaveStats.flatFaces++;
+        } else if (!gSaturnLod) {
             flags = wholeTexture(flags);
         } else if (zMax < DETAIL_DIST) {
             gSlaveStats.nearTriangles++;
