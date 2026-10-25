@@ -94,6 +94,7 @@ X_INLINE Face* faceAdd(FaceList &list, int32 depth)
 template <int N>
 X_INLINE int32 asr16(int32 v)
 {
+    static_assert(N <= 16, "past 16, the logical shift leaves no sign bits in the low half");
     return int16(uint32(v) >> N);
 }
 
