@@ -38,7 +38,8 @@ usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD>
 For testing, LARA_START=<room> in the environment starts Lara in that room,
 on the walkable floor nearest its centre; LARA_START=<room>:<x>:<z> on that
 sector; LARA_START=<room>:<x>:<z>:<degrees> also turns her to that heading,
-to the nearest quarter turn (items keep only that).
+to the nearest quarter turn (items keep only that); LARA_START=<room>@<x>:<y>:<z>
+puts her at that world position exactly (make's START_YAW turns her exactly).
 """
 import math
 import os
@@ -773,8 +774,14 @@ def main():
     lvl = trsat.load(data_dir, name)
     borrow_title_glyphs(lvl, data_dir)
     read_camera_frames(lvl, data_dir)
-    if os.environ.get("LARA_START"):
-        start = [int(v) for v in os.environ["LARA_START"].split(":")]
+    spec = os.environ.get("LARA_START")
+    if spec and "@" in spec:
+        room, pos = spec.split("@")
+        x, y, z = (int(v) for v in pos.split(":"))
+        lara = next(it for it in lvl.items if it["type"] == ITEM["LARA"])
+        lara.update(room=int(room), x=x, y=y, z=z)
+    elif spec:
+        start = [int(v) for v in spec.split(":")]
         move_lara(lvl, start[0], tuple(start[1:3]) if len(start) >= 3 else None)
         if len(start) == 4:
             lara = next(it for it in lvl.items if it["type"] == ITEM["LARA"])

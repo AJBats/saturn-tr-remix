@@ -30,11 +30,9 @@ static const int32 kFarDist[] = { 0, 16 * 1024, 12 * 1024, 8 * 1024 };
 
 static int32 gShadeCurve;
 static int32 gFarFaces;
-#ifdef HW_LOG
-static bool gShowStats = true;  // hardware tests: the numbers in the photos
-static void benchUpdate();
-#else
 static bool gShowStats;
+#ifdef HW_LOG
+static void benchUpdate();
 #endif
 
 static const Option gOptions[] = {
@@ -210,34 +208,38 @@ static void benchUpdate()
     frames = vdp1 = cpu = 0;
 }
 
+// Glyphs take the master's vertices, which a heavy view nearly uses up: the
+// CPU stages first, then the table as terse as it reads.
 static void benchDraw()
 {
     char text[64];
-    for (int32 i = 0; i < BENCH_COUNT; i++)
-    {
-        char* p = append(text, i == gBenchMode ? "> " : "  ");
-        p = append(p, kBenchNames[i]);
-        p = append(p, "  ");
-        if (gBench[i].fps)
-        {
-            p = appendStat(p, "vdp1 ", gBench[i].vdp1);
-            p = appendStat(p, "cpu ", gBench[i].cpu);
-            appendStat(p, "fps ", gBench[i].fps);
-        }
-        drawText(16, 30 + i * 18, text, TEXT_ALIGN_LEFT);
-    }
 
     // the master's stages, then the slave's
-    char* p = append(text, "  ");
+    char* p = text;
+    *p = 0;
     for (int32 i = 0; i < SPLIT_XFORM; i++) {
         p = appendStat(p, kSplitNames[i], gSplit[i]);
     }
-    drawText(16, 30 + BENCH_COUNT * 18, text, TEXT_ALIGN_LEFT);
-    p = append(text, "  slave  ");
+    drawText(16, 30, text, TEXT_ALIGN_LEFT);
+    p = append(text, "slave  ");
     for (int32 i = SPLIT_XFORM; i < SPLIT_COUNT; i++) {
         p = appendStat(p, kSplitNames[i], gSplit[i]);
     }
-    drawText(16, 30 + (BENCH_COUNT + 1) * 18, text, TEXT_ALIGN_LEFT);
+    drawText(16, 48, text, TEXT_ALIGN_LEFT);
+
+    drawText(16, 72, "vdp1 cpu fps", TEXT_ALIGN_LEFT);
+    for (int32 i = 0; i < BENCH_COUNT; i++)
+    {
+        p = append(text, i == gBenchMode ? "> " : "");
+        if (gBench[i].fps)
+        {
+            p = appendStat(p, "", gBench[i].vdp1);
+            p = appendStat(p, "", gBench[i].cpu);
+            p = appendStat(p, "", gBench[i].fps);
+        }
+        append(p, kBenchNames[i]);
+        drawText(16, 90 + i * 18, text, TEXT_ALIGN_LEFT);
+    }
 }
 #endif
 
@@ -269,7 +271,11 @@ void osDrawDebug()
         y -= 18;
     }
 
+#ifdef HW_LOG
+    if (gTexelView)     // the measurement table stands in for the stats
+#else
     if (gShowStats || gTexelView)
+#endif
     {
         // room faces drawn with cached textures; in their mean colour for want
         // of a cache slot or upload; flat for distance

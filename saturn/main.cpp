@@ -70,6 +70,14 @@ int main()
 
     gameInit();
 
+#ifdef START_YAW
+    // testing: Lara's exact heading where LARA_START put her (items keep a
+    // quarter turn)
+    if (players[0]) {
+        players[0]->angle.y = int16(START_YAW);
+    }
+#endif
+
     uint32 lastTick = gVblankCount >> 1;
     uint32 lastPad = gVblankCount;
     uint32 fpsStart = gVblankCount;

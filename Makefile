@@ -38,6 +38,9 @@ CFLAGS  := -m2 -mb $(OPT) -Wall -D__SATURN__ -Isaturn -Iopenlara
 ifdef START_LEVEL
 CFLAGS  += -DSTART_LEVEL=$(START_LEVEL)   # testing: touch saturn/main.cpp when changing it
 endif
+ifdef START_YAW
+CFLAGS  += -DSTART_YAW=$(START_YAW)       # testing: Lara's heading at the start; touch saturn/main.cpp
+endif
 ifdef HW_LOG
 CFLAGS  += -DHW_LOG     # testing on hardware: the boot log, stats and measurements on screen; touch saturn/crash.cpp saturn/debug.cpp when changing it
 endif
