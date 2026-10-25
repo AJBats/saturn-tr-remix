@@ -1,6 +1,11 @@
 // OpenLara os* platform hooks.
 
 #include "common.h"
+#include "cd.h"
+
+// Packed levels load into low work RAM, which nothing else uses.
+#define LEVEL_ADDR  ((uint8*)0x00200000)
+#define LEVEL_MAX   (1024 * 1024)
 
 int32 osGetSystemTimeMS()
 {
@@ -47,5 +52,14 @@ const void* osLoadScreen(LevelID id)
 
 const void* osLoadLevel(LevelID id)
 {
-    return NULL; // TODO load from CD
+    char path[32] = "DATA/";
+    strcat(path, (const char*)gLevelInfo[id].data);
+    strcat(path, ".PKD");
+
+    if (cdLoadFile(path, LEVEL_ADDR, LEVEL_MAX) <= 0)
+    {
+        while (1); // TODO error screen
+    }
+
+    return LEVEL_ADDR;
 }

@@ -202,13 +202,10 @@ void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity)
 
         const Matrix &m = matrixGet();
 
-        int32 x = m.e03;
-        int32 y = m.e13;
-        int32 z = m.e23;
-
-        x += DP33(m.e00, m.e01, m.e02, vx, vy, vz) >> (FIXED_SHIFT + F16_SHIFT);
-        y += DP33(m.e10, m.e11, m.e12, vx, vy, vz) >> (FIXED_SHIFT + F16_SHIFT);
-        z += DP33(m.e20, m.e21, m.e22, vx, vy, vz) >> (FIXED_SHIFT + F16_SHIFT);
+        // int32 matrices keep the translation pre-scaled (MATRIX_FIXED_SHIFT 0)
+        int32 x = DP43(m.e00, m.e01, m.e02, m.e03, vx, vy, vz) >> FIXED_SHIFT;
+        int32 y = DP43(m.e10, m.e11, m.e12, m.e13, vx, vy, vz) >> FIXED_SHIFT;
+        int32 z = DP43(m.e20, m.e21, m.e22, m.e23, vx, vy, vz) >> FIXED_SHIFT;
 
         uint32 clip = 0;
 
@@ -428,11 +425,19 @@ int32 sphereIsVisible_c(int32 sx, int32 sy, int32 sz, int32 r)
     return 1;
 }
 
-// TR shade 0 (lit) .. 31 (dark) as a grey VDP1 gouraud entry
+// TR shade 0 (lit) .. 31 (dark) as a VDP1 gouraud entry (16 = colour unchanged)
 X_INLINE uint16 shadeGouraud(uint32 g)
 {
     uint32 c = 31 - g;
     return (c << 10) | (c << 5) | c;
+}
+
+X_INLINE uint16 faceColor(uint32 flags)
+{
+    uint32 type = (flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK;
+    if (type == FACE_TYPE_F)
+        return level.palette[flags & FACE_TEXTURE];
+    return level.textures[flags & FACE_TEXTURE].color; // TODO textures
 }
 
 void flush_c()
@@ -470,7 +475,7 @@ void flush_c()
             cmd->ctrl = CMD_POLYGON;
             cmd->link = 0;
             cmd->pmod = PMOD_NO_ECD_SPD | PMOD_GOURAUD;
-            cmd->colr = RGB(16, 16, 16);
+            cmd->colr = faceColor(flags);
             cmd->xa = v0->x; cmd->ya = v0->y;
             cmd->xb = v1->x; cmd->yb = v1->y;
             cmd->xc = v2->x; cmd->yc = v2->y;

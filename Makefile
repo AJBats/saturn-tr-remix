@@ -100,8 +100,15 @@ $(BUILD)/obj/%.s.o: %.s | check-toolchain
 $(BUILD)/0MAIN.elf: $(patsubst %,$(BUILD)/obj/%.o,$(GAME_SRC)) saturn/saturn.ld
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
 
+# Levels packed from the original disc's DATA files (tools/pack_level.py).
+LEVELS  := LEVEL1
+GAME_DISC := $(foreach l,$(LEVELS),DATA/$(l).PKD=build/data/$(l).PKD)
+
+build/data/%.PKD: tools/pack_level.py tools/trsat.py openlara/common.h $(DISC)/filelist.txt
+	$(PY) tools/pack_level.py $(DISC)/files/DATA $* $@
+
 disc: $(BUILD)/disc/tomb.cue
-$(eval $(call DISC_RULE,$(BUILD),))
+$(eval $(call DISC_RULE,$(BUILD),$(GAME_DISC)))
 
 define PROG_RULES
 $(BUILD)/$(1)/0MAIN.elf: $$(patsubst %,$(BUILD)/obj/%.o,$$($(1)_SRC)) saturn/saturn.ld

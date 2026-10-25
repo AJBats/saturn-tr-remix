@@ -1,6 +1,7 @@
 // Saturn platform entry: hardware setup, then OpenLara's game loop.
 
 #include "game.h"
+#include "cd.h"
 #include "system.h"
 
 int32 fps;
@@ -13,6 +14,9 @@ void updateInput()
 int main()
 {
     systemInit();
+    cdInit();
+
+    gLevelID = LVL_TR1_1; // TODO title screen and menus
 
     gameInit();
 

@@ -61,12 +61,14 @@ bool read_PKD(DataStream &f)
     level.cameras = cameras;
 #endif
 
-#ifdef __3DO__
+#if defined(__3DO__)
     for (int32 i = 0; i < level.texturesCount; i++)
     {
         Texture* tex = level.textures + i;
         tex->data += intptr_t(RAM_TEX);
     }
+#elif defined(__SATURN__)
+    // texture and sprite fields already address VDP1 VRAM
 #else
     // TODO preprocess in packer
     for (int32 i = 0; i < level.texturesCount; i++)

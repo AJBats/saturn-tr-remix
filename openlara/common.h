@@ -1068,6 +1068,14 @@ struct Texture
 #ifdef __3DO__
     uint8* data;
     uint32 shift;
+#elif defined(__SATURN__)
+    // VDP1 command fields of a 4-bit colour-lookup character in VDP1 VRAM
+    uint16 srca;    // CMDSRCA: character address / 8
+    uint16 colr;    // CMDCOLR: colour lookup table address / 8
+    uint16 size;    // CMDSIZE: (width / 8) << 8 | height
+    uint16 attr;    // TEX_ATTR_* flags
+    uint16 color;   // average RGB555 colour, for untextured drawing
+    uint16 reserved;
 #else
     uint32 tile;
     uint32 uv01;
@@ -1080,6 +1088,12 @@ struct Sprite
 #ifdef __3DO__
     uint32 texture;
     int32 l, t, r, b;
+#elif defined(__SATURN__)
+    uint16 srca;
+    uint16 colr;
+    uint16 size;
+    uint16 attr;
+    int16 l, t, r, b;
 #else
     uint32 tile;
     uint32 uwvh;
