@@ -2,6 +2,8 @@
 // 32X port), with the ordering table flushed into a VDP1 command list instead
 // of a software rasterizer.
 
+#include <stddef.h>
+
 #include "render.h"
 #include "detail.h"
 #include "hw.h"
@@ -80,84 +82,85 @@ void setPaletteIndex(int32 index)
     gMeshFaceFlags = index ? FACE_WATER : 0;
 }
 
-// Mesh vertices are 16-bit, so the rotation multiplies are 16x16 too; the
-// translation stays pre-scaled by 1 << FIXED_SHIFT. Vertices are shaded as
-// TR1 does: by their normals against the brightest light (calcLightingDynamic),
-// by their own shades, or all alike.
-void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, const int8* normals, const uint8* shades)
+// What meshxform.s needs to transform a mesh's vertices.
+struct MeshXform
 {
-    // the rotation's rows as 16-bit values, multiplied straight from the
-    // vertex array (MeshVertex is three int16); the translation stays
-    // pre-scaled by 1 << FIXED_SHIFT
+    int16 rows[9];          // the rotation, multiplied straight from MeshVertex's int16s
+    int16 pad;
+    int32 tx, ty, tz;       // the translation, << FIXED_SHIFT
+    const divTableInt* divTable;
+    int32 ambient;          // gLightAmbient
+    int32 lx, ly, lz;       // the light's direction in the mesh's own space, 128 long
+    int32 range;            // gLightRange
+    const int8* normals;    // or NULL
+    const uint8* shades;    // or NULL
+    int32 g;                // every vertex's shade when neither
+    int32 inside;           // every vertex lands inside the frame, between the planes
+};
+
+static_assert(offsetof(MeshXform, tx) == 20 && offsetof(MeshXform, divTable) == 32 &&
+              offsetof(MeshXform, ambient) == 36 && offsetof(MeshXform, lx) == 40 &&
+              offsetof(MeshXform, range) == 52 && offsetof(MeshXform, normals) == 56 &&
+              offsetof(MeshXform, shades) == 60 && offsetof(MeshXform, g) == 64 &&
+              offsetof(MeshXform, inside) == 68,
+              "MeshXform layout is shared with meshxform.s");
+static_assert(sizeof(MeshVertex) == 6 && sizeof(divTableInt) == 2 && VIEW_MIN_F == 0x100000 &&
+              VIEW_MAX_F == 0x14000000 && FIXED_SHIFT == 14, "constants repeated in meshxform.s");
+
+extern "C" void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst, MeshXform* xf);
+
+// Vertices are shaded as TR1 does: by their normals against the brightest
+// light (calcLightingDynamic), by their own shades, or all alike. Meshes are
+// clipped to the frame, not to their room's portal window, as OpenLara does:
+// Lara climbing into a room seen through a small portal would otherwise lose
+// every face outside it.
+//
+// A mesh whose bounding sphere (a centre and radius, or NULL) is wholly in
+// view, projected at its nearest, skips the per-vertex clamps and clip flags.
+void transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, const int8* normals, const uint8* shades,
+                   const vec3s* center, int32 radius)
+{
     const Matrix &m = matrixGet();
-    const int16 rows[9] = {
-        int16(m.e00), int16(m.e01), int16(m.e02),
-        int16(m.e10), int16(m.e11), int16(m.e12),
-        int16(m.e20), int16(m.e21), int16(m.e22)
-    };
-    const int32 tx = m.e03, ty = m.e13, tz = m.e23;
 
-    int32 vg = X_CLAMP(asr16<8>(intensity + gLightAmbient), 0, 31);
+    MeshXform xf;
+    xf.rows[0] = m.e00; xf.rows[1] = m.e01; xf.rows[2] = m.e02;
+    xf.rows[3] = m.e10; xf.rows[4] = m.e11; xf.rows[5] = m.e12;
+    xf.rows[6] = m.e20; xf.rows[7] = m.e21; xf.rows[8] = m.e22;
+    xf.tx = m.e03;
+    xf.ty = m.e13;
+    xf.tz = m.e23;
+    xf.divTable = divTable;
+    xf.ambient = gLightAmbient;
+    xf.range = gLightRange;
+    xf.normals = NULL;
+    xf.shades = shades;
+    xf.g = X_CLAMP(asr16<8>(intensity + gLightAmbient), 0, 31);
+    xf.inside = 0;
 
-    // the light's direction in the mesh's own space, 128 long
-    int32 lx = 0, ly = 0, lz = 0;
+    if (center)
+    {
+        int32 cx = (m.e00 * center->x + m.e01 * center->y + m.e02 * center->z + m.e03) >> FIXED_SHIFT;
+        int32 cy = (m.e10 * center->x + m.e11 * center->y + m.e12 * center->z + m.e13) >> FIXED_SHIFT;
+        int32 cz = (m.e20 * center->x + m.e21 * center->y + m.e22 * center->z + m.e23) >> FIXED_SHIFT;
+        int32 zNear = cz - radius;
+        // a screen coordinate is about 256 * view / z from the centre; a few
+        // pixels' margin covers the divide table's rounding
+        xf.inside = (zNear > (VIEW_MIN_F >> FIXED_SHIFT)) && (cz + radius < VIEW_DIST) &&
+                    ((abs(cx) + radius) * 256 < ((FRAME_WIDTH >> 1) - 4) * zNear) &&
+                    ((abs(cy) + radius) * 256 < ((FRAME_HEIGHT >> 1) - 4) * zNear);
+    }
+
     if (normals && gLightRange)
     {
         const vec3i &l = gLightView;
-        lx = (m.e00 * l.x + m.e10 * l.y + m.e20 * l.z) >> (FIXED_SHIFT + 7);
-        ly = (m.e01 * l.x + m.e11 * l.y + m.e21 * l.z) >> (FIXED_SHIFT + 7);
-        lz = (m.e02 * l.x + m.e12 * l.y + m.e22 * l.z) >> (FIXED_SHIFT + 7);
-    } else {
-        normals = NULL;
+        xf.lx = (m.e00 * l.x + m.e10 * l.y + m.e20 * l.z) >> (FIXED_SHIFT + 7);
+        xf.ly = (m.e01 * l.x + m.e11 * l.y + m.e21 * l.z) >> (FIXED_SHIFT + 7);
+        xf.lz = (m.e02 * l.x + m.e12 * l.y + m.e22 * l.z) >> (FIXED_SHIFT + 7);
+        xf.normals = normals;
+        xf.shades = NULL;
     }
 
-    // Meshes are clipped to the frame, not to their room's portal window, as
-    // OpenLara does: Lara climbing into a room seen through a small portal
-    // would otherwise lose every face outside it.
-    static const RectMinMax frame(0, 0, FRAME_WIDTH, FRAME_HEIGHT);
-
-    Vertex* res = gVerticesBase;
-
-    for (int32 i = 0; i < count; i++, res++, vertices++)
-    {
-        const int16* v = &vertices->x;
-
-        int32 z = dot3(v, rows + 6, tz);
-        uint32 clip = 0;
-
-        if (z <= VIEW_MIN_F) {
-            clip = CLIP_PLANE;
-            z = VIEW_MIN_F;
-        }
-
-        if (z >= VIEW_MAX_F) {
-            clip = CLIP_PLANE;
-            z = VIEW_MAX_F;
-        }
-
-        // meshes reach the transform only when their sphere is in view, so
-        // view x and y fit in 16 bits
-        int32 x = asr16<FIXED_SHIFT>(dot3(v, rows, tx));
-        int32 y = asr16<FIXED_SHIFT>(dot3(v, rows + 3, ty));
-
-        projectView(x, y, uint32(z) >> FIXED_SHIFT, clip, frame, res);
-
-        if (normals)
-        {
-            int32 d = normals[0] * lx + normals[1] * ly + normals[2] * lz;
-            normals += 4;
-            int32 shade = gLightAmbient - asr16<14>(d * gLightRange);
-            res->g = X_CLAMP(asr16<8>(shade), 0, 31);
-        }
-        else if (shades)
-        {
-            res->g = X_CLAMP(asr16<8>(gLightAmbient + (*shades++ << 5)), 0, 31);
-        }
-        else
-        {
-            res->g = vg;
-        }
-    }
+    transformMeshAsm(vertices, count, gVerticesBase, &xf);
 }
 
 void faceAddMeshQuads(const MeshQuad* polys, int32 count)
@@ -856,7 +859,7 @@ void renderMesh(const Mesh* mesh)
     MeshTriangle* triangles = (MeshTriangle*)ptr;
 
     uint32 start = timerTicks();
-    transformMesh(vertices, vCount, mesh->intensity, normals, shades);
+    transformMesh(vertices, vCount, mesh->intensity, normals, shades, &mesh->center, mesh->radius);
 
     if (mesh->rCount > 0) {
         faceAddMeshQuads(quads, mesh->rCount);
@@ -905,7 +908,7 @@ void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
     v[6].x = xns2; v[6].y = 0; v[6].z = zns1;
     v[7].x = xns2; v[7].y = 0; v[7].z = zps1;
 
-    transformMesh(v, 8, 0, NULL, NULL);
+    transformMesh(v, 8, 0, NULL, NULL, NULL, 0);
     faceAddMeshQuads(gShadowQuads, 3);
 
     gVerticesBase += 8;
