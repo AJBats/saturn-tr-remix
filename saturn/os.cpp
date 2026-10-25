@@ -1,6 +1,7 @@
 // OpenLara os* platform hooks.
 
 #include "common.h"
+#include "backup.h"
 #include "cd.h"
 #include "detail.h"
 #include "hw.h"
@@ -17,29 +18,59 @@ int32 osGetSystemTimeMS()
     return 0; // TODO FRT based timer
 }
 
+// Settings and the one saved game live in backup RAM; the game is a SaveGame
+// followed by its item data.
+#define SETTINGS_FILE   "TOMBR_CFG"
+#define SAVE_FILE       "TOMBR_SAVE"
+
+static uint8 gSaveBuffer[SAVEGAME_SIZE];
+
 bool osSaveSettings()
 {
-    return false;
+    return backupWrite(SETTINGS_FILE, "Settings", &gSettings, sizeof(gSettings));
 }
 
 bool osLoadSettings()
 {
-    return false;
+    Settings settings;
+    if (!backupRead(SETTINGS_FILE, &settings, sizeof(settings)) || settings.version != SETTINGS_VER)
+        return false;
+
+    gSettings = settings;
+    return true;
 }
 
 bool osCheckSave()
 {
-    return false;
+    return backupExists(SAVE_FILE);
 }
 
 bool osSaveGame()
 {
-    return false;
+    memcpy(gSaveBuffer, &gSaveGame, sizeof(gSaveGame));
+    memcpy(gSaveBuffer + sizeof(gSaveGame), gSaveData, gSaveGame.dataSize);
+
+    // the level's name shows in the BIOS memory manager
+    char comment[11];
+    strncpy(comment, (const char*)gLevelInfo[gLevelID].data, sizeof(comment));
+    comment[sizeof(comment) - 1] = 0;
+
+    return backupWrite(SAVE_FILE, comment, gSaveBuffer, sizeof(gSaveGame) + gSaveGame.dataSize);
 }
 
 bool osLoadGame()
 {
-    return false;
+    if (!backupRead(SAVE_FILE, gSaveBuffer, sizeof(gSaveBuffer)))
+        return false;
+
+    SaveGame save;
+    memcpy(&save, gSaveBuffer, sizeof(save));
+    if (save.version != SAVEGAME_VER || save.dataSize > sizeof(gSaveData))
+        return false;
+
+    gSaveGame = save;
+    memcpy(gSaveData, gSaveBuffer + sizeof(save), save.dataSize);
+    return true;
 }
 
 void osJoyVibrate(int32 index, int32 L, int32 R)
