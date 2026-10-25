@@ -52,6 +52,10 @@ uint32_t vdp2Line();
 void vdp1WaitIdle();
 void vdp1Plot();
 
+// Calls fn from the vblank-out interrupt once the next frame VDP1 draws is on
+// screen (nullptr cancels). Call with VDP1 idle, so that frame is a new one.
+void vdp1OnNextFrame(void (*fn)());
+
 // Free-running timer at Pphi/128, 16 bits; subtract readings modulo 0x10000.
 uint32_t timerTicks();
 

@@ -40,6 +40,7 @@ enum Vdp1State
 
 static volatile int32_t gVdp1State;
 static uint32_t gPlotStart;
+static void (*volatile gOnNextFrame)();
 
 volatile uint32_t gVblankCount;
 FrameStats gStats;
@@ -76,6 +77,12 @@ extern "C" void vblankOutHandler()
         // a plot started before the change completes would lock VDP1 up
         while (VDP2_TVSTAT & TVSTAT_VBLANK);
         gVdp1State = VDP1_IDLE;
+
+        if (gOnNextFrame)
+        {
+            gOnNextFrame();
+            gOnNextFrame = nullptr;
+        }
     }
 }
 
@@ -95,6 +102,11 @@ void vdp1Plot()
     gPlotStart = timerTicks();
     gVdp1State = VDP1_PLOTTING;
     VDP1_PTMR = 1;
+}
+
+void vdp1OnNextFrame(void (*fn)())
+{
+    gOnNextFrame = fn;
 }
 
 static void vdp2Init()

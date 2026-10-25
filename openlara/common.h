@@ -2514,7 +2514,11 @@ enum TrackID
 {
     TRACK_NONE          = -1,
 // TR1
+#if defined(__SATURN__)
+    TRACK_TR1_TITLE     = 2,    // as the original plays it
+#else
     TRACK_TR1_TITLE     = 4,    // TODO 2
+#endif
     TRACK_TR1_CAVES     = 5,
     TRACK_TR1_SECRET    = 13,
     TRACK_TR1_CISTERN   = 57,

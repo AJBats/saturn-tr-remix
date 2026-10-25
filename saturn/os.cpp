@@ -4,6 +4,7 @@
 #include "cd.h"
 #include "detail.h"
 #include "hw.h"
+#include "screen.h"
 #include "sound.h"
 #include "vram.h"
 
@@ -49,9 +50,30 @@ void osSetPalette(const uint16* palette)
 {
 }
 
+// The title's background: the inventory ring draws over it.
+static uint8 gTitlePicture;
+
 const void* osLoadScreen(LevelID id)
 {
-    return NULL;
+    screenShow("USAOPT", 352);
+    screenRelease(true);
+    return &gTitlePicture;
+}
+
+// The original's loading pictures, one per area
+static const char* loadingPicture(LevelID id)
+{
+    if (id == LVL_TR1_TITLE)
+        return "USATIT";
+    if (id == LVL_TR1_GYM)
+        return "GYM224";
+    if (id <= LVL_TR1_CUT_1)
+        return "AZTEC224";  // Peru
+    if (id <= LVL_TR1_CUT_2)
+        return "GREEK224";
+    if (id <= LVL_TR1_8C)
+        return "EGYPT224";
+    return "ATLAN224";
 }
 
 static uint32 loadOrHalt(const char* name, const char* ext, void* dst, uint32 maxSize)
@@ -72,6 +94,8 @@ const void* osLoadLevel(LevelID id)
 {
     const char* name = (const char*)gLevelInfo[id].data;
 
+    screenShow(loadingPicture(id), id == LVL_TR1_TITLE ? 352 : 320);
+
     // textures go straight to VDP1 VRAM, where the level's texture entries point
     uint32 texSize = loadOrHalt(name, ".TEX", (void*)(VDP1_VRAM + VRAM_TEX_BASE), VRAM_TEX_SIZE);
     uint32 subSize = loadOrHalt(name, ".SUB", detailData(), detailDataMax());
@@ -90,5 +114,6 @@ const void* osLoadLevel(LevelID id)
     strcpy(path + strlen(path) - 3, "ITX");
     detailItemInit(X_MAX(0, cdLoadFile(path, detailItemData(), detailItemDataMax())));
 
+    screenRelease(false);
     return LEVEL_ADDR;
 }

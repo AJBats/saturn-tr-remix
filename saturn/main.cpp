@@ -4,13 +4,14 @@
 #include "cd.h"
 #include "hw.h"
 #include "input.h"
+#include "screen.h"
 #include "slave.h"
 #include "sound.h"
 #include "system.h"
 
-// make START_LEVEL=LVL_TR1_2 ... starts elsewhere, for testing
+// make START_LEVEL=LVL_TR1_2 ... starts in a level, for testing
 #ifndef START_LEVEL
-    #define START_LEVEL LVL_TR1_1 // TODO title screen and menus
+    #define START_LEVEL LVL_TR1_TITLE
 #endif
 
 int32 fps;
@@ -47,6 +48,7 @@ static bool inPadWindow()
 int main()
 {
     systemInit();
+    screenInit();
     slaveInit();
     cdInit();
     sndInit();

@@ -554,6 +554,33 @@ def s32(v):
     return v - 0x100000000 if v >= 0x80000000 else v
 
 
+def borrow_title_glyphs(lvl, data_dir):
+    """The levels' fonts stop short of the passport's arrow glyphs ($l, $m),
+    which only TITLE has: copy the missing ones in. The font's sprites must be
+    contiguous, so the sequence moves to the end, as a copy of the level's
+    glyphs followed by the borrowed ones."""
+    seq = next((i for i, s in enumerate(lvl.sprite_sequences) if s[0] == ITEM["GLYPHS"]), None)
+    if seq is None or lvl.name == "TITLE":
+        return
+    title = trsat.load(data_dir, "TITLE")
+    _, count, start = lvl.sprite_sequences[seq]
+    _, title_count, title_start = next(s for s in title.sprite_sequences if s[0] == ITEM["GLYPHS"])
+    if count >= title_count:
+        return
+
+    new_start = len(lvl.sprite_textures)
+    lvl.sprite_textures += [dict(s) for s in lvl.sprite_textures[start:start + count]]
+    data = bytearray(lvl.sprite_tex_data)
+    data += bytes(-len(data) % 8)
+    for s in title.sprite_textures[title_start + count:title_start + title_count]:
+        tile = title.sprite_tex_data[s["tile"] * 8:s["tile"] * 8 + s["w"] * s["h"] // 2]  # 4-bit pixels
+        clut = title.sprite_tex_data[s["clut"] * 8:s["clut"] * 8 + 32]
+        lvl.sprite_textures.append(dict(s, tile=len(data) // 8, clut=(len(data) + len(tile)) // 8))
+        data += tile + clut
+    lvl.sprite_tex_data = bytes(data)
+    lvl.sprite_sequences[seq] = (ITEM["GLYPHS"], title_count, new_start)
+
+
 def move_lara(lvl, room_index, sector=None):
     room = lvl.rooms[room_index]
     best = None
@@ -577,6 +604,7 @@ def move_lara(lvl, room_index, sector=None):
 def main():
     data_dir, name, out_path = sys.argv[1:4]
     lvl = trsat.load(data_dir, name)
+    borrow_title_glyphs(lvl, data_dir)
     if os.environ.get("LARA_START"):
         start = [int(v) for v in os.environ["LARA_START"].split(":")]
         move_lara(lvl, start[0], tuple(start[1:]) if len(start) == 3 else None)
