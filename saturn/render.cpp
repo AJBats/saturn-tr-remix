@@ -4,6 +4,7 @@
 
 #include "common.h"
 #include "hw.h"
+#include "system.h"
 
 struct Vertex
 {
@@ -442,6 +443,8 @@ X_INLINE uint16 faceColor(uint32 flags)
 
 void flush_c()
 {
+    uint32 start = timerTicks();
+
     gVerticesBase = gVertices;
 
     if (gFacesBase == gFaces)
@@ -495,12 +498,14 @@ void flush_c()
 
     gCmds[count].ctrl = CMD_END;
     gRenderFaceCount = count;
+    gStats.faces = count;
 
     dmaToVram(gCmds, VDP1_VRAM + VRAM_CMD_BANK(bank), (count + 1) * sizeof(vdp1_cmd_t));
     dmaToVram(gGouraud, VDP1_VRAM + VRAM_GOURAUD_BANK(bank), count * 8);
     dmaWait();
 
     gBank = bank;
+    gStats.flushTicks = (timerTicks() - start) & 0xFFFF;
 }
 
 void renderInit()

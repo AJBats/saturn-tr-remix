@@ -52,7 +52,7 @@ GH_OUT  := build/ghidra
 # The game: every platform source plus the OpenLara core.
 GAME_SRC := $(wildcard saturn/*.c saturn/*.cpp saturn/*.s) openlara/common.cpp
 ENGINE_SRC := $(filter-out saturn/main.cpp,$(GAME_SRC))
-HW_SRC  := saturn/crt0.s saturn/system.cpp saturn/cd.cpp
+HW_SRC  := saturn/crt0.s saturn/irq.s saturn/system.cpp saturn/cd.cpp
 
 # Test programs in saturn/progs/, each built onto its own disc by `make NAME`.
 # NAME_DISC lists extra disc files as DISCPATH=SRCPATH.

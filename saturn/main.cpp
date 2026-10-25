@@ -30,10 +30,11 @@ static void updateInput()
     }
 }
 
-// INTBACK must be issued at least 300us into vblank (about 10 lines).
-static void waitVblankLines(int32 lines)
+// Pad reads (SMPC INTBACK) must be issued inside vblank, at least 300us
+// after it starts (about 10 lines).
+static bool inPadWindow()
 {
-    while (VDP2_VCNT < FRAME_HEIGHT + lines);
+    return (VDP2_TVSTAT & TVSTAT_VBLANK) && VDP2_VCNT >= FRAME_HEIGHT + 12;
 }
 
 int main()
@@ -45,20 +46,54 @@ int main()
 
     gameInit();
 
+    uint32 lastTick = gVblankCount >> 1;
+    uint32 lastPad = gVblankCount;
+    uint32 fpsStart = gVblankCount;
+    uint32 fpsFrames = 0;
+
     while (1)
     {
+        // Game logic runs in 30 Hz ticks; wait for the next one, reading the
+        // pad when the vblank window comes round.
+        uint32 tick;
+        while ((tick = gVblankCount >> 1) == lastTick)
+        {
+            if (gVblankCount != lastPad && inPadWindow()) {
+                gPad = padUpdate();
+                lastPad = gVblankCount;
+            }
+        }
+
+        // a slow frame skipped the window: read the pad before going on
+        if (gVblankCount - lastPad >= 2)
+        {
+            while (!inPadWindow());
+            gPad = padUpdate();
+            lastPad = gVblankCount;
+        }
+
+        int32 delta = X_MIN(int32(tick - lastTick), MAX_UPDATE_FRAMES);
+        lastTick = tick;
+
+        uint32 t0 = timerTicks();
         updateInput();
-
-        gameUpdate(1);
-
+        gameUpdate(delta);
+        uint32 t1 = timerTicks();
         gameRender();
-
-        // game logic runs at 30 Hz
-        waitVblank();
         renderSwap();
-        waitVblankLines(12);
-        gPad = padUpdate();
-        waitVblank();
+        uint32 t2 = timerTicks();
+
+        gStats.updateTicks = (t1 - t0) & 0xFFFF;
+        gStats.renderTicks = (t2 - t1) & 0xFFFF;
+        gStats.frames++;
+
+        fpsFrames++;
+        if (gVblankCount - fpsStart >= 60)
+        {
+            fps = gStats.fps = fpsFrames;
+            fpsFrames = 0;
+            fpsStart += 60;
+        }
     }
 
     return 0;
