@@ -724,9 +724,91 @@ struct Enemy : ItemObj
 };
 
 
+// Lara's double in Atlantis mirrors her about the centre of the room she
+// starts in, and dies when her mirrored ground gives way under her (TR1's
+// BaconLaraControl). Shooting her hurts Lara. turnSpeed counts the frames her
+// fall has been pending (two, as she runs a frame behind); aggression is set
+// once she falls.
 struct Doppelganger : Enemy
 {
-    Doppelganger(Room* room) : Enemy(room, LARA_MAX_HEALTH, 10, 0, 0) {}
+    Doppelganger(Room* room) : Enemy(room, LARA_MAX_HEALTH, 10, 0, 0)
+    {
+        headOffset = 0;
+        turnSpeed = 0;
+        aggression = 0;
+        flags &= ~ITEM_FLAG_SHADOW;
+        roomFloor = room - rooms; // the room she mirrors about, until she runs
+    }
+
+    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    {
+        getLara(pos)->hit(damage * 10, point, 0);
+    }
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo) {}
+
+    virtual void update()
+    {
+        Lara* lara = getLara(pos);
+
+        if (aggression)
+        {
+            animProcess();
+            updateRoom();
+            if (pos.y >= roomFloor)
+            {
+                pos.y = roomFloor;
+                flags &= ~(ITEM_FLAG_GRAVITY | ITEM_FLAG_STATUS);
+                flags |= ITEM_FLAG_STATUS_INACTIVE;
+                vSpeed = 0;
+                health = 0;
+                deactivate();
+            }
+            return;
+        }
+
+        const RoomInfo* home = rooms[roomFloor].info;
+        int32 cx = (home->x << 8) + (home->xSectors << 9);
+        int32 cz = (home->z << 8) + (home->zSectors << 9);
+
+        vec3i p = _vec3i(2 * cx - lara->pos.x, lara->pos.y, 2 * cz - lara->pos.z);
+
+        Room* nextRoom = lara->room->getRoom(p.x, p.y, p.z);
+        int32 floor = nextRoom->getSector(p.x, p.z)->getFloor(p.x, p.y, p.z);
+        int32 laraFloor = lara->room->getSector(lara->pos.x, lara->pos.z)->getFloor(lara->pos.x, lara->pos.y, lara->pos.z);
+
+        animIndex = lara->animIndex;
+        frameIndex = lara->frameIndex;
+        pos = p;
+        angle = lara->angle;
+        angle.y += ANGLE_180;
+        vSpeed = lara->vSpeed;
+
+        if (room != nextRoom)
+        {
+            room->remove(this);
+            nextRoom->add(this);
+        }
+
+        if (floor < laraFloor + 1024 || (lara->flags & ITEM_FLAG_GRAVITY))
+        {
+            turnSpeed = 0;
+            return;
+        }
+
+        if (++turnSpeed < 2)
+            return;
+
+        // the pit takes her
+        animSet(Lara::ANIM_SMASH_JUMP, true, 1);
+        state = goalState = Lara::STATE_FALL;
+        hSpeed = 0;
+        vSpeed = 0;
+        flags |= ITEM_FLAG_GRAVITY;
+        pos.y += 50;
+        aggression = 1;
+        roomFloor = floor;
+    }
 };
 
 
@@ -1966,18 +2048,6 @@ struct Raptor : Enemy
 };
 
 
-struct Mutant : Enemy
-{
-    Mutant(Room* room) : Enemy(room, 50, 341, 150, AGGRESSION_LVL_MAX) {}
-};
-
-
-struct Centaur : Enemy
-{
-    Centaur(Room* room) : Enemy(room, 120, 341, 400, AGGRESSION_LVL_MAX) {}
-};
-
-
 // The mummy in Khamoon stands until shot or touched, then topples (TR1's
 // MummyControl).
 struct Mummy : Enemy
@@ -2578,19 +2648,616 @@ struct MrT : Gunman
 };
 
 
-struct Natla : Enemy
+// Atlantis' mutants: they claw at Lara close up and, the shooter and the
+// winged one, fire on her from afar (TR1's mutant control, on the ground:
+// the winged one doesn't take to the air here, and their shards and bombs
+// strike at once rather than fly). They burst when killed.
+struct Mutant : Gunman
 {
-    Natla(Room* room) : Enemy(room, 400, 204, 0, AGGRESSION_LVL_MAX) {}
+    enum {
+        HIT_MASK = 0x678,
+        DIST_WALK = 4608,
+        DIST_ATTACK_1 = 600,
+        DIST_ATTACK_2 = 2560,
+        DIST_ATTACK_3 = 300,
+        DIST_SHOOT = 3840,
+        DAMAGE_CHARGE = 100,
+        DAMAGE_LUNGE = 150,
+        DAMAGE_PUNCH = 200,
+        DAMAGE_SHOT = 100
+    };
+
+    enum {
+        STATE_NONE,
+        STATE_STOP,
+        STATE_WALK,
+        STATE_RUN,
+        STATE_ATTACK_1,
+        STATE_DEATH,
+        STATE_POSE,
+        STATE_ATTACK_2,
+        STATE_ATTACK_3,
+        STATE_AIM_1,
+        STATE_AIM_2,
+        STATE_SHOOT,
+        STATE_MUMMY,
+        STATE_FLY
+    };
+
+    Mutant(Room* room) : Gunman(room, 50, 341)
+    {
+        headOffset = 150;
+        if (type != ITEM_MUTANT_1) {
+            visibleMask = 0xFFE07FFF; // no wings
+        }
+    }
+
+    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    {
+        Enemy::hit(damage, point, soundId);
+
+        if (health <= 0)
+        {
+            soundPlay(SND_MUTANT_DEATH, &pos);
+            fxBlood(pos, angle.y, 0);
+            health = NOT_ENEMY;
+            flags &= ~ITEM_FLAG_STATUS;
+            flags |= ITEM_FLAG_STATUS_INVISIBLE;
+            disable();
+            deactivate();
+        }
+    }
+
+    virtual int32 updateState()
+    {
+        if (health <= 0)
+            return goalState;
+
+        bool canFire = (type != ITEM_MUTANT_3) && canShoot() && (!checkZone() || tinfo.dist > DIST_SHOOT) &&
+                     abs(tinfo.angle) < ANGLE_45;
+
+        switch (state)
+        {
+            case STATE_MUMMY:
+            case STATE_FLY:
+                return STATE_STOP;
+
+            case STATE_STOP:
+            {
+                if (hitMask & HIT_MASK)
+                    return STATE_ATTACK_3;
+                if (tinfo.canAttack && tinfo.dist < DIST_ATTACK_3)
+                    return STATE_ATTACK_3;
+                if (tinfo.canAttack && tinfo.dist < DIST_ATTACK_1)
+                    return STATE_ATTACK_1;
+                if (canFire)
+                    return (tinfo.angle > 0) ? STATE_AIM_1 : STATE_AIM_2;
+                if (mood == MOOD_SLEEP || (mood == MOOD_STALK && tinfo.dist < DIST_WALK))
+                    return STATE_POSE;
+                return STATE_RUN;
+            }
+
+            case STATE_POSE:
+            {
+                if (canFire)
+                    return STATE_STOP;
+                if (mood == MOOD_STALK)
+                {
+                    if (tinfo.dist >= DIST_WALK)
+                        return STATE_STOP;
+                    if (checkZone() || rand_logic() < 256)
+                        return STATE_WALK;
+                }
+                else if (mood == MOOD_SLEEP)
+                {
+                    if (rand_logic() < 256)
+                        return STATE_WALK;
+                }
+                else
+                {
+                    return STATE_STOP;
+                }
+                break;
+            }
+
+            case STATE_WALK:
+            {
+                extraE->maxTurn = ENEMY_TURN_2;
+
+                if (canFire || mood == MOOD_ATTACK || mood == MOOD_ESCAPE)
+                    return STATE_STOP;
+                if (mood == MOOD_SLEEP || (mood == MOOD_STALK && !checkZone()))
+                {
+                    if (rand_logic() < 80)
+                        return STATE_POSE;
+                }
+                else if (mood == MOOD_STALK && tinfo.dist > DIST_WALK)
+                {
+                    return STATE_STOP;
+                }
+                break;
+            }
+
+            case STATE_RUN:
+            {
+                extraE->maxTurn = ANGLE(6);
+
+                if (hitMask & HIT_MASK)
+                    return STATE_STOP;
+                if (tinfo.canAttack && tinfo.dist < DIST_ATTACK_1)
+                    return STATE_STOP;
+                if (tinfo.front && tinfo.dist < DIST_ATTACK_2)
+                    return STATE_ATTACK_2;
+                if (canFire)
+                    return STATE_STOP;
+                if (mood == MOOD_SLEEP || (mood == MOOD_STALK && tinfo.dist < DIST_WALK))
+                    return STATE_STOP;
+                break;
+            }
+
+            case STATE_ATTACK_1:
+            case STATE_ATTACK_2:
+            case STATE_ATTACK_3:
+            {
+                if (!nextState && (hitMask & HIT_MASK))
+                {
+                    int32 damage = (state == STATE_ATTACK_1) ? DAMAGE_LUNGE :
+                                   (state == STATE_ATTACK_2) ? DAMAGE_CHARGE : DAMAGE_PUNCH;
+                    bite(damage, _vec3i(-27, 98, 0), 10);
+                    nextState = (state == STATE_ATTACK_2) ? STATE_RUN : STATE_STOP;
+                }
+                break;
+            }
+
+            case STATE_AIM_1:
+            case STATE_AIM_2:
+            {
+                turnSpeed = (state == STATE_AIM_1) ? 1 : 2;
+                return canFire ? STATE_SHOOT : STATE_STOP;
+            }
+
+            case STATE_SHOOT:
+            {
+                if (turnSpeed == 1) {
+                    shoot(DAMAGE_SHOT, _vec3i(-35, 269, 0), 9, tinfo.dist);
+                } else if (turnSpeed == 2) {
+                    shoot(DAMAGE_SHOT, _vec3i(51, 213, 0), 14, tinfo.dist);
+                }
+                turnSpeed = 0;
+                break;
+            }
+        }
+
+        return goalState;
+    }
 };
 
 
+// Centaurs rear up and kick close by, and fire on Lara from afar (TR1's
+// CentaurControl; the bomb strikes at once rather than flying). They burst
+// when their death is done.
+struct Centaur : Gunman
+{
+    enum {
+        HIT_MASK = 0x30199,
+        DIST_REAR = 1536,
+        DAMAGE_REAR = 200,
+        DAMAGE_SHOT = 100,
+        ANIM_DEATH = 8
+    };
+
+    enum {
+        STATE_NONE,
+        STATE_STOP,
+        STATE_SHOOT,
+        STATE_RUN,
+        STATE_AIM,
+        STATE_DEATH,
+        STATE_WARNING
+    };
+
+    Centaur(Room* room) : Gunman(room, 120, 341)
+    {
+        headOffset = 400;
+    }
+
+    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    {
+        Enemy::hit(damage, point, soundId);
+        deathAnim(ANIM_DEATH);
+    }
+
+    virtual int32 updateState()
+    {
+        if (health <= 0)
+        {
+            if (animIsEnd(0))
+            {
+                soundPlay(SND_MUTANT_DEATH, &pos);
+                flags &= ~ITEM_FLAG_STATUS;
+                flags |= ITEM_FLAG_STATUS_INVISIBLE;
+            }
+            return goalState;
+        }
+
+        extraE->maxTurn = ENEMY_TURN_4;
+
+        switch (state)
+        {
+            case STATE_STOP:
+            {
+                if (nextState)
+                    return nextState;
+                if (tinfo.canAttack && tinfo.dist < DIST_REAR)
+                    return STATE_RUN;
+                if (canShoot())
+                    return STATE_AIM;
+                return STATE_RUN;
+            }
+
+            case STATE_RUN:
+            {
+                if (tinfo.canAttack && tinfo.dist < DIST_REAR)
+                    nextState = STATE_WARNING;
+                else if (canShoot())
+                    nextState = STATE_AIM;
+                else if (rand_logic() < 96)
+                    nextState = STATE_WARNING;
+                else
+                    break;
+                return STATE_STOP;
+            }
+
+            case STATE_AIM:
+            {
+                if (nextState)
+                    return nextState;
+                return canShoot() ? STATE_SHOOT : STATE_STOP;
+            }
+
+            case STATE_SHOOT:
+            {
+                if (!nextState)
+                {
+                    nextState = STATE_AIM;
+                    shoot(DAMAGE_SHOT, _vec3i(11, 415, 41), 13, tinfo.dist);
+                }
+                break;
+            }
+
+            case STATE_WARNING:
+            {
+                if (!nextState && (hitMask & HIT_MASK))
+                {
+                    bite(DAMAGE_REAR, _vec3i(50, 30, 0), 5);
+                    nextState = STATE_STOP;
+                }
+                break;
+            }
+        }
+
+        return goalState;
+    }
+};
+
+
+// Natla, in two stages (TR1's NatlaControl, on the ground: she doesn't fly
+// here, and her bombs and shards strike at once). Brought down to half her
+// health she falls and lies still for sixteen seconds, then rises with that
+// half and runs at Lara firing. turnSpeed is her shot timer, aggression marks
+// the second stage.
+struct Natla : Gunman
+{
+    enum {
+        HEALTH_STAGE_2 = 200,
+        DIE_TIME = 30 * 16,
+        DAMAGE_BOMB = 100,
+        DAMAGE_SHARD = 100
+    };
+
+    enum {
+        STATE_NONE,
+        STATE_STOP,
+        STATE_FLY,
+        STATE_RUN,
+        STATE_AIM,
+        STATE_SEMIDEATH,
+        STATE_SHOOT,
+        STATE_FALL,
+        STATE_STAND,
+        STATE_DEATH
+    };
+
+    Natla(Room* room) : Gunman(room, 400, 204)
+    {
+        aggression = 0;
+    }
+
+    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    {
+        if (state == STATE_SEMIDEATH)
+            return;
+
+        health -= damage;
+        fxBlood(point, 0, 0);
+
+        if (!aggression && health <= HEALTH_STAGE_2) {
+            health = 1; // she plays dead before the second stage
+        } else if (health <= 0) {
+            gSaveGame.kills++;
+        }
+    }
+
+    virtual int32 updateState()
+    {
+        turnSpeed++;
+
+        if (health <= 0 && state != STATE_SEMIDEATH)
+            return STATE_DEATH;
+
+        bool canFire = abs(tinfo.angle) < ANGLE(30) && canShoot();
+
+        if (aggression || health <= 1)
+        {
+            extraE->maxTurn = ANGLE(6);
+
+            switch (state)
+            {
+                case STATE_FALL:
+                {
+                    if (pos.y >= roomFloor)
+                    {
+                        flags &= ~ITEM_FLAG_GRAVITY;
+                        pos.y = roomFloor;
+                        turnSpeed = 0;
+                        return STATE_SEMIDEATH;
+                    }
+                    flags |= ITEM_FLAG_GRAVITY;
+                    break;
+                }
+
+                case STATE_STAND:
+                case STATE_RUN:
+                {
+                    if (state == STATE_RUN) {
+                        tinfo.tilt = tinfo.turn;
+                    }
+                    if (turnSpeed >= 20)
+                    {
+                        shoot(DAMAGE_SHARD, _vec3i(5, 220, 7), 4, tinfo.dist);
+                        turnSpeed = 0;
+                    }
+                    if (state == STATE_STAND && !canFire)
+                        return STATE_RUN;
+                    if (state == STATE_RUN && canFire)
+                        return STATE_STAND;
+                    break;
+                }
+
+                case STATE_SEMIDEATH:
+                {
+                    extraE->maxTurn = 0;
+                    if (turnSpeed >= DIE_TIME)
+                    {
+                        health = HEALTH_STAGE_2;
+                        aggression = 1;
+                        turnSpeed = 0;
+                        return STATE_STAND;
+                    }
+                    break;
+                }
+
+                case STATE_FLY:
+                    turnSpeed = 0;
+                    return STATE_FALL;
+
+                case STATE_STOP:
+                case STATE_AIM:
+                case STATE_SHOOT:
+                    turnSpeed = 0;
+                    return STATE_SEMIDEATH;
+            }
+            return goalState;
+        }
+
+        extraE->maxTurn = ANGLE(5);
+
+        switch (state)
+        {
+            case STATE_STOP:
+                turnSpeed = 0;
+                return STATE_AIM;
+
+            case STATE_FLY:
+                return STATE_STOP;
+
+            case STATE_AIM:
+            {
+                if (nextState)
+                    return nextState;
+                return canFire ? STATE_SHOOT : STATE_STOP;
+            }
+
+            case STATE_SHOOT:
+            {
+                if (!nextState)
+                {
+                    for (int32 i = 0; i < 3; i++) {
+                        shoot(DAMAGE_BOMB, _vec3i(5, 220, 7), 4, tinfo.dist + i * 1024);
+                    }
+                    nextState = STATE_STOP;
+                }
+                break;
+            }
+        }
+
+        return goalState;
+    }
+};
+
+
+// The torso in the Great Pyramid (TR1's TorsoControl): drops in, turns
+// toward Lara in heavy steps, swipes, and crushes her when she is weak. Its
+// death opens the way on (the trigger under it). turnSpeed marks a landed blow.
 struct Adam : Enemy
 {
-    Adam(Room* room) : Enemy(room, 500, 341, 0, AGGRESSION_LVL_MAX) {}
+    enum {
+        HIT_MASK_LEFT = 0x7FF0,
+        HIT_MASK_RIGHT = 0x3FF8000,
+        HIT_MASK = HIT_MASK_LEFT | HIT_MASK_RIGHT,
+        DIST_ATTACK = 2600,
+        DIST_CLOSE = 2250,
+        DAMAGE_ATTACK = 500,
+        DAMAGE_TOUCH = 5,
+        ANIM_TURN_L = 8,
+        ANIM_DEATH = 13,
+        ANIM_TURN_R = 17
+    };
+
+    enum {
+        STATE_NONE,
+        STATE_STOP,
+        STATE_TURN_L,
+        STATE_TURN_R,
+        STATE_ATTACK_1,
+        STATE_ATTACK_2,
+        STATE_ATTACK_3,
+        STATE_FORWARD,
+        STATE_SET,
+        STATE_FALL,
+        STATE_DEATH,
+        STATE_KILL
+    };
+
+    Adam(Room* room) : Enemy(room, 500, 341, 0, AGGRESSION_LVL_MAX)
+    {
+        turnSpeed = 0;
+    }
 
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
         Enemy::hit(damage, point, SND_HIT_ADAM);
+
+        if (health <= 0) {
+            animSet(level.models[type].animIndex + ANIM_DEATH, true);
+        }
+    }
+
+    virtual int32 updateState()
+    {
+        extraE->maxTurn = 0;
+
+        if (health <= 0)
+        {
+            if (animIsEnd(0) && (flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE)
+            {
+                soundPlay(SND_MUTANT_DEATH, &pos);
+                room->getSector(pos.x, pos.z)->getFloor(pos.x, pos.y, pos.z);
+                checkTrigger(gLastFloorData, NULL);
+                flags &= ~ITEM_FLAG_STATUS;
+                flags |= ITEM_FLAG_STATUS_INVISIBLE;
+            }
+            return goalState;
+        }
+
+        Lara* lara = (Lara*)tinfo.target;
+        int16 turn = tinfo.angle;
+
+        if (hitMask) {
+            lara->hit(DAMAGE_TOUCH, pos, 0);
+        }
+
+        int32 frame = frameIndex - level.anims[animIndex].frameBegin;
+        int32 anim = animIndex - level.models[type].animIndex;
+
+        switch (state)
+        {
+            case STATE_SET:
+                flags |= ITEM_FLAG_GRAVITY;
+                return STATE_FALL;
+
+            case STATE_FALL:
+            {
+                if (pos.y >= roomFloor)
+                {
+                    flags &= ~ITEM_FLAG_GRAVITY;
+                    pos.y = roomFloor;
+                    shakeCamera(15, false);
+                    return STATE_STOP;
+                }
+                break;
+            }
+
+            case STATE_STOP:
+            {
+                if (lara->health <= 0)
+                    break;
+                turnSpeed = 0;
+                if (turn > ANGLE_45)
+                    return STATE_TURN_R;
+                if (turn < -ANGLE_45)
+                    return STATE_TURN_L;
+                if (tinfo.dist >= DIST_ATTACK)
+                    return STATE_FORWARD;
+                if (lara->health > DAMAGE_ATTACK)
+                    return (rand_logic() < 0x4000) ? STATE_ATTACK_1 : STATE_ATTACK_2;
+                if (tinfo.dist < DIST_CLOSE)
+                    return STATE_ATTACK_3;
+                return STATE_FORWARD;
+            }
+
+            case STATE_FORWARD:
+            {
+                angle.y += X_CLAMP(turn, -ANGLE(3), ANGLE(3));
+                if (abs(turn) > ANGLE_45 || tinfo.dist < DIST_ATTACK)
+                    return STATE_STOP;
+                break;
+            }
+
+            case STATE_TURN_L:
+            {
+                if (anim == ANIM_TURN_L && frame >= 14 && frame <= 22) {
+                    angle.y -= ANGLE(9);
+                }
+                if (turn > -ANGLE_45)
+                    return STATE_STOP;
+                break;
+            }
+
+            case STATE_TURN_R:
+            {
+                if (anim == ANIM_TURN_R && frame >= 17 && frame <= 22) {
+                    angle.y += ANGLE(14);
+                }
+                if (turn < ANGLE_45)
+                    return STATE_STOP;
+                break;
+            }
+
+            case STATE_ATTACK_1:
+            case STATE_ATTACK_2:
+            {
+                uint32 mask = (state == STATE_ATTACK_1) ? HIT_MASK_RIGHT : HIT_MASK;
+                if (!turnSpeed && (hitMask & mask))
+                {
+                    lara->hit(DAMAGE_ATTACK, pos, 0);
+                    turnSpeed = 1;
+                }
+                break;
+            }
+
+            case STATE_ATTACK_3:
+            {
+                if ((hitMask & HIT_MASK_RIGHT) || lara->health <= 0)
+                {
+                    lara->hit(LARA_MAX_HEALTH, pos, 0);
+                    return STATE_KILL;
+                }
+                break;
+            }
+        }
+
+        return goalState;
     }
 };
 
