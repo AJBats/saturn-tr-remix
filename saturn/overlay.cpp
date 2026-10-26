@@ -8,14 +8,13 @@
 
 #include <string.h>
 
-#define PAGE_WIDTH  64      // pattern names a line of the page
+#define PITCH       512     // pixels a line of the bitmap
 #define COLUMNS     (SCREEN_WIDTH / 8)
 #define LINES       (SCREEN_HEIGHT / 8)
-#define CLEAR_NAME  SCREEN_OVERLAY_NAME0    // cell 0: clear
+#define WHITE       RGB(31, 31, 31)
+#define BLACK       RGB(0, 0, 0)    // 0 is clear
 
-enum { CLEAR, WHITE, BLACK };   // pixel codes
-
-static_assert(OVERLAY_ROWS + 2 <= LINES && OVERLAY_COLUMNS + 2 <= COLUMNS, "a cell's border all round");
+static_assert(OVERLAY_ROWS + 2 <= LINES && OVERLAY_COLUMNS + 2 <= COLUMNS, "a character's border all round");
 
 struct Row
 {
@@ -23,43 +22,13 @@ struct Row
     uint8_t align;
 };
 
-static Row gShown[OVERLAY_ROWS];    // what the page shows
+static Row gShown[OVERLAY_ROWS];    // what the bitmap shows
 static Row gNext[OVERLAY_ROWS];     // what this frame gives
-static bool gReady;                 // the cells are in VRAM, the page clear
+static uint32_t gPictures = ~0u;    // screenPictures() when the bitmap was last cleared
 
-static volatile uint16_t* names(int32_t line)
+static volatile uint32_t* bitmapLine(int32_t y)
 {
-    return (volatile uint16_t*)(VDP2_VRAM + SCREEN_OVERLAY_NAMES) + line * PAGE_WIDTH;
-}
-
-// Cell 0 clear, then the font's glyphs white on black.
-static void setup()
-{
-    volatile uint32_t* cells = (volatile uint32_t*)(VDP2_VRAM + SCREEN_OVERLAY_CELLS);
-    for (int32_t i = 0; i < 8; i++) {
-        *cells++ = 0;
-    }
-    for (int32_t c = 0; c < FONT8_COUNT; c++)
-    {
-        for (int32_t y = 0; y < 8; y++)
-        {
-            uint32_t bits = gFont8[c][y];
-            uint32_t line = 0;
-            for (int32_t x = 0; x < 8; x++) {
-                line = (line << 4) | (((bits >> x) & 1) ? WHITE : BLACK);
-            }
-            *cells++ = line;
-        }
-    }
-
-    for (int32_t line = 0; line < LINES; line++)
-    {
-        volatile uint16_t* n = names(line);
-        for (int32_t i = 0; i < PAGE_WIDTH; i++) {
-            n[i] = CLEAR_NAME;
-        }
-    }
-    gReady = true;
+    return (volatile uint32_t*)(VDP2_VRAM + y * PITCH * 2);
 }
 
 void overlayRow(int32_t row, const char* text, OverlayAlign align)
@@ -72,10 +41,14 @@ void overlayRow(int32_t row, const char* text, OverlayAlign align)
     r.align = align;
 }
 
-// Rows and columns start a cell in from the screen's edge, inside the TV's
-// overscan.
+// Builds the row's 8 lines in work RAM, then copies them over the bitmap's.
+// Rows and columns start a character in from the screen's edge, inside the
+// TV's overscan.
 static void drawRow(int32_t row, const Row &r)
 {
+    static uint16_t band[8][SCREEN_WIDTH] __attribute__((aligned(4)));
+    memset(band, 0, sizeof(band));
+
     int32_t len = strlen(r.text);
     while (len && r.text[len - 1] == ' ') {
         len--;
@@ -88,27 +61,48 @@ static void drawRow(int32_t row, const Row &r)
         start = COLUMNS - 1 - len;
     }
 
-    volatile uint16_t* n = names(row + 1);
-    for (int32_t i = 0; i < COLUMNS; i++)
+    for (int32_t k = 0; k < len; k++)
     {
-        int32_t k = i - start;
-        uint32_t name = CLEAR_NAME;
-        if (k >= 0 && k < len)
-        {
-            int32_t c = uint8_t(r.text[k]) - FONT8_FIRST;
-            if (c < 0 || c >= FONT8_COUNT) {
-                c = '?' - FONT8_FIRST;
-            }
-            name = CLEAR_NAME + 1 + c;
+        int32_t c = uint8_t(r.text[k]) - FONT8_FIRST;
+        if (c < 0 || c >= FONT8_COUNT) {
+            c = '?' - FONT8_FIRST;
         }
-        n[i] = name;
+        int32_t x0 = (start + k) * 8;
+        for (int32_t y = 0; y < 8; y++)
+        {
+            uint32_t bits = gFont8[c][y];
+            for (int32_t x = 0; x < 8; x++) {
+                band[y][x0 + x] = ((bits >> x) & 1) ? WHITE : BLACK;
+            }
+        }
+    }
+
+    for (int32_t y = 0; y < 8; y++)
+    {
+        volatile uint32_t* dst = bitmapLine((row + 1) * 8 + y);
+        const uint32_t* src = (const uint32_t*)band[y];
+        for (int32_t i = 0; i < SCREEN_WIDTH / 2; i++) {
+            dst[i] = src[i];
+        }
     }
 }
 
 void overlayFrame()
 {
-    if (!gReady) {
-        setup();
+    bool free = screenOverlayFree();
+
+    // a picture was in the bitmap: clear it before it shows over the frame
+    if (free && screenPictures() != gPictures)
+    {
+        gPictures = screenPictures();
+        for (int32_t y = 0; y < SCREEN_HEIGHT; y++)
+        {
+            volatile uint32_t* dst = bitmapLine(y);
+            for (int32_t i = 0; i < SCREEN_WIDTH / 2; i++) {
+                dst[i] = 0;
+            }
+        }
+        memset(gShown, 0, sizeof(gShown));
     }
 
     bool any = false;
@@ -116,7 +110,7 @@ void overlayFrame()
     {
         Row &next = gNext[i];
         Row &shown = gShown[i];
-        if (next.align != shown.align || strcmp(next.text, shown.text))
+        if (free && (next.align != shown.align || strcmp(next.text, shown.text)))
         {
             drawRow(i, next);
             shown = next;
@@ -125,5 +119,5 @@ void overlayFrame()
         next.text[0] = 0;
         next.align = OVERLAY_LEFT;
     }
-    screenOverlay(any);
+    screenOverlay(free && any);
 }

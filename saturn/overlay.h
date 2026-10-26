@@ -1,4 +1,4 @@
-// Debug text over the game's frame, on VDP2 (screen.h's overlay layer): VDP1
+// Debug text over the game's frame, on VDP2 (NBG0's bitmap, see screen.h): VDP1
 // never draws it, so it takes nothing from the frame it measures. Text goes
 // in rows, each written again only when it changes, in libyaul's 8 x 8 font,
 // white on black.

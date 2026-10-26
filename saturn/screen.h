@@ -19,15 +19,11 @@ volatile uint16_t* screenBlank();
 // with keepPicture (VDP1 clears to transparent), or on black.
 void screenRelease(bool keepPicture);
 
-// The debug overlay's layer (overlay.cpp), over the frame and any picture:
-// NBG3, 8 x 8 cells of 16 colours (0 clear, 1 white, 2 black) at
-// SCREEN_OVERLAY_CELLS, named by a page of 64 x 64 one-word pattern names at
-// SCREEN_OVERLAY_NAMES (VDP2 VRAM offsets past the pictures' staging area).
-// Pattern name n draws cell n - SCREEN_OVERLAY_NAME0. Hidden by a picture or
-// screenBlank until shown again.
-#define SCREEN_OVERLAY_NAMES    0x78000
-#define SCREEN_OVERLAY_CELLS    0x7A000
-#define SCREEN_OVERLAY_NAME0    ((SCREEN_OVERLAY_CELLS / 32) & 0x3FF)
+// The debug overlay (overlay.cpp) draws into NBG0's bitmap during play, over
+// the frame (0 clear): free while no picture holds it. screenPictures counts
+// the pictures shown so far, each of which leaves the bitmap to clear again.
+bool screenOverlayFree();
 void screenOverlay(bool show);
+uint32_t screenPictures();
 
 #endif

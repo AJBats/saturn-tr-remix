@@ -123,7 +123,8 @@ void crashLog(const char* label, uint32_t value)
 void crashLogShow()
 {
 #ifdef HW_LOG
-    if (!gCrashed) {
+    // over pictures only: during play the bitmap is the debug overlay's
+    if (!gCrashed && !screenOverlayFree()) {
         logLines((volatile uint16_t*)VDP2_VRAM, 24, 16, true);
     }
 #endif

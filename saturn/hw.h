@@ -74,13 +74,8 @@ typedef struct {
 #define VDP2_BGON   REG16(0x25F80020)
 #define VDP2_MZCTL  REG16(0x25F80022)
 #define VDP2_CHCTLA REG16(0x25F80028)
-#define VDP2_CHCTLB REG16(0x25F8002A)
 #define VDP2_BMPNA  REG16(0x25F8002C)
-#define VDP2_PNCN3  REG16(0x25F80036)
-#define VDP2_PLSZ   REG16(0x25F8003A)
 #define VDP2_MPOFN  REG16(0x25F8003C)
-#define VDP2_MPABN3 REG16(0x25F8004C)
-#define VDP2_MPCDN3 REG16(0x25F8004E)
 #define VDP2_SCXIN0 REG16(0x25F80070)
 #define VDP2_SCXDN0 REG16(0x25F80072)
 #define VDP2_SCYIN0 REG16(0x25F80074)
@@ -89,22 +84,18 @@ typedef struct {
 #define VDP2_ZMXDN0 REG16(0x25F8007A)
 #define VDP2_ZMYIN0 REG16(0x25F8007C)
 #define VDP2_ZMYDN0 REG16(0x25F8007E)
-#define VDP2_SCXN3  REG16(0x25F80094)
-#define VDP2_SCYN3  REG16(0x25F80096)
 #define VDP2_ZMCTL  REG16(0x25F80098)
 #define VDP2_SCRCTL REG16(0x25F8009A)
 #define VDP2_BKTAU  REG16(0x25F800AC)
 #define VDP2_BKTAL  REG16(0x25F800AE)
 #define VDP2_WCTLA  REG16(0x25F800D0)
 #define VDP2_SPCTL  REG16(0x25F800E0)
-#define VDP2_CRAOFA REG16(0x25F800E4)
 #define VDP2_CCCTL  REG16(0x25F800EC)
 #define VDP2_PRISA  REG16(0x25F800F0)
 #define VDP2_PRISB  REG16(0x25F800F2)
 #define VDP2_PRISC  REG16(0x25F800F4)
 #define VDP2_PRISD  REG16(0x25F800F6)
 #define VDP2_PRINA  REG16(0x25F800F8)
-#define VDP2_PRINB  REG16(0x25F800FA)
 #define VDP2_CLOFEN REG16(0x25F80110)
 
 #define TVMD_DISP       0x8000
@@ -113,16 +104,11 @@ typedef struct {
 #define TVSTAT_VBLANK   0x0008
 #define RAMCTL_VRAMD    0x0100  /* VRAM A as banks A0 and A1 */
 #define RAMCTL_VRBMD    0x0200  /* VRAM B as banks B0 and B1 */
-#define CYCP_N3PN       0x3     /* cycle pattern slots: NBG3 pattern name read */
-#define CYCP_N0CG       0x4     /* ... NBG0 character/bitmap read */
-#define CYCP_N3CG       0x7     /* ... NBG3 character read */
+#define CYCP_N0CG       0x4     /* cycle pattern slots: NBG0 character/bitmap read */
 #define CYCP_CPU        0xE     /* CPU access */
 #define BGON_N0ON       0x0001
-#define BGON_N3ON       0x0008
 #define CHCTLA_N0BMEN   0x0002  /* NBG0 is a bitmap (512x256 with size bits 0) */
 #define CHCTLA_N0_32K   0x0030  /* NBG0 in 15-bit RGB */
-#define PNCN_1WORD      0x8000  /* pattern names of one word */
-#define VDP2_CRAM       0x25F00000
 #define SPCTL_SPCLMD    0x0020
 
 /* SMPC (odd bytes only) */
