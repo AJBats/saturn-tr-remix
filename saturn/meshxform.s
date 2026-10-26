@@ -264,7 +264,7 @@ _transformMeshAsm:
     exts.w  r13, r13
     shll16  r12
     add     r13, r12            ! x << 16 + y, y borrowing from x when below 0,
-    add     r14, r12            ! which the centre's carry repays (y + 120 > 0)
+    add     r14, r12            ! which the centre's carry repays (y + 112 > 0)
     mov.l   r12, @r6
     mov.l   r11, @(4, r6)
     dt      r5
@@ -375,9 +375,9 @@ _transformMeshAsm:
 .LviewMin:      .long   0x00100000  ! VIEW_MIN_F
 .LviewMax:      .long   0x14000000  ! VIEW_MAX_F
 .LpMax:         .long   0x007FF000  ! projected 2047 << 12
-.Lcentre:       .long   0x00B00078  ! FRAME_WIDTH / 2 << 16 | FRAME_HEIGHT / 2
+.Lcentre:       .long   0x00B00070  ! FRAME_WIDTH / 2 << 16 | FRAME_HEIGHT / 2
 .LhalfWidth:    .short  176         ! FRAME_WIDTH / 2
-.LhalfHeight:   .short  120         ! FRAME_HEIGHT / 2
+.LhalfHeight:   .short  112         ! FRAME_HEIGHT / 2
 .LframeWidth:   .short  352         ! FRAME_WIDTH
-.LframeHeight:  .short  240         ! FRAME_HEIGHT
+.LframeHeight:  .short  224         ! FRAME_HEIGHT
 .LcoordMax:     .short  1023        ! VDP1_COORD_MAX

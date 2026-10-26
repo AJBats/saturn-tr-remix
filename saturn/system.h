@@ -6,7 +6,7 @@
 
 // Display mode set by systemInit: 352x240 non-interlaced, like the original.
 #define SCREEN_WIDTH    352
-#define SCREEN_HEIGHT   240
+#define SCREEN_HEIGHT   224
 
 // Counts vblank-ins once systemInit has installed the interrupt.
 extern volatile uint32_t gVblankCount;

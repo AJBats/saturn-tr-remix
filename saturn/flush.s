@@ -66,7 +66,7 @@
     bt      3f
     bra     4f
     \inv    r1, r14
-3:  mov     #60, r0
+3:  mov     #56, r0
     shll2   r0                  ! FRAME_HEIGHT
     cmp/gt  r0, r1
     bf      4f

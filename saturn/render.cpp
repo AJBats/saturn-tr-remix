@@ -370,9 +370,9 @@ bool renderFastShrink()
     return gTexturePmod & PMOD_HSS;
 }
 // Lines VDP1 erases at the top of each frame in the vblank of its change,
-// leaving the rest to the clear command: what the vblank of a 240-line frame
-// covers at 352 pixels a line (about 115 lines in Mednafen), with a margin.
-#define VBLANK_ERASE_LINES  100
+// leaving the rest to the clear command: what the vblank of a 224-line frame
+// covers at 352 pixels a line, with a margin.
+#define VBLANK_ERASE_LINES  200
 
 int32 gDarkFaces = DARK_CONTRAST;
 int32 gFlatDist;
@@ -899,7 +899,7 @@ static_assert(FACE_WATER == (1 << 30) && FACE_DETAIL == (1 << 29) && FACE_PARALL
               FACE_DETAIL_QUAD_SHIFT == 18 && FACE_TYPE_SHIFT == 14 && FACE_TEXTURE == 0x3FFF &&
               FACE_TYPE_F == 1 && FACE_TYPE_FT == 2 && FACE_TYPE_GTA == 5 && FACE_TYPE_AVG == 10 &&
               TEX_ATTR_AKILL == 1 && TEX_ATTR_DIR == 0x30 && CMD_FLIP_H == 0x10 && DETAIL_SLOT_SIZE == 2048 &&
-              FRAME_WIDTH == 352 && FRAME_HEIGHT == 240 && VDP1_COORD_MAX == 1023 && VDP1_COORD_MIN == -1024,
+              FRAME_WIDTH == 352 && FRAME_HEIGHT == 224 && VDP1_COORD_MAX == 1023 && VDP1_COORD_MIN == -1024,
               "constants repeated in flush.s");
 
 extern "C" void flushAsm(FlushXform* xf);

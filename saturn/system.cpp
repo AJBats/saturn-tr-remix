@@ -199,7 +199,7 @@ static void vdp2Init()
     VDP2_BKTAU = (BACK_COLOR_ADDR >> 17) & 7;
     VDP2_BKTAL = (BACK_COLOR_ADDR >> 1) & 0xFFFF;
 
-    VDP2_TVMD = TVMD_DISP | TVMD_VRES_240 | TVMD_HRES_352; // non-interlaced
+    VDP2_TVMD = TVMD_DISP | TVMD_HRES_352; // 224 lines, non-interlaced, as the original
 }
 
 static void vdp1Init()

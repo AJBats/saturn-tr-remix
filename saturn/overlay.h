@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define OVERLAY_ROWS    28
+#define OVERLAY_ROWS    26
 #define OVERLAY_COLUMNS 42      // characters a row holds; the rest is cut
 
 enum OverlayAlign { OVERLAY_LEFT, OVERLAY_CENTRE, OVERLAY_RIGHT };

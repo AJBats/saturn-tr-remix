@@ -171,7 +171,7 @@
 
     #define MODEHW
     #define FRAME_WIDTH  352
-    #define FRAME_HEIGHT 240
+    #define FRAME_HEIGHT 224
 
     #define USE_FMT     (LVL_FMT_PKD)
 

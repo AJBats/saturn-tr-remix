@@ -358,9 +358,9 @@
 .LxyMax\dsp:        .long   0x007FFF00  ! view x, y whose >> 8 fits in 16 bits
 .LpMax\dsp:         .long   0x007FF000  ! projected 2047 << 12
 .LhalfWidth\dsp:    .short  176         ! FRAME_WIDTH / 2
-.LhalfHeight\dsp:   .short  120         ! FRAME_HEIGHT / 2
+.LhalfHeight\dsp:   .short  112         ! FRAME_HEIGHT / 2
 .LframeWidth\dsp:   .short  352         ! FRAME_WIDTH
-.LframeHeight\dsp:  .short  240         ! FRAME_HEIGHT
+.LframeHeight\dsp:  .short  224         ! FRAME_HEIGHT
 .LcoordMax\dsp:     .short  1023        ! VDP1_COORD_MAX
 .LfogMin\dsp:       .short  12288       ! FOG_MIN
 .LshadeMax\dsp:     .short  8191        ! shade << 8 at its darkest
