@@ -3047,6 +3047,7 @@ const void* osLoadScreen(LevelID id);
 const void* osLoadLevel(LevelID id);
 #ifdef __SATURN__
 const void* osPlaceMeshes(const void* meshes, int32 size); // where the CPU reads them fastest
+void osPlaceRooms(); // the rooms' geometry, likewise
 #endif
 
 #ifdef PROFILING

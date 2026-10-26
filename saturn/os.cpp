@@ -191,6 +191,38 @@ const void* osPlaceMeshes(const void* meshes, int32 size)
     return gMeshData;
 }
 
+// The rooms' vertices and faces, which the slave reads every frame: as many
+// rooms' as fit in high work RAM, room by room, the rest left in low work RAM.
+static uint8 gRoomData[128 * 1024] __attribute__((aligned(4)));
+
+void osPlaceRooms()
+{
+    uint8* next = gRoomData;
+    int32 placed = 0;
+    for (int32 i = 0; i < level.roomsCount; i++)
+    {
+        RoomData &data = rooms[i].data;
+        const RoomInfo* info = rooms[i].info;
+        uint32 vertices = info->verticesCount * sizeof(RoomVertex);
+        uint32 quads = info->quadsCount * sizeof(RoomQuad);
+        uint32 triangles = info->trianglesCount * sizeof(RoomTriangle);
+        if (next + vertices + quads + triangles > gRoomData + sizeof(gRoomData))
+            continue;
+
+        memcpy(next, data.vertices, vertices);
+        data.vertices = (const RoomVertex*)next;
+        next += vertices;
+        memcpy(next, data.quads, quads);
+        data.quads = (const RoomQuad*)next;
+        next += quads;
+        memcpy(next, data.triangles, triangles);
+        data.triangles = (const RoomTriangle*)next;
+        next += triangles;
+        placed++;
+    }
+    crashLog("ROOMS", (placed << 16) | (level.roomsCount << 8) | ((next - gRoomData) >> 10));
+}
+
 const void* osLoadLevel(LevelID id)
 {
     const char* name = (const char*)gLevelInfo[id].data;
