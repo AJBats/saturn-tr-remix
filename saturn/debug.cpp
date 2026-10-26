@@ -29,6 +29,7 @@ static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kShrink[] = { "Exact", "Fast" };
 static const char* const kLines[] = { "Fixed", "Turned" };
 static const char* const kLod[] = { "Full res", "1 texel a pixel", "1.5 texels", "2 texels" };
+static const char* const kShade[] = { "Gouraud", "Shaded tables" };
 static const char* const kFar[] = { "Textured", "Flat past 16", "Flat past 12", "Flat past 8" };
 static const int32 kFarDist[] = { 0, 16 * 1024, 12 * 1024, 8 * 1024 };
 
@@ -58,6 +59,9 @@ static const Option gOptions[] = {
     { "Texture LOD", kLod, 4,
         [] { return gTextureLod / 2 - (gTextureLod > 0); },
         [](int32 v) { gTextureLod = v ? v * 2 + 2 : 0; } },
+    { "Even shades", kShade, 2,
+        [] { return gShadeTables; },
+        [](int32 v) { gShadeTables = v; } },
     { "Palette", kPalette, 2,
         [] { return int32(palettesRemastered()); },
         [](int32 v) { if (v != palettesRemastered()) palettesToggle(); } },
@@ -69,8 +73,8 @@ static const Option gOptions[] = {
         [](int32 v) { gShowStats = v; } }
 };
 
-enum { OPTION_SHADING, OPTION_DARK, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_PALETTE, OPTION_VIEW,
-       OPTION_STATS, OPTION_COUNT };
+enum { OPTION_SHADING, OPTION_DARK, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
+       OPTION_PALETTE, OPTION_VIEW, OPTION_STATS, OPTION_COUNT };
 
 static uint16 gPad;
 static bool gMenuOpen;
@@ -176,7 +180,7 @@ static char* appendColumn(char* p, uint32 value)
 }
 
 static const char* const kBenchNames[BENCH_COUNT] = {
-    "Base", "Fixed lines", "No LOD", "No gouraud", "No texture", "Profile"
+    "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "Profile"
 };
 
 // each way's VDP1 and master CPU time, the master's on meshes, the slave's

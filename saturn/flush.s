@@ -25,6 +25,10 @@
 !   +56 uint32 detailVram       gDetailVramStart
 !   +60 void (*slow)(const Face* face, uint32* w, uint32* grd, int32 room)
 !   +64 uint32 mipVram[2]       the mip levels' pools (gDetailPoolVram[1], [2])
+!   +72 ShadeCache* shade       the CPU's shaded colour tables, 0 for none
+!
+! ShadeCache (render.cpp): +0 frame, +4 validFrom, +8 vram, +12 miss,
+! +16 keys[256], +1040 frames[256].
 !
 ! Face: uint32 flags; Face* next; int16 indices[4].
 ! Vertex: int16 x, y; int16 z; uint8 g, clip.
@@ -210,6 +214,95 @@ _flushAsm:
     mov.l   @r15+, r9
     rts
     mov.l   @r15+, r8
+
+    ! r0 = w[1] for the face drawn through a copy of its colour table shaded
+    ! by gouraud value r4 instead of with gouraud, or 0 (no ShadeCache, not
+    ! a colour table with gouraud, or no slot free) with r5..r7 = r4 again;
+    ! r0..r3, r5..r7, r14
+.LshadeTable:
+    mov     #72, r0
+    mov.l   @(r0, r8), r3       ! ShadeCache
+    tst     r3, r3
+    bt/s    .LshadeNone
+    mov.l   @(4, r10), r14      ! w[1]
+    mov     r14, r0
+    shlr16  r0
+    and     #0x3F, r0
+    cmp/eq  #0x0C, r0           ! PMOD_LUT16 | PMOD_GOURAUD
+    bf      .LshadeNone
+    extu.w  r14, r5             ! the table / 8
+    mov     r5, r6
+    shll8   r6
+    shll2   r6
+    shll2   r6
+    shll2   r6
+    shll    r6
+    or      r4, r6              ! the key: table << 15 | gouraud
+    mov     r4, r0
+    shll2   r0
+    shll    r0
+    xor     r5, r0
+    extu.b  r0, r7              ! the slot, or the other of its pair
+    mov     r7, r2
+    shll2   r2
+    mov     r2, r0
+    add     #16, r0
+    mov.l   @(r0, r3), r1       ! keys[slot]
+    cmp/eq  r6, r1
+    bt      1f
+    mov     #1, r0
+    xor     r0, r7
+    mov     r7, r2
+    shll2   r2
+    mov     r2, r0
+    add     #16, r0
+    mov.l   @(r0, r3), r1
+    cmp/eq  r6, r1
+    bf      .LshadeMiss
+1:  mov.w   .LshadeFrames, r0
+    add     r2, r0
+    mov.l   @(r0, r3), r1       ! frames[slot]
+    mov.l   @(4, r3), r5        ! validFrom
+    cmp/hs  r5, r1
+    bf      .LshadeMiss
+    mov.l   @r3, r1
+    mov.l   r1, @(r0, r3)       ! drawn this frame
+    mov.l   @(8, r3), r0        ! vram
+    shll2   r7
+    shll2   r7
+    shll    r7                  ! the slot's copy
+    add     r7, r0
+    shlr2   r0
+    bra     .LshadeW1
+    shlr    r0
+.LshadeMiss:
+    sts.l   pr, @-r15
+    mov.l   r4, @-r15
+    mov.l   @(12, r3), r0
+    mov     r3, r4
+    mov     r6, r5
+    jsr     @r0                 ! shadeTableMiss(cache, key, slot)
+    mov     r7, r6
+    mov.l   @r15+, r4
+    lds.l   @r15+, pr
+    tst     r0, r0
+    bt      .LshadeNone
+.LshadeW1:
+    mov.l   .LnoGouraud, r1
+    and     r1, r14
+    rts
+    or      r14, r0             ! w[1]: the copy, no gouraud
+.LshadeNone:
+    mov     r4, r5              ! the corners' gouraud values again
+    mov     r4, r6
+    mov     r4, r7
+    rts
+    mov     #0, r0
+
+    .align 2
+.LnoGouraud:    .long   0xFFF80000  ! w[1] without the colour calculation and table
+.LshadeFrames:  .short  1040        ! ShadeCache.frames
+    .align 2
 
     ! anything else: faceCommand
 .Lslow:
@@ -551,6 +644,22 @@ _flushAsm:
     SHADE   r5
     SHADE   r6
     SHADE   r7
+
+    ! one shade at every corner: perhaps a shaded colour table instead
+    cmp/eq  r4, r5
+    bf      .LgouraudTable
+    cmp/eq  r4, r6
+    bf      .LgouraudTable
+    cmp/eq  r4, r7
+    bf      .LgouraudTable
+    bsr     .LshadeTable
+    nop
+    tst     r0, r0
+    bt      .LgouraudTable
+    bra     .Lfaced
+    mov.l   r0, @(4, r10)       ! w[1]: the copy, no gouraud
+
+.LgouraudTable:
     shll16  r4
     or      r5, r4
     mov.l   r4, @r11
@@ -558,6 +667,7 @@ _flushAsm:
     or      r7, r6
     bra     .Lfaced
     mov.l   r6, @(4, r11)
+
 
     ! the table of less contrast, by eighths as the darkening (r3) passes
     ! a twelfth of the mean, a sixth, a quarter and a third (shadeDark)

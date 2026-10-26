@@ -384,6 +384,7 @@ int32 gDarkFaces = DARK_CONTRAST;
 int32 gFlatDist;
 int32 gTurnLines = 1;
 int32 gTextureLod = 4;
+int32 gShadeTables = 1;
 
 // Adds to each channel of a pair of gouraud values, within 0 .. 31.
 X_INLINE uint32 tintPair(uint32 pair, int32 dr, int32 dg, int32 db)
@@ -548,6 +549,72 @@ X_INLINE int32 offFrame(const Vertex* v)
     return X_MAX(0, -x) + X_MAX(0, x - FRAME_WIDTH) + X_MAX(0, -y) + X_MAX(0, y - FRAME_HEIGHT);
 }
 
+// Shaded copies of colour tables (gShadeTables). VDP1's gouraud adds each
+// channel of the gouraud value, less 16, to the texel's, within 0 .. 31; a
+// copy of a face's table with that done to its colours draws a face whose
+// corners all take that value the same. Each CPU building commands keeps a
+// cache of copies in VDP1 VRAM, two-way set associative by table and shade;
+// flush.s looks them up and calls shadeTableMiss when one is missing.
+#define SHADE_TABLES    256     // each CPU's
+#define SHADE_TABLE_SIZE 32
+
+struct ShadeCache
+{
+    uint32 frame;           // the frame being built (gShadeFrame)
+    uint32 validFrom;       // copies drawn before this frame are stale
+    uint32 vram;            // this cache's copies, VDP1 VRAM offset; 0: none
+    uint32 (*miss)(ShadeCache* cache, uint32 key, uint32 index);
+    uint32 keys[SHADE_TABLES];      // table address / 8 << 15 | gouraud value
+    uint32 frames[SHADE_TABLES];    // last drawn
+};
+
+static_assert(offsetof(ShadeCache, miss) == 12 && offsetof(ShadeCache, keys) == 16 &&
+              offsetof(ShadeCache, frames) == 16 + 4 * SHADE_TABLES && SHADE_TABLES == 256 &&
+              SHADE_TABLE_SIZE == 32, "ShadeCache layout is shared with flush.s");
+
+static ShadeCache gShadeCaches[2] __attribute__((aligned(16)));    // the master's, the slave's
+static uint32 gShadeFrame = 2;
+
+// A copy for the key, in the pair of slots holding index whose copy was drawn
+// longest ago, unless both are drawn this frame or the last (VDP1 may be
+// drawing that one): its table address / 8, or 0.
+extern "C" uint32 shadeTableMiss(ShadeCache* cache, uint32 key, uint32 index)
+{
+    uint32 a = index & ~1;
+    uint32 drawnA = cache->frames[a] >= cache->validFrom ? cache->frames[a] : 0;
+    uint32 drawnB = cache->frames[a + 1] >= cache->validFrom ? cache->frames[a + 1] : 0;
+    index = drawnB < drawnA ? a + 1 : a;
+    if (X_MIN(drawnA, drawnB) + 2 > cache->frame)
+        return 0;
+    cache->keys[index] = key;
+    cache->frames[index] = cache->frame;
+
+    uint32 g = key & 0x7FFF;
+    int32 dr = int32(g & 31) - 16;
+    int32 dg = int32((g >> 5) & 31) - 16;
+    int32 db = int32((g >> 10) & 31) - 16;
+    const volatile uint16* src = (const volatile uint16*)(VDP1_VRAM + (key >> 15) * 8);
+    uint32 table = cache->vram + index * SHADE_TABLE_SIZE;
+    volatile uint16* dst = (volatile uint16*)(VDP1_VRAM + table);
+    for (int32 i = 0; i < 16; i++)
+    {
+        uint32 c = src[i];
+        int32 r = X_CLAMP(int32(c & 31) + dr, 0, 31);
+        int32 gr = X_CLAMP(int32((c >> 5) & 31) + dg, 0, 31);
+        int32 b = X_CLAMP(int32((c >> 10) & 31) + db, 0, 31);
+        dst[i] = (c & 0x8000) | (b << 10) | (gr << 5) | r;
+    }
+    return table >> 3;
+}
+
+// Every copy stale: the tables they copy, or the VRAM they live in, changed.
+static void shadeTablesReset()
+{
+    for (int32 i = 0; i < 2; i++) {
+        gShadeCaches[i].validFrom = gShadeFrame;
+    }
+}
+
 // Room textures' colour tables at 7/8, 6/8, 5/8 and 4/8 of their contrast
 // about the texture's mean colour (DARK_CONTRAST). A pixel code 0 that is
 // transparent stays as it is.
@@ -587,6 +654,7 @@ static void buildContrast()
             }
         }
     }
+    shadeTablesReset();
 }
 
 // The command words that depend on the face's colour or texture.
@@ -815,11 +883,13 @@ struct FlushXform
     uint32 detailVram;
     void (*slow)(const Face* face, uint32* w, uint32* grd, int32 room);
     uint32 mipVram[2];      // gDetailPoolVram[1], [2]
+    ShadeCache* shade;      // the CPU's shaded colour tables; NULL: none
 };
 
 static_assert(offsetof(FlushXform, vertices) == 12 && offsetof(FlushXform, grdLink) == 28 &&
               offsetof(FlushXform, textures) == 32 && offsetof(FlushXform, dark) == 52 &&
-              offsetof(FlushXform, slow) == 60 && offsetof(FlushXform, mipVram) == 64,
+              offsetof(FlushXform, slow) == 60 && offsetof(FlushXform, mipVram) == 64 &&
+              offsetof(FlushXform, shade) == 72,
               "FlushXform layout is shared with flush.s");
 static_assert(sizeof(Face) == 16 && offsetof(Face, next) == 4 && offsetof(Face, indices) == 8 &&
               sizeof(Texture) == 16 && offsetof(Texture, attr) == 6 && offsetof(Texture, color) == 8 &&
@@ -860,8 +930,11 @@ static void benchCommands(int32 count)
 
 // Buckets first .. first + count - 1 of both tables to commands from slot
 // cmd on, up to slot end.
-static void flushXformInit(FlushXform &xf, Face** roomOT, int32 first, int32 count, int32 cmd, int32 end)
+static void flushXformInit(FlushXform &xf, Face** roomOT, int32 first, int32 count, int32 cmd, int32 end, int32 cpu)
 {
+    ShadeCache &shade = gShadeCaches[cpu];
+    shade.frame = gShadeFrame;
+    xf.shade = shade.vram && gShadeTables && gBenchMode != BENCH_NO_SHADE ? &shade : NULL;
     xf.roomOT = roomOT + first;
     xf.meshOT = gOT + first;
     xf.buckets = count;
@@ -923,7 +996,7 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
 
         if (splitBucket < OT_SIZE)
         {
-            flushXformInit(gFarXform, roomOT, splitBucket, OT_SIZE - splitBucket, count, nearStart);
+            flushXformInit(gFarXform, roomOT, splitBucket, OT_SIZE - splitBucket, count, nearStart, 1);
             slaveRun(flushFar);
         }
 
@@ -931,7 +1004,7 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
         if (splitBucket > 0)
         {
             FlushXform xf;
-            flushXformInit(xf, roomOT, 0, splitBucket, nearStart, MAX_CMDS - 1);
+            flushXformInit(xf, roomOT, 0, splitBucket, nearStart, MAX_CMDS - 1, 0);
             flushAsm(&xf);
             end = (xf.cmd - gCmds[0].w) / 8;
         }
@@ -1016,6 +1089,7 @@ void flush_c()
 
     gFaceList.next = gFaces;
 
+    gShadeFrame++;
     int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (renderInit)
     memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
 
@@ -1190,6 +1264,13 @@ void renderLevelInit()
             t.contrast = vram >> 3;
             vram += CONTRAST_TABLES * 32;
         }
+    }
+
+    vram = detailReserveTop(2 * SHADE_TABLES * SHADE_TABLE_SIZE);
+    for (int32 i = 0; i < 2; i++)
+    {
+        gShadeCaches[i].vram = vram ? vram + i * SHADE_TABLES * SHADE_TABLE_SIZE : 0;
+        gShadeCaches[i].miss = shadeTableMiss;
     }
     buildContrast();
 }

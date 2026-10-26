@@ -209,6 +209,7 @@ enum BenchMode
     BENCH_BASE,
     BENCH_FIXED_LINES,  // no room face turned (gTurnLines)
     BENCH_NO_LOD,       // room textures at full res only (gTextureLod)
+    BENCH_NO_SHADE,     // every shaded face with gouraud (gShadeTables)
     BENCH_NO_GOURAUD,
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
     BENCH_PROFILE,      // as Base, sampling where the master's time goes
@@ -226,6 +227,11 @@ extern int32 gTurnLines;
 // detail.h): the first whose texels along the face's lines number at most
 // gTextureLod / 4 a pixel. 0: full res only.
 extern int32 gTextureLod;
+
+// Textured faces whose corners all take one shade are drawn without gouraud
+// (which costs VDP1 most of a cycle a pixel), through copies of their colour
+// tables shaded as gouraud would shade them. 0: gouraud for every shaded face.
+extern int32 gShadeTables;
 
 X_INLINE int32 vertexSpan(const Vertex* a, const Vertex* b)
 {
