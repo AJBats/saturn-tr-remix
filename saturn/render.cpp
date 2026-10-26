@@ -369,6 +369,11 @@ bool renderFastShrink()
 {
     return gTexturePmod & PMOD_HSS;
 }
+// Lines VDP1 erases at the top of each frame in the vblank of its change,
+// leaving the rest to the clear command: what the vblank of a 240-line frame
+// covers at 352 pixels a line (about 115 lines in Mednafen), with a margin.
+#define VBLANK_ERASE_LINES  100
+
 int32 gDarkFaces = DARK_CONTRAST;
 int32 gFlatDist;
 int32 gTurnLines = 1;
@@ -1086,6 +1091,10 @@ void flush_c()
     int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (renderInit)
     memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
 
+    uint32 erase = gBenchMode == BENCH_FULL_CLEAR ? 0 : VBLANK_ERASE_LINES;
+    vdp1SetVblankErase(erase);
+    gCmds[0].w[3] = pair(0, erase);
+
     gCmds[count].w[0] = CMD_END << 16;
     gRenderFaceCount = count;
     gStats.faces = count;
@@ -1147,9 +1156,9 @@ void renderInit()
     gDimFacesEnd = gFaces;
     roomsInit();
 
-    // The frame's first command clears it, as the original does: vblank erase
-    // can't cover a 352-wide frame in time. A scaled sprite of colour 0 with
-    // transparency off writes 0 (VDP2 shows the back colour) everywhere.
+    // The frame's first command clears what VDP1's vblank erase doesn't reach
+    // (flush_c), as the original clears it all: a scaled sprite of colour 0
+    // with transparency off writes 0 (VDP2 shows the back colour).
     REG32(VDP1_VRAM + VRAM_CLEAR_TEX) = 0;
     REG32(VDP1_VRAM + VRAM_CLEAR_TEX + 4) = 0;
     {

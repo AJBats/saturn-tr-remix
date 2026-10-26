@@ -38,6 +38,7 @@ struct FrameStats
     uint32_t slaveIdleTicks;  // slave: waiting for rooms to be queued
     uint32_t dmaTicks;      // flush: texture uploads and command DMA
     uint32_t farWaitTicks;  // flush: waiting for the slave's commands after building ours
+    uint32_t eraseMisses;   // frame changes after which the last line erased in the vblank wasn't, since boot
 };
 
 extern FrameStats gStats;
@@ -58,6 +59,12 @@ uint32_t vdp2Line();
 void vdp1WaitIdle();
 void vdp1WaitDrawn();
 void vdp1Plot();
+
+// How many of the top lines of each frame VDP1 erases in the vblank of the
+// frame change (TVMR VBE), before it draws there; 0 for none. The vblank is
+// too short for a whole 352-wide frame, so the frame's commands clear the
+// rest. Takes effect from the frame after next.
+void vdp1SetVblankErase(uint32_t lines);
 
 // Calls fn from the vblank-out interrupt once the next frame VDP1 draws is on
 // screen (nullptr cancels). Call with VDP1 idle, so that frame is a new one.
