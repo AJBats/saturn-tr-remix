@@ -183,13 +183,13 @@ static const char* const kBenchNames[BENCH_COUNT] = {
     "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "Profile"
 };
 
-// each way's VDP1 and master CPU time, the master's on meshes, the slave's
-// on rooms (transform and faces)
-static struct { uint32 vdp1, cpu, mesh, slave, fps; } gBench[BENCH_COUNT];
+// each way's VDP1 and master CPU time, the master's drawing (rooms queued
+// and meshes, before flush), the slave's on rooms (transform and faces)
+static struct { uint32 vdp1, cpu, draw, slave, fps; } gBench[BENCH_COUNT];
 
 // and the base way's CPU time by stage, as gStats keeps it
-enum { SPLIT_UPDATE, SPLIT_MESH, SPLIT_SLAVE_WAIT, SPLIT_FLUSH, SPLIT_XFORM, SPLIT_FACES, SPLIT_COUNT };
-static const char* const kSplitNames[SPLIT_COUNT] = { "upd ", "mesh ", "swait ", "flush ", "xform ", "faces " };
+enum { SPLIT_UPDATE, SPLIT_DRAW, SPLIT_SLAVE_WAIT, SPLIT_FLUSH, SPLIT_XFORM, SPLIT_FACES, SPLIT_COUNT };
+static const char* const kSplitNames[SPLIT_COUNT] = { "upd ", "draw ", "swait ", "flush ", "xform ", "faces " };
 static uint32 gSplit[SPLIT_COUNT];
 
 // A sampling profiler for the master CPU: during the Profile way, the free-
@@ -313,7 +313,7 @@ static bool gBenchChanged = true;   // gBenchRows to compose again
 static void benchUpdate()
 {
     static uint32 start;
-    static uint32 frames, vdp1, cpu, mesh, slave;
+    static uint32 frames, vdp1, cpu, draw, slave;
     static uint32 split[SPLIT_COUNT];
 
     if (!start) {
@@ -327,10 +327,10 @@ static void benchUpdate()
         frames++;
         vdp1 += gStats.vdp1Ticks;
         cpu += gStats.updateTicks + gStats.renderTicks - gStats.waitTicks;
-        mesh += gStats.meshTicks;
+        draw += gStats.drawTicks;
         slave += gStats.slaveXformTicks + gStats.slaveFaceTicks;
         split[SPLIT_UPDATE] += gStats.updateTicks;
-        split[SPLIT_MESH] += gStats.meshTicks;
+        split[SPLIT_DRAW] += gStats.drawTicks;
         split[SPLIT_SLAVE_WAIT] += gStats.slaveWaitTicks;
         split[SPLIT_FLUSH] += gStats.flushTicks;
         split[SPLIT_XFORM] += gStats.slaveXformTicks;
@@ -344,7 +344,7 @@ static void benchUpdate()
     {
         gBench[gBenchMode].vdp1 = framePercent(vdp1 / frames);
         gBench[gBenchMode].cpu = framePercent(cpu / frames);
-        gBench[gBenchMode].mesh = framePercent(mesh / frames);
+        gBench[gBenchMode].draw = framePercent(draw / frames);
         gBench[gBenchMode].slave = framePercent(slave / frames);
         gBench[gBenchMode].fps = frames * 60 / (t - BENCH_SETTLE);
         if (gBenchMode == BENCH_BASE)
@@ -362,7 +362,7 @@ static void benchUpdate()
 
     gBenchMode = (gBenchMode + 1) % BENCH_COUNT;
     start = gVblankCount;
-    frames = vdp1 = cpu = mesh = slave = 0;
+    frames = vdp1 = cpu = draw = slave = 0;
 }
 
 // A number in tenths, as "12.3".
@@ -401,7 +401,7 @@ static void benchCompose()
     }
     strncpy(gBenchRows[2], text, OVERLAY_COLUMNS);
 
-    strncpy(gBenchRows[4], "   vdp1  cpu mesh  slv  fps", OVERLAY_COLUMNS);
+    strncpy(gBenchRows[4], "   vdp1  cpu draw  slv  fps", OVERLAY_COLUMNS);
     for (int32 i = 0; i < BENCH_COUNT; i++)
     {
         p = append(text, i == gBenchMode ? "> " : "  ");
@@ -409,7 +409,7 @@ static void benchCompose()
         {
             p = appendColumn(p, gBench[i].vdp1);
             p = appendColumn(p, gBench[i].cpu);
-            p = appendColumn(p, gBench[i].mesh);
+            p = appendColumn(p, gBench[i].draw);
             p = appendColumn(p, gBench[i].slave);
             p = appendColumn(p, gBench[i].fps);
         }

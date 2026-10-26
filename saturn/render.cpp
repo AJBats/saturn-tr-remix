@@ -65,8 +65,7 @@ static Face* gDimFacesEnd;      // the master's faces before this are the scene
 
 int32 gRenderFaceCount; // VDP1 polygons emitted by the last flush
 
-static uint32 gRoomTicks;
-static uint32 gMeshTicks;
+static uint32 gDrawStart;   // the frame's drawing began (clear)
 
 static volatile vdp1_cmd_t* const gVdp1Cmds = (volatile vdp1_cmd_t*)VDP1_VRAM;
 
@@ -1083,9 +1082,7 @@ void flush_c()
     gStats.slaveXformTicks = rooms.xformTicks;
     gStats.slaveFaceTicks = rooms.faceTicks;
     gStats.slaveIdleTicks = rooms.idleTicks;
-    gStats.roomTicks = gRoomTicks;
-    gStats.meshTicks = gMeshTicks;
-    gRoomTicks = gMeshTicks = 0;
+    gStats.drawTicks = (start - gDrawStart) & 0xFFFF;
 
     gVerticesBase = gVertices;
 
@@ -1416,15 +1413,16 @@ void renderLevelFree()
 {
 }
 
+// The frame's drawing begins. Timers are read only around whole stages: a
+// read costs a Saturn about 110 cycles.
 void clear()
 {
+    gDrawStart = timerTicks();
 }
 
 void renderRoom(Room* room)
 {
-    uint32 start = timerTicks();
     roomsQueue(room);
-    gRoomTicks += (timerTicks() - start) & 0xFFFF;
 }
 
 void renderMesh(const Mesh* mesh)
@@ -1445,8 +1443,6 @@ void renderMesh(const Mesh* mesh)
         ASSERT(false);
         return;
     }
-
-    uint32 start = timerTicks();
 
     const uint8* ptr = (uint8*)mesh + sizeof(Mesh);
 
@@ -1494,7 +1490,6 @@ void renderMesh(const Mesh* mesh)
     }
 
     gVerticesBase += vCount;
-    gMeshTicks += (timerTicks() - start) & 0xFFFF;
 }
 
 // An octagon on the floor under the item, darkening what is drawn below it.

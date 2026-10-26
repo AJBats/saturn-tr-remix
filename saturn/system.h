@@ -21,8 +21,7 @@ struct FrameStats
     uint32_t faces;         // polygons sent to VDP1
     uint32_t vdp1Late;      // vblanks where VDP1 had not finished drawing
     uint32_t frames;        // frames rendered since boot
-    uint32_t roomTicks;     // renderRoom: queueing rooms for the slave
-    uint32_t meshTicks;     // renderMesh: mesh vertex transform + face bucketing
+    uint32_t drawTicks;     // drawing up to flush: rooms queued for the slave, meshes
     uint32_t vdp1EndLine;   // scanline where VDP1 last finished drawing
     uint32_t vertices;      // vertices transformed in the last frame
     uint32_t vdp1Ticks;     // VDP1 drawing time of the last frame
