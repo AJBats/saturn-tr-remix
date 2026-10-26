@@ -1383,7 +1383,13 @@ void renderLevelInit()
     }
     textureLuma();
 
-    // room textures' tables of less contrast at the top of VDP1 VRAM
+    // Tables at the top of VDP1 VRAM, each below the last. The inventory's item
+    // textures, put at the cache's start, may reach past its full-res slots:
+    // the turned copies, drawn behind the inventory, go highest; the shaded
+    // tables, unused behind it and made again as needed, lowest.
+    turnObjectQuads();
+
+    // room textures' tables of less contrast
     int32 rooms = 0;
     for (int32 i = 0; i < level.texturesCount; i++) {
         rooms += level.textures[i].reserved != 0;
@@ -1407,7 +1413,6 @@ void renderLevelInit()
         gShadeCaches[i].miss = shadeTableMiss;
     }
     buildContrast();
-    turnObjectQuads();
 }
 
 void renderLevelFree()
