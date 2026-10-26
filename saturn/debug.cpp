@@ -10,6 +10,7 @@
 #include "dsp.h"
 #include "slave.h"
 #include "xform_dsp.h"
+#include "dmaprobe_dsp.h"
 #include "input.h"
 #include "overlay.h"
 #include "palettes.h"
@@ -329,7 +330,17 @@ void debugDspTest()
         errors += ref[i] != gDspTestOut[i] || ref[i + 1] != gDspTestOut[i + 1] ||
                   ref[i + 2] != gDspTestOut[i + 2] || ref[i + 3] != gDspTestOut[i + 3];
     }
+    // the same transfers alone (dmaprobe.dsp)
+    dspLoad(dmaprobe_dsp, DMAPROBE_DSP_COUNT);
+    dspWrite(3, 0, md3, 5);
+    start = timerTicks();
+    dspStart(0);
+    while (dspBusy());
+    uint32 dmaTicks = (timerTicks() - start) & 0xFFFF;
+    cachePurge();
+
     crashLog("DSPXF", dspTicks);
+    crashLog("DSPDMA", dmaTicks);
     crashLog("CPUXF", cpuTicks);
     crashLog("DSPERR", errors);
 }

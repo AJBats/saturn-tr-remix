@@ -12,7 +12,8 @@ void debugProfileInit();
 
 // Times the SCU DSP transforming room vertices (xform.dsp) against the SH-2
 // doing the same arithmetic, and checks the DSP's results: boot log lines
-// DSPXF (DSP ticks), CPUXF (SH-2 ticks), DSPERR (vertices that differ).
+// DSPXF (DSP ticks), DSPDMA (its transfers alone, dmaprobe.dsp), CPUXF (SH-2
+// ticks), DSPERR (vertices that differ).
 void debugDspTest();
 #endif
 
