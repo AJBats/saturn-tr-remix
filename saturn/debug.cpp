@@ -270,6 +270,27 @@ static uint32 probeWrite(volatile uint32* p)
     return (timerTicks() - t0) & 0xFFFF;
 }
 
+// Instruction times, tenths of a cycle each, eight to a pass (probe.s): nops
+// (the pass's own cost), mac.w from the cache, mac.w with one operand
+// streaming from low work RAM, muls.w and dmuls.l each with sts macl, stores
+// each followed by a load.
+enum { OP_NOP, OP_MAC, OP_MAC_LOW, OP_MULS, OP_DMULS, OP_STORE_LOAD, OP_KINDS };
+static uint32 gOps[OP_KINDS];
+
+extern "C" void probeNop(int32 count);
+extern "C" void probeMac(int32 count, const int16* buf);
+extern "C" void probeMacStream(int32 count, const int16* stream, const int16* buf);
+extern "C" void probeMuls(int32 count);
+extern "C" void probeDmuls(int32 count);
+extern "C" void probeStoreLoad(int32 count, uint32* buf);
+
+#define OP_PASSES   (PROBE_BYTES / 16)  // macStream reads 16 bytes a pass
+
+static uint32 opTime(uint32 t0)
+{
+    return ((timerTicks() - t0) & 0xFFFF) * 128 * 10 / (OP_PASSES * 8);
+}
+
 void debugMemoryProbe()
 {
     uint32 sr;
@@ -287,6 +308,27 @@ void debugMemoryProbe()
         gProbe[m][PROBE_UNCACHED] = probeRead(uncached(mem[m])) * 128 / lines;
         gProbe[m][PROBE_WRITE] = probeWrite(mem[m]) * 128 / lines;
     }
+
+    static int16 buf[16] __attribute__((aligned(16)));
+    uint32 t = timerTicks();
+    probeNop(OP_PASSES);
+    gOps[OP_NOP] = opTime(t);
+    t = timerTicks();
+    probeMac(OP_PASSES, buf);
+    gOps[OP_MAC] = opTime(t);
+    cachePurge();
+    t = timerTicks();
+    probeMacStream(OP_PASSES, (const int16*)LOW_RAM, buf);
+    gOps[OP_MAC_LOW] = opTime(t);
+    t = timerTicks();
+    probeMuls(OP_PASSES);
+    gOps[OP_MULS] = opTime(t);
+    t = timerTicks();
+    probeDmuls(OP_PASSES);
+    gOps[OP_DMULS] = opTime(t);
+    t = timerTicks();
+    probeStoreLoad(OP_PASSES, (uint32*)buf);
+    gOps[OP_STORE_LOAD] = opTime(t);
 
     asm volatile("ldc %0, sr" : : "r"(sr));
 }
@@ -342,6 +384,13 @@ static void benchDraw()
         appendColumn(p, gProbe[m][PROBE_WRITE]);
         overlayRow(7 + BENCH_COUNT + m, text);
     }
+
+    overlayRow(10 + BENCH_COUNT, "op x10   nop  mac macLo muls dmuls stld");
+    p = append(text, "cycles ");
+    for (int32 i = 0; i < OP_KINDS; i++) {
+        p = appendColumn(p, gOps[i]);
+    }
+    overlayRow(11 + BENCH_COUNT, text);
 }
 #endif
 
