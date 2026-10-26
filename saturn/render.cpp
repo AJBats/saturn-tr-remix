@@ -957,6 +957,11 @@ static void flushXformInit(FlushXform &xf, Face** roomOT, int32 first, int32 cou
 
 static FlushXform gFarXform;
 
+// The slave's share of the faces to flush, in percent: a point less after a
+// frame where this CPU waited for it, a point more after one where it didn't.
+static int32 gFarShare = 45;
+#define FAR_WAITED  8       // FRT ticks: more is waiting (a timer read costs about one)
+
 static void flushFar()
 {
     flushAsm(&gFarXform);
@@ -966,9 +971,9 @@ static void flushFar()
 // them, from gCmds[count] on. Returns the next free command.
 //
 // flush.s builds them but behind the inventory or in the texel views, on
-// both CPUs: the slave the far buckets holding up to 45% of the faces
-// (counted by groups of buckets in the CPUs' face lists; it starts a little
-// later, with its cache empty), this CPU the rest, in the commands after them.
+// both CPUs: the slave the far buckets holding up to gFarShare of the faces
+// (counted by groups of buckets in the CPUs' face lists), this CPU the rest,
+// in the commands after them.
 static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
 {
     uint32 grdBase = VRAM_GOURAUD_BASE >> 3;
@@ -985,7 +990,7 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
         while (split > 0)
         {
             int32 faces = roomGroups[split - 1] + gFaceList.groups[split - 1];
-            if ((farFaces + faces) * 20 > total * 9)
+            if ((farFaces + faces) * 100 > total * gFarShare)
                 break;
             farFaces += faces;
             split--;
@@ -1014,6 +1019,7 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
             uint32 waitStart = timerTicks();
             slaveWait();
             gStats.farWaitTicks = (timerTicks() - waitStart) & 0xFFFF;
+            gFarShare = gStats.farWaitTicks > FAR_WAITED ? X_MAX(gFarShare - 1, 20) : X_MIN(gFarShare + 1, 60);
             cachePurge(); // the slave emptied buckets of gOT that this CPU may hold
 
             // its faces fill the commands before this CPU's but for a cap
