@@ -343,6 +343,12 @@ void debugDspTest()
     crashLog("DSPDMA", dmaTicks);
     crashLog("CPUXF", cpuTicks);
     crashLog("DSPERR", errors);
+
+    // the whole projection (project.dsp) against xform.s's, 512 vertices
+    roomsDspTest(dspTicks, cpuTicks, errors);
+    crashLog("PJDSP", dspTicks);
+    crashLog("PJCPU", cpuTicks);
+    crashLog("PJERR", errors);
 }
 
 void debugProfileInit()

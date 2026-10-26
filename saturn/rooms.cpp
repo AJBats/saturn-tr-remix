@@ -13,6 +13,7 @@
 #include "slave.h"
 #include "system.h"
 #include "xform_dsp.h"
+#include "project_dsp.h"
 
 #define MAX_ROOM_JOBS   64
 #define MAX_STATIC_JOBS 64
@@ -647,6 +648,102 @@ static void roomBatch()
 
     if (staticsDone) {
         mergeStatics();
+    }
+}
+
+// project.dsp's divide table: divTable << 4 as longwords, by z >> 12.
+static int32 gDspDivide[DIV_TABLE_SIZE];
+
+// Starts project.dsp on batches of 16 vertices from src to dst.
+static void dspProject(const RoomMatrix &m, const RectMinMax &vp, const RoomVertex* src, Vertex* dst, int32 batches)
+{
+    const int32_t md0[36] = {
+        m.m00 * 4, m.m01 * 4, m.m02 * 4, m.tx, m.m10 * 4, m.m11 * 4, m.m12 * 4, m.ty,
+        m.m20 * 4, m.m21 * 4, m.m22 * 4, m.tz,
+        VIEW_MIN_F >> (FIXED_SHIFT - 8), VIEW_MAX_F >> (FIXED_SHIFT - 8), 256, 16,
+        int32_t(dspAddress(gDspDivide)), 0x7FFF00, -0x7FFF00,
+        1023 - FRAME_WIDTH / 2, -1024 - FRAME_WIDTH / 2, FRAME_WIDTH / 2,
+        1023 - FRAME_HEIGHT / 2, -1024 - FRAME_HEIGHT / 2, FRAME_HEIGHT / 2,
+        FRAME_WIDTH, FRAME_HEIGHT, vp.x0, vp.x1, vp.y0, vp.y1,
+        FOG_MIN, 8191, 65536, 0xFFFF, 0xFF00
+    };
+    const uint32_t md3[5] = { uint32_t(batches), 1, dspAddress(src), dspAddress(dst), 0xFF };
+    dspWrite(0, 0, (const uint32_t*)md0, 36);
+    dspWrite(3, 0, md3, 5);
+    dspStart(0);
+}
+
+void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors)
+{
+    // renderInit's extension of the core's table, which this runs before
+    for (int32 i = 1024; i < DIV_TABLE_SIZE; i++) {
+        divTable[i] = (1 << 16) / i;
+    }
+    for (int32 i = 0; i < DIV_TABLE_SIZE; i++) {
+        gDspDivide[i] = divTable[i] << 4;
+    }
+
+    // vertices and both projections in gVertices, unused before a level
+    const int32 runs = 8, batches = 4, count = batches * 16;
+    RoomVertex* src = (RoomVertex*)(gVertices + MAX_VERTICES / 2);
+    Vertex* ref = gVertices;
+    Vertex* out = gVertices + runs * count;
+
+    uint32 seed = 0x2468ACE1;
+    for (int32 i = 0; i < runs * count; i++)
+    {
+        seed = seed * 1664525 + 1013904223;
+        memcpy(src + i, &seed, sizeof(RoomVertex));
+    }
+
+    // views that put vertices behind the camera, past the far plane, off the
+    // frame and beyond the view's 16 bits
+    static const int32 moves[runs][3] = {
+        { 0, 0, 2000000 }, { -3000000, 1000000, 4000000 }, { 20000000, -20000000, 3000000 },
+        { 0, 0, -1000000 }, { 500000, -500000, 6000000 }, { -9000000, 9000000, 10000000 },
+        { 1000000, 2000000, 100000 }, { 0, 0, 800000 }
+    };
+    RoomMatrix m = { 14189, 0, -8192, 4096, 15851, 7094, 7094, -4096, 12288, 0, 0, 0 };
+    RectMinMax vp(30, 20, 320, 200);
+
+    RoomXform &xf = gXform;
+    const int16* rows = &m.m00;
+    xf.x0 = vp.x0;
+    xf.y0 = vp.y0;
+    xf.x1 = vp.x1;
+    xf.y1 = vp.y1;
+    xf.divTable = divTable;
+    xf.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
+    xf.zMax = VIEW_MAX_F >> (FIXED_SHIFT - 8);
+    xf.wibble = NULL;
+    xf.caustics = gRoomCaustics;
+    xf.count = count;
+    for (int32 i = 0; i < 9; i++) {
+        xf.rows[i] = rows[i];
+    }
+
+    dspLoad(project_dsp, PROJECT_DSP_COUNT);
+    dspTicks = cpuTicks = 0;
+    for (int32 r = 0; r < runs; r++)
+    {
+        m.tx = xf.tx = moves[r][0];
+        m.ty = xf.ty = moves[r][1];
+        m.tz = xf.tz = moves[r][2];
+
+        uint32 t0 = timerTicks();
+        transformRoomAsm(src + r * count, count, ref + r * count, &xf);
+        uint32 t1 = timerTicks();
+        dspProject(m, vp, src + r * count, out + r * count, batches);
+        while (dspBusy());
+        uint32 t2 = timerTicks();
+        cpuTicks += (t1 - t0) & 0xFFFF;
+        dspTicks += (t2 - t1) & 0xFFFF;
+    }
+    cachePurge();   // the DSP wrote behind the cache
+
+    errors = 0;
+    for (int32 i = 0; i < runs * count; i++) {
+        errors += memcmp(ref + i, out + i, sizeof(Vertex)) != 0;
     }
 }
 

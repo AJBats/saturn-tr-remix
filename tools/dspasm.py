@@ -74,6 +74,8 @@ def general(ops, line, labels):
         elif d in ("a", "y"):
             yparts.append((d, SRC[s]))
         else:
+            if d1op:
+                raise SyntaxError(f"{line}: two D1-bus moves")
             if s.startswith("#"):
                 d1op, d1s = 1, number(s[1:], labels) & 0xFF
             else:

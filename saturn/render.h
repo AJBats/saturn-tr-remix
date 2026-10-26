@@ -340,6 +340,11 @@ void meshJobDraw(const MeshJob &job, Vertex* dst, FaceList &list);
 // vertices to view space, the slave projects them.
 void roomsInit();
 
+// project.dsp against transformRoomAsm on random vertices (debug.cpp's boot
+// self-test): the DSP's ticks with the start, this CPU's, and the vertices
+// that differ.
+void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors);
+
 // Queues a room for the slave, with the current matrix and viewport.
 void roomsQueue(const Room* room);
 
