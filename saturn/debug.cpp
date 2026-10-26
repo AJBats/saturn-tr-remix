@@ -10,6 +10,7 @@
 #include "overlay.h"
 #include "palettes.h"
 #include "render.h"
+#include "slave.h"
 #include "system.h"
 
 struct Option
@@ -234,7 +235,63 @@ static void benchUpdate()
     frames = vdp1 = cpu = mesh = slave = 0;
 }
 
-// Rows 1 on: the CPU stages, then the table.
+// Memory access times, cycles per 16 bytes: cached reads (a cache line
+// filled), uncached reads, writes (the cache writes through); low work RAM,
+// then high.
+enum { PROBE_CACHED, PROBE_UNCACHED, PROBE_WRITE, PROBE_KINDS };
+static uint32 gProbe[2][PROBE_KINDS];
+static volatile uint32 gProbeSink;
+
+#define PROBE_BYTES (64 * 1024)
+#define LOW_RAM     0x00200000
+
+static uint32 probeRead(const volatile uint32* p)
+{
+    uint32 t0 = timerTicks();
+    uint32 sum = 0;
+    for (uint32 i = 0; i < PROBE_BYTES / 4; i += 4) {
+        sum += p[i] + p[i + 1] + p[i + 2] + p[i + 3];
+    }
+    uint32 t = (timerTicks() - t0) & 0xFFFF;
+    gProbeSink = sum;
+    return t;
+}
+
+static uint32 probeWrite(volatile uint32* p)
+{
+    uint32 t0 = timerTicks();
+    for (uint32 i = 0; i < PROBE_BYTES / 4; i += 4)
+    {
+        p[i] = i;
+        p[i + 1] = i;
+        p[i + 2] = i;
+        p[i + 3] = i;
+    }
+    return (timerTicks() - t0) & 0xFFFF;
+}
+
+void debugMemoryProbe()
+{
+    uint32 sr;
+    asm volatile("stc sr, %0" : "=r"(sr));
+    asm volatile("ldc %0, sr" : : "r"(sr | 0xF0));
+
+    // low work RAM is free until the first level loads; the vertex buffer
+    // until the first frame
+    const uint32 lines = PROBE_BYTES / 16;
+    volatile uint32* mem[2] = { (volatile uint32*)LOW_RAM, (volatile uint32*)gVertices };
+    for (int32 m = 0; m < 2; m++)
+    {
+        cachePurge();
+        gProbe[m][PROBE_CACHED] = probeRead(mem[m]) * 128 / lines;
+        gProbe[m][PROBE_UNCACHED] = probeRead(uncached(mem[m])) * 128 / lines;
+        gProbe[m][PROBE_WRITE] = probeWrite(mem[m]) * 128 / lines;
+    }
+
+    asm volatile("ldc %0, sr" : : "r"(sr));
+}
+
+// Rows 1 on: the CPU stages, then the table, then memory access times.
 static void benchDraw()
 {
     char text[64];
@@ -271,6 +328,19 @@ static void benchDraw()
         p = append(p, "  ");
         append(p, kBenchNames[i]);
         overlayRow(5 + i, text);
+    }
+
+    overlayRow(6 + BENCH_COUNT, "cycles/16B  read  uncached  write");
+    static const char* const kMemory[2] = { "low RAM   ", "high RAM  " };
+    for (int32 m = 0; m < 2; m++)
+    {
+        p = append(text, kMemory[m]);
+        p = appendColumn(p, gProbe[m][PROBE_CACHED]);
+        p = append(p, "     ");
+        p = appendColumn(p, gProbe[m][PROBE_UNCACHED]);
+        p = append(p, "  ");
+        appendColumn(p, gProbe[m][PROBE_WRITE]);
+        overlayRow(7 + BENCH_COUNT + m, text);
     }
 }
 #endif

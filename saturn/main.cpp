@@ -54,6 +54,9 @@ int main()
     screenInit();
     crashInit();
     slaveInit();
+#ifdef HW_LOG
+    debugMemoryProbe();
+#endif
     crashLog("CD", cdInit());
     sndInit();
     crashLog("SOUND", 0);
