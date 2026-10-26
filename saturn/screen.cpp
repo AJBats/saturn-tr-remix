@@ -1,6 +1,8 @@
 // NBG0 is a 512x256 15-bit RGB bitmap in VRAM bank A; pictures load into
-// bank B first and are copied into place line by line. NBG1, the debug
-// overlay, is a 16-colour bitmap at the start of bank B1.
+// bank B first and are copied into place line by line. NBG3, the debug
+// overlay, is set up as libyaul's debug console is (proven on hardware): 8 x 8
+// cells of 16 colours, its pattern names read in slot T0 and its cells in
+// T4 of bank B1.
 
 #include "screen.h"
 #include "cd.h"
@@ -16,18 +18,20 @@
 #define STAGING         (VDP2_VRAM + 0x40000)
 #define STAGING_SIZE    (BITMAP_WIDTH * PICTURE_HEIGHT * 2)
 
+static_assert(STAGING - VDP2_VRAM + STAGING_SIZE <= SCREEN_OVERLAY_NAMES, "pictures load over the overlay");
+
 #define SPRITE_PRIORITY 0x0606  // as systemInit sets it
 #define NBG0_PRIORITY   1       // under the sprites
-#define NBG1_PRIORITY   7       // over them
+#define NBG3_PRIORITY   7       // over them
 #define OVERLAY_COLORS  768     // the overlay's colour 0 in colour RAM (CRAOFA)
+#define OVERLAY_PAGE    0x2000  // a page of 64 x 64 one-word pattern names
 
 static volatile bool gPicture;  // NBG0 shows
-static volatile bool gOverlay;  // NBG1 shows
-static uint32_t gPictures;
+static volatile bool gOverlay;  // NBG3 shows
 
 static void showLayers()
 {
-    VDP2_BGON = (gPicture ? BGON_N0ON : 0) | (gOverlay ? BGON_N1ON : 0);
+    VDP2_BGON = (gPicture ? BGON_N0ON : 0) | (gOverlay ? BGON_N3ON : 0);
 }
 
 static void showFrames()
@@ -53,20 +57,26 @@ void screenInit()
     gPicture = gOverlay = false;
     showLayers();
 
-    // A 15-bit bitmap needs four reads per bank it spans, a 16-colour one
-    // one; the CPU has the rest.
+    // A 15-bit bitmap needs four reads per bank it spans; the CPU has the
+    // rest, but for the overlay's two in bank B1.
     uint16_t bitmap = (CYCP_N0CG << 12) | (CYCP_N0CG << 8) | (CYCP_N0CG << 4) | CYCP_N0CG;
     uint16_t cpu = (CYCP_CPU << 12) | (CYCP_CPU << 8) | (CYCP_CPU << 4) | CYCP_CPU;
     VDP2_RAMCTL = RAMCTL_VRAMD | RAMCTL_VRBMD;
     VDP2_CYCA0L = VDP2_CYCA1L = bitmap;
     VDP2_CYCA0U = VDP2_CYCA1U = cpu;
-    VDP2_CYCB0L = VDP2_CYCB0U = VDP2_CYCB1U = cpu;
-    VDP2_CYCB1L = (CYCP_N1CG << 12) | (CYCP_CPU << 8) | (CYCP_CPU << 4) | CYCP_CPU;
+    VDP2_CYCB0L = VDP2_CYCB0U = cpu;
+    VDP2_CYCB1L = (CYCP_N3PN << 12) | (cpu & 0x0FFF);
+    VDP2_CYCB1U = (CYCP_N3CG << 12) | (cpu & 0x0FFF);
 
-    VDP2_CHCTLA = CHCTLA_N0_32K | CHCTLA_N0BMEN | CHCTLA_N1BMEN;
+    VDP2_CHCTLA = CHCTLA_N0_32K | CHCTLA_N0BMEN;
+    VDP2_CHCTLB = 0;    // NBG3: 16 colours, 1 x 1 cells
     VDP2_BMPNA = 0;
-    VDP2_MPOFN = (SCREEN_OVERLAY_VRAM / 0x20000) << 4;   // NBG0's bitmap at VRAM 0
-    VDP2_CRAOFA = (OVERLAY_COLORS / 256) << 4;
+    VDP2_MPOFN = 0;     // NBG0's bitmap at VRAM 0
+    VDP2_PLSZ = 0;      // planes of one page
+    VDP2_PNCN3 = PNCN_1WORD | ((SCREEN_OVERLAY_CELLS / 32) >> 10);  // the cells' number's top bits
+    uint16_t page = SCREEN_OVERLAY_NAMES / OVERLAY_PAGE;
+    VDP2_MPABN3 = VDP2_MPCDN3 = (page << 8) | page;
+    VDP2_CRAOFA = (OVERLAY_COLORS / 256) << 12;
     VDP2_MZCTL = 0;
     VDP2_SCRCTL = 0;
     VDP2_ZMCTL = 0;
@@ -74,10 +84,9 @@ void screenInit()
     VDP2_SCXIN0 = VDP2_SCXDN0 = VDP2_SCYIN0 = VDP2_SCYDN0 = 0;
     VDP2_ZMXIN0 = VDP2_ZMYIN0 = 1;
     VDP2_ZMXDN0 = VDP2_ZMYDN0 = 0;
-    VDP2_SCXIN1 = VDP2_SCXDN1 = VDP2_SCYIN1 = VDP2_SCYDN1 = 0;
-    VDP2_ZMXIN1 = VDP2_ZMYIN1 = 1;
-    VDP2_ZMXDN1 = VDP2_ZMYDN1 = 0;
-    VDP2_PRINA = (NBG1_PRIORITY << 8) | NBG0_PRIORITY;
+    VDP2_SCXN3 = VDP2_SCYN3 = 0;
+    VDP2_PRINA = NBG0_PRIORITY;
+    VDP2_PRINB = NBG3_PRIORITY << 8;
 
     // the overlay's colours: 1 white, 2 black (in colour RAM mode 0, its two
     // halves alike)
@@ -98,17 +107,12 @@ void screenOverlay(bool show)
     }
 }
 
-uint32_t screenPictures()
-{
-    return gPictures;
-}
 
 void screenShow(const char* name, int32_t width)
 {
     vdp1OnNextFrame(nullptr);
     hideFrames();
-    gPicture = gOverlay = false; // the staging area covers the overlay's bitmap
-    gPictures++;
+    gPicture = gOverlay = false;
     showLayers();
 
     char path[32] = "BINDATA/";

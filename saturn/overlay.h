@@ -1,13 +1,13 @@
 // Debug text over the game's frame, on VDP2 (screen.h's overlay layer): VDP1
 // never draws it, so it takes nothing from the frame it measures. Text goes
-// in rows, each drawn again only when it changes, in the crash screen's 3 x 5
-// font at twice the size, white on black.
+// in rows, each written again only when it changes, in libyaul's 8 x 8 font,
+// white on black.
 #ifndef OVERLAY_H
 #define OVERLAY_H
 
 #include <stdint.h>
 
-#define OVERLAY_ROWS    19
+#define OVERLAY_ROWS    28
 #define OVERLAY_COLUMNS 42      // characters a row holds; the rest is cut
 
 enum OverlayAlign { OVERLAY_LEFT, OVERLAY_CENTRE, OVERLAY_RIGHT };

@@ -20,13 +20,14 @@ volatile uint16_t* screenBlank();
 void screenRelease(bool keepPicture);
 
 // The debug overlay's layer (overlay.cpp), over the frame and any picture:
-// NBG1, a 512x256 bitmap of 4-bit pixels (0 clear, 1 white, 2 black) at this
-// VDP2 VRAM offset, 256 bytes a line. Hidden by a picture or screenBlank
-// until shown again.
-#define SCREEN_OVERLAY_VRAM 0x60000
+// NBG3, 8 x 8 cells of 16 colours (0 clear, 1 white, 2 black) at
+// SCREEN_OVERLAY_CELLS, named by a page of 64 x 64 one-word pattern names at
+// SCREEN_OVERLAY_NAMES (VDP2 VRAM offsets past the pictures' staging area).
+// Pattern name n draws cell n - SCREEN_OVERLAY_NAME0. Hidden by a picture or
+// screenBlank until shown again.
+#define SCREEN_OVERLAY_NAMES    0x78000
+#define SCREEN_OVERLAY_CELLS    0x7A000
+#define SCREEN_OVERLAY_NAME0    ((SCREEN_OVERLAY_CELLS / 32) & 0x3FF)
 void screenOverlay(bool show);
-
-// Pictures shown so far: loading one overwrites the overlay's bitmap.
-uint32_t screenPictures();
 
 #endif
