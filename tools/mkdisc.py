@@ -18,7 +18,10 @@ import sys
 
 SECTOR = 2048
 SYSTEM_AREA = 16
-MIN_SECTORS = 300           # a track must be at least 4 seconds long
+# The data track's fixed size: the Satiator caches each disc's track layout
+# (out.desc beside the cue), so a track that changed size would need that
+# cache deleted before every hardware test. Raise it if the files outgrow it.
+DATA_SECTORS = 90000
 DATE = (126, 10, 24, 0, 0, 0, 0)   # 2026-10-24, fixed for reproducible images
 DATE_STR = b"2026102400000000\x00"
 
@@ -146,7 +149,9 @@ def main():
             size = os.path.getsize(d.files[name])
             file_lba[(d, name)] = (lba, size)
             lba += max(1, sectors(size))
-    total = max(lba, MIN_SECTORS)
+    if lba > DATA_SECTORS:
+        sys.exit(f"error: the files need {lba} sectors, more than DATA_SECTORS ({DATA_SECTORS})")
+    total = DATA_SECTORS
 
     image = bytearray(total * SECTOR)
     ip = open(args.ip, "rb").read()
@@ -232,7 +237,7 @@ def main():
     with open(os.path.join(args.out, f"{args.name}.cue"), "w", newline="\n") as f:
         f.write("".join(out))
 
-    print(f"{args.name}.cue: data track {total} sectors, {len(file_lba)} files, "
+    print(f"{args.name}.cue: data track {total} sectors ({lba} used), {len(file_lba)} files, "
           f"{len(blocks) - 1} audio tracks")
 
 
