@@ -56,6 +56,7 @@ int main()
     slaveInit();
 #ifdef HW_LOG
     debugProfileInit();
+    debugDspTest();
 #endif
     crashLog("CD", cdInit());
     sndInit();

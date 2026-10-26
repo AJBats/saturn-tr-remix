@@ -9,6 +9,11 @@ void debugUpdate();
 #ifdef HW_LOG
 // Starts the measurement table's sampling profiler (debug.cpp).
 void debugProfileInit();
+
+// Times the SCU DSP transforming room vertices (xform.dsp) against the SH-2
+// doing the same arithmetic, and checks the DSP's results: boot log lines
+// DSPXF (DSP ticks), CPUXF (SH-2 ticks), DSPERR (vertices that differ).
+void debugDspTest();
 #endif
 
 #endif

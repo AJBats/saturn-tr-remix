@@ -6,6 +6,10 @@
 
 #include "debug.h"
 #include "common.h"
+#include "crash.h"
+#include "dsp.h"
+#include "slave.h"
+#include "xform_dsp.h"
 #include "input.h"
 #include "overlay.h"
 #include "palettes.h"
@@ -258,6 +262,65 @@ extern "C" void profileHandler(uint32 pc)
     {
         gProfileOther++;
     }
+}
+
+#define DSP_TEST_BATCHES    32      // of 16 vertices
+
+static uint32 gDspTestIn[DSP_TEST_BATCHES * 16];
+static int32 gDspTestOut[DSP_TEST_BATCHES * 16 * 3];
+
+void debugDspTest()
+{
+    static const int16 rows[9] = { 14189, 0, -8192, 4096, 15851, 7094, 7094, -4096, 12288 };
+    static const int32 t[3] = { -500000, 12345, 2000000 };
+
+    uint32 seed = 0x12345678;
+    for (int32 i = 0; i < DSP_TEST_BATCHES * 16; i++)
+    {
+        seed = seed * 1664525 + 1013904223;
+        gDspTestIn[i] = seed;
+    }
+
+    uint32_t md0[12];
+    for (int32 r = 0; r < 3; r++)
+    {
+        for (int32 c = 0; c < 3; c++) {
+            md0[r * 4 + c] = rows[r * 3 + c] * 4;   // xform.s takes each byte times 4
+        }
+        md0[r * 4 + 3] = t[r];
+    }
+    const uint32_t md3[8] = { 0xFF, 0, 0, 0, DSP_TEST_BATCHES, 1, dspAddress(gDspTestIn), dspAddress(gDspTestOut) };
+
+    dspLoad(xform_dsp, XFORM_DSP_COUNT);
+    dspWrite(0, 0, md0, 12);
+    dspWrite(3, 0, md3, 8);
+    uint32 start = timerTicks();
+    dspStart(0);
+    while (dspBusy());
+    uint32 dspTicks = (timerTicks() - start) & 0xFFFF;
+    cachePurge();   // the DSP wrote gDspTestOut behind the cache
+
+    // the same on this CPU, as xform.s's multiply-accumulates do it
+    static int32 ref[DSP_TEST_BATCHES * 16 * 3];
+    start = timerTicks();
+    for (int32 i = 0; i < DSP_TEST_BATCHES * 16; i++)
+    {
+        uint32 v = gDspTestIn[i];
+        int32 x = (v >> 24) * 4, y = ((v >> 16) & 0xFF) * 4, z = ((v >> 8) & 0xFF) * 4;
+        for (int32 r = 0; r < 3; r++) {
+            ref[i * 3 + r] = t[r] + mul16(rows[r * 3], x) + mul16(rows[r * 3 + 1], y) + mul16(rows[r * 3 + 2], z);
+        }
+    }
+    uint32 cpuTicks = (timerTicks() - start) & 0xFFFF;
+
+    int32 errors = 0;
+    for (int32 i = 0; i < DSP_TEST_BATCHES * 16; i++) {
+        errors += ref[i * 3] != gDspTestOut[i * 3] || ref[i * 3 + 1] != gDspTestOut[i * 3 + 1] ||
+                  ref[i * 3 + 2] != gDspTestOut[i * 3 + 2];
+    }
+    crashLog("DSPXF", dspTicks);
+    crashLog("CPUXF", cpuTicks);
+    crashLog("DSPERR", errors);
 }
 
 void debugProfileInit()

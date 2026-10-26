@@ -34,7 +34,7 @@ export PATH := $(abspath $(SH_BIN))$(PATHSEP)$(PATH)
 CC      := $(SH_PREFIX)gcc
 CXX     := $(SH_PREFIX)g++
 OBJCOPY := $(SH_PREFIX)objcopy
-CFLAGS  := -m2 -mb $(OPT) -Wall -D__SATURN__ -Isaturn -Iopenlara
+CFLAGS  := -m2 -mb $(OPT) -Wall -D__SATURN__ -Isaturn -Iopenlara -I$(BUILD)/gen
 ifdef START_LEVEL
 CFLAGS  += -DSTART_LEVEL=$(START_LEVEL)   # testing: touch saturn/main.cpp when changing it
 endif
@@ -79,7 +79,10 @@ $(1)/disc/tomb.cue: $(1)/0MAIN.BIN $(wildcard disc/*) tools/mkdisc.py $(DISC)/fi
 		0MAIN.BIN=$(1)/0MAIN.BIN $(DISC_TXT) $(2)
 endef
 
-HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h)
+# SCU DSP programs, assembled into headers (tools/dspasm.py): saturn/NAME.dsp
+# to NAME_dsp.h holding NAME_dsp[]
+DSP_HEADERS := $(patsubst saturn/%.dsp,$(BUILD)/gen/%_dsp.h,$(wildcard saturn/*.dsp))
+HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h) $(DSP_HEADERS)
 
 .PHONY: all disc $(PROGS) extract ghidra check-toolchain
 
@@ -102,6 +105,10 @@ $(BUILD)/obj/%.cpp.o: %.cpp $(HEADERS) | check-toolchain
 $(BUILD)/obj/%.s.o: %.s | check-toolchain
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/gen/%_dsp.h: saturn/%.dsp tools/dspasm.py
+	@mkdir -p $(@D)
+	$(PY) tools/dspasm.py $< $@ $*_dsp
 
 %/0MAIN.BIN: %/0MAIN.elf
 	$(OBJCOPY) -O binary $< $@
