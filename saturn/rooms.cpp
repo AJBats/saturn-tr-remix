@@ -44,6 +44,7 @@ static Face* gSlaveOT[OT_SIZE];
 static RoomStats gSlaveStats;
 
 static FaceList gFaceList;
+static bool gTurn;              // faces may be turned (gTurnLines)
 static uint32 gRoomFaceFlags;   // FACE_WATER for water rooms
 static int32 gWibblePhase;      // drifts the ripple of water rooms
 static RoomMatrix gMatrix;
@@ -167,7 +168,7 @@ static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
     if (gNextVertex + 5 > gVertices + MAX_VERTICES || gFaceList.next + 4 > gFaceList.end)
         return false;
 
-    int32 slot = detailSlot(tex->reserved - 1, tex->size, true);
+    int32 slot = detailSlot(tex->reserved - 1, tex->size, DETAIL_QUADS);
     if (slot < 0)
         return false;
 
@@ -208,15 +209,16 @@ static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
     return true;
 }
 
-// A face drawn with its texture whole, if the cache has room for it; in its
-// mean colour if not.
-static uint32 wholeTexture(uint32 flags)
+// A face drawn with its texture whole, if the cache has room for it, and
+// turned if that takes fewer lines; in its mean colour if not.
+static uint32 wholeTexture(uint32 flags, const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
 {
     const Texture* tex = level.textures + (flags & FACE_TEXTURE);
     if (!tex->reserved)
         return flags;
 
-    int32 slot = detailSlot(tex->reserved - 1, tex->size, false);
+    bool turned = gTurn && faceTurns(v0, v1, v2, v3);
+    int32 slot = detailSlot(tex->reserved - 1, tex->size, turned ? DETAIL_TURNED : DETAIL_WHOLE);
     if (slot < 0)
     {
         gSlaveStats.detailMisses++;
@@ -224,7 +226,8 @@ static uint32 wholeTexture(uint32 flags)
     }
 
     gSlaveStats.detailFaces++;
-    return flags | FACE_DETAIL | FACE_DETAIL_WHOLE | (slot << FACE_DETAIL_SLOT_SHIFT);
+    flags |= FACE_DETAIL | FACE_DETAIL_WHOLE | (slot << FACE_DETAIL_SLOT_SHIFT);
+    return turned ? flags | FACE_DETAIL_TURNED : flags;
 }
 
 static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count)
@@ -273,7 +276,7 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
 
             if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
                 continue;
-            flags = wholeTexture(flags);
+            flags = wholeTexture(flags, v0, v1, v2, v3);
         }
 
         Face* f = faceAdd(gFaceList, zMax >> OT_SHIFT);
@@ -315,7 +318,7 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
             flags = flatFlags(flags);
             gSlaveStats.flatFaces++;
         } else {
-            flags = wholeTexture(flags);
+            flags = wholeTexture(flags, v0, v1, v2, v2);
         }
         int32 depth = zMax >> OT_SHIFT;
 
@@ -343,16 +346,19 @@ struct RoomFaces
     DetailSlot* slots;
     uint32 frame;           // gDetailFrame
     void (*quad)(const Vertex* v, const RoomQuad* polys, int32 count);
-    int32_t (*miss)(uint32_t key, uint32_t texSize, bool quads);
+    int32_t (*miss)(uint32_t key, uint32_t texSize, uint32_t variant);
+    int32 turn;             // gTurn
 };
 
 static_assert(offsetof(RoomFaces, textures) == 16 && offsetof(RoomFaces, end) == 28 &&
               offsetof(RoomFaces, frame) == 40 && offsetof(RoomFaces, miss) == 48 &&
+              offsetof(RoomFaces, turn) == 52 &&
               sizeof(RoomQuad) == 12 && sizeof(RoomTriangle) == 12 && sizeof(DetailSlot) == 8 &&
               offsetof(DetailSlot, frame) == 4 && DETAIL_MAX_KEYS == 1088 && sizeof(Texture) == 16 &&
               offsetof(Texture, size) == 4 && offsetof(Texture, reserved) == 10 &&
-              (FACE_DETAIL | FACE_DETAIL_WHOLE) == 0x28000000 && FACE_DETAIL_SLOT_SHIFT == 20,
-              "layouts and constants shared with faces.s");
+              (FACE_DETAIL | FACE_DETAIL_WHOLE) == 0x28000000 && FACE_DETAIL_SLOT_SHIFT == 20 &&
+              FACE_DETAIL_TURNED == (1 << 19) && DETAIL_WHOLE == 0 && DETAIL_TURNED == 2 &&
+              sizeof(gDetailKeys[0]) == DETAIL_MAX_KEYS, "layouts and constants shared with faces.s");
 
 extern "C" void faceAddRoomQuadsAsm(const RoomQuad* polys, int32 count, RoomFaces* rf);
 extern "C" void faceAddRoomTrianglesAsm(const RoomTriangle* polys, int32 count, RoomFaces* rf);
@@ -373,6 +379,7 @@ static void renderRoomJob(const RoomJob &job)
     gRoomVertices = data.vertices;
     gRoomFaceFlags = water ? FACE_WATER : 0;
     gWibblePhase = job.causticsFrame;
+    gTurn = gTurnLines && gBenchMode != BENCH_FIXED_LINES;
 
     uint32 t0 = timerTicks();
     Vertex* roomBase = gNextVertex;
@@ -424,7 +431,8 @@ static void renderRoomJob(const RoomJob &job)
     {
         uint32 base = roomBase - gVertices;
         RoomFaces rf = { roomBase, base * 0x10001, &gFaceList, gRoomFaceFlags, level.textures, 0, 0,
-                         gFaceList.end, gDetailKeys[0], gDetailSlots, gDetailFrame, faceAddRoomQuads, detailSlotMiss };
+                         gFaceList.end, gDetailKeys[0], gDetailSlots, gDetailFrame, faceAddRoomQuads, detailSlotMiss,
+                         gTurn };
         if (info->quadsCount > 0) {
             faceAddRoomQuadsAsm(data.quads, info->quadsCount, &rf);
         }

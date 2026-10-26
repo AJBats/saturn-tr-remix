@@ -43,7 +43,8 @@ enum FaceType {
 #define FACE_V0_AT_D        (1 << 27)   // ... with its first vertex at corner D (else A)
 #define FACE_DETAIL_WHOLE   (1 << 27)   // room face: the cached texture whole
 #define FACE_DETAIL_SLOT_SHIFT  20      // 7 bits
-#define FACE_DETAIL_QUAD_SHIFT  18
+#define FACE_DETAIL_QUAD_SHIFT  18      // a split face quarter: its quadrant
+#define FACE_DETAIL_TURNED  (1 << 19)   // a whole face's: drawn as A D C B, the texture transposed
 #define FACE_TYPE_SHIFT 14
 #define FACE_TYPE_MASK  15
 #define FACE_GOURAUD    (2 << FACE_TYPE_SHIFT)
@@ -203,16 +204,36 @@ bool renderFastShrink();
 enum BenchMode
 {
     BENCH_BASE,
+    BENCH_FIXED_LINES,  // no room face turned (gTurnLines)
     BENCH_LOD1,         // textures halved to at most one texel a pixel across
                         // the face: what LOD would cost (the picture is wrong)
-    BENCH_TURNED,       // faces drawn with lines along their longer side (corners
-                        // turned; a textured one shows its texture sideways)
-    BENCH_TURNED_LOD1,  // both
     BENCH_NO_GOURAUD,
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
     BENCH_COUNT
 };
 extern int32 gBenchMode;
+
+// VDP1 draws a quad as lines from edge AD to edge BC, as many as the longer
+// of those is long, each through a row of the texture. Room faces whose edges
+// AB and DC are the shorter pair are drawn turned (rooms.cpp), as A D C B with
+// the texture transposed: fewer, longer lines, each through a column.
+extern int32 gTurnLines;
+
+X_INLINE int32 vertexSpan(const Vertex* a, const Vertex* b)
+{
+    return X_MAX(abs(a->x - b->x), abs(a->y - b->y));
+}
+
+X_INLINE bool faceTurns(const Vertex* a, const Vertex* b, const Vertex* c, const Vertex* d)
+{
+    return X_MAX(vertexSpan(a, b), vertexSpan(d, c)) < X_MAX(vertexSpan(a, d), vertexSpan(b, c));
+}
+
+X_INLINE bool faceTurned(uint32 flags)
+{
+    const uint32 turned = FACE_DETAIL | FACE_DETAIL_WHOLE | FACE_DETAIL_TURNED;
+    return (flags & turned) == turned;
+}
 
 X_INLINE bool faceFlat(uint32 flags, int32 zMin, const Texture* tex)
 {

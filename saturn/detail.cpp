@@ -12,7 +12,8 @@
 #define MAX_UPLOADS     32      // per frame, 2 KB each
 #define NO_KEY          0xFFFF
 #define IN_USE          0xFFFFFFFF  // DetailSlot.frame of a slot under the item textures
-#define KEY_QUADS       0x8000  // DetailSlot.key: the texture as quadrants
+#define VARIANT_SHIFT   14      // DetailSlot.key
+#define KEY_MASK        0x3FFF
 #define ITEM_DATA_MAX   (72 * 1024) // LEVEL4's are 70 KB
 
 struct Upload
@@ -20,13 +21,14 @@ struct Upload
     uint32_t src;
     uint32_t dst;
     uint32_t size;
-    uint16_t w, h;      // quadrant size, when it uploads as quadrants
+    uint16_t w, h;      // quadrant size
+    uint32_t variant;
 };
 
 static uint8_t gData[DATA_MAX] __attribute__((aligned(16)));
 static uint32_t gDataSize;
 
-uint8_t gDetailKeys[2][MAX_KEYS];
+uint8_t gDetailKeys[DETAIL_VARIANTS][MAX_KEYS];
 DetailSlot gDetailSlots[MAX_SLOTS];
 static int32_t gSlotCount;
 uint32_t gDetailVramStart;
@@ -127,7 +129,7 @@ void detailSuspend()
     {
         DetailSlot &slot = gDetailSlots[i];
         if (slot.key != NO_KEY) {
-            gDetailKeys[slot.key >> 15][slot.key & ~KEY_QUADS] = 0;
+            gDetailKeys[slot.key >> VARIANT_SHIFT][slot.key & KEY_MASK] = 0;
         }
         slot.key = NO_KEY;
         slot.frame = IN_USE;
@@ -153,7 +155,7 @@ void detailResume()
     gItemSlots = 0;
 }
 
-int32_t detailSlotMiss(uint32_t key, uint32_t texSize, bool quads)
+int32_t detailSlotMiss(uint32_t key, uint32_t texSize, uint32_t variant)
 {
     uint32_t w = (texSize >> 8) * 8;
     uint32_t h = texSize & 0xFF;
@@ -161,7 +163,7 @@ int32_t detailSlotMiss(uint32_t key, uint32_t texSize, bool quads)
     if (key >= MAX_KEYS || key * DETAIL_UNIT + size > gDataSize)
         return -1;
 
-    uint8_t* keySlot = gDetailKeys[quads];
+    uint8_t* keySlot = gDetailKeys[variant];
 
     if (gUploadCount == MAX_UPLOADS)
         return -1;
@@ -183,9 +185,9 @@ int32_t detailSlotMiss(uint32_t key, uint32_t texSize, bool quads)
 
     DetailSlot &slot = gDetailSlots[victim];
     if (slot.key != NO_KEY) {
-        gDetailKeys[slot.key >> 15][slot.key & ~KEY_QUADS] = 0;
+        gDetailKeys[slot.key >> VARIANT_SHIFT][slot.key & KEY_MASK] = 0;
     }
-    slot.key = key | (quads ? KEY_QUADS : 0);
+    slot.key = key | (variant << VARIANT_SHIFT);
     slot.frame = gDetailFrame;
     keySlot[key] = victim + 1;
 
@@ -193,8 +195,9 @@ int32_t detailSlotMiss(uint32_t key, uint32_t texSize, bool quads)
     upload.src = uint32_t(gData + key * DETAIL_UNIT);
     upload.dst = VDP1_VRAM + detailSlotAddr(victim);
     upload.size = size;
-    upload.w = quads ? w : 0;
+    upload.w = w;
     upload.h = h;
+    upload.variant = variant;
 
     return victim;
 }
@@ -222,6 +225,54 @@ static void quadrants(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h)
     }
 }
 
+// The w x h texture at src to dst transposed, h x w: texel (x, y) to (y, x).
+// By 8 x 8 blocks, each eight 32-bit rows of eight texels, whose off-diagonal
+// halves, then quarters, then single texels change places.
+static void transposed(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h)
+{
+    if (w * h / 2 > DETAIL_SLOT_SIZE)
+        return;
+
+    const uint32_t* s = (const uint32_t*)src;
+    uint32_t* d = (uint32_t*)dst;
+    uint32_t srcRow = w / 8; // words in a row
+    uint32_t dstRow = h / 8;
+
+    for (uint32_t by = 0; by < h / 8; by++)
+    {
+        for (uint32_t bx = 0; bx < w / 8; bx++)
+        {
+            uint32_t r[8];
+            for (int32_t i = 0; i < 8; i++) {
+                r[i] = s[(by * 8 + i) * srcRow + bx];
+            }
+            for (int32_t i = 0; i < 4; i++)
+            {
+                uint32_t a = r[i], b = r[i + 4];
+                r[i] = (a & 0xFFFF0000) | (b >> 16);
+                r[i + 4] = (a << 16) | (b & 0xFFFF);
+            }
+            static const uint8_t upper[4] = { 0, 1, 4, 5 };
+            for (int32_t k = 0; k < 4; k++)
+            {
+                int32_t i = upper[k];
+                uint32_t a = r[i], b = r[i + 2];
+                r[i] = (a & 0xFF00FF00) | ((b >> 8) & 0x00FF00FF);
+                r[i + 2] = ((a << 8) & 0xFF00FF00) | (b & 0x00FF00FF);
+            }
+            for (int32_t i = 0; i < 8; i += 2)
+            {
+                uint32_t a = r[i], b = r[i + 1];
+                r[i] = (a & 0xF0F0F0F0) | ((b >> 4) & 0x0F0F0F0F);
+                r[i + 1] = ((a << 4) & 0xF0F0F0F0) | (b & 0x0F0F0F0F);
+            }
+            for (int32_t i = 0; i < 8; i++) {
+                d[(bx * 8 + i) * dstRow + by] = r[i];
+            }
+        }
+    }
+}
+
 void detailFlush()
 {
     if (gItemUpload && gItemDataSize)
@@ -230,8 +281,8 @@ void detailFlush()
         gItemUpload = false;
     }
 
-    // a texture as quadrants is rearranged into one of two buffers, the one
-    // the transfer before last read from
+    // a texture as quadrants or transposed is rearranged into one of two
+    // buffers, the one the transfer before last read from
     static uint8_t staging[2][DETAIL_SLOT_SIZE] __attribute__((aligned(16)));
     int32_t buffer = 0;
 
@@ -239,9 +290,13 @@ void detailFlush()
     {
         const Upload &upload = gUploads[i];
         const uint8_t* src = (const uint8_t*)upload.src;
-        if (upload.w)
+        if (upload.variant != DETAIL_WHOLE)
         {
-            quadrants(staging[buffer], src, upload.w, upload.h);
+            if (upload.variant == DETAIL_QUADS) {
+                quadrants(staging[buffer], src, upload.w, upload.h);
+            } else {
+                transposed(staging[buffer], src, upload.w * 2, upload.h * 2);
+            }
             src = staging[buffer];
             buffer ^= 1;
         }

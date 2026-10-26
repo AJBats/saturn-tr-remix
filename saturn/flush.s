@@ -308,8 +308,19 @@ _flushAsm:
     mov.l   .LfaceBit27, r0
     tst     r0, r1
     bt      .Lquadrant
-    bra     .LdetailSrca
+    mov.l   .LfaceTurned, r0
+    tst     r0, r1
+    bt/s    .LdetailSrca
     shll    r5                  ! whole: twice the width and height
+    extu.b  r5, r0              ! turned: transposed
+    shlr2   r0
+    shlr    r0
+    shll8   r0                  ! its height / 8 << 8
+    shlr8   r5
+    shll2   r5
+    shll    r5                  ! its width
+    bra     .LdetailSrca
+    or      r0, r5
 .Lquadrant:
     mov     r1, r0
     shlr16  r0
@@ -338,6 +349,7 @@ _flushAsm:
 .LtexturePmod:  .long   _gTexturePmod
 .LfacePara:     .long   0x10000000  ! FACE_PARALLELOGRAM
 .LfaceBit27:    .long   0x08000000  ! FACE_DETAIL_WHOLE
+.LfaceTurned:   .long   0x00080000  ! FACE_DETAIL_TURNED
 .LtexMask:      .short  0x3FFF      ! FACE_TEXTURE
 .LdirMask:      .short  0x0030      ! TEX_ATTR_DIR
 
@@ -388,7 +400,15 @@ _flushAsm:
     nop
 .Lquad:
     VERTEX  14, r7
-
+    mov.l   .LturnedFace, r3
+    mov     r1, r0
+    and     r3, r0
+    cmp/eq  r3, r0
+    bf      1f
+    mov     r5, r0
+    mov     r7, r5
+    mov     r0, r7              ! turned: A D C B
+1:
     mov.b   @(7, r4), r0
     mov     r0, r14
     mov.b   @(7, r5), r0
@@ -659,5 +679,6 @@ _flushAsm:
     .align 2
 .LfacePara2:    .long   0x10000000  ! FACE_PARALLELOGRAM
 .LfaceV0AtD:    .long   0x08000000  ! FACE_V0_AT_D
+.LturnedFace:   .long   0x28080000  ! FACE_DETAIL | FACE_DETAIL_WHOLE | FACE_DETAIL_TURNED
 .LflipH:        .long   0x00100000  ! CMD_FLIP_H << 16
 .LpolyW1:       .long   0x00C40000  ! (PMOD_NO_ECD_SPD | PMOD_GOURAUD) << 16

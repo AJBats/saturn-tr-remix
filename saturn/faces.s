@@ -32,11 +32,13 @@
 !   +24 int32 detailMisses      counted up
 !   +28 Face* end               the list's end
 !   +32 const uint8* keys       gDetailKeys[0], whole textures' slots + 1
+!                               (the transposed textures' DETAIL_TURNED tables on)
 !   +36 DetailSlot* slots       key +0, frame +4
 !   +40 uint32 frame            gDetailFrame
 !   +44 void (*quad)(const Vertex* v, const RoomQuad* polys, int32 count)
 !                               faceAddRoomQuads, for quads crossing the near plane
-!   +48 int32 (*miss)(uint32 key, uint32 texSize, bool quads)  detailSlotMiss
+!   +48 int32 (*miss)(uint32 key, uint32 texSize, uint32 variant)  detailSlotMiss
+!   +52 int32 turn              faces may be turned (gTurnLines)
 !
 ! RoomQuad, RoomTriangle: uint32 flags; uint16 indices[4].
 ! Vertex: int16 x, y; int16 z; uint8 g, clip. Face: flags, next, int16 indices[4].
@@ -352,8 +354,55 @@ _faceAddMeshTrianglesAsm:
     shlr2   r13
     .endm
 
-! flags r14, with the face's texture whole if the cache has it
-! (wholeTexture), to the face at r10; r0..r3
+! acc = max(acc, |a.x - b.x|, |a.y - b.y|), the steps along edge a b
+! (vertexSpan); r0, t
+    .macro  SPAN a, b, acc, t
+    mov.w   @\a, r0
+    mov.w   @\b, \t
+    sub     \t, r0
+    cmp/pz  r0
+    bt      1f
+    neg     r0, r0
+1:  cmp/gt  \acc, r0
+    bf      2f
+    mov     r0, \acc
+2:  mov.w   @(2, \a), r0
+    mov     r0, \t
+    mov.w   @(2, \b), r0
+    sub     r0, \t
+    cmp/pz  \t
+    bt      3f
+    neg     \t, \t
+3:  cmp/gt  \acc, \t
+    bf      4f
+    mov     \t, \acc
+4:
+    .endm
+
+! r14 = FACE_DETAIL_TURNED if the face with corners r1, r2, r3, r7 (A B C D)
+! takes fewer lines drawn turned (faceTurns), else 0; r0, r13
+    .macro  TURN
+    mov.l   @(52, r6), r0
+    tst     r0, r0
+    bt/s    9f
+    mov     #0, r14             ! lines not turned
+    mov.l   r5, @-r15
+    mov     #0, r13
+    SPAN    r1, r7, r13, r5     ! AD
+    SPAN    r2, r3, r13, r5     ! BC: the lines as it is
+    SPAN    r1, r2, r14, r5     ! AB
+    SPAN    r7, r3, r14, r5     ! DC: the lines turned
+    mov.l   @r15+, r5
+    cmp/gt  r14, r13
+    movt    r14
+    shll16  r14
+    shll2   r14
+    shll    r14                 ! FACE_DETAIL_TURNED
+9:
+    .endm
+
+! flags r14, with the face's texture whole if the cache has it, transposed
+! if r14 has FACE_DETAIL_TURNED (wholeTexture), to the face at r10; r0..r3
     .macro  WHOLE
     mov.w   .LtexMask\@, r0
     and     r14, r0
@@ -364,13 +413,18 @@ _faceAddMeshTrianglesAsm:
     mov.w   @(10, r1), r0
     extu.w  r0, r0              ! reserved: its full-res block + 1
     tst     r0, r0
-    bt      .Lflags\@
+    bt      .Lplain\@
     add     #-1, r0             ! key
     mov.w   .LmaxKeys\@, r2
     cmp/hs  r2, r0
     bt      .Lmiss\@
     mov.l   @(32, r6), r2
-    mov.b   @(r0, r2), r2
+    mov.l   .LdetailTurned\@, r3
+    tst     r3, r14
+    bt      1f
+    mov.w   .LturnedKeys\@, r3
+    add     r3, r2              ! the transposed textures' slots
+1:  mov.b   @(r0, r2), r2
     extu.b  r2, r2
     tst     r2, r2
     bt      .Lmiss\@
@@ -394,9 +448,11 @@ _faceAddMeshTrianglesAsm:
     bra     .Lflags\@
     mov.l   r0, @(20, r6)
     .align 2
-.LdetailWhole\@: .long  0x28000000  ! FACE_DETAIL | FACE_DETAIL_WHOLE
-.LtexMask\@:     .short 0x3FFF      ! FACE_TEXTURE
-.LmaxKeys\@:     .short 1088        ! DETAIL_MAX_KEYS
+.LdetailWhole\@:  .long  0x28000000 ! FACE_DETAIL | FACE_DETAIL_WHOLE
+.LdetailTurned\@: .long  0x00080000 ! FACE_DETAIL_TURNED
+.LtexMask\@:      .short 0x3FFF     ! FACE_TEXTURE
+.LmaxKeys\@:      .short 1088       ! DETAIL_MAX_KEYS
+.LturnedKeys\@:   .short 2176       ! DETAIL_TURNED * DETAIL_MAX_KEYS
 .Lmiss\@:
     mov.l   r4, @-r15
     mov.l   r5, @-r15
@@ -405,8 +461,12 @@ _faceAddMeshTrianglesAsm:
     mov     r0, r4
     mov.w   @(4, r1), r0
     extu.w  r0, r5              ! the texture's size
+    mov     r14, r6
+    shlr16  r6
+    shlr2   r6
+    mov     #2, r0
     jsr     @r3
-    mov     #0, r6              ! whole
+    and     r0, r6              ! DETAIL_TURNED or DETAIL_WHOLE
     mov.l   @r15+, r6
     mov.l   @r15+, r5
     mov.l   @r15+, r4
@@ -418,6 +478,10 @@ _faceAddMeshTrianglesAsm:
     mov.l   @(24, r6), r0
     add     #1, r0
     mov.l   r0, @(24, r6)
+.Lplain\@:
+    mov     #-9, r0
+    swap.w  r0, r0              ! ~FACE_DETAIL_TURNED
+    and     r0, r14             ! drawn in its mean colour
 .Lflags\@:
     mov.l   r14, @r10
     .endm
@@ -457,6 +521,28 @@ _faceAddRoomQuadsAsm:
     bra     .LrquadsDone
     nop
 
+    ! culled: corners behind the near plane but not beyond a frame edge go
+    ! to C, which splits the quad
+.LrquadCulled:
+    mov     r13, r0
+    tst     #CLIP_DISCARD, r0
+    bf      .LrquadNext
+    mov.l   @(8, r6), r0
+    mov.l   r10, @r0            ! the list's next face, for C
+    mov.l   r4, @-r15
+    mov.l   r5, @-r15
+    mov.l   r6, @-r15
+    mov.l   @(44, r6), r0
+    mov     r4, r5
+    mov     r8, r4
+    jsr     @r0
+    mov     #1, r6
+    mov.l   @r15+, r6
+    mov.l   @r15+, r5
+    mov.l   @r15+, r4
+    mov.l   @(8, r6), r0
+    mov.l   @r0, r10
+
 .LrquadNext:
     dt      r5
     bf/s    .Lrquad
@@ -476,41 +562,16 @@ _faceAddRoomQuadsAsm:
     extu.w  r0, r7
     VERTEX  r7
     CULL    r7, .LrquadCulled
+    TURN
     ZMAX    r7
-    mov.l   @r4, r14
+    mov.l   @r4, r0
+    or      r0, r14
     mov.l   @(12, r6), r0
     or      r0, r14             ! flags
     WHOLE
     LINK
     mov.l   @(8, r4), r1
     ROOM_FACE r1
-    bra     .LrquadNext
-    nop
-
-    ! culled: corners behind the near plane but not beyond a frame edge go
-    ! to C, which splits the quad
-.LrquadCulled:
-    mov     r13, r0
-    tst     #CLIP_DISCARD, r0
-    bt      1f
-    bra     .LrquadNext
-    nop
-1:  mov.l   @(8, r6), r0
-    mov.l   r10, @r0            ! the list's next face, for C
-    mov.l   r4, @-r15
-    mov.l   r5, @-r15
-    mov.l   r6, @-r15
-    mov.l   @(44, r6), r0
-    mov     r4, r5
-    mov     r8, r4
-    jsr     @r0
-    mov     #1, r6
-    mov.l   @r15+, r6
-    mov.l   @r15+, r5
-    mov.l   @r15+, r4
-    mov.l   @(8, r6), r0
-    mov.l   @r0, r10
-
     bra     .LrquadNext
     nop
 .LrquadsDone:
@@ -541,8 +602,11 @@ _faceAddRoomTrianglesAsm:
 1:  ROOM_INDICES
     CULL    r3, .LrtriNext
     BACKFACE .LrtriNext
+    mov     r3, r7              ! corner D is C
+    TURN
     ZMAX    r3
-    mov.l   @r4, r14
+    mov.l   @r4, r0
+    or      r0, r14
     mov.l   @(12, r6), r0
     or      r0, r14
     mov.l   .LfaceTriangle2, r0

@@ -26,6 +26,7 @@ static const char* const kPalette[] = { "Saturn", "Remastered" };
 static const char* const kViews[] = { "Normal", "Texture cache", "Texel size" };
 static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kShrink[] = { "Exact", "Fast" };
+static const char* const kLines[] = { "Fixed", "Turned" };
 static const char* const kFar[] = { "Textured", "Flat past 16", "Flat past 12", "Flat past 8" };
 static const int32 kFarDist[] = { 0, 16 * 1024, 12 * 1024, 8 * 1024 };
 
@@ -49,6 +50,9 @@ static const Option gOptions[] = {
     { "Shrink", kShrink, 2,
         [] { return int32(renderFastShrink()); },
         [](int32 v) { renderSetFastShrink(v); } },
+    { "Lines", kLines, 2,
+        [] { return gTurnLines; },
+        [](int32 v) { gTurnLines = v; } },
     { "Palette", kPalette, 2,
         [] { return int32(palettesRemastered()); },
         [](int32 v) { if (v != palettesRemastered()) palettesToggle(); } },
@@ -60,7 +64,8 @@ static const Option gOptions[] = {
         [](int32 v) { gShowStats = v; } }
 };
 
-enum { OPTION_SHADING, OPTION_DARK, OPTION_FAR, OPTION_SHRINK, OPTION_PALETTE, OPTION_VIEW, OPTION_STATS, OPTION_COUNT };
+enum { OPTION_SHADING, OPTION_DARK, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_PALETTE, OPTION_VIEW, OPTION_STATS,
+       OPTION_COUNT };
 
 static uint16 gPad;
 static bool gMenuOpen;
@@ -155,7 +160,7 @@ static uint32 framePercent(uint32 ticks)
 #define BENCH_SETTLE    60      // the first of them aren't averaged
 
 static const char* const kBenchNames[BENCH_COUNT] = {
-    "Base", "LOD x1", "Turned", "Turned LOD", "No gouraud", "No texture"
+    "Base", "Fixed lines", "LOD x1", "No gouraud", "No texture"
 };
 
 static struct { uint32 vdp1, cpu, fps; } gBench[BENCH_COUNT];

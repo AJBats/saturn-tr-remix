@@ -382,6 +382,7 @@ bool renderFastShrink()
 }
 int32 gDarkFaces = DARK_CONTRAST;
 int32 gFlatDist;
+int32 gTurnLines = 1;
 
 // Adds to each channel of a pair of gouraud values, within 0 .. 31.
 X_INLINE uint32 tintPair(uint32 pair, int32 dr, int32 dg, int32 db)
@@ -619,7 +620,13 @@ X_INLINE void faceMaterial(uint32* w, uint32 flags)
                 if (flags & FACE_DETAIL_WHOLE)
                 {
                     srca = detailSlotAddr(slot) >> 3;
-                    size = ((size >> 8) << 9) | ((size & 0xFF) << 1);
+                    uint32 w = (size >> 8) * 16;
+                    uint32 h = (size & 0xFF) * 2;
+                    if (flags & FACE_DETAIL_TURNED) {
+                        size = ((h / 8) << 8) | w;
+                    } else {
+                        size = ((w / 8) << 8) | h;
+                    }
                 }
                 else
                 {
@@ -737,6 +744,11 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
 
             const Vertex* v3 = gVertices + face->indices[3];
 
+            if (faceTurned(flags))
+            {
+                const Vertex* t = v1; v1 = v3; v3 = t;
+            }
+
             // VDP1 draws a quad as lines from edge AD to edge BC, each
             // ending at its first pixel past the frame once it has
             // been on it. A quad further off the frame on its AD side
@@ -802,6 +814,7 @@ static_assert(sizeof(Face) == 16 && offsetof(Face, next) == 4 && offsetof(Face, 
               sizeof(Command) == 32 && sizeof(gGouraud[0]) == 8, "layouts read by flush.s");
 static_assert(FACE_WATER == (1 << 30) && FACE_DETAIL == (1 << 29) && FACE_PARALLELOGRAM == (1 << 28) &&
               FACE_DETAIL_WHOLE == (1 << 27) && FACE_V0_AT_D == (1 << 27) && FACE_DETAIL_SLOT_SHIFT == 20 &&
+              FACE_DETAIL_TURNED == (1 << 19) &&
               FACE_DETAIL_QUAD_SHIFT == 18 && FACE_TYPE_SHIFT == 14 && FACE_TEXTURE == 0x3FFF &&
               FACE_TYPE_F == 1 && FACE_TYPE_FT == 2 && FACE_TYPE_GTA == 5 && FACE_TYPE_AVG == 10 &&
               TEX_ATTR_AKILL == 1 && TEX_ATTR_DIR == 0x30 && CMD_FLIP_H == 0x10 && DETAIL_SLOT_SIZE == 2048 &&
@@ -832,26 +845,10 @@ static uint32 lodSize(const uint32* w, int32 texelsPerPixel)
     return ((tw / 8) << 8) | th;
 }
 
-// VDP1 draws a quad as lines from edge AD to edge BC, as many as the longer
-// of those is long: turns the corners (B C D A) when AB and DC are shorter.
-static void turnToLongerLines(uint32* w)
-{
-    int32 now = X_MAX(cmdSpan(w[3], w[6]), cmdSpan(w[4], w[5]));
-    int32 alt = X_MAX(cmdSpan(w[3], w[4]), cmdSpan(w[6], w[5]));
-    if (alt < now)
-    {
-        uint32 a = w[3];
-        w[3] = w[4];
-        w[4] = w[5];
-        w[5] = w[6];
-        w[6] = a;
-    }
-}
-
 // The frame's commands 1 .. count - 1 rebuilt for gBenchMode.
 static void benchCommands(int32 count)
 {
-    if (gBenchMode == BENCH_BASE)
+    if (gBenchMode == BENCH_BASE || gBenchMode == BENCH_FIXED_LINES)
         return;
 
     for (int32 i = 1; i < count; i++)
@@ -861,10 +858,7 @@ static void benchCommands(int32 count)
         if (type != CMD_DISTORTED_SPRITE && type != CMD_POLYGON)
             continue;
 
-        if (gBenchMode == BENCH_TURNED || gBenchMode == BENCH_TURNED_LOD1) {
-            turnToLongerLines(w);
-        }
-        if ((gBenchMode == BENCH_LOD1 || gBenchMode == BENCH_TURNED_LOD1) && type == CMD_DISTORTED_SPRITE) {
+        if (gBenchMode == BENCH_LOD1 && type == CMD_DISTORTED_SPRITE) {
             w[2] = (w[2] & 0xFFFF0000) | lodSize(w, 1);
         } else if (gBenchMode == BENCH_NO_GOURAUD && (w[1] & (PMOD_GOURAUD << 16))) {
             w[1] &= ~(7 << 16);

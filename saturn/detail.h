@@ -5,7 +5,9 @@
 //
 // The set loads as whole textures. Faces crossing the near plane split 2x2,
 // each quarter drawn with one quadrant of the texture: four tiles half its
-// size each way, clockwise from top left, which a slot holds instead.
+// size each way, clockwise from top left, which a slot holds instead. A face
+// drawn with its lines turned (see rooms.cpp) takes the texture transposed,
+// made as it uploads.
 #ifndef DETAIL_H
 #define DETAIL_H
 
@@ -24,34 +26,43 @@ uint32_t detailDataMax();
 // end of VRAM.
 void detailInit(uint32_t vramStart, uint32_t dataSize);
 
+// How a slot holds its texture.
+enum DetailVariant
+{
+    DETAIL_WHOLE,
+    DETAIL_QUADS,
+    DETAIL_TURNED,  // whole, transposed
+    DETAIL_VARIANTS
+};
+
 // The cache's slots and which texture each holds, for detailSlot's lookup.
 struct DetailSlot
 {
-    uint16_t key;
+    uint16_t key;       // the texture's key, its variant << 14
     uint32_t frame;     // last frame drawn with it
 };
-extern uint8_t gDetailKeys[2][DETAIL_MAX_KEYS]; // whole, quadrants: slot + 1, 0 when not cached
+extern uint8_t gDetailKeys[DETAIL_VARIANTS][DETAIL_MAX_KEYS]; // slot + 1, 0 when not cached
 extern DetailSlot gDetailSlots[];
 extern uint32_t gDetailFrame;
 
-int32_t detailSlotMiss(uint32_t key, uint32_t texSize, bool quads);
+int32_t detailSlotMiss(uint32_t key, uint32_t texSize, uint32_t variant);
 
 // Cache slot for the texture with this key (Texture.reserved - 1) and
-// quadrant size (Texture.size), whole or as quadrants, queueing it for upload
-// if it is not cached. -1 when every slot is in use this frame or the frame's
+// quadrant size (Texture.size), as the variant, queueing it for upload if it
+// is not cached. -1 when every slot is in use this frame or the frame's
 // upload budget is spent.
-inline int32_t detailSlot(uint32_t key, uint32_t texSize, bool quads)
+inline int32_t detailSlot(uint32_t key, uint32_t texSize, uint32_t variant)
 {
     if (key < DETAIL_MAX_KEYS)
     {
-        uint32_t cached = gDetailKeys[quads][key];
+        uint32_t cached = gDetailKeys[variant][key];
         if (cached)
         {
             gDetailSlots[cached - 1].frame = gDetailFrame;
             return cached - 1;
         }
     }
-    return detailSlotMiss(key, texSize, quads);
+    return detailSlotMiss(key, texSize, variant);
 }
 
 // Takes at least 'size' bytes off the top of the cache for other tables and
