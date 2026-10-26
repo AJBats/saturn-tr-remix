@@ -937,6 +937,8 @@ Face** roomsFinish(RoomStats &stats, const uint16* &groups)
     gMeshTaken = 0;
     gMeshHeld = false;
 
+    gSlaveStats.rooms = gJobCount;
+    gSlaveStats.meshes = gMeshCount - gMeshSkips;
     gJobCount = 0;
     gMeshCount = 0;
     *uncached(&gJobsQueued) = 0;

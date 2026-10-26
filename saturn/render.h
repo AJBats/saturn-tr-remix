@@ -308,6 +308,8 @@ struct RoomStats
     uint32 meshTicks;   // ... drawing meshes
     uint32 idleTicks;   // ... waiting for rooms to be queued
     uint32 dspVertices; // room vertices the DSP projected
+    uint32 rooms;       // rooms drawn
+    uint32 meshes;      // meshes drawn
 };
 
 // What meshxform.s needs to transform a mesh's vertices.

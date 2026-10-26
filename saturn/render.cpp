@@ -77,6 +77,9 @@ void setViewport(const RectMinMax &vp)
 // Meshes drawn while this is set (items in water rooms) get FACE_WATER.
 static uint32 gMeshFaceFlags;
 static uint32 gMeshFlatFaces;   // mesh faces drawn flat this frame
+#ifdef HW_LOG
+static uint32 gMeshesDrawn;     // meshes drawn here this frame
+#endif
 
 // OpenLara selects palette 1 for whatever is in a water room.
 void setPaletteIndex(int32 index)
@@ -1119,6 +1122,12 @@ void flush_c()
     gStats.slaveIdleTicks = rooms.idleTicks;
     gStats.dspVertices = rooms.dspVertices;
     gStats.drawTicks = (start - gDrawStart) & 0xFFFF;
+#ifdef HW_LOG
+    gStats.rooms = rooms.rooms;
+    gStats.slaveMeshes = rooms.meshes;
+    gStats.meshes = gMeshesDrawn;
+    gMeshesDrawn = 0;
+#endif
 
     gVerticesBase = gVertices;
 
@@ -1570,6 +1579,9 @@ __attribute__((noinline)) static void renderMeshC(const Mesh* mesh)
 // Each a tail call: no registers saved here.
 static void renderMeshHere(const Mesh* mesh)
 {
+#ifdef HW_LOG
+    gMeshesDrawn++;
+#endif
     if (!gFlatDist && gBenchMode != BENCH_C_MESHES) {
         renderMeshAsm(mesh, &gVerticesBase, &gFaceList, gMeshFaceFlags);
     } else {

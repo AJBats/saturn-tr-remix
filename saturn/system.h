@@ -39,6 +39,9 @@ struct FrameStats
     uint32_t dspVertices;     // room vertices the DSP projected
     uint32_t dmaTicks;      // flush: texture uploads and command DMA
     uint32_t farWaitTicks;  // flush: waiting for the slave's commands after building ours
+    uint32_t rooms;         // rooms drawn (HW_LOG builds)
+    uint32_t meshes;        // meshes the master drew
+    uint32_t slaveMeshes;   // ... the slave
 };
 
 extern FrameStats gStats;

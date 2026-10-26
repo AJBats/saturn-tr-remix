@@ -44,6 +44,7 @@ static int32 gFarFaces;
 static bool gShowStats;
 #ifdef HW_LOG
 static void benchUpdate();
+static void sceneUpdate();
 #endif
 
 static const Option gOptions[] = {
@@ -86,7 +87,7 @@ static uint16 gPad;
 static bool gMenuOpen;
 static int32 gCursor;
 #ifdef HW_LOG
-static bool gBenchHidden;   // L or R: the bench's rows give way to the name of its way
+static bool gBenchHidden;   // L or R: the bench's rows give way to the scene's, on Base
 #endif
 
 static const char* gMessage;
@@ -148,6 +149,7 @@ void debugUpdate()
     }
     shoulders = keys & (IK_L | IK_R);
     benchUpdate();
+    sceneUpdate();
 #endif
 }
 
@@ -415,12 +417,91 @@ static void profileRank()
 static char gBenchRows[OVERLAY_ROWS][OVERLAY_COLUMNS + 1];
 static bool gBenchChanged = true;   // gBenchRows to compose again
 
+// With the bench's rows hidden: where Lara stands (room, x, y, z, heading, as
+// LARA_START and START_YAW take them) and what the scene costs, averaged
+// over half a second, so that two views can be compared and reproduced.
+#define SCENE_ROWS      3
+#define SCENE_WINDOW    30      // vblanks averaged
+static char gSceneRows[SCENE_ROWS][OVERLAY_COLUMNS + 1];
+
+extern Lara* players[MAX_PLAYERS];
+
+static char* appendHex(char* p, uint32 value, int32 digits)
+{
+    static const char hex[] = "0123456789abcdef";
+    for (int32 d = (digits - 1) * 4; d >= 0; d -= 4) {
+        *p++ = hex[(value >> d) & 15];
+    }
+    *p = 0;
+    return p;
+}
+
+static void sceneUpdate()
+{
+    static uint32 start, frames, vdp1, cpu, drawn, roomVertices, vertices, faces, meshes, slaveMeshes;
+
+    frames++;
+    vdp1 += gStats.vdp1Ticks;
+    cpu += gStats.updateTicks + gStats.renderTicks - gStats.waitTicks;
+    drawn += gStats.rooms;
+    roomVertices += gStats.roomVertices;
+    vertices += gStats.vertices;
+    faces += gStats.faces;
+    meshes += gStats.meshes;
+    slaveMeshes += gStats.slaveMeshes;
+
+    if (gVblankCount - start < SCENE_WINDOW)
+        return;
+
+    char* p = gSceneRows[0];
+    *p = 0;
+    const ItemObj* lara = (const ItemObj*)(const void*)players[0];
+    if (lara)
+    {
+        p = appendStat(p, "room ", uint32(lara->room - rooms));
+        p = appendStat(p, "", uint32(lara->pos.x));
+        p = appendStat(p, "", uint32(lara->pos.y));
+        p = appendStat(p, "", uint32(lara->pos.z));
+        appendHex(p, uint16(lara->angle.y), 4);
+    }
+
+    p = appendStat(gSceneRows[1], "rooms ", drawn / frames);
+    p = appendStat(p, "rv ", roomVertices / frames);
+    p = appendStat(p, "mv ", (vertices - roomVertices) / frames);
+    appendStat(p, "cmds ", faces / frames);
+
+    p = appendStat(gSceneRows[2], "meshes ", meshes / frames);
+    p = appendStat(p, "+", slaveMeshes / frames);
+    p = appendStat(p, "vdp1 ", framePercent(vdp1 / frames));
+    p = appendStat(p, "cpu ", framePercent(cpu / frames));
+    appendStat(p, "fps ", frames * 60 / (gVblankCount - start));
+
+    start = gVblankCount;
+    frames = vdp1 = cpu = drawn = roomVertices = vertices = faces = meshes = slaveMeshes = 0;
+}
+
 static void benchUpdate()
 {
     static uint32 start;
     static uint32 frames, vdp1, cpu, draw, slave;
     static uint32 split[SPLIT_COUNT];
     static uint32 dspVertices, roomVertices;
+
+    // held on Base while the scene's rows show; a fresh window after
+    if (gBenchHidden)
+    {
+        if (gBenchMode != BENCH_BASE)
+        {
+            profileSampling(false);
+            gBenchMode = BENCH_BASE;
+            vdp2SetBackColor(RGB(0, 0, 0));
+        }
+        start = gVblankCount;
+        frames = vdp1 = cpu = draw = slave = 0;
+        memset(split, 0, sizeof(split));
+        dspVertices = roomVertices = 0;
+        return;
+    }
 
     if (!start) {
         start = gVblankCount;
@@ -630,9 +711,15 @@ void osDrawDebug()
 #ifdef HW_LOG
     if (!gMenuOpen)
     {
-        if (gBenchHidden) {
+        if (gBenchHidden)
+        {
             overlayRow(1, kBenchNames[gBenchMode]);
-        } else {
+            for (int32 i = 0; i < SCENE_ROWS; i++) {
+                overlayRow(2 + i, gSceneRows[i]);
+            }
+        }
+        else
+        {
             benchDraw();
         }
     }
