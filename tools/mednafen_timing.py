@@ -22,6 +22,14 @@ a MAC.W takes half a cycle more (8 sixteenths); MACH/MACL can be read 2
 cycles after the last MAC.W (a dot product of three MAC.Ws costs 3.2 more);
 the multiplier is busy 4 cycles longer after MUL.L and 3 after DMULS.L/
 DMULU.L. MULS.W, loads, stores and memory streams already match.
+
+The SH-2 caches (ss.dbg_cem; 2026-10-26, 898c9ec): Mednafen emulates the
+instruction cache only for the games in its database, and runs any other
+disc as if every instruction fetch hit. In the master's sampling profile the
+Saturn matched Mednafen in the hot loops but took about 1.45x as long over
+the rest of the code. With "full", both caches emulated, the measurement
+spot's CPU times come within 4% of the Saturn's (Base: master 112 against
+116, meshes 51 against 53, slave 66 against 67).
 """
 import os
 import re
@@ -33,14 +41,16 @@ CALIBRATED = {
     "vdp1.cost.texel": "20", "vdp1.cost.tex_pixel": "0", "vdp1.cost.gouraud": "14",
     "vdp1.cost.pixel": "0", "vdp1.cost.line": "262",
     "sh2.cost.mac_w": "8", "sh2.cost.mac_wait": "2", "sh2.cost.mul_l": "4", "sh2.cost.dmul": "3",
+    "dbg_cem": "full",
 }
+STOCK = {"dbg_cem": "auto"}     # the rest: "0"
 
 
 def main():
     args = sys.argv[1:]
     values = dict(CALIBRATED)
     if args and args[0] == "stock":
-        values = {k: "0" for k in values}
+        values = {k: STOCK.get(k, "0") for k in values}
         args = args[1:]
     for a in args:
         name, _, value = a.partition("=")
