@@ -813,33 +813,62 @@ void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors)
     }
 }
 
-// Starts meshproject.dsp on batches of 8 vertices from src to dst, every
-// vertex shaded xf.g.
+// What meshproject.dsp lights flat meshes by: shades of 0, as many as it
+// reads a batch.
+static const uint32_t gDspNoShades[8] = {};
+
+// Starts meshproject.dsp on batches of 8 vertices from src to dst, lit as xf
+// says (its arrays longword aligned).
 static void dspProjectMesh(const MeshXform &xf, const MeshVertex* src, Vertex* dst, int32 batches)
 {
-    const int32_t md0[34] = {
+    int32_t md0[41] = {
         xf.rows[0], xf.rows[1], xf.rows[2], xf.tx, xf.rows[3], xf.rows[4], xf.rows[5], xf.ty,
         xf.rows[6], xf.rows[7], xf.rows[8], xf.tz,
         VIEW_MIN_F, VIEW_MAX_F, 4, 4096, int32_t(dspAddress(gDspDivide)),
         1023 - FRAME_WIDTH / 2, -1024 - FRAME_WIDTH / 2, FRAME_WIDTH / 2,
         1023 - FRAME_HEIGHT / 2, -1024 - FRAME_HEIGHT / 2, FRAME_HEIGHT / 2,
-        FRAME_WIDTH, FRAME_HEIGHT, 0, FRAME_WIDTH, 0, FRAME_HEIGHT,
-        0xFFFF, 0x8000, xf.g << 8, 1, 65536
+        0, FRAME_WIDTH, 0, FRAME_HEIGHT, 0xFFFF, 0x8000, 65536, 1
     };
-    const uint32_t md3[4] = { uint32_t(batches), 1, dspAddress(src), dspAddress(dst) };
-    dspWrite(0, 0, (const uint32_t*)md0, 34);
-    dspWrite(3, 0, md3, 4);
+    uint32_t md3[5] = { uint32_t(batches), 0, dspAddress(src), dspAddress(dst), 0 };
+    uint32_t step;
+    int32 count;
+
+    // meshxform.s multiplies the light's direction and range as 16 bits
+    if (xf.normals)
+    {
+        const int32_t light[10] = { int32_t(0xFF000000), int16(xf.lx), int16(xf.ly), int16(xf.lz),
+                                    int16(xf.range) * 256, 4, xf.ambient, 0x1FFF, 0x1F00, 0x1FFF };
+        memcpy(md0 + 31, light, sizeof(light));
+        md3[1] = uint32_t(-1);
+        md3[4] = dspAddress(xf.normals);
+        step = 8;
+        count = 41;
+    }
+    else
+    {
+        const int32_t light[6] = { 0xFF, 32, xf.shades ? xf.ambient : xf.g << 8, 0x1FFF, 0x1F00, 0x1FFF };
+        memcpy(md0 + 31, light, sizeof(light));
+        md3[4] = dspAddress(xf.shades ? (const void*)xf.shades : gDspNoShades);
+        step = xf.shades ? 2 : 0;
+        count = 37;
+    }
+    dspWrite(0, 0, (const uint32_t*)md0, count);
+    dspWrite(3, 0, md3, 5);
+    dspWrite(3, 15, &step, 1);
     dspStart(0);
 }
 
 void meshDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors)
 {
-    // vertices within +-1024 and both projections in gVertices, unused before
-    // a level
+    // vertices within +-1024, normals (each under 128 long), shades and both
+    // projections in gVertices, unused before a level
     const int32 runs = 8, batches = 8, count = batches * 8;
     MeshVertex* src = (MeshVertex*)(gVertices + MAX_VERTICES / 2);
+    int8* normals = (int8*)(src + runs * count);
+    uint8* shades = (uint8*)(normals + runs * count * 4);
     Vertex* ref = gVertices;
     Vertex* out = gVertices + runs * count;
+    static_assert(MAX_VERTICES / 2 + 8 * 64 * (6 + 4 + 1) / sizeof(Vertex) <= MAX_VERTICES, "they fit");
 
     uint32 seed = 0x13579BDF;
     int16* c = (int16*)src;
@@ -847,6 +876,16 @@ void meshDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors)
     {
         seed = seed * 1664525 + 1013904223;
         c[i] = int16(((seed >> 16) & 2047) - 1024);
+    }
+    for (int32 i = 0; i < runs * count * 4; i++)
+    {
+        seed = seed * 1664525 + 1013904223;
+        normals[i] = int8((i & 3) == 3 ? seed >> 24 : ((seed >> 16) % 147) - 73);
+    }
+    for (int32 i = 0; i < runs * count; i++)
+    {
+        seed = seed * 1664525 + 1013904223;
+        shades[i] = uint8(seed >> 24);
     }
 
     // views (in world units) that put vertices behind the camera, before the
@@ -860,11 +899,12 @@ void meshDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors)
         { 14189, 0, -8192, 4096, 15851, 7094, 7094, -4096, 12288 },
         { 14189, 4096, 7094, 0, 15851, -4096, -8192, 7094, 12288 }
     };
+    static const int32 lights[runs][2] = {     // ambient, range
+        { 0, 0 }, { 707, 0 }, { 8117, 5822 }, { 4000, 16000 }, { 0, 0 }, { -320, 0 }, { 1000, 12000 }, { 3000, -16000 }
+    };
 
     MeshXform xf;
     xf.divTable = divTable;
-    xf.normals = NULL;
-    xf.shades = NULL;
     xf.inside = 0;
 
     dspLoad(meshproject_dsp, MESHPROJECT_DSP_COUNT);
@@ -877,7 +917,17 @@ void meshDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors)
         xf.tx = moves[r][0] << FIXED_SHIFT;
         xf.ty = moves[r][1] << FIXED_SHIFT;
         xf.tz = moves[r][2] << FIXED_SHIFT;
+        // flat, by shade, by normal, by normal; lights that take vertices
+        // below the darkest and past the brightest
+        seed = seed * 1664525 + 1013904223;
         xf.g = r * 4 + 3;
+        xf.normals = (r & 2) ? normals + r * count * 4 : NULL;
+        xf.shades = (r & 3) == 1 ? shades + r * count : NULL;
+        xf.ambient = lights[r][0];
+        xf.range = lights[r][1];
+        xf.lx = int32((seed >> 20) % 147) - 73;
+        xf.ly = int32((seed >> 12) % 147) - 73;
+        xf.lz = int32((seed >> 4) % 147) - 73;
 
         uint32 t0 = timerTicks();
         transformMeshAsm(src + r * count, count, ref + r * count, &xf);

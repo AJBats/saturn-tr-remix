@@ -1,38 +1,55 @@
 ; Mesh vertices to the screen on the SCU DSP, as meshxform.s's
 ; transformMeshAsm does it on its full path: view space, the near and far
-; planes, the divide (a table lookup), the frame flags; every vertex takes
-; the shade in MD0 (flat lighting). Each vertex is written as the two
-; longwords of a Vertex: x << 16 | y, then z << 16 | shade << 8 | clip. In
-; batches of 8: their MeshVertex records (int16 x, y, z: 12 longwords) read
-; into MD1 and unpacked into MD2, 16 longwords written out of MD1.
+; planes, the divide (a table lookup), the frame flags, and each vertex's
+; shade by the mesh's lighting. Each vertex is written as the two longwords
+; of a Vertex: x << 16 | y, then z << 16 | shade << 8 | clip. In batches of
+; 8: their MeshVertex records (int16 x, y, z: 12 longwords) read into MD1 and
+; unpacked into MD2, 8 longwords of light into MD2 after them, 16 longwords
+; written out of MD1.
 ;
 ; The projected x (and y) is clamped once, to what VDP1 can address less the
 ; centre, as project.dsp does for xform.s's two clamps: the wider can't
 ; change what the narrower leaves, nor which vertices are off the frame.
 ; x' and y' >> 14 are kept whole where meshxform.s keeps 16 bits: they differ
-; only for vertices over 32767 units to the side of the view.
+; only for vertices over 32767 units to the side of the view. A vertex is
+; off the frame when it is off any side of it.
+;
+; The light, each batch's shades << 8 written ahead into MD1's odd longwords:
+;   by normal (int8 x, y, z, pad): ambient - ((n . l) * range >> 14), each
+;   byte masked at the top of a longword so that (n . l) comes out << 8
+;   by shade (uint8): ambient + shade * 32
+;   flat: by shades of 0 (8 longwords of them, read again each batch), the
+;   ambient the shade << 8
+; then >> 8 within 0 .. 31, which is the value within 0 .. 0x1FFF and 0x1F00.
 ;
 ; Data RAM, set by the SH-2 (rooms.cpp):
 ;   MD0  0..11  m00 m01 m02 tx  m10 m11 m12 ty  m20 m21 m22 tz
 ;        12 VIEW_MIN_F  13 VIEW_MAX_F  14 4  15 4096  16 the table's address / 4
 ;        17 1023-halfW  18 -1024-halfW  19 halfW
 ;        20 1023-halfH  21 -1024-halfH  22 halfH
-;        23 FRAME_WIDTH  24 FRAME_HEIGHT  25 0  26 FRAME_WIDTH  27 0  28 FRAME_HEIGHT
-;        29 0xFFFF  30 0x8000  31 the shade << 8  32 1  33 65536
-;        40 the table's entry for this vertex (by DMA)
-;   MD3  0 batches  1 1  2 the vertices' address / 4  3 the output's / 4
-; The table holds divTable << 4 as longwords, by z >> 18.
+;        23 0  24 FRAME_WIDTH  25 0  26 FRAME_HEIGHT
+;        27 0xFFFF  28 0x8000  29 65536  30 1
+;        31 by normal 0xFF000000  32 lx  33 ly  34 lz  35 range << 8  36 4
+;           37 ambient  38 0x1FFF  39 0x1F00  40 0x1FFF
+;        31 by shade  0xFF  32 32  33 ambient  34 0x1FFF  35 0x1F00  36 0x1FFF
+;        41 the table's entry for this vertex (by DMA)
+;   MD3  0 batches  1 -1 by normal, else 0  2 the vertices' address / 4
+;        3 the output's / 4  4 the light's / 4  15 the light's longwords a
+;        batch (8 normals, 2 shades, 0 flat)
+; The table holds divTable << 4 as longwords, by z >> 18. The arrays must be
+; longword aligned.
 ; MD3 5..14 hold the vertex being projected: 5 x 6 y 7 z 8 clip 9 x' 10 y'
-; 11 z' 12 z >> 14 13 sx 14 sy.
+; 11 z' 12 z >> 14 13 sx 14 sy; 16..39 the batch's light, a longword each
+; normal byte or shade.
 
         mov #3,ct3
         mov mc3,wa0
 batch:  mov #2,ct3
-        mov m3,ra0
+batch1: mov m3,ra0
         mov #0,ct1
         dma d0,mc1,12
 bw:     jmp bw,t0
-        mov #32,ct0
+        mov #30,ct0
         mov m3,a | mov #12,pl
         add | mov all,mc3               ; the next batch's vertices
 
@@ -43,14 +60,59 @@ bw:     jmp bw,t0
         mvi 11,lop
         mov #unpack,top
 unpack: mov m1,x | clr a
-        mov mul,p | mov #29,ct0
+        mov mul,p | mov #27,ct0
         ad2 | mov alh,mc2               ; the high half
         mov mc1,a | mov mc0,p           ; 0xFFFF
         and | mov alu,a | mov mc0,p     ; 0x8000
         xor | mov alu,a
-        sub | mov all,mc2               ; the low half
         btm
-        nop
+        sub | mov all,mc2               ; the low half
+
+        ; the light
+        mov #4,ct3
+        mov m3,ra0
+        mov #24,ct2
+        dma d0,mc2,8
+lw:     jmp lw,t0
+        mov #15,ct3
+        mov m3,p | mov #4,ct3           ; its longwords
+        mov m3,a | mov #31,ct0
+        add | mov all,mc3               ; the next batch's
+        mov #1,ct3
+        mov m3,a | mov mc0,p            ; by normal; the mask
+        or | mov #16,ct3
+        jmp lnorm,s
+        mov #24,ct2
+
+        ; by shade: the bytes, then ambient + shade * 32
+        mvi 1,lop
+        mov mc2,a | mov #sbyte,top
+sbyte:  rl8 | mov alu,a
+        and | mov all,mc3
+        rl8 | mov alu,a
+        and | mov all,mc3
+        rl8 | mov alu,a
+        and | mov all,mc3
+        rl8 | mov alu,a
+        btm
+        and | mov all,mc3 | mov mc2,a
+        mov #16,ct3
+        mov #1,ct1
+        mvi 7,lop
+        mov #sdot,top
+sdot:   mov mc3,x | mov mc0,y           ; shade, 32
+        mov mul,p | mov mc0,a           ; ambient
+        add | mov alu,a
+
+        ; >> 8 within 0 .. 31, << 8
+ltail:  jmp lneg,s
+        mov mc0,p                       ; 0x1FFF
+        sub
+        jmp lbig,nzs
+        mov mc0,p                       ; 0x1F00
+lok:    and | mov all,mc1
+        btm
+        mov mc1,y | mov #32,ct0         ; past the next x << 16 | y
 
         mov #0,ct2
         mov #0,ct1
@@ -102,7 +164,7 @@ zdone:  mov all,rx                      ; z' within them
         mov mul,p | clr a
         ad2 | mov alh,pl | mov mc0,a    ; z >> 18, the table's address
         add | mov all,ra0
-        mov #40,ct0
+        mov #41,ct0
         dma d0,mc0,1                    ; its entry
 dw:     jmp dw,t0
         nop
@@ -115,7 +177,7 @@ dw:     jmp dw,t0
         mov mul,p | mov mc3,x | clr a | mov #9,ct3
         ad2 | mov mul,p | mov alh,mc3   ; x >> 14
         ad2 | mov alh,mc3               ; y >> 14
-        mov #40,ct0
+        mov #41,ct0
         mov #9,ct3
         mov mc3,x | mov m0,y
         mov mul,p | mov mc3,x | clr a | mov #13,ct3
@@ -142,19 +204,9 @@ sxok:   add | mov all,mc3
         mov mc0,a                       ; halfH
 syok:   add | mov all,mc3
 
-        ; off the frame
+        ; which sides of the frame it is off
         mov #13,ct3
-        mov m3,p | mov mc0,a            ; FRAME_WIDTH
-        sub
-        jmp offf,c                      ; x beyond it, unsigned
-        mov #14,ct3
-        mov m3,p | mov mc0,a            ; FRAME_HEIGHT
-        sub
-        jmp offf,c
-        mov #13,ct3
-
-        ; which sides of it
-fdone:  mov m3,a | mov mc0,p            ; 0
+        mov m3,a | mov mc0,p            ; 0
         sub
         jmp vleft,s
         nop
@@ -169,38 +221,61 @@ vr:     mov m3,a | mov mc0,p            ; 0
 vt:     mov m3,a | mov mc0,p            ; FRAME_HEIGHT
         sub
         jmp vbot,nzs
-        nop
+        mov #27,ct0
 
         ; x << 16 | y, z << 16 | shade << 8 | clip
-vb:     mov #29,ct0
-        mov #14,ct3
+vb:     mov #14,ct3
         mov m3,a | mov mc0,p            ; 0xFFFF
         and | mov all,mc3               ; y & 0xFFFF
-        mov #33,ct0
+        mov #29,ct0
         mov #13,ct3
         mov m3,x | mov m0,y             ; x, 65536
         mov mul,p | clr a | mov #12,ct3
         add | mov alu,a | mov m3,x | mov #14,ct3
         mov m3,p | mov #8,ct3
         or | mov mul,p | mov m3,a | mov all,mc1
-        add | mov alu,a | mov #31,ct0
-        mov m0,p                        ; the shade << 8
-        add | mov all,mc1
+        add | mov alu,a | mov m1,p      ; the shade << 8
         btm
-        nop
+        add | mov all,mc1
 
         mov #0,ct1
         dma mc1,d0,16
 ow:     jmp ow,t0
-        nop
         mov #0,ct3
         mov m3,a | mov #1,pl
         sub | mov all,mc3               ; a batch less
-        jmp batch,nz
-        nop
+        jmp batch1,nz
+        mov #2,ct3
         end
 
         ; the rare cases, each back to where it left
+lnorm:  mvi 7,lop
+        mov mc2,a | mov #nbyte,top
+nbyte:  and | mov all,mc3               ; x, y, z each at the top
+        rl8 | mov alu,a
+        and | mov all,mc3
+        rl8 | mov alu,a
+        btm
+        and | mov all,mc3 | mov mc2,a
+        mov #16,ct3
+        mov #1,ct1
+        mvi 7,lop
+        mov #ndot,top
+ndot:   mov mc3,x | mov mc0,y
+        mov mul,p | mov mc3,x | clr a | mov mc0,y
+        ad2 | mov mul,p | mov mc3,x | mov alu,a | mov mc0,y
+        ad2 | mov mul,p | mov alu,a
+        ad2 | mov alh,rx | mov mc0,y    ; (n . l) << 8, range << 8
+        mov mul,p | clr a | mov mc0,y   ; 4
+        ad2 | mov alh,rx                ; (n . l) * range
+        mov mul,p | clr a
+        ad2 | mov alh,pl | mov mc0,a    ; >> 14, ambient
+        jmp ltail
+        sub | mov alu,a
+lneg:   jmp lok
+        clr a
+lbig:   jmp lok
+        mov mc0,a                       ; 0x1FFF
 znear:  mov #12,ct0
         jmp zplane
         mov m0,a | mov #8,ct3           ; VIEW_MIN_F
@@ -225,29 +300,23 @@ syhi:   mov #20,ct0
 sylo:   mov #21,ct0
         jmp syok
         mov m0,p | mov #23,ct0
-offf:   mov #8,ct3
-        mov m3,a | mov #1,pl
-        or | mov all,mc3                ; CLIP_FRAME
-        mov #25,ct0
-        jmp fdone
-        mov #13,ct3
 vleft:  mov #8,ct3
-        mov m3,a | mov #2,pl
-        or | mov all,mc3                ; CLIP_LEFT
+        mov m3,a | mov #3,pl
+        or | mov all,mc3                ; CLIP_FRAME | CLIP_LEFT
         jmp vl
         mov #13,ct3
 vright: mov #8,ct3
-        mov m3,a | mov #4,pl
-        or | mov all,mc3                ; CLIP_RIGHT
+        mov m3,a | mov #5,pl
+        or | mov all,mc3                ; CLIP_FRAME | CLIP_RIGHT
         jmp vr
         mov #14,ct3
 vtop:   mov #8,ct3
-        mov m3,a | mov #8,pl
-        or | mov all,mc3                ; CLIP_TOP
+        mov m3,a | mov #9,pl
+        or | mov all,mc3                ; CLIP_FRAME | CLIP_TOP
         jmp vt
         mov #14,ct3
 vbot:   mov #8,ct3
-        mov m3,a | mov #16,pl
-        or | mov all,mc3                ; CLIP_BOTTOM
+        mov m3,a | mov #17,pl
+        or | mov all,mc3                ; CLIP_FRAME | CLIP_BOTTOM
         jmp vb
         nop
