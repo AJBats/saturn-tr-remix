@@ -156,9 +156,9 @@ bool transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, con
     if (normals && gLightRange)
     {
         const vec3i &l = gLightView;
-        xf.lx = sar<FIXED_SHIFT + 7>(m.e00 * l.x + m.e10 * l.y + m.e20 * l.z);
-        xf.ly = sar<FIXED_SHIFT + 7>(m.e01 * l.x + m.e11 * l.y + m.e21 * l.z);
-        xf.lz = sar<FIXED_SHIFT + 7>(m.e02 * l.x + m.e12 * l.y + m.e22 * l.z);
+        xf.lx = sar<FIXED_SHIFT + 7>(mul16(m.e00, l.x) + mul16(m.e10, l.y) + mul16(m.e20, l.z));
+        xf.ly = sar<FIXED_SHIFT + 7>(mul16(m.e01, l.x) + mul16(m.e11, l.y) + mul16(m.e21, l.z));
+        xf.lz = sar<FIXED_SHIFT + 7>(mul16(m.e02, l.x) + mul16(m.e12, l.y) + mul16(m.e22, l.z));
         xf.normals = normals;
         xf.shades = NULL;
     }
