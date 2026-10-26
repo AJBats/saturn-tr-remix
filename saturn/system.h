@@ -23,8 +23,6 @@ struct FrameStats
     uint32_t frames;        // frames rendered since boot
     uint32_t roomTicks;     // renderRoom: queueing rooms for the slave
     uint32_t meshTicks;     // renderMesh: mesh vertex transform + face bucketing
-    uint32_t meshXformTicks;  // ... of which transformMeshAsm
-    uint32_t meshFaceTicks;   // ... of which adding the faces
     uint32_t vdp1EndLine;   // scanline where VDP1 last finished drawing
     uint32_t vertices;      // vertices transformed in the last frame
     uint32_t vdp1Ticks;     // VDP1 drawing time of the last frame

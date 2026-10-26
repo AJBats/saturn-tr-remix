@@ -36,8 +36,11 @@ void overlayRow(int32_t row, const char* text, OverlayAlign align)
     if (row < 0 || row >= OVERLAY_ROWS)
         return;
     Row &r = gNext[row];
-    strncpy(r.text, text, OVERLAY_COLUMNS);
-    r.text[OVERLAY_COLUMNS] = 0;
+    int32_t i = 0;
+    for (; i < OVERLAY_COLUMNS && text[i]; i++) {
+        r.text[i] = text[i];
+    }
+    r.text[i] = 0;
     r.align = align;
 }
 

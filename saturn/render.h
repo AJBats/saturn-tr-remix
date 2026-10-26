@@ -212,6 +212,7 @@ enum BenchMode
     BENCH_QUIET_POLL,   // the slave pauses between polls of the room queue
     BENCH_SLAVE_LATE,   // the slave draws the rooms only once the master's
                         // meshes are done: neither CPU slows the other
+    BENCH_PROFILE,      // as Base, sampling where the master's time goes
     BENCH_COUNT
 };
 extern int32 gBenchMode;

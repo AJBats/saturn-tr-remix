@@ -7,9 +7,8 @@
 void debugUpdate();
 
 #ifdef HW_LOG
-// Times reads and writes of low and high work RAM, for the measurement
-// table: at boot, the slave idle and before low work RAM holds a level.
-void debugMemoryProbe();
+// Starts the measurement table's sampling profiler (debug.cpp).
+void debugProfileInit();
 #endif
 
 #endif

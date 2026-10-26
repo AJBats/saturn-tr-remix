@@ -55,7 +55,7 @@ int main()
     crashInit();
     slaveInit();
 #ifdef HW_LOG
-    debugMemoryProbe();
+    debugProfileInit();
 #endif
     crashLog("CD", cdInit());
     sndInit();

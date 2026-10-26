@@ -271,10 +271,16 @@ uint32_t vdp2Line()
     return VDP2_VCNT & 0x1FF;
 }
 
+// Reading FRCH latches FRCL for the next read: an interrupt reading the
+// counter in between would leave its own low byte there, so none may.
 uint32_t timerTicks()
 {
-    uint32_t hi = FRT_FRCH;    // reading FRCH latches FRCL
+    uint32_t sr;
+    asm volatile("stc sr, %0" : "=r"(sr));
+    asm volatile("ldc %0, sr" : : "r"(sr | 0xF0));
+    uint32_t hi = FRT_FRCH;
     uint32_t lo = FRT_FRCL;
+    asm volatile("ldc %0, sr" : : "r"(sr));
     return (hi << 8) | lo;
 }
 

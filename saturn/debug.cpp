@@ -10,7 +10,6 @@
 #include "overlay.h"
 #include "palettes.h"
 #include "render.h"
-#include "slave.h"
 #include "system.h"
 
 struct Option
@@ -173,7 +172,7 @@ static char* appendColumn(char* p, uint32 value)
 }
 
 static const char* const kBenchNames[BENCH_COUNT] = {
-    "Base", "Fixed lines", "LOD x1", "No gouraud", "No texture", "Quiet poll", "Slave late"
+    "Base", "Fixed lines", "LOD x1", "No gouraud", "No texture", "Quiet poll", "Slave late", "Profile"
 };
 
 // each way's VDP1 and master CPU time, the master's on meshes, the slave's
@@ -181,11 +180,127 @@ static const char* const kBenchNames[BENCH_COUNT] = {
 static struct { uint32 vdp1, cpu, mesh, slave, fps; } gBench[BENCH_COUNT];
 
 // and the base way's CPU time by stage, as gStats keeps it
-enum { SPLIT_UPDATE, SPLIT_MESH, SPLIT_SLAVE_WAIT, SPLIT_FLUSH, SPLIT_XFORM, SPLIT_FACES,
-       SPLIT_MESH_XFORM, SPLIT_MESH_FACES, SPLIT_COUNT };
-static const char* const kSplitNames[SPLIT_COUNT] = { "upd ", "mesh ", "swait ", "flush ", "xform ", "faces ",
-                                                      "xform ", "faces " };
+enum { SPLIT_UPDATE, SPLIT_MESH, SPLIT_SLAVE_WAIT, SPLIT_FLUSH, SPLIT_XFORM, SPLIT_FACES, SPLIT_COUNT };
+static const char* const kSplitNames[SPLIT_COUNT] = { "upd ", "mesh ", "swait ", "flush ", "xform ", "faces " };
 static uint32 gSplit[SPLIT_COUNT];
+
+// A sampling profiler for the master CPU: during the Profile way, the free-
+// running timer's compare A interrupts it every PROFILE_TICKS (128 cycles
+// each) and up to 31 more at random, and the interrupted PC counts towards
+// its 32-byte block of the program. The way draws as Base does; the other
+// ways run without the interrupt.
+#define FRT_TIER        (*(volatile uint8*)0xFFFFFE10)
+#define FRT_FTCSR       (*(volatile uint8*)0xFFFFFE11)
+#define FRT_OCRAH       (*(volatile uint8*)0xFFFFFE14)
+#define FRT_OCRAL       (*(volatile uint8*)0xFFFFFE15)
+#define FRT_TOCR        (*(volatile uint8*)0xFFFFFE17)
+#define INTC_IPRB       (*(volatile uint16*)0xFFFFFE60)
+#define INTC_VCRC       (*(volatile uint16*)0xFFFFFE66)
+#define FRT_OCIAE       0x08    // TIER, FTCSR: compare A
+#define FRT_OCRS        0x10    // TOCR: OCRB selected
+#define BIOS_SET_UINT   (*(void (**)(uint32, void (*)()))0x06000310)
+
+#define PROFILE_VECTOR  0x65    // as libyaul numbers it
+#define PROFILE_LEVEL   1       // under every other interrupt
+#define PROFILE_TICKS   40
+#define PROFILE_START   0x06004000
+#define PROFILE_SHIFT   5
+#define PROFILE_BLOCKS  (160 * 1024 >> PROFILE_SHIFT)
+#define PROFILE_TOP     39      // three to a row, under the table
+
+static_assert(7 + BENCH_COUNT + PROFILE_TOP / 3 <= OVERLAY_ROWS, "the profile's rows fit the overlay");
+
+extern "C" void profileEntry();     // irq.s
+static uint16 gProfile[PROFILE_BLOCKS];   // held at 0xFFFF
+static uint32 gProfileSamples, gProfileOther;
+static uint32 gProfileRanked;           // gProfileSamples when ranked
+static bool gProfiling;
+static uint32 gProfileRandom = 2463534242u;
+static struct { uint16 block, share; } gProfileTop[PROFILE_TOP];  // share in tenths of a percent
+
+// From the count now: a sample held back past its compare (behind another
+// interrupt) would otherwise wait for the counter to come round again.
+static void profileArm()
+{
+    uint32 x = gProfileRandom;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    gProfileRandom = x;
+    uint32 next = timerTicks() + PROFILE_TICKS + (x & 31);
+    FRT_OCRAH = next >> 8;
+    FRT_OCRAL = next;
+}
+
+// From the timer interrupt (irq.s), with the interrupted PC.
+extern "C" void profileHandler(uint32 pc)
+{
+    FRT_FTCSR = FRT_FTCSR & ~FRT_OCIAE;
+    profileArm();
+    gProfileSamples++;
+    uint32 offset = (pc & 0x07FFFFFF) - PROFILE_START;
+    if (offset < (PROFILE_BLOCKS << PROFILE_SHIFT))
+    {
+        uint16 &n = gProfile[offset >> PROFILE_SHIFT];
+        if (n != 0xFFFF) {
+            n++;
+        }
+    }
+    else
+    {
+        gProfileOther++;
+    }
+}
+
+void debugProfileInit()
+{
+    BIOS_SET_UINT(PROFILE_VECTOR, profileEntry);
+    INTC_VCRC = (INTC_VCRC & 0xFF00) | PROFILE_VECTOR;
+    INTC_IPRB = (INTC_IPRB & ~0x0F00) | (PROFILE_LEVEL << 8);
+    FRT_TOCR = FRT_TOCR & ~FRT_OCRS;
+}
+
+static void profileSampling(bool on)
+{
+    if (on == gProfiling)
+        return;
+    gProfiling = on;
+    if (on)
+    {
+        profileArm();
+        FRT_FTCSR = FRT_FTCSR & ~FRT_OCIAE;
+        FRT_TIER = FRT_TIER | FRT_OCIAE;
+    }
+    else
+    {
+        FRT_TIER = FRT_TIER & ~FRT_OCIAE;
+    }
+}
+
+// The blocks with the most samples, for the table.
+static void profileRank()
+{
+    uint32 total = gProfileSamples;
+    if (!total)
+        return;
+    gProfileRanked = total;
+    memset(gProfileTop, 0, sizeof(gProfileTop));
+    for (int32 b = 0; b < PROFILE_BLOCKS; b++)
+    {
+        uint32 share = gProfile[b] * 1000 / total;
+        if (share <= gProfileTop[PROFILE_TOP - 1].share)
+            continue;
+        int32 i = PROFILE_TOP - 1;
+        for (; i > 0 && gProfileTop[i - 1].share < share; i--) {
+            gProfileTop[i] = gProfileTop[i - 1];
+        }
+        gProfileTop[i].block = b;
+        gProfileTop[i].share = share;
+    }
+}
+
+static char gBenchRows[OVERLAY_ROWS][OVERLAY_COLUMNS + 1];
+static bool gBenchChanged = true;   // gBenchRows to compose again
 
 static void benchUpdate()
 {
@@ -198,6 +313,7 @@ static void benchUpdate()
     }
 
     uint32 t = gVblankCount - start;
+    profileSampling(gBenchMode == BENCH_PROFILE && t >= BENCH_SETTLE && t < BENCH_WINDOW);
     if (t >= BENCH_SETTLE)
     {
         frames++;
@@ -211,8 +327,6 @@ static void benchUpdate()
         split[SPLIT_FLUSH] += gStats.flushTicks;
         split[SPLIT_XFORM] += gStats.slaveXformTicks;
         split[SPLIT_FACES] += gStats.slaveFaceTicks;
-        split[SPLIT_MESH_XFORM] += gStats.meshXformTicks;
-        split[SPLIT_MESH_FACES] += gStats.meshFaceTicks;
     }
 
     if (t < BENCH_WINDOW)
@@ -232,6 +346,10 @@ static void benchUpdate()
             }
         }
     }
+    if (gBenchMode == BENCH_PROFILE) {
+        profileRank();
+    }
+    gBenchChanged = true;
     memset(split, 0, sizeof(split));
 
     gBenchMode = (gBenchMode + 1) % BENCH_COUNT;
@@ -239,143 +357,27 @@ static void benchUpdate()
     frames = vdp1 = cpu = mesh = slave = 0;
 }
 
-// Memory access times, cycles per 16 bytes: cached reads (a cache line
-// filled), uncached reads, writes (the cache writes through); low work RAM,
-// then high.
-enum { PROBE_CACHED, PROBE_UNCACHED, PROBE_WRITE, PROBE_KINDS };
-static uint32 gProbe[2][PROBE_KINDS];
-static volatile uint32 gProbeSink;
-
-#define PROBE_BYTES (64 * 1024)
-#define LOW_RAM     0x00200000
-
-static uint32 probeRead(const volatile uint32* p)
+// A number in tenths, as "12.3".
+static char* appendTenths(char* p, uint32 tenths)
 {
-    uint32 t0 = timerTicks();
-    uint32 sum = 0;
-    for (uint32 i = 0; i < PROBE_BYTES / 4; i += 4) {
-        sum += p[i] + p[i + 1] + p[i + 2] + p[i + 3];
+    char digits[12];
+    int2str(int32(tenths / 10), digits);
+    for (int32 n = strlen(digits); n < 3; n++) {
+        *p++ = ' ';
     }
-    uint32 t = (timerTicks() - t0) & 0xFFFF;
-    gProbeSink = sum;
-    return t;
+    p = append(p, digits);
+    *p++ = '.';
+    *p++ = '0' + tenths % 10;
+    *p = 0;
+    return p;
 }
 
-static uint32 probeWrite(volatile uint32* p)
+// Rows 1 on: the CPU stages, the table, then the profile's hottest blocks:
+// each the low 5 hex digits of its address and its share of the samples.
+// Composed only when they change, so the frames measured don't pay for it.
+static void benchCompose()
 {
-    uint32 t0 = timerTicks();
-    for (uint32 i = 0; i < PROBE_BYTES / 4; i += 4)
-    {
-        p[i] = i;
-        p[i + 1] = i;
-        p[i + 2] = i;
-        p[i + 3] = i;
-    }
-    return (timerTicks() - t0) & 0xFFFF;
-}
-
-// Instruction times, tenths of a cycle each, eight to a pass (probe.s): nops
-// (the pass's own cost), mac.w from the cache, mac.w with one operand
-// streaming from low work RAM, muls.w and dmuls.l each with sts macl, stores
-// each followed by a load.
-// Then: two dot products a pass as the mesh transform makes them (lds macl,
-// three mac.w, sts macl), mul.l with sts macl, byte stores 8 apart (as the
-// shade pass's), and reads of a cache line at random in 128 KB of high work
-// RAM or 512 KB of low (tenths of a cycle a read, with the xorshift picking it).
-enum { OP_NOP, OP_MAC, OP_MAC_LOW, OP_MULS, OP_DMULS, OP_STORE_LOAD,
-       OP_DOT, OP_MULL, OP_BYTE_WRITE, OP_RANDOM_HIGH, OP_RANDOM_LOW, OP_KINDS };
-static uint32 gOps[OP_KINDS];
-
-extern "C" void probeNop(int32 count);
-extern "C" void probeMac(int32 count, const int16* buf);
-extern "C" void probeMacStream(int32 count, const int16* stream, const int16* buf);
-extern "C" void probeMuls(int32 count);
-extern "C" void probeDmuls(int32 count);
-extern "C" void probeStoreLoad(int32 count, uint32* buf);
-extern "C" void probeDot(int32 count, const int16* buf);
-extern "C" void probeMull(int32 count);
-extern "C" void probeByteWrite(int32 count, uint8* buf);
-
-#define OP_PASSES   (PROBE_BYTES / 16)  // macStream reads 16 bytes a pass
-
-static uint32 opTime(uint32 t0, uint32 perPass = 8)
-{
-    return ((timerTicks() - t0) & 0xFFFF) * 128 * 10 / (OP_PASSES * perPass);
-}
-
-static uint32 probeRandom(const volatile uint32* base, uint32 lines)
-{
-    cachePurge();
-    uint32 x = 2463534242u;
-    uint32 sum = 0;
-    uint32 t0 = timerTicks();
-    for (uint32 i = 0; i < OP_PASSES; i++)
-    {
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        sum += base[(x & (lines - 1)) * 4];
-    }
-    gProbeSink = sum;
-    return opTime(t0, 1);
-}
-
-void debugMemoryProbe()
-{
-    uint32 sr;
-    asm volatile("stc sr, %0" : "=r"(sr));
-    asm volatile("ldc %0, sr" : : "r"(sr | 0xF0));
-
-    // low work RAM is free until the first level loads; the vertex buffer
-    // until the first frame
-    const uint32 lines = PROBE_BYTES / 16;
-    volatile uint32* mem[2] = { (volatile uint32*)LOW_RAM, (volatile uint32*)gVertices };
-    for (int32 m = 0; m < 2; m++)
-    {
-        cachePurge();
-        gProbe[m][PROBE_CACHED] = probeRead(mem[m]) * 128 / lines;
-        gProbe[m][PROBE_UNCACHED] = probeRead(uncached(mem[m])) * 128 / lines;
-        gProbe[m][PROBE_WRITE] = probeWrite(mem[m]) * 128 / lines;
-    }
-
-    static int16 buf[16] __attribute__((aligned(16)));
-    uint32 t = timerTicks();
-    probeNop(OP_PASSES);
-    gOps[OP_NOP] = opTime(t);
-    t = timerTicks();
-    probeMac(OP_PASSES, buf);
-    gOps[OP_MAC] = opTime(t);
-    cachePurge();
-    t = timerTicks();
-    probeMacStream(OP_PASSES, (const int16*)LOW_RAM, buf);
-    gOps[OP_MAC_LOW] = opTime(t);
-    t = timerTicks();
-    probeMuls(OP_PASSES);
-    gOps[OP_MULS] = opTime(t);
-    t = timerTicks();
-    probeDmuls(OP_PASSES);
-    gOps[OP_DMULS] = opTime(t);
-    t = timerTicks();
-    probeStoreLoad(OP_PASSES, (uint32*)buf);
-    gOps[OP_STORE_LOAD] = opTime(t);
-    t = timerTicks();
-    probeDot(OP_PASSES, buf);
-    gOps[OP_DOT] = opTime(t, 16);
-    t = timerTicks();
-    probeMull(OP_PASSES);
-    gOps[OP_MULL] = opTime(t);
-    t = timerTicks();
-    probeByteWrite(OP_PASSES, (uint8*)gVertices);
-    gOps[OP_BYTE_WRITE] = opTime(t);
-    gOps[OP_RANDOM_HIGH] = probeRandom((const volatile uint32*)gVertices, 128 * 1024 / 16);
-    gOps[OP_RANDOM_LOW] = probeRandom((const volatile uint32*)LOW_RAM, 512 * 1024 / 16);
-
-    asm volatile("ldc %0, sr" : : "r"(sr));
-}
-
-// Rows 1 on: the CPU stages, then the table, then memory access times.
-static void benchDraw()
-{
+    memset(gBenchRows, 0, sizeof(gBenchRows));
     char text[64];
 
     // the master's stages, then the slave's
@@ -384,21 +386,14 @@ static void benchDraw()
     for (int32 i = 0; i < SPLIT_XFORM; i++) {
         p = appendStat(p, kSplitNames[i], gSplit[i]);
     }
-    overlayRow(1, text);
+    strncpy(gBenchRows[1], text, OVERLAY_COLUMNS);
     p = append(text, "slave  ");
-    for (int32 i = SPLIT_XFORM; i < SPLIT_MESH_XFORM; i++) {
+    for (int32 i = SPLIT_XFORM; i < SPLIT_COUNT; i++) {
         p = appendStat(p, kSplitNames[i], gSplit[i]);
     }
-    overlayRow(2, text);
-    // the master's mesh stage in parts
-    p = append(text, "mesh   ");
-    for (int32 i = SPLIT_MESH_XFORM; i < SPLIT_COUNT; i++) {
-        p = appendStat(p, kSplitNames[i], gSplit[i]);
-    }
-    appendStat(p, "setup ", gSplit[SPLIT_MESH] - gSplit[SPLIT_MESH_XFORM] - gSplit[SPLIT_MESH_FACES]);
-    overlayRow(3, text);
+    strncpy(gBenchRows[2], text, OVERLAY_COLUMNS);
 
-    overlayRow(4, "   vdp1  cpu mesh  slv  fps");
+    strncpy(gBenchRows[4], "   vdp1  cpu mesh  slv  fps", OVERLAY_COLUMNS);
     for (int32 i = 0; i < BENCH_COUNT; i++)
     {
         p = append(text, i == gBenchMode ? "> " : "  ");
@@ -416,34 +411,45 @@ static void benchDraw()
         }
         p = append(p, "  ");
         append(p, kBenchNames[i]);
-        overlayRow(5 + i, text);
+        strncpy(gBenchRows[5 + i], text, OVERLAY_COLUMNS);
     }
 
-    overlayRow(6 + BENCH_COUNT, "cycles/16B  read  uncached  write");
-    static const char* const kMemory[2] = { "low RAM   ", "high RAM  " };
-    for (int32 m = 0; m < 2; m++)
+    int32 row = 6 + BENCH_COUNT;
+    p = append(text, "profile ");
+    p = appendStat(p, "samples ", gProfileRanked);
+    appendStat(p, "other ", gProfileRanked ? gProfileOther * 100 / gProfileRanked : 0);
+    strncpy(gBenchRows[row++], text, OVERLAY_COLUMNS);
+    for (int32 i = 0; i < PROFILE_TOP && row < OVERLAY_ROWS; i += 3, row++)
     {
-        p = append(text, kMemory[m]);
-        p = appendColumn(p, gProbe[m][PROBE_CACHED]);
-        p = append(p, "     ");
-        p = appendColumn(p, gProbe[m][PROBE_UNCACHED]);
-        p = append(p, "  ");
-        appendColumn(p, gProbe[m][PROBE_WRITE]);
-        overlayRow(7 + BENCH_COUNT + m, text);
+        p = text;
+        for (int32 j = i; j < i + 3 && gProfileTop[j].share; j++)
+        {
+            static const char hex[] = "0123456789abcdef";
+            uint32 addr = (PROFILE_START & 0xFFFFF) + (gProfileTop[j].block << PROFILE_SHIFT);
+            for (int32 d = 16; d >= 0; d -= 4) {
+                *p++ = hex[(addr >> d) & 15];
+            }
+            p = appendTenths(p, gProfileTop[j].share);
+            p = append(p, "   ");
+        }
+        *p = 0;
+        strncpy(gBenchRows[row], text, OVERLAY_COLUMNS);
     }
+}
 
-    overlayRow(10 + BENCH_COUNT, "op x10   nop  mac macLo muls dmuls stld");
-    p = append(text, "cycles ");
-    for (int32 i = 0; i < OP_DOT; i++) {
-        p = appendColumn(p, gOps[i]);
+static void benchDraw()
+{
+    if (gBenchChanged)
+    {
+        benchCompose();
+        gBenchChanged = false;
     }
-    overlayRow(11 + BENCH_COUNT, text);
-    overlayRow(12 + BENCH_COUNT, "op x10   dot mul.l byteW rndHi rndLo");
-    p = append(text, "cycles ");
-    for (int32 i = OP_DOT; i < OP_KINDS; i++) {
-        p = appendColumn(p, gOps[i]);
+    for (int32 i = 0; i < OVERLAY_ROWS; i++)
+    {
+        if (gBenchRows[i][0]) {
+            overlayRow(i, gBenchRows[i]);
+        }
     }
-    overlayRow(13 + BENCH_COUNT, text);
 }
 #endif
 

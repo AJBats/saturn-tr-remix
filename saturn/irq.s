@@ -45,6 +45,47 @@
 1:  .long \handler
     .endm
 
+! The sampling profiler's timer interrupt (debug.cpp, HW_LOG builds), straight
+! from the vector table: profileHandler with the interrupted PC, then rte.
+    .text
+    .align 2
+    .global _profileEntry
+_profileEntry:
+    mov.l   r0, @-r15
+    mov.l   r1, @-r15
+    mov.l   r2, @-r15
+    mov.l   r3, @-r15
+    mov.l   r4, @-r15
+    mov.l   r5, @-r15
+    mov.l   r6, @-r15
+    mov.l   r7, @-r15
+    sts.l   pr, @-r15
+    sts.l   mach, @-r15
+    sts.l   macl, @-r15
+    stc.l   gbr, @-r15
+
+    mov.l   2f, r0
+    jsr     @r0
+    mov.l   @(48, r15), r4      ! the exception frame's PC
+
+    ldc.l   @r15+, gbr
+    lds.l   @r15+, macl
+    lds.l   @r15+, mach
+    lds.l   @r15+, pr
+    mov.l   @r15+, r7
+    mov.l   @r15+, r6
+    mov.l   @r15+, r5
+    mov.l   @r15+, r4
+    mov.l   @r15+, r3
+    mov.l   @r15+, r2
+    mov.l   @r15+, r1
+    mov.l   @r15+, r0
+    rte
+    nop
+
+    .align 2
+2:  .long _profileHandler
+
     IRQ_ENTRY _vblankInEntry, _vblankInHandler
     IRQ_ENTRY _vblankOutEntry, _vblankOutHandler
     IRQ_ENTRY _spriteEndEntry, _spriteEndHandler
