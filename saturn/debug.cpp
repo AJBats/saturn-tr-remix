@@ -84,6 +84,7 @@ enum { OPTION_SHADING, OPTION_DARK, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPT
 static uint16 gPad;
 static bool gMenuOpen;
 static int32 gCursor;
+static bool gBenchHidden;   // L or R: the bench's rows give way to the name of its way
 
 static const char* gMessage;
 static const char* gMessageName;
@@ -137,6 +138,12 @@ void debugUpdate()
     }
 
 #ifdef HW_LOG
+    // the player's pad: Lara has no use for its shoulder buttons
+    static uint32 shoulders;
+    if (keys & (IK_L | IK_R) & ~shoulders) {
+        gBenchHidden = !gBenchHidden;
+    }
+    shoulders = keys & (IK_L | IK_R);
     benchUpdate();
 #endif
 }
@@ -646,8 +653,13 @@ void osDrawDebug()
     }
 
 #ifdef HW_LOG
-    if (!gMenuOpen) {
-        benchDraw();
+    if (!gMenuOpen)
+    {
+        if (gBenchHidden) {
+            overlayRow(1, kBenchNames[gBenchMode]);
+        } else {
+            benchDraw();
+        }
     }
 #endif
 
