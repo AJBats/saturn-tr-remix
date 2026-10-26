@@ -1,6 +1,6 @@
-// Room textures. The level's full-resolution set stays in work RAM, and the
-// VDP1 VRAM left over after the texture blob (which holds only their colour
-// tables) is a cache of slots holding the textures in use. A face whose
+// Room textures. The level's full-resolution set stays in low work RAM, and
+// the VDP1 VRAM left over after the texture blob (which holds only their
+// colour tables) is a cache of slots holding the textures in use. A face whose
 // texture misses the cache is drawn in its mean colour that frame.
 //
 // The set loads as whole textures. Faces crossing the near plane split 2x2,
@@ -18,13 +18,9 @@
 #define DETAIL_DATA_MAX     (272 * 1024)    // LEVEL8A's set is 263 KB
 #define DETAIL_MAX_KEYS     (DETAIL_DATA_MAX / DETAIL_UNIT)
 
-// Buffer the level's full-res textures load into.
-uint8_t* detailData();
-uint32_t detailDataMax();
-
-// After loading: the cache starts at this VDP1 VRAM offset and runs to the
-// end of VRAM.
-void detailInit(uint32_t vramStart, uint32_t dataSize);
+// After loading the level's full-res textures (data, size): the cache starts
+// at this VDP1 VRAM offset and runs to the end of VRAM.
+void detailInit(uint32_t vramStart, const uint8_t* data, uint32_t dataSize);
 
 // How a slot holds its texture.
 enum DetailVariant

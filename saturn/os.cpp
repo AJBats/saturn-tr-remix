@@ -177,6 +177,20 @@ static uint32 loadOrHalt(const char* name, const char* ext, void* dst, uint32 ma
     return size;
 }
 
+// The level's meshes, which the master reads every frame: high work RAM, as
+// the original keeps them. Read from low work RAM, the mesh code ran a
+// quarter slower on a Saturn.
+static uint8 gMeshData[96 * 1024] __attribute__((aligned(4)));   // LEVEL7B's are 88 KB
+
+const void* osPlaceMeshes(const void* meshes, int32 size)
+{
+    crashLog("MESHES", size);
+    if (size > int32(sizeof(gMeshData)))
+        return meshes;
+    memcpy(gMeshData, meshes, size);
+    return gMeshData;
+}
+
 const void* osLoadLevel(LevelID id)
 {
     const char* name = (const char*)gLevelInfo[id].data;
@@ -189,10 +203,13 @@ const void* osLoadLevel(LevelID id)
     // textures go straight to VDP1 VRAM, where the level's texture entries point
     uint32 texSize = loadOrHalt(name, ".TEX", (void*)(VDP1_VRAM + VRAM_TEX_BASE), VRAM_TEX_SIZE);
     palettesLoad(name);
-    uint32 subSize = loadOrHalt(name, ".SUB", detailData(), detailDataMax());
-    detailInit(VRAM_TEX_BASE + texSize, subSize);
 
-    loadOrHalt(name, ".PKD", LEVEL_ADDR, LEVEL_MAX);
+    // low work RAM: the level, then the full-res room texture set, which the
+    // CPU reads only to upload; as the original lays them out
+    uint32 levelSize = (loadOrHalt(name, ".PKD", LEVEL_ADDR, LEVEL_MAX) + 15) & ~15;
+    uint8* subData = LEVEL_ADDR + levelSize;
+    uint32 subSize = loadOrHalt(name, ".SUB", subData, LEVEL_MAX - levelSize);
+    detailInit(VRAM_TEX_BASE + texSize, subData, subSize);
 
     // sound effects straight to sound RAM, and inventory item textures (some
     // cutscenes have neither)

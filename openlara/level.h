@@ -145,6 +145,9 @@ void readLevel(const uint8* data)
 
     DataStream f(data, 0);
     readLevelStream(f);
+#ifdef __SATURN__
+    level.meshes = (const Mesh**)osPlaceMeshes(level.meshes, (uint8*)level.meshOffsets - (uint8*)level.meshes);
+#endif
 
     // prepare models // TODO prerocess
     memset(models, 0, sizeof(models));

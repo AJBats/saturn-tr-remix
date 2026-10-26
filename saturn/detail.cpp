@@ -5,8 +5,6 @@
 #include "hw.h"
 #include "system.h"
 
-// High work RAM, so SCU DMA can read it (it can't reach low work RAM).
-#define DATA_MAX        DETAIL_DATA_MAX
 #define MAX_KEYS        DETAIL_MAX_KEYS
 #define MAX_SLOTS       128
 #define MAX_UPLOADS     32      // per frame, 2 KB each
@@ -25,7 +23,7 @@ struct Upload
     uint32_t variant;
 };
 
-static uint8_t gData[DATA_MAX] __attribute__((aligned(16)));
+static const uint8_t* gData;    // in low work RAM, which SCU DMA can't read
 static uint32_t gDataSize;
 
 uint8_t gDetailKeys[DETAIL_VARIANTS][MAX_KEYS];
@@ -42,20 +40,11 @@ static uint32_t gItemDataSize;
 static int32_t gItemSlots;  // slots under the item textures while they are in VRAM
 static bool gItemUpload;    // item textures go to VRAM at the next flush
 
-uint8_t* detailData()
-{
-    return gData;
-}
-
-uint32_t detailDataMax()
-{
-    return DATA_MAX;
-}
-
-void detailInit(uint32_t vramStart, uint32_t dataSize)
+void detailInit(uint32_t vramStart, const uint8_t* data, uint32_t dataSize)
 {
     gDetailVramStart = (vramStart + 31) & ~31; // as tools/pack_level.py places item textures
-    gDataSize = dataSize;
+    gData = data;
+    gDataSize = X_MIN(dataSize, uint32_t(DETAIL_DATA_MAX));
 
     gSlotCount = (0x80000 - gDetailVramStart) / DETAIL_SLOT_SIZE;
     if (gSlotCount > MAX_SLOTS) {
@@ -281,8 +270,9 @@ void detailFlush()
         gItemUpload = false;
     }
 
-    // a texture as quadrants or transposed is rearranged into one of two
-    // buffers, the one the transfer before last read from
+    // each texture goes through one of two buffers in high work RAM (the one
+    // the transfer before last read from), copied, rearranged into quadrants
+    // or transposed
     static uint8_t staging[2][DETAIL_SLOT_SIZE] __attribute__((aligned(16)));
     int32_t buffer = 0;
 
@@ -290,17 +280,16 @@ void detailFlush()
     {
         const Upload &upload = gUploads[i];
         const uint8_t* src = (const uint8_t*)upload.src;
-        if (upload.variant != DETAIL_WHOLE)
-        {
-            if (upload.variant == DETAIL_QUADS) {
-                quadrants(staging[buffer], src, upload.w, upload.h);
-            } else {
-                transposed(staging[buffer], src, upload.w * 2, upload.h * 2);
-            }
-            src = staging[buffer];
-            buffer ^= 1;
+        uint8_t* dst = staging[buffer];
+        if (upload.variant == DETAIL_QUADS) {
+            quadrants(dst, src, upload.w, upload.h);
+        } else if (upload.variant == DETAIL_TURNED) {
+            transposed(dst, src, upload.w * 2, upload.h * 2);
+        } else {
+            memcpy(dst, src, upload.size);
         }
-        dmaCopy(src, upload.dst, upload.size);
+        buffer ^= 1;
+        dmaCopy(dst, upload.dst, upload.size);
     }
     gStats.detailUploads = gUploadCount;
     gUploadCount = 0;

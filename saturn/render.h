@@ -209,9 +209,7 @@ enum BenchMode
                         // the face: what LOD would cost (the picture is wrong)
     BENCH_NO_GOURAUD,
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
-    BENCH_MESH_COPY,    // each mesh drawn from a copy in high work RAM, made
-                        // as it is drawn (meshes live in low work RAM)
-    BENCH_PROFILE,      // as Mesh copy, sampling where the master's time goes
+    BENCH_PROFILE,      // as Base, sampling where the master's time goes
     BENCH_COUNT
 };
 extern int32 gBenchMode;
