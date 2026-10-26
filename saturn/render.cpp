@@ -1155,6 +1155,7 @@ void renderInit()
 
     renderSetShadeCurve(SHADE_CURVE_SATURN);
     gDimFacesEnd = gFaces;
+    roomsInit();
 
     // The frame's first command clears it, as the original does: vblank erase
     // can't cover a 352-wide frame in time. A scaled sprite of colour 0 with

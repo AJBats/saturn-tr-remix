@@ -184,7 +184,7 @@ static char* appendColumn(char* p, uint32 value)
 }
 
 static const char* const kBenchNames[BENCH_COUNT] = {
-    "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "Profile"
+    "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Profile"
 };
 
 // each way's VDP1 and master CPU time, the master's drawing (rooms queued
@@ -218,7 +218,7 @@ static uint32 gSplit[SPLIT_COUNT];
 #define PROFILE_START   0x06004000
 #define PROFILE_SHIFT   5
 #define PROFILE_BLOCKS  (160 * 1024 >> PROFILE_SHIFT)
-#define PROFILE_TOP     39      // three to a row, under the table
+#define PROFILE_TOP     36      // three to a row, under the table
 
 static_assert(7 + BENCH_COUNT + PROFILE_TOP / 3 <= OVERLAY_ROWS, "the profile's rows fit the overlay");
 
@@ -267,7 +267,7 @@ extern "C" void profileHandler(uint32 pc)
 #define DSP_TEST_BATCHES    32      // of 16 vertices
 
 static uint32 gDspTestIn[DSP_TEST_BATCHES * 16];
-static int32 gDspTestOut[DSP_TEST_BATCHES * 16 * 3];
+static int32 gDspTestOut[DSP_TEST_BATCHES * 16 * 4];
 
 void debugDspTest()
 {
@@ -281,19 +281,21 @@ void debugDspTest()
         gDspTestIn[i] = seed;
     }
 
+    // rows z, x, y, as xform.s takes them
     uint32_t md0[12];
     for (int32 r = 0; r < 3; r++)
     {
+        int32 row = (r + 2) % 3;
         for (int32 c = 0; c < 3; c++) {
-            md0[r * 4 + c] = rows[r * 3 + c] * 4;   // xform.s takes each byte times 4
+            md0[r * 4 + c] = rows[row * 3 + c] * 4;   // xform.s takes each byte times 4
         }
-        md0[r * 4 + 3] = t[r];
+        md0[r * 4 + 3] = t[row];
     }
-    const uint32_t md3[8] = { 0xFF, 0, 0, 0, DSP_TEST_BATCHES, 1, dspAddress(gDspTestIn), dspAddress(gDspTestOut) };
+    const uint32_t md3[5] = { DSP_TEST_BATCHES, 1, dspAddress(gDspTestIn), dspAddress(gDspTestOut), 0xFF };
 
     dspLoad(xform_dsp, XFORM_DSP_COUNT);
     dspWrite(0, 0, md0, 12);
-    dspWrite(3, 0, md3, 8);
+    dspWrite(3, 0, md3, 5);
     uint32 start = timerTicks();
     dspStart(0);
     while (dspBusy());
@@ -301,22 +303,27 @@ void debugDspTest()
     cachePurge();   // the DSP wrote gDspTestOut behind the cache
 
     // the same on this CPU, as xform.s's multiply-accumulates do it
-    static int32 ref[DSP_TEST_BATCHES * 16 * 3];
+    // records g z x y
+    static int32 ref[DSP_TEST_BATCHES * 16 * 4];
     start = timerTicks();
     for (int32 i = 0; i < DSP_TEST_BATCHES * 16; i++)
     {
         uint32 v = gDspTestIn[i];
         int32 x = (v >> 24) * 4, y = ((v >> 16) & 0xFF) * 4, z = ((v >> 8) & 0xFF) * 4;
-        for (int32 r = 0; r < 3; r++) {
-            ref[i * 3 + r] = t[r] + mul16(rows[r * 3], x) + mul16(rows[r * 3 + 1], y) + mul16(rows[r * 3 + 2], z);
+        ref[i * 4] = v & 0xFF;
+        for (int32 r = 0; r < 3; r++)
+        {
+            int32 row = (r + 2) % 3;
+            ref[i * 4 + 1 + r] = t[row] + mul16(rows[row * 3], x) + mul16(rows[row * 3 + 1], y) +
+                                 mul16(rows[row * 3 + 2], z);
         }
     }
     uint32 cpuTicks = (timerTicks() - start) & 0xFFFF;
 
     int32 errors = 0;
-    for (int32 i = 0; i < DSP_TEST_BATCHES * 16; i++) {
-        errors += ref[i * 3] != gDspTestOut[i * 3] || ref[i * 3 + 1] != gDspTestOut[i * 3 + 1] ||
-                  ref[i * 3 + 2] != gDspTestOut[i * 3 + 2];
+    for (int32 i = 0; i < DSP_TEST_BATCHES * 16 * 4; i += 4) {
+        errors += ref[i] != gDspTestOut[i] || ref[i + 1] != gDspTestOut[i + 1] ||
+                  ref[i + 2] != gDspTestOut[i + 2] || ref[i + 3] != gDspTestOut[i + 3];
     }
     crashLog("DSPXF", dspTicks);
     crashLog("CPUXF", cpuTicks);

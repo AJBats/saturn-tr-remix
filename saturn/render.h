@@ -212,6 +212,7 @@ enum BenchMode
     BENCH_NO_SHADE,     // every shaded face with gouraud (gShadeTables)
     BENCH_NO_GOURAUD,
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
+    BENCH_NO_DSP,       // room vertices on the slave alone, without the SCU DSP
     BENCH_PROFILE,      // as Base, sampling where the master's time goes
     BENCH_COUNT
 };
@@ -300,6 +301,10 @@ struct RoomStats
     uint32 faceTicks;   // ... adding faces
     uint32 idleTicks;   // ... waiting for rooms to be queued
 };
+
+// Loads the room transform's DSP program (xform.dsp): the SCU DSP takes room
+// vertices to view space, the slave projects them.
+void roomsInit();
 
 // Queues a room for the slave, with the current matrix and viewport.
 void roomsQueue(const Room* room);
