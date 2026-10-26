@@ -4,7 +4,7 @@
 // with the master's. Once every room is queued, the SCU DSP projects rooms
 // from the back of the queue (project.dsp) while the slave takes them from
 // the front. The master carries on with meshes meanwhile, handing the slave
-// as many as it keeps up with.
+// rooms' static meshes as long as it keeps up.
 
 #include <stddef.h>
 

@@ -214,6 +214,7 @@ enum BenchMode
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
     BENCH_NO_DSP,       // rooms projected on the slave alone, without the SCU DSP
     BENCH_MASTER_MESHES,    // every mesh drawn on the master, none by the slave
+    BENCH_ALL_MESHES,   // items' meshes and shadows to the slave too, not only rooms' static meshes
     BENCH_FULL_CLEAR,   // the frame cleared by its first command alone (VBLANK_ERASE_LINES 0)
     BENCH_NO_CLEAR,     // the frame not cleared at all: what no face covers keeps an old frame
     BENCH_PROFILE,      // as Base, sampling where the master's time goes
@@ -360,11 +361,12 @@ void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors);
 void roomsQueue(const Room* room);
 
 // Queues a mesh for the slave, set up with the current matrix and lighting;
-// false when the master had better draw it.
+// false when the master had better draw it (render.cpp hands it rooms'
+// static meshes).
 bool roomsQueueMesh(const Mesh* mesh);
 
 // Queues an item's shadow for the slave, whatever its share; false when it
-// takes no meshes.
+// takes no meshes (only in BENCH_ALL_MESHES).
 bool roomsQueueShadow(int32 x, int32 z, int32 sx, int32 sz);
 
 // Waits for the slave to finish the frame's rooms; returns its ordering

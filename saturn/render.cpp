@@ -1478,15 +1478,17 @@ static void meshParts(const Mesh* mesh, MeshParts &parts)
     parts.triangles = (MeshTriangle*)ptr;
 }
 
-void renderMesh(const Mesh* mesh)
+// To the slave as its share allows, when its faces are added in assembly (not
+// with gFlatDist).
+static bool meshToSlave(const Mesh* mesh)
+{
+    return !gFlatDist && mesh->vCount > 0 && roomsQueueMesh(mesh);
+}
+
+static void renderMeshHere(const Mesh* mesh)
 {
     int32 vCount = mesh->vCount;
     if (vCount <= 0)
-        return;
-
-    // to the slave as it can take it, when its faces are added in assembly
-    // (not with gFlatDist)
-    if (!gFlatDist && gBenchMode != BENCH_MASTER_MESHES && roomsQueueMesh(mesh))
         return;
 
     if ((gVerticesBase - gVertices) + vCount > MASTER_VERTICES)
@@ -1531,6 +1533,23 @@ void renderMesh(const Mesh* mesh)
     gVerticesBase += vCount;
 }
 
+void renderMesh(const Mesh* mesh)
+{
+    if (gBenchMode == BENCH_ALL_MESHES && meshToSlave(mesh))
+        return;
+    renderMeshHere(mesh);
+}
+
+// Only rooms' static meshes go to the slave: its share counts vertices, and
+// spent on items' small meshes, which the master draws fastest (wholly in
+// view, a job's fixed costs on the slave), it relieves the master least.
+void renderStaticMesh(const Mesh* mesh)
+{
+    if (gBenchMode == BENCH_MASTER_MESHES || !meshToSlave(mesh)) {
+        renderMeshHere(mesh);
+    }
+}
+
 // An octagon on the floor under the item, darkening what is drawn below it.
 #define SHADOW_VERTICES 8
 static const MeshQuad gShadowQuads[] = {
@@ -1564,9 +1583,9 @@ static void shadowVertices(MeshVertex* v, int32 x, int32 z, int32 sx, int32 sz)
 
 void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
 {
-    // to the slave whenever it takes meshes, as it draws its faces in a bucket
+    // to the slave with the items' meshes, as it draws its faces in a bucket
     // before this CPU's: an item's there would be darkened
-    if (!gFlatDist && gBenchMode != BENCH_MASTER_MESHES && roomsQueueShadow(x, z, sx, sz))
+    if (gBenchMode == BENCH_ALL_MESHES && !gFlatDist && roomsQueueShadow(x, z, sx, sz))
         return;
 
     if (gVerticesBase - gVertices + SHADOW_VERTICES > MASTER_VERTICES ||

@@ -824,7 +824,7 @@ void drawRoomObjects(Room* room)
         matrixRotateYQ(q);
 
         calcLightingStatic(STATIC_MESH_INTENSITY(mesh->zf));
-        drawMesh(staticMesh->meshIndex);
+        renderStaticMesh(level.meshes[staticMesh->meshIndex]);
 
         matrixPop();
     }
