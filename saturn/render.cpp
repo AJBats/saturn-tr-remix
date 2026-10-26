@@ -1060,13 +1060,18 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
     return count;
 }
 
+static void dspMeshBack();
+static uint32 dspMeshDone();
+
 void flush_c()
 {
     uint32 start = timerTicks();
 
+    dspMeshBack();
     RoomStats rooms = {};
     const uint16* roomGroups = NULL;
     Face** roomOT = roomsFinish(rooms, roomGroups);
+    gStats.dspMeshVertices = dspMeshDone();
     gStats.slaveWaitTicks = (timerTicks() - start) & 0xFFFF;
 
     gStats.vertices = (gVerticesBase - gVertices) + rooms.vertices;
@@ -1093,11 +1098,9 @@ void flush_c()
     int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (renderInit)
     memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
 
-    bool clear = gBenchMode != BENCH_NO_CLEAR;
-    uint32 erase = gBenchMode == BENCH_FULL_CLEAR || !clear ? 0 : VBLANK_ERASE_LINES;
-    vdp1SetVblankErase(erase);
-    gCmds[0].w[0] = (CMD_SCALED_SPRITE | (clear ? 0 : CMD_SKIP)) << 16;
-    gCmds[0].w[3] = pair(0, erase);
+    vdp1SetVblankErase(VBLANK_ERASE_LINES);
+    gCmds[0].w[0] = CMD_SCALED_SPRITE << 16;
+    gCmds[0].w[3] = pair(0, VBLANK_ERASE_LINES);
 
     gCmds[count].w[0] = CMD_END << 16;
     gRenderFaceCount = count;
@@ -1478,6 +1481,173 @@ static void meshParts(const Mesh* mesh, MeshParts &parts)
     parts.triangles = (MeshTriangle*)ptr;
 }
 
+// Meshes for the DSP: queued as the master draws them, projected in turn once
+// the slave hands the DSP over, a piece at a time, their faces added as each
+// is done. A short queue (DSP_BACKLOG vertices not yet started) keeps the DSP
+// busy; past it the master projects meshes itself, and at flush it takes the
+// pieces the DSP hasn't started from the back while the DSP finishes the
+// front, waiting at most on a piece.
+#define DSP_JOBS        48      // meshes
+#define DSP_PIECES      96
+#define DSP_PIECE       16      // vertices
+#define DSP_BACKLOG     48      // vertices
+#define DSP_MESH_MIN    8       // vertices: a smaller mesh costs the master more to hand over
+
+struct DspJob
+{
+    const Mesh* mesh;
+    Vertex* vertices;
+    uint32 flags;           // gMeshFaceFlags when it was drawn
+    int32 pieces;           // not yet projected
+    MeshXform xf;
+};
+struct DspPiece
+{
+    uint8 job, first, count;
+};
+static DspJob gDspJobs[DSP_JOBS];
+static DspPiece gDspPieces[DSP_PIECES];
+static int32 gDspJobCount;
+static int32 gDspQueued;    // pieces
+static int32 gDspStarted;   // ... the DSP has started
+static bool gDspRunning;    // ... the last of them not yet finished
+static int32 gDspSetUp = -1;    // the job whose matrix and light are in the DSP's data RAM
+static int32 gDspBacklog;   // vertices queued, not started
+static uint32 gDspVertices; // the DSP projected this frame
+
+static void dspPieceDone(const DspPiece &piece)
+{
+    DspJob &job = gDspJobs[piece.job];
+    if (--job.pieces)
+        return;
+
+    const Mesh* mesh = job.mesh;
+    if ((gFaceList.next - gFaces) + mesh->rCount + mesh->tCount > MAX_FACES)
+    {
+        ASSERT(false);
+        return;
+    }
+
+    MeshParts parts;
+    meshParts(mesh, parts);
+    MeshFaces mf = { job.vertices, -int32(uint32(gVertices) >> 3), &gFaceList, job.flags, job.xf.inside };
+    if (mesh->rCount > 0) {
+        faceAddMeshQuadsAsm(parts.quads, mesh->rCount, &mf);
+    }
+    if (mesh->tCount > 0) {
+        faceAddMeshTrianglesAsm(parts.triangles, mesh->tCount, &mf);
+    }
+}
+
+// Notes the DSP's piece done and starts it on the next.
+static void dspService()
+{
+    if ((gDspStarted == gDspQueued && !gDspRunning) || !roomsDspFree())
+        return;
+
+    if (gDspRunning)
+    {
+        const DspPiece &piece = gDspPieces[gDspStarted - 1];
+        gDspRunning = false;
+        cacheDrop(gDspJobs[piece.job].vertices + piece.first, piece.count * sizeof(Vertex));  // this CPU's copies from before the DSP wrote
+        dspPieceDone(piece);
+    }
+    if (gDspStarted < gDspQueued)
+    {
+        const DspPiece &piece = gDspPieces[gDspStarted++];
+        const DspJob &job = gDspJobs[piece.job];
+        MeshParts parts;
+        meshParts(job.mesh, parts);
+        roomsDspMesh(job.xf, parts.vertices, job.vertices, piece.first, piece.count, piece.job != gDspSetUp);
+        gDspSetUp = piece.job;
+        gDspRunning = true;
+        gDspBacklog -= piece.count;
+        gDspVertices += piece.count;
+    }
+}
+
+static bool dspMeshable(const void* p)
+{
+    return !(uint32(p) & 3) && (uint32(p) & 0x0FF00000) == 0x06000000;
+}
+
+static bool dspQueue(const Mesh* mesh, const MeshParts &parts)
+{
+    int32 vCount = mesh->vCount;
+    int32 slots = (vCount + 7) & ~7;
+    int32 size = gBenchMode == BENCH_DSP_WHOLE ? 256 : DSP_PIECE;
+    int32 pieces = (vCount + size - 1) / size;
+    int32 least = gBenchMode == BENCH_DSP_BIG ? 16 : DSP_MESH_MIN;
+    if (gBenchMode == BENCH_NO_DSP || gBenchMode == BENCH_ROOM_DSP || vCount < least ||
+        gDspBacklog >= DSP_BACKLOG || gDspJobCount == DSP_JOBS || gDspQueued + pieces > DSP_PIECES ||
+        (gVerticesBase - gVertices) + slots > MASTER_VERTICES || !dspMeshable(parts.vertices) ||
+        (parts.normals && !dspMeshable(parts.normals)) || (parts.shades && !dspMeshable(parts.shades)))
+        return false;
+
+    int32 index = gDspJobCount++;
+    DspJob &job = gDspJobs[index];
+    job.mesh = mesh;
+    job.vertices = gVerticesBase;
+    job.flags = gMeshFaceFlags;
+    job.pieces = pieces;
+    meshXformSetup(job.xf, mesh->intensity, parts.normals, parts.shades, &mesh->center, mesh->bound);
+    for (int32 first = 0; first < vCount; first += size)
+    {
+        DspPiece &piece = gDspPieces[gDspQueued++];
+        piece.job = index;
+        piece.first = first;
+        piece.count = X_MIN(size, vCount - first);
+    }
+    gVerticesBase += slots;
+    gDspBacklog += vCount;
+    dspService();
+    return true;
+}
+
+// The queued pieces the DSP hasn't started, projected here from the back
+// while it goes on with the front.
+static void dspMeshBack()
+{
+    while (gDspStarted < gDspQueued)
+    {
+        dspService();
+        if (gDspStarted == gDspQueued)
+            break;
+
+        const DspPiece &piece = gDspPieces[--gDspQueued];
+        const DspJob &job = gDspJobs[piece.job];
+        MeshXform xf = job.xf;
+        if (xf.normals) {
+            xf.normals += piece.first * 4;
+        }
+        if (xf.shades) {
+            xf.shades += piece.first;
+        }
+        MeshParts parts;
+        meshParts(job.mesh, parts);
+        transformMeshAsm(parts.vertices + piece.first, piece.count, job.vertices + piece.first, &xf);
+        gDspBacklog -= piece.count;
+        dspPieceDone(piece);
+    }
+}
+
+// The faces of the DSP's last piece's mesh, which it finished while the
+// master waited for the slave; the vertices it projected.
+static uint32 dspMeshDone()
+{
+    while (gDspRunning) {
+        dspService();
+    }
+    roomsDspRelease();
+
+    uint32 count = gDspVertices;
+    gDspJobCount = gDspQueued = gDspStarted = 0;
+    gDspSetUp = -1;
+    gDspBacklog = 0;
+    gDspVertices = 0;
+    return count;
+}
+
 // To the slave as its share allows, when its faces are added in assembly (not
 // with gFlatDist).
 static bool meshToSlave(const Mesh* mesh)
@@ -1506,6 +1676,13 @@ static void renderMeshHere(const Mesh* mesh)
 
     MeshParts parts;
     meshParts(mesh, parts);
+
+    if (!gFlatDist)
+    {
+        dspService();
+        if (dspQueue(mesh, parts))
+            return;
+    }
 
     bool inside = transformMesh(parts.vertices, vCount, mesh->intensity, parts.normals, parts.shades, &mesh->center,
                                 mesh->bound);
