@@ -186,7 +186,7 @@ static char* appendColumn(char* p, uint32 value)
 
 static const char* const kBenchNames[BENCH_COUNT] = {
     "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master meshes",
-    "All meshes", "Jump links", "Full clear", "No clear", "Profile"
+    "All meshes", "Every frame", "Full clear", "No clear", "Profile"
 };
 
 // each way's VDP1 and master CPU time, the master's drawing (rooms queued

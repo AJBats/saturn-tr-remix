@@ -19,6 +19,10 @@
 #define MAX_MESH_JOBS   128
 #define MESH_STEP       32      // mesh vertices the slave's share moves by a frame
 
+// The bits of a room quad's flags that are the packer's; faces.s keeps the
+// quad's turn and mip level in the rest (REUSE).
+#define ROOM_QUAD_FLAGS 0x00FFFFFF
+
 extern Level level;
 
 // The room matrix for 16x16 multiplies: the rotation fits in 16 bits, and
@@ -242,7 +246,7 @@ static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
     m30->g = (v3->g + v0->g) >> 1;
     mc->g = (v0->g + v1->g + v2->g + v3->g) >> 2;
 
-    uint32 flags = poly->flags | gRoomFaceFlags | FACE_DETAIL | (slot << FACE_DETAIL_SLOT_SHIFT);
+    uint32 flags = (poly->flags & ROOM_QUAD_FLAGS) | gRoomFaceFlags | FACE_DETAIL | (slot << FACE_DETAIL_SLOT_SHIFT);
     faceAddDetailQuad(flags | (0 << FACE_DETAIL_QUAD_SHIFT), v0, m01, mc, m30);
     faceAddDetailQuad(flags | (1 << FACE_DETAIL_QUAD_SHIFT), m01, v1, m12, mc);
     faceAddDetailQuad(flags | (2 << FACE_DETAIL_QUAD_SHIFT), mc, m12, v2, m23);
@@ -280,7 +284,7 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
         if (gFaceList.next == gFaceList.end)
             return;
 
-        uint32 flags = polys->flags | gRoomFaceFlags;
+        uint32 flags = (polys->flags & ROOM_QUAD_FLAGS) | gRoomFaceFlags;
         const Vertex* v0 = v + polys->indices[0];
         const Vertex* v1 = v + polys->indices[1];
         const Vertex* v2 = v + polys->indices[2];
@@ -393,11 +397,15 @@ struct RoomFaces
     int32 turn;             // gTurn
     int32 across;           // faces.s's
     int32 lod;              // gTextureLod, 0 without mip levels
+    int32 parity;           // the frame's: a quad decides its turn and mip level on frames
+                            // of its own parity (faces.s REUSE); -1: every frame
+    int32 cached;           // faces.s's
 };
 
 static_assert(offsetof(RoomFaces, textures) == 16 && offsetof(RoomFaces, end) == 28 &&
               offsetof(RoomFaces, frame) == 40 && offsetof(RoomFaces, miss) == 48 &&
               offsetof(RoomFaces, turn) == 52 && offsetof(RoomFaces, lod) == 60 &&
+              offsetof(RoomFaces, parity) == 64 && offsetof(RoomFaces, cached) == 68 &&
               sizeof(RoomQuad) == 12 && sizeof(RoomTriangle) == 12 && sizeof(DetailSlot) == 8 &&
               offsetof(DetailSlot, frame) == 4 && DETAIL_MAX_KEYS == 1088 && sizeof(Texture) == 16 &&
               offsetof(Texture, size) == 4 && offsetof(Texture, reserved) == 10 &&
@@ -588,13 +596,19 @@ static void roomFaces(int32 index, const RoomJob &job)
     }
     else
     {
+        // A quad decides its turned lines and mip level on every other frame
+        // and keeps them in between: a frame behind as the view moves, but the
+        // slave's quads cost a Saturn 3 points less at the bench spot.
         uint32 base = w.base;
         RoomFaces rf = { roomBase, base * 0x10001, &gFaceList, gRoomFaceFlags, level.textures, 0, 0,
                          gFaceList.end, gDetailKeys[0], gDetailSlots, gDetailFrame, faceAddRoomQuads, detailSlotMiss,
-                         gTurn, 0, detailMips() && gBenchMode != BENCH_NO_LOD ? gTextureLod : 0 };
+                         gTurn, 0, detailMips() && gBenchMode != BENCH_NO_LOD ? gTextureLod : 0,
+                         gBenchMode == BENCH_EVERY_FRAME ? -1 : int32(gDetailFrame & 1), -1 };
         if (info->quadsCount > 0) {
             faceAddRoomQuadsAsm(data.quads, info->quadsCount, &rf);
         }
+        rf.parity = -1;     // triangles decide every frame
+        rf.cached = -1;
         if (info->trianglesCount > 0) {
             faceAddRoomTrianglesAsm(data.triangles, info->trianglesCount, &rf);
         }

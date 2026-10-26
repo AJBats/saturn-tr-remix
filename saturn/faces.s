@@ -42,6 +42,10 @@
 !   +56 int32 across            the face's lines' length in pixels, from TURN
 !   +60 int32 lod               4 x the texels a pixel along a line past which a
 !                               face takes the next mip level; 0: full res only
+!   +64 int32 parity            a quad decides its turn and mip level on frames
+!                               of its parity (its index's), keeping them in its
+!                               flags' bits 24 .. 27; -1: every frame
+!   +68 int32 cached            the variant kept (REUSE), -1 for WHOLE to decide
 !
 ! RoomQuad, RoomTriangle: uint32 flags; uint16 indices[4].
 ! Vertex: int16 x, y; int16 z; uint8 g, clip. Face: flags, next, int16 indices[4].
@@ -382,6 +386,41 @@ _faceAddMeshTrianglesAsm:
 4:
     .endm
 
+! RoomFaces.cached = the quad's mip variant (level * 2 + turned) kept from the
+! last frame it decided (its flags' bits 24 .. 27) and r14 its
+! FACE_DETAIL_TURNED, on frames not of its parity (RoomFaces.parity, -1:
+! none), branching to 'decided'; else RoomFaces.cached = -1 for TURN and WHOLE
+! to decide; r0, r13
+    .macro  REUSE decided
+    mov     #-1, r13
+    mov     #68, r0
+    mov.l   r13, @(r0, r6)      ! cached: none
+    mov     #64, r0
+    mov.l   @(r0, r6), r0       ! parity
+    cmp/pz  r0
+    bf      .Lreuse\@           ! decisions not kept
+    xor     r5, r0
+    tst     #1, r0
+    bt      .Lreuse\@           ! the quad's frame to decide again
+    mov.b   @r4, r0             ! flags, bits 24 .. 31
+    tst     #8, r0
+    bt      .Lreuse\@           ! none kept yet
+    and     #7, r0
+    mov     r0, r13
+    mov     #68, r0
+    mov.l   r13, @(r0, r6)      ! cached
+    mov     r13, r0
+    tst     #1, r0
+    bt/s    \decided
+    mov     #0, r14
+    mov     #1, r14
+    shll16  r14
+    shll2   r14
+    bra     \decided
+    shll    r14                 ! FACE_DETAIL_TURNED
+.Lreuse\@:
+    .endm
+
 ! r14 = FACE_DETAIL_TURNED if the face with corners r1, r2, r3, r7 (A B C D)
 ! takes fewer lines drawn turned (faceTurns), else 0; the lines' length to
 ! RoomFaces.across; r0, r13
@@ -435,7 +474,14 @@ _faceAddMeshTrianglesAsm:
     nop
 6:  mov     r0, r3              ! key
 
-    ! r7 = level * 2 + turned
+    ! r7 = level * 2 + turned: kept from last frame (REUSE), or decided now
+    mov     #68, r0
+    mov.l   @(r0, r6), r0       ! cached
+    cmp/pz  r0
+    bf      .Ldecide\@
+    bra     .Lvariant\@
+    mov     r0, r7
+.Ldecide\@:
     mov     r14, r0
     shlr16  r0
     shlr2   r0
@@ -444,7 +490,7 @@ _faceAddMeshTrianglesAsm:
     mov     r0, r7
     mov.l   @(60, r6), r2       ! lod
     tst     r2, r2
-    bt      .Lvariant\@
+    bt      .Ldecided\@
     mov.l   @(56, r6), r0
     mulu.w  r0, r2              ! lod x across
     mov.w   @(4, r1), r0
@@ -461,20 +507,28 @@ _faceAddMeshTrianglesAsm:
     shll    r2                  ! 4 x its height, along a turned face's lines
 2:  sts     macl, r0
     cmp/hi  r0, r2
-    bf      .Lvariant\@         ! about a texel a pixel at full res
+    bf      .Ldecided\@         ! about a texel a pixel at full res
     mov.w   @(4, r1), r0
     tst     #7, r0
-    bf      .Lvariant\@         ! half the height not a multiple of 8
+    bf      .Ldecided\@         ! half the height not a multiple of 8
     add     #2, r7              ! level 1
     sts     macl, r0
     shll    r0
     cmp/hi  r0, r2
-    bf      .Lvariant\@
+    bf      .Ldecided\@
     mov.w   @(4, r1), r0
     mov.w   .Lmip2Mask\@, r2
     tst     r2, r0
-    bf      .Lvariant\@         ! a quarter of the width or height not a multiple of 8
+    bf      .Ldecided\@         ! a quarter of the width or height not a multiple of 8
     add     #2, r7              ! level 2
+.Ldecided\@:
+    mov     #64, r0
+    mov.l   @(r0, r6), r0       ! parity
+    cmp/pz  r0
+    bf      .Lvariant\@         ! decisions not kept
+    mov     r7, r0
+    or      #8, r0
+    mov.b   r0, @r4             ! kept in the quad's flags, bits 24 .. 27
 .Lvariant\@:
     mov     r7, r2
     add     r2, r2
@@ -640,9 +694,13 @@ _faceAddRoomQuadsAsm:
     extu.w  r0, r7
     VERTEX  r7
     CULL    r7, .LrquadCulled
+    REUSE   .LrquadDecided
     TURN
+.LrquadDecided:
     ZMAX    r7
     mov.l   @r4, r0
+    shll8   r0
+    shlr8   r0                  ! not the kept decisions (REUSE)
     or      r0, r14
     mov.l   @(12, r6), r0
     or      r0, r14             ! flags

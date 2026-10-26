@@ -908,19 +908,6 @@ extern "C" void flushAsm(FlushXform* xf);
 // The frame's commands 1 .. count - 1 rebuilt for gBenchMode.
 static void benchCommands(int32 count)
 {
-    if (gBenchMode == BENCH_JUMP_LINKS)
-    {
-        for (int32 i = 0; i < count; i++)
-        {
-            uint32 &w0 = gCmds[i].w[0];
-            uint32 jp = (w0 >> 28) & 7;
-            if (jp == 0 || jp == 4) {   // next, skip: to jump, skip and jump
-                w0 = (w0 & 0xFFFF0000) | (1 << 28) | ((VRAM_FRAME_CMDS + (i + 1) * sizeof(Command)) >> 3);
-            }
-        }
-        return;
-    }
-
     if (gBenchMode != BENCH_NO_GOURAUD && gBenchMode != BENCH_NO_TEXTURE)
         return;
 
