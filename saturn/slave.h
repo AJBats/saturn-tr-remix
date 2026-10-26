@@ -28,6 +28,14 @@ void (*slaveTask())();
 // Drops this CPU's cached copies of memory.
 void cachePurge();
 
+// ... of the lines holding size bytes from p, which another bus master wrote.
+inline void cacheDrop(const void* p, uint32_t size)
+{
+    for (uintptr_t a = uintptr_t(p) & ~15u; a < uintptr_t(p) + size; a += 16) {
+        *(volatile uint32_t*)(a | 0x40000000) = 0;  // the cache's associative purge
+    }
+}
+
 // Between polls of a flag: the CPUs share one bus, and a CPU spinning on an
 // uncached read takes it from the other.
 inline void busPause()

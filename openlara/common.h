@@ -2947,6 +2947,7 @@ void setViewport(const RectMinMax &vp);
 void setPaletteIndex(int32 index);
 void clear();
 void renderRoom(Room* room);
+void renderRoomsQueued();
 void renderMesh(const Mesh* mesh);
 void renderStaticMesh(const Mesh* mesh);
 void renderShadow(int32 x, int32 z, int32 sx, int32 sz);

@@ -1,8 +1,9 @@
 // Room rendering on the slave SH-2. renderRoom (on the master) queues each
-// visible room with its matrix and portal viewport; the slave transforms the
-// room's vertices, the SCU DSP applying the matrix a chunk ahead of it, and
-// adds the room's faces to its own face list, which flush merges with the
-// master's. The master carries on with meshes meanwhile, handing the slave
+// visible room with its matrix and portal viewport; the slave projects the
+// room's vertices and adds its faces to its own face list, which flush merges
+// with the master's. Once every room is queued, the SCU DSP projects rooms
+// from the back of the queue (project.dsp) while the slave takes them from
+// the front. The master carries on with meshes meanwhile, handing the slave
 // rooms' static meshes as long as it keeps up.
 
 #include <stddef.h>
@@ -12,13 +13,11 @@
 #include "dsp.h"
 #include "slave.h"
 #include "system.h"
-#include "xform_dsp.h"
 #include "project_dsp.h"
 
 #define MAX_ROOM_JOBS   64
 #define MAX_STATIC_JOBS 64
 #define STATIC_STEP     32      // static mesh vertices the slave's share moves by a frame
-#define DSP_CHUNK       64      // vertices the DSP transforms at a time: 4 of its batches
 
 extern Level level;
 
@@ -45,6 +44,7 @@ static RoomJob gJobs[MAX_ROOM_JOBS];
 static uint32 gJobCount;
 static volatile uint32 gJobsQueued;
 static volatile uint32 gJobsClosed;
+static volatile uint32 gRoomsComplete;  // every room of the frame queued
 
 // Rooms' static meshes, queued the same way. The slave takes as many vertices
 // of them a frame as its share, which grows while it has finished every job
@@ -58,13 +58,26 @@ static volatile uint32 gStaticsQueued;
 static volatile uint32 gJobsDone;   // rooms and static meshes the slave has drawn
 
 // Slave side.
-// The DSP writes one chunk of a room's vertices in view space to one buffer
-// while this CPU projects the last from the other.
-static int32 gDspOut[2][DSP_CHUNK * 4] __attribute__((aligned(16)));
-static int32 gDspJob;       // the job whose chunk the DSP has, -1 none
-static int32 gDspStart;     // ... the chunk's first vertex
-static int32 gDspBuffer;    // ... and its buffer
-static int32 gDspMatrix;    // the job whose matrix the DSP has, -1 none
+// Each room's vertices have their place in gVertices from the bottom up, in
+// whole batches of the DSP's; what split faces and static meshes add comes
+// from the top down. They are projected in chunks: this CPU takes chunks
+// from the front of the queue, the DSP runs of them from the back, and a
+// room's faces follow once all its chunks are done.
+#define CHUNK           64      // vertices
+#define DSP_RUN         4       // chunks the DSP takes at a time, at most
+
+struct RoomWork
+{
+    int32 base;         // the room's first vertex in gVertices, -1 if it didn't fit
+    int16 lo, hi;       // the chunks not yet taken
+    bool dsp;           // the DSP projected some
+    bool faced;
+};
+static RoomWork gWork[MAX_ROOM_JOBS];
+static int32 gPlaced;               // jobs given their place
+static int32 gBottom, gTop;         // the free vertices between
+static int32 gFaced;                // rooms done
+static int32 gDspRoom;              // the room whose chunks the DSP projects, -1 none
 
 static Face gSlaveFaces[MAX_FACES];
 static Face* gSlaveOT[OT_SIZE];
@@ -106,13 +119,11 @@ static_assert(FRAME_WIDTH == 352 && FRAME_HEIGHT == 224 && VDP1_COORD_MAX == 102
               MAX_CAUSTICS == 32 && MAX_RAND_TABLE == 32, "constants repeated in xform.s");
 
 extern "C" void transformRoomAsm(const RoomVertex* src, int32 count, Vertex* dst, RoomXform* xf);
-extern "C" void transformRoomDspAsm(const int32* src, int32 count, Vertex* dst, RoomXform* xf);
 
 static RoomXform gXform;
 static int16 gRoomCaustics[MAX_RAND_TABLE];
 static RectMinMax gViewport;
 static const RoomVertex* gRoomVertices;
-static Vertex* gNextVertex; // the room's vertices, then those its split faces add
 
 // Water rooms ripple on screen, as in the original (0x06042D34): each
 // projected coordinate moves by up to 2 pixels along a sine wave that runs
@@ -195,7 +206,7 @@ static void faceAddDetailQuad(uint32 flags, const Vertex* v0, const Vertex* v1, 
 static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
                                   const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
 {
-    if (gNextVertex + 5 > gVertices + MAX_VERTICES || gFaceList.next + 4 > gFaceList.end)
+    if (gTop - 5 < gBottom || gFaceList.next + 4 > gFaceList.end)
         return false;
 
     int32 slot = detailSlot(tex->reserved - 1, tex->size, DETAIL_QUADS);
@@ -208,12 +219,12 @@ static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
     const RoomVertex* r3 = gRoomVertices + poly->indices[3];
 
     // edge midpoints and the centre, in room space
-    Vertex* m01 = gNextVertex;
+    gTop -= 5;
+    Vertex* m01 = gVertices + gTop;
     Vertex* m12 = m01 + 1;
     Vertex* m23 = m01 + 2;
     Vertex* m30 = m01 + 3;
     Vertex* mc  = m01 + 4;
-    gNextVertex += 5;
 
     projectRoomPoint((r0->x + r1->x) << 1, (r0->y + r1->y) << 1, (r0->z + r1->z) << 1, m01);
     projectRoomPoint((r1->x + r2->x) << 1, (r1->y + r2->y) << 1, (r1->z + r2->z) << 1, m12);
@@ -398,98 +409,112 @@ static_assert(offsetof(RoomFaces, textures) == 16 && offsetof(RoomFaces, end) ==
 extern "C" void faceAddRoomQuadsAsm(const RoomQuad* polys, int32 count, RoomFaces* rf);
 extern "C" void faceAddRoomTrianglesAsm(const RoomTriangle* polys, int32 count, RoomFaces* rf);
 
-// The DSP's DMA reaches high work RAM, not low.
-static bool dspRoom(const RoomJob &job)
-{
-    return gBenchMode != BENCH_NO_DSP && (uint32(job.room->data.vertices) & 0x0FF00000) == 0x06000000;
-}
+// project.dsp's divide table: divTable << 4 as longwords, by z >> 12.
+static int32 gDspDivide[DIV_TABLE_SIZE];
 
-// Starts the DSP on the chunk of job's vertices from start, into buffer.
-static void dspChunk(int32 index, const RoomJob &job, int32 start, int32 buffer)
+// Starts project.dsp on batches of 16 vertices from src to dst.
+static void dspProject(const RoomMatrix &m, const RectMinMax &vp, const RoomVertex* src, Vertex* dst, int32 batches)
 {
-    if (gDspMatrix != index)
-    {
-        const RoomMatrix &m = job.matrix;
-        const int32_t md0[12] = { m.m20 * 4, m.m21 * 4, m.m22 * 4, m.tz, m.m00 * 4, m.m01 * 4, m.m02 * 4, m.tx,
-                                  m.m10 * 4, m.m11 * 4, m.m12 * 4, m.ty };
-        dspWrite(0, 0, (const uint32_t*)md0, 12);
-        gDspMatrix = index;
-    }
-
-    int32 count = X_MIN(job.room->info->verticesCount - start, DSP_CHUNK);
-    const uint32_t md3[5] = { uint32_t(count + 15) >> 4, 1, dspAddress(job.room->data.vertices + start),
-                              dspAddress(gDspOut[buffer]), 0xFF };
+    const int32_t md0[36] = {
+        m.m00 * 4, m.m01 * 4, m.m02 * 4, m.tx, m.m10 * 4, m.m11 * 4, m.m12 * 4, m.ty,
+        m.m20 * 4, m.m21 * 4, m.m22 * 4, m.tz,
+        VIEW_MIN_F >> (FIXED_SHIFT - 8), VIEW_MAX_F >> (FIXED_SHIFT - 8), 256, 16,
+        int32_t(dspAddress(gDspDivide)), 0x7FFF00, -0x7FFF00,
+        1023 - FRAME_WIDTH / 2, -1024 - FRAME_WIDTH / 2, FRAME_WIDTH / 2,
+        1023 - FRAME_HEIGHT / 2, -1024 - FRAME_HEIGHT / 2, FRAME_HEIGHT / 2,
+        FRAME_WIDTH, FRAME_HEIGHT, vp.x0, vp.x1, vp.y0, vp.y1,
+        FOG_MIN, 8191, 65536, 0xFFFF, 0xFF00
+    };
+    const uint32_t md3[5] = { uint32_t(batches), 1, dspAddress(src), dspAddress(dst), 0xFF };
+    dspWrite(0, 0, (const uint32_t*)md0, 36);
     dspWrite(3, 0, md3, 5);
     dspStart(0);
-
-    gDspJob = index;
-    gDspStart = start;
-    gDspBuffer = buffer;
 }
 
-// Transforms job's vertices to dst a chunk at a time: from the DSP's buffer
-// when it has the chunk, else here, the DSP taking the next chunk meanwhile,
-// of this room or the next queued.
-static void transformRoom(int32 index, const RoomJob &job, Vertex* dst)
+// project.dsp does what transformRoomAsm does for rooms not under water, and
+// the DSP's DMA reaches high work RAM, not low.
+static bool dspRoom(const RoomJob &job)
 {
-    const RoomVertex* src = job.room->data.vertices;
-    int32 count = job.room->info->verticesCount;
-    if (!dspRoom(job))
+    return gBenchMode != BENCH_NO_DSP && !ROOM_FLAG_WATER(job.room->info->flags) &&
+           (uint32(job.room->data.vertices) & 0x0FF00000) == 0x06000000;
+}
+
+// Gives each newly queued job its place in gVertices.
+static void placeRooms(int32 queued)
+{
+    for (; gPlaced < queued; gPlaced++)
     {
-        gXform.count = count;
-        transformRoomAsm(src, count, dst, &gXform);
+        RoomWork &w = gWork[gPlaced];
+        int32 count = uncached(gJobs + gPlaced)->room->info->verticesCount;
+        int32 size = (count + 15) & ~15;
+        w.lo = 0;
+        w.hi = (count + CHUNK - 1) / CHUNK;
+        w.dsp = false;
+        w.faced = false;
+        w.base = gBottom;
+        if (gBottom + size > gTop)
+        {
+            w.base = -1;
+            w.lo = w.hi;
+            w.faced = true;
+            gFaced++;
+            continue;
+        }
+        gBottom += size;
+    }
+}
+
+// Notes the DSP's run done; once every room is queued, gives the idle DSP
+// a run of chunks from the back of the highest room it can project, as long
+// as one is left for this CPU.
+static void dspFeed()
+{
+    if (gDspRoom >= 0)
+    {
+        if (dspBusy())
+            return;
+        gDspRoom = -1;
+    }
+    if (!*uncached(&gRoomsComplete))
+        return;
+
+    int32 left = 0;
+    for (int32 i = 0; i < gPlaced; i++) {
+        left += gWork[i].hi - gWork[i].lo;
+    }
+    for (int32 i = gPlaced - 1; i >= 0; i--)
+    {
+        RoomWork &w = gWork[i];
+        const RoomJob &job = *uncached(gJobs + i);
+        if (w.lo == w.hi || !dspRoom(job))
+            continue;
+        int32 run = X_MIN(X_MIN(DSP_RUN, w.hi - w.lo), left - 1);
+        if (run <= 0)
+            return;
+        int32 first = (w.hi - run) * CHUNK;
+        int32 count = X_MIN(int32(job.room->info->verticesCount), w.hi * CHUNK) - first;
+        dspProject(job.matrix, job.viewport, job.room->data.vertices + first, gVertices + w.base + first,
+                   (count + 15) >> 4);
+        w.hi -= run;
+        w.dsp = true;
+        gDspRoom = i;
+        gSlaveStats.dspVertices += count;
         return;
     }
-
-    for (int32 start = 0; start < count; start += DSP_CHUNK)
-    {
-        bool ready = gDspJob == index && gDspStart == start;
-        int32 buffer = gDspBuffer;
-        while (dspBusy());
-        gDspJob = -1;
-
-        if (start + DSP_CHUNK < count) {
-            dspChunk(index, job, start + DSP_CHUNK, buffer ^ 1);
-        }
-        else if (int32(*uncached(&gJobsQueued)) > index + 1)
-        {
-            asm volatile("" : : : "memory"); // read the job only after its count
-            const RoomJob &next = *uncached(gJobs + index + 1);
-            if (dspRoom(next)) {
-                dspChunk(index + 1, next, 0, buffer ^ 1);
-            }
-        }
-
-        int32 n = X_MIN(count - start, DSP_CHUNK);
-        gXform.count = start + n;
-        if (ready) {
-            transformRoomDspAsm(gDspOut[buffer], n, dst + start, &gXform);
-        } else {
-            transformRoomAsm(src + start, n, dst + start, &gXform);
-        }
-    }
 }
 
-static void renderRoomJob(int32 index, const RoomJob &job)
+// Sets up what projecting and adding the faces of job need.
+static void roomBegin(const RoomJob &job)
 {
     const RoomInfo* info = job.room->info;
-    const RoomData &data = job.room->data;
-    int32 vCount = info->verticesCount;
-
-    if (gNextVertex + vCount > gVertices + MAX_VERTICES)
-        return;
-
     bool water = ROOM_FLAG_WATER(info->flags);
 
     gMatrix = job.matrix;
     gViewport = job.viewport;
-    gRoomVertices = data.vertices;
+    gRoomVertices = job.room->data.vertices;
     gRoomFaceFlags = water ? FACE_WATER : 0;
     gWibblePhase = job.causticsFrame;
     gTurn = gTurnLines && gBenchMode != BENCH_FIXED_LINES;
-
-    uint32 t0 = timerTicks();
-    Vertex* roomBase = gNextVertex;
 
     RoomXform &xf = gXform;
     const int16* rows = &gMatrix.m00;
@@ -518,12 +543,38 @@ static void renderRoomJob(int32 index, const RoomJob &job)
             gRoomCaustics[i] = gCaustics[(gRandTable[i] + job.causticsFrame) & (MAX_CAUSTICS - 1)];
         }
     }
+}
 
-    transformRoom(index, job, roomBase);
-    gNextVertex += vCount;
-    gSlaveStats.vertices += vCount;
+// Projects the front chunk of room index here.
+static void roomChunk(int32 index, const RoomJob &job)
+{
+    uint32 t0 = timerTicks();
+    RoomWork &w = gWork[index];
+    int32 first = w.lo * CHUNK;
+    int32 count = X_MIN(int32(job.room->info->verticesCount) - first, CHUNK);
+    w.lo++;
+    roomBegin(job);
+    gXform.count = first + count;   // count - vertices left: the index in the room
+    transformRoomAsm(job.room->data.vertices + first, count, gVertices + w.base + first, &gXform);
+    gSlaveStats.xformTicks += (timerTicks() - t0) & 0xFFFF;
+}
 
-    uint32 t1 = timerTicks();
+static void roomFaces(int32 index, const RoomJob &job)
+{
+    uint32 t0 = timerTicks();
+    RoomWork &w = gWork[index];
+    const RoomInfo* info = job.room->info;
+    const RoomData &data = job.room->data;
+    Vertex* roomBase = gVertices + w.base;
+
+    roomBegin(job);
+    if (w.dsp) {
+        cacheDrop(roomBase, info->verticesCount * sizeof(Vertex));  // this CPU's copies from before the DSP wrote
+    }
+    w.faced = true;
+    gFaced++;
+    gSlaveStats.vertices += info->verticesCount;
+
     if (gFlatDist)
     {
         if (info->quadsCount > 0) {
@@ -535,7 +586,7 @@ static void renderRoomJob(int32 index, const RoomJob &job)
     }
     else
     {
-        uint32 base = roomBase - gVertices;
+        uint32 base = w.base;
         RoomFaces rf = { roomBase, base * 0x10001, &gFaceList, gRoomFaceFlags, level.textures, 0, 0,
                          gFaceList.end, gDetailKeys[0], gDetailSlots, gDetailFrame, faceAddRoomQuads, detailSlotMiss,
                          gTurn, 0, detailMips() && gBenchMode != BENCH_NO_LOD ? gTextureLod : 0 };
@@ -548,24 +599,21 @@ static void renderRoomJob(int32 index, const RoomJob &job)
         gSlaveStats.detailFaces += rf.detailFaces;
         gSlaveStats.detailMisses += rf.detailMisses;
     }
-    uint32 t2 = timerTicks();
-
-    gSlaveStats.xformTicks += (t1 - t0) & 0xFFFF;
-    gSlaveStats.faceTicks += (t2 - t1) & 0xFFFF;
+    gSlaveStats.faceTicks += (timerTicks() - t0) & 0xFFFF;
 }
 
 static void renderStaticJob(const MeshJob &job)
 {
     const Mesh* mesh = job.mesh;
     int32 count = mesh->vCount;
-    if (gNextVertex + count > gVertices + MAX_VERTICES || gFaceList.next + mesh->rCount + mesh->tCount > gFaceList.end)
+    if (gTop - count < gBottom || gFaceList.next + mesh->rCount + mesh->tCount > gFaceList.end)
         return;
 
     uint32 t0 = timerTicks();
+    gTop -= count;
     gMeshList.next = gFaceList.next;
-    meshJobDraw(job, gNextVertex, gMeshList);
+    meshJobDraw(job, gVertices + gTop, gMeshList);
     gFaceList.next = gMeshList.next;
-    gNextVertex += count;
     gSlaveStats.vertices += count;
     gSlaveStats.meshTicks += (timerTicks() - t0) & 0xFFFF;
 }
@@ -603,38 +651,57 @@ static void roomBatch()
     gMeshList.end = gFaceList.end;
     gMeshList.ot = gSlaveMeshOT;
     memset(gMeshList.groups, 0, sizeof(gMeshList.groups));
-    gNextVertex = gVertices + MASTER_VERTICES;
     gSlaveStats = RoomStats();
-    gDspJob = -1;
-    gDspMatrix = -1;
+    gPlaced = 0;
+    gBottom = MASTER_VERTICES;
+    gTop = MAX_VERTICES;
+    gFaced = 0;
+    gDspRoom = -1;
 
-    uint32 done = 0;
     uint32 staticsDone = 0;
     uint32 idleStart = timerTicks();
     while (1)
     {
         uint32 queued = *uncached(&gJobsQueued);
         uint32 statics = *uncached(&gStaticsQueued);
-        if (done == queued && staticsDone == statics)
+        asm volatile("" : : : "memory"); // read the jobs only after their count
+        placeRooms(queued);
+        dspFeed();
+
+        // a room whose chunks are all done, else the front chunk
+        int32 ready = -1, front = -1;
+        for (int32 i = 0; i < gPlaced && ready < 0; i++)
         {
-            if (!*uncached(&gJobsClosed))
+            const RoomWork &w = gWork[i];
+            if (!w.faced && w.lo == w.hi && gDspRoom != i) {
+                ready = i;
+            } else if (front < 0 && w.lo < w.hi) {
+                front = i;
+            }
+        }
+
+        if (ready < 0 && front < 0 && staticsDone == statics)
+        {
+            if (gDspRoom >= 0 || !*uncached(&gJobsClosed))
             {
                 busPause();
                 continue;
             }
             // the last jobs may have been queued just before the queue closed
-            if (done == *uncached(&gJobsQueued) && staticsDone == *uncached(&gStaticsQueued))
+            if (queued == *uncached(&gJobsQueued) && staticsDone == *uncached(&gStaticsQueued))
                 break;
             continue;
         }
 
-        asm volatile("" : : : "memory"); // read the job only after its count
         uint32 t = timerTicks();
         gSlaveStats.idleTicks += (t - idleStart) & 0xFFFF;
-        if (done < queued)
+        if (ready >= 0)
         {
-            renderRoomJob(done, *uncached(gJobs + done));
-            done++;
+            roomFaces(ready, *uncached(gJobs + ready));
+        }
+        else if (front >= 0)
+        {
+            roomChunk(front, *uncached(gJobs + front));
         }
         else
         {
@@ -642,35 +709,13 @@ static void roomBatch()
             renderStaticJob(job);
             staticsDone++;
         }
-        *uncached(&gJobsDone) = done + staticsDone;
+        *uncached(&gJobsDone) = gFaced + staticsDone;
         idleStart = timerTicks();
     }
 
     if (staticsDone) {
         mergeStatics();
     }
-}
-
-// project.dsp's divide table: divTable << 4 as longwords, by z >> 12.
-static int32 gDspDivide[DIV_TABLE_SIZE];
-
-// Starts project.dsp on batches of 16 vertices from src to dst.
-static void dspProject(const RoomMatrix &m, const RectMinMax &vp, const RoomVertex* src, Vertex* dst, int32 batches)
-{
-    const int32_t md0[36] = {
-        m.m00 * 4, m.m01 * 4, m.m02 * 4, m.tx, m.m10 * 4, m.m11 * 4, m.m12 * 4, m.ty,
-        m.m20 * 4, m.m21 * 4, m.m22 * 4, m.tz,
-        VIEW_MIN_F >> (FIXED_SHIFT - 8), VIEW_MAX_F >> (FIXED_SHIFT - 8), 256, 16,
-        int32_t(dspAddress(gDspDivide)), 0x7FFF00, -0x7FFF00,
-        1023 - FRAME_WIDTH / 2, -1024 - FRAME_WIDTH / 2, FRAME_WIDTH / 2,
-        1023 - FRAME_HEIGHT / 2, -1024 - FRAME_HEIGHT / 2, FRAME_HEIGHT / 2,
-        FRAME_WIDTH, FRAME_HEIGHT, vp.x0, vp.x1, vp.y0, vp.y1,
-        FOG_MIN, 8191, 65536, 0xFFFF, 0xFF00
-    };
-    const uint32_t md3[5] = { uint32_t(batches), 1, dspAddress(src), dspAddress(dst), 0xFF };
-    dspWrite(0, 0, (const uint32_t*)md0, 36);
-    dspWrite(3, 0, md3, 5);
-    dspStart(0);
 }
 
 void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors)
@@ -749,7 +794,17 @@ void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors)
 
 void roomsInit()
 {
-    dspLoad(xform_dsp, XFORM_DSP_COUNT);
+    for (int32 i = 0; i < DIV_TABLE_SIZE; i++) {
+        gDspDivide[i] = divTable[i] << 4;
+    }
+    dspLoad(project_dsp, PROJECT_DSP_COUNT);
+}
+
+void roomsAllQueued()
+{
+    if (gJobCount) {
+        *uncached(&gRoomsComplete) = 1;
+    }
 }
 
 void roomsQueue(const Room* room)
@@ -818,6 +873,7 @@ Face** roomsFinish(RoomStats &stats, const uint16* &groups)
     gStaticCount = 0;
     *uncached(&gJobsQueued) = 0;
     *uncached(&gJobsClosed) = 0;
+    *uncached(&gRoomsComplete) = 0;
     *uncached(&gStaticsQueued) = 0;
     *uncached(&gJobsDone) = 0;
 

@@ -212,7 +212,7 @@ enum BenchMode
     BENCH_NO_SHADE,     // every shaded face with gouraud (gShadeTables)
     BENCH_NO_GOURAUD,
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
-    BENCH_NO_DSP,       // room vertices on the slave alone, without the SCU DSP
+    BENCH_NO_DSP,       // rooms projected on the slave alone, without the SCU DSP
     BENCH_MASTER_STATICS,   // rooms' static meshes on the master, not the slave
     BENCH_FULL_CLEAR,   // the frame cleared by its first command alone (VBLANK_ERASE_LINES 0)
     BENCH_NO_CLEAR,     // the frame not cleared at all: what no face covers keeps an old frame
@@ -304,6 +304,7 @@ struct RoomStats
     uint32 faceTicks;   // ... adding faces
     uint32 meshTicks;   // ... drawing the rooms' static meshes
     uint32 idleTicks;   // ... waiting for rooms to be queued
+    uint32 dspVertices; // room vertices the DSP projected
 };
 
 // What meshxform.s needs to transform a mesh's vertices.
@@ -336,9 +337,11 @@ void meshJobSetup(MeshJob &job, const Mesh* mesh);
 // Draws job's mesh on the slave: its vertices to dst, its faces into list.
 void meshJobDraw(const MeshJob &job, Vertex* dst, FaceList &list);
 
-// Loads the room transform's DSP program (xform.dsp): the SCU DSP takes room
-// vertices to view space, the slave projects them.
+// Loads the rooms' DSP program (project.dsp), which projects whole rooms.
 void roomsInit();
+
+// Every room of the frame is queued: the DSP may start on the last.
+void roomsAllQueued();
 
 // project.dsp against transformRoomAsm on random vertices (debug.cpp's boot
 // self-test): the DSP's ticks with the start, this CPU's, and the vertices

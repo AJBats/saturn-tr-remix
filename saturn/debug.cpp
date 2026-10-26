@@ -195,10 +195,10 @@ static const char* const kBenchNames[BENCH_COUNT] = {
 static struct { uint32 vdp1, cpu, draw, slave, fps; } gBench[BENCH_COUNT];
 
 // and the base way's CPU time by stage, as gStats keeps it
-enum { SPLIT_UPDATE, SPLIT_DRAW, SPLIT_SLAVE_WAIT, SPLIT_FLUSH, SPLIT_XFORM, SPLIT_FACES, SPLIT_MESH, SPLIT_IDLE,
-       SPLIT_COUNT };
+enum { SPLIT_UPDATE, SPLIT_DRAW, SPLIT_SLAVE_WAIT, SPLIT_FLUSH, SPLIT_XFORM, SPLIT_FACES, SPLIT_MESH, SPLIT_COUNT };
 static const char* const kSplitNames[SPLIT_COUNT] = { "upd ", "draw ", "swait ", "flush ", "xform ", "faces ",
-                                                      "mesh ", "idle " };
+                                                      "mesh " };
+static uint32 gDspShare;    // percent of the base way's room vertices the DSP projected
 static uint32 gSplit[SPLIT_COUNT];
 
 // A sampling profiler for the master CPU: during the Profile way, the free-
@@ -408,6 +408,7 @@ static void benchUpdate()
     static uint32 frames, vdp1, cpu, draw, slave;
     static uint32 split[SPLIT_COUNT];
     static uint32 reachLo = ~0u, reachHi;
+    static uint32 dspVertices, roomVertices;
 
     if (!start) {
         start = gVblankCount;
@@ -429,7 +430,8 @@ static void benchUpdate()
         split[SPLIT_XFORM] += gStats.slaveXformTicks;
         split[SPLIT_FACES] += gStats.slaveFaceTicks;
         split[SPLIT_MESH] += gStats.slaveMeshTicks;
-        split[SPLIT_IDLE] += gStats.slaveIdleTicks;
+        dspVertices += gStats.dspVertices;
+        roomVertices += gStats.roomVertices;
         if (gBenchMode == BENCH_BASE)
         {
             reachLo = X_MIN(reachLo, gStats.eraseReach);
@@ -456,6 +458,7 @@ static void benchUpdate()
             gReachHi = reachHi;
             reachLo = ~0u;
             reachHi = 0;
+            gDspShare = roomVertices ? dspVertices * 100 / roomVertices : 0;
         }
     }
     if (gBenchMode == BENCH_PROFILE) {
@@ -463,6 +466,7 @@ static void benchUpdate()
     }
     gBenchChanged = true;
     memset(split, 0, sizeof(split));
+    dspVertices = roomVertices = 0;
 
     gBenchMode = (gBenchMode + 1) % BENCH_COUNT;
     start = gVblankCount;
@@ -503,6 +507,7 @@ static void benchCompose()
     for (int32 i = SPLIT_XFORM; i < SPLIT_COUNT; i++) {
         p = appendStat(p, kSplitNames[i], gSplit[i]);
     }
+    appendStat(p, "dsp% ", gDspShare);
     strncpy(gBenchRows[2], text, OVERLAY_COLUMNS);
 
     strncpy(gBenchRows[4], "   vdp1  cpu draw  slv  fps", OVERLAY_COLUMNS);

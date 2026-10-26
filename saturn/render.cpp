@@ -1079,6 +1079,7 @@ void flush_c()
     gStats.slaveFaceTicks = rooms.faceTicks;
     gStats.slaveMeshTicks = rooms.meshTicks;
     gStats.slaveIdleTicks = rooms.idleTicks;
+    gStats.dspVertices = rooms.dspVertices;
     gStats.drawTicks = (start - gDrawStart) & 0xFFFF;
 
     gVerticesBase = gVertices;
@@ -1433,6 +1434,11 @@ void clear()
 void renderRoom(Room* room)
 {
     roomsQueue(room);
+}
+
+void renderRoomsQueued()
+{
+    roomsAllQueued();
 }
 
 // A mesh's arrays, which follow it.

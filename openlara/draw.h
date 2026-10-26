@@ -870,6 +870,7 @@ void drawRooms(Camera* camera)
     for (Room** room = visRoom; *room; room++) {
         queueRoom(*room);
     }
+    renderRoomsQueued();
 
     while (*visRoom)
     {
