@@ -10,13 +10,49 @@ MEMORY
 
 SECTIONS
 {
+    /* The frame's hot code first, in a fixed order: what changes elsewhere
+       can't move it in the cache, nor the frame's time with it. Each CPU's
+       stages lie together: the flush both run, the face and vertex loops,
+       the master's per-mesh chain, the slave's room loop. C functions are in
+       sections of their own (-ffunction-sections). */
     .text : {
         KEEP(*(.text.start))
+        *flush.s.o(.text)
+        *faces.s.o(.text)
+        *meshxform.s.o(.text)
+        *xform.s.o(.text)
+        *(.text.*renderMesh*)
+        *(.text.*renderStaticMesh*)
+        *(.text.*meshParts*)
+        *(.text.*meshXformSetup*)
+        *(.text.*transformMesh*)
+        *(.text.*drawMesh*)
+        *(.text.*drawModel*)
+        *(.text.*drawNodes*)
+        *(.text.*drawLaraNodes*)
+        *(.text.*getFrames*)
+        *(.text.*getRelative*)
+        *(.text.*matrix*)
+        *(.text.*calcLighting*)
+        *(.text.*sphereIsVisible*)
+        *(.text.*drawRoomObjects*)
+        *(.text.*checkPortal*)
+        *(.text.*renderSprite*)
+        *(.text.*flush_c*)
+        *(.text.startup.main)
+        *(.text.*roomBatch*)
+        *(.text.*roomBegin*)
+        *(.text.*dspProject*)
+        *(.text.*meshJobDraw*)
+        *(.text.shadeTableMiss)
+        __hot_end = .;
         *(.text .text.*)
         __text_end = .;
     } > HWRAM
 
-    .rodata : { *(.rodata .rodata.*) } > HWRAM
+    /* on a 1 KB boundary (the cache's sets repeat every 1 KB): as code grows
+       or shrinks, the data after it keeps its sets */
+    .rodata ALIGN(1024) : { *(.rodata .rodata.*) } > HWRAM
 
     .init_array : {
         . = ALIGN(4);

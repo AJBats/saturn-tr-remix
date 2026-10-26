@@ -34,7 +34,8 @@ export PATH := $(abspath $(SH_BIN))$(PATHSEP)$(PATH)
 CC      := $(SH_PREFIX)gcc
 CXX     := $(SH_PREFIX)g++
 OBJCOPY := $(SH_PREFIX)objcopy
-CFLAGS  := -m2 -mb $(OPT) -Wall -D__SATURN__ -Isaturn -Iopenlara -I$(BUILD)/gen
+# -ffunction-sections: saturn.ld places the hot functions first, in a fixed order
+CFLAGS  := -m2 -mb $(OPT) -Wall -D__SATURN__ -Isaturn -Iopenlara -I$(BUILD)/gen -ffunction-sections
 ifdef START_LEVEL
 CFLAGS  += -DSTART_LEVEL=$(START_LEVEL)   # testing: touch saturn/main.cpp when changing it
 endif
