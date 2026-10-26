@@ -9,6 +9,11 @@
 ! void probeMuls(int32 count)                             muls.w, sts macl
 ! void probeDmuls(int32 count)                            dmuls.l, sts macl
 ! void probeStoreLoad(int32 count, uint32* buf)           mov.l store, then load
+! void probeDot(int32 count, const int16* buf)            lds macl, 3 mac.w, sts macl
+!                                                         twice, as the mesh transform
+! void probeMull(int32 count)                             mul.l, sts macl
+! void probeByteWrite(int32 count, uint8* buf)            mov.b stores 8 bytes apart,
+!                                                         as the shade pass's
 
     .text
     .align 2
@@ -123,6 +128,60 @@ _probeStoreLoad:
     mov.l   @(20, r5), r1
     mov.l   r0, @(24, r5)
     mov.l   @(28, r5), r1
+    dt      r4
+    bf      1b
+    rts
+    nop
+
+    .global _probeDot
+_probeDot:
+    mov     #0, r2
+1:  lds     r2, macl
+    mov     r5, r0
+    mov     r5, r1
+    mac.w   @r0+, @r1+
+    mac.w   @r0+, @r1+
+    mac.w   @r0+, @r1+
+    sts     macl, r3
+    lds     r2, macl
+    mov     r5, r0
+    mov     r5, r1
+    mac.w   @r0+, @r1+
+    mac.w   @r0+, @r1+
+    mac.w   @r0+, @r1+
+    sts     macl, r3
+    dt      r4
+    bf      1b
+    rts
+    nop
+
+    .global _probeMull
+_probeMull:
+    mov     #3, r1
+    mov     #5, r2
+1:  mul.l   r1, r2
+    sts     macl, r3
+    mul.l   r1, r2
+    sts     macl, r3
+    mul.l   r1, r2
+    sts     macl, r3
+    mul.l   r1, r2
+    sts     macl, r3
+    dt      r4
+    bf      1b
+    rts
+    nop
+
+    .global _probeByteWrite
+_probeByteWrite:
+1:  mov.b   r0, @r5
+    add     #8, r5
+    mov.b   r0, @r5
+    add     #8, r5
+    mov.b   r0, @r5
+    add     #8, r5
+    mov.b   r0, @r5
+    add     #8, r5
     dt      r4
     bf      1b
     rts

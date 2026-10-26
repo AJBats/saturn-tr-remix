@@ -66,6 +66,8 @@ int32 gRenderFaceCount; // VDP1 polygons emitted by the last flush
 
 static uint32 gRoomTicks;
 static uint32 gMeshTicks;
+static uint32 gMeshXformTicks;
+static uint32 gMeshFaceTicks;
 
 static volatile vdp1_cmd_t* const gVdp1Cmds = (volatile vdp1_cmd_t*)VDP1_VRAM;
 
@@ -163,7 +165,9 @@ bool transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, con
         xf.shades = NULL;
     }
 
+    uint32 start = timerTicks();
     transformMeshAsm(vertices, count, gVerticesBase, &xf);
+    gMeshXformTicks += (timerTicks() - start) & 0xFFFF;
     return xf.inside;
 }
 
@@ -1016,7 +1020,9 @@ void flush_c()
     gStats.slaveIdleTicks = rooms.idleTicks;
     gStats.roomTicks = gRoomTicks;
     gStats.meshTicks = gMeshTicks;
-    gRoomTicks = gMeshTicks = 0;
+    gStats.meshXformTicks = gMeshXformTicks;
+    gStats.meshFaceTicks = gMeshFaceTicks;
+    gRoomTicks = gMeshTicks = gMeshXformTicks = gMeshFaceTicks = 0;
 
     gVerticesBase = gVertices;
 
@@ -1262,6 +1268,7 @@ void renderMesh(const Mesh* mesh)
 
     uint32 start = timerTicks();
     bool inside = transformMesh(vertices, vCount, mesh->intensity, normals, shades, &mesh->center, mesh->bound);
+    uint32 faceStart = timerTicks();
 
     if (gFlatDist)
     {
@@ -1284,7 +1291,9 @@ void renderMesh(const Mesh* mesh)
     }
 
     gVerticesBase += vCount;
-    gMeshTicks += (timerTicks() - start) & 0xFFFF;
+    uint32 end = timerTicks();
+    gMeshFaceTicks += (end - faceStart) & 0xFFFF;
+    gMeshTicks += (end - start) & 0xFFFF;
 }
 
 // An octagon on the floor under the item, darkening what is drawn below it.

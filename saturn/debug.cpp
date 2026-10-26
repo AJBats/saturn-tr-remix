@@ -181,8 +181,10 @@ static const char* const kBenchNames[BENCH_COUNT] = {
 static struct { uint32 vdp1, cpu, mesh, slave, fps; } gBench[BENCH_COUNT];
 
 // and the base way's CPU time by stage, as gStats keeps it
-enum { SPLIT_UPDATE, SPLIT_MESH, SPLIT_SLAVE_WAIT, SPLIT_FLUSH, SPLIT_XFORM, SPLIT_FACES, SPLIT_COUNT };
-static const char* const kSplitNames[SPLIT_COUNT] = { "upd ", "mesh ", "swait ", "flush ", "xform ", "faces " };
+enum { SPLIT_UPDATE, SPLIT_MESH, SPLIT_SLAVE_WAIT, SPLIT_FLUSH, SPLIT_XFORM, SPLIT_FACES,
+       SPLIT_MESH_XFORM, SPLIT_MESH_FACES, SPLIT_COUNT };
+static const char* const kSplitNames[SPLIT_COUNT] = { "upd ", "mesh ", "swait ", "flush ", "xform ", "faces ",
+                                                      "xform ", "faces " };
 static uint32 gSplit[SPLIT_COUNT];
 
 static void benchUpdate()
@@ -209,6 +211,8 @@ static void benchUpdate()
         split[SPLIT_FLUSH] += gStats.flushTicks;
         split[SPLIT_XFORM] += gStats.slaveXformTicks;
         split[SPLIT_FACES] += gStats.slaveFaceTicks;
+        split[SPLIT_MESH_XFORM] += gStats.meshXformTicks;
+        split[SPLIT_MESH_FACES] += gStats.meshFaceTicks;
     }
 
     if (t < BENCH_WINDOW)
@@ -274,7 +278,12 @@ static uint32 probeWrite(volatile uint32* p)
 // (the pass's own cost), mac.w from the cache, mac.w with one operand
 // streaming from low work RAM, muls.w and dmuls.l each with sts macl, stores
 // each followed by a load.
-enum { OP_NOP, OP_MAC, OP_MAC_LOW, OP_MULS, OP_DMULS, OP_STORE_LOAD, OP_KINDS };
+// Then: two dot products a pass as the mesh transform makes them (lds macl,
+// three mac.w, sts macl), mul.l with sts macl, byte stores 8 apart (as the
+// shade pass's), and reads of a cache line at random in 128 KB of high work
+// RAM or 512 KB of low (tenths of a cycle a read, with the xorshift picking it).
+enum { OP_NOP, OP_MAC, OP_MAC_LOW, OP_MULS, OP_DMULS, OP_STORE_LOAD,
+       OP_DOT, OP_MULL, OP_BYTE_WRITE, OP_RANDOM_HIGH, OP_RANDOM_LOW, OP_KINDS };
 static uint32 gOps[OP_KINDS];
 
 extern "C" void probeNop(int32 count);
@@ -283,12 +292,32 @@ extern "C" void probeMacStream(int32 count, const int16* stream, const int16* bu
 extern "C" void probeMuls(int32 count);
 extern "C" void probeDmuls(int32 count);
 extern "C" void probeStoreLoad(int32 count, uint32* buf);
+extern "C" void probeDot(int32 count, const int16* buf);
+extern "C" void probeMull(int32 count);
+extern "C" void probeByteWrite(int32 count, uint8* buf);
 
 #define OP_PASSES   (PROBE_BYTES / 16)  // macStream reads 16 bytes a pass
 
-static uint32 opTime(uint32 t0)
+static uint32 opTime(uint32 t0, uint32 perPass = 8)
 {
-    return ((timerTicks() - t0) & 0xFFFF) * 128 * 10 / (OP_PASSES * 8);
+    return ((timerTicks() - t0) & 0xFFFF) * 128 * 10 / (OP_PASSES * perPass);
+}
+
+static uint32 probeRandom(const volatile uint32* base, uint32 lines)
+{
+    cachePurge();
+    uint32 x = 2463534242u;
+    uint32 sum = 0;
+    uint32 t0 = timerTicks();
+    for (uint32 i = 0; i < OP_PASSES; i++)
+    {
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        sum += base[(x & (lines - 1)) * 4];
+    }
+    gProbeSink = sum;
+    return opTime(t0, 1);
 }
 
 void debugMemoryProbe()
@@ -329,6 +358,17 @@ void debugMemoryProbe()
     t = timerTicks();
     probeStoreLoad(OP_PASSES, (uint32*)buf);
     gOps[OP_STORE_LOAD] = opTime(t);
+    t = timerTicks();
+    probeDot(OP_PASSES, buf);
+    gOps[OP_DOT] = opTime(t, 16);
+    t = timerTicks();
+    probeMull(OP_PASSES);
+    gOps[OP_MULL] = opTime(t);
+    t = timerTicks();
+    probeByteWrite(OP_PASSES, (uint8*)gVertices);
+    gOps[OP_BYTE_WRITE] = opTime(t);
+    gOps[OP_RANDOM_HIGH] = probeRandom((const volatile uint32*)gVertices, 128 * 1024 / 16);
+    gOps[OP_RANDOM_LOW] = probeRandom((const volatile uint32*)LOW_RAM, 512 * 1024 / 16);
 
     asm volatile("ldc %0, sr" : : "r"(sr));
 }
@@ -346,10 +386,17 @@ static void benchDraw()
     }
     overlayRow(1, text);
     p = append(text, "slave  ");
-    for (int32 i = SPLIT_XFORM; i < SPLIT_COUNT; i++) {
+    for (int32 i = SPLIT_XFORM; i < SPLIT_MESH_XFORM; i++) {
         p = appendStat(p, kSplitNames[i], gSplit[i]);
     }
     overlayRow(2, text);
+    // the master's mesh stage in parts
+    p = append(text, "mesh   ");
+    for (int32 i = SPLIT_MESH_XFORM; i < SPLIT_COUNT; i++) {
+        p = appendStat(p, kSplitNames[i], gSplit[i]);
+    }
+    appendStat(p, "setup ", gSplit[SPLIT_MESH] - gSplit[SPLIT_MESH_XFORM] - gSplit[SPLIT_MESH_FACES]);
+    overlayRow(3, text);
 
     overlayRow(4, "   vdp1  cpu mesh  slv  fps");
     for (int32 i = 0; i < BENCH_COUNT; i++)
@@ -387,10 +434,16 @@ static void benchDraw()
 
     overlayRow(10 + BENCH_COUNT, "op x10   nop  mac macLo muls dmuls stld");
     p = append(text, "cycles ");
-    for (int32 i = 0; i < OP_KINDS; i++) {
+    for (int32 i = 0; i < OP_DOT; i++) {
         p = appendColumn(p, gOps[i]);
     }
     overlayRow(11 + BENCH_COUNT, text);
+    overlayRow(12 + BENCH_COUNT, "op x10   dot mul.l byteW rndHi rndLo");
+    p = append(text, "cycles ");
+    for (int32 i = OP_DOT; i < OP_KINDS; i++) {
+        p = appendColumn(p, gOps[i]);
+    }
+    overlayRow(13 + BENCH_COUNT, text);
 }
 #endif
 
