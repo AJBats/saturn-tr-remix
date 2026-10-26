@@ -3018,7 +3018,7 @@ void dmaCopy(const void* src, void* dst, uint32 size);
 int32 osGetSystemTimeMS();
 #if defined(__SATURN__)
 void osGameComplete();
-void osDrawDebug(); // the platform's debug menu and lines, over the game
+void osDrawDebug(); // the platform's debug menu and lines, and the fps counter, over the game
 #endif
 bool osSaveSettings();
 bool osLoadSettings();

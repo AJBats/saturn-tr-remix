@@ -19,4 +19,14 @@ volatile uint16_t* screenBlank();
 // with keepPicture (VDP1 clears to transparent), or on black.
 void screenRelease(bool keepPicture);
 
+// The debug overlay's layer (overlay.cpp), over the frame and any picture:
+// NBG1, a 512x256 bitmap of 4-bit pixels (0 clear, 1 white, 2 black) at this
+// VDP2 VRAM offset, 256 bytes a line. Hidden by a picture or screenBlank
+// until shown again.
+#define SCREEN_OVERLAY_VRAM 0x60000
+void screenOverlay(bool show);
+
+// Pictures shown so far: loading one overwrites the overlay's bitmap.
+uint32_t screenPictures();
+
 #endif

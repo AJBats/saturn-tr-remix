@@ -7,6 +7,7 @@
 #include "debug.h"
 #include "common.h"
 #include "input.h"
+#include "overlay.h"
 #include "palettes.h"
 #include "render.h"
 #include "system.h"
@@ -159,6 +160,17 @@ static uint32 framePercent(uint32 ticks)
 #define BENCH_WINDOW    240     // vblanks each way lasts
 #define BENCH_SETTLE    60      // the first of them aren't averaged
 
+// A number right-aligned in a column of 5.
+static char* appendColumn(char* p, uint32 value)
+{
+    char digits[12];
+    int2str(int32(value), digits);
+    for (int32 n = strlen(digits); n < 5; n++) {
+        *p++ = ' ';
+    }
+    return append(p, digits);
+}
+
 static const char* const kBenchNames[BENCH_COUNT] = {
     "Base", "Fixed lines", "LOD x1", "No gouraud", "No texture"
 };
@@ -216,8 +228,7 @@ static void benchUpdate()
     frames = vdp1 = cpu = 0;
 }
 
-// Glyphs take the master's vertices, which a heavy view nearly uses up: the
-// CPU stages first, then the table as terse as it reads.
+// Rows 1 on: the CPU stages, then the table.
 static void benchDraw()
 {
     char text[64];
@@ -228,32 +239,45 @@ static void benchDraw()
     for (int32 i = 0; i < SPLIT_XFORM; i++) {
         p = appendStat(p, kSplitNames[i], gSplit[i]);
     }
-    drawText(16, 30, text, TEXT_ALIGN_LEFT);
+    overlayRow(1, text);
     p = append(text, "slave  ");
     for (int32 i = SPLIT_XFORM; i < SPLIT_COUNT; i++) {
         p = appendStat(p, kSplitNames[i], gSplit[i]);
     }
-    drawText(16, 48, text, TEXT_ALIGN_LEFT);
+    overlayRow(2, text);
 
-    drawText(16, 72, "vdp1 cpu fps", TEXT_ALIGN_LEFT);
+    overlayRow(4, "   vdp1  cpu  fps");
     for (int32 i = 0; i < BENCH_COUNT; i++)
     {
-        p = append(text, i == gBenchMode ? "> " : "");
+        p = append(text, i == gBenchMode ? "> " : "  ");
         if (gBench[i].fps)
         {
-            p = appendStat(p, "", gBench[i].vdp1);
-            p = appendStat(p, "", gBench[i].cpu);
-            p = appendStat(p, "", gBench[i].fps);
+            p = appendColumn(p, gBench[i].vdp1);
+            p = appendColumn(p, gBench[i].cpu);
+            p = appendColumn(p, gBench[i].fps);
         }
+        else
+        {
+            p = append(p, "               ");
+        }
+        p = append(p, "  ");
         append(p, kBenchNames[i]);
-        drawText(16, 90 + i * 18, text, TEXT_ALIGN_LEFT);
+        overlayRow(5 + i, text);
     }
 }
 #endif
 
+// Over the frame on VDP2 (overlay.h), with the fps counter: the frame's
+// measurements don't count them.
 void osDrawDebug()
 {
     char text[64];
+
+    if (gSettings.video_fps)
+    {
+        int2str(fps, text);
+        overlayRow(0, text, OVERLAY_RIGHT);
+    }
 
     if (gMenuOpen)
     {
@@ -264,23 +288,22 @@ void osDrawDebug()
             p = append(p, o.name);
             p = append(p, "  ");
             append(p, o.values[o.get()]);
-            drawText(16, 40 + i * 18, text, TEXT_ALIGN_LEFT);
+            overlayRow(2 + i, text);
         }
     }
 
-    int32 y = FRAME_HEIGHT - 20;
+    int32 row = OVERLAY_ROWS - 1;
 
     if (int32(gMessageEnd - gVblankCount) > 0)
     {
         char* p = append(text, gMessageName);
         p = append(p, "  ");
         append(p, gMessage);
-        drawText(0, y, text, TEXT_ALIGN_CENTER);
-        y -= 18;
+        overlayRow(row--, text, OVERLAY_CENTRE);
     }
 
 #ifdef HW_LOG
-    if (gTexelView)     // the measurement table stands in for the stats
+    if (gTexelView)     // the stats change every frame: not while measuring
 #else
     if (gShowStats || gTexelView)
 #endif
@@ -290,13 +313,12 @@ void osDrawDebug()
         char* p = appendStat(text, "cached ", gStats.detailFaces);
         p = appendStat(p, "missed ", gStats.detailMisses);
         appendStat(p, "flat ", gStats.flatFaces);
-        drawText(0, y, text, TEXT_ALIGN_CENTER);
-        y -= 18;
+        overlayRow(row--, text, OVERLAY_CENTRE);
 
         p = appendStat(text, "vdp1 ", framePercent(gStats.vdp1Ticks));
         p = appendStat(p, "cpu ", framePercent(gStats.updateTicks + gStats.renderTicks - gStats.waitTicks));
         appendStat(p, "uploads ", gStats.detailUploads);
-        drawText(0, y, text, TEXT_ALIGN_CENTER);
+        overlayRow(row--, text, OVERLAY_CENTRE);
     }
 
 #ifdef HW_LOG
@@ -304,4 +326,6 @@ void osDrawDebug()
         benchDraw();
     }
 #endif
+
+    overlayFrame();
 }

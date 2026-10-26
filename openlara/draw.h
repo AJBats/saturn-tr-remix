@@ -938,7 +938,8 @@ void drawHUD(Lara* lara)
 void drawFPS()
 {
 #if defined(__SATURN__)
-    osDrawDebug();
+    osDrawDebug(); // the fps too, over the frame on VDP2
+    return;
 #endif
 
 #ifdef __GBA__

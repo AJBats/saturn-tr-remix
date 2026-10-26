@@ -13,6 +13,7 @@
 //   6  the slave's task (0: idle)
 
 #include "crash.h"
+#include "font.h"
 #include "hw.h"
 #include "screen.h"
 #include "slave.h"
@@ -46,32 +47,6 @@ static bool gHold = true;       // until the first level has loaded
 static struct { const char* label; uint32_t value; } gLog[LOG_LINES];
 static int32_t gLogCount;
 
-// 3 x 5 pixels, rows from the top
-static const char* const kDigits[16] = {
-    "111101101101111", "010110010010111", "111001111100111", "111001111001111",
-    "101101111001001", "111100111001111", "111100111101111", "111001001001001",
-    "111101111101111", "111101111001111", "010101111101101", "110101110101110",
-    "011100100100011", "110101101101110", "111100110100111", "111100110100100"
-};
-static const char* const kLetters[26] = {
-    "010101111101101", "110101110101110", "011100100100011", "110101101101110",
-    "111100110100111", "111100110100100", "011100101101011", "101101111101101",
-    "111010010010111", "001001001101010", "101101110101101", "100100100100111",
-    "101111111101101", "110101101101101", "010101101101010", "110101110100100",
-    "010101101110011", "110101110101101", "011100010001110", "111010010010010",
-    "101101101101111", "101101101101010", "101101111111101", "101101010101101",
-    "101101010010010", "111001010100111"
-};
-
-static const char* glyph(char c)
-{
-    if (c >= '0' && c <= '9')
-        return kDigits[c - '0'];
-    if (c >= 'A' && c <= 'Z')
-        return kLetters[c - 'A'];
-    return nullptr;
-}
-
 #define BITMAP_PITCH    512
 
 static void character(volatile uint16_t* bitmap, int32_t x0, int32_t y0, int32_t scale, const char* g)
@@ -93,7 +68,7 @@ static int32_t text(volatile uint16_t* bitmap, int32_t x0, int32_t y0, int32_t s
     int32_t x = x0;
     for (const char* p = label; *p; p++, x += 4 * scale)
     {
-        const char* g = glyph(*p);
+        const char* g = fontGlyph(*p);
         if (g) {
             character(bitmap, x, y0, scale, g);
         }
@@ -104,7 +79,7 @@ static int32_t text(volatile uint16_t* bitmap, int32_t x0, int32_t y0, int32_t s
             x += 4 * scale;
         }
         for (int32_t d = 0; d < 8; d++, x += 4 * scale) {
-            character(bitmap, x, y0, scale, kDigits[(value >> (28 - d * 4)) & 15]);
+            character(bitmap, x, y0, scale, fontGlyph("0123456789ABCDEF"[(value >> (28 - d * 4)) & 15]));
         }
     }
     return x - x0;
