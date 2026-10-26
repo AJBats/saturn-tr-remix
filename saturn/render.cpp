@@ -370,9 +370,10 @@ bool renderFastShrink()
     return gTexturePmod & PMOD_HSS;
 }
 // Lines VDP1 erases at the top of each frame in the vblank of its change,
-// leaving the rest to the clear command: what the vblank of a 224-line frame
-// covers at 352 pixels a line, with a margin.
-#define VBLANK_ERASE_LINES  170
+// leaving the rest to the clear command. On a Saturn the vblank of a 224-line
+// frame erases from 85 to 170 lines of 352 pixels, varying frame to frame (the
+// bench's erase row); Mednafen always 170.
+#define VBLANK_ERASE_LINES  80
 
 int32 gDarkFaces = DARK_CONTRAST;
 int32 gFlatDist;
