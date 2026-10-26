@@ -33,7 +33,7 @@ enum FaceType {
     FACE_TYPE_LINE_H,
     FACE_TYPE_LINE_V,
     FACE_TYPE_AVG,      // a textured face drawn flat in its texture's mean colour (far LOD)
-    FACE_TYPE_VOID,     // black, behind everything, where a room face cut away by the near or far plane would be
+    FACE_TYPE_VOID,     // transparent, behind everything, where a room face cut away by the near or far plane would be
     FACE_TYPE_MAX
 };
 
@@ -218,6 +218,7 @@ enum BenchMode
     BENCH_ALL_MESHES,   // items' meshes and shadows to the slave too, not only rooms' static meshes
     BENCH_C_MESHES,     // the master's meshes by the C path, not meshxform.s renderMeshAsm
     BENCH_CLEAR,        // the scene's frames cleared too, as frames without rooms are
+    BENCH_VOID_COLOR,   // VDP2's back colour magenta: shows where void fills (transparent) drew
     BENCH_PROFILE,      // as Base, sampling where the master's time goes
     BENCH_COUNT
 };

@@ -60,6 +60,10 @@ void vdp1WaitIdle();
 void vdp1WaitDrawn();
 void vdp1Plot();
 
+// The colour VDP2 shows where no layer and no VDP1 pixel is drawn (the
+// transparent clear and void fills): black.
+void vdp2SetBackColor(uint16_t color);
+
 // Calls fn from the vblank-out interrupt once the next frame VDP1 draws is on
 // screen (nullptr cancels). Call with VDP1 idle, so that frame is a new one.
 void vdp1OnNextFrame(void (*fn)());

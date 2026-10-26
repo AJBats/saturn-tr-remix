@@ -433,8 +433,9 @@ bool Room::checkPortal(const Portal* portal)
     if (zfar == 4)
     {
     #ifdef __SATURN__
-        // past the draw distance: black where the room behind would be, as the
-        // original's fog leaves it, the frame not being cleared
+        // past the draw distance: filled where the room behind would be (VDP2's
+        // black back colour, as the original's fog leaves it), the frame not
+        // being cleared
         x0 = X_MAX(x0 + (FRAME_WIDTH >> 1), clip.x0);
         y0 = X_MAX(y0 + (FRAME_HEIGHT >> 1), clip.y0);
         x1 = X_MIN(x1 + (FRAME_WIDTH >> 1), clip.x1);

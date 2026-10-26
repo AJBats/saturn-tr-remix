@@ -165,11 +165,16 @@ static void vdp2Init()
     VDP2_SPCTL = SPCTL_SPCLMD;
     VDP2_PRISA = VDP2_PRISB = VDP2_PRISC = VDP2_PRISD = 0x0606;
 
-    REG16(VDP2_VRAM + BACK_COLOR_ADDR) = RGB(0, 0, 0);
+    vdp2SetBackColor(RGB(0, 0, 0));
     VDP2_BKTAU = (BACK_COLOR_ADDR >> 17) & 7;
     VDP2_BKTAL = (BACK_COLOR_ADDR >> 1) & 0xFFFF;
 
     VDP2_TVMD = TVMD_DISP | TVMD_HRES_352; // 224 lines, non-interlaced, as the original
+}
+
+void vdp2SetBackColor(uint16_t color)
+{
+    REG16(VDP2_VRAM + BACK_COLOR_ADDR) = color;
 }
 
 static void vdp1Init()

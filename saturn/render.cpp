@@ -760,7 +760,7 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
 
         case FACE_TYPE_VOID:
             w[0] = CMD_POLYGON << 16;
-            w[1] = pair(PMOD_NO_ECD_SPD, RGB(0, 0, 0));
+            w[1] = pair(PMOD_NO_ECD_SPD, 0);    // transparent: VDP2's back colour
             w[3] = v0->xy;
             w[4] = gVertices[face->indices[1]].xy;
             w[5] = gVertices[face->indices[2]].xy;
@@ -1070,9 +1070,9 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
 }
 
 // The frame's first command clears it, as the original does, unless rooms
-// cover it: what neither a face nor a portal of theirs would draw is black
-// behind everything then (faceAddRoomVoid, renderVoid), and VDP1 has the
-// clear's time for the scene. The clear is a scaled sprite of colour 0 with
+// cover it: what neither a face nor a portal of theirs would draw is filled
+// transparent behind everything then (faceAddRoomVoid, renderVoid), and VDP1
+// has the clear's time for the scene. The clear is a scaled sprite of colour 0 with
 // transparency off, which writes 0 (VDP2 shows the back colour).
 static void clearCommand(bool clear)
 {
@@ -1831,10 +1831,11 @@ static void renderRect(int32 x, int32 y, int32 width, int32 height, uint32 type,
     f->indices[0] = v - gVertices;
 }
 
-// Black behind everything, where nothing would draw: the frame isn't cleared.
+// Transparent behind everything, where nothing would draw (VDP2's back colour
+// shows): the frame isn't cleared.
 void renderVoid(int32 x0, int32 y0, int32 x1, int32 y1)
 {
-    renderRect(x0, y0, x1 - x0, y1 - y0, FACE_TYPE_LINE_H, RGB(0, 0, 0), OT_SIZE - 1);
+    renderRect(x0, y0, x1 - x0, y1 - y0, FACE_TYPE_LINE_H, 0, OT_SIZE - 1);
 }
 
 // Darkens the frame under the rectangle (VDP1 halves it; shade is ignored).

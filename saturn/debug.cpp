@@ -8,6 +8,7 @@
 #include "common.h"
 #include "crash.h"
 #include "dsp.h"
+#include "hw.h"
 #include "slave.h"
 #include "xform_dsp.h"
 #include "dmaprobe_dsp.h"
@@ -195,7 +196,7 @@ static char* appendColumn(char* p, uint32 value)
 
 static const char* const kBenchNames[BENCH_COUNT] = {
     "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master meshes",
-    "All meshes", "C meshes", "Clear", "Profile"
+    "All meshes", "C meshes", "Clear", "Void colour", "Profile"
 };
 
 // each way's VDP1 and master CPU time, the master's drawing (rooms queued
@@ -471,6 +472,7 @@ static void benchUpdate()
     dspVertices = roomVertices = 0;
 
     gBenchMode = (gBenchMode + 1) % BENCH_COUNT;
+    vdp2SetBackColor(gBenchMode == BENCH_VOID_COLOR ? RGB(31, 0, 31) : RGB(0, 0, 0));
     start = gVblankCount;
     frames = vdp1 = cpu = draw = slave = 0;
 }

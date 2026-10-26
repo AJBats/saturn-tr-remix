@@ -667,8 +667,9 @@ _faceAddMeshTrianglesBody:
     bf      \gone
     .endm
 
-! the face at r10 black behind everything (rooms.cpp faceAddRoomVoid), with
-! the index pairs at r4 + 4 and in 'pair2'; r0, r13, r14
+! the face at r10 a transparent fill behind everything (rooms.cpp
+! faceAddRoomVoid), with the index pairs at r4 + 4 and in 'pair2'; r0, r13,
+! r14
     .macro  VOID pair2
     mov     #5, r13
     shll8   r13                 ! the last bucket, OT_SIZE - 1
@@ -706,7 +707,7 @@ _faceAddRoomQuadsAsm:
     bra     .LrquadsDone
     nop
 
-    ! culled: wholly past the far plane, black; cut by a plane, to C, which
+    ! culled: wholly past the far plane, filled; cut by a plane, to C, which
     ! splits the quad or fills it
 .LrquadCulled:
     GONE    .LrquadNext, .LrquadCut
@@ -778,7 +779,7 @@ _faceAddRoomTrianglesAsm:
     bra     .LrtrisDone
     nop
 
-    ! culled: cut by a plane or wholly past the far one, black
+    ! culled: cut by a plane or wholly past the far one, filled
 .LrtriCulled:
     GONE    .LrtriNext, 1f
 1:  BACKFACE .LrtriNext
