@@ -26,6 +26,8 @@
 !   +60 void (*slow)(const Face* face, uint32* w, uint32* grd, int32 room)
 !   +64 uint32 mipVram[2]       the mip levels' pools (gDetailPoolVram[1], [2])
 !   +72 ShadeCache* shade       the CPU's shaded colour tables, 0 for none
+!   +76 int32 farShade          room faces drawn with the quarter-size mip take
+!                               one shade, their corners' mean
 !
 ! ShadeCache (render.cpp): +0 frame, +4 validFrom, +8 vram, +12 miss,
 ! +16 keys[256], +1040 frames[256].
@@ -645,13 +647,20 @@ _flushAsm:
     SHADE   r6
     SHADE   r7
 
-    ! one shade at every corner: perhaps a shaded colour table instead
+    ! one shade at every corner, or a far face: perhaps a shaded colour table
+    ! instead
+    mov.l   @r9, r0
+    mov.l   .LfarFace, r3
+    and     r3, r0
+    cmp/eq  r3, r0
+    bt      .LfarShade
     cmp/eq  r4, r5
     bf      .LgouraudTable
     cmp/eq  r4, r6
     bf      .LgouraudTable
     cmp/eq  r4, r7
     bf      .LgouraudTable
+.LshadeIt:
     bsr     .LshadeTable
     nop
     tst     r0, r0
@@ -667,6 +676,43 @@ _flushAsm:
     or      r7, r6
     bra     .Lfaced
     mov.l   r6, @(4, r11)
+
+    ! a far face with farShade: its corners' mean gouraud value at every corner
+.LfarShade:
+    mov     #76, r0
+    mov.l   @(r0, r8), r0
+    tst     r0, r0
+    bf      1f
+    bra     .LgouraudTable
+    nop
+1:  mov     r4, r0
+    and     #31, r0
+    mov     r0, r3
+    mov     r5, r0
+    and     #31, r0
+    add     r0, r3
+    mov     r6, r0
+    and     #31, r0
+    add     r0, r3
+    mov     r7, r0
+    and     #31, r0
+    add     r0, r3
+    add     #2, r3
+    shlr2   r3                  ! the mean level, the shades being grey
+    mov     r3, r4
+    shll2   r3
+    shll2   r3
+    shll    r3
+    or      r3, r4              ! level << 5 | level
+    shll2   r3
+    shll2   r3
+    shll    r3
+    or      r3, r4              ! a grey of that level
+    mov     r4, r5
+    mov     r4, r6
+    bra     .LshadeIt
+    mov     r4, r7
+
 
 
     ! the table of less contrast, by eighths as the darkening (r3) passes
@@ -700,6 +746,10 @@ _flushAsm:
     or      r14, r0
     bra     .Lplain
     mov.l   r0, @(4, r10)       ! w[1]: the table
+
+.LplainFar:                     ! .Lplain, for the branches below
+    bra     .Lplain
+    nop
 
 .Lhalf:
     ! half luminance when darkened by a third of the texture's mean luma
@@ -744,7 +794,7 @@ _flushAsm:
     shlr8   r0
     shll2   r0                  ! mean luma * 4
     cmp/gt  r3, r0
-    bt      .Lplain
+    bt      .LplainFar
 
     ! and no channel of the brightest corner past gouraud 31: m + 2L - 16
     add     r14, r14
@@ -756,20 +806,20 @@ _flushAsm:
     mov     r3, r0
     and     #31, r0
     cmp/gt  r14, r0
-    bt      .Lplain
+    bt      .LplainFar
     mov     r3, r0
     shlr2   r0
     shlr2   r0
     shlr    r0
     and     #31, r0
     cmp/gt  r14, r0
-    bt      .Lplain
+    bt      .LplainFar
     mov     r3, r0
     shlr8   r0
     shlr2   r0
     and     #31, r0
     cmp/gt  r14, r0
-    bt      .Lplain
+    bt      .LplainFar
 
     mov     r4, r0
     mov.b   @(r0, r1), r4
@@ -820,6 +870,7 @@ _flushAsm:
     mov.l   r0, @(4, r10)
 
     .align 2
+.LfarFace:      .long   0x2C040000  ! FACE_DETAIL | FACE_DETAIL_WHOLE | FACE_DETAIL_MIP2 | FACE_DETAIL_MIP
 .LfacePara2:    .long   0x10000000  ! FACE_PARALLELOGRAM
 .LfaceV0AtD:    .long   0x08000000  ! FACE_V0_AT_D
 .LturnedFace:   .long   0x28080000  ! FACE_DETAIL | FACE_DETAIL_WHOLE | FACE_DETAIL_TURNED

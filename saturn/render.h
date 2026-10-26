@@ -230,7 +230,9 @@ extern int32 gTextureLod;
 
 // Textured faces whose corners all take one shade are drawn without gouraud
 // (which costs VDP1 most of a cycle a pixel), through copies of their colour
-// tables shaded as gouraud would shade them. 0: gouraud for every shaded face.
+// tables shaded as gouraud would shade them. 0: gouraud for every shaded face;
+// 2: also room faces small enough for the quarter-size mip, at their corners'
+// mean shade.
 extern int32 gShadeTables;
 
 X_INLINE int32 vertexSpan(const Vertex* a, const Vertex* b)

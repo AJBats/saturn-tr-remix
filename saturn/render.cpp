@@ -884,12 +884,13 @@ struct FlushXform
     void (*slow)(const Face* face, uint32* w, uint32* grd, int32 room);
     uint32 mipVram[2];      // gDetailPoolVram[1], [2]
     ShadeCache* shade;      // the CPU's shaded colour tables; NULL: none
+    int32 farShade;         // faces drawn with the quarter-size mip take one shade
 };
 
 static_assert(offsetof(FlushXform, vertices) == 12 && offsetof(FlushXform, grdLink) == 28 &&
               offsetof(FlushXform, textures) == 32 && offsetof(FlushXform, dark) == 52 &&
               offsetof(FlushXform, slow) == 60 && offsetof(FlushXform, mipVram) == 64 &&
-              offsetof(FlushXform, shade) == 72,
+              offsetof(FlushXform, shade) == 72 && offsetof(FlushXform, farShade) == 76,
               "FlushXform layout is shared with flush.s");
 static_assert(sizeof(Face) == 16 && offsetof(Face, next) == 4 && offsetof(Face, indices) == 8 &&
               sizeof(Texture) == 16 && offsetof(Texture, attr) == 6 && offsetof(Texture, color) == 8 &&
@@ -935,6 +936,7 @@ static void flushXformInit(FlushXform &xf, Face** roomOT, int32 first, int32 cou
     ShadeCache &shade = gShadeCaches[cpu];
     shade.frame = gShadeFrame;
     xf.shade = shade.vram && gShadeTables && gBenchMode != BENCH_NO_SHADE ? &shade : NULL;
+    xf.farShade = gShadeTables == 2;
     xf.roomOT = roomOT + first;
     xf.meshOT = gOT + first;
     xf.buckets = count;
