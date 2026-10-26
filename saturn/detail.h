@@ -28,6 +28,8 @@
 #define DETAIL_FULL_SLOTS   128     // the most full-res slots; the mip pools' slots follow
 #define DETAIL_MIP_SLOTS    64      // each mip level's
 #define DETAIL_SLOTS        (DETAIL_FULL_SLOTS + 2 * DETAIL_MIP_SLOTS)
+#define DETAIL_MIN_FULL_SLOTS 40    // kept for full-res textures: near faces take
+                                    // them, and the inventory's item textures 36
 
 // After loading the level's room texture set (data, size): the cache starts
 // at this VDP1 VRAM offset and runs to the end of VRAM.
@@ -93,6 +95,10 @@ inline int32_t detailSlot(uint32_t key, uint32_t texSize, uint32_t variant)
 // tables and empties the cache; their VDP1 VRAM offset, or 0 if they don't
 // fit.
 uint32_t detailReserveTop(uint32_t size);
+
+// Bytes of the full-res pool beyond DETAIL_MIN_FULL_SLOTS, which optional
+// tables may take.
+uint32_t detailSpareBytes();
 
 // VDP1 VRAM offset of a slot of the full-res pool, and of each pool.
 extern uint32_t gDetailVramStart;

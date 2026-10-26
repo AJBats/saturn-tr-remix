@@ -14,7 +14,6 @@
 #define KEY_MASK        0xFFF
 #define ITEM_DATA_MAX   (72 * 1024) // LEVEL4's are 70 KB
 #define MIP_BYTES       (DETAIL_MIP_SLOTS * (DETAIL_SLOT_SIZE / 4 + DETAIL_SLOT_SIZE / 16))
-#define MIN_FULL_SLOTS  40      // below this many full-res slots, no mip pools
 
 struct Upload
 {
@@ -62,7 +61,7 @@ void detailInit(uint32_t vramStart, const uint8_t* data, uint32_t dataSize)
     gData[2] = gData[1] + full / 4;
 
     int32_t slots = (0x80000 - gDetailVramStart) / DETAIL_SLOT_SIZE;
-    if (mips && slots - MIP_BYTES / DETAIL_SLOT_SIZE >= MIN_FULL_SLOTS)
+    if (mips && slots - MIP_BYTES / DETAIL_SLOT_SIZE >= DETAIL_MIN_FULL_SLOTS)
     {
         slots -= MIP_BYTES / DETAIL_SLOT_SIZE;
         gPoolCount[1] = gPoolCount[2] = DETAIL_MIP_SLOTS;
@@ -130,6 +129,11 @@ uint32_t detailReserveTop(uint32_t size)
     gPoolCount[0] -= slots;
     emptySlots();
     return detailSlotAddr(gPoolCount[0]);
+}
+
+uint32_t detailSpareBytes()
+{
+    return gPoolCount[0] > DETAIL_MIN_FULL_SLOTS ? (gPoolCount[0] - DETAIL_MIN_FULL_SLOTS) * DETAIL_SLOT_SIZE : 0;
 }
 
 void detailSuspend()

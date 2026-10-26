@@ -1231,7 +1231,8 @@ static Texture gTextures[MAX_LEVEL_TEXTURES];
 
 // A mesh quad drawn across a texture twice as tall as it is wide (a plank, a
 // rope) takes many short lines. Each such object texture gets a transposed
-// copy in VDP1 VRAM, as long as they fit TURNED_COPIES_MAX, and an entry of
+// copy in VDP1 VRAM, as long as they fit TURNED_COPIES_MAX and the cache can
+// spare them, and an entry of
 // its own drawing that copy flipped horizontally; a quad with corners taken
 // round by one (D A B C) through it shows the same texels at its corners,
 // its lines along its long side. The level's quads with those textures are
@@ -1263,7 +1264,7 @@ static void buildTurnedCopies()
     }
 }
 
-static void turnObjectQuads()
+static void turnObjectQuads(uint32 budget)
 {
     gTurnedBase = level.texturesCount;
     gTurnedCount = 0;
@@ -1282,7 +1283,7 @@ static void turnObjectQuads()
             j++;
         }
         uint32 bytes = (t.size >> 8) * 8 * (t.size & 0xFF) / 2;
-        if (j == i && size + bytes <= TURNED_COPIES_MAX) {
+        if (j == i && size + bytes <= budget) {
             size += bytes;
         }
     }
@@ -1383,13 +1384,10 @@ void renderLevelInit()
     }
     textureLuma();
 
-    // Tables at the top of VDP1 VRAM, each below the last. The inventory's item
-    // textures, put at the cache's start, may reach past its full-res slots:
-    // the turned copies, drawn behind the inventory, go highest; the shaded
-    // tables, unused behind it and made again as needed, lowest.
-    turnObjectQuads();
-
-    // room textures' tables of less contrast
+    // Tables at the top of VDP1 VRAM, each below the last, the optional ones
+    // only in what the cache can spare beyond DETAIL_MIN_FULL_SLOTS (which the
+    // inventory's item textures don't reach past): room textures' tables of
+    // less contrast, the shaded tables, the turned copies.
     int32 rooms = 0;
     for (int32 i = 0; i < level.texturesCount; i++) {
         rooms += level.textures[i].reserved != 0;
@@ -1406,13 +1404,16 @@ void renderLevelInit()
         }
     }
 
-    vram = detailReserveTop(2 * SHADE_TABLES * SHADE_TABLE_SIZE);
+    uint32 shadeBytes = 2 * SHADE_TABLES * SHADE_TABLE_SIZE;
+    vram = detailSpareBytes() >= shadeBytes ? detailReserveTop(shadeBytes) : 0;
     for (int32 i = 0; i < 2; i++)
     {
         gShadeCaches[i].vram = vram ? vram + i * SHADE_TABLES * SHADE_TABLE_SIZE : 0;
         gShadeCaches[i].miss = shadeTableMiss;
     }
     buildContrast();
+
+    turnObjectQuads(X_MIN(uint32(TURNED_COPIES_MAX), detailSpareBytes()));
 }
 
 void renderLevelFree()
