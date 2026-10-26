@@ -7,6 +7,10 @@
 ! void faceAddMeshQuadsAsm(const MeshQuad* polys, int32 count, MeshFaces* mf)
 ! void faceAddMeshTrianglesAsm(const MeshTriangle* polys, int32 count, MeshFaces* mf)
 !
+! Their bodies, faceAddMeshQuadsBody and faceAddMeshTrianglesBody, take the
+! registers ENTER sets and leave the next face in r10 (meshxform.s
+! renderMeshAsm calls them both under one entry).
+!
 ! MeshFaces (render.cpp):
 !   +0  const Vertex* vertices  the mesh's
 !   +4  int32 base              minus gVertices' address / 8: a vertex's
@@ -183,10 +187,16 @@
     .global _faceAddMeshQuadsAsm
 _faceAddMeshQuadsAsm:
     ENTER
-    tst     r5, r5
-    bf      .Lquad
-    bra     .LquadsDone
+    sts.l   pr, @-r15
+    bsr     _faceAddMeshQuadsBody
     nop
+    lds.l   @r15+, pr
+    LEAVE
+
+    .global _faceAddMeshQuadsBody
+_faceAddMeshQuadsBody:
+    tst     r5, r5
+    bt      .LquadsDone
 
 .Lquad:
     INDICES
@@ -234,11 +244,20 @@ _faceAddMeshQuadsAsm:
     bra     .Lquad
     add     #6, r4
 .LquadsDone:
-    LEAVE
+    rts
+    nop
 
     .global _faceAddMeshTrianglesAsm
 _faceAddMeshTrianglesAsm:
     ENTER
+    sts.l   pr, @-r15
+    bsr     _faceAddMeshTrianglesBody
+    nop
+    lds.l   @r15+, pr
+    LEAVE
+
+    .global _faceAddMeshTrianglesBody
+_faceAddMeshTrianglesBody:
     tst     r5, r5
     bf      .Ltri
     bra     .LtrisDone
@@ -320,7 +339,8 @@ _faceAddMeshTrianglesAsm:
     bra     .Ltri
     add     #6, r4
 .LtrisDone:
-    LEAVE
+    rts
+    nop
 
     .align 2
 .LfaceTriangle: .long   0x80000000  ! FACE_TRIANGLE

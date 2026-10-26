@@ -1485,7 +1485,16 @@ static bool meshToSlave(const Mesh* mesh)
     return !gFlatDist && mesh->vCount > 0 && roomsQueueMesh(mesh);
 }
 
-static void renderMeshHere(const Mesh* mesh)
+extern "C" void renderMeshAsm(const Mesh* mesh, Vertex** base, FaceList* list, uint32 flags);
+
+static_assert(sizeof(Mesh) == 20 && offsetof(Mesh, intensity) == 8 && offsetof(Mesh, vCount) == 10 &&
+              offsetof(Mesh, hasNormals) == 11 && offsetof(Mesh, rCount) == 12 && offsetof(Mesh, tCount) == 14 &&
+              offsetof(Mesh, bound) == 16 && MESH_LIGHT_NORMALS == 1 && MESH_LIGHT_SHADES == 2 &&
+              MASTER_VERTICES == 2048 && offsetof(FaceList, end) == 4 && offsetof(Matrix, e03) == 12 &&
+              offsetof(Matrix, e23) == 44 && VIEW_DIST == 20480 && sizeof(vec3i) == 12,
+              "layouts and constants repeated in meshxform.s renderMeshAsm");
+
+__attribute__((noinline)) static void renderMeshC(const Mesh* mesh)
 {
     int32 vCount = mesh->vCount;
     if (vCount <= 0)
@@ -1531,6 +1540,18 @@ static void renderMeshHere(const Mesh* mesh)
     }
 
     gVerticesBase += vCount;
+}
+
+// meshxform.s draws the mesh in one go but for far faces drawn flat
+// (gFlatDist): meshXformSetup, the transform and the faces with few stores.
+// Each a tail call: no registers saved here.
+static void renderMeshHere(const Mesh* mesh)
+{
+    if (!gFlatDist && gBenchMode != BENCH_C_MESHES) {
+        renderMeshAsm(mesh, &gVerticesBase, &gFaceList, gMeshFaceFlags);
+    } else {
+        renderMeshC(mesh);
+    }
 }
 
 void renderMesh(const Mesh* mesh)

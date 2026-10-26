@@ -603,7 +603,7 @@ static void roomFaces(int32 index, const RoomJob &job)
         RoomFaces rf = { roomBase, base * 0x10001, &gFaceList, gRoomFaceFlags, level.textures, 0, 0,
                          gFaceList.end, gDetailKeys[0], gDetailSlots, gDetailFrame, faceAddRoomQuads, detailSlotMiss,
                          gTurn, 0, detailMips() && gBenchMode != BENCH_NO_LOD ? gTextureLod : 0,
-                         gBenchMode == BENCH_EVERY_FRAME ? -1 : int32(gDetailFrame & 1), -1 };
+                         int32(gDetailFrame & 1), -1 };
         if (info->quadsCount > 0) {
             faceAddRoomQuadsAsm(data.quads, info->quadsCount, &rf);
         }
