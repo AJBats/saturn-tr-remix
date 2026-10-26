@@ -542,6 +542,22 @@ X_INLINE void X_SWAP(T &a, T &b)
 #define X_SQR(x)         ((x) * (x))
 #define X_COUNT(x)       int32(sizeof(x) / sizeof(x[0]))
 
+// The product of two values that fit 16 bits. The SH-2 multiplies those with
+// muls.w, where GCC takes mul.l, several cycles slower.
+#ifdef __SATURN__
+X_INLINE int32 mul16(int32 a, int32 b)
+{
+    int32 r;
+    asm("muls.w %1, %2\n\tsts macl, %0" : "=r"(r) : "r"(a), "r"(b) : "macl");
+    return r;
+}
+#else
+X_INLINE int32 mul16(int32 a, int32 b)
+{
+    return a * b;
+}
+#endif
+
 #define X_ROTX(x,y,s,c)  sar<FIXED_SHIFT>((x) * (c) - (y) * (s))
 #define X_ROTY(x,y,s,c)  sar<FIXED_SHIFT>((y) * (c) + (x) * (s))
 #define X_ROTXY(x,y,s,c) {\

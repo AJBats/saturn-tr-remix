@@ -142,9 +142,9 @@ bool transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, con
 
     if (center)
     {
-        int32 cx = sar<FIXED_SHIFT>(m.e00 * center->x + m.e01 * center->y + m.e02 * center->z + m.e03);
-        int32 cy = sar<FIXED_SHIFT>(m.e10 * center->x + m.e11 * center->y + m.e12 * center->z + m.e13);
-        int32 cz = sar<FIXED_SHIFT>(m.e20 * center->x + m.e21 * center->y + m.e22 * center->z + m.e23);
+        int32 cx = sar<FIXED_SHIFT>(mul16(m.e00, center->x) + mul16(m.e01, center->y) + mul16(m.e02, center->z) + m.e03);
+        int32 cy = sar<FIXED_SHIFT>(mul16(m.e10, center->x) + mul16(m.e11, center->y) + mul16(m.e12, center->z) + m.e13);
+        int32 cz = sar<FIXED_SHIFT>(mul16(m.e20, center->x) + mul16(m.e21, center->y) + mul16(m.e22, center->z) + m.e23);
         int32 zNear = cz - radius;
         // a screen coordinate is about 256 * view / z from the centre; a few
         // pixels' margin covers the divide table's rounding

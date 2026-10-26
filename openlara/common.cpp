@@ -1250,9 +1250,23 @@ void matrixLerp_c(const Matrix &n, int32 pmul, int32 pdiv)
     int32 ty = DP33(m.e10, m.e11, m.e12, x, y, z);\
     int32 tz = DP33(m.e20, m.e21, m.e22, x, y, z);
 
+// The rotation's entries, sines and cosines, and the offsets of a model's
+// nodes all fit 16 bits (mul16).
+#define MATRIX_ROTXY(x,y,s,c) {\
+    int32 _x = sar<FIXED_SHIFT>(mul16(x, c) - mul16(y, s));\
+    int32 _y = sar<FIXED_SHIFT>(mul16(y, c) + mul16(x, s));\
+    x = _x;\
+    y = _y;\
+}
+
+#define MATRIX_DP33(ax,ay,az,bx,by,bz) (mul16(ax, bx) + mul16(ay, by) + mul16(az, bz))
+
 void matrixTranslateRel_c(int32 x, int32 y, int32 z)
 {
-    MATRIX_TRANS(x, y, z);
+    Matrix &m = matrixGet();
+    int32 tx = MATRIX_DP33(m.e00, m.e01, m.e02, x, y, z);
+    int32 ty = MATRIX_DP33(m.e10, m.e11, m.e12, x, y, z);
+    int32 tz = MATRIX_DP33(m.e20, m.e21, m.e22, x, y, z);
     m.e03 += tx >> MATRIX_FIXED_SHIFT;
     m.e13 += ty >> MATRIX_FIXED_SHIFT;
     m.e23 += tz >> MATRIX_FIXED_SHIFT;
@@ -1283,9 +1297,9 @@ void matrixRotateX_c(int32 angle)
     sincos(angle, s, c);
 
     Matrix &m = matrixGet();
-    X_ROTXY(m.e02, m.e01, s, c);
-    X_ROTXY(m.e12, m.e11, s, c);
-    X_ROTXY(m.e22, m.e21, s, c);
+    MATRIX_ROTXY(m.e02, m.e01, s, c);
+    MATRIX_ROTXY(m.e12, m.e11, s, c);
+    MATRIX_ROTXY(m.e22, m.e21, s, c);
 }
 
 void matrixRotateY_c(int32 angle)
@@ -1294,9 +1308,9 @@ void matrixRotateY_c(int32 angle)
     sincos(angle, s, c);
 
     Matrix &m = matrixGet();
-    X_ROTXY(m.e00, m.e02, s, c);
-    X_ROTXY(m.e10, m.e12, s, c);
-    X_ROTXY(m.e20, m.e22, s, c);
+    MATRIX_ROTXY(m.e00, m.e02, s, c);
+    MATRIX_ROTXY(m.e10, m.e12, s, c);
+    MATRIX_ROTXY(m.e20, m.e22, s, c);
 }
 
 void matrixRotateZ_c(int32 angle)
@@ -1305,9 +1319,9 @@ void matrixRotateZ_c(int32 angle)
     sincos(angle, s, c);
 
     Matrix &m = matrixGet();
-    X_ROTXY(m.e01, m.e00, s, c);
-    X_ROTXY(m.e11, m.e10, s, c);
-    X_ROTXY(m.e21, m.e20, s, c);
+    MATRIX_ROTXY(m.e01, m.e00, s, c);
+    MATRIX_ROTXY(m.e11, m.e10, s, c);
+    MATRIX_ROTXY(m.e21, m.e20, s, c);
 }
 
 void matrixRotateYQ_c(int32 quadrant)
