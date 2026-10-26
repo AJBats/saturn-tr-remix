@@ -14,6 +14,7 @@
 #include "slave.h"
 #include "system.h"
 #include "project_dsp.h"
+#include "meshproject_dsp.h"
 
 #define MAX_ROOM_JOBS   64
 #define MAX_MESH_JOBS   128
@@ -125,6 +126,7 @@ static_assert(FRAME_WIDTH == 352 && FRAME_HEIGHT == 224 && VDP1_COORD_MAX == 102
               MAX_CAUSTICS == 32 && MAX_RAND_TABLE == 32, "constants repeated in xform.s");
 
 extern "C" void transformRoomAsm(const RoomVertex* src, int32 count, Vertex* dst, RoomXform* xf);
+extern "C" void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst, MeshXform* xf);
 
 static RoomXform gXform;
 static int16 gRoomCaustics[MAX_RAND_TABLE];
@@ -798,6 +800,89 @@ void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors)
         transformRoomAsm(src + r * count, count, ref + r * count, &xf);
         uint32 t1 = timerTicks();
         dspProject(m, vp, src + r * count, out + r * count, batches);
+        while (dspBusy());
+        uint32 t2 = timerTicks();
+        cpuTicks += (t1 - t0) & 0xFFFF;
+        dspTicks += (t2 - t1) & 0xFFFF;
+    }
+    cachePurge();   // the DSP wrote behind the cache
+
+    errors = 0;
+    for (int32 i = 0; i < runs * count; i++) {
+        errors += memcmp(ref + i, out + i, sizeof(Vertex)) != 0;
+    }
+}
+
+// Starts meshproject.dsp on batches of 8 vertices from src to dst, every
+// vertex shaded xf.g.
+static void dspProjectMesh(const MeshXform &xf, const MeshVertex* src, Vertex* dst, int32 batches)
+{
+    const int32_t md0[34] = {
+        xf.rows[0], xf.rows[1], xf.rows[2], xf.tx, xf.rows[3], xf.rows[4], xf.rows[5], xf.ty,
+        xf.rows[6], xf.rows[7], xf.rows[8], xf.tz,
+        VIEW_MIN_F, VIEW_MAX_F, 4, 4096, int32_t(dspAddress(gDspDivide)),
+        1023 - FRAME_WIDTH / 2, -1024 - FRAME_WIDTH / 2, FRAME_WIDTH / 2,
+        1023 - FRAME_HEIGHT / 2, -1024 - FRAME_HEIGHT / 2, FRAME_HEIGHT / 2,
+        FRAME_WIDTH, FRAME_HEIGHT, 0, FRAME_WIDTH, 0, FRAME_HEIGHT,
+        0xFFFF, 0x8000, xf.g << 8, 1, 65536
+    };
+    const uint32_t md3[4] = { uint32_t(batches), 1, dspAddress(src), dspAddress(dst) };
+    dspWrite(0, 0, (const uint32_t*)md0, 34);
+    dspWrite(3, 0, md3, 4);
+    dspStart(0);
+}
+
+void meshDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors)
+{
+    // vertices within +-1024 and both projections in gVertices, unused before
+    // a level
+    const int32 runs = 8, batches = 8, count = batches * 8;
+    MeshVertex* src = (MeshVertex*)(gVertices + MAX_VERTICES / 2);
+    Vertex* ref = gVertices;
+    Vertex* out = gVertices + runs * count;
+
+    uint32 seed = 0x13579BDF;
+    int16* c = (int16*)src;
+    for (int32 i = 0; i < runs * count * 3; i++)
+    {
+        seed = seed * 1664525 + 1013904223;
+        c[i] = int16(((seed >> 16) & 2047) - 1024);
+    }
+
+    // views (in world units) that put vertices behind the camera, before the
+    // near plane, past the far plane, off each side of the frame and past
+    // what VDP1 can address
+    static const int32 moves[runs][3] = {
+        { 0, 0, 2000 }, { 0, 0, 600 }, { 0, 0, -1500 }, { 0, 0, 20000 },
+        { -3000, 2000, 3000 }, { 3000, -2000, 3000 }, { 25000, -25000, 1500 }, { 300, -200, 1200 }
+    };
+    static const int16 rows[2][9] = {
+        { 14189, 0, -8192, 4096, 15851, 7094, 7094, -4096, 12288 },
+        { 14189, 4096, 7094, 0, 15851, -4096, -8192, 7094, 12288 }
+    };
+
+    MeshXform xf;
+    xf.divTable = divTable;
+    xf.normals = NULL;
+    xf.shades = NULL;
+    xf.inside = 0;
+
+    dspLoad(meshproject_dsp, MESHPROJECT_DSP_COUNT);
+    dspTicks = cpuTicks = 0;
+    for (int32 r = 0; r < runs; r++)
+    {
+        for (int32 i = 0; i < 9; i++) {
+            xf.rows[i] = rows[r & 1][i];
+        }
+        xf.tx = moves[r][0] << FIXED_SHIFT;
+        xf.ty = moves[r][1] << FIXED_SHIFT;
+        xf.tz = moves[r][2] << FIXED_SHIFT;
+        xf.g = r * 4 + 3;
+
+        uint32 t0 = timerTicks();
+        transformMeshAsm(src + r * count, count, ref + r * count, &xf);
+        uint32 t1 = timerTicks();
+        dspProjectMesh(xf, src + r * count, out + r * count, batches);
         while (dspBusy());
         uint32 t2 = timerTicks();
         cpuTicks += (t1 - t0) & 0xFFFF;

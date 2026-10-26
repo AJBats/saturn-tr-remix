@@ -353,6 +353,12 @@ void debugDspTest()
     crashLog("PJDSP", dspTicks);
     crashLog("PJCPU", cpuTicks);
     crashLog("PJERR", errors);
+
+    // the mesh projection (meshproject.dsp) against meshxform.s's, 512 vertices
+    meshDspTest(dspTicks, cpuTicks, errors);
+    crashLog("MXDSP", dspTicks);
+    crashLog("MXCPU", cpuTicks);
+    crashLog("MXERR", errors);
 }
 
 void debugProfileInit()
