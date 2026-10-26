@@ -109,9 +109,12 @@ extern "C" void vblankOutHandler()
         waitDisplayStart();
         gVdp1State = VDP1_IDLE;
 
+#ifdef HW_LOG
         // how far down the vblank's erase got: it works from the top, and a
-        // line it reached reads 0 where the last frame left anything
-        if (gEraseLines)
+        // line it reached reads 0 where the last frame left anything. Every
+        // 8th change: reading the frame buffer takes the CPU half a percent.
+        static uint32_t changes;
+        if (gEraseLines && !(++changes & 7))
         {
             uint32_t reached = 0, missed = gEraseLines;
             while (reached < missed)
@@ -130,6 +133,7 @@ extern "C" void vblankOutHandler()
             }
             gStats.eraseReach = reached;
         }
+#endif
 
         if (gOnNextFrame)
         {
