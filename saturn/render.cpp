@@ -372,7 +372,7 @@ bool renderFastShrink()
 // Lines VDP1 erases at the top of each frame in the vblank of its change,
 // leaving the rest to the clear command: what the vblank of a 224-line frame
 // covers at 352 pixels a line, with a margin.
-#define VBLANK_ERASE_LINES  200
+#define VBLANK_ERASE_LINES  170
 
 int32 gDarkFaces = DARK_CONTRAST;
 int32 gFlatDist;
