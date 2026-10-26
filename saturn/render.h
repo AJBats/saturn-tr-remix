@@ -212,12 +212,12 @@ enum BenchMode
     BENCH_NO_SHADE,     // every shaded face with gouraud (gShadeTables)
     BENCH_NO_GOURAUD,
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
-    BENCH_NO_DSP,       // rooms and meshes projected without the SCU DSP
+    BENCH_NO_DSP,       // rooms projected on the slave alone, without the SCU DSP
     BENCH_MASTER_MESHES,    // every mesh drawn on the master, none by the slave
     BENCH_ALL_MESHES,   // items' meshes and shadows to the slave too, not only rooms' static meshes
-    BENCH_ROOM_DSP,     // the SCU DSP projects rooms only, no meshes
-    BENCH_DSP_BIG,      // only meshes of 16 vertices or more to the DSP (render.cpp)
-    BENCH_DSP_WHOLE,    // meshes to the DSP whole, not in pieces
+    BENCH_EVERY_FRAME,  // room quads decide their turned lines and mip level every frame (rooms.cpp)
+    BENCH_FULL_CLEAR,   // the frame cleared by its first command alone (VBLANK_ERASE_LINES 0)
+    BENCH_NO_CLEAR,     // the frame not cleared at all: what no face covers keeps an old frame
     BENCH_PROFILE,      // as Base, sampling where the master's time goes
     BENCH_COUNT
 };
@@ -352,20 +352,6 @@ void roomsInit();
 
 // Every room of the frame is queued: the DSP may start on the last.
 void roomsAllQueued();
-
-// The DSP is the master's for meshes for the rest of the frame, and idle
-// (meshproject.dsp loaded the first time).
-bool roomsDspFree();
-
-// Starts it projecting count vertices of a mesh from src + first to dst +
-// first, lit as xf says: whole batches of 8 read and written, the arrays
-// longword aligned in high work RAM, first a multiple of 8. It keeps the
-// last start's matrix and light unless setup.
-void roomsDspMesh(const MeshXform &xf, const MeshVertex* src, Vertex* dst, int32 first, int32 count, bool setup);
-
-// The frame's meshes are done: the DSP is the slave's again (after
-// roomsFinish, which leaves it to the master).
-void roomsDspRelease();
 
 // project.dsp against transformRoomAsm on random vertices (debug.cpp's boot
 // self-test): the DSP's ticks with the start, this CPU's, and the vertices

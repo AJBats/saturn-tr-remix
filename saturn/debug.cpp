@@ -193,7 +193,7 @@ static char* appendColumn(char* p, uint32 value)
 
 static const char* const kBenchNames[BENCH_COUNT] = {
     "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master meshes",
-    "All meshes", "Room DSP", "DSP 16+", "DSP whole", "Profile"
+    "All meshes", "Every frame", "Full clear", "No clear", "Profile"
 };
 
 // each way's VDP1 and master CPU time, the master's drawing (rooms queued
@@ -206,7 +206,6 @@ enum { SPLIT_UPDATE, SPLIT_DRAW, SPLIT_SLAVE_WAIT, SPLIT_FLUSH, SPLIT_XFORM, SPL
 static const char* const kSplitNames[SPLIT_COUNT] = { "upd ", "draw ", "swait ", "flush ", "xform ", "faces ",
                                                       "mesh " };
 static uint32 gDspShare;    // percent of the base way's room vertices the DSP projected
-static uint32 gDspMeshShare;    // ... of the master's mesh vertices
 static uint32 gSplit[SPLIT_COUNT];
 
 // A sampling profiler for the master CPU: during the Profile way, the free-
@@ -426,7 +425,7 @@ static void benchUpdate()
     static uint32 frames, vdp1, cpu, draw, slave;
     static uint32 split[SPLIT_COUNT];
     static uint32 reachLo = ~0u, reachHi;
-    static uint32 dspVertices, roomVertices, dspMeshVertices, masterVertices;
+    static uint32 dspVertices, roomVertices;
 
     if (!start) {
         start = gVblankCount;
@@ -450,8 +449,6 @@ static void benchUpdate()
         split[SPLIT_MESH] += gStats.slaveMeshTicks;
         dspVertices += gStats.dspVertices;
         roomVertices += gStats.roomVertices;
-        dspMeshVertices += gStats.dspMeshVertices;
-        masterVertices += gStats.vertices - gStats.roomVertices;
         if (gBenchMode == BENCH_BASE)
         {
             reachLo = X_MIN(reachLo, gStats.eraseReach);
@@ -479,7 +476,6 @@ static void benchUpdate()
             reachLo = ~0u;
             reachHi = 0;
             gDspShare = roomVertices ? dspVertices * 100 / roomVertices : 0;
-            gDspMeshShare = masterVertices ? dspMeshVertices * 100 / masterVertices : 0;
         }
     }
     if (gBenchMode == BENCH_PROFILE) {
@@ -487,7 +483,7 @@ static void benchUpdate()
     }
     gBenchChanged = true;
     memset(split, 0, sizeof(split));
-    dspVertices = roomVertices = dspMeshVertices = masterVertices = 0;
+    dspVertices = roomVertices = 0;
 
     gBenchMode = (gBenchMode + 1) % BENCH_COUNT;
     start = gVblankCount;
@@ -523,7 +519,6 @@ static void benchCompose()
     for (int32 i = 0; i < SPLIT_XFORM; i++) {
         p = appendStat(p, kSplitNames[i], gSplit[i]);
     }
-    appendStat(p, "dsp ", gDspMeshShare);
     strncpy(gBenchRows[1], text, OVERLAY_COLUMNS);
     p = append(text, "slave ");
     for (int32 i = SPLIT_XFORM; i < SPLIT_COUNT; i++) {

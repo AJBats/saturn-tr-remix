@@ -37,7 +37,6 @@ struct FrameStats
     uint32_t slaveMeshTicks;  // slave: meshes
     uint32_t slaveIdleTicks;  // slave: waiting for rooms to be queued
     uint32_t dspVertices;     // room vertices the DSP projected
-    uint32_t dspMeshVertices; // the master's mesh vertices the DSP projected
     uint32_t dmaTicks;      // flush: texture uploads and command DMA
     uint32_t farWaitTicks;  // flush: waiting for the slave's commands after building ours
     uint32_t eraseReach;    // lines the last frame change's vblank erase reached
