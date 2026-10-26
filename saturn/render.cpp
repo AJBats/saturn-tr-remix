@@ -886,7 +886,7 @@ struct FlushXform
     void (*slow)(const Face* face, uint32* w, uint32* grd, int32 room);
     uint32 mipVram[2];      // gDetailPoolVram[1], [2]
     ShadeCache* shade;      // the CPU's shaded colour tables; NULL: none
-    int32 farShade;         // faces drawn with the quarter-size mip take one shade when
+    int32 farShade;         // faces drawn with a mip level take one shade when
                             // their corners are this many levels apart at most
 };
 

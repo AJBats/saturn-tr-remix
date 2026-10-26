@@ -26,7 +26,7 @@
 !   +60 void (*slow)(const Face* face, uint32* w, uint32* grd, int32 room)
 !   +64 uint32 mipVram[2]       the mip levels' pools (gDetailPoolVram[1], [2])
 !   +72 ShadeCache* shade       the CPU's shaded colour tables, 0 for none
-!   +76 int32 farShade          room faces drawn with the quarter-size mip take
+!   +76 int32 farShade          room faces drawn with a mip level take
 !                               one shade, their corners' mean, when the corners
 !                               are this many levels apart at most
 !
@@ -840,7 +840,7 @@ _flushAsm:
 
 
     .align 2
-.LfarFace:      .long   0x2C040000  ! FACE_DETAIL | FACE_DETAIL_WHOLE | FACE_DETAIL_MIP2 | FACE_DETAIL_MIP
+.LfarFace:      .long   0x28040000  ! FACE_DETAIL | FACE_DETAIL_WHOLE | FACE_DETAIL_MIP
 .LfacePara2:    .long   0x10000000  ! FACE_PARALLELOGRAM
 .LfaceV0AtD:    .long   0x08000000  ! FACE_V0_AT_D
 .LturnedFace:   .long   0x28080000  ! FACE_DETAIL | FACE_DETAIL_WHOLE | FACE_DETAIL_TURNED
