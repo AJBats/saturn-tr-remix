@@ -1050,10 +1050,11 @@ struct Mesh {
     int16 tCount;
 #ifdef __SATURN__
     int16 bound;    // radius about the centre that every vertex lies within
+    int16 turned;   // its quads with tall textures are turned (render.cpp turnObjectQuads)
 #else
     int16 crCount;
-#endif
     int16 ctCount;
+#endif
     // data...
 };
 

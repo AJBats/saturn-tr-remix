@@ -105,6 +105,10 @@ inline uint32_t detailSlotAddr(int32_t slot)
 // Faces may take mip levels: the set has them and the cache their pools.
 bool detailMips();
 
+// The w x h 4-bit texture at src to dst transposed, h x w: texel (x, y) to
+// (y, x). Each a multiple of 8; both 32-bit aligned.
+void detailTranspose(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h);
+
 // Uploads the textures queued this frame and starts the next frame. VDP1 must
 // be idle: slots replaced this frame may hold textures it drew last frame.
 void detailFlush();

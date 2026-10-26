@@ -247,13 +247,10 @@ static void quadrants(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h)
     }
 }
 
-// The w x h texture at src to dst transposed, h x w: texel (x, y) to (y, x).
 // By 8 x 8 blocks, each eight 32-bit rows of eight texels, whose off-diagonal
 // halves, then quarters, then single texels change places.
-static void transposed(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h)
+void detailTranspose(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h)
 {
-    if (w * h / 2 > DETAIL_SLOT_SIZE)
-        return;
 
     const uint32_t* s = (const uint32_t*)src;
     uint32_t* d = (uint32_t*)dst;
@@ -318,7 +315,7 @@ void detailFlush()
             quadrants(dst, src, upload.w / 2, upload.h / 2);
         } else if (upload.variant == DETAIL_TURNED || upload.variant == DETAIL_MIP1_TURNED ||
                    upload.variant == DETAIL_MIP2_TURNED) {
-            transposed(dst, src, upload.w, upload.h);
+            detailTranspose(dst, src, upload.w, upload.h);
         } else {
             memcpy(dst, src, upload.size);
         }

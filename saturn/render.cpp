@@ -6,6 +6,7 @@
 
 #include "render.h"
 #include "detail.h"
+#include "crash.h"
 #include "hw.h"
 #include "palettes.h"
 #include "slave.h"
@@ -548,6 +549,8 @@ X_INLINE int32 offFrame(const Vertex* v)
     int32 y = v->y;
     return X_MAX(0, -x) + X_MAX(0, x - FRAME_WIDTH) + X_MAX(0, -y) + X_MAX(0, y - FRAME_HEIGHT);
 }
+
+static void buildTurnedCopies(); // turnObjectQuads'
 
 // Shaded copies of colour tables (gShadeTables). VDP1's gouraud adds each
 // channel of the gouraud value, less 16, to the texel's, within 0 .. 31; a
@@ -1110,6 +1113,7 @@ void flush_c()
     {
         detailResume();
         buildContrast(); // the item textures may have covered the tables
+        buildTurnedCopies();
         gItemTextures = false;
     }
     gInventoryFrame = false;
@@ -1223,9 +1227,139 @@ void renderPalettesSwapped()
 }
 
 // The level's texture entries, moved from low work RAM to where the CPUs read
-// faster.
-#define MAX_LEVEL_TEXTURES 1344 // LEVEL4 has 1313
+// faster, with room after them for turnObjectQuads'.
+#define MAX_LEVEL_TEXTURES 1600 // LEVEL4 has 1313
 static Texture gTextures[MAX_LEVEL_TEXTURES];
+
+// A mesh quad drawn across a texture twice as tall as it is wide (a plank, a
+// rope) takes many short lines. Each such object texture gets a transposed
+// copy in VDP1 VRAM, as long as they fit TURNED_COPIES_MAX, and an entry of
+// its own drawing that copy flipped horizontally; a quad with corners taken
+// round by one (D A B C) through it shows the same texels at its corners,
+// its lines along its long side. The level's quads with those textures are
+// turned so once, at level init (a quad drawn along such a texture, rarely
+// seen, takes more lines).
+#define TURNED_COPIES_MAX   (32 * 1024)
+
+static int32 gTurnedBase;   // the first added entry
+static int32 gTurnedCount;
+static int16 gTurnedFrom[MAX_LEVEL_TEXTURES]; // each added entry's original
+
+static bool turnable(const Texture &t)
+{
+    uint32 w = (t.size >> 8) * 8;
+    uint32 h = t.size & 0xFF;
+    // in the texture blob: the item textures' VRAM holds the cache during play
+    return t.srca && t.srca * 8 < gDetailVramStart && !t.reserved && !(t.attr & TEX_ATTR_DIR) &&
+           w && h >= 2 * w && (h & 7) == 0;
+}
+
+static void buildTurnedCopies()
+{
+    for (int32 i = 0; i < gTurnedCount; i++)
+    {
+        const Texture &copy = level.textures[gTurnedBase + i];
+        const Texture &t = level.textures[gTurnedFrom[i]];
+        detailTranspose((uint8*)(VDP1_VRAM + copy.srca * 8), (const uint8*)(VDP1_VRAM + t.srca * 8),
+                        (t.size >> 8) * 8, t.size & 0xFF);
+    }
+}
+
+static void turnObjectQuads()
+{
+    gTurnedBase = level.texturesCount;
+    gTurnedCount = 0;
+    if (level.textures != gTextures)
+        return;
+
+    // the copies' VRAM, one copy for each texture's data
+    uint32 size = 0;
+    for (int32 i = 0; i < gTurnedBase; i++)
+    {
+        const Texture &t = level.textures[i];
+        if (!turnable(t))
+            continue;
+        int32 j = 0;
+        while (j < i && !(turnable(level.textures[j]) && level.textures[j].srca == t.srca)) {
+            j++;
+        }
+        uint32 bytes = (t.size >> 8) * 8 * (t.size & 0xFF) / 2;
+        if (j == i && size + bytes <= TURNED_COPIES_MAX) {
+            size += bytes;
+        }
+    }
+    uint32 vram = size ? detailReserveTop(size) : 0;
+    crashLog("TURNED", size);
+    if (!vram)
+        return;
+
+    // an entry for each texture taking a copy
+    static int16 turnedIndex[MAX_LEVEL_TEXTURES];
+    uint32 next = vram;
+    for (int32 i = 0; i < gTurnedBase; i++)
+    {
+        turnedIndex[i] = 0;
+        const Texture &t = level.textures[i];
+        if (!turnable(t) || gTurnedBase + gTurnedCount == MAX_LEVEL_TEXTURES)
+            continue;
+        uint32 w = (t.size >> 8) * 8;
+        uint32 h = t.size & 0xFF;
+        uint32 copy = 0;
+        for (int32 k = 0; k < gTurnedCount && !copy; k++)
+        {
+            if (level.textures[gTurnedFrom[k]].srca == t.srca) {
+                copy = level.textures[gTurnedBase + k].srca * 8;
+            }
+        }
+        if (!copy)
+        {
+            if (next + w * h / 2 > vram + size)
+                continue;
+            copy = next;
+            next += w * h / 2;
+        }
+        Texture &turned = level.textures[gTurnedBase + gTurnedCount];
+        turned = t;
+        turned.srca = copy >> 3;
+        turned.size = ((h / 8) << 8) | w;
+        turned.attr |= CMD_FLIP_H;
+        gTurnedFrom[gTurnedCount] = i;
+        turnedIndex[i] = gTurnedBase + gTurnedCount;
+        gTurnedCount++;
+    }
+    buildTurnedCopies();
+
+    for (int32 i = 0; i < level.meshesCount; i++)
+    {
+        Mesh* mesh = (Mesh*)level.meshes[i];
+        if (mesh->turned)
+            continue;
+        mesh->turned = 1;
+
+        uint8* ptr = (uint8*)mesh + sizeof(Mesh) + mesh->vCount * sizeof(MeshVertex);
+        if (mesh->hasNormals == MESH_LIGHT_NORMALS) {
+            ptr += mesh->vCount * 4;
+        } else if (mesh->hasNormals == MESH_LIGHT_SHADES) {
+            ptr += (mesh->vCount + 1) & ~1;
+        }
+        MeshQuad* quads = (MeshQuad*)ptr;
+        for (int32 j = 0; j < mesh->rCount; j++)
+        {
+            MeshQuad &q = quads[j];
+            uint32 type = (q.flags >> FACE_TYPE_SHIFT) & 3;
+            int32 turned = turnedIndex[q.flags & FACE_TEXTURE];
+            if ((type != FACE_TYPE_FT && type != FACE_TYPE_FTA) || !turned)
+                continue;
+            q.flags = (q.flags & ~FACE_TEXTURE) | turned;
+            uint8 d = q.indices[3];
+            q.indices[3] = q.indices[2];
+            q.indices[2] = q.indices[1];
+            q.indices[1] = q.indices[0];
+            q.indices[0] = d;
+        }
+    }
+    level.texturesCount = gTurnedBase + gTurnedCount;
+}
 
 void renderLevelInit()
 {
@@ -1275,6 +1409,7 @@ void renderLevelInit()
         gShadeCaches[i].miss = shadeTableMiss;
     }
     buildContrast();
+    turnObjectQuads();
 }
 
 void renderLevelFree()
