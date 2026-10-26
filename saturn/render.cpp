@@ -1218,6 +1218,10 @@ void renderRoom(Room* room)
     gRoomTicks += (timerTicks() - start) & 0xFFFF;
 }
 
+// BENCH_MESH_COPY: on a Saturn the mesh code runs slower than in Mednafen
+// while what stays in high work RAM matches; meshes are read from low work RAM.
+static uint32 gMeshCopy[6 * 1024 / 4];
+
 void renderMesh(const Mesh* mesh)
 {
     int32 vCount = mesh->vCount;
@@ -1235,6 +1239,20 @@ void renderMesh(const Mesh* mesh)
     {
         ASSERT(false);
         return;
+    }
+
+    uint32 start = timerTicks();
+
+    if (gBenchMode == BENCH_MESH_COPY || gBenchMode == BENCH_PROFILE)
+    {
+        uint32 shading = mesh->hasNormals == MESH_LIGHT_NORMALS ? vCount * 4 :
+                         mesh->hasNormals == MESH_LIGHT_SHADES ? (vCount + 1) & ~1 : 0;
+        uint32 size = sizeof(Mesh) + vCount * sizeof(MeshVertex) + shading + fCount * sizeof(MeshQuad);
+        if (size <= sizeof(gMeshCopy))
+        {
+            memcpy(gMeshCopy, mesh, size);
+            mesh = (const Mesh*)gMeshCopy;
+        }
     }
 
     const uint8* ptr = (uint8*)mesh + sizeof(Mesh);
@@ -1260,7 +1278,6 @@ void renderMesh(const Mesh* mesh)
 
     MeshTriangle* triangles = (MeshTriangle*)ptr;
 
-    uint32 start = timerTicks();
     bool inside = transformMesh(vertices, vCount, mesh->intensity, normals, shades, &mesh->center, mesh->bound);
 
     if (gFlatDist)

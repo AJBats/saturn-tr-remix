@@ -172,7 +172,7 @@ static char* appendColumn(char* p, uint32 value)
 }
 
 static const char* const kBenchNames[BENCH_COUNT] = {
-    "Base", "Fixed lines", "LOD x1", "No gouraud", "No texture", "Quiet poll", "Slave late", "Profile"
+    "Base", "Fixed lines", "LOD x1", "No gouraud", "No texture", "Mesh copy", "Profile"
 };
 
 // each way's VDP1 and master CPU time, the master's on meshes, the slave's
@@ -187,8 +187,8 @@ static uint32 gSplit[SPLIT_COUNT];
 // A sampling profiler for the master CPU: during the Profile way, the free-
 // running timer's compare A interrupts it every PROFILE_TICKS (128 cycles
 // each) and up to 31 more at random, and the interrupted PC counts towards
-// its 32-byte block of the program. The way draws as Base does; the other
-// ways run without the interrupt.
+// its 32-byte block of the program. The way draws as Mesh copy does; the
+// other ways run without the interrupt.
 #define FRT_TIER        (*(volatile uint8*)0xFFFFFE10)
 #define FRT_FTCSR       (*(volatile uint8*)0xFFFFFE11)
 #define FRT_OCRAH       (*(volatile uint8*)0xFFFFFE14)
