@@ -1,9 +1,11 @@
 // Saturn control pad on port 1, read through SMPC INTBACK (peripheral data
-// only, no SMPC status). The SMPC collects the data at the end of vblank, so
-// each call reads the result of the request made by the previous call.
+// only, no SMPC status), from an interrupt in every vblank: the SMPC collects
+// the data at the end of vblank, so each read takes the result of the request
+// the one before made.
 
 #include "input.h"
 #include "hw.h"
+#include "system.h"
 
 #define INTBACK     0x10
 #define IREG1_PEN   0x08    // peripheral data enable, 15-byte mode for both ports
@@ -13,18 +15,27 @@
 #define PORT_DIRECT 0xF1    // port status: one peripheral, no multitap
 #define ID_DIGITAL  0x02    // standard pad, 2 data bytes
 
-static bool gPending;
-static uint16_t gButtons;
-static uint16_t gDebugButtons;
+// INTBACK must be issued inside vblank, at least 300us after it starts (about
+// 10 lines).
+#define READ_LINE   (SCREEN_HEIGHT + 12)
 
-uint16_t padUpdate()
+static bool gPending;
+static uint32_t gIssued;    // smpcCommands() when the pending request was made
+static volatile uint16_t gButtons;
+static volatile uint16_t gDebugButtons;
+
+static void padRead()
 {
     if (gPending)
     {
         if (SMPC_SF & 1)
-            return gButtons; // not finished yet; keep the last state
+            return; // not finished yet; keep the last state
 
-        if (SMPC_OREG(0) == PORT_DIRECT && SMPC_OREG(1) == ID_DIGITAL)
+        if (smpcCommands() != gIssued)
+        {
+            // another command came after it: its results are gone
+        }
+        else if (SMPC_OREG(0) == PORT_DIRECT && SMPC_OREG(1) == ID_DIGITAL)
         {
             gButtons = ~((SMPC_OREG(2) << 8) | SMPC_OREG(3)) & 0xFFF8;
 
@@ -54,7 +65,16 @@ uint16_t padUpdate()
     SMPC_IREG(2) = 0xF0;
     SMPC_COMREG = INTBACK;
     gPending = true;
+    gIssued = smpcCommands();
+}
 
+void padInit()
+{
+    onLine(READ_LINE, padRead);
+}
+
+uint16_t padButtons()
+{
     return gButtons;
 }
 

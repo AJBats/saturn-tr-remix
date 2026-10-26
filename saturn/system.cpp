@@ -15,9 +15,13 @@
 #define VECTOR_VBLANK_IN    0x40
 #define VECTOR_VBLANK_OUT   0x41
 #define VECTOR_SPRITE_END   0x4D
+#define VECTOR_TIMER0       0x43
 #define SCU_IMS_VBLANK_IN   0x0001
 #define SCU_IMS_VBLANK_OUT  0x0002
 #define SCU_IMS_SPRITE_END  0x2000
+#define SCU_IMS_TIMER0      0x0008
+#define T1MD_TENB           0x0001  // the timers run
+#define LINE_LEVEL          0xC0    // timer 0's interrupt level, in SR's I bits
 
 #define FRT_FTCSR   (*(volatile uint8_t*)0xFFFFFE11)
 #define FRT_FRCH    (*(volatile uint8_t*)0xFFFFFE12)
@@ -52,6 +56,8 @@ static volatile bool gVdp1Drawn = true;    // the last plot has finished
 static volatile bool gPlotQueued;          // a plot waits for the change
 static uint32_t gPlotStart;
 static void (*volatile gOnNextFrame)();
+static void (*volatile gOnLine)();
+static uint32_t gSmpcCommands;
 
 volatile uint32_t gVblankCount;
 FrameStats gStats;
@@ -60,6 +66,7 @@ FrameStats gStats;
 extern "C" void vblankInEntry();
 extern "C" void vblankOutEntry();
 extern "C" void spriteEndEntry();
+extern "C" void lineEntry();
 
 extern "C" void vblankInHandler(const uint32_t* irqStack)
 {
@@ -118,6 +125,11 @@ extern "C" void vblankOutHandler()
         gPlotQueued = false;
         plotStart();
     }
+}
+
+extern "C" void lineHandler()
+{
+    gOnLine();
 }
 
 extern "C" void spriteEndHandler()
@@ -188,14 +200,6 @@ static void vdp1Init()
     gVdp1State = VDP1_IDLE;
 }
 
-void smpcCommand(uint8_t command)
-{
-    while (SMPC_SF & 1);
-    SMPC_SF = 1;
-    SMPC_COMREG = command;
-    while (SMPC_SF & 1);
-}
-
 #define SMPC_SR_NPE     0x20    // an INTBACK holds more peripheral data
 #define SMPC_BREAK      0x40    // IREG0: end that INTBACK
 #define SMPC_DOTSEL     0x40    // system status 1: the 352-dot clock
@@ -210,6 +214,37 @@ static void smpcIdle()
         SMPC_IREG(0) = SMPC_BREAK;
         while (SMPC_SF & 1);
     }
+}
+
+// The pads' reads issue INTBACK from the line interrupt (onLine): it is held
+// off meanwhile.
+void smpcCommand(uint8_t command)
+{
+    uint32_t sr;
+    asm volatile("stc sr, %0" : "=r"(sr));
+    if ((sr & 0xF0) < LINE_LEVEL) {
+        asm volatile("ldc %0, sr" : : "r"((sr & ~0xF0) | LINE_LEVEL));
+    }
+    smpcIdle();
+    gSmpcCommands++;
+    SMPC_SF = 1;
+    SMPC_COMREG = command;
+    while (SMPC_SF & 1);
+    asm volatile("ldc %0, sr" : : "r"(sr));
+}
+
+uint32_t smpcCommands()
+{
+    return gSmpcCommands;
+}
+
+void onLine(uint32_t line, void (*fn)())
+{
+    gOnLine = fn;
+    SCU_T0C = line + 1;     // timer 0 counts the lines' hblanks from the display's first
+    SCU_T1MD = T1MD_TENB;
+    BIOS_SET_SINT(VECTOR_TIMER0, lineEntry);
+    BIOS_CHG_SCUIM(~SCU_IMS_TIMER0, 0);
 }
 
 // The SMPC's status (INTBACK without peripheral data, which needs no vblank:

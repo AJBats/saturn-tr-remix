@@ -41,13 +41,6 @@ static void updateInput()
     }
 }
 
-// Pad reads (SMPC INTBACK) must be issued inside vblank, at least 300us
-// after it starts (about 10 lines).
-static bool inPadWindow()
-{
-    return (VDP2_TVSTAT & TVSTAT_VBLANK) && vdp2Line() >= FRAME_HEIGHT + 12;
-}
-
 int main()
 {
     systemInit();
@@ -61,6 +54,7 @@ int main()
     crashLog("CD", cdInit());
     sndInit();
     crashLog("SOUND", 0);
+    padInit();
 
     gLevelID = START_LEVEL;
 
@@ -83,30 +77,16 @@ int main()
 #endif
 
     uint32 lastTick = gVblankCount >> 1;
-    uint32 lastPad = gVblankCount;
     uint32 fpsStart = gVblankCount;
     uint32 fpsFrames = 0;
 
     while (1)
     {
-        // Game logic runs in 30 Hz ticks; wait for the next one, reading the
-        // pad when the vblank window comes round.
+        // Game logic runs in 30 Hz ticks: wait for the next one. The pads
+        // are read from an interrupt, so a slow frame doesn't wait for theirs.
         uint32 tick;
-        while ((tick = gVblankCount >> 1) == lastTick)
-        {
-            if (gVblankCount != lastPad && inPadWindow()) {
-                gPad = padUpdate();
-                lastPad = gVblankCount;
-            }
-        }
-
-        // a slow frame skipped the window: read the pad before going on
-        if (gVblankCount - lastPad >= 2)
-        {
-            while (!inPadWindow());
-            gPad = padUpdate();
-            lastPad = gVblankCount;
-        }
+        while ((tick = gVblankCount >> 1) == lastTick);
+        gPad = padButtons();
 
         int32 delta = X_MIN(int32(tick - lastTick), MAX_UPDATE_FRAMES);
         lastTick = tick;

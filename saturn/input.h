@@ -19,10 +19,11 @@
 #define PAD_LEFT    0x4000
 #define PAD_RIGHT   0x8000
 
-// Call during vblank, at least 300us after it starts: collects the result of
-// the previous request and issues the next one. Returns the buttons held
-// (PAD_* bits) as of the last completed read.
-uint16_t padUpdate();
+// Starts reading the pads in every vblank, from an interrupt.
+void padInit();
+
+// The buttons held (PAD_* bits) as of the last completed read.
+uint16_t padButtons();
 
 // The debug pad's buttons as of the same read (0 when none is connected).
 uint16_t padDebug();

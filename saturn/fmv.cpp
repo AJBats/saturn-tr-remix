@@ -258,19 +258,13 @@ static void decodeFrame(const uint8_t* data, uint32_t size, volatile uint32_t* d
 // --- Playback -------------------------------------------------------------
 
 static uint16_t gPad;
-static uint32_t gLastPad;
 
-// START, read in the pad's vblank window
+// START newly pressed
 static bool skipPressed()
 {
-    if (gVblankCount != gLastPad && (VDP2_TVSTAT & TVSTAT_VBLANK) && vdp2Line() >= SCREEN_HEIGHT + 12)
-    {
-        uint16_t old = gPad;
-        gPad = padUpdate();
-        gLastPad = gVblankCount;
-        return (gPad & PAD_START) && !(old & PAD_START);
-    }
-    return false;
+    uint16_t old = gPad;
+    gPad = padButtons();
+    return (gPad & PAD_START) && !(old & PAD_START);
 }
 
 static void audioStart()
@@ -370,7 +364,6 @@ void fmvPlay(const char* name)
     bool audioOn = false;
 
     gPad = 0xFFFF; // a START still held from before doesn't skip
-    gLastPad = gVblankCount;
 
     for (uint32_t index = 0; index < count; )
     {
@@ -470,7 +463,6 @@ void fmvPicture(const char* name, int width, int frames)
     screenShow(name, width);
 
     gPad = 0xFFFF;
-    gLastPad = gVblankCount;
     uint32_t start = gVblankCount;
     while (int32_t(gVblankCount - start) < frames && !skipPressed());
 }

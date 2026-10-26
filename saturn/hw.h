@@ -53,6 +53,8 @@ typedef struct {
 #define SCU_D0EN    REG32(0x25FE0010)
 #define SCU_D0MD    REG32(0x25FE0014)
 #define SCU_DSTA    REG32(0x25FE007C)
+#define SCU_T0C     REG32(0x25FE0090)
+#define SCU_T1MD    REG32(0x25FE0098)
 
 #define DSTA_D0_BUSY 0x00000030 /* level 0 DMA waiting (D0WT) or moving (D0MV) */
 

@@ -49,6 +49,13 @@ void waitVblank();
 // Issues an SMPC command with no parameters and waits for it to finish.
 void smpcCommand(uint8_t command);
 
+// How many smpcCommand has issued: an INTBACK issued before the last of them
+// had its results overwritten (input.cpp).
+uint32_t smpcCommands();
+
+// Calls fn from an interrupt at that line of every field (SCU timer 0).
+void onLine(uint32_t line, void (*fn)());
+
 // Current scanline: 0 at the top of the display, counting on through vblank
 // (vertical sync lines read as higher values still).
 uint32_t vdp2Line();
