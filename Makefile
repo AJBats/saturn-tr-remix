@@ -51,6 +51,12 @@ CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use
 	-fno-asynchronous-unwind-tables -fno-lifetime-dse -Wno-class-memaccess
 LDFLAGS := -nostdlib -T saturn/saturn.ld -Wl,--no-warn-rwx-segments
 
+# sources compiled with -O2 in place of $(OPT) (touch them when it changes):
+# the renderer's (-1 at the bench spot in Mednafen); the game's logic in
+# main.cpp would overflow high work RAM
+O2_SRC  ?= saturn/render.cpp saturn/rooms.cpp openlara/common.cpp
+$(patsubst %,$(BUILD)/obj/%.o,$(O2_SRC)): CXXFLAGS := $(subst $(OPT),-O2,$(CXXFLAGS))
+
 ER      := external_resources
 ORIG    := $(ER)/tomb_raider_usa
 TRACK1  := $(ORIG)/Tomb Raider (USA) (Track 01).bin
