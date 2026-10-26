@@ -358,9 +358,6 @@ void roomsAllQueued();
 // that differ.
 void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors);
 
-// ... and meshproject.dsp against transformMeshAsm, after it.
-void meshDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors);
-
 // Queues a room for the slave, with the current matrix and viewport.
 void roomsQueue(const Room* room);
 
