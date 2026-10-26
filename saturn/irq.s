@@ -85,6 +85,7 @@ _profileEntry:
 
     .align 2
 2:  .long _profileHandler
+    .weak _profileHandler       ! HW_LOG builds only, which alone install the entry
 
     IRQ_ENTRY _vblankInEntry, _vblankInHandler
     IRQ_ENTRY _vblankOutEntry, _vblankOutHandler
