@@ -84,22 +84,6 @@ void setPaletteIndex(int32 index)
     gMeshFaceFlags = index ? FACE_WATER : 0;
 }
 
-// What meshxform.s needs to transform a mesh's vertices.
-struct MeshXform
-{
-    int16 rows[9];          // the rotation, multiplied straight from MeshVertex's int16s
-    int16 pad;
-    int32 tx, ty, tz;       // the translation, << FIXED_SHIFT
-    const divTableInt* divTable;
-    int32 ambient;          // gLightAmbient
-    int32 lx, ly, lz;       // the light's direction in the mesh's own space, 128 long
-    int32 range;            // gLightRange
-    const int8* normals;    // or NULL
-    const uint8* shades;    // or NULL
-    int32 g;                // every vertex's shade when neither
-    int32 inside;           // every vertex lands inside the frame, between the planes
-};
-
 static_assert(offsetof(MeshXform, tx) == 20 && offsetof(MeshXform, divTable) == 32 &&
               offsetof(MeshXform, ambient) == 36 && offsetof(MeshXform, lx) == 40 &&
               offsetof(MeshXform, range) == 52 && offsetof(MeshXform, normals) == 56 &&
@@ -120,12 +104,11 @@ extern "C" void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst
 // A mesh whose bounding sphere (a centre and radius, or NULL) is wholly in
 // view, projected at its nearest, skips the per-vertex clamps and clip flags;
 // true for those.
-bool transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, const int8* normals, const uint8* shades,
-                   const vec3s* center, int32 radius)
+static void meshXformSetup(MeshXform &xf, int32 intensity, const int8* normals, const uint8* shades,
+                           const vec3s* center, int32 radius)
 {
     const Matrix &m = matrixGet();
 
-    MeshXform xf;
     xf.rows[0] = m.e00; xf.rows[1] = m.e01; xf.rows[2] = m.e02;
     xf.rows[3] = m.e10; xf.rows[4] = m.e11; xf.rows[5] = m.e12;
     xf.rows[6] = m.e20; xf.rows[7] = m.e21; xf.rows[8] = m.e22;
@@ -162,7 +145,13 @@ bool transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, con
         xf.normals = normals;
         xf.shades = NULL;
     }
+}
 
+bool transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, const int8* normals, const uint8* shades,
+                   const vec3s* center, int32 radius)
+{
+    MeshXform xf;
+    meshXformSetup(xf, intensity, normals, shades, center, radius);
     transformMeshAsm(vertices, count, gVerticesBase, &xf);
     return xf.inside;
 }
@@ -1082,6 +1071,7 @@ void flush_c()
     gMeshFlatFaces = 0;
     gStats.slaveXformTicks = rooms.xformTicks;
     gStats.slaveFaceTicks = rooms.faceTicks;
+    gStats.slaveMeshTicks = rooms.meshTicks;
     gStats.slaveIdleTicks = rooms.idleTicks;
     gStats.drawTicks = (start - gDrawStart) & 0xFFFF;
 
@@ -1433,6 +1423,43 @@ void renderRoom(Room* room)
     roomsQueue(room);
 }
 
+// A mesh's arrays, which follow it.
+struct MeshParts
+{
+    const MeshVertex* vertices;
+    const int8* normals;    // or NULL
+    const uint8* shades;    // or NULL
+    const MeshQuad* quads;
+    const MeshTriangle* triangles;
+};
+
+static void meshParts(const Mesh* mesh, MeshParts &parts)
+{
+    int32 vCount = mesh->vCount;
+    const uint8* ptr = (uint8*)mesh + sizeof(Mesh);
+
+    parts.vertices = (MeshVertex*)ptr;
+    ptr += vCount * sizeof(MeshVertex);
+
+    parts.normals = NULL;
+    parts.shades = NULL;
+    if (mesh->hasNormals == MESH_LIGHT_NORMALS)
+    {
+        parts.normals = (const int8*)ptr;
+        ptr += vCount * 4;
+    }
+    else if (mesh->hasNormals == MESH_LIGHT_SHADES)
+    {
+        parts.shades = ptr;
+        ptr += (vCount + 1) & ~1;
+    }
+
+    parts.quads = (MeshQuad*)ptr;
+    ptr += mesh->rCount * sizeof(MeshQuad);
+
+    parts.triangles = (MeshTriangle*)ptr;
+}
+
 void renderMesh(const Mesh* mesh)
 {
     int32 vCount = mesh->vCount;
@@ -1452,52 +1479,69 @@ void renderMesh(const Mesh* mesh)
         return;
     }
 
-    const uint8* ptr = (uint8*)mesh + sizeof(Mesh);
+    MeshParts parts;
+    meshParts(mesh, parts);
 
-    const MeshVertex* vertices = (MeshVertex*)ptr;
-    ptr += vCount * sizeof(vertices[0]);
-
-    const int8* normals = NULL;
-    const uint8* shades = NULL;
-    if (mesh->hasNormals == MESH_LIGHT_NORMALS)
-    {
-        normals = (const int8*)ptr;
-        ptr += vCount * 4;
-    }
-    else if (mesh->hasNormals == MESH_LIGHT_SHADES)
-    {
-        shades = ptr;
-        ptr += (vCount + 1) & ~1;
-    }
-
-    MeshQuad* quads = (MeshQuad*)ptr;
-    ptr += mesh->rCount * sizeof(MeshQuad);
-
-    MeshTriangle* triangles = (MeshTriangle*)ptr;
-
-    bool inside = transformMesh(vertices, vCount, mesh->intensity, normals, shades, &mesh->center, mesh->bound);
+    bool inside = transformMesh(parts.vertices, vCount, mesh->intensity, parts.normals, parts.shades, &mesh->center,
+                                mesh->bound);
 
     if (gFlatDist)
     {
         if (mesh->rCount > 0) {
-            faceAddMeshQuads(quads, mesh->rCount);
+            faceAddMeshQuads(parts.quads, mesh->rCount);
         }
         if (mesh->tCount > 0) {
-            faceAddMeshTriangles(triangles, mesh->tCount);
+            faceAddMeshTriangles(parts.triangles, mesh->tCount);
         }
     }
     else
     {
         MeshFaces mf = { gVerticesBase, -int32(uint32(gVertices) >> 3), &gFaceList, gMeshFaceFlags, inside };
         if (mesh->rCount > 0) {
-            faceAddMeshQuadsAsm(quads, mesh->rCount, &mf);
+            faceAddMeshQuadsAsm(parts.quads, mesh->rCount, &mf);
         }
         if (mesh->tCount > 0) {
-            faceAddMeshTrianglesAsm(triangles, mesh->tCount, &mf);
+            faceAddMeshTrianglesAsm(parts.triangles, mesh->tCount, &mf);
         }
     }
 
     gVerticesBase += vCount;
+}
+
+// To the slave as it can take it, when its faces are added in assembly (not
+// with gFlatDist).
+void renderStaticMesh(const Mesh* mesh)
+{
+    if (gFlatDist || gBenchMode == BENCH_MASTER_STATICS || mesh->vCount <= 0 || !roomsQueueStatic(mesh)) {
+        renderMesh(mesh);
+    }
+}
+
+void meshJobSetup(MeshJob &job, const Mesh* mesh)
+{
+    MeshParts parts;
+    meshParts(mesh, parts);
+    job.mesh = mesh;
+    job.flags = gMeshFaceFlags;
+    meshXformSetup(job.xf, mesh->intensity, parts.normals, parts.shades, &mesh->center, mesh->bound);
+}
+
+void meshJobDraw(const MeshJob &job, Vertex* dst, FaceList &list)
+{
+    const Mesh* mesh = job.mesh;
+    MeshParts parts;
+    meshParts(mesh, parts);
+
+    MeshXform xf = job.xf;
+    transformMeshAsm(parts.vertices, mesh->vCount, dst, &xf);
+
+    MeshFaces mf = { dst, -int32(uint32(gVertices) >> 3), &list, job.flags, xf.inside };
+    if (mesh->rCount > 0) {
+        faceAddMeshQuadsAsm(parts.quads, mesh->rCount, &mf);
+    }
+    if (mesh->tCount > 0) {
+        faceAddMeshTrianglesAsm(parts.triangles, mesh->tCount, &mf);
+    }
 }
 
 // An octagon on the floor under the item, darkening what is drawn below it.

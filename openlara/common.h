@@ -2948,6 +2948,7 @@ void setPaletteIndex(int32 index);
 void clear();
 void renderRoom(Room* room);
 void renderMesh(const Mesh* mesh);
+void renderStaticMesh(const Mesh* mesh);
 void renderShadow(int32 x, int32 z, int32 sx, int32 sz);
 void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index);
 void renderGlyph(int32 vx, int32 vy, int32 index);

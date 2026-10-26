@@ -213,6 +213,7 @@ enum BenchMode
     BENCH_NO_GOURAUD,
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
     BENCH_NO_DSP,       // room vertices on the slave alone, without the SCU DSP
+    BENCH_MASTER_STATICS,   // rooms' static meshes on the master, not the slave
     BENCH_PROFILE,      // as Base, sampling where the master's time goes
     BENCH_COUNT
 };
@@ -299,8 +300,39 @@ struct RoomStats
     uint32 flatFaces;     // room faces drawn flat (gFlatDist)
     uint32 xformTicks;  // slave time transforming vertices (its own FRT)
     uint32 faceTicks;   // ... adding faces
+    uint32 meshTicks;   // ... drawing the rooms' static meshes
     uint32 idleTicks;   // ... waiting for rooms to be queued
 };
+
+// What meshxform.s needs to transform a mesh's vertices.
+struct MeshXform
+{
+    int16 rows[9];          // the rotation, multiplied straight from MeshVertex's int16s
+    int16 pad;
+    int32 tx, ty, tz;       // the translation, << FIXED_SHIFT
+    const divTableInt* divTable;
+    int32 ambient;          // gLightAmbient
+    int32 lx, ly, lz;       // the light's direction in the mesh's own space, 128 long
+    int32 range;            // gLightRange
+    const int8* normals;    // or NULL
+    const uint8* shades;    // or NULL
+    int32 g;                // every vertex's shade when neither
+    int32 inside;           // every vertex lands inside the frame, between the planes
+};
+
+// A room's static mesh for the slave to draw (rooms.cpp).
+struct MeshJob
+{
+    const Mesh* mesh;
+    uint32 flags;           // face flags (water)
+    MeshXform xf;           // set up with the matrix and lighting it was queued with
+};
+
+// Sets job up to draw mesh as renderMesh would now (render.cpp).
+void meshJobSetup(MeshJob &job, const Mesh* mesh);
+
+// Draws job's mesh on the slave: its vertices to dst, its faces into list.
+void meshJobDraw(const MeshJob &job, Vertex* dst, FaceList &list);
 
 // Loads the room transform's DSP program (xform.dsp): the SCU DSP takes room
 // vertices to view space, the slave projects them.
@@ -308,6 +340,10 @@ void roomsInit();
 
 // Queues a room for the slave, with the current matrix and viewport.
 void roomsQueue(const Room* room);
+
+// Queues a room's static mesh for the slave, set up with the current matrix
+// and lighting; false when the master had better draw it.
+bool roomsQueueStatic(const Mesh* mesh);
 
 // Waits for the slave to finish the frame's rooms; returns its ordering
 // table (whose lists flush consumes and clears), or NULL if no rooms were

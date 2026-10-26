@@ -736,7 +736,24 @@ void drawModel(const ItemObj* item)
     }
 }
 
-void drawRoom(Room* room)
+void queueRoom(Room* room)
+{
+    setViewport(room->clip);
+
+    const RoomInfo* info = room->info;
+
+    matrixPush();
+    matrixTranslateAbs(info->x << 8, info->yTop, info->z << 8);
+
+    setPaletteIndex(ROOM_FLAG_WATER(info->flags) ? 1 : 0);
+
+    renderRoom(room);
+
+    matrixPop();
+}
+
+// What stands in a queued room: sprites, static meshes, items.
+void drawRoomObjects(Room* room)
 {
     setViewport(room->clip);
 
@@ -747,14 +764,7 @@ void drawRoom(Room* room)
     int32 ry = info->yTop;
     int32 rz = info->z << 8;
 
-    matrixPush();
-    matrixTranslateAbs(rx, ry, rz);
-
     setPaletteIndex(ROOM_FLAG_WATER(info->flags) ? 1 : 0);
-
-    renderRoom(room);
-
-    matrixPop();
 
     for (int32 i = 0; i < info->spritesCount; i++)
     {
@@ -814,7 +824,7 @@ void drawRoom(Room* room)
         matrixRotateYQ(q);
 
         calcLightingStatic(STATIC_MESH_INTENSITY(mesh->zf));
-        drawMesh(staticMesh->meshIndex);
+        renderStaticMesh(level.meshes[staticMesh->meshIndex]);
 
         matrixPop();
     }
@@ -827,6 +837,12 @@ void drawRoom(Room* room)
         }
         item = item->nextItem;
     }
+}
+
+void drawRoom(Room* room)
+{
+    queueRoom(room);
+    drawRoomObjects(room);
 }
 
 void drawRooms(Camera* camera)
@@ -850,11 +866,15 @@ void drawRooms(Camera* camera)
         }
     }
 #endif
-    // draw rooms and objects
+    // every room for the slave first, so that it never waits on the objects
+    for (Room** room = visRoom; *room; room++) {
+        queueRoom(*room);
+    }
+
     while (*visRoom)
     {
         Room* room = *visRoom++;
-        drawRoom(room);
+        drawRoomObjects(room);
         room->reset();
     }
 

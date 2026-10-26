@@ -2,7 +2,8 @@
 // visible room with its matrix and portal viewport; the slave transforms the
 // room's vertices, the SCU DSP applying the matrix a chunk ahead of it, and
 // adds the room's faces to its own face list, which flush merges with the
-// master's. The master carries on with meshes meanwhile.
+// master's. The master carries on with meshes meanwhile, handing the slave
+// rooms' static meshes as long as it keeps up.
 
 #include <stddef.h>
 
@@ -14,6 +15,8 @@
 #include "xform_dsp.h"
 
 #define MAX_ROOM_JOBS   64
+#define MAX_STATIC_JOBS 64
+#define STATIC_STEP     32      // static mesh vertices the slave's share moves by a frame
 #define DSP_CHUNK       64      // vertices the DSP transforms at a time: 4 of its batches
 
 extern Level level;
@@ -42,6 +45,17 @@ static uint32 gJobCount;
 static volatile uint32 gJobsQueued;
 static volatile uint32 gJobsClosed;
 
+// Rooms' static meshes, queued the same way. The slave takes as many vertices
+// of them a frame as its share, which grows while it has finished every job
+// by the time the master is done drawing and shrinks when it hasn't.
+static MeshJob gStaticJobs[MAX_STATIC_JOBS];
+static uint32 gStaticCount;
+static int32 gStaticShare;
+static int32 gStaticTaken;
+static bool gStaticHeld;    // a mesh was drawn here for want of share
+static volatile uint32 gStaticsQueued;
+static volatile uint32 gJobsDone;   // rooms and static meshes the slave has drawn
+
 // Slave side.
 // The DSP writes one chunk of a room's vertices in view space to one buffer
 // while this CPU projects the last from the other.
@@ -53,9 +67,11 @@ static int32 gDspMatrix;    // the job whose matrix the DSP has, -1 none
 
 static Face gSlaveFaces[MAX_FACES];
 static Face* gSlaveOT[OT_SIZE];
+static Face* gSlaveMeshOT[OT_SIZE];
 static RoomStats gSlaveStats;
 
 static FaceList gFaceList;
+static FaceList gMeshList;      // static meshes' faces: the same pool, an ordering table of their own
 static bool gTurn;              // faces may be turned (gTurnLines)
 static uint32 gRoomFaceFlags;   // FACE_WATER for water rooms
 static int32 gWibblePhase;      // drifts the ripple of water rooms
@@ -537,30 +553,76 @@ static void renderRoomJob(int32 index, const RoomJob &job)
     gSlaveStats.faceTicks += (t2 - t1) & 0xFFFF;
 }
 
-// The slave's task for a frame: draw rooms as they are queued until the
-// master closes the queue.
+static void renderStaticJob(const MeshJob &job)
+{
+    const Mesh* mesh = job.mesh;
+    int32 count = mesh->vCount;
+    if (gNextVertex + count > gVertices + MAX_VERTICES || gFaceList.next + mesh->rCount + mesh->tCount > gFaceList.end)
+        return;
+
+    uint32 t0 = timerTicks();
+    gMeshList.next = gFaceList.next;
+    meshJobDraw(job, gNextVertex, gMeshList);
+    gFaceList.next = gMeshList.next;
+    gNextVertex += count;
+    gSlaveStats.vertices += count;
+    gSlaveStats.meshTicks += (timerTicks() - t0) & 0xFFFF;
+}
+
+// Static meshes' faces after the rooms' in each bucket, as the master draws
+// what stands in rooms.
+static void mergeStatics()
+{
+    for (int32 i = 0; i < OT_SIZE; i++)
+    {
+        Face* faces = gSlaveMeshOT[i];
+        if (!faces)
+            continue;
+        gSlaveMeshOT[i] = NULL;
+
+        Face** link = gSlaveOT + i;
+        while (*link) {
+            link = &(*link)->next;
+        }
+        *link = faces;
+    }
+    for (int32 i = 0; i < OT_GROUPS; i++) {
+        gFaceList.groups[i] += gMeshList.groups[i];
+    }
+}
+
+// The slave's task for a frame: draw rooms and static meshes as they are
+// queued until the master closes the queue.
 static void roomBatch()
 {
     gFaceList.next = gSlaveFaces;
     gFaceList.end = gSlaveFaces + MAX_FACES;
     gFaceList.ot = gSlaveOT;
     memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
+    gMeshList.end = gFaceList.end;
+    gMeshList.ot = gSlaveMeshOT;
+    memset(gMeshList.groups, 0, sizeof(gMeshList.groups));
     gNextVertex = gVertices + MASTER_VERTICES;
     gSlaveStats = RoomStats();
     gDspJob = -1;
     gDspMatrix = -1;
 
     uint32 done = 0;
+    uint32 staticsDone = 0;
     uint32 idleStart = timerTicks();
     while (1)
     {
         uint32 queued = *uncached(&gJobsQueued);
-        if (done == queued)
+        uint32 statics = *uncached(&gStaticsQueued);
+        if (done == queued && staticsDone == statics)
         {
             if (!*uncached(&gJobsClosed))
+            {
+                busPause();
                 continue;
-            // the last job may have been queued just before the queue closed
-            if (done == *uncached(&gJobsQueued))
+            }
+            // the last jobs may have been queued just before the queue closed
+            if (done == *uncached(&gJobsQueued) && staticsDone == *uncached(&gStaticsQueued))
                 break;
             continue;
         }
@@ -568,9 +630,23 @@ static void roomBatch()
         asm volatile("" : : : "memory"); // read the job only after its count
         uint32 t = timerTicks();
         gSlaveStats.idleTicks += (t - idleStart) & 0xFFFF;
-        renderRoomJob(done, *uncached(gJobs + done));
+        if (done < queued)
+        {
+            renderRoomJob(done, *uncached(gJobs + done));
+            done++;
+        }
+        else
+        {
+            MeshJob job = *uncached(gStaticJobs + staticsDone);
+            renderStaticJob(job);
+            staticsDone++;
+        }
+        *uncached(&gJobsDone) = done + staticsDone;
         idleStart = timerTicks();
-        done++;
+    }
+
+    if (staticsDone) {
+        mergeStatics();
     }
 }
 
@@ -604,18 +680,49 @@ void roomsQueue(const Room* room)
     *uncached(&gJobsQueued) = gJobCount;
 }
 
+bool roomsQueueStatic(const Mesh* mesh)
+{
+    if (gJobCount == 0 || gStaticCount == MAX_STATIC_JOBS)
+        return false;
+    if (gStaticTaken + mesh->vCount > gStaticShare)
+    {
+        gStaticHeld = true;
+        return false;
+    }
+
+    meshJobSetup(gStaticJobs[gStaticCount], mesh);
+    gStaticTaken += mesh->vCount;
+    gStaticCount++;
+    *uncached(&gStaticsQueued) = gStaticCount;
+    return true;
+}
+
 Face** roomsFinish(RoomStats &stats, const uint16* &groups)
 {
     if (gJobCount == 0)
         return NULL;
 
+    bool idle = *uncached(&gJobsDone) == gJobCount + gStaticCount;
     *uncached(&gJobsClosed) = 1;
     slaveWait();
     cachePurge();
 
+    // it grows only while it holds meshes back, not to slow its shrinking when
+    // the view gets busier
+    if (!idle) {
+        gStaticShare = X_MAX(gStaticShare - STATIC_STEP, 0);
+    } else if (gStaticHeld) {
+        gStaticShare += STATIC_STEP;
+    }
+    gStaticTaken = 0;
+    gStaticHeld = false;
+
     gJobCount = 0;
+    gStaticCount = 0;
     *uncached(&gJobsQueued) = 0;
     *uncached(&gJobsClosed) = 0;
+    *uncached(&gStaticsQueued) = 0;
+    *uncached(&gJobsDone) = 0;
 
     stats = gSlaveStats;
     groups = gFaceList.groups;

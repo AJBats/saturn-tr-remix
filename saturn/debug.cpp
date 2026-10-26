@@ -184,16 +184,20 @@ static char* appendColumn(char* p, uint32 value)
 }
 
 static const char* const kBenchNames[BENCH_COUNT] = {
-    "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Profile"
+    "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master statics",
+    "Profile"
 };
 
 // each way's VDP1 and master CPU time, the master's drawing (rooms queued
-// and meshes, before flush), the slave's on rooms (transform and faces)
+// and meshes, before flush), the slave's on rooms (transform and faces) and
+// their static meshes
 static struct { uint32 vdp1, cpu, draw, slave, fps; } gBench[BENCH_COUNT];
 
 // and the base way's CPU time by stage, as gStats keeps it
-enum { SPLIT_UPDATE, SPLIT_DRAW, SPLIT_SLAVE_WAIT, SPLIT_FLUSH, SPLIT_XFORM, SPLIT_FACES, SPLIT_COUNT };
-static const char* const kSplitNames[SPLIT_COUNT] = { "upd ", "draw ", "swait ", "flush ", "xform ", "faces " };
+enum { SPLIT_UPDATE, SPLIT_DRAW, SPLIT_SLAVE_WAIT, SPLIT_FLUSH, SPLIT_XFORM, SPLIT_FACES, SPLIT_MESH, SPLIT_IDLE,
+       SPLIT_COUNT };
+static const char* const kSplitNames[SPLIT_COUNT] = { "upd ", "draw ", "swait ", "flush ", "xform ", "faces ",
+                                                      "mesh ", "idle " };
 static uint32 gSplit[SPLIT_COUNT];
 
 // A sampling profiler for the master CPU: during the Profile way, the free-
@@ -398,13 +402,15 @@ static void benchUpdate()
         vdp1 += gStats.vdp1Ticks;
         cpu += gStats.updateTicks + gStats.renderTicks - gStats.waitTicks;
         draw += gStats.drawTicks;
-        slave += gStats.slaveXformTicks + gStats.slaveFaceTicks;
+        slave += gStats.slaveXformTicks + gStats.slaveFaceTicks + gStats.slaveMeshTicks;
         split[SPLIT_UPDATE] += gStats.updateTicks;
         split[SPLIT_DRAW] += gStats.drawTicks;
         split[SPLIT_SLAVE_WAIT] += gStats.slaveWaitTicks;
         split[SPLIT_FLUSH] += gStats.flushTicks;
         split[SPLIT_XFORM] += gStats.slaveXformTicks;
         split[SPLIT_FACES] += gStats.slaveFaceTicks;
+        split[SPLIT_MESH] += gStats.slaveMeshTicks;
+        split[SPLIT_IDLE] += gStats.slaveIdleTicks;
     }
 
     if (t < BENCH_WINDOW)
