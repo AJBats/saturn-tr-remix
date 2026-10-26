@@ -1091,8 +1091,10 @@ void flush_c()
     int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (renderInit)
     memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
 
-    uint32 erase = gBenchMode == BENCH_FULL_CLEAR ? 0 : VBLANK_ERASE_LINES;
+    bool clear = gBenchMode != BENCH_NO_CLEAR;
+    uint32 erase = gBenchMode == BENCH_FULL_CLEAR || !clear ? 0 : VBLANK_ERASE_LINES;
     vdp1SetVblankErase(erase);
+    gCmds[0].w[0] = (CMD_SCALED_SPRITE | (clear ? 0 : CMD_SKIP)) << 16;
     gCmds[0].w[3] = pair(0, erase);
 
     gCmds[count].w[0] = CMD_END << 16;

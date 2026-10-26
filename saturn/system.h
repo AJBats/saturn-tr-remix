@@ -38,7 +38,7 @@ struct FrameStats
     uint32_t slaveIdleTicks;  // slave: waiting for rooms to be queued
     uint32_t dmaTicks;      // flush: texture uploads and command DMA
     uint32_t farWaitTicks;  // flush: waiting for the slave's commands after building ours
-    uint32_t eraseMisses;   // frame changes after which the last line erased in the vblank wasn't, since boot
+    uint32_t eraseReach;    // lines the last frame change's vblank erase reached
 };
 
 extern FrameStats gStats;

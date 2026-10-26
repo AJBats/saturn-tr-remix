@@ -109,19 +109,26 @@ extern "C" void vblankOutHandler()
         waitDisplayStart();
         gVdp1State = VDP1_IDLE;
 
-        // the vblank's erase reached its last line (where the last frame
-        // left anything): a sample of it reads 0
+        // how far down the vblank's erase got: it works from the top, and a
+        // line it reached reads 0 where the last frame left anything
         if (gEraseLines)
         {
-            const volatile uint16_t* line = (const volatile uint16_t*)VDP1_FB + (gEraseLines - 1) * 512;
-            for (int32_t x = 0; x < SCREEN_WIDTH; x += 32)
+            uint32_t reached = 0, missed = gEraseLines;
+            while (reached < missed)
             {
-                if (line[x])
-                {
-                    gStats.eraseMisses++;
-                    break;
+                uint32_t y = (reached + missed) / 2;
+                const volatile uint16_t* line = (const volatile uint16_t*)VDP1_FB + y * 512;
+                bool erased = true;
+                for (int32_t x = 0; x < SCREEN_WIDTH && erased; x += 16) {
+                    erased = !line[x];
+                }
+                if (erased) {
+                    reached = y + 1;
+                } else {
+                    missed = y;
                 }
             }
+            gStats.eraseReach = reached;
         }
 
         if (gOnNextFrame)

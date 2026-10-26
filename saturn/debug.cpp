@@ -186,7 +186,7 @@ static char* appendColumn(char* p, uint32 value)
 
 static const char* const kBenchNames[BENCH_COUNT] = {
     "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master statics",
-    "Full clear", "Profile"
+    "Full clear", "No clear", "Profile"
 };
 
 // each way's VDP1 and master CPU time, the master's drawing (rooms queued
@@ -223,7 +223,7 @@ static uint32 gSplit[SPLIT_COUNT];
 #define PROFILE_START   0x06004000
 #define PROFILE_SHIFT   5
 #define PROFILE_BLOCKS  (160 * 1024 >> PROFILE_SHIFT)
-#define PROFILE_TOP     27      // three to a row, under the table
+#define PROFILE_TOP     24      // three to a row, under the table
 
 static_assert(7 + BENCH_COUNT + PROFILE_TOP / 3 <= OVERLAY_ROWS, "the profile's rows fit the overlay");
 
@@ -394,12 +394,14 @@ static void profileRank()
 
 static char gBenchRows[OVERLAY_ROWS][OVERLAY_COLUMNS + 1];
 static bool gBenchChanged = true;   // gBenchRows to compose again
+static uint32 gReachLo, gReachHi;   // lines the vblank erase reached in the base way's frames
 
 static void benchUpdate()
 {
     static uint32 start;
     static uint32 frames, vdp1, cpu, draw, slave;
     static uint32 split[SPLIT_COUNT];
+    static uint32 reachLo = ~0u, reachHi;
 
     if (!start) {
         start = gVblankCount;
@@ -422,6 +424,11 @@ static void benchUpdate()
         split[SPLIT_FACES] += gStats.slaveFaceTicks;
         split[SPLIT_MESH] += gStats.slaveMeshTicks;
         split[SPLIT_IDLE] += gStats.slaveIdleTicks;
+        if (gBenchMode == BENCH_BASE)
+        {
+            reachLo = X_MIN(reachLo, gStats.eraseReach);
+            reachHi = X_MAX(reachHi, gStats.eraseReach);
+        }
     }
 
     if (t < BENCH_WINDOW)
@@ -439,6 +446,10 @@ static void benchUpdate()
             for (int32 i = 0; i < SPLIT_COUNT; i++) {
                 gSplit[i] = framePercent(split[i] / frames);
             }
+            gReachLo = reachLo;
+            gReachHi = reachHi;
+            reachLo = ~0u;
+            reachHi = 0;
         }
     }
     if (gBenchMode == BENCH_PROFILE) {
@@ -512,8 +523,13 @@ static void benchCompose()
     int32 row = 6 + BENCH_COUNT;
     p = append(text, "profile ");
     p = appendStat(p, "samples ", gProfileRanked);
-    p = appendStat(p, "other ", gProfileRanked ? gProfileOther * 100 / gProfileRanked : 0);
-    appendStat(p, "emiss ", gStats.eraseMisses);
+    p = append(p, "erase ");
+    int2str(int32(gReachLo), p);
+    while (*p) {
+        p++;
+    }
+    *p++ = '-';
+    int2str(int32(gReachHi), p);
     strncpy(gBenchRows[row++], text, OVERLAY_COLUMNS);
     for (int32 i = 0; i < PROFILE_TOP && row < OVERLAY_ROWS; i += 3, row++)
     {
