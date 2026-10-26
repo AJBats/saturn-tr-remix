@@ -27,8 +27,6 @@
 #define EDSR_CEF    0x0002  // VDP1 finished drawing the current frame
 #define FBCR_FCM    0x0002  // manual frame buffer change
 #define FBCR_FCT    0x0001  // change frame buffers at the next field
-#define TVMR_VBE    0x0008  // erase in the vblank of the change
-#define VDP1_FB     0x25C80000  // the frame buffer VDP1 draws into, 512 pixels a line
 
 // VDP1 frame sequencing (after libyaul's variable-interval mode): a plot is
 // started once the command list is uploaded; at the vblank-in after VDP1
@@ -52,7 +50,6 @@ enum Vdp1State
 static volatile int32_t gVdp1State;
 static volatile bool gVdp1Drawn = true;    // the last plot has finished
 static volatile bool gPlotQueued;          // a plot waits for the change
-static volatile uint32_t gEraseLines;      // vdp1SetVblankErase's
 static uint32_t gPlotStart;
 static void (*volatile gOnNextFrame)();
 
@@ -76,7 +73,6 @@ extern "C" void vblankInHandler(const uint32_t* irqStack)
         // hardware): this plot's sprite-end interrupt must have come too
         if (gVdp1Drawn && (VDP1_EDSR & EDSR_CEF))
         {
-            VDP1_TVMR = gEraseLines ? TVMR_VBE : 0;
             VDP1_FBCR = FBCR_FCM | FBCR_FCT;
             gVdp1State = VDP1_CHANGING;
         }
@@ -105,35 +101,8 @@ extern "C" void vblankOutHandler()
 {
     if (gVdp1State == VDP1_CHANGING)
     {
-        VDP1_TVMR = 0;
         waitDisplayStart();
         gVdp1State = VDP1_IDLE;
-
-#ifdef HW_LOG
-        // how far down the vblank's erase got: it works from the top, and a
-        // line it reached reads 0 where the last frame left anything. Every
-        // 8th change: reading the frame buffer takes the CPU half a percent.
-        static uint32_t changes;
-        if (gEraseLines && !(++changes & 7))
-        {
-            uint32_t reached = 0, missed = gEraseLines;
-            while (reached < missed)
-            {
-                uint32_t y = (reached + missed) / 2;
-                const volatile uint16_t* line = (const volatile uint16_t*)VDP1_FB + y * 512;
-                bool erased = true;
-                for (int32_t x = 0; x < SCREEN_WIDTH && erased; x += 16) {
-                    erased = !line[x];
-                }
-                if (erased) {
-                    reached = y + 1;
-                } else {
-                    missed = y;
-                }
-            }
-            gStats.eraseReach = reached;
-        }
-#endif
 
         if (gOnNextFrame)
         {
@@ -177,16 +146,6 @@ void vdp1Plot()
     }
 }
 
-void vdp1SetVblankErase(uint32_t lines)
-{
-    if (lines == gEraseLines)
-        return;
-    if (lines) {
-        VDP1_EWRR = ((SCREEN_WIDTH / 8) << 9) | (lines - 1);
-    }
-    gEraseLines = lines;
-}
-
 void vdp1OnNextFrame(void (*fn)())
 {
     gOnNextFrame = fn;
@@ -216,9 +175,6 @@ static void vdp2Init()
 static void vdp1Init()
 {
     VDP1_TVMR = 0;          // 16bpp
-    VDP1_EWDR = 0;          // erase to transparent
-    VDP1_EWLR = 0;
-    VDP1_EWRR = ((SCREEN_WIDTH / 8) << 9) | (SCREEN_HEIGHT - 1);
     VDP1_PTMR = 0;          // plot only when asked
 
     waitVblank();

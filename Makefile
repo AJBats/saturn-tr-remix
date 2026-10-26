@@ -45,6 +45,9 @@ endif
 ifdef HW_LOG
 CFLAGS  += -DHW_LOG     # testing on hardware: the boot log, stats and measurements on screen; touch saturn/crash.cpp saturn/debug.cpp when changing it
 endif
+ifdef VOID_VIEW
+CFLAGS  += -DVOID_VIEW  # testing: what nothing draws in the scene shows magenta; touch saturn/render.cpp
+endif
 # -fno-lifetime-dse: OpenLara sets ItemObj fields and then placement-news the
 # subclass over them (ItemObj::init); the constructors read those fields.
 CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \

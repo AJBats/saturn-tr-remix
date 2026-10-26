@@ -33,6 +33,7 @@ enum FaceType {
     FACE_TYPE_LINE_H,
     FACE_TYPE_LINE_V,
     FACE_TYPE_AVG,      // a textured face drawn flat in its texture's mean colour (far LOD)
+    FACE_TYPE_VOID,     // black, behind everything, where a room face cut away by the near or far plane would be
     FACE_TYPE_MAX
 };
 
@@ -216,8 +217,7 @@ enum BenchMode
     BENCH_MASTER_MESHES,    // every mesh drawn on the master, none by the slave
     BENCH_ALL_MESHES,   // items' meshes and shadows to the slave too, not only rooms' static meshes
     BENCH_C_MESHES,     // the master's meshes by the C path, not meshxform.s renderMeshAsm
-    BENCH_FULL_CLEAR,   // the frame cleared by its first command alone (VBLANK_ERASE_LINES 0)
-    BENCH_NO_CLEAR,     // the frame not cleared at all: what no face covers keeps an old frame
+    BENCH_CLEAR,        // the scene's frames cleared too, as frames without rooms are
     BENCH_PROFILE,      // as Base, sampling where the master's time goes
     BENCH_COUNT
 };

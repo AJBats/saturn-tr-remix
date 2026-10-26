@@ -84,7 +84,9 @@ enum { OPTION_SHADING, OPTION_DARK, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPT
 static uint16 gPad;
 static bool gMenuOpen;
 static int32 gCursor;
+#ifdef HW_LOG
 static bool gBenchHidden;   // L or R: the bench's rows give way to the name of its way
+#endif
 
 static const char* gMessage;
 static const char* gMessageName;
@@ -193,7 +195,7 @@ static char* appendColumn(char* p, uint32 value)
 
 static const char* const kBenchNames[BENCH_COUNT] = {
     "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master meshes",
-    "All meshes", "C meshes", "Full clear", "No clear", "Profile"
+    "All meshes", "C meshes", "Clear", "Profile"
 };
 
 // each way's VDP1 and master CPU time, the master's drawing (rooms queued
@@ -411,14 +413,12 @@ static void profileRank()
 
 static char gBenchRows[OVERLAY_ROWS][OVERLAY_COLUMNS + 1];
 static bool gBenchChanged = true;   // gBenchRows to compose again
-static uint32 gReachLo, gReachHi;   // lines the vblank erase reached in the base way's frames
 
 static void benchUpdate()
 {
     static uint32 start;
     static uint32 frames, vdp1, cpu, draw, slave;
     static uint32 split[SPLIT_COUNT];
-    static uint32 reachLo = ~0u, reachHi;
     static uint32 dspVertices, roomVertices;
 
     if (!start) {
@@ -443,11 +443,6 @@ static void benchUpdate()
         split[SPLIT_MESH] += gStats.slaveMeshTicks;
         dspVertices += gStats.dspVertices;
         roomVertices += gStats.roomVertices;
-        if (gBenchMode == BENCH_BASE)
-        {
-            reachLo = X_MIN(reachLo, gStats.eraseReach);
-            reachHi = X_MAX(reachHi, gStats.eraseReach);
-        }
     }
 
     if (t < BENCH_WINDOW)
@@ -465,10 +460,6 @@ static void benchUpdate()
             for (int32 i = 0; i < SPLIT_COUNT; i++) {
                 gSplit[i] = framePercent(split[i] / frames);
             }
-            gReachLo = reachLo;
-            gReachHi = reachHi;
-            reachLo = ~0u;
-            reachHi = 0;
             gDspShare = roomVertices ? dspVertices * 100 / roomVertices : 0;
         }
     }
@@ -544,14 +535,7 @@ static void benchCompose()
 
     int32 row = 6 + BENCH_COUNT;
     p = append(text, "profile ");
-    p = appendStat(p, "samples ", gProfileRanked);
-    p = append(p, "erase ");
-    int2str(int32(gReachLo), p);
-    while (*p) {
-        p++;
-    }
-    *p++ = '-';
-    int2str(int32(gReachHi), p);
+    appendStat(p, "samples ", gProfileRanked);
     strncpy(gBenchRows[row++], text, OVERLAY_COLUMNS);
     for (int32 i = 0; i < PROFILE_TOP && row < OVERLAY_ROWS; i += 3, row++)
     {

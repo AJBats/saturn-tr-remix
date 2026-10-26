@@ -40,7 +40,7 @@
 !                               detailPoolStart
 !   +40 uint32 frame            gDetailFrame
 !   +44 void (*quad)(const Vertex* v, const RoomQuad* polys, int32 count)
-!                               faceAddRoomQuads, for quads crossing the near plane
+!                               faceAddRoomQuads, for quads a plane cuts
 !   +48 int32 (*miss)(uint32 key, uint32 texSize, uint32 variant)  detailSlotMiss
 !   +52 int32 turn              faces may be turned (gTurnLines)
 !   +56 int32 across            the face's lines' length in pixels, from TURN
@@ -649,6 +649,39 @@ _faceAddMeshTrianglesBody:
     add     #16, r10
     .endm
 
+! culled by CULL (r13 its corners' clip flags anded, r1 a corner): wholly
+! beyond a frame edge or behind the near plane, to 'gone'; wholly past the far
+! plane, on; else (cut by a plane) to 'cut'; r0, r13
+    .macro  GONE gone, cut
+    mov     r13, r0
+    tst     #CLIP_DISCARD & ~CLIP_PLANE, r0
+    bf      \gone
+    tst     #CLIP_PLANE, r0
+    bt      \cut
+    mov.w   @(4, r1), r0
+    shlr2   r0
+    shlr2   r0
+    mov     #5, r13
+    shll8   r13                 ! the far plane >> OT_SHIFT
+    cmp/eq  r13, r0
+    bf      \gone
+    .endm
+
+! the face at r10 black behind everything (rooms.cpp faceAddRoomVoid), with
+! the index pairs at r4 + 4 and in 'pair2'; r0, r13, r14
+    .macro  VOID pair2
+    mov     #5, r13
+    shll8   r13                 ! the last bucket, OT_SIZE - 1
+    LINK
+    mov     #11, r0
+    shll8   r0
+    shll2   r0
+    shll2   r0
+    shll2   r0                  ! FACE_TYPE_VOID << FACE_TYPE_SHIFT
+    mov.l   r0, @r10
+    ROOM_FACE \pair2
+    .endm
+
     .macro  ROOM_LEAVE
     mov.l   @(8, r6), r0
     mov.l   r10, @r0
@@ -673,12 +706,15 @@ _faceAddRoomQuadsAsm:
     bra     .LrquadsDone
     nop
 
-    ! culled: corners behind the near plane but not beyond a frame edge go
-    ! to C, which splits the quad
+    ! culled: wholly past the far plane, black; cut by a plane, to C, which
+    ! splits the quad or fills it
 .LrquadCulled:
-    mov     r13, r0
-    tst     #CLIP_DISCARD, r0
-    bf      .LrquadNext
+    GONE    .LrquadNext, .LrquadCut
+    mov.l   @(8, r4), r1
+    VOID    r1
+    bra     .LrquadNext
+    nop
+.LrquadCut:
     mov.l   @(8, r6), r0
     mov.l   r10, @r0            ! the list's next face, for C
     mov.l   r4, @-r15
@@ -742,6 +778,17 @@ _faceAddRoomTrianglesAsm:
     bra     .LrtrisDone
     nop
 
+    ! culled: cut by a plane or wholly past the far one, black
+.LrtriCulled:
+    GONE    .LrtriNext, 1f
+1:  BACKFACE .LrtriNext
+    mov.l   @(8, r4), r0
+    shlr16  r0
+    mov     r0, r1
+    shll16  r1
+    or      r0, r1              ! v2 twice
+    VOID    r1
+
 .LrtriNext:
     dt      r5
     bf/s    .Lrtri
@@ -756,7 +803,7 @@ _faceAddRoomTrianglesAsm:
     bra     .LrtrisDone         ! out of faces
     nop
 1:  ROOM_INDICES
-    CULL    r3, .LrtriNext
+    CULL    r3, .LrtriCulled
     BACKFACE .LrtriNext
     mov     r3, r7              ! corner D is C
     TURN

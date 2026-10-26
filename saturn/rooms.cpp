@@ -183,6 +183,27 @@ X_INLINE void projectRoomPoint(int16 vx, int16 vy, int16 vz, Vertex* res)
     }
 }
 
+// The frame isn't cleared: where the near or far plane cuts a room face away,
+// or it lies wholly past the far plane, black behind everything instead (the
+// corners projected as clamped to the plane). faces.s does the same.
+static void faceAddRoomVoid(const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
+{
+    Face* f = faceAdd(gFaceList, OT_SIZE - 1);
+    f->flags = FACE_TYPE_VOID << FACE_TYPE_SHIFT;
+    f->indices[0] = v0 - gVertices;
+    f->indices[1] = v1 - gVertices;
+    f->indices[2] = v2 - gVertices;
+    f->indices[3] = v3 - gVertices;
+}
+
+// A room face with these clip flags of its corners anded is dropped, not
+// filled: wholly beyond a frame edge or behind the near plane.
+X_INLINE bool roomFaceGone(uint32 clipAnd, const Vertex* v0)
+{
+    return (clipAnd & (CLIP_DISCARD & ~CLIP_PLANE)) ||
+           ((clipAnd & CLIP_PLANE) && v0->z < (VIEW_MAX_F >> FIXED_SHIFT));
+}
+
 // Adds one quarter of a split room quad; corners clockwise from the one at
 // the texture's top left.
 static void faceAddDetailQuad(uint32 flags, const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
@@ -193,7 +214,12 @@ static void faceAddDetailQuad(uint32 flags, const Vertex* v0, const Vertex* v1, 
     uint32 c3 = v3->clip;
 
     if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
+    {
+        if (!(c0 & c1 & c2 & c3 & CLIP_DISCARD)) {
+            faceAddRoomVoid(v0, v1, v2, v3);
+        }
         return;
+    }
 
     int32 depth = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z))) >> OT_SHIFT;
 
@@ -295,8 +321,7 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
         uint32 c2 = v2->clip;
         uint32 c3 = v3->clip;
 
-        // all four corners beyond one frame edge
-        if (c0 & c1 & c2 & c3 & CLIP_DISCARD)
+        if (roomFaceGone(c0 & c1 & c2 & c3, v0))
             continue;
 
         if (checkBackface(v0, v1, v2))
@@ -306,23 +331,24 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
         int32 zMax = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z)));
         const Texture* tex = level.textures + (flags & FACE_TEXTURE);
 
+        if ((c0 | c1 | c2 | c3) & CLIP_PLANE)
+        {
+            // crossing the near plane: split, so the quarters in front of it
+            // are drawn rather than the whole face filled
+            if (!(zMin < DETAIL_DIST && tex->reserved && !faceFlat(flags, zMin, tex) &&
+                  faceAddRoomQuadDetail(polys, tex, v0, v1, v2, v3))) {
+                faceAddRoomVoid(v0, v1, v2, v3);
+            }
+            continue;
+        }
+
         if (faceFlat(flags, zMin, tex))
         {
-            if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
-                continue;
             flags = flatFlags(flags);
             gSlaveStats.flatFaces++;
         }
         else
         {
-            // crossing the near plane: split, so the quarters in front of it
-            // are drawn rather than the whole face culled
-            if (zMin < DETAIL_DIST && ((c0 | c1 | c2 | c3) & CLIP_PLANE) && tex->reserved &&
-                faceAddRoomQuadDetail(polys, tex, v0, v1, v2, v3))
-                continue;
-
-            if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
-                continue;
             flags = wholeTexture(flags, v0, v1, v2, v3);
         }
 
@@ -351,12 +377,17 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
         uint32 c1 = v1->clip;
         uint32 c2 = v2->clip;
 
-        if (cullFace(c0 & c1 & c2, c0 | c1 | c2))
+        if (roomFaceGone(c0 & c1 & c2, v0))
             continue;
-
 
         if (checkBackface(v0, v1, v2))
             continue;
+
+        if ((c0 | c1 | c2) & CLIP_PLANE)
+        {
+            faceAddRoomVoid(v0, v1, v2, v2);
+            continue;
+        }
 
         flags |= FACE_TRIANGLE;
 
@@ -413,7 +444,9 @@ static_assert(offsetof(RoomFaces, textures) == 16 && offsetof(RoomFaces, end) ==
               FACE_DETAIL_TURNED == (1 << 19) && DETAIL_WHOLE == 0 && DETAIL_TURNED == 2 &&
               FACE_DETAIL_MIP == (1 << 18) && FACE_DETAIL_MIP2 == (1 << 26) && DETAIL_MIP1 == 3 &&
               DETAIL_MIP1_TURNED == 4 && DETAIL_MIP2 == 5 && DETAIL_MIP2_TURNED == 6 &&
-              DETAIL_FULL_SLOTS == 128 && DETAIL_MIP_SLOTS == 64 &&
+              DETAIL_FULL_SLOTS == 128 && DETAIL_MIP_SLOTS == 64 && FACE_TYPE_VOID == 11 &&
+              FACE_TYPE_SHIFT == 14 && OT_SHIFT == 4 && OT_SIZE - 1 == (5 << 8) &&
+              VIEW_MAX_F >> FIXED_SHIFT == (5 << 12) &&
               sizeof(gDetailKeys[0]) == DETAIL_MAX_KEYS, "layouts and constants shared with faces.s");
 
 extern "C" void faceAddRoomQuadsAsm(const RoomQuad* polys, int32 count, RoomFaces* rf);

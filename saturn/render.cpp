@@ -369,12 +369,6 @@ bool renderFastShrink()
 {
     return gTexturePmod & PMOD_HSS;
 }
-// Lines VDP1 erases at the top of each frame in the vblank of its change,
-// leaving the rest to the clear command. On a Saturn the vblank of a 224-line
-// frame erases from 85 to 170 lines of 352 pixels, varying frame to frame (the
-// bench's erase row); Mednafen always 170.
-#define VBLANK_ERASE_LINES  80
-
 int32 gDarkFaces = DARK_CONTRAST;
 int32 gFlatDist;
 int32 gTurnLines = 1;
@@ -764,6 +758,15 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
             setRect(w, v0, v0 + 1);
             break;
 
+        case FACE_TYPE_VOID:
+            w[0] = CMD_POLYGON << 16;
+            w[1] = pair(PMOD_NO_ECD_SPD, RGB(0, 0, 0));
+            w[3] = v0->xy;
+            w[4] = gVertices[face->indices[1]].xy;
+            w[5] = gVertices[face->indices[2]].xy;
+            w[6] = gVertices[face->indices[3]].xy;
+            break;
+
         default:
         {
             const Vertex* v1 = gVertices + face->indices[1];
@@ -1066,6 +1069,35 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
     return count;
 }
 
+// The frame's first command clears it, as the original does, unless rooms
+// cover it: what neither a face nor a portal of theirs would draw is black
+// behind everything then (faceAddRoomVoid, renderVoid), and VDP1 has the
+// clear's time for the scene. The clear is a scaled sprite of colour 0 with
+// transparency off, which writes 0 (VDP2 shows the back colour).
+static void clearCommand(bool clear)
+{
+    uint32* w = gCmds[0].w;
+#ifdef VOID_VIEW
+    if (!clear)
+    {
+        // magenta where nothing draws
+        w[0] = CMD_POLYGON << 16;
+        w[1] = pair(PMOD_NO_ECD_SPD, RGB(31, 0, 31));
+        w[3] = pair(0, 0);
+        w[4] = pair(FRAME_WIDTH - 1, 0);
+        w[5] = pair(FRAME_WIDTH - 1, FRAME_HEIGHT - 1);
+        w[6] = pair(0, FRAME_HEIGHT - 1);
+        return;
+    }
+#endif
+    w[0] = (CMD_SCALED_SPRITE | (clear ? 0 : CMD_SKIP)) << 16;
+    w[1] = pair(PMOD_SPD_OFF, 0);
+    w[2] = pair(VRAM_CLEAR_TEX >> 3, (1 << 8) | 1);
+    w[3] = pair(0, 0);
+    w[5] = pair(FRAME_WIDTH - 1, FRAME_HEIGHT - 1);
+    w[7] = 0;
+}
+
 void flush_c()
 {
     uint32 start = timerTicks();
@@ -1096,14 +1128,9 @@ void flush_c()
     gFaceList.next = gFaces;
 
     gShadeFrame++;
-    int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (renderInit)
+    int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (clearCommand)
     memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
-
-    bool clear = gBenchMode != BENCH_NO_CLEAR;
-    uint32 erase = gBenchMode == BENCH_FULL_CLEAR || !clear ? 0 : VBLANK_ERASE_LINES;
-    vdp1SetVblankErase(erase);
-    gCmds[0].w[0] = (CMD_SCALED_SPRITE | (clear ? 0 : CMD_SKIP)) << 16;
-    gCmds[0].w[3] = pair(0, erase);
+    clearCommand(!roomOT || gBenchMode == BENCH_CLEAR);
 
     gCmds[count].w[0] = CMD_END << 16;
     gRenderFaceCount = count;
@@ -1166,20 +1193,10 @@ void renderInit()
     gDimFacesEnd = gFaces;
     roomsInit();
 
-    // The frame's first command clears what VDP1's vblank erase doesn't reach
-    // (flush_c), as the original clears it all: a scaled sprite of colour 0
-    // with transparency off writes 0 (VDP2 shows the back colour).
+    // the clear's texture (clearCommand)
     REG32(VDP1_VRAM + VRAM_CLEAR_TEX) = 0;
     REG32(VDP1_VRAM + VRAM_CLEAR_TEX + 4) = 0;
-    {
-        uint32* w = gCmds[0].w;
-        w[0] = CMD_SCALED_SPRITE << 16;
-        w[1] = pair(PMOD_SPD_OFF, 0);
-        w[2] = pair(VRAM_CLEAR_TEX >> 3, (1 << 8) | 1);
-        w[3] = pair(0, 0);
-        w[5] = pair(FRAME_WIDTH - 1, FRAME_HEIGHT - 1);
-        w[7] = 0;
-    }
+    clearCommand(true);
 
     // slots 0-2: system clip, user clip, local coordinates; frame commands follow
     for (int32 i = 0; i < 3; i++) {
@@ -1812,6 +1829,12 @@ static void renderRect(int32 x, int32 y, int32 width, int32 height, uint32 type,
     Face* f = faceAdd(gFaceList, z);
     f->flags = type << FACE_TYPE_SHIFT;
     f->indices[0] = v - gVertices;
+}
+
+// Black behind everything, where nothing would draw: the frame isn't cleared.
+void renderVoid(int32 x0, int32 y0, int32 x1, int32 y1)
+{
+    renderRect(x0, y0, x1 - x0, y1 - y0, FACE_TYPE_LINE_H, RGB(0, 0, 0), OT_SIZE - 1);
 }
 
 // Darkens the frame under the rectangle (VDP1 halves it; shade is ignored).
