@@ -27,7 +27,8 @@
 !   +64 uint32 mipVram[2]       the mip levels' pools (gDetailPoolVram[1], [2])
 !   +72 ShadeCache* shade       the CPU's shaded colour tables, 0 for none
 !   +76 int32 farShade          room faces drawn with the quarter-size mip take
-!                               one shade, their corners' mean
+!                               one shade, their corners' mean, when the corners
+!                               are this many levels apart at most
 !
 ! ShadeCache (render.cpp): +0 frame, +4 validFrom, +8 vram, +12 miss,
 ! +16 keys[256], +1040 frames[256].
@@ -653,7 +654,7 @@ _flushAsm:
     mov.l   .LfarFace, r3
     and     r3, r0
     cmp/eq  r3, r0
-    bt      .LfarShade
+    bt      .LfarShadeNear
     cmp/eq  r4, r5
     bf      .LgouraudTable
     cmp/eq  r4, r6
@@ -677,41 +678,9 @@ _flushAsm:
     bra     .Lfaced
     mov.l   r6, @(4, r11)
 
-    ! a far face with farShade: its corners' mean gouraud value at every corner
-.LfarShade:
-    mov     #76, r0
-    mov.l   @(r0, r8), r0
-    tst     r0, r0
-    bf      1f
-    bra     .LgouraudTable
+.LfarShadeNear:                 ! .LfarShade, out of the way
+    bra     .LfarShade
     nop
-1:  mov     r4, r0
-    and     #31, r0
-    mov     r0, r3
-    mov     r5, r0
-    and     #31, r0
-    add     r0, r3
-    mov     r6, r0
-    and     #31, r0
-    add     r0, r3
-    mov     r7, r0
-    and     #31, r0
-    add     r0, r3
-    add     #2, r3
-    shlr2   r3                  ! the mean level, the shades being grey
-    mov     r3, r4
-    shll2   r3
-    shll2   r3
-    shll    r3
-    or      r3, r4              ! level << 5 | level
-    shll2   r3
-    shll2   r3
-    shll    r3
-    or      r3, r4              ! a grey of that level
-    mov     r4, r5
-    mov     r4, r6
-    bra     .LshadeIt
-    mov     r4, r7
 
 
 
@@ -869,6 +838,7 @@ _flushAsm:
     bra     .Lfaced
     mov.l   r0, @(4, r10)
 
+
     .align 2
 .LfarFace:      .long   0x2C040000  ! FACE_DETAIL | FACE_DETAIL_WHOLE | FACE_DETAIL_MIP2 | FACE_DETAIL_MIP
 .LfacePara2:    .long   0x10000000  ! FACE_PARALLELOGRAM
@@ -876,3 +846,69 @@ _flushAsm:
 .LturnedFace:   .long   0x28080000  ! FACE_DETAIL | FACE_DETAIL_WHOLE | FACE_DETAIL_TURNED
 .LflipH:        .long   0x00100000  ! CMD_FLIP_H << 16
 .LpolyW1:       .long   0x00C40000  ! (PMOD_NO_ECD_SPD | PMOD_GOURAUD) << 16
+
+    ! a far face with farShade: its corners' mean gouraud value at every corner
+.LfarShade:
+    mov     #72, r0
+    mov.l   @(r0, r8), r0
+    tst     r0, r0
+    bf      8f
+    bra     .LgouraudTable      ! no shaded tables
+    nop
+8:  mov     r4, r0
+    and     #31, r0
+    mov     r0, r3              ! the levels' sum
+    mov     r0, r1              ! the darkest
+    mov     r0, r14             ! the brightest
+    mov     r5, r0
+    and     #31, r0
+    add     r0, r3
+    cmp/gt  r0, r1
+    bf      1f
+    mov     r0, r1
+1:  cmp/gt  r14, r0
+    bf      2f
+    mov     r0, r14
+2:
+    mov     r6, r0
+    and     #31, r0
+    add     r0, r3
+    cmp/gt  r0, r1
+    bf      3f
+    mov     r0, r1
+3:  cmp/gt  r14, r0
+    bf      4f
+    mov     r0, r14
+4:
+    mov     r7, r0
+    and     #31, r0
+    add     r0, r3
+    cmp/gt  r0, r1
+    bf      5f
+    mov     r0, r1
+5:  cmp/gt  r14, r0
+    bf      6f
+    mov     r0, r14
+6:
+    sub     r1, r14
+    mov     #76, r0
+    mov.l   @(r0, r8), r0
+    cmp/hi  r0, r14
+    bf      7f
+    bra     .LgouraudTable      ! too far apart
+    nop
+7:  add     #2, r3
+    shlr2   r3                  ! the mean level, the shades being grey
+    mov     r3, r4
+    shll2   r3
+    shll2   r3
+    shll    r3
+    or      r3, r4              ! level << 5 | level
+    shll2   r3
+    shll2   r3
+    shll    r3
+    or      r3, r4              ! a grey of that level
+    mov     r4, r5
+    mov     r4, r6
+    bra     .LshadeIt
+    mov     r4, r7

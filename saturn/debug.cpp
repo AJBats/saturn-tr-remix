@@ -29,7 +29,7 @@ static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kShrink[] = { "Exact", "Fast" };
 static const char* const kLines[] = { "Fixed", "Turned" };
 static const char* const kLod[] = { "Full res", "1 texel a pixel", "1.5 texels", "2 texels" };
-static const char* const kShade[] = { "Gouraud", "Shaded tables", "And far faces" };
+static const char* const kShade[] = { "Gouraud", "Shaded tables", "All far faces" };
 static const char* const kFar[] = { "Textured", "Flat past 16", "Flat past 12", "Flat past 8" };
 static const int32 kFarDist[] = { 0, 16 * 1024, 12 * 1024, 8 * 1024 };
 
