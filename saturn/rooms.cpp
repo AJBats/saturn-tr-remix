@@ -37,6 +37,7 @@ static RoomJob gJobs[MAX_ROOM_JOBS];
 static uint32 gJobCount;
 static volatile uint32 gJobsQueued;
 static volatile uint32 gJobsClosed;
+static bool gSlaveLate;     // BENCH_SLAVE_LATE: the slave starts at roomsFinish
 
 // Slave side.
 static Face gSlaveFaces[MAX_FACES];
@@ -459,6 +460,7 @@ static void roomBatch()
     gNextVertex = gVertices + MASTER_VERTICES;
     gSlaveStats = RoomStats();
 
+    bool quiet = gBenchMode == BENCH_QUIET_POLL;
     uint32 done = 0;
     uint32 idleStart = timerTicks();
     while (1)
@@ -467,7 +469,12 @@ static void roomBatch()
         if (done == queued)
         {
             if (!*uncached(&gJobsClosed))
+            {
+                if (quiet) {
+                    busPause();
+                }
                 continue;
+            }
             // the last job may have been queued just before the queue closed
             if (done == *uncached(&gJobsQueued))
                 break;
@@ -500,8 +507,12 @@ void roomsQueue(const Room* room)
     job.viewport = viewport;
     job.causticsFrame = gCausticsFrame;
 
-    if (gJobCount == 0) {
-        slaveRun(roomBatch);
+    if (gJobCount == 0)
+    {
+        gSlaveLate = gBenchMode == BENCH_SLAVE_LATE;
+        if (!gSlaveLate) {
+            slaveRun(roomBatch);
+        }
     }
 
     gJobCount++;
@@ -514,6 +525,9 @@ Face** roomsFinish(RoomStats &stats, const uint16* &groups)
         return NULL;
 
     *uncached(&gJobsClosed) = 1;
+    if (gSlaveLate) {
+        slaveRun(roomBatch);
+    }
     slaveWait();
     cachePurge();
 

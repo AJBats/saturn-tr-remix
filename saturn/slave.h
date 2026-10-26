@@ -28,4 +28,13 @@ void (*slaveTask())();
 // Drops this CPU's cached copies of memory.
 void cachePurge();
 
+// Between polls of a flag: the CPUs share one bus, and a CPU spinning on an
+// uncached read takes it from the other.
+inline void busPause()
+{
+    for (int i = 0; i < 32; i++) {
+        asm volatile("nop");
+    }
+}
+
 #endif

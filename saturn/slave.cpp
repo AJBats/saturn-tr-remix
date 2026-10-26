@@ -29,14 +29,6 @@ uint8_t gSlaveStack[4096];
 extern "C" void slaveEntry();     // irq.s: masks interrupts, jumps to slaveMain
 extern "C" void slaveIgnoreIrq(); // irq.s: rte
 
-// Polling without flooding the bus the other CPU is using.
-static inline void pause()
-{
-    for (int i = 0; i < 32; i++) {
-        asm volatile("nop");
-    }
-}
-
 // Must run from the cache-through mirror: the cache is off part of the time.
 static void __attribute__((noinline)) cachePurgeBody()
 {
@@ -65,7 +57,7 @@ extern "C" void slaveMain()
         void (*task)() = *uncached(&gTask);
         if (!task)
         {
-            pause();
+            busPause();
             continue;
         }
 
@@ -104,6 +96,6 @@ void (*slaveTask())()
 void slaveWait()
 {
     while (*uncached(&gTask)) {
-        pause();
+        busPause();
     }
 }

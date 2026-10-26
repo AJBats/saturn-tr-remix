@@ -209,6 +209,9 @@ enum BenchMode
                         // the face: what LOD would cost (the picture is wrong)
     BENCH_NO_GOURAUD,
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
+    BENCH_QUIET_POLL,   // the slave pauses between polls of the room queue
+    BENCH_SLAVE_LATE,   // the slave draws the rooms only once the master's
+                        // meshes are done: neither CPU slows the other
     BENCH_COUNT
 };
 extern int32 gBenchMode;
