@@ -34,7 +34,7 @@ struct FrameStats
     uint32_t roomVertices;  // room vertices transformed
     uint32_t slaveXformTicks; // slave: room vertex transform
     uint32_t slaveFaceTicks;  // slave: room face setup
-    uint32_t slaveMeshTicks;  // slave: rooms' static meshes
+    uint32_t slaveMeshTicks;  // slave: meshes
     uint32_t slaveIdleTicks;  // slave: waiting for rooms to be queued
     uint32_t dspVertices;     // room vertices the DSP projected
     uint32_t dmaTicks;      // flush: texture uploads and command DMA

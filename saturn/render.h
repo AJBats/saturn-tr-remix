@@ -213,7 +213,7 @@ enum BenchMode
     BENCH_NO_GOURAUD,
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
     BENCH_NO_DSP,       // rooms projected on the slave alone, without the SCU DSP
-    BENCH_MASTER_STATICS,   // rooms' static meshes on the master, not the slave
+    BENCH_MASTER_MESHES,    // every mesh drawn on the master, none by the slave
     BENCH_FULL_CLEAR,   // the frame cleared by its first command alone (VBLANK_ERASE_LINES 0)
     BENCH_NO_CLEAR,     // the frame not cleared at all: what no face covers keeps an old frame
     BENCH_PROFILE,      // as Base, sampling where the master's time goes
@@ -302,7 +302,7 @@ struct RoomStats
     uint32 flatFaces;     // room faces drawn flat (gFlatDist)
     uint32 xformTicks;  // slave time transforming vertices (its own FRT)
     uint32 faceTicks;   // ... adding faces
-    uint32 meshTicks;   // ... drawing the rooms' static meshes
+    uint32 meshTicks;   // ... drawing meshes
     uint32 idleTicks;   // ... waiting for rooms to be queued
     uint32 dspVertices; // room vertices the DSP projected
 };
@@ -323,10 +323,12 @@ struct MeshXform
     int32 inside;           // every vertex lands inside the frame, between the planes
 };
 
-// A room's static mesh for the slave to draw (rooms.cpp).
+// A mesh, or an item's shadow, for the slave to draw (rooms.cpp).
 struct MeshJob
 {
-    const Mesh* mesh;
+    const Mesh* mesh;       // NULL for the shadow
+    int16 vCount, fCount;   // its vertices and faces
+    int16 shadow[4];        // the shadow's x, z, sx, sz (renderShadow)
     uint32 flags;           // face flags (water)
     MeshXform xf;           // set up with the matrix and lighting it was queued with
 };
@@ -334,8 +336,14 @@ struct MeshJob
 // Sets job up to draw mesh as renderMesh would now (render.cpp).
 void meshJobSetup(MeshJob &job, const Mesh* mesh);
 
+// ... or the shadow as renderShadow would.
+void meshJobShadow(MeshJob &job, int32 x, int32 z, int32 sx, int32 sz);
+
 // Draws job's mesh on the slave: its vertices to dst, its faces into list.
 void meshJobDraw(const MeshJob &job, Vertex* dst, FaceList &list);
+
+// Draws on the master a job the slave had no room for.
+void meshJobRedraw(const MeshJob &job);
 
 // Loads the rooms' DSP program (project.dsp), which projects whole rooms.
 void roomsInit();
@@ -351,9 +359,13 @@ void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors);
 // Queues a room for the slave, with the current matrix and viewport.
 void roomsQueue(const Room* room);
 
-// Queues a room's static mesh for the slave, set up with the current matrix
-// and lighting; false when the master had better draw it.
-bool roomsQueueStatic(const Mesh* mesh);
+// Queues a mesh for the slave, set up with the current matrix and lighting;
+// false when the master had better draw it.
+bool roomsQueueMesh(const Mesh* mesh);
+
+// Queues an item's shadow for the slave, whatever its share; false when it
+// takes no meshes.
+bool roomsQueueShadow(int32 x, int32 z, int32 sx, int32 sz);
 
 // Waits for the slave to finish the frame's rooms; returns its ordering
 // table (whose lists flush consumes and clears), or NULL if no rooms were

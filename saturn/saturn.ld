@@ -40,5 +40,8 @@ SECTIONS
 
     __stack_top = ORIGIN(HWRAM) + LENGTH(HWRAM);
 
+    /* the master's stack grows down from the top into what bss leaves */
+    ASSERT(__stack_top - __bss_end >= 0x2000, "less than 8 KB of high work RAM left for the master's stack")
+
     /DISCARD/ : { *(.comment) *(.eh_frame) *(.eh_frame_hdr) }
 }

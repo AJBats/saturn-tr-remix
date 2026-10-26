@@ -1484,6 +1484,11 @@ void renderMesh(const Mesh* mesh)
     if (vCount <= 0)
         return;
 
+    // to the slave as it can take it, when its faces are added in assembly
+    // (not with gFlatDist)
+    if (!gFlatDist && gBenchMode != BENCH_MASTER_MESHES && roomsQueueMesh(mesh))
+        return;
+
     if ((gVerticesBase - gVertices) + vCount > MASTER_VERTICES)
     {
         ASSERT(false);
@@ -1526,57 +1531,17 @@ void renderMesh(const Mesh* mesh)
     gVerticesBase += vCount;
 }
 
-// To the slave as it can take it, when its faces are added in assembly (not
-// with gFlatDist).
-void renderStaticMesh(const Mesh* mesh)
-{
-    if (gFlatDist || gBenchMode == BENCH_MASTER_STATICS || mesh->vCount <= 0 || !roomsQueueStatic(mesh)) {
-        renderMesh(mesh);
-    }
-}
-
-void meshJobSetup(MeshJob &job, const Mesh* mesh)
-{
-    MeshParts parts;
-    meshParts(mesh, parts);
-    job.mesh = mesh;
-    job.flags = gMeshFaceFlags;
-    meshXformSetup(job.xf, mesh->intensity, parts.normals, parts.shades, &mesh->center, mesh->bound);
-}
-
-void meshJobDraw(const MeshJob &job, Vertex* dst, FaceList &list)
-{
-    const Mesh* mesh = job.mesh;
-    MeshParts parts;
-    meshParts(mesh, parts);
-
-    MeshXform xf = job.xf;
-    transformMeshAsm(parts.vertices, mesh->vCount, dst, &xf);
-
-    MeshFaces mf = { dst, -int32(uint32(gVertices) >> 3), &list, job.flags, xf.inside };
-    if (mesh->rCount > 0) {
-        faceAddMeshQuadsAsm(parts.quads, mesh->rCount, &mf);
-    }
-    if (mesh->tCount > 0) {
-        faceAddMeshTrianglesAsm(parts.triangles, mesh->tCount, &mf);
-    }
-}
-
 // An octagon on the floor under the item, darkening what is drawn below it.
+#define SHADOW_VERTICES 8
 static const MeshQuad gShadowQuads[] = {
     { (FACE_TYPE_SHADOW << FACE_TYPE_SHIFT), {0, 1, 2, 7} },
     { (FACE_TYPE_SHADOW << FACE_TYPE_SHIFT), {7, 2, 3, 6} },
     { (FACE_TYPE_SHADOW << FACE_TYPE_SHIFT), {6, 3, 4, 5} }
 };
+#define SHADOW_QUADS    3
 
-void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
+static void shadowVertices(MeshVertex* v, int32 x, int32 z, int32 sx, int32 sz)
 {
-    if (gVerticesBase - gVertices + 8 > MASTER_VERTICES || gFaceList.next - gFaces + 3 > MAX_FACES)
-    {
-        ASSERT(false);
-        return;
-    }
-
     int16 xns1 = x - sx;
     int16 xps1 = x + sx;
     int16 xns2 = xns1 - sx;
@@ -1587,7 +1552,6 @@ void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
     int16 zns2 = zns1 - sz;
     int16 zps2 = zps1 + sz;
 
-    MeshVertex v[8];
     v[0].x = xns1; v[0].y = 0; v[0].z = zps2;
     v[1].x = xps1; v[1].y = 0; v[1].z = zps2;
     v[2].x = xps2; v[2].y = 0; v[2].z = zps1;
@@ -1596,11 +1560,92 @@ void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
     v[5].x = xns1; v[5].y = 0; v[5].z = zns2;
     v[6].x = xns2; v[6].y = 0; v[6].z = zns1;
     v[7].x = xns2; v[7].y = 0; v[7].z = zps1;
+}
 
-    transformMesh(v, 8, 0, NULL, NULL, NULL, 0);
-    faceAddMeshQuads(gShadowQuads, 3);
+void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
+{
+    // to the slave whenever it takes meshes, as it draws its faces in a bucket
+    // before this CPU's: an item's there would be darkened
+    if (!gFlatDist && gBenchMode != BENCH_MASTER_MESHES && roomsQueueShadow(x, z, sx, sz))
+        return;
 
-    gVerticesBase += 8;
+    if (gVerticesBase - gVertices + SHADOW_VERTICES > MASTER_VERTICES ||
+        gFaceList.next - gFaces + SHADOW_QUADS > MAX_FACES)
+    {
+        ASSERT(false);
+        return;
+    }
+
+    MeshVertex v[SHADOW_VERTICES];
+    shadowVertices(v, x, z, sx, sz);
+    transformMesh(v, SHADOW_VERTICES, 0, NULL, NULL, NULL, 0);
+    faceAddMeshQuads(gShadowQuads, SHADOW_QUADS);
+
+    gVerticesBase += SHADOW_VERTICES;
+}
+
+void meshJobSetup(MeshJob &job, const Mesh* mesh)
+{
+    MeshParts parts;
+    meshParts(mesh, parts);
+    job.mesh = mesh;
+    job.vCount = mesh->vCount;
+    job.fCount = mesh->rCount + mesh->tCount;
+    job.flags = gMeshFaceFlags;
+    meshXformSetup(job.xf, mesh->intensity, parts.normals, parts.shades, &mesh->center, mesh->bound);
+}
+
+void meshJobShadow(MeshJob &job, int32 x, int32 z, int32 sx, int32 sz)
+{
+    job.mesh = NULL;
+    job.vCount = SHADOW_VERTICES;
+    job.fCount = SHADOW_QUADS;
+    job.shadow[0] = x;
+    job.shadow[1] = z;
+    job.shadow[2] = sx;
+    job.shadow[3] = sz;
+    job.flags = gMeshFaceFlags;
+    meshXformSetup(job.xf, 0, NULL, NULL, NULL, 0);
+}
+
+void meshJobDraw(const MeshJob &job, Vertex* dst, FaceList &list)
+{
+    MeshXform xf = job.xf;
+    MeshFaces mf = { dst, -int32(uint32(gVertices) >> 3), &list, job.flags, 0 };
+
+    const Mesh* mesh = job.mesh;
+    if (!mesh)
+    {
+        MeshVertex v[SHADOW_VERTICES];
+        shadowVertices(v, job.shadow[0], job.shadow[1], job.shadow[2], job.shadow[3]);
+        transformMeshAsm(v, SHADOW_VERTICES, dst, &xf);
+        faceAddMeshQuadsAsm(gShadowQuads, SHADOW_QUADS, &mf);
+        return;
+    }
+
+    MeshParts parts;
+    meshParts(mesh, parts);
+    transformMeshAsm(parts.vertices, mesh->vCount, dst, &xf);
+
+    mf.inside = xf.inside;
+    if (mesh->rCount > 0) {
+        faceAddMeshQuadsAsm(parts.quads, mesh->rCount, &mf);
+    }
+    if (mesh->tCount > 0) {
+        faceAddMeshTrianglesAsm(parts.triangles, mesh->tCount, &mf);
+    }
+}
+
+void meshJobRedraw(const MeshJob &job)
+{
+    if ((gVerticesBase - gVertices) + job.vCount > MASTER_VERTICES || (gFaceList.next - gFaces) + job.fCount > MAX_FACES)
+    {
+        ASSERT(false);
+        return;
+    }
+
+    meshJobDraw(job, gVerticesBase, gFaceList);
+    gVerticesBase += job.vCount;
 }
 
 // A sprite facing the camera at a world position; the matrix is the view

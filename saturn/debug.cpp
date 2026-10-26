@@ -185,13 +185,13 @@ static char* appendColumn(char* p, uint32 value)
 }
 
 static const char* const kBenchNames[BENCH_COUNT] = {
-    "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master statics",
+    "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master meshes",
     "Full clear", "No clear", "Profile"
 };
 
 // each way's VDP1 and master CPU time, the master's drawing (rooms queued
 // and meshes, before flush), the slave's on rooms (transform and faces) and
-// their static meshes
+// the meshes it draws
 static struct { uint32 vdp1, cpu, draw, slave, fps; } gBench[BENCH_COUNT];
 
 // and the base way's CPU time by stage, as gStats keeps it
@@ -270,20 +270,25 @@ extern "C" void profileHandler(uint32 pc)
 }
 
 #define DSP_TEST_BATCHES    32      // of 16 vertices
-
-static uint32 gDspTestIn[DSP_TEST_BATCHES * 16];
-static int32 gDspTestOut[DSP_TEST_BATCHES * 16 * 4];
+#define DSP_TEST_VERTICES   (DSP_TEST_BATCHES * 16)
 
 void debugDspTest()
 {
     static const int16 rows[9] = { 14189, 0, -8192, 4096, 15851, 7094, 7094, -4096, 12288 };
     static const int32 t[3] = { -500000, 12345, 2000000 };
 
+    // the vertices, the DSP's results and this CPU's in gVertices, unused
+    // before a level
+    uint32* in = (uint32*)gVertices;
+    int32* out = (int32*)(in + DSP_TEST_VERTICES);
+    int32* ref = out + DSP_TEST_VERTICES * 4;
+    static_assert(DSP_TEST_VERTICES * 9 * 4 <= sizeof(gVertices), "the DSP test's buffers fit in gVertices");
+
     uint32 seed = 0x12345678;
-    for (int32 i = 0; i < DSP_TEST_BATCHES * 16; i++)
+    for (int32 i = 0; i < DSP_TEST_VERTICES; i++)
     {
         seed = seed * 1664525 + 1013904223;
-        gDspTestIn[i] = seed;
+        in[i] = seed;
     }
 
     // rows z, x, y, as xform.s takes them
@@ -296,7 +301,7 @@ void debugDspTest()
         }
         md0[r * 4 + 3] = t[row];
     }
-    const uint32_t md3[5] = { DSP_TEST_BATCHES, 1, dspAddress(gDspTestIn), dspAddress(gDspTestOut), 0xFF };
+    const uint32_t md3[5] = { DSP_TEST_BATCHES, 1, dspAddress(in), dspAddress(out), 0xFF };
 
     dspLoad(xform_dsp, XFORM_DSP_COUNT);
     dspWrite(0, 0, md0, 12);
@@ -305,15 +310,14 @@ void debugDspTest()
     dspStart(0);
     while (dspBusy());
     uint32 dspTicks = (timerTicks() - start) & 0xFFFF;
-    cachePurge();   // the DSP wrote gDspTestOut behind the cache
+    cachePurge();   // the DSP wrote out behind the cache
 
     // the same on this CPU, as xform.s's multiply-accumulates do it
     // records g z x y
-    static int32 ref[DSP_TEST_BATCHES * 16 * 4];
     start = timerTicks();
-    for (int32 i = 0; i < DSP_TEST_BATCHES * 16; i++)
+    for (int32 i = 0; i < DSP_TEST_VERTICES; i++)
     {
-        uint32 v = gDspTestIn[i];
+        uint32 v = in[i];
         int32 x = (v >> 24) * 4, y = ((v >> 16) & 0xFF) * 4, z = ((v >> 8) & 0xFF) * 4;
         ref[i * 4] = v & 0xFF;
         for (int32 r = 0; r < 3; r++)
@@ -326,9 +330,9 @@ void debugDspTest()
     uint32 cpuTicks = (timerTicks() - start) & 0xFFFF;
 
     int32 errors = 0;
-    for (int32 i = 0; i < DSP_TEST_BATCHES * 16 * 4; i += 4) {
-        errors += ref[i] != gDspTestOut[i] || ref[i + 1] != gDspTestOut[i + 1] ||
-                  ref[i + 2] != gDspTestOut[i + 2] || ref[i + 3] != gDspTestOut[i + 3];
+    for (int32 i = 0; i < DSP_TEST_VERTICES * 4; i += 4) {
+        errors += ref[i] != out[i] || ref[i + 1] != out[i + 1] ||
+                  ref[i + 2] != out[i + 2] || ref[i + 3] != out[i + 3];
     }
     // the same transfers alone (dmaprobe.dsp)
     dspLoad(dmaprobe_dsp, DMAPROBE_DSP_COUNT);
