@@ -186,7 +186,7 @@ static char* appendColumn(char* p, uint32 value)
 
 static const char* const kBenchNames[BENCH_COUNT] = {
     "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master meshes",
-    "All meshes", "Full clear", "No clear", "Profile"
+    "All meshes", "Jump links", "Full clear", "No clear", "Profile"
 };
 
 // each way's VDP1 and master CPU time, the master's drawing (rooms queued
@@ -223,7 +223,7 @@ static uint32 gSplit[SPLIT_COUNT];
 #define PROFILE_START   0x06004000
 #define PROFILE_SHIFT   5
 #define PROFILE_BLOCKS  (160 * 1024 >> PROFILE_SHIFT)
-#define PROFILE_TOP     21      // three to a row, under the table
+#define PROFILE_TOP     18      // three to a row, under the table
 
 static_assert(7 + BENCH_COUNT + PROFILE_TOP / 3 <= OVERLAY_ROWS, "the profile's rows fit the overlay");
 

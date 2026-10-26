@@ -215,6 +215,7 @@ enum BenchMode
     BENCH_NO_DSP,       // rooms projected on the slave alone, without the SCU DSP
     BENCH_MASTER_MESHES,    // every mesh drawn on the master, none by the slave
     BENCH_ALL_MESHES,   // items' meshes and shadows to the slave too, not only rooms' static meshes
+    BENCH_JUMP_LINKS,   // every command reaches the next by a jump: what VDP1 linked lists would cost it
     BENCH_FULL_CLEAR,   // the frame cleared by its first command alone (VBLANK_ERASE_LINES 0)
     BENCH_NO_CLEAR,     // the frame not cleared at all: what no face covers keeps an old frame
     BENCH_PROFILE,      // as Base, sampling where the master's time goes
