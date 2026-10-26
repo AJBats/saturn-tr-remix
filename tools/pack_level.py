@@ -16,7 +16,7 @@ faces use it (saturn/detail.h): per texture, the whole texture. The original
 stores it as four quadrants, for faces split near the camera, and draws the
 rest with a quarter-resolution set (ROOMTQTR), which the blob leaves out but
 for its colour tables. The game rearranges a texture into quadrants for the
-faces it splits.
+faces it splits. Two mip levels follow the set, for faces drawn small.
 
 Sound effects keep the original's samples (16-bit PCM at 5512.5 Hz). They
 go to a separate file the game loads into sound RAM; the PKD holds the sound
@@ -31,7 +31,7 @@ the original ones in VRAM to compare them (saturn/palettes.h).
 
 usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD>
        (also writes <out>.TEX, the texture blob loaded at VRAM_TEX_BASE,
-       <out>.SUB, the full-resolution room textures, <out>.SFX, the sound
+       <out>.SUB, the full-resolution room textures and their mip levels, <out>.SFX, the sound
        samples, <out>.ITX, the inventory item textures, and <out>.PAL, the
        remastered colour tables)
 
@@ -259,6 +259,36 @@ class TextureTable:
             alt = texture_average(pixels, remastered[lut], transparent, end_codes) if lut in remastered else mean
             out.append(struct.pack(">8H", *e[:4], mean, e[4], alt, 0))
         return b"".join(out)
+
+    def detail_set(self):
+        """The full-res set (padded to DETAIL_UNIT) and its mip levels after
+        it: each texture at half its size each way, at a quarter of its
+        offset in the first set after the full-res one, and at a quarter of
+        its size, at a sixteenth of its offset in the second (saturn/detail.h).
+        Each texture is reduced in its first colour table; colour 0 stays
+        see-through if any face draws it so. Call after pack (faces mark
+        textures see-through)."""
+        full = bytearray(self.sub)
+        full += bytes(-len(full) % DETAIL_UNIT)
+        mip1 = bytearray(len(full) // 4)
+        mip2 = bytearray(len(full) // 16)
+        done = set()
+        for i, t in enumerate(self.lvl.room_textures):
+            offset = t["sub"][0] * 8
+            if offset in done:
+                continue
+            done.add(offset)
+            w, h = t["w"] * 2, t["h"] * 2
+            pixels = self.sub[offset:offset + w * h // 2]
+            colors = self.sources[i][1]
+            transparent = any(e[3] & TEX_ATTR_AKILL for e, u in zip(self.entries, self.lvl.room_textures)
+                              if u["sub"][0] * 8 == offset)
+            for factor, out, scale in ((2, mip1, 4), (4, mip2, 16)):
+                if w % (factor * 2) or h % factor:
+                    continue
+                data = mip_texture(pixels, w, h, colors, transparent, factor)
+                out[offset // scale:offset // scale + len(data)] = data
+        return bytes(full + mip1 + mip2)
 
     def remastered_palettes(self):
         """The blob's colour tables made to suit VDP1's gouraud shading, as
@@ -683,6 +713,45 @@ class Packer:
         return bytes(out.b)
 
 
+MIP_DIFFUSION = 0.75    # how much of each texel's colour error its neighbours take
+
+
+def mip_texture(pixels, w, h, colors, transparent, factor):
+    """A w x h 4-bit texture (two texels a byte, the left one high) reduced
+    'factor' times each way: each texel the mean of the block it covers,
+    drawn in the texture's 16 colours with the error diffused (Floyd-Steinberg,
+    serpentine), so the reduced texture keeps the full one's tones. With
+    'transparent', colour 0 is see-through: a texel is when most of its block
+    is, and no other texel takes colour 0."""
+    def texel(x, y):
+        b = pixels[(y * w + x) >> 1]
+        return b >> 4 if x % 2 == 0 else b & 15
+
+    rgb = [(c & 31, (c >> 5) & 31, (c >> 10) & 31) for c in colors]
+    choices = range(1, 16) if transparent else range(16)
+    ow, oh = w // factor, h // factor
+    err = [[[0.0] * 3 for _ in range(ow + 2)] for _ in range(oh + 1)]
+    out = [[0] * ow for _ in range(oh)]
+    for y in range(oh):
+        xs = range(ow) if y % 2 == 0 else range(ow - 1, -1, -1)
+        step = 1 if y % 2 == 0 else -1
+        for x in xs:
+            block = [texel(x * factor + i, y * factor + j) for j in range(factor) for i in range(factor)]
+            opaque = [t for t in block if not (transparent and t == 0)]
+            if len(opaque) * 2 < len(block):
+                continue    # see-through; its error goes nowhere
+            want = [sum(rgb[t][k] for t in opaque) / len(opaque) + err[y][x + 1][k] for k in range(3)]
+            best = min(choices, key=lambda i: 3 * (rgb[i][0] - want[0]) ** 2 + 4 * (rgb[i][1] - want[1]) ** 2 +
+                       2 * (rgb[i][2] - want[2]) ** 2)
+            out[y][x] = best
+            e = [(want[k] - rgb[best][k]) * MIP_DIFFUSION for k in range(3)]
+            for dx, dy, wgt in ((step, 0, 7), (-step, 1, 3), (0, 1, 5), (step, 1, 1)):
+                cell = err[y + dy][x + 1 + dx]
+                for k in range(3):
+                    cell[k] += e[k] * wgt / 16
+    return bytes((out[y][x] << 4) | out[y][x + 1] for y in range(oh) for x in range(0, ow, 2))
+
+
 def whole_textures(lvl):
     """The full-res set with each texture's four quadrants (clockwise from top
     left, as ROOMTSUB holds them) put together into one."""
@@ -796,7 +865,7 @@ def main():
         f.write(packer.textures.blob)
     sub_path = os.path.splitext(out_path)[0] + ".SUB"
     with open(sub_path, "wb") as f:
-        f.write(packer.textures.sub)
+        f.write(packer.textures.detail_set())
     sfx_path = os.path.splitext(out_path)[0] + ".SFX"
     with open(sfx_path, "wb") as f:
         f.write(packer.sfx)

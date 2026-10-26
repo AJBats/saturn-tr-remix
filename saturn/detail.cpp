@@ -1,35 +1,41 @@
-// Full-resolution room texture cache (see detail.h).
+// Room texture cache (see detail.h).
 
 #include "detail.h"
 #include "common.h"
 #include "hw.h"
 #include "system.h"
+#include "crash.h"
 
 #define MAX_KEYS        DETAIL_MAX_KEYS
-#define MAX_SLOTS       128
-#define MAX_UPLOADS     32      // per frame, 2 KB each
+#define MAX_UPLOADS     32      // per frame, 2 KB at most each
 #define NO_KEY          0xFFFF
 #define IN_USE          0xFFFFFFFF  // DetailSlot.frame of a slot under the item textures
-#define VARIANT_SHIFT   14      // DetailSlot.key
-#define KEY_MASK        0x3FFF
+#define VARIANT_SHIFT   12      // DetailSlot.key
+#define KEY_MASK        0xFFF
 #define ITEM_DATA_MAX   (72 * 1024) // LEVEL4's are 70 KB
+#define MIP_BYTES       (DETAIL_MIP_SLOTS * (DETAIL_SLOT_SIZE / 4 + DETAIL_SLOT_SIZE / 16))
+#define MIN_FULL_SLOTS  40      // below this many full-res slots, no mip pools
 
 struct Upload
 {
     uint32_t src;
     uint32_t dst;
     uint32_t size;
-    uint16_t w, h;      // quadrant size
+    uint16_t w, h;      // the texture's at its level
     uint32_t variant;
 };
 
-static const uint8_t* gData;    // in low work RAM, which SCU DMA can't read
-static uint32_t gDataSize;
+// The set's levels, in low work RAM, which SCU DMA can't read; each holds a
+// texture at its full-res offset >> 2 * level.
+static const uint8_t* gData[DETAIL_LEVELS];
+static uint32_t gDataSize;  // the full-res set's
 
 uint8_t gDetailKeys[DETAIL_VARIANTS][MAX_KEYS];
-DetailSlot gDetailSlots[MAX_SLOTS];
-static int32_t gSlotCount;
+DetailSlot gDetailSlots[DETAIL_SLOTS];
+static int32_t gPoolCount[DETAIL_LEVELS];
+static const uint32_t gPoolSlotSize[DETAIL_LEVELS] = { DETAIL_SLOT_SIZE, DETAIL_SLOT_SIZE / 4, DETAIL_SLOT_SIZE / 16 };
 uint32_t gDetailVramStart;
+uint32_t gDetailPoolVram[DETAIL_LEVELS];
 uint32_t gDetailFrame;
 
 static Upload gUploads[MAX_UPLOADS];
@@ -43,18 +49,38 @@ static bool gItemUpload;    // item textures go to VRAM at the next flush
 void detailInit(uint32_t vramStart, const uint8_t* data, uint32_t dataSize)
 {
     gDetailVramStart = (vramStart + 31) & ~31; // as tools/pack_level.py places item textures
-    gData = data;
-    gDataSize = X_MIN(dataSize, uint32_t(DETAIL_DATA_MAX));
 
-    gSlotCount = (0x80000 - gDetailVramStart) / DETAIL_SLOT_SIZE;
-    if (gSlotCount > MAX_SLOTS) {
-        gSlotCount = MAX_SLOTS;
+    // the full-res set and its mip levels, 1 + 1/4 + 1/16 of it
+    uint32_t full = dataSize / 21 * 16;
+    bool mips = full % DETAIL_UNIT == 0 && full / 16 * 21 == dataSize;
+    if (!mips) {
+        full = dataSize;
     }
+    gDataSize = X_MIN(full, uint32_t(DETAIL_DATA_MAX));
+    gData[0] = data;
+    gData[1] = data + full;
+    gData[2] = gData[1] + full / 4;
+
+    int32_t slots = (0x80000 - gDetailVramStart) / DETAIL_SLOT_SIZE;
+    if (mips && slots - MIP_BYTES / DETAIL_SLOT_SIZE >= MIN_FULL_SLOTS)
+    {
+        slots -= MIP_BYTES / DETAIL_SLOT_SIZE;
+        gPoolCount[1] = gPoolCount[2] = DETAIL_MIP_SLOTS;
+    }
+    else
+    {
+        gPoolCount[1] = gPoolCount[2] = 0;
+    }
+    gPoolCount[0] = X_MIN(slots, DETAIL_FULL_SLOTS);
+    gDetailPoolVram[0] = gDetailVramStart;
+    gDetailPoolVram[1] = gDetailVramStart + slots * DETAIL_SLOT_SIZE;
+    gDetailPoolVram[2] = gDetailPoolVram[1] + DETAIL_MIP_SLOTS * gPoolSlotSize[1];
+    crashLog("DETAIL", (gPoolCount[0] << 16) | gPoolCount[1]);
 
     memset(gDetailKeys, 0, sizeof(gDetailKeys));
 
     gDetailFrame = 1;
-    for (int32_t i = 0; i < gSlotCount; i++)
+    for (int32_t i = 0; i < DETAIL_SLOTS; i++)
     {
         gDetailSlots[i].key = NO_KEY;
         gDetailSlots[i].frame = 0;
@@ -80,10 +106,15 @@ void detailItemInit(uint32_t size)
     gItemDataSize = size;
 }
 
+bool detailMips()
+{
+    return gPoolCount[1] != 0;
+}
+
 static void emptySlots()
 {
     memset(gDetailKeys, 0, sizeof(gDetailKeys));
-    for (int32_t i = 0; i < gSlotCount; i++)
+    for (int32_t i = 0; i < DETAIL_SLOTS; i++)
     {
         gDetailSlots[i].key = NO_KEY;
         gDetailSlots[i].frame = 0;
@@ -93,12 +124,12 @@ static void emptySlots()
 uint32_t detailReserveTop(uint32_t size)
 {
     int32_t slots = (size + DETAIL_SLOT_SIZE - 1) / DETAIL_SLOT_SIZE;
-    if (slots > gSlotCount / 2)
+    if (slots > gPoolCount[0] / 2)
         return 0;
 
-    gSlotCount -= slots;
+    gPoolCount[0] -= slots;
     emptySlots();
-    return detailSlotAddr(gSlotCount);
+    return detailSlotAddr(gPoolCount[0]);
 }
 
 void detailSuspend()
@@ -108,8 +139,8 @@ void detailSuspend()
 
     gItemUpload = true;
     gItemSlots = (gItemDataSize + DETAIL_SLOT_SIZE - 1) / DETAIL_SLOT_SIZE;
-    if (gItemSlots > gSlotCount) {
-        gItemSlots = gSlotCount;
+    if (gItemSlots > gPoolCount[0]) {
+        gItemSlots = gPoolCount[0];
     }
     if (!gItemSlots)
         return;
@@ -146,25 +177,27 @@ void detailResume()
 
 int32_t detailSlotMiss(uint32_t key, uint32_t texSize, uint32_t variant)
 {
-    uint32_t w = (texSize >> 8) * 8;
-    uint32_t h = texSize & 0xFF;
-    uint32_t size = w * h * 2; // four w x h quadrants, 4 bits a texel
-    if (key >= MAX_KEYS || key * DETAIL_UNIT + size > gDataSize)
+    uint32_t w = (texSize >> 8) * 16;   // the whole texture's
+    uint32_t h = (texSize & 0xFF) * 2;
+    if (key >= MAX_KEYS || key * DETAIL_UNIT + w * h / 2 > gDataSize)
         return -1;
 
-    uint8_t* keySlot = gDetailKeys[variant];
+    uint32_t level = detailLevel(variant);
+    w >>= level;
+    h >>= level;
 
     if (gUploadCount == MAX_UPLOADS)
         return -1;
 
-    // least recently drawn slot not in use this frame
+    // least recently drawn slot of the level's pool not in use this frame
+    DetailSlot* pool = gDetailSlots + detailPoolStart(level);
     int32_t victim = -1;
     uint32_t oldest = gDetailFrame;
-    for (int32_t i = 0; i < gSlotCount; i++)
+    for (int32_t i = 0; i < gPoolCount[level]; i++)
     {
-        if (gDetailSlots[i].frame < oldest)
+        if (pool[i].frame < oldest)
         {
-            oldest = gDetailSlots[i].frame;
+            oldest = pool[i].frame;
             victim = i;
         }
     }
@@ -172,18 +205,18 @@ int32_t detailSlotMiss(uint32_t key, uint32_t texSize, uint32_t variant)
     if (victim < 0)
         return -1;
 
-    DetailSlot &slot = gDetailSlots[victim];
+    DetailSlot &slot = pool[victim];
     if (slot.key != NO_KEY) {
         gDetailKeys[slot.key >> VARIANT_SHIFT][slot.key & KEY_MASK] = 0;
     }
     slot.key = key | (variant << VARIANT_SHIFT);
     slot.frame = gDetailFrame;
-    keySlot[key] = victim + 1;
+    gDetailKeys[variant][key] = victim + 1;
 
     Upload &upload = gUploads[gUploadCount++];
-    upload.src = uint32_t(gData + key * DETAIL_UNIT);
-    upload.dst = VDP1_VRAM + detailSlotAddr(victim);
-    upload.size = size;
+    upload.src = uint32_t(gData[level] + ((key * DETAIL_UNIT) >> (2 * level)));
+    upload.dst = VDP1_VRAM + gDetailPoolVram[level] + victim * gPoolSlotSize[level];
+    upload.size = w * h / 2;
     upload.w = w;
     upload.h = h;
     upload.variant = variant;
@@ -282,9 +315,10 @@ void detailFlush()
         const uint8_t* src = (const uint8_t*)upload.src;
         uint8_t* dst = staging[buffer];
         if (upload.variant == DETAIL_QUADS) {
-            quadrants(dst, src, upload.w, upload.h);
-        } else if (upload.variant == DETAIL_TURNED) {
-            transposed(dst, src, upload.w * 2, upload.h * 2);
+            quadrants(dst, src, upload.w / 2, upload.h / 2);
+        } else if (upload.variant == DETAIL_TURNED || upload.variant == DETAIL_MIP1_TURNED ||
+                   upload.variant == DETAIL_MIP2_TURNED) {
+            transposed(dst, src, upload.w, upload.h);
         } else {
             memcpy(dst, src, upload.size);
         }

@@ -383,6 +383,7 @@ bool renderFastShrink()
 int32 gDarkFaces = DARK_CONTRAST;
 int32 gFlatDist;
 int32 gTurnLines = 1;
+int32 gTextureLod = 4;
 
 // Adds to each channel of a pair of gouraud values, within 0 .. 31.
 X_INLINE uint32 tintPair(uint32 pair, int32 dr, int32 dg, int32 db)
@@ -413,8 +414,12 @@ static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room)
     {
         if (!room && !flat)
             return;
+        uint32 mip = FACE_DETAIL | FACE_DETAIL_WHOLE | FACE_DETAIL_MIP;
         if (flat) {
             dr = 10; dg = 10;           // flat
+        } else if ((flags & mip) == mip) {
+            db = 12;                    // a mip level: half size, or a quarter
+            dg = flags & FACE_DETAIL_MIP2 ? -6 : 10;
         } else if (flags & FACE_DETAIL) {
             dg = 10;
         } else {
@@ -619,9 +624,15 @@ X_INLINE void faceMaterial(uint32* w, uint32 flags)
                 int32 slot = (flags >> FACE_DETAIL_SLOT_SHIFT) & 0x7F;
                 if (flags & FACE_DETAIL_WHOLE)
                 {
+                    uint32 level = 0;
                     srca = detailSlotAddr(slot) >> 3;
-                    uint32 w = (size >> 8) * 16;
-                    uint32 h = (size & 0xFF) * 2;
+                    if (flags & FACE_DETAIL_MIP)
+                    {
+                        level = flags & FACE_DETAIL_MIP2 ? 2 : 1;
+                        srca = (gDetailPoolVram[level] + (slot & 0x3F) * (DETAIL_SLOT_SIZE >> 2 * level)) >> 3;
+                    }
+                    uint32 w = (size >> 8) * 16 >> level;
+                    uint32 h = (size & 0xFF) * 2 >> level;
                     if (flags & FACE_DETAIL_TURNED) {
                         size = ((h / 8) << 8) | w;
                     } else {
@@ -803,11 +814,13 @@ struct FlushXform
     int32 dark;             // gDarkFaces
     uint32 detailVram;
     void (*slow)(const Face* face, uint32* w, uint32* grd, int32 room);
+    uint32 mipVram[2];      // gDetailPoolVram[1], [2]
 };
 
 static_assert(offsetof(FlushXform, vertices) == 12 && offsetof(FlushXform, grdLink) == 28 &&
               offsetof(FlushXform, textures) == 32 && offsetof(FlushXform, dark) == 52 &&
-              offsetof(FlushXform, slow) == 60, "FlushXform layout is shared with flush.s");
+              offsetof(FlushXform, slow) == 60 && offsetof(FlushXform, mipVram) == 64,
+              "FlushXform layout is shared with flush.s");
 static_assert(sizeof(Face) == 16 && offsetof(Face, next) == 4 && offsetof(Face, indices) == 8 &&
               sizeof(Texture) == 16 && offsetof(Texture, attr) == 6 && offsetof(Texture, color) == 8 &&
               offsetof(Texture, contrast) == 14 && DARK_CONTRAST == 2 &&
@@ -823,32 +836,10 @@ static_assert(FACE_WATER == (1 << 30) && FACE_DETAIL == (1 << 29) && FACE_PARALL
 
 extern "C" void flushAsm(FlushXform* xf);
 
-X_INLINE int32 cmdSpan(uint32 a, uint32 b)
-{
-    return X_MAX(abs(int16(a >> 16) - int16(b >> 16)), abs(int16(a) - int16(b)));
-}
-
-// A distorted sprite's CMDSIZE with its texture halved, a multiple of 8 wide,
-// until it has at most texelsPerPixel texels a pixel across the face (the
-// larger of edges AB and DC, along which VDP1 steps through the texture).
-static uint32 lodSize(const uint32* w, int32 texelsPerPixel)
-{
-    uint32 size = w[2] & 0xFFFF;
-    int32 across = X_MAX(cmdSpan(w[3], w[4]), cmdSpan(w[6], w[5])) + 1;
-    int32 tw = (size >> 8) * 8;
-    int32 th = size & 0xFF;
-    while ((tw & 15) == 0 && tw > texelsPerPixel * across)
-    {
-        tw >>= 1;
-        th = X_MAX(th >> 1, 1);
-    }
-    return ((tw / 8) << 8) | th;
-}
-
 // The frame's commands 1 .. count - 1 rebuilt for gBenchMode.
 static void benchCommands(int32 count)
 {
-    if (gBenchMode == BENCH_BASE || gBenchMode == BENCH_FIXED_LINES)
+    if (gBenchMode != BENCH_NO_GOURAUD && gBenchMode != BENCH_NO_TEXTURE)
         return;
 
     for (int32 i = 1; i < count; i++)
@@ -858,9 +849,7 @@ static void benchCommands(int32 count)
         if (type != CMD_DISTORTED_SPRITE && type != CMD_POLYGON)
             continue;
 
-        if (gBenchMode == BENCH_LOD1 && type == CMD_DISTORTED_SPRITE) {
-            w[2] = (w[2] & 0xFFFF0000) | lodSize(w, 1);
-        } else if (gBenchMode == BENCH_NO_GOURAUD && (w[1] & (PMOD_GOURAUD << 16))) {
+        if (gBenchMode == BENCH_NO_GOURAUD && (w[1] & (PMOD_GOURAUD << 16))) {
             w[1] &= ~(7 << 16);
         } else if (gBenchMode == BENCH_NO_TEXTURE && type == CMD_DISTORTED_SPRITE) {
             w[0] = (w[0] & ~(15 << 16)) | (CMD_POLYGON << 16);
@@ -889,6 +878,8 @@ static void flushXformInit(FlushXform &xf, Face** roomOT, int32 first, int32 cou
     xf.dark = gDarkFaces;
     xf.detailVram = gDetailVramStart;
     xf.slow = faceSlow;
+    xf.mipVram[0] = gDetailPoolVram[1];
+    xf.mipVram[1] = gDetailPoolVram[2];
 }
 
 static FlushXform gFarXform;

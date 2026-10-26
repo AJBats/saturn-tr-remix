@@ -24,6 +24,7 @@
 !   +52 int32 dark              gDarkFaces: 0 add, 1 half luminance, 2 contrast
 !   +56 uint32 detailVram       gDetailVramStart
 !   +60 void (*slow)(const Face* face, uint32* w, uint32* grd, int32 room)
+!   +64 uint32 mipVram[2]       the mip levels' pools (gDetailPoolVram[1], [2])
 !
 ! Face: uint32 flags; Face* next; int16 indices[4].
 ! Vertex: int16 x, y; int16 z; uint8 g, clip.
@@ -222,6 +223,33 @@ _flushAsm:
     bra     .Lfaced
     nop
 
+    ! a room face drawn with a mip level: its slot in its pool
+.Lmip:
+    mov     r1, r0
+    shlr16  r0
+    shlr2   r0
+    shlr2   r0
+    tst     #0x40, r0           ! FACE_DETAIL_MIP2
+    bf/s    1f
+    and     #0x3F, r0
+    shll8   r0
+    shll    r0                  ! * 512
+    mov     r0, r4
+    mov     #64, r0
+    mov.l   @(r0, r8), r0       ! mipVram[0]
+    bra     .Lturned
+    add     r0, r4              ! half size: the quadrant's
+1:  shll2   r0
+    shll2   r0
+    shll2   r0
+    shll    r0                  ! * 128
+    mov     r0, r4
+    mov     #68, r0
+    mov.l   @(r0, r8), r0       ! mipVram[1]
+    add     r0, r4
+    bra     .Lturned
+    shlr    r5                  ! a quarter: half the quadrant's
+
     ! one face (r9) to the command at r10 and the gouraud table at r11
     .align 2
 .Lemit:
@@ -308,10 +336,14 @@ _flushAsm:
     mov.l   .LfaceBit27, r0
     tst     r0, r1
     bt      .Lquadrant
+    mov.l   .LfaceMip, r0
+    tst     r0, r1
+    bf      .Lmip
+    shll    r5                  ! whole: twice the quadrant's width and height
+.Lturned:
     mov.l   .LfaceTurned, r0
     tst     r0, r1
-    bt/s    .LdetailSrca
-    shll    r5                  ! whole: twice the width and height
+    bt      .LdetailSrca
     extu.b  r5, r0              ! turned: transposed
     shlr2   r0
     shlr    r0
@@ -350,6 +382,7 @@ _flushAsm:
 .LfacePara:     .long   0x10000000  ! FACE_PARALLELOGRAM
 .LfaceBit27:    .long   0x08000000  ! FACE_DETAIL_WHOLE
 .LfaceTurned:   .long   0x00080000  ! FACE_DETAIL_TURNED
+.LfaceMip:      .long   0x00040000  ! FACE_DETAIL_MIP
 .LtexMask:      .short  0x3FFF      ! FACE_TEXTURE
 .LdirMask:      .short  0x0030      ! TEX_ATTR_DIR
 

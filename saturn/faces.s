@@ -31,14 +31,17 @@
 !   +20 int32 detailFaces       counted up
 !   +24 int32 detailMisses      counted up
 !   +28 Face* end               the list's end
-!   +32 const uint8* keys       gDetailKeys[0], whole textures' slots + 1
-!                               (the transposed textures' DETAIL_TURNED tables on)
-!   +36 DetailSlot* slots       key +0, frame +4
+!   +32 const uint8* keys       gDetailKeys[0], each variant's slots + 1
+!   +36 DetailSlot* slots       key +0, frame +4; each level's pool from
+!                               detailPoolStart
 !   +40 uint32 frame            gDetailFrame
 !   +44 void (*quad)(const Vertex* v, const RoomQuad* polys, int32 count)
 !                               faceAddRoomQuads, for quads crossing the near plane
 !   +48 int32 (*miss)(uint32 key, uint32 texSize, uint32 variant)  detailSlotMiss
 !   +52 int32 turn              faces may be turned (gTurnLines)
+!   +56 int32 across            the face's lines' length in pixels, from TURN
+!   +60 int32 lod               4 x the texels a pixel along a line past which a
+!                               face takes the next mip level; 0: full res only
 !
 ! RoomQuad, RoomTriangle: uint32 flags; uint16 indices[4].
 ! Vertex: int16 x, y; int16 z; uint8 g, clip. Face: flags, next, int16 indices[4].
@@ -380,29 +383,37 @@ _faceAddMeshTrianglesAsm:
     .endm
 
 ! r14 = FACE_DETAIL_TURNED if the face with corners r1, r2, r3, r7 (A B C D)
-! takes fewer lines drawn turned (faceTurns), else 0; r0, r13
+! takes fewer lines drawn turned (faceTurns), else 0; the lines' length to
+! RoomFaces.across; r0, r13
     .macro  TURN
-    mov.l   @(52, r6), r0
-    tst     r0, r0
-    bt/s    9f
-    mov     #0, r14             ! lines not turned
     mov.l   r5, @-r15
     mov     #0, r13
     SPAN    r1, r7, r13, r5     ! AD
     SPAN    r2, r3, r13, r5     ! BC: the lines as it is
+    mov     #0, r14
     SPAN    r1, r2, r14, r5     ! AB
     SPAN    r7, r3, r14, r5     ! DC: the lines turned
     mov.l   @r15+, r5
+    mov.l   @(52, r6), r0
+    tst     r0, r0
+    bt      8f                  ! lines never turned
     cmp/gt  r14, r13
-    movt    r14
+    bf      8f
+    mov.l   r13, @(56, r6)      ! turned: lines as long as AD, BC
+    mov     #1, r14
     shll16  r14
     shll2   r14
+    bra     9f
     shll    r14                 ! FACE_DETAIL_TURNED
+8:  mov.l   r14, @(56, r6)      ! as it is: as long as AB, DC
+    mov     #0, r14
 9:
     .endm
 
 ! flags r14, with the face's texture whole if the cache has it, transposed
-! if r14 has FACE_DETAIL_TURNED (wholeTexture), to the face at r10; r0..r3
+! if r14 has FACE_DETAIL_TURNED (wholeTexture), at the mip level that has
+! about a texel a pixel along the face's lines (RoomFaces.across, .lod), to
+! the face at r10; r0..r3, r7
     .macro  WHOLE
     mov.w   .LtexMask\@, r0
     and     r14, r0
@@ -413,28 +424,81 @@ _faceAddMeshTrianglesAsm:
     mov.w   @(10, r1), r0
     extu.w  r0, r0              ! reserved: its full-res block + 1
     tst     r0, r0
-    bt      .Lplain\@
-    add     #-1, r0             ! key
+    bf      5f
+    bra     .Lplain\@
+    nop
+5:  add     #-1, r0             ! key
     mov.w   .LmaxKeys\@, r2
     cmp/hs  r2, r0
-    bt      .Lmiss\@
-    mov.l   @(32, r6), r2
-    mov.l   .LdetailTurned\@, r3
-    tst     r3, r14
-    bt      1f
-    mov.w   .LturnedKeys\@, r3
-    add     r3, r2              ! the transposed textures' slots
-1:  mov.b   @(r0, r2), r2
+    bf      6f
+    bra     .Lmissed\@
+    nop
+6:  mov     r0, r3              ! key
+
+    ! r7 = level * 2 + turned
+    mov     r14, r0
+    shlr16  r0
+    shlr2   r0
+    shlr    r0
+    and     #1, r0
+    mov     r0, r7
+    mov.l   @(60, r6), r2       ! lod
+    tst     r2, r2
+    bt      .Lvariant\@
+    mov.l   @(56, r6), r0
+    mulu.w  r0, r2              ! lod x across
+    mov.w   @(4, r1), r0
+    tst     r7, r7
+    bf/s    1f
+    extu.w  r0, r2              ! size: the quadrant's width / 8 << 8 | height
+    shlr8   r2
+    shll2   r2
+    shll2   r2
+    bra     2f
+    shll2   r2                  ! 4 x the whole texture's width
+1:  extu.b  r2, r2
+    shll2   r2
+    shll    r2                  ! 4 x its height, along a turned face's lines
+2:  sts     macl, r0
+    cmp/hi  r0, r2
+    bf      .Lvariant\@         ! about a texel a pixel at full res
+    mov.w   @(4, r1), r0
+    tst     #7, r0
+    bf      .Lvariant\@         ! half the height not a multiple of 8
+    add     #2, r7              ! level 1
+    sts     macl, r0
+    shll    r0
+    cmp/hi  r0, r2
+    bf      .Lvariant\@
+    mov.w   @(4, r1), r0
+    mov.w   .Lmip2Mask\@, r2
+    tst     r2, r0
+    bf      .Lvariant\@         ! a quarter of the width or height not a multiple of 8
+    add     #2, r7              ! level 2
+.Lvariant\@:
+    mov     r7, r2
+    add     r2, r2
+    mova    .LvariantKeys\@, r0
+    mov.w   @(r0, r2), r2
+    mov.l   @(32, r6), r0
+    add     r0, r2              ! the variant's slots
+    mov     r3, r0
+    mov.b   @(r0, r2), r2
     extu.b  r2, r2
     tst     r2, r2
     bt      .Lmiss\@
-    add     #-1, r2
+    add     #-1, r2             ! the slot in its level's pool
 .Lslot\@:
-    mov     r2, r0
-    shll2   r0
-    shll    r0
+    mov     r7, r0
+    and     #6, r0
+    mov     r0, r1
+    mova    .LpoolStart\@, r0
+    mov.w   @(r0, r1), r1       ! the pool's first slot
+    add     r2, r1
+    shll2   r1
+    shll    r1
     mov.l   @(36, r6), r3
-    add     r0, r3
+    add     r1, r3
     mov.l   @(40, r6), r0
     mov.l   r0, @(4, r3)        ! drawn this frame
     shll16  r2
@@ -443,30 +507,44 @@ _faceAddMeshTrianglesAsm:
     mov.l   .LdetailWhole\@, r0
     or      r0, r2
     or      r2, r14             ! FACE_DETAIL | FACE_DETAIL_WHOLE | slot
-    mov.l   @(20, r6), r0
+    mov     r7, r0
+    and     #6, r0
+    tst     r0, r0
+    bt      3f
+    cmp/eq  #4, r0
+    mov.l   .LdetailMip\@, r1
+    bf      4f
+    mov.l   .LdetailMip2\@, r1
+4:  or      r1, r14             ! its level
+3:  mov.l   @(20, r6), r0
     add     #1, r0
     bra     .Lflags\@
     mov.l   r0, @(20, r6)
     .align 2
 .LdetailWhole\@:  .long  0x28000000 ! FACE_DETAIL | FACE_DETAIL_WHOLE
-.LdetailTurned\@: .long  0x00080000 ! FACE_DETAIL_TURNED
+.LdetailMip\@:    .long  0x00040000 ! FACE_DETAIL_MIP
+.LdetailMip2\@:   .long  0x04040000 ! FACE_DETAIL_MIP | FACE_DETAIL_MIP2
+.LvariantKeys\@:  .short 0, 2176, 3264, 4352, 5440, 6528  ! by level * 2 + turned: variant * DETAIL_MAX_KEYS
+.LpoolStart\@:    .short 0, 128, 192                   ! detailPoolStart
 .LtexMask\@:      .short 0x3FFF     ! FACE_TEXTURE
 .LmaxKeys\@:      .short 1088       ! DETAIL_MAX_KEYS
-.LturnedKeys\@:   .short 2176       ! DETAIL_TURNED * DETAIL_MAX_KEYS
+.Lmip2Mask\@:     .short 0x010F     ! an odd width / 8 or height not a multiple of 16
 .Lmiss\@:
     mov.l   r4, @-r15
     mov.l   r5, @-r15
     mov.l   r6, @-r15
-    mov.l   @(48, r6), r3
-    mov     r0, r4
+    mov.l   r7, @-r15
+    mov.l   @(48, r6), r2
+    mov     r3, r4              ! key
     mov.w   @(4, r1), r0
     extu.w  r0, r5              ! the texture's size
-    mov     r14, r6
-    shlr16  r6
-    shlr2   r6
-    mov     #2, r0
-    jsr     @r3
-    and     r0, r6              ! DETAIL_TURNED or DETAIL_WHOLE
+    mov     r7, r6
+    tst     r6, r6
+    bt      7f
+    add     #1, r6              ! the variant: past full res, level * 2 + turned + 1
+7:  jsr     @r2
+    nop
+    mov.l   @r15+, r7
     mov.l   @r15+, r6
     mov.l   @r15+, r5
     mov.l   @r15+, r4

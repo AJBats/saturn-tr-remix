@@ -45,6 +45,8 @@ enum FaceType {
 #define FACE_DETAIL_SLOT_SHIFT  20      // 7 bits
 #define FACE_DETAIL_QUAD_SHIFT  18      // a split face quarter: its quadrant
 #define FACE_DETAIL_TURNED  (1 << 19)   // a whole face's: drawn as A D C B, the texture transposed
+#define FACE_DETAIL_MIP     (1 << 18)   // a whole face's texture at half size, its slot (6 bits) in that pool
+#define FACE_DETAIL_MIP2    (1 << 26)   // ... at a quarter
 #define FACE_TYPE_SHIFT 14
 #define FACE_TYPE_MASK  15
 #define FACE_GOURAUD    (2 << FACE_TYPE_SHIFT)
@@ -178,8 +180,9 @@ X_INLINE void projectView(int16 x, int16 y, int32 z, uint32 clip, const RectMinM
 enum TexelView
 {
     TEXEL_VIEW_OFF,
-    TEXEL_VIEW_LOD,     // room faces by the texture cache: green cached, red
-                        // missed (drawn in the mean colour), yellow flat
+    TEXEL_VIEW_LOD,     // room faces by the texture cache: green cached at full
+                        // res, cyan at half size, blue at a quarter, red missed
+                        // (drawn in the mean colour), yellow flat
     TEXEL_VIEW_SIZE,    // textured faces by how big a texel is on screen: green
                         // up to a pixel, yellow 2, red 4, magenta more
     TEXEL_VIEW_COUNT
@@ -205,8 +208,7 @@ enum BenchMode
 {
     BENCH_BASE,
     BENCH_FIXED_LINES,  // no room face turned (gTurnLines)
-    BENCH_LOD1,         // textures halved to at most one texel a pixel across
-                        // the face: what LOD would cost (the picture is wrong)
+    BENCH_NO_LOD,       // room textures at full res only (gTextureLod)
     BENCH_NO_GOURAUD,
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
     BENCH_PROFILE,      // as Base, sampling where the master's time goes
@@ -219,6 +221,11 @@ extern int32 gBenchMode;
 // AB and DC are the shorter pair are drawn turned (rooms.cpp), as A D C B with
 // the texture transposed: fewer, longer lines, each through a column.
 extern int32 gTurnLines;
+
+// Room faces small on the frame take a mip level of their texture (see
+// detail.h): the first whose texels along the face's lines number at most
+// gTextureLod / 4 a pixel. 0: full res only.
+extern int32 gTextureLod;
 
 X_INLINE int32 vertexSpan(const Vertex* a, const Vertex* b)
 {

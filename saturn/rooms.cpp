@@ -348,16 +348,21 @@ struct RoomFaces
     void (*quad)(const Vertex* v, const RoomQuad* polys, int32 count);
     int32_t (*miss)(uint32_t key, uint32_t texSize, uint32_t variant);
     int32 turn;             // gTurn
+    int32 across;           // faces.s's
+    int32 lod;              // gTextureLod, 0 without mip levels
 };
 
 static_assert(offsetof(RoomFaces, textures) == 16 && offsetof(RoomFaces, end) == 28 &&
               offsetof(RoomFaces, frame) == 40 && offsetof(RoomFaces, miss) == 48 &&
-              offsetof(RoomFaces, turn) == 52 &&
+              offsetof(RoomFaces, turn) == 52 && offsetof(RoomFaces, lod) == 60 &&
               sizeof(RoomQuad) == 12 && sizeof(RoomTriangle) == 12 && sizeof(DetailSlot) == 8 &&
               offsetof(DetailSlot, frame) == 4 && DETAIL_MAX_KEYS == 1088 && sizeof(Texture) == 16 &&
               offsetof(Texture, size) == 4 && offsetof(Texture, reserved) == 10 &&
               (FACE_DETAIL | FACE_DETAIL_WHOLE) == 0x28000000 && FACE_DETAIL_SLOT_SHIFT == 20 &&
               FACE_DETAIL_TURNED == (1 << 19) && DETAIL_WHOLE == 0 && DETAIL_TURNED == 2 &&
+              FACE_DETAIL_MIP == (1 << 18) && FACE_DETAIL_MIP2 == (1 << 26) && DETAIL_MIP1 == 3 &&
+              DETAIL_MIP1_TURNED == 4 && DETAIL_MIP2 == 5 && DETAIL_MIP2_TURNED == 6 &&
+              DETAIL_FULL_SLOTS == 128 && DETAIL_MIP_SLOTS == 64 &&
               sizeof(gDetailKeys[0]) == DETAIL_MAX_KEYS, "layouts and constants shared with faces.s");
 
 extern "C" void faceAddRoomQuadsAsm(const RoomQuad* polys, int32 count, RoomFaces* rf);
@@ -432,7 +437,7 @@ static void renderRoomJob(const RoomJob &job)
         uint32 base = roomBase - gVertices;
         RoomFaces rf = { roomBase, base * 0x10001, &gFaceList, gRoomFaceFlags, level.textures, 0, 0,
                          gFaceList.end, gDetailKeys[0], gDetailSlots, gDetailFrame, faceAddRoomQuads, detailSlotMiss,
-                         gTurn };
+                         gTurn, 0, detailMips() && gBenchMode != BENCH_NO_LOD ? gTextureLod : 0 };
         if (info->quadsCount > 0) {
             faceAddRoomQuadsAsm(data.quads, info->quadsCount, &rf);
         }
