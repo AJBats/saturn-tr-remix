@@ -954,6 +954,11 @@ void roomsQueue(const Room* room)
     bool water = ROOM_FLAG_WATER(info->flags);
     job.wet = water || gCameraWater;
     job.ripple = water != gCameraWater;
+    // a rippling room's edges leave cracks against the still ones it meets
+    // at the water surface: the frame is cleared, as the original's always is
+    if (job.ripple) {
+        setSceneClear(true);
+    }
 
     if (gJobCount == 0) {
         slaveRun(roomBatch);
