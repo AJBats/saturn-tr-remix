@@ -106,7 +106,11 @@ static uint16 gPad;
 static bool gMenuOpen;
 static int32 gCursor;
 #ifdef HW_LOG
-static bool gBenchHidden;   // L or R: the bench's rows give way to the scene's, on Base
+// R and L page through the overlay: the bench's table, then (held on Base)
+// the scene's rows with each frame's CPU, slave and VDP1 time, then each
+// frame's time by stage.
+enum OverlayPage { PAGE_BENCH, PAGE_FRAME, PAGE_STAGES, PAGE_COUNT };
+static int32 gPage;
 #endif
 
 static const char* gMessage;
@@ -163,12 +167,15 @@ void debugUpdate()
 #ifdef HW_LOG
     // the player's pad: Lara has no use for its shoulder buttons
     static uint32 shoulders;
-    if (keys & (IK_L | IK_R) & ~shoulders) {
-        gBenchHidden = !gBenchHidden;
+    uint32 pressed2 = keys & (IK_L | IK_R) & ~shoulders;
+    if (pressed2 & IK_R) {
+        gPage = (gPage + 1) % PAGE_COUNT;
+    } else if (pressed2 & IK_L) {
+        gPage = (gPage + PAGE_COUNT - 1) % PAGE_COUNT;
     }
     shoulders = keys & (IK_L | IK_R);
     vdp1OnShown(frameShown);
-    if (!gBenchHidden && gFrameRows)
+    if (gPage == PAGE_BENCH && gFrameRows)
     {
         gFrameRows = false;
         overlayUnpin(FRAME_ROW);
@@ -518,6 +525,9 @@ struct FrameTag
 {
     uint32 plot;
     uint32 cpu;
+    uint32 update, draw, flush, wait;   // the master's stages
+    uint32 xform, faces, mesh, idle;    // the slave's
+    uint32 dsp;                         // room vertices the DSP projected, %
     int32 room, x, y, z;
     uint32 yaw;
 };
@@ -528,6 +538,15 @@ void debugFrameDone()
     uint32 plot = vdp1Plots();
     FrameTag &t = gFrameTags[plot % FRAME_TAGS];
     t.cpu = gStats.updateTicks + gStats.renderTicks - gStats.waitTicks;
+    t.update = gStats.updateTicks;
+    t.draw = gStats.drawTicks;
+    t.flush = gStats.flushTicks;
+    t.wait = gStats.waitTicks + gStats.slaveWaitTicks;
+    t.xform = gStats.slaveXformTicks;
+    t.faces = gStats.slaveFaceTicks;
+    t.mesh = gStats.slaveMeshTicks;
+    t.idle = gStats.slaveIdleTicks;
+    t.dsp = gStats.roomVertices ? gStats.dspVertices * 100 / gStats.roomVertices : 0;
     const ItemObj* lara = (const ItemObj*)(const void*)players[0];
     t.room = lara ? int32(lara->room - rooms) : -1;
     t.x = lara ? lara->pos.x : 0;
@@ -542,22 +561,53 @@ static void frameShown(uint32_t plot)
     static uint32 last;
     uint32 vblanks = gVblankCount - last;
     last = gVblankCount;
-    if (!gBenchHidden)
+    if (gPage == PAGE_BENCH)
         return;
 
     const FrameTag &t = gFrameTags[plot % FRAME_TAGS];
+    bool tagged = t.plot == plot;
     char text[OVERLAY_COLUMNS + 1];
     char* p = appendStat(text, "#", plot);
     p = appendStat(p, "vb ", vblanks);
-    if (t.plot == plot) {
+    if (gPage == PAGE_STAGES)
+    {
+        // the master: update, drawing (rooms queued, meshes), flush, waits
+        if (tagged)
+        {
+            p = appendStat(p, "u ", framePercent(t.update));
+            p = appendStat(p, "d ", framePercent(t.draw));
+            p = appendStat(p, "f ", framePercent(t.flush));
+            appendStat(p, "w ", framePercent(t.wait));
+        }
+        overlayPin(FRAME_ROW, text);
+
+        // the slave: room transform, room faces, meshes, idle; DSP share
+        p = text;
+        *p = 0;
+        if (tagged)
+        {
+            p = appendStat(p, "slv x ", framePercent(t.xform));
+            p = appendStat(p, "f ", framePercent(t.faces));
+            p = appendStat(p, "m ", framePercent(t.mesh));
+            p = appendStat(p, "i ", framePercent(t.idle));
+            appendStat(p, "dsp ", t.dsp);
+        }
+        overlayPin(FRAME_ROW + 1, text);
+        gFrameRows = true;
+        return;
+    }
+
+    if (tagged)
+    {
         p = appendStat(p, "cpu ", framePercent(t.cpu));
+        p = appendStat(p, "slv ", framePercent(t.xform + t.faces + t.mesh));
     }
     appendStat(p, "vdp1 ", framePercent(gStats.vdp1Ticks));
     overlayPin(FRAME_ROW, text);
 
     p = text;
     *p = 0;
-    if (t.plot == plot && t.room >= 0)
+    if (tagged && t.room >= 0)
     {
         p = appendStat(p, "room ", uint32(t.room));
         p = appendStat(p, "", uint32(t.x));
@@ -577,7 +627,7 @@ static void benchUpdate()
     static uint32 dspVertices, roomVertices;
 
     // held on Base while the scene's rows show; a fresh window after
-    if (gBenchHidden)
+    if (gPage != PAGE_BENCH)
     {
         if (gBenchMode != BENCH_BASE)
         {
@@ -804,7 +854,7 @@ void osDrawDebug()
 #ifdef HW_LOG
     if (!gMenuOpen)
     {
-        if (gBenchHidden)
+        if (gPage != PAGE_BENCH)
         {
             overlayRow(1, kBenchNames[gBenchMode]);
             for (int32 i = 0; i < SCENE_ROWS; i++) {
