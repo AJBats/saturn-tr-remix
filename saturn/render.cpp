@@ -544,24 +544,16 @@ static uint32 scaledGouraud(uint32 m, int32 l, int32 s, bool half, int32 q)
 {
     int32 p = 64 - q * (16 - l);
     // 64ths: the blend's value for the mean, less what the table leaves,
-    // rounded once for the channels' average (the add's share with it), then
-    // each channel's difference from the average rounded, so a grey
-    // texture's channels stay together (rounded per channel, a mean of
-    // 15/16/15 put green a step under red and blue, and grey snow went pink);
-    // offsets keep the sums positive for the shifts flush.s rounds with
+    // for the channels' average, as a grey: one value in every channel keeps
+    // a grey texture grey, and flush.s works it out in a few steps. Offsets
+    // keep the sum positive for the shifts flush.s rounds with
     int32 avg = (int32(m & 31) + int32((m >> 5) & 31) + int32((m >> 10) & 31) + 1) / 3;
     int32 d = avg * (p - s) + 16 * (4 - q) * (l - 16);
     if (half) {
         d *= 2;
     }
-    int32 base = 16 + ((d + 32 + 8192) >> 6) - 128;
-    uint32 out = 0;
-    for (int32 i = 0; i < 3; i++)
-    {
-        int32 e = (((int32((m >> (5 * i)) & 31) - avg) * (p - s) * (half ? 2 : 1) + 32 + 4096) >> 6) - 64;
-        out |= uint32(X_CLAMP(base + e, 0, 31)) << (5 * i);
-    }
-    return out;
+    uint32 v = X_CLAMP(16 + ((d + 32 + 8192) >> 6) - 128, 0, 31);
+    return (v << 10) | (v << 5) | v;
 }
 
 static bool shadeScaled(uint32* w, uint32* grd, const Texture* tex, int32 la, int32 lb, int32 lc, int32 ld)

@@ -929,10 +929,57 @@ _flushAsm:
     bra     .LshadeIt
     mov     r4, r7
 
+! level L (in place) to its corner's grey gouraud value: x = p - s = 2L + 32
+! - s; 16 + (avg x + 32 (L - 16) + 32) / 64 rounded down, the sum doubled at
+! half luminance (r13), within 0 .. 31 (r14); a level as the last (r2) takes
+! its value (r3) again. avg r9, s r12, the rounding offset r10; r0, r1
+    .macro  CORNER L
+    cmp/eq  \L, r2
+    bt      7f
+    mov     \L, r2
+    mov     \L, r0
+    add     r0, r0
+    add     #32, r0
+    sub     r12, r0             ! x
+    muls.w  r0, r9
+    mov     \L, r1
+    add     #-16, r1
+    shll2   r1
+    shll2   r1
+    shll    r1                  ! 32 (L - 16)
+    sts     macl, r0
+    add     r1, r0              ! d
+    tst     r13, r13
+    bt      6f
+    add     r0, r0
+6:  add     r10, r0
+    shlr2   r0
+    shlr2   r0
+    shlr2   r0
+    add     #-112, r0
+    cmp/pz  r0
+    bt      8f
+    mov     #0, r0
+8:  cmp/gt  r14, r0
+    bf      9f
+    mov     r14, r0
+9:  mov     r0, r1
+    shll2   r1
+    shll2   r1
+    shll    r1
+    or      r1, r0
+    shll2   r1
+    shll2   r1
+    shll    r1
+    or      r1, r0              ! grey
+    mov     r0, r3
+7:  mov     r3, \L
+    .endm
+
     ! DARK_SCALE at SCALE_MULTIPLY_FAST (render.cpp shadeScaled, scaledGouraud
     ! at q = 2): the face's table by its corners' level sum, a copy scaled by
     ! 56, 50, 44 or 38 64ths (or none), or for a texture without copies half
-    ! luminance below a sum of 32; then each corner's gouraud. r2 the
+    ! luminance below a sum of 32; then each corner's gouraud, a grey. r2 the
     ! texture, r4 .. r7 the corners' shades; r0 .. r7, r14 and (saved) r8,
     ! r9, r10, r12, r13
 .Lscaled:
@@ -1009,48 +1056,28 @@ _flushAsm:
     mulu.w  r0, r9
     sts     macl, r9
     shlr8   r9                  ! avg = (sum + 1) / 3
-    mov.w   @(8, r2), r0
-    extu.w  r0, r1              ! the mean
-    mov     r1, r0
-    and     #31, r0
-    sub     r9, r0
-    mov     r0, r2              ! red less avg
-    mov     r1, r0
-    shlr2   r0
-    shlr2   r0
-    shlr    r0
-    and     #31, r0
-    sub     r9, r0
-    mov     r0, r3              ! green less avg
-    mov     r1, r0
-    shlr8   r0
-    shlr2   r0
-    and     #31, r0
-    sub     r9, r0
-    mov     r0, r14             ! blue less avg
-    mov     #-1, r0
-    add     #-8, r15
-    mov.l   r0, @r15            ! the last level computed: none yet
-    bsr     .LscCorner
-    mov     r4, r0
-    mov     r0, r4
-    bsr     .LscCorner
-    mov     r5, r0
-    mov     r0, r5
-    bsr     .LscCorner
-    mov     r6, r0
-    mov     r0, r6
-    bsr     .LscCorner
-    mov     r7, r0
-    mov     r0, r7
-    add     #8, r15
+    mov.w   .LscBaseBias, r10
+    mov     #31, r14
+    mov     #-1, r2             ! the last level worked out: none yet
+    CORNER  r4
+    CORNER  r5
+    CORNER  r6
+    CORNER  r7
     mov.l   @r15+, r8
     mov.l   @r15+, r10
     mov.l   @r15+, r13
     mov.l   @r15+, r12
     mov.l   @r15+, r9
+    ! a far face: perhaps its corners' mean, shaded (as .Lplain)
+    mov.l   @r9, r0
+    mov.l   .LscFarFace, r3
+    and     r3, r0
+    cmp/eq  r3, r0
+    bf      0f
+    bra     .LfarShade
+    nop
     ! one value at every corner: the copy shaded instead (Even shades)
-    cmp/eq  r4, r5
+0:  cmp/eq  r4, r5
     bf      .LscGouraud
     cmp/eq  r4, r6
     bf      .LscGouraud
@@ -1062,77 +1089,7 @@ _flushAsm:
     bra     .LgouraudTable
     nop
 
-
-! a channel: base (r1) + (its mean less avg, dm) x (r0) / 64 rounded,
-! within 0 .. 31, shifted into r10; r8, r11 (31 after)
-    .macro  CHANNEL dm
-    muls.w  r0, \dm
-    mov.w   .LscBias, r11       ! 4128: 32 to round, 4096 to keep it positive
-    sts     macl, r8
-    add     r11, r8
-    shlr2   r8
-    shlr2   r8
-    shlr2   r8
-    add     #-64, r8
-    mov     #31, r11
-    add     r1, r8
-    cmp/pz  r8
-    bt      4f
-    mov     #0, r8
-4:  cmp/gt  r11, r8
-    bf      5f
-    mov     r11, r8
-5:  shll2   r10
-    shll2   r10
-    shll    r10
-    or      r8, r10
-    .endm
-
-! level r0 to its corner's gouraud value in r0: x = p - s = 2L + 32 - s;
-! base = 16 + round((avg x + 32 (L - 16)) / 64), both doubled at half
-! luminance; the last level and value kept at the caller's @r15, @(4, r15)
-! (a face's corners often share a level); r1, r8, r10, r11
-.LscCorner:
-    mov.l   r11, @-r15
-    mov.l   @(4, r15), r1
-    cmp/eq  r0, r1
-    bf      0f
-    mov.l   @(8, r15), r0       ! as the last corner
-    rts
-    mov.l   @r15+, r11
-0:  mov.l   r0, @(4, r15)
-    mov     #31, r11
-    mov     r0, r8
-    add     r8, r0
-    add     #32, r0
-    sub     r12, r0             ! x
-    muls.w  r0, r9
-    add     #-16, r8
-    shll2   r8
-    shll2   r8
-    shll    r8                  ! 32 (L - 16)
-    sts     macl, r1
-    add     r8, r1              ! d
-    tst     r13, r13
-    bt      1f
-    add     r1, r1
-    add     r0, r0
-1:  mov.w   .LscBaseBias, r8    ! 8224: 32 to round, 8192 to keep it positive
-    add     r8, r1
-    shlr2   r1
-    shlr2   r1
-    shlr2   r1
-    add     #-112, r1           ! base: 16 + (d + 32) / 64 rounded down
-    mov     #0, r10
-    CHANNEL r14
-    CHANNEL r3
-    CHANNEL r2
-    mov     r10, r0
-    mov.l   r0, @(8, r15)
-    rts
-    mov.l   @r15+, r11
-
     .align 2
 .LscNoCalc:     .long   0xFFF8FFFF  ! w[1] without the colour calculation
-.LscBias:       .short  4128
-.LscBaseBias:   .short  8224
+.LscFarFace:    .long   0x28040000  ! FACE_DETAIL | FACE_DETAIL_WHOLE | FACE_DETAIL_MIP
+.LscBaseBias:   .short  8224        ! 32 to round, 8192 to keep it positive
