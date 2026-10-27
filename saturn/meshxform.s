@@ -696,8 +696,6 @@ _renderMeshAsm:
     mov.l   @(4, r15), r0
     mov.l   @r0, r8
     mov.l   .LvertexBase, r9
-    shlr2   r9
-    shlr    r9
     neg     r9, r9
     mov.l   @(8, r15), r0
     mov.l   @r0, r10

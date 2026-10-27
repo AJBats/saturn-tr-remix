@@ -58,6 +58,7 @@ TEX_ATTR_AKILL = 1
 FACE_TEXTURE_MAX = 0x3FFF
 DETAIL_UNIT = 256   # Texture.reserved: full-res offset / DETAIL_UNIT + 1
 ROOM_INFO_SIZE = 68 # common.h RoomInfo
+VERTEX_SIZE = 8     # render.h Vertex
 
 NODE_FLAG_ROTX, NODE_FLAG_ROTY, NODE_FLAG_ROTZ = 1 << 2, 1 << 3, 1 << 4
 
@@ -447,14 +448,20 @@ class Packer:
             packed = [(x >> 8, (y - y_top) >> 8, z >> 8) for x, y, z, _ in room.vertices]
             room_quads, facing = sort_room_quads(packed, room.quads)
 
+            # corners as byte offsets into the room's projected vertices
+            # (render.h cornerOffset), which faces.s adds without a shift
+            if len(room.vertices) * VERTEX_SIZE > 0x10000:
+                raise ValueError(f"room {room.index}: too many vertices for 16-bit corner offsets")
             quads = out.align4()
             for v0, v1, v2, v3, tex, transp in room_quads:
                 ftype = FACE_TYPE_FTA if transp else FACE_TYPE_FT
-                out.pack("I4H", (ftype << FACE_TYPE_SHIFT) | self.textures.room(tex, transp), v0, v1, v2, v3)
+                out.pack("I4H", (ftype << FACE_TYPE_SHIFT) | self.textures.room(tex, transp),
+                         v0 * VERTEX_SIZE, v1 * VERTEX_SIZE, v2 * VERTEX_SIZE, v3 * VERTEX_SIZE)
 
             triangles = out.align4()
             for v0, v1, v2, tex in room.triangles:
-                out.pack("I4H", (FACE_TYPE_FT << FACE_TYPE_SHIFT) | self.textures.room(tex, False), v0, v1, v2, 0)
+                out.pack("I4H", (FACE_TYPE_FT << FACE_TYPE_SHIFT) | self.textures.room(tex, False),
+                         v0 * VERTEX_SIZE, v1 * VERTEX_SIZE, v2 * VERTEX_SIZE, 0)
 
             vertices = out.align4()
             for x, y, z, color in room.vertices:

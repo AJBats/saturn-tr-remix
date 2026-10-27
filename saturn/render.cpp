@@ -163,7 +163,7 @@ bool transformMesh(const MeshVertex* vertices, int32 count, int32 intensity, con
 struct MeshFaces
 {
     const Vertex* vertices;
-    int32 base;         // minus gVertices' address / 8: a vertex's index is its address / 8 + base
+    int32 base;         // minus its half of gVertices' address: a corner's offset is its address + base
     FaceList* list;
     uint32 flags;       // gMeshFaceFlags
     int32 inside;       // no vertex has clip flags
@@ -210,10 +210,10 @@ void faceAddMeshQuads(const MeshQuad* polys, int32 count)
 
         Face* f = faceAdd(gFaceList, depth);
         f->flags = flags;
-        f->indices[0] = v0 - gVertices;
-        f->indices[1] = v1 - gVertices;
-        f->indices[2] = v2 - gVertices;
-        f->indices[3] = v3 - gVertices;
+        f->indices[0] = cornerOffset(v0, gVertices);
+        f->indices[1] = cornerOffset(v1, gVertices);
+        f->indices[2] = cornerOffset(v2, gVertices);
+        f->indices[3] = cornerOffset(v3, gVertices);
     }
 }
 
@@ -267,10 +267,10 @@ void faceAddMeshTriangles(const MeshTriangle* polys, int32 count)
 
         Face* f = faceAdd(gFaceList, depth);
         f->flags = flags;
-        f->indices[0] = v0 - gVertices;
-        f->indices[1] = v1 - gVertices;
-        f->indices[2] = v2 - gVertices;
-        f->indices[3] = v2 - gVertices;
+        f->indices[0] = cornerOffset(v0, gVertices);
+        f->indices[1] = cornerOffset(v1, gVertices);
+        f->indices[2] = cornerOffset(v2, gVertices);
+        f->indices[3] = cornerOffset(v2, gVertices);
     }
 }
 
@@ -732,7 +732,8 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
 {
     uint32 flags = face->flags;
     uint32 type = (flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK;
-    const Vertex* v0 = gVertices + face->indices[0];
+    const Vertex* half = room ? gSlaveVertices : gVertices;
+    const Vertex* v0 = cornerVertex(face->indices[0], half);
 
     switch (type)
     {
@@ -770,7 +771,7 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
             int32 x0 = v0->x, y0 = v0->y, x1 = x0, y1 = y0;
             for (int32 i = 1; i < 4; i++)
             {
-                const Vertex* v = gVertices + face->indices[i];
+                const Vertex* v = cornerVertex(face->indices[i], half);
                 x0 = X_MIN(x0, int32(v->x));
                 y0 = X_MIN(y0, int32(v->y));
                 x1 = X_MAX(x1, int32(v->x));
@@ -791,8 +792,8 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
 
         default:
         {
-            const Vertex* v1 = gVertices + face->indices[1];
-            const Vertex* v2 = gVertices + face->indices[2];
+            const Vertex* v1 = cornerVertex(face->indices[1], half);
+            const Vertex* v2 = cornerVertex(face->indices[2], half);
 
             if (type == FACE_TYPE_SHADOW)
             {
@@ -843,7 +844,7 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
                 break;
             }
 
-            const Vertex* v3 = gVertices + face->indices[3];
+            const Vertex* v3 = cornerVertex(face->indices[3], half);
 
             if (faceTurned(flags))
             {
@@ -913,7 +914,8 @@ struct FlushXform
 static_assert(offsetof(FlushXform, vertices) == 12 && offsetof(FlushXform, grdLink) == 28 &&
               offsetof(FlushXform, textures) == 32 && offsetof(FlushXform, dark) == 52 &&
               offsetof(FlushXform, slow) == 60 && offsetof(FlushXform, mipVram) == 64 &&
-              offsetof(FlushXform, shade) == 72 && offsetof(FlushXform, farShade) == 76,
+              offsetof(FlushXform, shade) == 72 && offsetof(FlushXform, farShade) == 76 &&
+              MASTER_VERTICES * sizeof(Vertex) == (64 << 8),
               "FlushXform layout is shared with flush.s");
 static_assert(sizeof(Face) == 16 && offsetof(Face, next) == 4 && offsetof(Face, indices) == 8 &&
               sizeof(Texture) == 16 && offsetof(Texture, attr) == 6 && offsetof(Texture, color) == 8 &&
@@ -1581,7 +1583,7 @@ __attribute__((noinline)) static void renderMeshC(const Mesh* mesh)
     }
     else
     {
-        MeshFaces mf = { gVerticesBase, -int32(uint32(gVertices) >> 3), &gFaceList, gMeshFaceFlags, inside };
+        MeshFaces mf = { gVerticesBase, -int32(gVertices), &gFaceList, gMeshFaceFlags, inside };
         if (mesh->rCount > 0) {
             faceAddMeshQuadsAsm(parts.quads, mesh->rCount, &mf);
         }
@@ -1705,7 +1707,9 @@ void meshJobShadow(MeshJob &job, int32 x, int32 z, int32 sx, int32 sz)
 void meshJobDraw(const MeshJob &job, Vertex* dst, FaceList &list)
 {
     MeshXform xf = job.xf;
-    MeshFaces mf = { dst, -int32(uint32(gVertices) >> 3), &list, job.flags, 0 };
+    // the slave's, or the master's drawing one the slave had no room for
+    const Vertex* half = dst >= gSlaveVertices ? gSlaveVertices : gVertices;
+    MeshFaces mf = { dst, -int32(half), &list, job.flags, 0 };
 
     const Mesh* mesh = job.mesh;
     if (!mesh)
@@ -1807,7 +1811,7 @@ void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index)
     // drawn in front of the geometry it stands on
     Face* f = faceAdd(gFaceList, X_MAX(0, z - 128) >> OT_SHIFT);
     f->flags = (FACE_TYPE_SPRITE << FACE_TYPE_SHIFT) | index;
-    f->indices[0] = v - gVertices;
+    f->indices[0] = cornerOffset(v, gVertices);
 }
 
 void renderGlyph(int32 vx, int32 vy, int32 index)
@@ -1838,7 +1842,7 @@ void renderGlyph(int32 vx, int32 vy, int32 index)
 
     Face* f = faceAdd(gFaceList, 0);
     f->flags = (FACE_TYPE_SPRITE << FACE_TYPE_SHIFT) | index;
-    f->indices[0] = v - gVertices;
+    f->indices[0] = cornerOffset(v, gVertices);
 }
 
 static void renderRect(int32 x, int32 y, int32 width, int32 height, uint32 type, uint16 color, int32 z)
@@ -1859,7 +1863,7 @@ static void renderRect(int32 x, int32 y, int32 width, int32 height, uint32 type,
 
     Face* f = faceAdd(gFaceList, z);
     f->flags = type << FACE_TYPE_SHIFT;
-    f->indices[0] = v - gVertices;
+    f->indices[0] = cornerOffset(v, gVertices);
 }
 
 // Transparent behind everything, where nothing would draw (VDP2's back colour

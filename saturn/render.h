@@ -68,9 +68,26 @@ enum ClipFlags {
 };
 
 // gVertices is split between the CPUs: the master's meshes, sprites and 2D
-// below MASTER_VERTICES, the slave's rooms above. Face indices address all of it.
+// below MASTER_VERTICES, the slave's rooms above.
 #define MASTER_VERTICES 2048
 extern Vertex gVertices[MAX_VERTICES];
+#define gSlaveVertices  (gVertices + MASTER_VERTICES)
+
+// A face's corners are their byte offsets in the half of gVertices whose CPU
+// added it: from gVertices on the master, gSlaveVertices on the slave. Each
+// fits an int16 that flush.s loads and adds to its base, with no shift.
+static_assert(MASTER_VERTICES * sizeof(Vertex) <= 32768 &&
+              (MAX_VERTICES - MASTER_VERTICES) * sizeof(Vertex) <= 32768, "corner offsets are int16s");
+
+X_INLINE int16 cornerOffset(const Vertex* v, const Vertex* half)
+{
+    return int16((const uint8*)v - (const uint8*)half);
+}
+
+X_INLINE const Vertex* cornerVertex(int32 offset, const Vertex* half)
+{
+    return (const Vertex*)((const uint8*)half + offset);
+}
 
 // Ordering table buckets counted together, for flush to share the frame's
 // faces between the CPUs.

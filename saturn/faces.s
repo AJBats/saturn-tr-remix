@@ -13,8 +13,9 @@
 !
 ! MeshFaces (render.cpp):
 !   +0  const Vertex* vertices  the mesh's
-!   +4  int32 base              minus gVertices' address / 8: a vertex's
-!                               index is its address / 8 + base
+!   +4  int32 base              minus its half of gVertices' address: a
+!                               corner's offset (render.h cornerOffset) is
+!                               its address + base
 !   +8  FaceList* list          next +0, ot +8, groups (uint16) +12
 !   +12 uint32 flags            for every face (FACE_WATER)
 !   +16 int32 inside            no vertex has clip flags (the fast transform)
@@ -27,8 +28,8 @@
 !
 ! RoomFaces (rooms.cpp):
 !   +0  const Vertex* vertices  the room's
-!   +4  uint32 base             its first vertex's index in gVertices, in
-!                               both halves (an index pair's offset)
+!   +4  uint32 base             its first vertex's corner offset in the
+!                               slave's half, in both halves (an offset pair's)
 !   +8  FaceList* list
 !   +12 uint32 flags            for every face (FACE_WATER)
 !   +16 const Texture* textures
@@ -52,8 +53,10 @@
 !   +68 int32 cached            the variant kept (REUSE), -1 for WHOLE to decide
 !   +72 int32 facing            the quads face the camera: no backface test
 !
-! RoomQuad, RoomTriangle: uint32 flags; uint16 indices[4].
-! Vertex: int16 x, y; int16 z; uint8 g, clip. Face: flags, next, int16 indices[4].
+! RoomQuad, RoomTriangle: uint32 flags; uint16 indices[4], byte offsets into
+! the room's vertices (pack_level.py).
+! Vertex: int16 x, y; int16 z; uint8 g, clip. Face: flags, next, int16
+! indices[4], its corners' offsets.
 ! Texture: uint16 srca, colr, size, attr, color, reserved, altColor, contrast.
 
     .equ    CLIP_DISCARD,   0x3E
@@ -69,12 +72,15 @@
     add     r8, \r
     .endm
 
-! the face's index of the vertex at r into rd: (r >> 3) + base; r0
+! the face's corner offset of the vertex at r into rd: r + base
     .macro  INDEX r, rd
     mov     \r, \rd
-    shlr2   \rd
-    shlr    \rd
     add     r9, \rd
+    .endm
+
+! the room vertex at byte offset r (a room face's corner) to a pointer in r
+    .macro  ROOM_VERTEX r
+    add     r8, \r
     .endm
 
 ! r1, r2, r3 back-facing on the frame: to 'skip'; r0, r13, r14, r7
@@ -357,9 +363,9 @@ _faceAddMeshTrianglesBody:
     mov.l   @(8, r4), r0
     mov     r0, r3
     shlr16  r3
-    VERTEX  r1
-    VERTEX  r2
-    VERTEX  r3
+    ROOM_VERTEX r1
+    ROOM_VERTEX r2
+    ROOM_VERTEX r3
     .endm
 
 ! r13 = the largest z of r1, r2, r3 and r, >> OT_SHIFT; r0
@@ -756,7 +762,7 @@ _faceAddRoomQuadsAsm:
     BACKFACE .LrquadNext
 2:  mov.l   @(8, r4), r0
     extu.w  r0, r7
-    VERTEX  r7
+    ROOM_VERTEX r7
     CULL    r7, .LrquadCulled
     REUSE   .LrquadDecided
     TURN

@@ -193,10 +193,10 @@ static void faceAddRoomVoid(const Vertex* v0, const Vertex* v1, const Vertex* v2
 {
     Face* f = faceAdd(gFaceList, OT_SIZE - 1);
     f->flags = FACE_TYPE_VOID << FACE_TYPE_SHIFT;
-    f->indices[0] = v0 - gVertices;
-    f->indices[1] = v1 - gVertices;
-    f->indices[2] = v2 - gVertices;
-    f->indices[3] = v3 - gVertices;
+    f->indices[0] = cornerOffset(v0, gSlaveVertices);
+    f->indices[1] = cornerOffset(v1, gSlaveVertices);
+    f->indices[2] = cornerOffset(v2, gSlaveVertices);
+    f->indices[3] = cornerOffset(v3, gSlaveVertices);
 }
 
 // A room face with these clip flags of its corners anded is dropped, not
@@ -228,10 +228,10 @@ static void faceAddDetailQuad(uint32 flags, const Vertex* v0, const Vertex* v1, 
 
     Face* f = faceAdd(gFaceList, depth);
     f->flags = flags;
-    f->indices[0] = v0 - gVertices;
-    f->indices[1] = v1 - gVertices;
-    f->indices[2] = v2 - gVertices;
-    f->indices[3] = v3 - gVertices;
+    f->indices[0] = cornerOffset(v0, gSlaveVertices);
+    f->indices[1] = cornerOffset(v1, gSlaveVertices);
+    f->indices[2] = cornerOffset(v2, gSlaveVertices);
+    f->indices[3] = cornerOffset(v3, gSlaveVertices);
 }
 
 // Splits a room quad near the camera into four, each drawn with one quadrant
@@ -248,10 +248,10 @@ static bool faceAddRoomQuadDetail(const RoomQuad* poly, const Texture* tex,
     if (slot < 0)
         return false;
 
-    const RoomVertex* r0 = gRoomVertices + poly->indices[0];
-    const RoomVertex* r1 = gRoomVertices + poly->indices[1];
-    const RoomVertex* r2 = gRoomVertices + poly->indices[2];
-    const RoomVertex* r3 = gRoomVertices + poly->indices[3];
+    const RoomVertex* r0 = gRoomVertices + poly->indices[0] / sizeof(Vertex);
+    const RoomVertex* r1 = gRoomVertices + poly->indices[1] / sizeof(Vertex);
+    const RoomVertex* r2 = gRoomVertices + poly->indices[2] / sizeof(Vertex);
+    const RoomVertex* r3 = gRoomVertices + poly->indices[3] / sizeof(Vertex);
 
     // edge midpoints and the centre, in room space
     gTop -= 5;
@@ -314,10 +314,10 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
             return;
 
         uint32 flags = (polys->flags & ROOM_QUAD_FLAGS) | gRoomFaceFlags;
-        const Vertex* v0 = v + polys->indices[0];
-        const Vertex* v1 = v + polys->indices[1];
-        const Vertex* v2 = v + polys->indices[2];
-        const Vertex* v3 = v + polys->indices[3];
+        const Vertex* v0 = cornerVertex(polys->indices[0], v);
+        const Vertex* v1 = cornerVertex(polys->indices[1], v);
+        const Vertex* v2 = cornerVertex(polys->indices[2], v);
+        const Vertex* v3 = cornerVertex(polys->indices[3], v);
 
         uint32 c0 = v0->clip;
         uint32 c1 = v1->clip;
@@ -357,10 +357,10 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
 
         Face* f = faceAdd(gFaceList, zMax >> OT_SHIFT);
         f->flags = flags;
-        f->indices[0] = v0 - gVertices;
-        f->indices[1] = v1 - gVertices;
-        f->indices[2] = v2 - gVertices;
-        f->indices[3] = v3 - gVertices;
+        f->indices[0] = cornerOffset(v0, gSlaveVertices);
+        f->indices[1] = cornerOffset(v1, gSlaveVertices);
+        f->indices[2] = cornerOffset(v2, gSlaveVertices);
+        f->indices[3] = cornerOffset(v3, gSlaveVertices);
     }
 }
 
@@ -372,9 +372,9 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
             return;
 
         uint32 flags = polys->flags | gRoomFaceFlags;
-        const Vertex* v0 = v + polys->indices[0];
-        const Vertex* v1 = v + polys->indices[1];
-        const Vertex* v2 = v + polys->indices[2];
+        const Vertex* v0 = cornerVertex(polys->indices[0], v);
+        const Vertex* v1 = cornerVertex(polys->indices[1], v);
+        const Vertex* v2 = cornerVertex(polys->indices[2], v);
 
         uint32 c0 = v0->clip;
         uint32 c1 = v1->clip;
@@ -405,10 +405,10 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
 
         Face* f = faceAdd(gFaceList, depth);
         f->flags = flags;
-        f->indices[0] = v0 - gVertices;
-        f->indices[1] = v1 - gVertices;
-        f->indices[2] = v2 - gVertices;
-        f->indices[3] = v2 - gVertices;
+        f->indices[0] = cornerOffset(v0, gSlaveVertices);
+        f->indices[1] = cornerOffset(v1, gSlaveVertices);
+        f->indices[2] = cornerOffset(v2, gSlaveVertices);
+        f->indices[3] = cornerOffset(v2, gSlaveVertices);
     }
 }
 
@@ -416,7 +416,7 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
 struct RoomFaces
 {
     const Vertex* vertices;
-    uint32 base;            // the room's first vertex's index in gVertices, in both halves
+    uint32 base;            // the room's first vertex's corner offset (in gSlaveVertices), in both halves
     FaceList* list;
     uint32 flags;           // gRoomFaceFlags
     const Texture* textures;
@@ -470,7 +470,7 @@ static int32 facingQuads(const RoomQuad* quads, int32 count, int32 run, const in
     while (lo < hi)
     {
         int32 mid = (lo + hi) >> 1;
-        const uint8* v = (const uint8*)(gRoomVertices + quads[mid].indices[0]);
+        const uint8* v = (const uint8*)(gRoomVertices + quads[mid].indices[0] / sizeof(Vertex));
         if ((int32(v[axis]) << 8) < c) {
             lo = mid + 1;
         } else {
@@ -666,7 +666,7 @@ static void roomFaces(int32 index, const RoomJob &job)
         // A quad decides its turned lines and mip level on every other frame
         // and keeps them in between: a frame behind as the view moves, but the
         // slave's quads cost a Saturn 3 points less at the bench spot.
-        uint32 base = w.base;
+        uint32 base = uint16(cornerOffset(roomBase, gSlaveVertices));
         RoomFaces rf = { roomBase, base * 0x10001, &gFaceList, gRoomFaceFlags, level.textures, 0, 0,
                          gFaceList.end, gDetailKeys[0], gDetailSlots, gDetailFrame, faceAddRoomQuads, detailSlotMiss,
                          gTurn, 0, detailMips() && gBenchMode != BENCH_NO_LOD ? gTextureLod : 0,

@@ -90,11 +90,10 @@
 2:
     .endm
 
-! vertex index 'disp' of the face (r9) to a vertex pointer in r; r0
+! the face's (r9) corner at 'disp' to a vertex pointer in r: its offset in
+! the half of the vertices r12 points to; r0
     .macro  VERTEX disp, r
     mov.w   @(\disp, r9), r0
-    shll2   r0
-    shll    r0
     mov     r0, \r
     add     r12, \r
     .endm
@@ -135,7 +134,6 @@ _flushAsm:
     add     #-12, r15           ! the bucket's meshes, its offset, room or not
 
     mov     r4, r8
-    mov.l   @(12, r8), r12      ! vertices
     mov.l   @(16, r8), r10      ! cmd
     mov.l   @(24, r8), r11      ! grd
     mov.l   @(28, r8), r13      ! grdLink
@@ -169,6 +167,10 @@ _flushAsm:
     mov.l   r14, @(4, r15)
     mov     #1, r0
     mov.l   r0, @(8, r15)       ! rooms first
+    mov.l   @(12, r8), r12
+    mov     #64, r0
+    shll8   r0
+    add     r0, r12             ! their corners in the slave's half (MASTER_VERTICES)
     mov     r1, r9
 
 .Llist:
@@ -195,6 +197,7 @@ _flushAsm:
     bt      .LbucketDone
     mov     #0, r0
     mov.l   r0, @(8, r15)       ! then the meshes
+    mov.l   @(12, r8), r12      ! their corners in the master's half
     bra     .Llist
     mov.l   @r15, r9
 .LbucketDone:
