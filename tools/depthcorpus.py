@@ -8,6 +8,11 @@ the room depth option at Farthest. Score them with
 depthcheck.py auto_SEED_* (a shell glob of the names).
 
 Same caveat as depthcapture.py: no MCP tool call may be in flight.
+
+The saved states are for capturing only, not for playing on: the poke moves
+Lara's room pointer but not her link in the rooms' item lists, and once she
+walks into another room the game loops on a broken list (the watchdog's blue
+screen, the master in drawRoomObjects).
 """
 import argparse
 import os
