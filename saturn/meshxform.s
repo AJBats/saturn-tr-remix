@@ -109,7 +109,8 @@ transformMeshBody:
     bt      2f
     tst     r8, r8
     bt      3f
-    bra     .LfastShaded
+    mov.l   .LfastShadedAddr, r0
+    jmp     @r0
     nop
 3:  bra     .Lfast
     nop
@@ -119,7 +120,8 @@ transformMeshBody:
     mov.l   @(r0, r7), r0
     tst     r0, r0
     bt      .Lloop
-    bra     .LedgeShaded
+    mov.l   .LedgeShadedAddr, r0
+    jmp     @r0
     nop
 
 .Lloop:
@@ -380,17 +382,19 @@ transformMeshBody:
     shlr8   r0
     exts.w  r0, r0
     cmp/pz  r0
-    bt      20f
-    mov     #0, r0
+    bf      24f                 ! below 0: out of the way
 20: cmp/gt  r13, r0
-    bf      21f
-    mov     r13, r0
+    bt      25f                 ! past 31
 21: mov.b   r0, @r6
     dt      r5
     bf/s    .Lnormal
     add     #8, r6
     bra     .Ldone
     nop
+24: bra     20b
+    mov     #0, r0
+25: bra     21b
+    mov     r13, r0
 
 .Lnotnormals:
     mov.l   @(60, r7), r4       ! shades
@@ -437,6 +441,8 @@ transformMeshBody:
 
     .align 2
 .LbenchMode:    .long   _gBenchMode
+.LfastShadedAddr: .long .LfastShaded
+.LedgeShadedAddr: .long .LedgeShaded
 .LviewMin:      .long   0x00100000  ! VIEW_MIN_F
 .LviewMax:      .long   0x14000000  ! VIEW_MAX_F
 .LpMax:         .long   0x007FF000  ! projected 2047 << 12
@@ -447,253 +453,6 @@ transformMeshBody:
 .LframeHeight:  .short  224         ! FRAME_HEIGHT
 .LcoordMax:     .short  1023        ! VDP1_COORD_MAX
 
-    ! .Lfast with each vertex's shade by its normal first, as .Lnormal
-    ! makes it, into r14 (g << 8), the frame's centre from the pool
-.LfastShaded:
-    mov.l   @(28, r7), r1       ! tz
-    mov.l   @(20, r7), r2       ! tx
-    mov.l   @(24, r7), r3       ! ty
-.LfsLoop:
-    mov.b   @r8+, r0
-    mov.l   @(40, r7), r9       ! lx
-    muls.w  r0, r9
-    mov.b   @r8+, r0
-    mov.l   @(44, r7), r9       ! ly
-    sts     macl, r11
-    muls.w  r0, r9
-    mov.b   @r8+, r0
-    mov.l   @(48, r7), r9       ! lz
-    sts     macl, r12
-    muls.w  r0, r9
-    add     r12, r11
-    mov.l   @(52, r7), r9       ! range
-    sts     macl, r12
-    add     r12, r11            ! n . l
-    muls.w  r11, r9
-    add     #1, r8              ! pad
-    sts     macl, r11
-    shlr8   r11
-    shlr2   r11
-    shlr2   r11
-    shlr2   r11
-    exts.w  r11, r11
-    mov.l   @(36, r7), r14      ! ambient
-    sub     r11, r14
-    shlr8   r14
-    exts.w  r14, r14
-    cmp/pz  r14
-    bt      30f
-    mov     #0, r14
-30: mov     #31, r0
-    cmp/gt  r0, r14
-    bf      31f
-    mov     r0, r14
-31: shll8   r14
-    lds     r1, macl            ! z = tz + v . row2
-    mov     r7, r9
-    add     #12, r9
-    mac.w   @r4+, @r9+
-    mac.w   @r4+, @r9+
-    mac.w   @r4+, @r9+
-    add     #-6, r4
-    sts     macl, r11
-    lds     r2, macl            ! x = tx + v . row0
-    mov     r7, r9
-    mac.w   @r4+, @r9+
-    mac.w   @r4+, @r9+
-    mac.w   @r4+, @r9+
-    add     #-6, r4
-    sts     macl, r12
-    lds     r3, macl            ! y = ty + v . row1
-    mac.w   @r4+, @r9+
-    mac.w   @r4+, @r9+
-    mac.w   @r4+, @r9+          ! r4 at the next vertex
-    shlr8   r12
-    sts     macl, r13
-    shlr2   r12
-    shlr2   r12
-    shlr2   r12
-    exts.w  r12, r12
-    shlr8   r13
-    shlr2   r13
-    shlr2   r13
-    shlr2   r13
-    exts.w  r13, r13
-    mov     r11, r0
-    shlr16  r0
-    shlr2   r0
-    add     r0, r0
-    mov.w   @(r0, r10), r0      ! d
-    shll2   r11
-    shlr16  r11
-    shll16  r11                 ! z >> FIXED_SHIFT << 16
-    or      r14, r11            ! | g << 8
-    muls.w  r0, r12
-    sts     macl, r12
-    muls.w  r0, r13
-    shlr8   r12
-    sts     macl, r13
-    shlr2   r12
-    shlr2   r12
-    exts.w  r12, r12
-    shlr8   r13
-    shlr2   r13
-    shlr2   r13
-    exts.w  r13, r13
-    shll16  r12
-    add     r13, r12
-    mov.l   .LfsCentre, r0
-    add     r0, r12
-    mov.l   r12, @r6
-    mov.l   r11, @(4, r6)
-    dt      r5
-    bt      32f
-    bra     .LfsLoop            ! the loop is too long for a conditional branch
-    add     #8, r6
-32: bra     .Ldone
-    add     #8, r15             ! the shade pass's count and dst, unused
-
-    .align 2
-.LfsCentre:     .long   0x00B00070  ! FRAME_WIDTH / 2 << 16 | FRAME_HEIGHT / 2
-
-    ! a mesh near the frame's edges (+72 edge) lit by normals: as
-    ! .LfastShaded, then each vertex flagged against the frame as .Lloop does
-.LedgeShaded:
-    mov.l   @(28, r7), r1       ! tz
-    mov.l   @(20, r7), r2       ! tx
-    mov.l   @(24, r7), r3       ! ty
-.LesLoop:
-    mov.b   @r8+, r0
-    mov.l   @(40, r7), r9       ! lx
-    muls.w  r0, r9
-    mov.b   @r8+, r0
-    mov.l   @(44, r7), r9       ! ly
-    sts     macl, r11
-    muls.w  r0, r9
-    mov.b   @r8+, r0
-    mov.l   @(48, r7), r9       ! lz
-    sts     macl, r12
-    muls.w  r0, r9
-    add     r12, r11
-    mov.l   @(52, r7), r9       ! range
-    sts     macl, r12
-    add     r12, r11            ! n . l
-    muls.w  r11, r9
-    add     #1, r8              ! pad
-    sts     macl, r11
-    shlr8   r11
-    shlr2   r11
-    shlr2   r11
-    shlr2   r11
-    exts.w  r11, r11
-    mov.l   @(36, r7), r14      ! ambient
-    sub     r11, r14
-    shlr8   r14
-    exts.w  r14, r14
-    cmp/pz  r14
-    bt      50f
-    mov     #0, r14
-50: mov     #31, r0
-    cmp/gt  r0, r14
-    bf      51f
-    mov     r0, r14
-51: shll8   r14
-    lds     r1, macl            ! z = tz + v . row2
-    mov     r7, r9
-    add     #12, r9
-    mac.w   @r4+, @r9+
-    mac.w   @r4+, @r9+
-    mac.w   @r4+, @r9+
-    add     #-6, r4
-    sts     macl, r11
-    lds     r2, macl            ! x = tx + v . row0
-    mov     r7, r9
-    mac.w   @r4+, @r9+
-    mac.w   @r4+, @r9+
-    mac.w   @r4+, @r9+
-    add     #-6, r4
-    sts     macl, r12
-    lds     r3, macl            ! y = ty + v . row1
-    mac.w   @r4+, @r9+
-    mac.w   @r4+, @r9+
-    mac.w   @r4+, @r9+          ! r4 at the next vertex
-    shlr8   r12
-    sts     macl, r13
-    shlr2   r12
-    shlr2   r12
-    shlr2   r12
-    exts.w  r12, r12
-    shlr8   r13
-    shlr2   r13
-    shlr2   r13
-    shlr2   r13
-    exts.w  r13, r13
-    mov     r11, r0
-    shlr16  r0
-    shlr2   r0
-    add     r0, r0
-    mov.w   @(r0, r10), r0      ! d
-    shll2   r11
-    shlr16  r11
-    shll16  r11                 ! z >> FIXED_SHIFT << 16
-    or      r14, r11            ! | g << 8
-    muls.w  r0, r12
-    sts     macl, r12
-    muls.w  r0, r13
-    shlr8   r12
-    sts     macl, r13
-    shlr2   r12
-    shlr2   r12
-    exts.w  r12, r12
-    shlr8   r13
-    shlr2   r13
-    shlr2   r13
-    exts.w  r13, r13
-    mov.w   .LesHalfWidth, r0
-    add     r0, r12
-    mov.w   .LesHalfHeight, r0
-    add     r0, r13
-    mov.w   .LesWidth, r0
-    cmp/hi  r0, r12
-    bt      54f
-    mov.w   .LesHeight, r0
-    cmp/hi  r0, r13
-    bt      54f
-52: shll16  r12
-    extu.w  r13, r13
-    or      r13, r12
-    mov.l   r12, @r6
-    mov.l   r11, @(4, r6)
-    dt      r5
-    bt      53f
-    bra     .LesLoop            ! the loop is too long for a conditional branch
-    add     #8, r6
-53: bra     .Ldone
-    add     #8, r15             ! the shade pass's count and dst, unused
-
-    ! off the frame: which sides, into the clip byte
-54: add     #CLIP_FRAME, r11
-    cmp/pz  r12
-    bt      55f
-    add     #CLIP_LEFT, r11
-55: mov.w   .LesWidth, r0
-    cmp/gt  r0, r12
-    bf      56f
-    add     #CLIP_RIGHT, r11
-56: cmp/pz  r13
-    bt      57f
-    add     #CLIP_TOP, r11
-57: mov.w   .LesHeight, r0
-    cmp/gt  r0, r13
-    bf      52b
-    bra     52b
-    add     #CLIP_BOTTOM, r11
-
-    .align 1
-.LesHalfWidth:  .short  176         ! FRAME_WIDTH / 2
-.LesHalfHeight: .short  112         ! FRAME_HEIGHT / 2
-.LesWidth:      .short  352         ! FRAME_WIDTH
-.LesHeight:     .short  224         ! FRAME_HEIGHT
 
     .align 2
     .global _renderMeshAsm
@@ -1054,3 +813,257 @@ _renderMeshAsm:
 .LviewDist:     .short  20480       ! VIEW_DIST
 .LedgeX:        .short  840         ! EDGE_REACH_X
 .LedgeY:        .short  900         ! EDGE_REACH_Y
+
+! The loops that shade in the transform, after every other hot function
+! (saturn.ld) so that their size moves none of them in the cache.
+    .section .text.meshwarm, "ax"
+    .align 2
+    ! .Lfast with each vertex's shade by its normal first, as .Lnormal
+    ! makes it, into r14 (g << 8), the frame's centre from the pool
+.LfastShaded:
+    mov.l   @(28, r7), r1       ! tz
+    mov.l   @(20, r7), r2       ! tx
+    mov.l   @(24, r7), r3       ! ty
+.LfsLoop:
+    mov.l   @(40, r7), r9       ! lx
+    mov.l   @(44, r7), r12      ! ly
+    mov.b   @r8+, r0            ! the normal's x
+    mov.l   @(48, r7), r13      ! lz
+    muls.w  r0, r9
+    mov.b   @r8+, r0            ! y
+    mov.l   @(52, r7), r14      ! range
+    sts     macl, r11
+    muls.w  r0, r12
+    mov.b   @r8+, r0            ! z
+    add     #1, r8              ! pad
+    sts     macl, r12
+    muls.w  r0, r13
+    add     r12, r11
+    mov.l   @(36, r7), r12      ! ambient
+    sts     macl, r13
+    add     r13, r11            ! n . l
+    muls.w  r11, r14
+    mov     #31, r9
+    sts     macl, r11
+    shlr8   r11
+    shlr2   r11
+    shlr2   r11
+    shlr2   r11
+    exts.w  r11, r11
+    sub     r11, r12
+    shlr8   r12
+    exts.w  r12, r14
+    cmp/pz  r14
+    bf      34f                 ! below 0: out of the way
+30: cmp/gt  r9, r14
+    bt      35f                 ! past 31
+31: shll8   r14
+    lds     r1, macl            ! z = tz + v . row2
+    mov     r7, r9
+    add     #12, r9
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    add     #-6, r4
+    sts     macl, r11
+    lds     r2, macl            ! x = tx + v . row0
+    mov     r7, r9
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    add     #-6, r4
+    sts     macl, r12
+    lds     r3, macl            ! y = ty + v . row1
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+          ! r4 at the next vertex
+    shlr8   r12
+    sts     macl, r13
+    shlr2   r12
+    shlr2   r12
+    shlr2   r12
+    exts.w  r12, r12
+    shlr8   r13
+    shlr2   r13
+    shlr2   r13
+    shlr2   r13
+    exts.w  r13, r13
+    mov     r11, r0
+    shlr16  r0
+    shlr2   r0
+    add     r0, r0
+    mov.w   @(r0, r10), r0      ! d
+    shll2   r11
+    shlr16  r11
+    shll16  r11                 ! z >> FIXED_SHIFT << 16
+    or      r14, r11            ! | g << 8
+    muls.w  r0, r12
+    sts     macl, r12
+    muls.w  r0, r13
+    mov.l   .LfsCentre, r0
+    shlr8   r12
+    sts     macl, r13
+    shlr2   r12
+    shlr2   r12
+    exts.w  r12, r12
+    shlr8   r13
+    shlr2   r13
+    shlr2   r13
+    exts.w  r13, r13
+    shll16  r12
+    add     r13, r12
+    add     r0, r12
+    mov.l   r12, @r6
+    mov.l   r11, @(4, r6)
+    dt      r5
+    bf/s    .LfsLoop
+    add     #8, r6
+    rts
+    add     #8, r15             ! the shade pass's count and dst, unused
+34: bra     30b
+    mov     #0, r14
+35: bra     31b
+    mov     r9, r14
+
+    .align 2
+.LfsCentre:     .long   0x00B00070  ! FRAME_WIDTH / 2 << 16 | FRAME_HEIGHT / 2
+
+    ! a mesh near the frame's edges (+72 edge) lit by normals: as
+    ! .LfastShaded, then each vertex flagged against the frame as .Lloop does
+.LedgeShaded:
+    mov.l   @(28, r7), r1       ! tz
+    mov.l   @(20, r7), r2       ! tx
+    mov.l   @(24, r7), r3       ! ty
+.LesLoop:
+    mov.l   @(40, r7), r9       ! lx
+    mov.l   @(44, r7), r12      ! ly
+    mov.b   @r8+, r0            ! the normal's x
+    mov.l   @(48, r7), r13      ! lz
+    muls.w  r0, r9
+    mov.b   @r8+, r0            ! y
+    mov.l   @(52, r7), r14      ! range
+    sts     macl, r11
+    muls.w  r0, r12
+    mov.b   @r8+, r0            ! z
+    add     #1, r8              ! pad
+    sts     macl, r12
+    muls.w  r0, r13
+    add     r12, r11
+    mov.l   @(36, r7), r12      ! ambient
+    sts     macl, r13
+    add     r13, r11            ! n . l
+    muls.w  r11, r14
+    mov     #31, r9
+    sts     macl, r11
+    shlr8   r11
+    shlr2   r11
+    shlr2   r11
+    shlr2   r11
+    exts.w  r11, r11
+    sub     r11, r12
+    shlr8   r12
+    exts.w  r12, r14
+    cmp/pz  r14
+    bf      58f                 ! below 0: out of the way
+50: cmp/gt  r9, r14
+    bt      59f                 ! past 31
+51: shll8   r14
+    lds     r1, macl            ! z = tz + v . row2
+    mov     r7, r9
+    add     #12, r9
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    add     #-6, r4
+    sts     macl, r11
+    lds     r2, macl            ! x = tx + v . row0
+    mov     r7, r9
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    add     #-6, r4
+    sts     macl, r12
+    lds     r3, macl            ! y = ty + v . row1
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+          ! r4 at the next vertex
+    shlr8   r12
+    sts     macl, r13
+    shlr2   r12
+    shlr2   r12
+    shlr2   r12
+    exts.w  r12, r12
+    shlr8   r13
+    shlr2   r13
+    shlr2   r13
+    shlr2   r13
+    exts.w  r13, r13
+    mov     r11, r0
+    shlr16  r0
+    shlr2   r0
+    add     r0, r0
+    mov.w   @(r0, r10), r0      ! d
+    shll2   r11
+    shlr16  r11
+    shll16  r11                 ! z >> FIXED_SHIFT << 16
+    or      r14, r11            ! | g << 8
+    muls.w  r0, r12
+    sts     macl, r12
+    muls.w  r0, r13
+    shlr8   r12
+    sts     macl, r13
+    shlr2   r12
+    shlr2   r12
+    exts.w  r12, r12
+    shlr8   r13
+    shlr2   r13
+    shlr2   r13
+    exts.w  r13, r13
+    mov.w   .LesHalfWidth, r0
+    add     r0, r12
+    mov.w   .LesHalfHeight, r0
+    add     r0, r13
+    mov.w   .LesWidth, r0
+    cmp/hi  r0, r12
+    bt      54f
+    mov.w   .LesHeight, r0
+    cmp/hi  r0, r13
+    bt      54f
+52: shll16  r12
+    extu.w  r13, r13
+    or      r13, r12
+    mov.l   r12, @r6
+    mov.l   r11, @(4, r6)
+    dt      r5
+    bf/s    .LesLoop
+    add     #8, r6
+    rts
+    add     #8, r15             ! the shade pass's count and dst, unused
+58: bra     50b
+    mov     #0, r14
+59: bra     51b
+    mov     r9, r14
+
+    ! off the frame: which sides, into the clip byte
+54: add     #CLIP_FRAME, r11
+    cmp/pz  r12
+    bt      55f
+    add     #CLIP_LEFT, r11
+55: mov.w   .LesWidth, r0
+    cmp/gt  r0, r12
+    bf      56f
+    add     #CLIP_RIGHT, r11
+56: cmp/pz  r13
+    bt      57f
+    add     #CLIP_TOP, r11
+57: mov.w   .LesHeight, r0
+    cmp/gt  r0, r13
+    bf      52b
+    bra     52b
+    add     #CLIP_BOTTOM, r11
+
+    .align 1
+.LesHalfWidth:  .short  176         ! FRAME_WIDTH / 2
+.LesHalfHeight: .short  112         ! FRAME_HEIGHT / 2
+.LesWidth:      .short  352         ! FRAME_WIDTH
+.LesHeight:     .short  224         ! FRAME_HEIGHT
