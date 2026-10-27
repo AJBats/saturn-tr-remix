@@ -353,14 +353,7 @@ struct MeshXform
     const uint8* shades;    // or NULL
     int32 g;                // every vertex's shade when neither
     int32 inside;           // every vertex lands inside the frame, between the planes
-    int32 edge;             // between the planes, every vertex within EDGE_REACH of
-                            // the frame's centre: flagged against the frame alone
 };
-
-// How far from the frame's centre an 'edge' mesh's vertices may land (with a
-// margin for the divide table), well inside what VDP1 can address.
-#define EDGE_REACH_X    840
-#define EDGE_REACH_Y    900
 
 // A mesh, or an item's shadow, for the slave to draw (rooms.cpp).
 struct MeshJob
