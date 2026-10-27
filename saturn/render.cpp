@@ -532,18 +532,17 @@ static int32 gScaleSteps[CONTRAST_TABLES];
 // lies from the nearest step is made up about the mean.
 int32 gScaleMultiply = 2;
 
-// The steps: four, evenly from 64 to the slope in the dark, 64 - 13 q
-// (12, at the multiply alone, as 3 / 16).
+// The steps: 64 - q (3k + 4), from a quarter of the way to the darkest slope
+// on, by quarters of the rest (at the multiply alone 12, 9, 6, 3 sixteenths).
 static void scaleStepsInit()
 {
     for (int32 k = 0; k < CONTRAST_TABLES; k++) {
-        gScaleSteps[k] = 64 - ((k + 1) * 13 * gScaleMultiply + 2) / 4;
+        gScaleSteps[k] = 64 - gScaleMultiply * (3 * k + 4);
     }
 }
 
-static uint32 scaledGouraud(uint32 m, int32 l, int32 s, bool half)
+static uint32 scaledGouraud(uint32 m, int32 l, int32 s, bool half, int32 q)
 {
-    int32 q = gScaleMultiply;
     int32 p = 64 - q * (16 - l);
     uint32 out = 0;
     for (int32 i = 0; i < 3; i++)
@@ -561,8 +560,13 @@ static uint32 scaledGouraud(uint32 m, int32 l, int32 s, bool half)
 
 static bool shadeScaled(uint32* w, uint32* grd, const Texture* tex, int32 la, int32 lb, int32 lc, int32 ld)
 {
+    // the knob and the steps uncached: the slave builds faces too, and the
+    // master changes them
+    int32 q = *uncached(&gScaleMultiply);
+    const int32* steps = uncached(gScaleSteps);
+
     // 4 x the slope at the corners' mean level, in 64ths
-    int32 slope = 256 - gScaleMultiply * (64 - (la + lb + lc + ld));
+    int32 slope = 256 - q * (64 - (la + lb + lc + ld));
     int32 s = 64;
     bool half = false;
     bool polygon = ((w[0] >> 16) & 15) == CMD_POLYGON;
@@ -573,7 +577,7 @@ static bool shadeScaled(uint32* w, uint32* grd, const Texture* tex, int32 la, in
         int32 k = -1;
         for (int32 i = 0; i < CONTRAST_TABLES; i++)
         {
-            int32 e = abs(slope - 4 * gScaleSteps[i]);
+            int32 e = abs(slope - 4 * steps[i]);
             if (e < best) {
                 best = e;
                 k = i;
@@ -581,7 +585,7 @@ static bool shadeScaled(uint32* w, uint32* grd, const Texture* tex, int32 la, in
         }
         if (k >= 0)
         {
-            s = gScaleSteps[k];
+            s = steps[k];
             w[1] = (w[1] & 0xFFFF0000) | (tex->contrast + k * 4);
         }
     }
@@ -593,8 +597,8 @@ static bool shadeScaled(uint32* w, uint32* grd, const Texture* tex, int32 la, in
     }
 
     uint32 m = tex->color;
-    grd[0] = (scaledGouraud(m, la, s, half) << 16) | scaledGouraud(m, lb, s, half);
-    grd[1] = (scaledGouraud(m, lc, s, half) << 16) | scaledGouraud(m, ld, s, half);
+    grd[0] = (scaledGouraud(m, la, s, half, q) << 16) | scaledGouraud(m, lb, s, half, q);
+    grd[1] = (scaledGouraud(m, lc, s, half, q) << 16) | scaledGouraud(m, ld, s, half, q);
     return true;
 }
 
@@ -606,9 +610,11 @@ X_INLINE bool shadeDark(uint32* w, uint32* grd, uint32 flags, const Vertex* a, c
     int32 lc = gShadeLevel[c->g];
     int32 ld = gShadeLevel[d->g];
 
-    if (gDarkFaces == DARK_SCALE || gDarkFaces == DARK_SCALE_DEEP)
+    // the mode uncached: the slave builds faces too, and the master changes it
+    int32 mode = *uncached(&gDarkFaces);
+    if (mode == DARK_SCALE || mode == DARK_SCALE_DEEP)
     {
-        if (gDarkFaces == DARK_SCALE_DEEP)
+        if (mode == DARK_SCALE_DEEP)
         {
             // L^2 / 16 below neutral
             la = la < 16 ? (la * la + 8) >> 4 : la;
@@ -627,7 +633,7 @@ X_INLINE bool shadeDark(uint32* w, uint32* grd, uint32 flags, const Vertex* a, c
     if (tex->contrast && ((w[0] >> 16) & 15) == CMD_POLYGON)
         return false;
 
-    if (gDarkFaces == DARK_CONTRAST && tex->contrast)
+    if (mode == DARK_CONTRAST && tex->contrast)
     {
         int32 k = 0;
         for (int32 step = third; k < 4 && dark * 4 >= step; step += third) {
@@ -1010,7 +1016,7 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
                 // v0, x, y; the fourth corner is x + y - v0
                 uint32 p = pair(vdp1Coord(v1->x + v2->x - v0->x), vdp1Coord(v1->y + v2->y - v0->y));
 
-                bool dark = gDarkFaces != DARK_ADD && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim &&
+                bool dark = *uncached(&gDarkFaces) != DARK_ADD && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim &&
                             !(flags & FACE_WATER);
 
                 if (flags & FACE_V0_AT_D)
@@ -1067,7 +1073,7 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
             w[4] = v1->xy;
             w[5] = v2->xy;
             w[6] = v3->xy;
-            bool dark = gDarkFaces != DARK_ADD && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim &&
+            bool dark = *uncached(&gDarkFaces) != DARK_ADD && type != FACE_TYPE_F && type != FACE_TYPE_SHADOW && !dim &&
                         !(flags & FACE_WATER);
             if (!(dark && shadeDark(w, grd, flags, v0, v1, v2, v3)))
             {
