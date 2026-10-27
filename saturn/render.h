@@ -454,4 +454,18 @@ bool roomsQueueShadow(int32 x, int32 z, int32 sx, int32 sz);
 // queued, and its faces in each group of buckets.
 Face** roomsFinish(RoomStats &stats, const uint16* &groups);
 
+// Flush leaves its list in gCmds when VDP1 is still drawing the last one:
+// the master goes on with the next frame and uploads it, with the textures it
+// queued, and asks for its plot as soon as VDP1 is done. The master calls
+// renderPoll between pieces of work (meshes, stages) for that.
+extern bool gListPending;
+extern bool gBlockingUpload;    // debug option: flush waits and uploads at once, as it used to
+void renderUploadReady();
+inline void renderPoll()
+{
+    if (gListPending) {
+        renderUploadReady();
+    }
+}
+
 #endif

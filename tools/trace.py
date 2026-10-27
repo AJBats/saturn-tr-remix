@@ -332,9 +332,9 @@ def capture(cue, frame, keys, name):
             send(f'run_to_frame {at}', 'done run_to_frame')
             for b in buttons.split(','):
                 send(f'input {b}', 'ok input', 10)
-                send('frame_advance 4', 'done frame_advance', 30)
+                send('frame_advance 6', 'done frame_advance', 30)
                 send(f'input_release {b}', 'ok input_release', 10)
-                send('frame_advance 4', 'done frame_advance', 30)
+                send('frame_advance 6', 'done frame_advance', 30)
         send(f'run_to_frame {frame}', 'done run_to_frame')
         dump = os.path.join(ROOT, 'build', name + '.bin')
         part = os.path.join(ipc, 'part.bin')

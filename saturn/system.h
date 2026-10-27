@@ -68,6 +68,7 @@ uint32_t vdp2Line();
 // upload the next, then plot, which starts once the last is on screen.
 void vdp1WaitIdle();
 void vdp1WaitDrawn();
+bool vdp1Drawn();   // what vdp1WaitDrawn waits for
 void vdp1Plot();
 
 // The colour VDP2 shows where no layer and no VDP1 pixel is drawn (the

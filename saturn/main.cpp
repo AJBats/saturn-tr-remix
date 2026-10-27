@@ -7,6 +7,7 @@
 #include "fmv.h"
 #include "hw.h"
 #include "input.h"
+#include "render.h"
 #include "screen.h"
 #include "slave.h"
 #include "sound.h"
@@ -88,7 +89,9 @@ int main()
         // are read from an interrupt, so a slow frame doesn't wait for theirs.
         uint32 tick;
         traceBegin(TRACE_MASTER, TR_TICK_WAIT);
-        while ((tick = gVblankCount >> 1) == lastTick);
+        while ((tick = gVblankCount >> 1) == lastTick) {
+            renderPoll();
+        }
         gPad = padButtons();
 
         int32 delta = X_MIN(int32(tick - lastTick), MAX_UPDATE_FRAMES);
@@ -99,7 +102,9 @@ int main()
         traceBeginAt(TRACE_MASTER, t0, TR_UPDATE);
         updateInput();
         debugUpdate();
+        renderPoll();
         gameUpdate(delta);
+        renderPoll();
         sndFrame();
         uint32 t1 = timerTicks();
         traceEndAt(TRACE_MASTER, t1, TR_UPDATE);

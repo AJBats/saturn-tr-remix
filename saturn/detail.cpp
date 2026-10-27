@@ -18,11 +18,11 @@
 struct Upload
 {
     uint32_t src;
-    uint32_t dst;
-    uint32_t size;
+    uint32_t dst;       // VDP1 VRAM offset, the variant in the top byte
     uint16_t w, h;      // the texture's at its level
-    uint32_t variant;
 };
+#define UPLOAD_OFFSET   0x00FFFFFF
+#define UPLOAD_VARIANT  24
 
 // The set's levels, in low work RAM, which SCU DMA can't read; each holds a
 // texture at its full-res offset >> 2 * level.
@@ -37,8 +37,11 @@ uint32_t gDetailVramStart;
 uint32_t gDetailPoolVram[DETAIL_LEVELS];
 uint32_t gDetailFrame;
 
-static Upload gUploads[MAX_UPLOADS];
-static int32_t gUploadCount;
+// The uploads the frame's faces queue, and the last ended frame's, which wait
+// for VDP1 to finish the list before theirs (detailUpload).
+static Upload gUploads[2][MAX_UPLOADS];
+static int32_t gUploadCount[2];
+static int32_t gUploadList;     // the faces'; the other is the last frame's
 
 static uint8_t gItemData[ITEM_DATA_MAX] __attribute__((aligned(16)));
 static uint32_t gItemDataSize;
@@ -85,7 +88,7 @@ void detailInit(uint32_t vramStart, const uint8_t* data, uint32_t dataSize)
         gDetailSlots[i].frame = 0;
     }
 
-    gUploadCount = 0;
+    gUploadCount[0] = gUploadCount[1] = 0;
     gItemSlots = 0;
     gItemUpload = false;
 }
@@ -160,15 +163,16 @@ void detailSuspend()
     }
 
     // and the uploads queued into them
-    uint32_t end = VDP1_VRAM + detailSlotAddr(gItemSlots);
+    uint32_t end = detailSlotAddr(gItemSlots);
+    Upload* uploads = gUploads[gUploadList];
     int32_t kept = 0;
-    for (int32_t i = 0; i < gUploadCount; i++)
+    for (int32_t i = 0; i < gUploadCount[gUploadList]; i++)
     {
-        if (gUploads[i].dst >= end) {
-            gUploads[kept++] = gUploads[i];
+        if ((uploads[i].dst & UPLOAD_OFFSET) >= end) {
+            uploads[kept++] = uploads[i];
         }
     }
-    gUploadCount = kept;
+    gUploadCount[gUploadList] = kept;
 }
 
 void detailResume()
@@ -190,7 +194,8 @@ int32_t detailSlotMiss(uint32_t key, uint32_t texSize, uint32_t variant)
     w >>= level;
     h >>= level;
 
-    if (gUploadCount == MAX_UPLOADS)
+    int32_t &count = gUploadCount[gUploadList];
+    if (count == MAX_UPLOADS)
         return -1;
 
     // least recently drawn slot of the level's pool not in use this frame
@@ -217,13 +222,11 @@ int32_t detailSlotMiss(uint32_t key, uint32_t texSize, uint32_t variant)
     slot.frame = gDetailFrame;
     gDetailKeys[variant][key] = victim + 1;
 
-    Upload &upload = gUploads[gUploadCount++];
+    Upload &upload = gUploads[gUploadList][count++];
     upload.src = uint32_t(gData[level] + ((key * DETAIL_UNIT) >> (2 * level)));
-    upload.dst = VDP1_VRAM + gDetailPoolVram[level] + victim * gPoolSlotSize[level];
-    upload.size = w * h / 2;
+    upload.dst = (gDetailPoolVram[level] + victim * gPoolSlotSize[level]) | (variant << UPLOAD_VARIANT);
     upload.w = w;
     upload.h = h;
-    upload.variant = variant;
 
     return victim;
 }
@@ -296,7 +299,14 @@ void detailTranspose(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h)
     }
 }
 
-void detailFlush()
+void detailFrameEnd()
+{
+    gUploadList ^= 1;
+    gUploadCount[gUploadList] = 0;
+    gDetailFrame++;
+}
+
+void detailUpload()
 {
     if (gItemUpload && gItemDataSize)
     {
@@ -310,23 +320,24 @@ void detailFlush()
     static uint8_t staging[2][DETAIL_SLOT_SIZE] __attribute__((aligned(16)));
     int32_t buffer = 0;
 
-    for (int32_t i = 0; i < gUploadCount; i++)
+    int32_t list = gUploadList ^ 1;
+    for (int32_t i = 0; i < gUploadCount[list]; i++)
     {
-        const Upload &upload = gUploads[i];
+        const Upload &upload = gUploads[list][i];
         const uint8_t* src = (const uint8_t*)upload.src;
         uint8_t* dst = staging[buffer];
-        if (upload.variant == DETAIL_QUADS) {
+        uint32_t variant = upload.dst >> UPLOAD_VARIANT;
+        uint32_t size = upload.w * upload.h / 2;
+        if (variant == DETAIL_QUADS) {
             quadrants(dst, src, upload.w / 2, upload.h / 2);
-        } else if (upload.variant == DETAIL_TURNED || upload.variant == DETAIL_MIP1_TURNED ||
-                   upload.variant == DETAIL_MIP2_TURNED) {
+        } else if (variant == DETAIL_TURNED || variant == DETAIL_MIP1_TURNED || variant == DETAIL_MIP2_TURNED) {
             detailTranspose(dst, src, upload.w, upload.h);
         } else {
-            memcpy(dst, src, upload.size);
+            memcpy(dst, src, size);
         }
         buffer ^= 1;
-        dmaCopy(dst, upload.dst, upload.size);
+        dmaCopy(dst, VDP1_VRAM + (upload.dst & UPLOAD_OFFSET), size);
     }
-    gStats.detailUploads = gUploadCount;
-    gUploadCount = 0;
-    gDetailFrame++;
+    gStats.detailUploads = gUploadCount[list];
+    gUploadCount[list] = 0;
 }

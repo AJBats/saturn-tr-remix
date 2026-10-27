@@ -181,7 +181,7 @@ uint16_t* traceProfileBlocks()
 
 char* traceText()
 {
-    return gArea->text;
+    return gArea ? gArea->text : nullptr;
 }
 
 // Ends the innermost span with this id and any left open inside it; an end

@@ -115,13 +115,17 @@ bool detailMips();
 // (y, x). Each a multiple of 8; both 32-bit aligned.
 void detailTranspose(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h);
 
-// Uploads the textures queued this frame and starts the next frame. VDP1 must
-// be idle: slots replaced this frame may hold textures it drew last frame.
-void detailFlush();
+// The frame's faces are all added: its uploads wait for detailUpload, and the
+// next frame starts queueing its own. The last frame's must be uploaded.
+void detailFrameEnd();
+
+// Uploads the textures the last ended frame queued. VDP1 must have drawn the
+// list before that frame's: slots replaced may hold textures it drew.
+void detailUpload();
 
 // Inventory item textures (DATA/<level>.ITX) use the cache's first slots
 // while the inventory is open: suspending empties those and puts the item
-// textures there at the next detailFlush, and the rest of the cache goes on
+// textures there at the next detailUpload, and the rest of the cache goes on
 // serving the scene behind the inventory.
 uint8_t* detailItemData();
 uint32_t detailItemDataMax();

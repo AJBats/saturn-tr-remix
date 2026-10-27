@@ -1339,10 +1339,60 @@ static void clearCommand(bool clear)
     w[7] = 0;
 }
 
+bool gListPending;
+bool gBlockingUpload;
+static int32 gListCount;        // its commands, but the end
+static bool gListResume;        // and the item textures leave the cache with it
+
+// The list in gCmds to VDP1 with the textures its faces queued, then its
+// plot. VDP1 must have drawn the last list.
+static void listUpload()
+{
+    uint32 start = timerTicks();
+    traceBeginAt(TRACE_MASTER, start, TR_UPLOAD);
+    detailUpload();
+    if (gListResume)
+    {
+        detailResume();
+        buildContrast(); // the item textures may have covered the tables
+        buildTurnedCopies();
+        gListResume = false;
+    }
+    dmaCopy(gCmds, VDP1_VRAM + VRAM_FRAME_CMDS, (gListCount + 1) * sizeof(Command));
+    dmaCopy(gGouraud, VDP1_VRAM + VRAM_GOURAUD_BASE, gListCount * sizeof(gGouraud[0]));
+    dmaWait();
+    vdp1Plot();
+    gListPending = false;
+    uint32 end = timerTicks();
+    gStats.dmaTicks = (end - start) & 0xFFFF;
+    traceEndAt(TRACE_MASTER, end, TR_UPLOAD);
+}
+
+// Waits for VDP1 to draw the last list (adding to gStats.waitTicks), then
+// uploads the pending one.
+static void listUploadWaiting()
+{
+    uint32 waitStart = timerTicks();
+    traceBeginAt(TRACE_MASTER, waitStart, TR_VDP1_WAIT);
+    vdp1WaitDrawn();
+    uint32 waitEnd = timerTicks();
+    gStats.waitTicks += (waitEnd - waitStart) & 0xFFFF;
+    traceEndAt(TRACE_MASTER, waitEnd, TR_VDP1_WAIT);
+    listUpload();
+}
+
+void renderUploadReady()
+{
+    if (vdp1Drawn()) {
+        listUpload();
+    }
+}
+
 void flush_c()
 {
     uint32 start = timerTicks();
     traceBeginAt(TRACE_MASTER, start, TR_FLUSH);
+    gStats.waitTicks = 0;
 
     RoomStats rooms = {};
     const uint16* roomGroups = NULL;
@@ -1378,6 +1428,11 @@ void flush_c()
 
     gFaceList.next = gFaces;
 
+    // the last list leaves gCmds before this one is built there
+    if (gListPending) {
+        listUploadWaiting();
+    }
+
     gShadeFrame++;
     int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (clearCommand)
     memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
@@ -1390,33 +1445,24 @@ void flush_c()
     gStats.faces = count;
     benchCommands(count);
 
-    uint32 waitStart = timerTicks();
-    traceBeginAt(TRACE_MASTER, waitStart, TR_VDP1_WAIT);
-    vdp1WaitDrawn();
-    uint32 dmaStart = timerTicks();
-    gStats.waitTicks = (dmaStart - waitStart) & 0xFFFF;
-    traceEndAt(TRACE_MASTER, dmaStart, TR_VDP1_WAIT);
-    traceBeginAt(TRACE_MASTER, dmaStart, TR_UPLOAD);
-
-    detailFlush();
-    if (gItemTextures && !gInventoryFrame)
-    {
-        detailResume();
-        buildContrast(); // the item textures may have covered the tables
-        buildTurnedCopies();
+    detailFrameEnd();
+    gListCount = count;
+    gListResume = gItemTextures && !gInventoryFrame;
+    if (gListResume) {
         gItemTextures = false;
+    }
+
+    // the inventory's frames and the one after go up at once, as the cache
+    // changes hands
+    if (gBlockingUpload || gInventoryFrame || gListResume || vdp1Drawn()) {
+        listUploadWaiting();
+    } else {
+        gListPending = true;
     }
     gInventoryFrame = false;
     gDimFacesEnd = gFaces;
 
-    dmaCopy(gCmds, VDP1_VRAM + VRAM_FRAME_CMDS, (count + 1) * sizeof(Command));
-    dmaCopy(gGouraud, VDP1_VRAM + VRAM_GOURAUD_BASE, count * sizeof(gGouraud[0]));
-    dmaWait();
-    vdp1Plot();
     uint32 end = timerTicks();
-    gStats.dmaTicks = (end - dmaStart) & 0xFFFF;
-    traceEndAt(TRACE_MASTER, end, TR_UPLOAD);
-
     gStats.flushTicks = ((end - start) & 0xFFFF) - gStats.waitTicks - gStats.slaveWaitTicks;
     traceEndAt(TRACE_MASTER, end, TR_FLUSH);
 }
@@ -1704,6 +1750,7 @@ void renderLevelInit()
 
 void renderLevelFree()
 {
+    gListPending = false;   // its textures are gone
 }
 
 // The frame's drawing begins. Timers are read only around whole stages: a
@@ -1721,6 +1768,7 @@ void renderRoom(Room* room)
 void renderRoomsQueued()
 {
     roomsAllQueued();
+    renderPoll();
 }
 
 // A mesh's arrays, which follow it.
@@ -1829,6 +1877,7 @@ __attribute__((noinline)) static void renderMeshC(const Mesh* mesh)
 // Each a tail call: no registers saved here.
 static void renderMeshHere(const Mesh* mesh)
 {
+    renderPoll();
 #ifdef HW_LOG
     gMeshesDrawn++;
 #endif
@@ -2154,6 +2203,11 @@ void renderBar(int32 x, int32 y, int32 width, int32 value, BarType type)
 
 void renderBackground(const void* background)
 {
+    // the cache is about to make room for the item textures: the scene's
+    // last list and its uploads go first
+    if (gListPending) {
+        listUploadWaiting();
+    }
     gInventoryFrame = true;
     if (!gItemTextures)
     {

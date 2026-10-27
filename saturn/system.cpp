@@ -167,7 +167,12 @@ void vdp1WaitIdle()
 
 void vdp1WaitDrawn()
 {
-    while (gPlotQueued || !gVdp1Drawn);
+    while (!vdp1Drawn());
+}
+
+bool vdp1Drawn()
+{
+    return !gPlotQueued && gVdp1Drawn;
 }
 
 uint32_t vdp1Plots()

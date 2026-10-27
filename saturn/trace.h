@@ -23,6 +23,7 @@ enum TraceId
     TR_TICK_WAIT = 1,   // waiting for the next 30 Hz tick
     TR_UPDATE,          // game logic, sound, input
     TR_DEBUG,           // the overlay's own work (debugUpdate)
+    TR_LOAD,            // the menu's Extra load: the master spinning
     TR_RENDER,          // gameRender: the stages below, the rest its own
     TR_VIEW,            // the camera's room, the rooms its portals show
     TR_QUEUE,           // the visible rooms queued for the slave
@@ -148,9 +149,9 @@ const TraceStages* traceStages();   // NULL while the rings are off
 #define TRACE_PROFILE_BLOCKS 2432
 uint16_t* traceProfileBlocks();
 
-// Room for the stages page's text there, while traceStages() isn't NULL:
-// high work RAM has none to spare in HW_LOG builds.
-#define TRACE_TEXT_BYTES 320
+// Room for the overlay's text there (the stages page's, the bench table's),
+// or NULL without room: high work RAM has none to spare in HW_LOG builds.
+#define TRACE_TEXT_BYTES 1472
 char* traceText();
 
 #else

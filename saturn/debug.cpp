@@ -36,6 +36,16 @@ static const char* const kPalette[] = { "Saturn", "Remastered" };
 static const char* const kViews[] = { "Normal", "Texture cache", "Texel size", "Wireframe", "Contrast steps" };
 static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kTrace[] = { "Off", "Stages", "Detail" };
+static const char* const kUpload[] = { "Deferred", "Blocking" };
+static const char* const kLoad[] = { "None", "5%", "10%", "15%", "20%" };
+#ifdef HW_LOG
+static const char* const kBenchNames[BENCH_COUNT] = {
+    "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master meshes",
+    "All meshes", "C meshes", "Clear", "Void colour", "Split shade", "Profile"
+};
+static int32 gBenchHold;    // the way every page but the bench's runs
+static int32 gExtraLoad;    // the master spins this many 5% of a 30 fps frame each frame
+#endif
 static const char* const kShrink[] = { "Exact", "Fast" };
 static const char* const kLines[] = { "Fixed", "Turned" };
 static const char* const kLod[] = { "Full res", "1 texel a pixel", "1.5 texels", "2 texels" };
@@ -109,7 +119,16 @@ static const Option gOptions[] = {
     { "Stats", kOnOff, 2,
         [] { return int32(gShowStats); },
         [](int32 v) { gShowStats = v; } },
+    { "Upload", kUpload, 2,
+        [] { return int32(gBlockingUpload); },
+        [](int32 v) { gBlockingUpload = v; } },
 #ifdef HW_LOG
+    { "Way", kBenchNames, BENCH_COUNT,
+        [] { return gBenchHold; },
+        [](int32 v) { gBenchHold = v; } },
+    { "Extra load", kLoad, 5,
+        [] { return gExtraLoad; },
+        [](int32 v) { gExtraLoad = v; } },
     { "Trace", kTrace, TRACE_MODES,
         [] { return int32(traceMode()); },
         [](int32 v) { traceSetMode(v); } },
@@ -117,9 +136,9 @@ static const Option gOptions[] = {
 };
 
 enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_MULTIPLY, OPTION_GREY, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
-       OPTION_PALETTE, OPTION_SPLIT, OPTION_DEPTH, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS,
+       OPTION_PALETTE, OPTION_SPLIT, OPTION_DEPTH, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD,
 #ifdef HW_LOG
-       OPTION_TRACE,
+       OPTION_WAY, OPTION_LOAD, OPTION_TRACE,
 #endif
        OPTION_COUNT };
 
@@ -129,10 +148,10 @@ static int32 gCursor;
 static bool gMenuOpen;
 #endif
 #ifdef HW_LOG
-// R and L page through the overlay: the bench's table, then (held on Base)
-// the scene's rows with each frame's CPU, slave and VDP1 time, each frame's
-// time by stage, the trace's stages, the menu over each frame's times, and
-// nothing at all.
+// R and L page through the overlay: the bench's table, then (held on the
+// menu's Way, Base unless changed) the scene's rows with each frame's CPU,
+// slave and VDP1 time, each frame's time by stage, the trace's stages, the
+// menu over each frame's times, and nothing at all.
 enum OverlayPage { PAGE_BENCH, PAGE_FRAME, PAGE_STAGES, PAGE_TRACE, PAGE_MENU, PAGE_NONE, PAGE_COUNT };
 static int32 gPage;
 #endif
@@ -231,6 +250,19 @@ void debugUpdate()
     traceTally(gPage == PAGE_TRACE);
 #endif
     traceEnd(TRACE_MASTER, TR_DEBUG);
+
+#ifdef HW_LOG
+    // CPU work a frame that isn't there yet, to see how the frame paces with
+    // the master over its budget
+    if (gExtraLoad)
+    {
+        uint32 start = timerTicks();
+        traceBeginAt(TRACE_MASTER, start, TR_LOAD);
+        uint32 ticks = gExtraLoad * 5 * 7457 / 100;
+        while (((timerTicks() - start) & 0xFFFF) < ticks);
+        traceEnd(TRACE_MASTER, TR_LOAD);
+    }
+#endif
 }
 
 static char* append(char* p, const char* text)
@@ -275,11 +307,6 @@ static char* appendColumn(char* p, uint32 value)
     }
     return append(p, digits);
 }
-
-static const char* const kBenchNames[BENCH_COUNT] = {
-    "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master meshes",
-    "All meshes", "C meshes", "Clear", "Void colour", "Split shade", "Profile"
-};
 
 // each way's VDP1 and master CPU time, the master's drawing (rooms queued
 // and meshes, before flush), the slave's on rooms (transform and faces) and
@@ -496,8 +523,18 @@ static void profileRank()
     }
 }
 
-static char gBenchRows[OVERLAY_ROWS][OVERLAY_COLUMNS + 1];
-static bool gBenchChanged = true;   // gBenchRows to compose again
+// The bench table's rows, after the trace page's in traceText.
+typedef char OverlayText[OVERLAY_COLUMNS + 1];
+#define BENCH_TEXT_AT   320
+static_assert(BENCH_TEXT_AT + OVERLAY_ROWS * sizeof(OverlayText) <= TRACE_TEXT_BYTES, "the bench's rows fit in traceText");
+
+static OverlayText* benchRows()
+{
+    char* text = traceText();
+    return text ? (OverlayText*)(text + BENCH_TEXT_AT) : nullptr;
+}
+
+static bool gBenchChanged = true;   // the bench's rows to compose again
 
 // With the bench's rows hidden: where Lara stands (room, x, y, z, heading, as
 // LARA_START and START_YAW take them) and what the scene costs, averaged
@@ -675,14 +712,14 @@ static void benchUpdate()
     static uint32 split[SPLIT_COUNT];
     static uint32 dspVertices, roomVertices;
 
-    // held on Base while the scene's rows show; a fresh window after
+    // held on the menu's Way while the scene's rows show; a fresh window after
     if (gPage != PAGE_BENCH)
     {
-        if (gBenchMode != BENCH_BASE)
+        if (gBenchMode != gBenchHold)
         {
-            profileSampling(false);
-            gBenchMode = BENCH_BASE;
-            vdp2SetBackColor(RGB(0, 0, 0));
+            gBenchMode = gBenchHold;
+            profileSampling(gBenchMode == BENCH_PROFILE);
+            vdp2SetBackColor(gBenchMode == BENCH_VOID_COLOR ? RGB(31, 0, 31) : RGB(0, 0, 0));
         }
         start = gVblankCount;
         frames = vdp1 = cpu = draw = slave = 0;
@@ -764,9 +801,9 @@ static char* appendTenths(char* p, uint32 tenths)
 // Rows 1 on: the CPU stages, the table, then the profile's hottest blocks:
 // each the low 5 hex digits of its address and its share of the samples.
 // Composed only when they change, so the frames measured don't pay for it.
-static void benchCompose()
+static void benchCompose(OverlayText* rows)
 {
-    memset(gBenchRows, 0, sizeof(gBenchRows));
+    memset(rows, 0, OVERLAY_ROWS * sizeof(OverlayText));
     char text[64];
 
     // the master's stages, then the slave's
@@ -775,15 +812,15 @@ static void benchCompose()
     for (int32 i = 0; i < SPLIT_XFORM; i++) {
         p = appendStat(p, kSplitNames[i], gSplit[i]);
     }
-    strncpy(gBenchRows[1], text, OVERLAY_COLUMNS);
+    strncpy(rows[1], text, OVERLAY_COLUMNS);
     p = append(text, "slave ");
     for (int32 i = SPLIT_XFORM; i < SPLIT_COUNT; i++) {
         p = appendStat(p, kSplitNames[i], gSplit[i]);
     }
     appendStat(p, "dsp ", gDspShare);
-    strncpy(gBenchRows[2], text, OVERLAY_COLUMNS);
+    strncpy(rows[2], text, OVERLAY_COLUMNS);
 
-    strncpy(gBenchRows[4], "   vdp1  cpu draw  slv  fps", OVERLAY_COLUMNS);
+    strncpy(rows[4], "   vdp1  cpu draw  slv  fps", OVERLAY_COLUMNS);
     for (int32 i = 0; i < BENCH_COUNT; i++)
     {
         p = append(text, i == gBenchMode ? "> " : "  ");
@@ -801,13 +838,13 @@ static void benchCompose()
         }
         p = append(p, "  ");
         append(p, kBenchNames[i]);
-        strncpy(gBenchRows[5 + i], text, OVERLAY_COLUMNS);
+        strncpy(rows[5 + i], text, OVERLAY_COLUMNS);
     }
 
     int32 row = 6 + BENCH_COUNT;
     p = append(text, "profile ");
     appendStat(p, "samples ", gProfileRanked);
-    strncpy(gBenchRows[row++], text, OVERLAY_COLUMNS);
+    strncpy(rows[row++], text, OVERLAY_COLUMNS);
     for (int32 i = 0; i < PROFILE_TOP && row < OVERLAY_ROWS; i += 3, row++)
     {
         p = text;
@@ -822,21 +859,24 @@ static void benchCompose()
             p = append(p, "   ");
         }
         *p = 0;
-        strncpy(gBenchRows[row], text, OVERLAY_COLUMNS);
+        strncpy(rows[row], text, OVERLAY_COLUMNS);
     }
 }
 
 static void benchDraw()
 {
+    OverlayText* rows = benchRows();
+    if (!rows)
+        return;
     if (gBenchChanged)
     {
-        benchCompose();
+        benchCompose(rows);
         gBenchChanged = false;
     }
     for (int32 i = 0; i < OVERLAY_ROWS; i++)
     {
-        if (gBenchRows[i][0]) {
-            overlayRow(i, gBenchRows[i]);
+        if (rows[i][0]) {
+            overlayRow(i, rows[i]);
         }
     }
 }
@@ -860,7 +900,7 @@ static char* appendShare(char* p, const char* name, uint32 value)
 // window: the numbers' digits cost the master a little every frame otherwise.
 #define TRACE_ROWS  7
 typedef char TraceRow[OVERLAY_COLUMNS + 1];
-static_assert(TRACE_ROWS * sizeof(TraceRow) <= TRACE_TEXT_BYTES, "the rows fit in traceText");
+static_assert(TRACE_ROWS * sizeof(TraceRow) <= BENCH_TEXT_AT, "the rows fit before the bench's in traceText");
 static uint32 gTraceWindow = ~0u;   // the window traceText's rows show
 
 static void traceCompose(const TraceStages* s, TraceRow* rows)
