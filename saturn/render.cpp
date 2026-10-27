@@ -387,7 +387,7 @@ bool renderFastShrink()
 {
     return gTexturePmod & PMOD_HSS;
 }
-int32 gDarkFaces = DARK_SCALE;
+int32 gDarkFaces = DARK_ADD;
 int32 gContrastSteps = 4;
 int32 gContrastGrey = 4;
 int32 gFlatDist;
