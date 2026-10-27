@@ -56,6 +56,9 @@ static volatile bool gVdp1Drawn = true;    // the last plot has finished
 static volatile bool gPlotQueued;          // a plot waits for the change
 static uint32_t gPlotStart;
 static void (*volatile gOnNextFrame)();
+static void (*volatile gOnShown)(uint32_t plot);
+static volatile uint32_t gPlotsAsked;      // vdp1Plot calls
+static volatile uint32_t gPlotsStarted;    // plots started: the one drawing or last drawn
 static void (*volatile gOnLine)();
 static uint32_t gSmpcCommands;
 
@@ -98,6 +101,7 @@ static void waitDisplayStart()
 
 static void plotStart()
 {
+    gPlotsStarted++;
     gPlotStart = timerTicks();
     gVdp1Drawn = false;
     gVdp1State = VDP1_PLOTTING;
@@ -110,6 +114,10 @@ extern "C" void vblankOutHandler()
     {
         waitDisplayStart();
         gVdp1State = VDP1_IDLE;
+
+        if (gOnShown) {
+            gOnShown(gPlotsStarted);
+        }
 
         if (gOnNextFrame)
         {
@@ -149,8 +157,19 @@ void vdp1WaitDrawn()
     while (gPlotQueued || !gVdp1Drawn);
 }
 
+uint32_t vdp1Plots()
+{
+    return gPlotsAsked;
+}
+
+void vdp1OnShown(void (*fn)(uint32_t plot))
+{
+    gOnShown = fn;
+}
+
 void vdp1Plot()
 {
+    gPlotsAsked++;
     if (gVdp1State == VDP1_IDLE) {
         plotStart();
     } else {

@@ -19,4 +19,10 @@ void overlayRow(int32_t row, const char* text, OverlayAlign align = OVERLAY_LEFT
 // layer shows while any row has text.
 void overlayFrame();
 
+// Row 'row' reads 'text' at once, drawn straight to the bitmap a character at
+// a time (only those that changed), safe from an interrupt; overlayRow and
+// overlayFrame leave it alone until overlayUnpin.
+void overlayPin(int32_t row, const char* text);
+void overlayUnpin(int32_t row);
+
 #endif

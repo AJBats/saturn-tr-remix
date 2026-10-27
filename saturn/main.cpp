@@ -104,6 +104,9 @@ int main()
         gStats.updateTicks = (t1 - t0) & 0xFFFF;
         gStats.renderTicks = (t2 - t1) & 0xFFFF;
         gStats.frames++;
+#ifdef HW_LOG
+        debugFrameDone();
+#endif
         if (gStats.frames <= 3) {
             crashLog("FRAME", gStats.frames);
         }

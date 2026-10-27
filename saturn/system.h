@@ -78,6 +78,13 @@ void vdp2SetBackColor(uint16_t color);
 // screen (nullptr cancels). Call with VDP1 idle, so that frame is a new one.
 void vdp1OnNextFrame(void (*fn)());
 
+// Plots asked for since boot, counting this one: vdp1Plot numbers each.
+uint32_t vdp1Plots();
+
+// Calls fn from the vblank-out interrupt each time a plot's frame comes on
+// screen, with its number (vdp1Plots when it was asked for); nullptr stops.
+void vdp1OnShown(void (*fn)(uint32_t plot));
+
 // The frame sequencing's state, for the crash screen (crash.cpp).
 uint32_t vdp1DebugState();
 

@@ -48,6 +48,9 @@ static int32 gFarFaces;
 static bool gShowStats;
 #ifdef HW_LOG
 static void benchUpdate();
+static void frameShown(uint32_t plot);
+#define FRAME_ROW   (OVERLAY_ROWS - 2)  // and the row under it (frameShown)
+static volatile bool gFrameRows;    // they are pinned
 static void sceneUpdate();
 #endif
 
@@ -164,6 +167,13 @@ void debugUpdate()
         gBenchHidden = !gBenchHidden;
     }
     shoulders = keys & (IK_L | IK_R);
+    vdp1OnShown(frameShown);
+    if (!gBenchHidden && gFrameRows)
+    {
+        gFrameRows = false;
+        overlayUnpin(FRAME_ROW);
+        overlayUnpin(FRAME_ROW + 1);
+    }
     benchUpdate();
     sceneUpdate();
 #endif
@@ -496,6 +506,69 @@ static void sceneUpdate()
     frames = vdp1 = cpu = drawn = roomVertices = vertices = faces = meshes = slaveMeshes = 0;
 }
 
+// With the bench's rows hidden, the two bottom rows show the frame on screen
+// now, set from the vblank-out interrupt as it comes on: its plot's number
+// (vdp1Plots), the vblanks since the last frame came on (2 at 30 fps, more is
+// a dropped frame), its CPU and VDP1 time, and where Lara stood for it. Each
+// matches the picture under it, so a video or a replay stepped frame by
+// frame shows what each frame cost.
+#define FRAME_TAGS  8
+
+struct FrameTag
+{
+    uint32 plot;
+    uint32 cpu;
+    int32 room, x, y, z;
+    uint32 yaw;
+};
+static FrameTag gFrameTags[FRAME_TAGS];
+
+void debugFrameDone()
+{
+    uint32 plot = vdp1Plots();
+    FrameTag &t = gFrameTags[plot % FRAME_TAGS];
+    t.cpu = gStats.updateTicks + gStats.renderTicks - gStats.waitTicks;
+    const ItemObj* lara = (const ItemObj*)(const void*)players[0];
+    t.room = lara ? int32(lara->room - rooms) : -1;
+    t.x = lara ? lara->pos.x : 0;
+    t.y = lara ? lara->pos.y : 0;
+    t.z = lara ? lara->pos.z : 0;
+    t.yaw = lara ? uint16(lara->angle.y) : 0;
+    t.plot = plot;
+}
+
+static void frameShown(uint32_t plot)
+{
+    static uint32 last;
+    uint32 vblanks = gVblankCount - last;
+    last = gVblankCount;
+    if (!gBenchHidden)
+        return;
+
+    const FrameTag &t = gFrameTags[plot % FRAME_TAGS];
+    char text[OVERLAY_COLUMNS + 1];
+    char* p = appendStat(text, "#", plot);
+    p = appendStat(p, "vb ", vblanks);
+    if (t.plot == plot) {
+        p = appendStat(p, "cpu ", framePercent(t.cpu));
+    }
+    appendStat(p, "vdp1 ", framePercent(gStats.vdp1Ticks));
+    overlayPin(FRAME_ROW, text);
+
+    p = text;
+    *p = 0;
+    if (t.plot == plot && t.room >= 0)
+    {
+        p = appendStat(p, "room ", uint32(t.room));
+        p = appendStat(p, "", uint32(t.x));
+        p = appendStat(p, "", uint32(t.y));
+        p = appendStat(p, "", uint32(t.z));
+        appendHex(p, t.yaw, 4);
+    }
+    overlayPin(FRAME_ROW + 1, text);
+    gFrameRows = true;
+}
+
 static void benchUpdate()
 {
     static uint32 start;
@@ -695,7 +768,11 @@ void osDrawDebug()
         }
     }
 
+#ifdef HW_LOG
+    int32 row = OVERLAY_ROWS - 3;   // above the frame rows
+#else
     int32 row = OVERLAY_ROWS - 1;
+#endif
 
     if (int32(gMessageEnd - gVblankCount) > 0)
     {

@@ -23,6 +23,7 @@ struct Row
 };
 
 static Row gShown[OVERLAY_ROWS];    // what the bitmap shows
+static volatile uint32_t gPinned;   // rows overlayPin owns, a bit each
 static Row gNext[OVERLAY_ROWS];     // what this frame gives
 static uint32_t gPictures = ~0u;    // screenPictures() when the bitmap was last cleared
 
@@ -90,6 +91,53 @@ static void drawRow(int32_t row, const Row &r)
     }
 }
 
+// One character of a pinned row, white on black, straight to the bitmap.
+static void drawChar(int32_t row, int32_t column, char ch)
+{
+    int32_t c = uint8_t(ch) - FONT8_FIRST;
+    if (c < 0 || c >= FONT8_COUNT) {
+        c = '?' - FONT8_FIRST;
+    }
+    for (int32_t y = 0; y < 8; y++)
+    {
+        uint32_t bits = gFont8[c][y];
+        volatile uint32_t* dst = bitmapLine((row + 1) * 8 + y) + (column + 1) * 4;
+        for (int32_t x = 0; x < 8; x += 2) {
+            dst[x / 2] = ((bits >> x & 1 ? WHITE : BLACK) << 16) | (bits >> (x + 1) & 1 ? WHITE : BLACK);
+        }
+    }
+}
+
+void overlayPin(int32_t row, const char* text)
+{
+    if (row < 0 || row >= OVERLAY_ROWS)
+        return;
+    gPinned |= 1u << row;
+    Row &shown = gShown[row];
+    bool end = false;
+    for (int32_t i = 0; i < OVERLAY_COLUMNS; i++)
+    {
+        end = end || !text[i];
+        char c = end ? ' ' : text[i];
+        char was = shown.text[i] ? shown.text[i] : ' ';
+        if (c != was) {
+            drawChar(row, i, c);
+        }
+        shown.text[i] = c;
+    }
+    shown.text[OVERLAY_COLUMNS] = 0;
+    shown.align = OVERLAY_LEFT;
+}
+
+void overlayUnpin(int32_t row)
+{
+    if (row < 0 || row >= OVERLAY_ROWS || !(gPinned & (1u << row)))
+        return;
+    gPinned &= ~(1u << row);
+    overlayPin(row, "");    // blank
+    gPinned &= ~(1u << row);
+}
+
 void overlayFrame()
 {
     bool free = screenOverlayFree();
@@ -113,6 +161,12 @@ void overlayFrame()
     {
         Row &next = gNext[i];
         Row &shown = gShown[i];
+        if (gPinned & (1u << i))
+        {
+            any = true;
+            next.text[0] = 0;
+            continue;
+        }
         if (free && (next.align != shown.align || strcmp(next.text, shown.text)))
         {
             drawRow(i, next);
