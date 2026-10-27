@@ -331,6 +331,8 @@ enum DarkFaces
                     // luminance, gouraud making each corner its mean's share
     DARK_SCALE_DEEP,    // as DARK_SCALE, with light below neutral squared, so
                         // dark corners go nearly as dark as DARK_ADD's
+    DARK_CONTRAST_EVEN, // every room face through the table of the last
+                        // contrast step (gContrastSteps), however lit
     DARK_COUNT
 };
 extern int32 gDarkFaces;

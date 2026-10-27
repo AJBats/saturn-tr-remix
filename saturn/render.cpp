@@ -387,8 +387,8 @@ bool renderFastShrink()
 {
     return gTexturePmod & PMOD_HSS;
 }
-int32 gDarkFaces = DARK_CONTRAST;
-int32 gContrastSteps = 1;
+int32 gDarkFaces = DARK_CONTRAST_EVEN;
+int32 gContrastSteps = 4;
 bool gContrastBrights;
 int32 gFlatDist;
 int32 gTurnLines = 1;
@@ -588,7 +588,15 @@ X_INLINE bool shadeDark(uint32* w, uint32* grd, uint32 flags, const Vertex* a, c
     int32 lc = gShadeLevel[c->g];
     int32 ld = gShadeLevel[d->g];
 
-    if (gDarkFaces >= DARK_SCALE)
+    if (gDarkFaces == DARK_CONTRAST_EVEN)
+    {
+        if (tex->contrast && ((w[0] >> 16) & 15) != CMD_POLYGON) {
+            w[1] = (w[1] & 0xFFFF0000) | (tex->contrast + (CONTRAST_TABLES - 1) * 4);
+        }
+        return false;
+    }
+
+    if (gDarkFaces == DARK_SCALE || gDarkFaces == DARK_SCALE_DEEP)
     {
         if (gDarkFaces == DARK_SCALE_DEEP)
         {
@@ -731,9 +739,14 @@ static void shadeTablesReset()
 // about the texture's mean colour (DARK_CONTRAST), or scaled towards black
 // by kScaleSteps sixteenths (DARK_SCALE). A pixel code 0 that is transparent
 // stays as it is.
+static bool darkScaled(int32 mode)
+{
+    return mode == DARK_SCALE || mode == DARK_SCALE_DEEP;
+}
+
 static void buildContrast()
 {
-    bool scale = gDarkFaces >= DARK_SCALE;
+    bool scale = darkScaled(gDarkFaces);
     for (int32 i = 0; i < level.texturesCount; i++)
     {
         const Texture &t = level.textures[i];
@@ -803,7 +816,7 @@ void renderSetContrastSteps(int32 steps)
 
 void renderSetDarkFaces(int32 mode)
 {
-    bool remake = (mode >= DARK_SCALE) != (gDarkFaces >= DARK_SCALE);
+    bool remake = darkScaled(mode) != darkScaled(gDarkFaces);
     gDarkFaces = mode;
     if (remake) {
         buildContrast();
@@ -1104,7 +1117,7 @@ static_assert(offsetof(FlushXform, vertices) == 12 && offsetof(FlushXform, grdLi
               "FlushXform layout is shared with flush.s");
 static_assert(sizeof(Face) == 16 && offsetof(Face, next) == 4 && offsetof(Face, indices) == 8 &&
               sizeof(Texture) == 16 && offsetof(Texture, attr) == 6 && offsetof(Texture, color) == 8 &&
-              offsetof(Texture, contrast) == 14 && DARK_CONTRAST == 2 && DARK_SCALE == 3 && DARK_SCALE_DEEP == 4 &&
+              offsetof(Texture, contrast) == 14 && DARK_CONTRAST == 2 && DARK_SCALE == 3 && DARK_SCALE_DEEP == 4 && DARK_CONTRAST_EVEN == 5 &&
               sizeof(Command) == 32 && sizeof(gGouraud[0]) == 8, "layouts read by flush.s");
 static_assert(FACE_WATER == (1 << 30) && FACE_DETAIL == (1 << 29) && FACE_PARALLELOGRAM == (1 << 28) &&
               FACE_DETAIL_WHOLE == (1 << 27) && FACE_V0_AT_D == (1 << 27) && FACE_DETAIL_SLOT_SHIFT == 20 &&
