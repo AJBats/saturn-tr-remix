@@ -387,7 +387,8 @@ bool renderFastShrink()
 {
     return gTexturePmod & PMOD_HSS;
 }
-int32 gDarkFaces = DARK_SCALE;
+int32 gDarkFaces = DARK_CONTRAST;
+int32 gContrastSteps = 1;
 int32 gFlatDist;
 int32 gTurnLines = 1;
 int32 gBlackShadows = 1;
@@ -730,7 +731,7 @@ static void buildContrast()
 
         for (int32 k = 1; k <= CONTRAST_TABLES; k++)
         {
-            int32 c = 8 - k;
+            int32 c = 8 - X_MIN(k, gContrastSteps);
             for (int32 j = 0; j < 16; j++)
             {
                 uint32 col = lut[j];
@@ -759,6 +760,12 @@ static void buildContrast()
         }
     }
     shadeTablesReset();
+}
+
+void renderSetContrastSteps(int32 steps)
+{
+    gContrastSteps = steps;
+    buildContrast();
 }
 
 void renderSetDarkFaces(int32 mode)

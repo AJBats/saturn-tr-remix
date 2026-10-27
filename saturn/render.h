@@ -326,6 +326,11 @@ enum DarkFaces
 extern int32 gDarkFaces;
 void renderSetDarkFaces(int32 mode);
 
+// DARK_CONTRAST: how many of the steps of less contrast faces take (1 .. 4,
+// down to 7/8 .. 4/8); faces darkened past the last keep its table.
+extern int32 gContrastSteps;
+void renderSetContrastSteps(int32 steps);
+
 // The colour tables have swapped between the original and remastered sets
 // (palettes.cpp): textures take the other set's mean colours, and the tables
 // of less contrast are made again.
