@@ -316,9 +316,13 @@ enum DarkFaces
     DARK_HALF,      // at half luminance, gouraud making up the rest
     DARK_CONTRAST,  // room textures through tables of less contrast as they
                     // darken, by eighths down to a half; the rest as DARK_HALF
+    DARK_SCALE,     // as the PS1 multiplies: room textures through tables of
+                    // their colours scaled towards black, objects' at half
+                    // luminance, gouraud making each corner its mean's share
     DARK_COUNT
 };
 extern int32 gDarkFaces;
+void renderSetDarkFaces(int32 mode);
 
 // The colour tables have swapped between the original and remastered sets
 // (palettes.cpp): textures take the other set's mean colours, and the tables

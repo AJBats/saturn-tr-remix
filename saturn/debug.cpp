@@ -28,7 +28,7 @@ struct Option
 };
 
 static const char* const kCurves[] = { "Saturn", "Soft", "Softer" };
-static const char* const kDark[] = { "Add", "Half luminance", "Contrast steps" };
+static const char* const kDark[] = { "Add", "Half luminance", "Contrast steps", "Scaled" };
 static const char* const kPalette[] = { "Saturn", "Remastered" };
 static const char* const kViews[] = { "Normal", "Texture cache", "Texel size" };
 static const char* const kOnOff[] = { "Off", "On" };
@@ -54,7 +54,7 @@ static const Option gOptions[] = {
         [](int32 v) { gShadeCurve = v; renderSetShadeCurve(v); } },
     { "Dark faces", kDark, DARK_COUNT,
         [] { return gDarkFaces; },
-        [](int32 v) { gDarkFaces = v; } },
+        [](int32 v) { renderSetDarkFaces(v); } },
     { "Far faces", kFar, 4,
         [] { return gFarFaces; },
         [](int32 v) { gFarFaces = v; gFlatDist = kFarDist[v]; } },

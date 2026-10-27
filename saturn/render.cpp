@@ -493,6 +493,74 @@ X_INLINE uint32 halfGouraud(const uint8* r, const uint8* g, const uint8* b, int3
     return r[level * 2] | (g[level * 2] << 5) | (b[level * 2] << 10);
 }
 
+// Room textures' tables of less contrast, four each (buildContrast); for
+// DARK_SCALE, scaled by these sixteenths.
+#define CONTRAST_TABLES 4
+
+static const int32 kScaleSteps[CONTRAST_TABLES] = { 12, 9, 6, 3 };
+
+// DARK_SCALE: the PS1 multiplies each texel by its light, L / 16 (L the
+// corner's level, 16 neutral); VDP1 can only add. A face is drawn through a
+// table of its colours scaled to S / 16, S the step nearest its corners' mean
+// level (or at half luminance, S = 8, for textures without tables when that
+// is nearer), and each corner's gouraud adds what brings the texture's mean m
+// to m L / 16: 16 + m (L - S) / 16 a channel. Faces beside each other then
+// meet at the same brightness (the add clipped dark texels to black by
+// different amounts on each side before), and texels keep a contrast near S /
+// 16 of theirs, stepping between faces only by the tables' steps.
+static uint32 scaledGouraud(uint32 m, int32 l, int32 s, bool half)
+{
+    uint32 out = 0;
+    for (int32 i = 0; i < 3; i++)
+    {
+        int32 d = int32((m >> (5 * i)) & 31) * (l - s);
+        if (half) {
+            d *= 2;
+        }
+        int32 v = 16 + ((d + (d < 0 ? -8 : 8)) / 16);
+        out |= uint32(X_CLAMP(v, 0, 31)) << (5 * i);
+    }
+    return out;
+}
+
+static bool shadeScaled(uint32* w, uint32* grd, const Texture* tex, int32 la, int32 lb, int32 lc, int32 ld)
+{
+    int32 sum = la + lb + lc + ld;
+    int32 s = 16;
+    bool half = false;
+    bool polygon = ((w[0] >> 16) & 15) == CMD_POLYGON;
+
+    if (tex->contrast && !polygon)
+    {
+        int32 best = abs(sum - 4 * 16);
+        int32 k = -1;
+        for (int32 i = 0; i < CONTRAST_TABLES; i++)
+        {
+            int32 e = abs(sum - 4 * kScaleSteps[i]);
+            if (e < best) {
+                best = e;
+                k = i;
+            }
+        }
+        if (k >= 0)
+        {
+            s = kScaleSteps[k];
+            w[1] = (w[1] & 0xFFFF0000) | (tex->contrast + k * 4);
+        }
+    }
+    else if (!polygon && abs(sum - 4 * 8) < abs(sum - 4 * 16))
+    {
+        s = 8;
+        half = true;
+        w[1] = (w[1] & ~(7 << 16)) | (PMOD_GOURAUD_HALF << 16);
+    }
+
+    uint32 m = tex->color;
+    grd[0] = (scaledGouraud(m, la, s, half) << 16) | scaledGouraud(m, lb, s, half);
+    grd[1] = (scaledGouraud(m, lc, s, half) << 16) | scaledGouraud(m, ld, s, half);
+    return true;
+}
+
 X_INLINE bool shadeDark(uint32* w, uint32* grd, uint32 flags, const Vertex* a, const Vertex* b, const Vertex* c, const Vertex* d)
 {
     const Texture* tex = level.textures + (flags & FACE_TEXTURE);
@@ -500,6 +568,9 @@ X_INLINE bool shadeDark(uint32* w, uint32* grd, uint32 flags, const Vertex* a, c
     int32 lb = gShadeLevel[b->g];
     int32 lc = gShadeLevel[c->g];
     int32 ld = gShadeLevel[d->g];
+
+    if (gDarkFaces == DARK_SCALE)
+        return shadeScaled(w, grd, tex, la, lb, lc, ld);
 
     // average darkening (64 - sum) / 4 against a third of the mean luma / 3
     int32 dark = (64 - (la + lb + lc + ld)) * 9;
@@ -628,12 +699,12 @@ static void shadeTablesReset()
 }
 
 // Room textures' colour tables at 7/8, 6/8, 5/8 and 4/8 of their contrast
-// about the texture's mean colour (DARK_CONTRAST). A pixel code 0 that is
-// transparent stays as it is.
-#define CONTRAST_TABLES 4
-
+// about the texture's mean colour (DARK_CONTRAST), or scaled towards black
+// by kScaleSteps sixteenths (DARK_SCALE). A pixel code 0 that is transparent
+// stays as it is.
 static void buildContrast()
 {
+    bool scale = gDarkFaces == DARK_SCALE;
     for (int32 i = 0; i < level.texturesCount; i++)
     {
         const Texture &t = level.textures[i];
@@ -658,15 +729,35 @@ static void buildContrast()
                     *out++ = col;
                     continue;
                 }
-                // m (8 - c) + col c >= 0, eighths
-                uint32 r = (mr * (8 - c) + int32(col & 31) * c + 4) >> 3;
-                uint32 g = (mg * (8 - c) + int32((col >> 5) & 31) * c + 4) >> 3;
-                uint32 b = (mb * (8 - c) + int32((col >> 10) & 31) * c + 4) >> 3;
+                uint32 r, g, b;
+                if (scale)
+                {
+                    int32 s = kScaleSteps[k - 1];
+                    r = (int32(col & 31) * s + 8) >> 4;
+                    g = (int32((col >> 5) & 31) * s + 8) >> 4;
+                    b = (int32((col >> 10) & 31) * s + 8) >> 4;
+                }
+                else
+                {
+                    // m (8 - c) + col c >= 0, eighths
+                    r = (mr * (8 - c) + int32(col & 31) * c + 4) >> 3;
+                    g = (mg * (8 - c) + int32((col >> 5) & 31) * c + 4) >> 3;
+                    b = (mb * (8 - c) + int32((col >> 10) & 31) * c + 4) >> 3;
+                }
                 *out++ = (col & 0x8000) | (b << 10) | (g << 5) | r;
             }
         }
     }
     shadeTablesReset();
+}
+
+void renderSetDarkFaces(int32 mode)
+{
+    bool remake = (mode == DARK_SCALE) != (gDarkFaces == DARK_SCALE);
+    gDarkFaces = mode;
+    if (remake) {
+        buildContrast();
+    }
 }
 
 // The command words that depend on the face's colour or texture.
@@ -937,7 +1028,7 @@ static_assert(offsetof(FlushXform, vertices) == 12 && offsetof(FlushXform, grdLi
               "FlushXform layout is shared with flush.s");
 static_assert(sizeof(Face) == 16 && offsetof(Face, next) == 4 && offsetof(Face, indices) == 8 &&
               sizeof(Texture) == 16 && offsetof(Texture, attr) == 6 && offsetof(Texture, color) == 8 &&
-              offsetof(Texture, contrast) == 14 && DARK_CONTRAST == 2 &&
+              offsetof(Texture, contrast) == 14 && DARK_CONTRAST == 2 && DARK_SCALE == 3 &&
               sizeof(Command) == 32 && sizeof(gGouraud[0]) == 8, "layouts read by flush.s");
 static_assert(FACE_WATER == (1 << 30) && FACE_DETAIL == (1 << 29) && FACE_PARALLELOGRAM == (1 << 28) &&
               FACE_DETAIL_WHOLE == (1 << 27) && FACE_V0_AT_D == (1 << 27) && FACE_DETAIL_SLOT_SHIFT == 20 &&
