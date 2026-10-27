@@ -567,6 +567,11 @@ ItemObj* ItemObj::add(ItemType type, Room* room, const vec3i &pos, int32 angleY)
     ItemObj* item = ItemObj::sFirstFree;
     ItemObj::sFirstFree = item->nextItem;
 
+    // the slot can still hold the flags of an item of the last level: a full
+    // trigger mask among them makes the constructor activate it, and an effect
+    // activates itself again, which loops the active list and then frees the
+    // item twice (two items in one slot, a room's item list looping forever)
+    item->flags = 0;
     item->type = type;
     item->pos = pos;
     item->angle.y = angleY;
