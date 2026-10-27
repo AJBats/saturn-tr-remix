@@ -421,8 +421,6 @@ static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room)
 
     if (gTexelView == TEXEL_VIEW_LOD)
     {
-        if (!room && !flat)
-            return;
         uint32 mip = FACE_DETAIL | FACE_DETAIL_WHOLE | FACE_DETAIL_MIP;
         if (flat) {
             dr = 10; dg = 10;           // flat
@@ -431,8 +429,10 @@ static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room)
             dg = flags & FACE_DETAIL_MIP2 ? -6 : 10;
         } else if (flags & FACE_DETAIL) {
             dg = 10;
-        } else {
+        } else if (room && ((w[0] >> 16) & 15) == CMD_POLYGON) {
             dr = 12;                    // missed the cache
+        } else {
+            return;                     // a texture in VRAM, at full res (objects')
         }
     }
     else
@@ -451,7 +451,9 @@ static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room)
         area2 = abs(area2);
         uint32 size = w[2] & 0xFFFF;
         int32 texels = (size >> 8) * 8 * (size & 0xFF);
-        if (area2 <= 2 * texels) {
+        if (area2 * 2 < texels) {
+            db = 12;                    // 2 x 2 texels or more to a pixel
+        } else if (area2 <= 2 * texels) {
             dg = 10;                    // a texel is at most a pixel
         } else if (area2 <= 8 * texels) {
             dr = 10; dg = 10;           // up to 2 x 2 pixels

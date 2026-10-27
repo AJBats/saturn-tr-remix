@@ -200,9 +200,11 @@ enum TexelView
     TEXEL_VIEW_OFF,
     TEXEL_VIEW_LOD,     // room faces by the texture cache: green cached at full
                         // res, cyan at half size, blue at a quarter, red missed
-                        // (drawn in the mean colour), yellow flat
-    TEXEL_VIEW_SIZE,    // textured faces by how big a texel is on screen: green
-                        // up to a pixel, yellow 2, red 4, magenta more
+                        // (drawn in the mean colour), yellow flat; faces with
+                        // textures in VRAM (objects') as they are
+    TEXEL_VIEW_SIZE,    // textured faces by how big a texel is on screen: blue
+                        // a quarter of a pixel or less, green up to a pixel,
+                        // yellow 2, red 4, magenta more
     TEXEL_VIEW_COUNT
 };
 extern int32 gTexelView;
