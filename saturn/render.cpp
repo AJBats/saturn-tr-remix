@@ -705,7 +705,7 @@ extern "C" uint32 shadeTableMiss(ShadeCache* cache, uint32 key, uint32 index)
 static void shadeTablesReset()
 {
     for (int32 i = 0; i < 2; i++) {
-        gShadeCaches[i].validFrom = gShadeFrame;
+        gShadeCaches[i].validFrom = gShadeFrame + 1; // gShadeFrame's are stale too
     }
 }
 
@@ -1007,6 +1007,31 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
     }
 }
 
+// TEXEL_VIEW_WIRE: a face's outline, white for rooms, yellow for meshes, red
+// for shadows; void fills not at all.
+static void wireCommand(const Face* face, uint32* w, bool room)
+{
+    uint32 type = (w[0] >> 16) & 15;
+    if ((w[0] >> 16) & CMD_SKIP)
+        return;
+    if (((face->flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) == FACE_TYPE_VOID)
+    {
+        w[0] = CMD_SKIP << 16;
+        return;
+    }
+    if (type != CMD_DISTORTED_SPRITE && type != CMD_POLYGON)
+        return;
+
+    uint32 color = RGB(31, 31, 31);
+    if (((face->flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) == FACE_TYPE_SHADOW) {
+        color = RGB(31, 0, 0);
+    } else if (!room) {
+        color = RGB(31, 31, 0);
+    }
+    w[0] = CMD_POLYLINE << 16;
+    w[1] = pair(PMOD_NO_ECD_SPD, color);
+}
+
 static void faceSlow(const Face* face, uint32* w, uint32* grd, int32 room)
 {
     faceCommand(face, w, grd, room, false);
@@ -1211,6 +1236,9 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
                 uint32* w = gCmds[count].w;
                 w[7] = pair(grdBase + count, 0);
                 faceCommand(face, w, gGouraud[count], !list, dim);
+                if (gTexelView == TEXEL_VIEW_WIRE) {
+                    wireCommand(face, w, !list);
+                }
                 count++;
             }
         }
@@ -1286,7 +1314,7 @@ void flush_c()
     gShadeFrame++;
     int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (clearCommand)
     memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
-    clearCommand(!roomOT || gSceneClear || gBenchMode == BENCH_CLEAR);
+    clearCommand(!roomOT || gSceneClear || gBenchMode == BENCH_CLEAR || gTexelView == TEXEL_VIEW_WIRE);
     gSceneClear = false;
 
     gCmds[count].w[0] = CMD_END << 16;

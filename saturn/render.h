@@ -205,6 +205,8 @@ enum TexelView
     TEXEL_VIEW_SIZE,    // textured faces by how big a texel is on screen: blue
                         // a quarter of a pixel or less, green up to a pixel,
                         // yellow 2, red 4, magenta more
+    TEXEL_VIEW_WIRE,    // faces' outlines on black: rooms white, meshes
+                        // yellow, shadows red
     TEXEL_VIEW_COUNT
 };
 extern int32 gTexelView;

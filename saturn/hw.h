@@ -29,6 +29,7 @@ typedef struct {
 #define CMD_SCALED_SPRITE    0x0001  /* ZP 0: corners A (top left) and C (bottom right) */
 #define CMD_DISTORTED_SPRITE 0x0002
 #define CMD_POLYGON     0x0004
+#define CMD_POLYLINE    0x0005
 #define CMD_USER_CLIP   0x0008
 #define CMD_SYSTEM_CLIP 0x0009
 #define CMD_LOCAL_COORD 0x000A
