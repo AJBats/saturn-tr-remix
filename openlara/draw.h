@@ -853,24 +853,30 @@ void drawRooms(Camera* camera)
 
     Room** visRoom = camera->view.room->getVisibleRooms();
 
-#ifdef DRAW_LARA_FIRST
-    for (int32 i = 0; i < MAX_PLAYERS; i++)
-    {
-        Lara* lara = players[i];
-        if (lara)
-        {
-            lara->flags &= ~ITEM_FLAG_STATUS;
-            setPaletteIndex(ROOM_FLAG_WATER(lara->room->info->flags) ? 1 : 0);
-            lara->draw();
-            lara->flags |= ITEM_FLAG_STATUS_INVISIBLE; // skip drawing in the general pass
-        }
-    }
-#endif
     // every room for the slave first, so that it never waits on the objects
     for (Room** room = visRoom; *room; room++) {
         queueRoom(*room);
     }
     renderRoomsQueued();
+
+    // Lara before the rooms' objects and whether or not her room is seen, as
+    // the original draws her: climbing out of a room, she is still in it
+    uint32 laraStatus[MAX_PLAYERS] = {};
+    setViewport(vp);
+    for (int32 i = 0; i < MAX_PLAYERS; i++)
+    {
+        Lara* lara = players[i];
+        if (lara)
+        {
+            laraStatus[i] = lara->flags & ITEM_FLAG_STATUS;
+            if (laraStatus[i] != ITEM_FLAG_STATUS_INVISIBLE)
+            {
+                setPaletteIndex(ROOM_FLAG_WATER(lara->room->info->flags) ? 1 : 0);
+                lara->draw();
+            }
+            lara->flags |= ITEM_FLAG_STATUS_INVISIBLE; // skip drawing in the general pass
+        }
+    }
 
     while (*visRoom)
     {
@@ -879,17 +885,14 @@ void drawRooms(Camera* camera)
         room->reset();
     }
 
-#ifdef DRAW_LARA_FIRST
-    // reset visibility flags for Lara
     for (int32 i = 0; i < MAX_PLAYERS; i++)
     {
         Lara* lara = players[i];
         if (lara)
         {
-            lara->flags &= ~ITEM_FLAG_STATUS;
+            lara->flags = (lara->flags & ~ITEM_FLAG_STATUS) | laraStatus[i];
         }
     }
-#endif
 
     setPaletteIndex(0);
     setViewport(vp);
