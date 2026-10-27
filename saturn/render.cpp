@@ -94,6 +94,13 @@ void setCameraWater(bool water)
     gCameraWater = water;
 }
 
+static bool gSceneClear;    // the scene's frame cleared all the same (setSceneClear)
+
+void setSceneClear(bool clear)
+{
+    gSceneClear = clear;
+}
+
 static_assert(offsetof(MeshXform, tx) == 20 && offsetof(MeshXform, divTable) == 32 &&
               offsetof(MeshXform, ambient) == 36 && offsetof(MeshXform, lx) == 40 &&
               offsetof(MeshXform, range) == 52 && offsetof(MeshXform, normals) == 56 &&
@@ -1167,7 +1174,8 @@ void flush_c()
     gShadeFrame++;
     int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (clearCommand)
     memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
-    clearCommand(!roomOT || gBenchMode == BENCH_CLEAR);
+    clearCommand(!roomOT || gSceneClear || gBenchMode == BENCH_CLEAR);
+    gSceneClear = false;
 
     gCmds[count].w[0] = CMD_END << 16;
     gRenderFaceCount = count;

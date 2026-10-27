@@ -2952,6 +2952,7 @@ void renderLevelFree();
 void setViewport(const RectMinMax &vp);
 void setPaletteIndex(int32 index);
 void setCameraWater(bool water);
+void setSceneClear(bool clear);
 void clear();
 void renderRoom(Room* room);
 void renderRoomsQueued();

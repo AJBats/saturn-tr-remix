@@ -851,6 +851,9 @@ void drawRooms(Camera* camera)
 
     camera->view.room->clip = viewport;
     setCameraWater(ROOM_FLAG_WATER(camera->view.room->info->flags));
+    // a camera pushed into a wall sees past the rooms' faces, where nothing
+    // would draw this frame
+    setSceneClear(checkWall(camera->view.room, camera->view.pos.x, camera->view.pos.y, camera->view.pos.z));
 
     Room** visRoom = camera->view.room->getVisibleRooms();
 
