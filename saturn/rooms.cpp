@@ -698,7 +698,7 @@ static void roomFaces(int32 index, const RoomJob &job)
         // only the quads facing the camera, without a backface test. A quad's
         // parity is its index's in the room, as one call over them all gave.
         int32 offset = 0;
-        for (int32 run = gBenchMode == BENCH_NO_FACING ? 6 : 0; run <= 6; run++)
+        for (int32 run = 0; run <= 6; run++)
         {
             int32 count = run < 6 ? info->facing[run] : info->quadsCount - offset;
             int32 first = 0;

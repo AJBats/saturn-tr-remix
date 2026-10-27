@@ -1,6 +1,9 @@
 ! Mesh vertex transform for the master CPU (render.cpp transformMesh): the
 ! same arithmetic as projectView, clipping to the frame, then each vertex's
-! shade in a second pass by the mesh's kind of lighting.
+! shade in a second pass by the mesh's kind of lighting. A mesh wholly on the
+! frame and lit by normals is shaded in the transform loop instead: the
+! shade goes out with the vertex's second longword, a store less a vertex
+! (every store goes to the bus).
 !
 ! void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst, MeshXform* xf)
 !
@@ -35,6 +38,8 @@
 
     .equ    MESH_LIGHT_NORMALS, 1
     .equ    MESH_LIGHT_SHADES,  2
+
+    .equ    BENCH_SPLIT_SHADE,  12  ! render.h: the shade pass apart all the same
 
 ! r >> 14 and r >> 21, arithmetic: logical, the sign bit's place flipped
 ! back; r10 holds 1 << (31 - N), r11 its negation
@@ -93,7 +98,16 @@ transformMeshBody:
     mov.l   @(r0, r7), r0
     tst     r0, r0
     bt      .Lloop
-    bra     .Lfast
+    mov.l   @(56, r7), r8       ! normals
+    tst     r8, r8
+    bt      1f
+    mov.l   .LbenchMode, r0
+    mov.l   @r0, r0
+    cmp/eq  #BENCH_SPLIT_SHADE, r0
+    bt      1f
+    bra     .LfastShaded
+    nop
+1:  bra     .Lfast
     nop
 
 .Lloop:
@@ -410,6 +424,7 @@ transformMeshBody:
 
 
     .align 2
+.LbenchMode:    .long   _gBenchMode
 .LviewMin:      .long   0x00100000  ! VIEW_MIN_F
 .LviewMax:      .long   0x14000000  ! VIEW_MAX_F
 .LpMax:         .long   0x007FF000  ! projected 2047 << 12
@@ -419,6 +434,115 @@ transformMeshBody:
 .LframeWidth:   .short  352         ! FRAME_WIDTH
 .LframeHeight:  .short  224         ! FRAME_HEIGHT
 .LcoordMax:     .short  1023        ! VDP1_COORD_MAX
+
+    ! .Lfast with each vertex's shade by its normal first, as .Lnormal
+    ! makes it, into r14 (g << 8), the frame's centre from the pool
+.LfastShaded:
+    mov.l   @(28, r7), r1       ! tz
+    mov.l   @(20, r7), r2       ! tx
+    mov.l   @(24, r7), r3       ! ty
+.LfsLoop:
+    mov.b   @r8+, r0
+    mov.l   @(40, r7), r9       ! lx
+    muls.w  r0, r9
+    mov.b   @r8+, r0
+    mov.l   @(44, r7), r9       ! ly
+    sts     macl, r11
+    muls.w  r0, r9
+    mov.b   @r8+, r0
+    mov.l   @(48, r7), r9       ! lz
+    sts     macl, r12
+    muls.w  r0, r9
+    add     r12, r11
+    mov.l   @(52, r7), r9       ! range
+    sts     macl, r12
+    add     r12, r11            ! n . l
+    muls.w  r11, r9
+    add     #1, r8              ! pad
+    sts     macl, r11
+    shlr8   r11
+    shlr2   r11
+    shlr2   r11
+    shlr2   r11
+    exts.w  r11, r11
+    mov.l   @(36, r7), r14      ! ambient
+    sub     r11, r14
+    shlr8   r14
+    exts.w  r14, r14
+    cmp/pz  r14
+    bt      30f
+    mov     #0, r14
+30: mov     #31, r0
+    cmp/gt  r0, r14
+    bf      31f
+    mov     r0, r14
+31: shll8   r14
+    lds     r1, macl            ! z = tz + v . row2
+    mov     r7, r9
+    add     #12, r9
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    add     #-6, r4
+    sts     macl, r11
+    lds     r2, macl            ! x = tx + v . row0
+    mov     r7, r9
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    add     #-6, r4
+    sts     macl, r12
+    lds     r3, macl            ! y = ty + v . row1
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+
+    mac.w   @r4+, @r9+          ! r4 at the next vertex
+    shlr8   r12
+    sts     macl, r13
+    shlr2   r12
+    shlr2   r12
+    shlr2   r12
+    exts.w  r12, r12
+    shlr8   r13
+    shlr2   r13
+    shlr2   r13
+    shlr2   r13
+    exts.w  r13, r13
+    mov     r11, r0
+    shlr16  r0
+    shlr2   r0
+    add     r0, r0
+    mov.w   @(r0, r10), r0      ! d
+    shll2   r11
+    shlr16  r11
+    shll16  r11                 ! z >> FIXED_SHIFT << 16
+    or      r14, r11            ! | g << 8
+    muls.w  r0, r12
+    sts     macl, r12
+    muls.w  r0, r13
+    shlr8   r12
+    sts     macl, r13
+    shlr2   r12
+    shlr2   r12
+    exts.w  r12, r12
+    shlr8   r13
+    shlr2   r13
+    shlr2   r13
+    exts.w  r13, r13
+    shll16  r12
+    add     r13, r12
+    mov.l   .LfsCentre, r0
+    add     r0, r12
+    mov.l   r12, @r6
+    mov.l   r11, @(4, r6)
+    dt      r5
+    bt      32f
+    bra     .LfsLoop            ! the loop is too long for a conditional branch
+    add     #8, r6
+32: bra     .Ldone
+    add     #8, r15             ! the shade pass's count and dst, unused
+
+    .align 2
+.LfsCentre:     .long   0x00B00070  ! FRAME_WIDTH / 2 << 16 | FRAME_HEIGHT / 2
 
     .align 2
     .global _renderMeshAsm

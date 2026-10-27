@@ -108,7 +108,8 @@ static_assert(offsetof(MeshXform, tx) == 20 && offsetof(MeshXform, divTable) == 
               offsetof(MeshXform, inside) == 68,
               "MeshXform layout is shared with meshxform.s");
 static_assert(sizeof(MeshVertex) == 6 && sizeof(divTableInt) == 2 && VIEW_MIN_F == 0x100000 &&
-              VIEW_MAX_F == 0x14000000 && FIXED_SHIFT == 14, "constants repeated in meshxform.s");
+              VIEW_MAX_F == 0x14000000 && FIXED_SHIFT == 14 && BENCH_SPLIT_SHADE == 12,
+              "constants repeated in meshxform.s");
 
 extern "C" void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst, MeshXform* xf);
 
