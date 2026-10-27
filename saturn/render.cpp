@@ -390,6 +390,7 @@ bool renderFastShrink()
 int32 gDarkFaces = DARK_CONTRAST_MUL;
 int32 gContrastSteps = 4;
 bool gContrastBrights;
+bool gContrastCommon;
 int32 gFlatDist;
 int32 gTurnLines = 1;
 int32 gShadowMode = SHADOW_MESH;
@@ -781,7 +782,7 @@ static void buildContrast()
 
         const volatile uint16* lut = (const volatile uint16*)(VDP1_VRAM + t.colr * 8);
         volatile uint16* out = (volatile uint16*)(VDP1_VRAM + t.contrast * 8);
-        uint32 m = t.color;
+        uint32 m = gContrastCommon ? RGB(16, 16, 16) : t.color;
         int32 mr = m & 31;
         int32 mg = (m >> 5) & 31;
         int32 mb = (m >> 10) & 31;
@@ -826,6 +827,12 @@ static void buildContrast()
         }
     }
     shadeTablesReset();
+}
+
+void renderSetContrastCommon(bool common)
+{
+    gContrastCommon = common;
+    buildContrast();
 }
 
 void renderSetContrastBrights(bool brights)

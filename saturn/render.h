@@ -352,6 +352,14 @@ void renderSetContrastSteps(int32 steps);
 extern bool gContrastBrights;
 void renderSetContrastBrights(bool brights);
 
+// The tables of less contrast bring colours towards one grey for every
+// texture (16 a channel), not each texture's own mean: textures whose art
+// mixes light and dark (snow over rock) keep that edge, and every texture's
+// colours go through the same curve, so faces of different textures still
+// meet as they would at full contrast.
+extern bool gContrastCommon;
+void renderSetContrastCommon(bool common);
+
 // The colour tables have swapped between the original and remastered sets
 // (palettes.cpp): textures take the other set's mean colours, and the tables
 // of less contrast are made again.
