@@ -242,6 +242,10 @@ enum BenchMode
 };
 extern int32 gBenchMode;
 
+// The camera is in a water room: every room and mesh drawn gets caustics and
+// the underwater fade, and the rooms above the surface ripple (rooms.cpp).
+extern bool gCameraWater;
+
 // VDP1 draws a quad as lines from edge AD to edge BC, as many as the longer
 // of those is long, each through a row of the texture. Room faces whose edges
 // AB and DC are the shorter pair are drawn turned (rooms.cpp), as A D C B with

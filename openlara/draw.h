@@ -850,6 +850,7 @@ void drawRooms(Camera* camera)
     RectMinMax vp = viewport;
 
     camera->view.room->clip = viewport;
+    setCameraWater(ROOM_FLAG_WATER(camera->view.room->info->flags));
 
     Room** visRoom = camera->view.room->getVisibleRooms();
 
@@ -894,6 +895,7 @@ void drawRooms(Camera* camera)
         }
     }
 
+    setCameraWater(false);
     setPaletteIndex(0);
     setViewport(vp);
 }
@@ -903,6 +905,7 @@ void drawCinematicRooms()
     RectMinMax vp = viewport;
 #if 1
     gCinematicCamera.view.room->clip = viewport;
+    setCameraWater(ROOM_FLAG_WATER(gCinematicCamera.view.room->info->flags));
 
     Room** visRoom = gCinematicCamera.view.room->getVisibleRooms();
 
@@ -936,6 +939,7 @@ void drawCinematicRooms()
     }
 #endif
 
+    setCameraWater(false);
     setPaletteIndex(0);
     setViewport(vp);
 }

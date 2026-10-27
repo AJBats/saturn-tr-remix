@@ -74,8 +74,10 @@ void setViewport(const RectMinMax &vp)
     viewport = vp;
 }
 
-// Meshes drawn while this is set (items in water rooms) get FACE_WATER.
+// Meshes drawn while this is set (items in water rooms, or everything while
+// the camera is under water) get FACE_WATER.
 static uint32 gMeshFaceFlags;
+bool gCameraWater;
 static uint32 gMeshFlatFaces;   // mesh faces drawn flat this frame
 #ifdef HW_LOG
 static uint32 gMeshesDrawn;     // meshes drawn here this frame
@@ -84,7 +86,12 @@ static uint32 gMeshesDrawn;     // meshes drawn here this frame
 // OpenLara selects palette 1 for whatever is in a water room.
 void setPaletteIndex(int32 index)
 {
-    gMeshFaceFlags = index ? FACE_WATER : 0;
+    gMeshFaceFlags = index || gCameraWater ? FACE_WATER : 0;
+}
+
+void setCameraWater(bool water)
+{
+    gCameraWater = water;
 }
 
 static_assert(offsetof(MeshXform, tx) == 20 && offsetof(MeshXform, divTable) == 32 &&

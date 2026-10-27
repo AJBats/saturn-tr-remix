@@ -41,6 +41,8 @@ struct RoomJob
     RectMinMax viewport;
     int32 causticsFrame;
     int32 camera[3];        // the camera's position from the room's origin
+    bool wet;               // caustics and the underwater fade (gCameraWater)
+    bool ripple;            // across the water surface from the camera
 };
 
 // Master side. Jobs are written cached (memory is write-through) and read by
@@ -94,8 +96,9 @@ static RoomStats gSlaveStats;
 static FaceList gFaceList;
 static FaceList gMeshList;      // meshes' faces: the same pool, an ordering table of their own
 static bool gTurn;              // faces may be turned (gTurnLines)
-static uint32 gRoomFaceFlags;   // FACE_WATER for water rooms
-static int32 gWibblePhase;      // drifts the ripple of water rooms
+static uint32 gRoomFaceFlags;   // FACE_WATER for wet rooms
+static bool gRipple;            // the room is across the water surface from the camera
+static int32 gWibblePhase;      // drifts the ripple
 static RoomMatrix gMatrix;
 
 // What xform.s needs to transform a room's vertices.
@@ -107,9 +110,9 @@ struct RoomXform
     int32 x0, y0, x1, y1;   // viewport
     const uint16* divTable;
     int32 zMin, zMax;       // near and far planes << 8
-    const int8* wibble;     // gWibble for water rooms, else NULL
+    const int8* wibble;     // gWibble for rooms that ripple, else NULL
     int32 phase;            // ... its phase
-    const int16* caustics;  // shade offsets by vertex index, for water rooms
+    const int16* caustics;  // shade offsets by vertex index for wet rooms, else NULL
     int32 count;            // vertices
 };
 
@@ -132,7 +135,8 @@ static int16 gRoomCaustics[MAX_RAND_TABLE];
 static RectMinMax gViewport;
 static const RoomVertex* gRoomVertices;
 
-// Water rooms ripple on screen, as in the original (0x06042D34): each
+// Rooms across the water surface from the camera ripple on screen, as in the
+// original (0x06042D34, chosen by 0x0603944c and 0x0603947c): each
 // projected coordinate moves by up to 2 pixels along a sine wave that runs
 // across the screen and drifts with time.
 static const int8 gWibble[32] = {
@@ -179,7 +183,7 @@ X_INLINE void projectRoomPoint(int16 vx, int16 vy, int16 vz, Vertex* res)
 
     projectView(x, y, uint32(z) >> 8, clip, gViewport, res);
 
-    if (gRoomFaceFlags & FACE_WATER) {
+    if (gRipple) {
         wibble(res, gWibblePhase);
     }
 }
@@ -528,11 +532,11 @@ static void dspProject(const RoomMatrix &m, const RectMinMax &vp, const RoomVert
     dspStart(0);
 }
 
-// project.dsp does what transformRoomAsm does for rooms not under water, and
-// the DSP's DMA reaches high work RAM, not low.
+// project.dsp does what transformRoomAsm does for rooms with no water effects,
+// and the DSP's DMA reaches high work RAM, not low.
 static bool dspRoom(const RoomJob &job)
 {
-    return gBenchMode != BENCH_NO_DSP && !ROOM_FLAG_WATER(job.room->info->flags) &&
+    return gBenchMode != BENCH_NO_DSP && !job.wet && !job.ripple &&
            (uint32(job.room->data.vertices) & 0x0FF00000) == 0x06000000;
 }
 
@@ -603,13 +607,11 @@ static void dspFeed()
 // Sets up what projecting and adding the faces of job need.
 static void roomBegin(const RoomJob &job)
 {
-    const RoomInfo* info = job.room->info;
-    bool water = ROOM_FLAG_WATER(info->flags);
-
     gMatrix = job.matrix;
     gViewport = job.viewport;
     gRoomVertices = job.room->data.vertices;
-    gRoomFaceFlags = water ? FACE_WATER : 0;
+    gRoomFaceFlags = job.wet ? FACE_WATER : 0;
+    gRipple = job.ripple;
     gWibblePhase = job.causticsFrame;
     gTurn = gTurnLines && gBenchMode != BENCH_FIXED_LINES;
 
@@ -628,13 +630,13 @@ static void roomBegin(const RoomJob &job)
     xf.divTable = divTable;
     xf.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
     xf.zMax = VIEW_MAX_F >> (FIXED_SHIFT - 8);
-    xf.wibble = water ? gWibble : NULL;
+    xf.wibble = job.ripple ? gWibble : NULL;
     xf.phase = job.causticsFrame;
-    xf.caustics = gRoomCaustics;
+    xf.caustics = job.wet ? gRoomCaustics : NULL;
 
     // caustics shimmer under water: each vertex's shade moves along the
     // caustics wave from its own random start
-    if (water)
+    if (job.wet)
     {
         for (int32 i = 0; i < MAX_RAND_TABLE; i++) {
             gRoomCaustics[i] = gCaustics[(gRandTable[i] + job.causticsFrame) & (MAX_CAUSTICS - 1)];
@@ -883,7 +885,7 @@ void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors)
     xf.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
     xf.zMax = VIEW_MAX_F >> (FIXED_SHIFT - 8);
     xf.wibble = NULL;
-    xf.caustics = gRoomCaustics;
+    xf.caustics = NULL;
     xf.count = count;
     for (int32 i = 0; i < 9; i++) {
         xf.rows[i] = rows[i];
@@ -949,6 +951,9 @@ void roomsQueue(const Room* room)
     job.camera[0] = gCameraViewPos.x - (info->x << 8);
     job.camera[1] = gCameraViewPos.y - info->yTop;
     job.camera[2] = gCameraViewPos.z - (info->z << 8);
+    bool water = ROOM_FLAG_WATER(info->flags);
+    job.wet = water || gCameraWater;
+    job.ripple = water != gCameraWater;
 
     if (gJobCount == 0) {
         slaveRun(roomBatch);
