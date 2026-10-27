@@ -238,7 +238,7 @@ static uint32 gSplit[SPLIT_COUNT];
 #define PROFILE_TICKS   40
 #define PROFILE_START   0x06004000
 #define PROFILE_SHIFT   5
-#define PROFILE_BLOCKS  (160 * 1024 >> PROFILE_SHIFT)
+#define PROFILE_BLOCKS  (152 * 1024 >> PROFILE_SHIFT)  // the code ends ~146 KB in
 #define PROFILE_TOP     15      // three to a row, under the table
 
 static_assert(7 + BENCH_COUNT + PROFILE_TOP / 3 <= OVERLAY_ROWS, "the profile's rows fit the overlay");
