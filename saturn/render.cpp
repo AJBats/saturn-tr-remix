@@ -387,7 +387,7 @@ bool renderFastShrink()
 {
     return gTexturePmod & PMOD_HSS;
 }
-int32 gDarkFaces = DARK_CONTRAST;
+int32 gDarkFaces = DARK_SCALE;
 int32 gContrastSteps = 4;
 bool gContrastBrights;
 int32 gContrastGrey = 4;
@@ -514,30 +514,46 @@ X_INLINE uint32 halfGouraud(const uint8* r, const uint8* g, const uint8* b, int3
 }
 
 // Room textures' tables of less contrast, four each (buildContrast); for
-// DARK_SCALE, scaled by these sixteenths.
+// DARK_SCALE, scaled by gScaleSteps 64ths, which spread evenly over the slopes
+// the blend reaches (scaleStepsInit).
 #define CONTRAST_TABLES 4
 
-static const int32 kScaleSteps[CONTRAST_TABLES] = { 12, 9, 6, 3 };
+static int32 gScaleSteps[CONTRAST_TABLES];
 
-// DARK_SCALE: the PS1 multiplies each texel by its light, L / 16 (L the
-// corner's level, 16 neutral); VDP1 can only add. A face is drawn through a
-// table of its colours scaled to S / 16, S the step nearest its corners' mean
-// level (or at half luminance, S = 8, for textures without tables when that
-// is nearer), and each corner's gouraud adds what brings the texture's mean m
-// to m L / 16: 16 + m (L - S) / 16 a channel. Faces beside each other then
-// meet at the same brightness (the add clipped dark texels to black by
-// different amounts on each side before), and texels keep a contrast near S /
-// 16 of theirs, stepping between faces only by the tables' steps.
+// DARK_SCALE: the PS1 multiplies each texel by its light, t L / 16 (L the
+// corner's level, 16 neutral); VDP1 adds, t + L - 16. gScaleMultiply quarters
+// of the multiply blend with the rest of the add: t p / 64 + (4 - q) (L - 16)
+// / 4, the slope p = 64 - q (16 - L) in 64ths. A face is drawn through a
+// table of its colours scaled to S / 64, S the step nearest the slope at its
+// corners' mean level (64, no table; or for textures without tables, half
+// luminance, S = 32, when that is nearer), and each corner's gouraud adds what
+// brings the texture's mean m to the blend's value for it. The table carries
+// the multiply's share of each texel's contrast, so only how far the slope
+// lies from the nearest step is made up about the mean.
+int32 gScaleMultiply = 2;
+
+// The steps: four, evenly from 64 to the slope in the dark, 64 - 13 q
+// (12, at the multiply alone, as 3 / 16).
+static void scaleStepsInit()
+{
+    for (int32 k = 0; k < CONTRAST_TABLES; k++) {
+        gScaleSteps[k] = 64 - ((k + 1) * 13 * gScaleMultiply + 2) / 4;
+    }
+}
+
 static uint32 scaledGouraud(uint32 m, int32 l, int32 s, bool half)
 {
+    int32 q = gScaleMultiply;
+    int32 p = 64 - q * (16 - l);
     uint32 out = 0;
     for (int32 i = 0; i < 3; i++)
     {
-        int32 d = int32((m >> (5 * i)) & 31) * (l - s);
+        // 64ths: the blend's value for the mean, less what the table leaves
+        int32 d = int32((m >> (5 * i)) & 31) * (p - s) + 16 * (4 - q) * (l - 16);
         if (half) {
             d *= 2;
         }
-        int32 v = 16 + ((d + (d < 0 ? -8 : 8)) / 16);
+        int32 v = 16 + ((d + (d < 0 ? -32 : 32)) / 64);
         out |= uint32(X_CLAMP(v, 0, 31)) << (5 * i);
     }
     return out;
@@ -545,18 +561,19 @@ static uint32 scaledGouraud(uint32 m, int32 l, int32 s, bool half)
 
 static bool shadeScaled(uint32* w, uint32* grd, const Texture* tex, int32 la, int32 lb, int32 lc, int32 ld)
 {
-    int32 sum = la + lb + lc + ld;
-    int32 s = 16;
+    // 4 x the slope at the corners' mean level, in 64ths
+    int32 slope = 256 - gScaleMultiply * (64 - (la + lb + lc + ld));
+    int32 s = 64;
     bool half = false;
     bool polygon = ((w[0] >> 16) & 15) == CMD_POLYGON;
 
     if (tex->contrast && !polygon)
     {
-        int32 best = abs(sum - 4 * 16);
+        int32 best = abs(slope - 4 * 64);
         int32 k = -1;
         for (int32 i = 0; i < CONTRAST_TABLES; i++)
         {
-            int32 e = abs(sum - 4 * kScaleSteps[i]);
+            int32 e = abs(slope - 4 * gScaleSteps[i]);
             if (e < best) {
                 best = e;
                 k = i;
@@ -564,13 +581,13 @@ static bool shadeScaled(uint32* w, uint32* grd, const Texture* tex, int32 la, in
         }
         if (k >= 0)
         {
-            s = kScaleSteps[k];
+            s = gScaleSteps[k];
             w[1] = (w[1] & 0xFFFF0000) | (tex->contrast + k * 4);
         }
     }
-    else if (!polygon && abs(sum - 4 * 8) < abs(sum - 4 * 16))
+    else if (!polygon && abs(slope - 4 * 32) < abs(slope - 4 * 64))
     {
-        s = 8;
+        s = 32;
         half = true;
         w[1] = (w[1] & ~(7 << 16)) | (PMOD_GOURAUD_HALF << 16);
     }
@@ -730,7 +747,7 @@ static void shadeTablesReset()
 
 // Room textures' colour tables at 7/8, 6/8, 5/8 and 4/8 of their contrast
 // about the texture's mean colour (DARK_CONTRAST), or scaled towards black
-// by kScaleSteps sixteenths (DARK_SCALE). A pixel code 0 that is transparent
+// by gScaleSteps 64ths (DARK_SCALE). A pixel code 0 that is transparent
 // stays as it is.
 static bool darkScaled(int32 mode)
 {
@@ -740,6 +757,7 @@ static bool darkScaled(int32 mode)
 static void buildContrast()
 {
     bool scale = darkScaled(gDarkFaces);
+    scaleStepsInit();
     for (int32 i = 0; i < level.texturesCount; i++)
     {
         const Texture &t = level.textures[i];
@@ -769,10 +787,10 @@ static void buildContrast()
                 uint32 r, g, b;
                 if (scale)
                 {
-                    int32 s = kScaleSteps[k - 1];
-                    r = (int32(col & 31) * s + 8) >> 4;
-                    g = (int32((col >> 5) & 31) * s + 8) >> 4;
-                    b = (int32((col >> 10) & 31) * s + 8) >> 4;
+                    int32 s = gScaleSteps[k - 1];
+                    r = (int32(col & 31) * s + 32) >> 6;
+                    g = (int32((col >> 5) & 31) * s + 32) >> 6;
+                    b = (int32((col >> 10) & 31) * s + 32) >> 6;
                 }
                 else
                 {
@@ -795,6 +813,14 @@ static void buildContrast()
         }
     }
     shadeTablesReset();
+}
+
+void renderSetScaleMultiply(int32 quarters)
+{
+    gScaleMultiply = quarters;
+    if (darkScaled(gDarkFaces)) {
+        buildContrast();
+    }
 }
 
 void renderSetContrastGrey(int32 quarters)

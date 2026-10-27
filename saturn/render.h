@@ -336,6 +336,11 @@ enum DarkFaces
 extern int32 gDarkFaces;
 void renderSetDarkFaces(int32 mode);
 
+// DARK_SCALE, DARK_SCALE_DEEP: quarters of the PS1's multiply in the blend
+// with VDP1's add (0, the add alone; 4, the multiply alone).
+extern int32 gScaleMultiply;
+void renderSetScaleMultiply(int32 quarters);
+
 // DARK_CONTRAST: how many of the steps of less contrast faces take (1 .. 4,
 // down to 7/8 .. 4/8); faces darkened past the last keep its table.
 extern int32 gContrastSteps;
