@@ -207,6 +207,11 @@ enum TexelView
                         // yellow 2, red 4, magenta more
     TEXEL_VIEW_WIRE,    // faces' outlines on black: rooms white, meshes
                         // yellow, shadows red
+    TEXEL_VIEW_STEPS,   // room faces by the table of less contrast they take:
+                        // none as they are, steps 1 .. 4 green, yellow,
+                        // orange, red; those whose corners share one shade
+                        // (which "Even shades" draws without gouraud) in a
+                        // checkerboard
     TEXEL_VIEW_COUNT
 };
 extern int32 gTexelView;

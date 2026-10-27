@@ -414,14 +414,31 @@ X_INLINE uint32 tintPair(uint32 pair, int32 dr, int32 dg, int32 db)
 X_INLINE int16 cmdX(uint32 w) { return int16(w >> 16); }
 X_INLINE int16 cmdY(uint32 w) { return int16(w); }
 
-// Tints a textured face for the debug views, from its finished command words.
-static void texelTint(const uint32* w, uint32* grd, uint32 flags, bool room)
+// Tints a textured face for the debug views, from its finished command words
+// (the steps view also sets their mesh bit).
+static void texelTint(uint32* w, uint32* grd, uint32 flags, bool room)
 {
     int32 dr = -6, dg = -6, db = -6;
 
     bool flat = ((flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) == FACE_TYPE_AVG;
 
-    if (gTexelView == TEXEL_VIEW_LOD)
+    if (gTexelView == TEXEL_VIEW_STEPS)
+    {
+        const Texture* tex = level.textures + (flags & FACE_TEXTURE);
+        uint32 colr = w[1] & 0xFFFF;
+        if (!room || !tex->contrast)
+            return;
+        if (grd[0] == grd[1] && (grd[0] >> 16) == (grd[0] & 0xFFFF)) {
+            w[1] |= PMOD_MESH << 16;
+        }
+        uint32 first = tex->contrast;
+        if (colr < first || colr >= first + 4 * 4)
+            return;
+        static const int8 tint[4][3] = { { -6, 10, -6 }, { 10, 10, -6 }, { 12, 4, -6 }, { 12, -6, -6 } };
+        const int8* t = tint[(colr - first) / 4];
+        dr = t[0]; dg = t[1]; db = t[2];
+    }
+    else if (gTexelView == TEXEL_VIEW_LOD)
     {
         uint32 mip = FACE_DETAIL | FACE_DETAIL_WHOLE | FACE_DETAIL_MIP;
         if (flat) {
@@ -1331,7 +1348,8 @@ void flush_c()
     gShadeFrame++;
     int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (clearCommand)
     memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
-    clearCommand(!roomOT || gSceneClear || gBenchMode == BENCH_CLEAR || gTexelView == TEXEL_VIEW_WIRE);
+    clearCommand(!roomOT || gSceneClear || gBenchMode == BENCH_CLEAR ||
+                 gTexelView == TEXEL_VIEW_WIRE || gTexelView == TEXEL_VIEW_STEPS);
     gSceneClear = false;
 
     gCmds[count].w[0] = CMD_END << 16;
