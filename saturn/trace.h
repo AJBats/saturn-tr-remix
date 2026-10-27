@@ -151,7 +151,7 @@ uint16_t* traceProfileBlocks();
 
 // Room for the overlay's text there (the stages page's, the bench table's),
 // or NULL without room: high work RAM has none to spare in HW_LOG builds.
-#define TRACE_TEXT_BYTES 1472
+#define TRACE_TEXT_BYTES 1616
 char* traceText();
 
 #else

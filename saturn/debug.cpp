@@ -12,8 +12,6 @@
 #include "dsp.h"
 #include "hw.h"
 #include "slave.h"
-#include "xform_dsp.h"
-#include "dmaprobe_dsp.h"
 #include "input.h"
 #include "overlay.h"
 #include "palettes.h"
@@ -389,86 +387,11 @@ extern "C" void profileHandler(uint32 pc)
     }
 }
 
-#define DSP_TEST_BATCHES    32      // of 16 vertices
-#define DSP_TEST_VERTICES   (DSP_TEST_BATCHES * 16)
-
+// project.dsp's whole room projection against xform.s's, 512 vertices
 void debugDspTest()
 {
-    static const int16 rows[9] = { 14189, 0, -8192, 4096, 15851, 7094, 7094, -4096, 12288 };
-    static const int32 t[3] = { -500000, 12345, 2000000 };
-
-    // the vertices, the DSP's results and this CPU's in gVertices, unused
-    // before a level
-    uint32* in = (uint32*)gVertices;
-    int32* out = (int32*)(in + DSP_TEST_VERTICES);
-    int32* ref = out + DSP_TEST_VERTICES * 4;
-    static_assert(DSP_TEST_VERTICES * 9 * 4 <= sizeof(gVertices), "the DSP test's buffers fit in gVertices");
-
-    uint32 seed = 0x12345678;
-    for (int32 i = 0; i < DSP_TEST_VERTICES; i++)
-    {
-        seed = seed * 1664525 + 1013904223;
-        in[i] = seed;
-    }
-
-    // rows z, x, y, as xform.s takes them
-    uint32_t md0[12];
-    for (int32 r = 0; r < 3; r++)
-    {
-        int32 row = (r + 2) % 3;
-        for (int32 c = 0; c < 3; c++) {
-            md0[r * 4 + c] = rows[row * 3 + c] * 4;   // xform.s takes each byte times 4
-        }
-        md0[r * 4 + 3] = t[row];
-    }
-    const uint32_t md3[5] = { DSP_TEST_BATCHES, 1, dspAddress(in), dspAddress(out), 0xFF };
-
-    dspLoad(xform_dsp, XFORM_DSP_COUNT);
-    dspWrite(0, 0, md0, 12);
-    dspWrite(3, 0, md3, 5);
-    uint32 start = timerTicks();
-    dspStart(0);
-    while (dspBusy());
-    uint32 dspTicks = (timerTicks() - start) & 0xFFFF;
-    cachePurge();   // the DSP wrote out behind the cache
-
-    // the same on this CPU, as xform.s's multiply-accumulates do it
-    // records g z x y
-    start = timerTicks();
-    for (int32 i = 0; i < DSP_TEST_VERTICES; i++)
-    {
-        uint32 v = in[i];
-        int32 x = (v >> 24) * 4, y = ((v >> 16) & 0xFF) * 4, z = ((v >> 8) & 0xFF) * 4;
-        ref[i * 4] = v & 0xFF;
-        for (int32 r = 0; r < 3; r++)
-        {
-            int32 row = (r + 2) % 3;
-            ref[i * 4 + 1 + r] = t[row] + mul16(rows[row * 3], x) + mul16(rows[row * 3 + 1], y) +
-                                 mul16(rows[row * 3 + 2], z);
-        }
-    }
-    uint32 cpuTicks = (timerTicks() - start) & 0xFFFF;
-
-    int32 errors = 0;
-    for (int32 i = 0; i < DSP_TEST_VERTICES * 4; i += 4) {
-        errors += ref[i] != out[i] || ref[i + 1] != out[i + 1] ||
-                  ref[i + 2] != out[i + 2] || ref[i + 3] != out[i + 3];
-    }
-    // the same transfers alone (dmaprobe.dsp)
-    dspLoad(dmaprobe_dsp, DMAPROBE_DSP_COUNT);
-    dspWrite(3, 0, md3, 5);
-    start = timerTicks();
-    dspStart(0);
-    while (dspBusy());
-    uint32 dmaTicks = (timerTicks() - start) & 0xFFFF;
-    cachePurge();
-
-    crashLog("DSPXF", dspTicks);
-    crashLog("DSPDMA", dmaTicks);
-    crashLog("CPUXF", cpuTicks);
-    crashLog("DSPERR", errors);
-
-    // the whole projection (project.dsp) against xform.s's, 512 vertices
+    uint32 dspTicks, cpuTicks;
+    int32 errors;
     roomsDspTest(dspTicks, cpuTicks, errors);
     crashLog("PJDSP", dspTicks);
     crashLog("PJCPU", cpuTicks);
@@ -952,6 +875,48 @@ static void traceCompose(const TraceStages* s, TraceRow* rows)
     strncpy(rows[6], text, OVERLAY_COLUMNS);
 }
 
+// The boot's sync test (debug.h), under the trace's rows.
+#define SYNC_ROWS   3
+#define SYNC_TEXT_AT 1472
+static_assert(SYNC_TEXT_AT + SYNC_ROWS * sizeof(TraceRow) <= TRACE_TEXT_BYTES, "the sync rows fit in traceText");
+static_assert(BENCH_TEXT_AT + OVERLAY_ROWS * sizeof(OverlayText) <= SYNC_TEXT_AT, "the bench's rows end before them");
+
+static void syncRows(int32 row)
+{
+    char* text = traceText();
+    if (!text)
+        return;
+    TraceRow* rows = (TraceRow*)(text + SYNC_TEXT_AT);
+    static bool composed;
+    if (!composed)
+    {
+        const SyncResults &s = gSync;
+        char line[64];
+        char* p = appendShare(line, "sync lost raw ", s.raw);
+        p = appendShare(p, "tas ", s.tas);
+        p = appendShare(p, "pet ", s.peterson);
+        appendShare(p, "claim ", s.claim);
+        strncpy(rows[0], line, OVERLAY_COLUMNS);
+
+        p = appendShare(line, "order ", s.order);
+        p = appendShare(p, "took ", s.claimMaster);
+        p = appendShare(p, "/", s.claimSlave);
+        p = appendShare(p, "gbr ", s.gbr);
+        appendShare(p, "kept ", debugSyncKept());
+        strncpy(rows[1], line, OVERLAY_COLUMNS);
+
+        p = appendShare(line, "cycles unc ", s.uncachedCycles);
+        p = appendShare(p, "lock ", s.lockCycles);
+        p = appendShare(p, "tas2 ", s.tasCycles);
+        appendShare(p, "pet2 ", s.petersonCycles);
+        strncpy(rows[2], line, OVERLAY_COLUMNS);
+        composed = true;
+    }
+    for (int32 i = 0; i < SYNC_ROWS; i++) {
+        overlayRow(row + i, rows[i]);
+    }
+}
+
 static void traceRows(int32 row)
 {
     const TraceStages* s = traceStages();
@@ -1058,8 +1023,10 @@ static void drawDebug()
             for (int32 i = 0; i < SCENE_ROWS; i++) {
                 overlayRow(2 + i, gSceneRows[i]);
             }
-            if (gPage == PAGE_TRACE) {
+            if (gPage == PAGE_TRACE)
+            {
                 traceRows(3 + SCENE_ROWS);
+                syncRows(4 + SCENE_ROWS + TRACE_ROWS);
             }
         }
         else

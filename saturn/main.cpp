@@ -53,6 +53,7 @@ int main()
     traceInit();
     debugProfileInit();
     debugDspTest();
+    debugSyncTest();
 #endif
     crashLog("CD", cdInit());
     sndInit();
