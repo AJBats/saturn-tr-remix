@@ -762,13 +762,32 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
             break;
 
         case FACE_TYPE_VOID:
-            w[0] = CMD_POLYGON << 16;
+        {
+            // the corners' box on the frame: projected as clamped to the near
+            // plane they land far off it, and VDP1 walks every pixel of a
+            // polygon out there too (one near wall's fill cost more than a
+            // frame). Filling more than the face is harmless behind everything.
+            int32 x0 = v0->x, y0 = v0->y, x1 = x0, y1 = y0;
+            for (int32 i = 1; i < 4; i++)
+            {
+                const Vertex* v = gVertices + face->indices[i];
+                x0 = X_MIN(x0, int32(v->x));
+                y0 = X_MIN(y0, int32(v->y));
+                x1 = X_MAX(x1, int32(v->x));
+                y1 = X_MAX(y1, int32(v->y));
+            }
+            x0 = X_MAX(x0, 0);
+            y0 = X_MAX(y0, 0);
+            x1 = X_MIN(x1, FRAME_WIDTH - 1);
+            y1 = X_MIN(y1, FRAME_HEIGHT - 1);
+            w[0] = (CMD_POLYGON | (x0 > x1 || y0 > y1 ? CMD_SKIP : 0)) << 16;
             w[1] = pair(PMOD_NO_ECD_SPD, 0);    // transparent: VDP2's back colour
-            w[3] = v0->xy;
-            w[4] = gVertices[face->indices[1]].xy;
-            w[5] = gVertices[face->indices[2]].xy;
-            w[6] = gVertices[face->indices[3]].xy;
+            w[3] = pair(x0, y0);
+            w[4] = pair(x1, y0);
+            w[5] = pair(x1, y1);
+            w[6] = pair(x0, y1);
             break;
+        }
 
         default:
         {

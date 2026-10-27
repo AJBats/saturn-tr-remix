@@ -33,7 +33,7 @@ enum FaceType {
     FACE_TYPE_LINE_H,
     FACE_TYPE_LINE_V,
     FACE_TYPE_AVG,      // a textured face drawn flat in its texture's mean colour (far LOD)
-    FACE_TYPE_VOID,     // transparent, behind everything, where a room face cut away by the near or far plane would be
+    FACE_TYPE_VOID,     // transparent, behind everything, over the box of a room face cut away by the near or far plane
     FACE_TYPE_MAX
 };
 

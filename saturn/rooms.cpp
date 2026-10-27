@@ -185,8 +185,9 @@ X_INLINE void projectRoomPoint(int16 vx, int16 vy, int16 vz, Vertex* res)
 
 // The frame isn't cleared: where the near or far plane cuts a room face away,
 // or it lies wholly past the far plane, a transparent fill behind everything
-// instead, for VDP2's back colour to show (the corners projected as clamped to
-// the plane). faces.s does the same.
+// instead, for VDP2's back colour to show (over the box of the corners
+// projected as clamped to the plane, render.cpp faceCommand). faces.s does the
+// same.
 static void faceAddRoomVoid(const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
 {
     Face* f = faceAdd(gFaceList, OT_SIZE - 1);
