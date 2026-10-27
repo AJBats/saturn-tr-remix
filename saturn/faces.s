@@ -676,16 +676,6 @@ _faceAddMeshTrianglesBody:
     bf      \gone
     .endm
 
-! a coordinate (at byte offset 'at' of vertex v) the frame's size or more
-! past it (rooms.cpp farOffFrame), r13 = the size and r14 three times that:
-! to 'far'; r0
-    .macro  FAR v, at, far
-    mov.w   @(\at, \v), r0
-    add     r13, r0
-    cmp/hi  r14, r0
-    bt      \far
-    .endm
-
 ! the face at r10 a transparent fill behind everything (rooms.cpp
 ! faceAddRoomVoid), with the index pairs at r4 + 4 and in 'pair2'; r0, r13,
 ! r14
@@ -729,8 +719,8 @@ _faceAddRoomQuadsAsm:
     bra     .LrquadsDone
     nop
 
-    ! culled and cut by a plane, or reaching far off the frame: to C, which
-    ! splits the quad (or fills it)
+    ! culled and cut by a plane, or near the camera: to C, which splits the
+    ! quad (or fills it), or adds it whole
 .LrquadCut:
     mov.l   @(8, r6), r0
     mov.l   r10, @r0            ! the list's next face, for C
@@ -777,35 +767,12 @@ _faceAddRoomQuadsAsm:
     extu.w  r0, r7
     ROOM_VERTEX r7
     CULL    r7, .LrquadCulled
-    mov     r14, r0
-    tst     #CLIP_FRAME, r0
-    bt      3f                  ! on the frame
     mov.w   @(4, r1), r0
     mov     #8, r13
-    shll8   r13                 ! 2048: only a quad near the camera reaches far off it
+    shll8   r13                 ! NEAR_SPLIT_DIST
     cmp/ge  r13, r0
     bt      3f
-    mov     #88, r13
-    shll2   r13                 ! FRAME_WIDTH
-    mov     r13, r14
-    add     r14, r14
-    add     r13, r14
-    FAR     r1, 0, 4f
-    FAR     r2, 0, 4f
-    FAR     r3, 0, 4f
-    FAR     r7, 0, 4f
-    mov     #112, r13
-    add     r13, r13            ! FRAME_HEIGHT
-    mov     r13, r14
-    add     r14, r14
-    add     r13, r14
-    FAR     r1, 2, 4f
-    FAR     r2, 2, 4f
-    FAR     r3, 2, 4f
-    FAR     r7, 2, 4f
-    bra     3f
-    nop
-4:  bra     .LrquadCut          ! a corner far off the frame: to C, which splits it
+    bra     .LrquadCut          ! corner A near the camera: C decides on a split
     nop
 3:
     REUSE   .LrquadDecided

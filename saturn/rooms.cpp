@@ -203,9 +203,13 @@ static void faceAddRoomVoid(const Vertex* v0, const Vertex* v1, const Vertex* v2
     f->indices[3] = cornerOffset(v3, gSlaveVertices);
 }
 
-// A corner the frame's width (or height) or more past it (faces.s
-// FAR): one just in front of the camera, whose face VDP1 would walk far off
-// the frame (a wall beside the camera took more than a third of a frame).
+// Quads whose corner A is nearer than this go to faceAddRoomQuads from
+// faces.s, which may split them.
+#define NEAR_SPLIT_DIST 2048
+
+// A corner the frame's width (or height) or more past it: one just in front
+// of the camera, whose face VDP1 would walk far off the frame (a wall beside
+// the camera took more than a third of a frame).
 static bool farOffFrame(const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
 {
     const Vertex* v[4] = { v0, v1, v2, v3 };
@@ -363,8 +367,12 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
             continue;
         }
 
-        // reaching far off the frame: split too, the quarters off it dropped
-        if (((c0 | c1 | c2 | c3) & CLIP_FRAME) && v0->z < 2048 && farOffFrame(v0, v1, v2, v3) &&
+        // near the camera, split too when its corners lie at very different
+        // depths (VDP1 maps the texture without perspective, which a large
+        // near face shows badly, and the split's new corners are projected),
+        // or reach far off the frame (the quarters off it dropped)
+        if (v0->z < NEAR_SPLIT_DIST && (zMax >= 2 * zMin || (((c0 | c1 | c2 | c3) & CLIP_FRAME) &&
+            farOffFrame(v0, v1, v2, v3))) &&
             zMin < DETAIL_DIST && tex->reserved && !faceFlat(flags, zMin, tex) &&
             faceAddRoomQuadDetail(polys, tex, v0, v1, v2, v3))
             continue;
