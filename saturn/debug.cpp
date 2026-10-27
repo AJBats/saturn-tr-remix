@@ -36,6 +36,7 @@ static const char* const kShrink[] = { "Exact", "Fast" };
 static const char* const kLines[] = { "Fixed", "Turned" };
 static const char* const kLod[] = { "Full res", "1 texel a pixel", "1.5 texels", "2 texels" };
 static const char* const kShade[] = { "Gouraud", "Shaded tables", "All far faces" };
+static const char* const kShadow[] = { "Half", "Black" };
 static const char* const kFar[] = { "Textured", "Flat past 16", "Flat past 12", "Flat past 8" };
 static const int32 kFarDist[] = { 0, 16 * 1024, 12 * 1024, 8 * 1024 };
 
@@ -72,6 +73,9 @@ static const Option gOptions[] = {
     { "Palette", kPalette, 2,
         [] { return int32(palettesRemastered()); },
         [](int32 v) { if (v != palettesRemastered()) palettesToggle(); } },
+    { "Shadows", kShadow, 2,
+        [] { return gBlackShadows; },
+        [](int32 v) { gBlackShadows = v; } },
     { "View", kViews, TEXEL_VIEW_COUNT,
         [] { return gTexelView; },
         [](int32 v) { gTexelView = v; } },
@@ -81,7 +85,7 @@ static const Option gOptions[] = {
 };
 
 enum { OPTION_SHADING, OPTION_DARK, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
-       OPTION_PALETTE, OPTION_VIEW, OPTION_STATS, OPTION_COUNT };
+       OPTION_PALETTE, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_COUNT };
 
 static uint16 gPad;
 static bool gMenuOpen;

@@ -252,6 +252,11 @@ extern bool gCameraWater;
 // the texture transposed: fewer, longer lines, each through a column.
 extern int32 gTurnLines;
 
+// Items' shadows opaque black, as the original draws them (three polygons,
+// PMOD 0x04C0, colour 0x8000). Else they halve what is below: VDP1 plots some
+// pixels of a quad twice, and the quads share edges, so those darken again.
+extern int32 gBlackShadows;
+
 // Room faces small on the frame take a mip level of their texture (see
 // detail.h): the first whose texels along the face's lines number at most
 // gTextureLod / 4 a pixel. 0: full res only.
