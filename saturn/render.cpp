@@ -391,7 +391,7 @@ int32 gDarkFaces = DARK_CONTRAST;
 int32 gContrastSteps = 1;
 int32 gFlatDist;
 int32 gTurnLines = 1;
-int32 gBlackShadows = 1;
+int32 gShadowMode = SHADOW_MESH;
 int32 gTextureLod = 4;
 int32 gShadeTables = 1;
 
@@ -924,7 +924,8 @@ static void faceCommand(const Face* face, uint32* w, uint32* grd, bool room, boo
             if (type == FACE_TYPE_SHADOW)
             {
                 w[0] = CMD_POLYGON << 16;
-                w[1] = pair(PMOD_NO_ECD_SPD | (gBlackShadows ? 0 : PMOD_SHADOW), RGB(0, 0, 0));
+                w[1] = pair(PMOD_NO_ECD_SPD | (gShadowMode == SHADOW_HALF ? PMOD_SHADOW : 0) |
+                             (gShadowMode == SHADOW_MESH ? PMOD_MESH : 0), RGB(0, 0, 0));
             }
             else
             {
