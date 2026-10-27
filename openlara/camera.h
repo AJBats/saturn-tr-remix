@@ -153,6 +153,7 @@ void Camera::init(ItemObj* lara)
     index = -1;
     lastIndex = -1;
     shake = 0;
+    shift = 0;
 
     mode = CAMERA_MODE_FOLLOW;
 
@@ -303,6 +304,28 @@ void Camera::move(Location &to, int32 speed)
     {
         trace(target, view, true);
         view.room = view.room->getRoom(view.pos.x, view.pos.y, view.pos.z);
+        sector = view.room->getSector(view.pos.x, view.pos.z);
+        floor = sector->getFloor(view.pos.x, view.pos.y, view.pos.z) - 256;
+    }
+
+    // As TR1's MoveCamera: a camera gone into the rock above or below its
+    // sector (rising out of a pool through the rim) looks from the nearest
+    // height the sector has room for, and from the room there.
+    shift = 0;
+    int32 ceiling = sector->getCeiling(view.pos.x, view.pos.y, view.pos.z) + 256;
+    if (floor != WALL - 256 && ceiling != WALL + 256)
+    {
+        if (floor < ceiling) {
+            floor = ceiling = (floor + ceiling) >> 1;
+        }
+
+        if (view.pos.y > floor) {
+            shift = floor - view.pos.y;
+        } else if (view.pos.y < ceiling) {
+            shift = ceiling - view.pos.y;
+        }
+
+        view.room = view.room->getRoom(view.pos.x, view.pos.y + shift, view.pos.z);
     }
 }
 
@@ -561,11 +584,13 @@ void Camera::update()
         center = false;
     }
 
-    vec3i dir = target.pos - view.pos;
+    vec3i pos = view.pos;
+    pos.y += shift;
+
+    vec3i dir = target.pos - pos;
     anglesFromVector(dir.x, dir.y, dir.z, angle.x, angle.y);
 
     // earthquakes and stomps bob the view: sin(7 pi t) * t * 48, t in seconds
-    vec3i pos = view.pos;
     if (shake > 0)
     {
         pos.y += (sin(shake * (7 * ANGLE_180 / 30)) * shake * 48 / 30) >> FIXED_SHIFT;

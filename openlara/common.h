@@ -1467,6 +1467,7 @@ struct Camera {
     bool center;
 
     int32 shake; // frames left of shaking
+    int32 shift; // the view's height moved into the camera's sector (move)
 
     vec3i cutPos;   // an in-level cinematic's origin and heading
     int16 cutAngle;
