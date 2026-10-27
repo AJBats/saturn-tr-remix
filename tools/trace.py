@@ -9,6 +9,8 @@
         which holds the bench on Base.
     trace.py convert DUMP [--out JSON]
         converts a dump of low work RAM (1 MB from 0x00200000)
+    trace.py open JSON
+        opens JSON in ui.perfetto.dev in the default browser
 
 Open the JSON in ui.perfetto.dev or chrome://tracing. Tracks: the master's
 stages, its interrupts, the slave's jobs, the SCU DSP's runs (as the slave
@@ -365,6 +367,45 @@ def capture(cue, frame, keys, name):
     return dump
 
 
+def open_ui(path):
+    """Opens the trace in ui.perfetto.dev in the default browser: the UI may
+    fetch a trace from 127.0.0.1:9001 (as Perfetto's own open_trace_in_ui
+    does), so it is served from there until the UI has it."""
+    import http.server
+    import webbrowser
+
+    path = os.path.abspath(path)
+    name = os.path.basename(path)
+    served = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path.split('?')[0] != '/' + name:
+                self.send_error(404)
+                return
+            with open(path, 'rb') as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header('Access-Control-Allow-Origin', 'https://ui.perfetto.dev')
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            served.append(name)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(('127.0.0.1', 9001), Handler)
+    server.timeout = 1
+    webbrowser.open(f'https://ui.perfetto.dev/#!/?url=http://127.0.0.1:9001/{name}')
+    deadline = time.time() + 120
+    while not served and time.time() < deadline:
+        server.handle_request()
+    server.server_close()
+    print(f'{name}: ' + ('opened in Perfetto' if served else 'Perfetto never asked for it (2 minutes)'))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -376,8 +417,13 @@ def main():
     v = sub.add_parser('convert')
     v.add_argument('dump')
     v.add_argument('--out')
+    o = sub.add_parser('open')
+    o.add_argument('json')
     args = ap.parse_args()
 
+    if args.cmd == 'open':
+        open_ui(args.json)
+        return
     if args.cmd == 'capture':
         dump = capture(os.path.abspath(args.cue), args.frame, args.keys, args.out)
         out = os.path.join(ROOT, 'build', args.out + '.json')
