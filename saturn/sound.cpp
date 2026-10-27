@@ -17,6 +17,7 @@
 #define KYONEX          0x1000  // key execute: every slot follows its KYONB
 #define KYONB           0x0800
 #define LPCTL_LOOP      0x0020
+#define PCM8B           0x0010  // 8-bit samples
 
 #define SMPC_SNDOFF     0x07
 
@@ -26,8 +27,10 @@
 #define EXTS_LEFT_ONLY  0x1F
 #define EXTS_RIGHT_ONLY 0x0F
 
-// Samples are 16-bit PCM at 5512.5 Hz (44100 Hz, octave -3), loaded at
-// SOUND_SAMPLES_ADDR in sound RAM as in the original.
+// Samples are 16-bit PCM at 5512.5 Hz (44100 Hz, octave -3), as in the
+// original, or 8-bit PCM at 11025 Hz (octave -2) made from the PlayStation's;
+// either plays 11025 bytes a second. They are loaded at SOUND_SAMPLES_ADDR in
+// sound RAM (sound.h has the offsets table's format).
 #define VOICES          16      // slots 0-15; 16 and 17 carry the CD audio
 
 // Audio tracks on the disc
@@ -54,9 +57,12 @@ static const uint8 gVolumeTL[65] = {
     5, 4, 4, 3, 3, 3, 2, 2, 1, 1, 1, 0, 0,
 };
 
-static uint32 volumeTL(int32 volume)
+// The sample's total level at that volume, attenuated by what undoes its
+// normalisation
+static uint32 sampleTL(int32 index, int32 volume)
 {
-    return gVolumeTL[X_CLAMP(volume, 0, 64)];
+    uint32 atten = (uint32(level.soundOffsets[index]) >> SOUND_ATTEN_SHIFT) & SOUND_ATTEN_MASK;
+    return X_MIN(gVolumeTL[X_CLAMP(volume, 0, 64)] + atten, 255u);
 }
 
 // OpenLara pitch (128 = the sample's rate) as SCSP octave and frequency
@@ -138,7 +144,7 @@ void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
 
         if (mode != REPLAY)
         {
-            SCSP_SLOT(v, 6) = volumeTL(volume);
+            SCSP_SLOT(v, 6) = sampleTL(index, volume);
             return gVoices + v;
         }
 
@@ -158,31 +164,35 @@ void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
     // before a key on restarts it
     for (volatile int32 i = 0; i < 200; i++);
 
-    uint32 addr = SOUND_SAMPLES_ADDR + level.soundOffsets[index];
-    uint32 length = (level.soundOffsets[index + 1] - level.soundOffsets[index]) >> 1;
+    uint32 entry = level.soundOffsets[index];
+    uint32 offset = entry & SOUND_OFFSET_MASK;
+    uint32 bytes = (level.soundOffsets[index + 1] & SOUND_OFFSET_MASK) - offset;
+    bool pcm8 = (entry & SOUND_PCM8) != 0;
+    uint32 addr = SOUND_SAMPLES_ADDR + offset;
+    uint32 length = pcm8 ? bytes : bytes >> 1;
     bool loop = (mode == LOOP);
 
-    uint16 reg0 = (loop ? LPCTL_LOOP : 0) | ((addr >> 16) & 15);
+    uint16 reg0 = (loop ? LPCTL_LOOP : 0) | (pcm8 ? PCM8B : 0) | ((addr >> 16) & 15);
     SCSP_SLOT(v, 0) = reg0;
     SCSP_SLOT(v, 1) = addr;
     SCSP_SLOT(v, 2) = 0;                        // loop start
     SCSP_SLOT(v, 3) = length - 1;               // loop/sample end
     SCSP_SLOT(v, 4) = 0x001F;                   // attack 31, no decay
     SCSP_SLOT(v, 5) = 0x001F;                   // release 31
-    SCSP_SLOT(v, 6) = volumeTL(volume);
+    SCSP_SLOT(v, 6) = sampleTL(index, volume);
     SCSP_SLOT(v, 7) = 0;                        // no modulation
-    SCSP_SLOT(v, 8) = pitchOctFns(pitch);
+    SCSP_SLOT(v, 8) = pitchOctFns(pitch) + (pcm8 ? 1 << 11 : 0);   // an octave up at 11025 Hz
     SCSP_SLOT(v, 9) = 0;                        // no LFO
     SCSP_SLOT(v, 10) = 0;
     SCSP_SLOT(v, 11) = 7 << 13;                 // direct send, centre
     SCSP_SLOT(v, 0) = reg0 | KYONB;
     keyExecute();
 
-    // samples per 60 Hz frame at this pitch: 5512.5 / 60 * pitch / 128
+    // bytes per 60 Hz frame at this pitch: 11025 / 60 * pitch / 128
     Voice &voice = gVoices[v];
     voice.sample = index;
     voice.loop = loop;
-    voice.end = gVblankCount + (length * 128) / (92 * X_MAX(pitch, 1)) + 1;
+    voice.end = gVblankCount + (bytes * 64) / (92 * X_MAX(pitch, 1)) + 1;
 
     return &voice;
 }
