@@ -4,13 +4,11 @@
 # image extracted to external_resources/tomb_raider_usa/.
 #
 #   make disc     $(BUILD)/disc/tomb.cue (our 0MAIN.BIN + the original audio tracks)
-#   make bench    $(BUILD)/bench/disc/tomb.cue (CPU benchmark, saturn/progs/bench.cpp)
-#   make cdtest   $(BUILD)/cdtest/disc/tomb.cue (CD loader self-test)
 #   make ghidra   headless analysis of the original 0MAIN.BIN
 #
 # First run: python tools/setup_toolchain.py (pinned GCC 14.2 into toolchain/).
 # Toolchain, flags and output directory can be overridden, e.g.
-#   make bench SH_BIN=... SH_PREFIX=sh-elf- OPT=-O2 BUILD=build/gcc9-O2
+#   make disc SH_BIN=... SH_PREFIX=sh-elf- OPT=-O2 BUILD=build/gcc9-O2
 
 PY      ?= python -I
 GHIDRA  ?= C:/Users/albat/Documents/ghidra_12.0_PUBLIC_20251205/ghidra_12.0_PUBLIC
@@ -70,15 +68,6 @@ GH_OUT  := build/ghidra
 
 # The game: every platform source plus the OpenLara core.
 GAME_SRC := $(wildcard saturn/*.c saturn/*.cpp saturn/*.s) openlara/common.cpp
-ENGINE_SRC := $(filter-out saturn/main.cpp,$(GAME_SRC))
-HW_SRC  := saturn/crt0.s saturn/irq.s saturn/system.cpp saturn/cd.cpp
-
-# Test programs in saturn/progs/, each built onto its own disc by `make NAME`.
-# NAME_DISC lists extra disc files as DISCPATH=SRCPATH.
-PROGS   := bench cdtest
-bench_SRC  := $(ENGINE_SRC) saturn/progs/bench.cpp
-cdtest_SRC := $(HW_SRC) saturn/progs/cdtest.cpp
-cdtest_DISC := DATA/LEVEL1.SAT=$(DISC)/files/DATA/LEVEL1.SAT
 
 DISC_TXT := ABS.TXT=disc/ABS.TXT BIB.TXT=disc/BIB.TXT CPY.TXT=disc/CPY.TXT
 
@@ -94,7 +83,7 @@ endef
 DSP_HEADERS := $(patsubst saturn/%.dsp,$(BUILD)/gen/%_dsp.h,$(wildcard saturn/*.dsp))
 HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h) $(DSP_HEADERS)
 
-.PHONY: all disc $(PROGS) extract ghidra check-toolchain
+.PHONY: all disc extract ghidra check-toolchain
 
 # keep intermediate files (0MAIN.BIN) produced through pattern rules
 .SECONDARY:
@@ -142,16 +131,6 @@ build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%
 
 disc: $(BUILD)/disc/tomb.cue
 $(eval $(call DISC_RULE,$(BUILD),$(GAME_DISC)))
-
-define PROG_RULES
-$(BUILD)/$(1)/0MAIN.elf: $$(patsubst %,$(BUILD)/obj/%.o,$$($(1)_SRC)) saturn/saturn.ld
-	@mkdir -p $$(@D)
-	$$(CXX) $$(CXXFLAGS) $$(LDFLAGS) -Wl,-Map=$$(@D)/0MAIN.map -o $$@ $$(filter %.o,$$^) -lc -lgcc
-
-$(1): $(BUILD)/$(1)/disc/tomb.cue
-$$(eval $$(call DISC_RULE,$(BUILD)/$(1),$$($(1)_DISC)))
-endef
-$(foreach p,$(PROGS),$(eval $(call PROG_RULES,$(p))))
 
 extract: $(DISC)/filelist.txt
 
