@@ -39,10 +39,10 @@ def symbols(elf):
     return out
 
 
-def spots(lvl, rng):
-    """Endless random (room, x, y, z, yaw) on flat, open, dry floor."""
+def spots(lvl, rng, only=None):
+    """Endless random (room, x, y, z, yaw) on flat, open, dry floor, in the rooms only if given."""
     flipped = {r.alternate for r in lvl.rooms if r.alternate >= 0}
-    rooms = [r for r in lvl.rooms if r.index not in flipped]   # shown only after a flip
+    rooms = [r for r in lvl.rooms if r.index not in flipped and (only is None or r.index in only)]
     while True:
         r = rng.choice(rooms)
         if r.flags & 1:
@@ -72,7 +72,8 @@ def main():
     ap.add_argument('--seed', type=int, default=1)
     ap.add_argument('--spots', help='a file of spots instead of random ones: NAME: room R X Y Z yaw HEX per line '
                                     '(as this script writes them)')
-    ap.add_argument('--layers', choices=('camera', 'one'), default='camera', help='depth layers option')
+    ap.add_argument('--layers', choices=('camera', 'one'), default='one', help='depth layers option')
+    ap.add_argument('--rooms', help='random spots in these rooms only, e.g. 13,14,15')
     ap.add_argument('--prefix', default='auto', help="the cases' names")
     args = ap.parse_args()
 
@@ -95,7 +96,8 @@ def main():
         chosen = [(int(p[2]), int(p[3]), int(p[4]), int(p[5]), int(p[7], 16)) for p in listed]
         names = [p[0].rstrip(':') for p in listed]
     else:
-        chosen = list(zip(range(args.count), spots(lvl, rng)))
+        only = {int(r) for r in args.rooms.split(',')} if args.rooms else None
+        chosen = list(zip(range(args.count), spots(lvl, rng, only)))
         chosen = [c for _, c in chosen]
         names = [f'{args.seed}_{k}' for k in range(len(chosen))]
 
