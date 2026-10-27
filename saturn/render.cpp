@@ -1701,9 +1701,17 @@ void clear()
 }
 
 // The ordering table's layers (render.h OtLayer): the camera's room, and its
-// box from the camera, which an object reaching into it is drawn with.
+// portals' boxes from the camera, through which an object in a room next to
+// it reaches in.
+struct CameraPortal
+{
+    int32 room;
+    int32 box[6];           // x, y, z from; x, y, z to
+};
+
 static const Room* gCameraRoom;
-static int32 gCameraBox[6];     // x, y, z from; x, y, z to
+static CameraPortal gCameraPortals[MAX_PORTALS];
+static int32 gCameraPortalCount;
 static int32 gLayer;            // the master's faces'
 
 static void depthLayer(int32 layer)
@@ -1718,12 +1726,27 @@ void depthLayersBegin(const Room* cameraRoom)
 {
     gCameraRoom = gDepthLayers ? cameraRoom : NULL;
     const RoomInfo* info = cameraRoom->info;
-    gCameraBox[0] = (info->x << 8) - gCameraViewPos.x;
-    gCameraBox[1] = info->yTop - gCameraViewPos.y;
-    gCameraBox[2] = (info->z << 8) - gCameraViewPos.z;
-    gCameraBox[3] = gCameraBox[0] + (info->xSectors << 10);
-    gCameraBox[4] = info->yBottom - gCameraViewPos.y;
-    gCameraBox[5] = gCameraBox[2] + (info->zSectors << 10);
+    int32 ox = (info->x << 8) - gCameraViewPos.x;
+    int32 oz = (info->z << 8) - gCameraViewPos.z;
+    gCameraPortalCount = X_MIN(int32(info->portalsCount), MAX_PORTALS);
+    for (int32 i = 0; i < gCameraPortalCount; i++)
+    {
+        const Portal* portal = cameraRoom->data.portals + i;
+        CameraPortal &p = gCameraPortals[i];
+        p.room = portal->roomIndex;
+        int32* b = p.box;
+        b[0] = b[1] = b[2] = 0x7FFFFFFF;
+        b[3] = b[4] = b[5] = -0x7FFFFFFF;
+        for (int32 k = 0; k < 4; k++)
+        {
+            int32 v[3] = { portal->v[k].x + ox, portal->v[k].y - gCameraViewPos.y, portal->v[k].z + oz };
+            for (int32 a = 0; a < 3; a++)
+            {
+                b[a] = X_MIN(b[a], v[a]);
+                b[a + 3] = X_MAX(b[a + 3], v[a]);
+            }
+        }
+    }
     depthLayer(OT_LAYER_FRONT);
 }
 
@@ -1743,14 +1766,20 @@ void depthLayerRoom(const Room* room)
     depthLayer(roomLayer(room));
 }
 
-// An object in a sphere, its centre from the camera: in front if the sphere's
-// box meets the camera's room's (rooms' boxes take in their walls, so an
-// object at one goes in front, sorted with that room as without layers).
-void depthLayerSphere(int32 x, int32 y, int32 z, int32 r)
+// An object of room in a sphere, its centre from the camera: in front if it
+// stands in the camera's room or reaches into it, its sphere's box meeting a
+// portal between their rooms. Rooms' boxes overlap, so only a portal tells.
+void depthLayerObject(const Room* room, int32 x, int32 y, int32 z, int32 r)
 {
-    const int32* b = gCameraBox;
-    bool front = !gCameraRoom || (x + r > b[0] && x - r < b[3] && y + r > b[1] && y - r < b[4] &&
-                                  z + r > b[2] && z - r < b[5]);
+    bool front = !gCameraRoom || room == gCameraRoom;
+    int32 index = room - rooms;
+    for (int32 i = 0; i < gCameraPortalCount && !front; i++)
+    {
+        const CameraPortal &p = gCameraPortals[i];
+        const int32* b = p.box;
+        front = p.room == index && x + r >= b[0] && x - r <= b[3] && y + r >= b[1] && y - r <= b[4] &&
+                z + r >= b[2] && z - r <= b[5];
+    }
     depthLayer(front ? OT_LAYER_FRONT : OT_LAYER_BACK);
 }
 

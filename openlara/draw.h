@@ -257,7 +257,8 @@ void drawShadow(const ItemObj* item, int32 size)
 
 void drawSprite(const ItemObj* item)
 {
-    depthLayerSphere(item->pos.x - gCameraViewPos.x, item->pos.y - gCameraViewPos.y, item->pos.z - gCameraViewPos.z, 0);
+    depthLayerObject(item->room, item->pos.x - gCameraViewPos.x, item->pos.y - gCameraViewPos.y,
+                     item->pos.z - gCameraViewPos.z, 0);
     renderSprite(item->pos.x, item->pos.y, item->pos.z, item->intensity << 5, level.models[item->type].start + item->frameIndex);
 }
 
@@ -709,7 +710,7 @@ void drawModel(const ItemObj* item)
     if (!sphereIsVisible(sx, sy, sz, sr))
         return;
 
-    depthLayerSphere(sx, sy, sz, sr);
+    depthLayerObject(item->room, sx, sy, sz, sr);
     matrixPush();
     matrixTranslateAbs(item->pos.x, item->pos.y, item->pos.z);
     matrixRotateYXZ(item->angle.x, item->angle.y, item->angle.z);
@@ -822,7 +823,7 @@ void drawRoomObjects(Room* room)
         if (!sphereIsVisible(sx, sy, sz, sr))
             continue;
 
-        depthLayerSphere(sx, sy, sz, sr);
+        depthLayerObject(room, sx, sy, sz, sr);
         matrixPush();
         matrixTranslateSet(px, py, pz);
         matrixRotateYQ(q);

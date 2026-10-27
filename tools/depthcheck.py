@@ -441,6 +441,8 @@ ORDERS = {
     'levels': "rooms by portal steps from the camera's room (--levels deep at most), farthest "
               "first, objects with the nearest room they reach into; by depth within",
     'camera': "the camera's room and what reaches into it last, the rest first; by depth within",
+    'camera-back': "... but what reaches across rooms with the rest",
+    'camera-face': "... but each face of what reaches across rooms with the room holding its centre",
 }
 
 
@@ -491,12 +493,12 @@ def draw_order(faces, walk, args, lvl):
     order = args.order
     if order == 'captured' and args.coarse == '0':
         return faces
-    if order in ('captured', 'levels', 'camera'):
+    if order in ('captured', 'levels', 'camera', 'camera-back', 'camera-face'):
         level = portal_levels(lvl, walk) if walk else {}
         deepest = max(level.values(), default=0)
         if order == 'captured':
             rank = {}
-        elif order == 'camera':
+        elif order.startswith('camera'):
             rank = {room: int(room == walk[-1]) for room in walk}
         else:
             cap = args.levels
@@ -507,6 +509,10 @@ def draw_order(faces, walk, args, lvl):
         def layer(f):
             if f.kind == 'room':
                 return rank.get(f.room, 0)
+            if order == 'camera-back' and len(f.touches) > 1:
+                return min(rank.get(r, 0) for r in f.touches)
+            if order == 'camera-face' and len(f.touches) > 1 and f.face_room is not None:
+                return rank.get(f.face_room, 0)
             return max((rank.get(r, 0) for r in f.touches), default=top)
 
         def sub_list(f):
