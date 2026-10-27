@@ -336,6 +336,12 @@ void renderSetDarkFaces(int32 mode);
 extern int32 gContrastSteps;
 void renderSetContrastSteps(int32 steps);
 
+// DARK_CONTRAST: the tables of less contrast bring only colours brighter than
+// the texture's mean towards it, keeping the dark ones (whose specks hide the
+// straight edges of gouraud ramps between faces).
+extern bool gContrastBrights;
+void renderSetContrastBrights(bool brights);
+
 // The colour tables have swapped between the original and remastered sets
 // (palettes.cpp): textures take the other set's mean colours, and the tables
 // of less contrast are made again.

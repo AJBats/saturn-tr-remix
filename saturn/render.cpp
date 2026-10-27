@@ -389,6 +389,7 @@ bool renderFastShrink()
 }
 int32 gDarkFaces = DARK_CONTRAST;
 int32 gContrastSteps = 1;
+bool gContrastBrights;
 int32 gFlatDist;
 int32 gTurnLines = 1;
 int32 gShadowMode = SHADOW_MESH;
@@ -751,15 +752,30 @@ static void buildContrast()
                 else
                 {
                     // m (8 - c) + col c >= 0, eighths
-                    r = (mr * (8 - c) + int32(col & 31) * c + 4) >> 3;
-                    g = (mg * (8 - c) + int32((col >> 5) & 31) * c + 4) >> 3;
-                    b = (mb * (8 - c) + int32((col >> 10) & 31) * c + 4) >> 3;
+                    r = col & 31;
+                    g = (col >> 5) & 31;
+                    b = (col >> 10) & 31;
+                    if (!gContrastBrights || int32(r) > mr) {
+                        r = (mr * (8 - c) + int32(r) * c + 4) >> 3;
+                    }
+                    if (!gContrastBrights || int32(g) > mg) {
+                        g = (mg * (8 - c) + int32(g) * c + 4) >> 3;
+                    }
+                    if (!gContrastBrights || int32(b) > mb) {
+                        b = (mb * (8 - c) + int32(b) * c + 4) >> 3;
+                    }
                 }
                 *out++ = (col & 0x8000) | (b << 10) | (g << 5) | r;
             }
         }
     }
     shadeTablesReset();
+}
+
+void renderSetContrastBrights(bool brights)
+{
+    gContrastBrights = brights;
+    buildContrast();
 }
 
 void renderSetContrastSteps(int32 steps)
