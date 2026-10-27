@@ -1,10 +1,10 @@
 // The debug pad (port 2). Mednafen keys in brackets:
-//   START [Tab]       opens and closes the menu
+//   START [Tab]       opens and closes the menu (not in HW_LOG builds)
 //   up/down [arrows]  pick an option, left/right change it
 //   A [P], B [H], C [G]  step the palette, view and dark faces options
 // Changes show for a moment at the bottom of the screen. In HW_LOG builds the
-// player's pad pages the overlay with R and L, and on the menu's page its
-// d-pad and A, B, C work the menu as the debug pad's do (Lara stands still).
+// player's pad pages the overlay with R and L, and the menu is one of its
+// pages, where its d-pad and A, B, C work the menu too (Lara stands still).
 
 #include "debug.h"
 #include "common.h"
@@ -109,8 +109,10 @@ enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_MULTIPLY, OPTION_GREY, 
        OPTION_PALETTE, OPTION_SPLIT, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_COUNT };
 
 static uint16 gPad;
-static bool gMenuOpen;
 static int32 gCursor;
+#ifndef HW_LOG
+static bool gMenuOpen;
+#endif
 #ifdef HW_LOG
 // R and L page through the overlay: the bench's table, then (held on Base)
 // the scene's rows with each frame's CPU, slave and VDP1 time, each frame's
@@ -134,14 +136,13 @@ static void step(int32 index, int32 delta)
     gMessageEnd = gVblankCount + 120;
 }
 
-// The menu shows: opened from the debug pad, or the overlay's page.
 static bool menuShown()
 {
 #ifdef HW_LOG
-    if (gPage == PAGE_MENU)
-        return true;
-#endif
+    return gPage == PAGE_MENU;
+#else
     return gMenuOpen;
+#endif
 }
 
 void debugUpdate()
@@ -168,9 +169,11 @@ void debugUpdate()
     uint16 pressed = pad & ~gPad;
     gPad = pad;
 
+#ifndef HW_LOG
     if (pressed & PAD_START) {
         gMenuOpen = !gMenuOpen;
     }
+#endif
 
     if (menuShown())
     {
@@ -825,7 +828,7 @@ void osDrawDebug()
     char text[64];
 
 #ifdef HW_LOG
-    if (gPage == PAGE_NONE && !gMenuOpen)
+    if (gPage == PAGE_NONE)
     {
         overlayFrame();
         return;
