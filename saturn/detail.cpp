@@ -105,11 +105,6 @@ void detailItemInit(uint32_t size)
     gItemDataSize = size;
 }
 
-const uint8_t* detailTexels(uint32_t key)
-{
-    return key * DETAIL_UNIT < gDataSize ? gData[0] + key * DETAIL_UNIT : NULL;
-}
-
 bool detailMips()
 {
     return gPoolCount[1] != 0;

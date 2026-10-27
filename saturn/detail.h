@@ -111,10 +111,6 @@ inline uint32_t detailSlotAddr(int32_t slot)
 // Faces may take mip levels: the set has them and the cache their pools.
 bool detailMips();
 
-// The full-res texture with this key (Texture.reserved - 1), whole, 4 bits a
-// texel; NULL past the set.
-const uint8_t* detailTexels(uint32_t key);
-
 // The w x h 4-bit texture at src to dst transposed, h x w: texel (x, y) to
 // (y, x). Each a multiple of 8; both 32-bit aligned.
 void detailTranspose(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h);
