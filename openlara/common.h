@@ -973,6 +973,12 @@ struct RoomInfo
     uint8 alternateRoom;
     uint8 flags;
 
+#ifdef __SATURN__
+    // data.quads begins with those square to an axis, facing +x, -x, +y, -y,
+    // +z and -z, each run sorted by its plane (pack_level.py sort_room_quads)
+    uint16 facing[6];
+#endif
+
     RoomData data;
 };
 

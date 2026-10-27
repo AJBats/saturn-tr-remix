@@ -57,6 +57,7 @@ FACE_TYPE_SHIFT = 14
 TEX_ATTR_AKILL = 1
 FACE_TEXTURE_MAX = 0x3FFF
 DETAIL_UNIT = 256   # Texture.reserved: full-res offset / DETAIL_UNIT + 1
+ROOM_INFO_SIZE = 68 # common.h RoomInfo
 
 NODE_FLAG_ROTX, NODE_FLAG_ROTY, NODE_FLAG_ROTZ = 1 << 2, 1 << 3, 1 << 4
 
@@ -126,6 +127,39 @@ def s16(v):
 def quadrant(angle):
     """TR yaw (int16) to the packer's 2-bit quadrant, (angle / 0x4000 + 2) as in C."""
     return int(s16(angle & 0xFFFF) / 0x4000) + 2
+
+
+def room_quad_facing(packed, quad):
+    """Which axis-square plane a room quad lies in, as rooms.cpp roomFaces
+    groups them: (2 * axis + 1 when its normal points down the axis, the
+    plane's packed coordinate), or None for any other quad. The normal is
+    (v1 - v0) x (v2 - v0), the corners faces.s BACKFACE tests."""
+    p = [packed[i] for i in quad[:4]]
+    e1 = [p[1][a] - p[0][a] for a in range(3)]
+    e2 = [p[2][a] - p[0][a] for a in range(3)]
+    n = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+    for axis in range(3):
+        square = all(n[a] == 0 for a in range(3) if a != axis)
+        if n[axis] and square and all(q[axis] == p[0][axis] for q in p):
+            return 2 * axis + (n[axis] < 0), p[0][axis]
+    return None
+
+
+def sort_room_quads(packed, quads):
+    """The quads facing +x, -x, +y, -y, +z and -z, each run sorted by its
+    plane's coordinate, then the rest; with the six runs' lengths."""
+    runs = [[] for _ in range(6)]
+    rest = []
+    for q in quads:
+        f = room_quad_facing(packed, q)
+        if f is None:
+            rest.append(q)
+        else:
+            runs[f[0]].append((f[1], q))
+    ordered = []
+    for run in runs:
+        ordered += [q for _, q in sorted(run, key=lambda e: e[0])]
+    return ordered + rest, [len(run) for run in runs]
 
 
 def shade_from_color16(c):
@@ -401,7 +435,7 @@ class Packer:
     def write_rooms(self, out):
         lvl = self.lvl
         base = out.align4()
-        out.raw(bytes(56 * len(lvl.rooms)))
+        out.raw(bytes(ROOM_INFO_SIZE * len(lvl.rooms)))
         infos = []
 
         for room in lvl.rooms:
@@ -410,9 +444,11 @@ class Packer:
             ys = [v[1] for v in room.vertices]
             y_top = min(ys) if ys else room.y_top
             y_bottom = max(ys) if ys else room.y_bottom
+            packed = [(x >> 8, (y - y_top) >> 8, z >> 8) for x, y, z, _ in room.vertices]
+            room_quads, facing = sort_room_quads(packed, room.quads)
 
             quads = out.align4()
-            for v0, v1, v2, v3, tex, transp in room.quads:
+            for v0, v1, v2, v3, tex, transp in room_quads:
                 ftype = FACE_TYPE_FTA if transp else FACE_TYPE_FT
                 out.pack("I4H", (ftype << FACE_TYPE_SHIFT) | self.textures.room(tex, transp), v0, v1, v2, v3)
 
@@ -457,14 +493,15 @@ class Packer:
                 out.pack("2I", xy, zf)
 
             water = room.flags & 1
-            infos.append(struct.pack(">4h4H4B4B8I",
+            infos.append(struct.pack(">4h4H4B4B6H8I",
                 room.x // 256, room.z // 256, y_bottom, y_top,
                 len(room.quads), len(room.triangles), len(room.vertices), len(room.sprites),
                 len(room.portals), len(room.lights), len(room.static_meshes), min(255, room.ambient >> 5),
                 room.x_sectors, room.z_sectors, room.alternate & 0xFF, water,
+                *facing,
                 quads, triangles, vertices, sprites, portals, sectors, lights, meshes))
 
-        out.b[base:base + 56 * len(lvl.rooms)] = b"".join(infos)
+        out.b[base:base + ROOM_INFO_SIZE * len(lvl.rooms)] = b"".join(infos)
         return base
 
     # --- meshes ----------------------------------------------------------

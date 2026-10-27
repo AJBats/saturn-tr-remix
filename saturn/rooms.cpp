@@ -40,6 +40,7 @@ struct RoomJob
     RoomMatrix matrix;
     RectMinMax viewport;
     int32 causticsFrame;
+    int32 camera[3];        // the camera's position from the room's origin
 };
 
 // Master side. Jobs are written cached (memory is write-through) and read by
@@ -433,12 +434,14 @@ struct RoomFaces
     int32 parity;           // the frame's: a quad decides its turn and mip level on frames
                             // of its own parity (faces.s REUSE); -1: every frame
     int32 cached;           // faces.s's
+    int32 facing;           // the quads face the camera: no backface test
 };
 
 static_assert(offsetof(RoomFaces, textures) == 16 && offsetof(RoomFaces, end) == 28 &&
               offsetof(RoomFaces, frame) == 40 && offsetof(RoomFaces, miss) == 48 &&
               offsetof(RoomFaces, turn) == 52 && offsetof(RoomFaces, lod) == 60 &&
               offsetof(RoomFaces, parity) == 64 && offsetof(RoomFaces, cached) == 68 &&
+              offsetof(RoomFaces, facing) == 72 &&
               sizeof(RoomQuad) == 12 && sizeof(RoomTriangle) == 12 && sizeof(DetailSlot) == 8 &&
               offsetof(DetailSlot, frame) == 4 && DETAIL_MAX_KEYS == 1088 && sizeof(Texture) == 16 &&
               offsetof(Texture, size) == 4 && offsetof(Texture, reserved) == 10 &&
@@ -453,6 +456,35 @@ static_assert(offsetof(RoomFaces, textures) == 16 && offsetof(RoomFaces, end) ==
 
 extern "C" void faceAddRoomQuadsAsm(const RoomQuad* polys, int32 count, RoomFaces* rf);
 extern "C" void faceAddRoomTrianglesAsm(const RoomTriangle* polys, int32 count, RoomFaces* rf);
+
+// Of a run of count quads square to an axis (RoomInfo.facing), the ones that
+// face the camera, from *first: those the camera lies on the front side of
+// (faces.s BACKFACE's: a run facing down the axis, odd, when the camera's
+// coordinate is above the plane's, the others below). The run is sorted by
+// the plane's coordinate.
+static int32 facingQuads(const RoomQuad* quads, int32 count, int32 run, const int32* camera, int32 &first)
+{
+    int32 axis = run >> 1;
+    int32 c = camera[axis] + ((run & 1) ? 0 : 1);
+    int32 lo = 0, hi = count;
+    while (lo < hi)
+    {
+        int32 mid = (lo + hi) >> 1;
+        const uint8* v = (const uint8*)(gRoomVertices + quads[mid].indices[0]);
+        if ((int32(v[axis]) << 8) < c) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if (run & 1)
+    {
+        first = 0;
+        return lo;
+    }
+    first = lo;
+    return count - lo;
+}
 
 // project.dsp's divide table: divTable << 4 as longwords, by z >> 12.
 static int32 gDspDivide[DIV_TABLE_SIZE];
@@ -638,10 +670,26 @@ static void roomFaces(int32 index, const RoomJob &job)
         RoomFaces rf = { roomBase, base * 0x10001, &gFaceList, gRoomFaceFlags, level.textures, 0, 0,
                          gFaceList.end, gDetailKeys[0], gDetailSlots, gDetailFrame, faceAddRoomQuads, detailSlotMiss,
                          gTurn, 0, detailMips() && gBenchMode != BENCH_NO_LOD ? gTextureLod : 0,
-                         int32(gDetailFrame & 1), -1 };
-        if (info->quadsCount > 0) {
-            faceAddRoomQuadsAsm(data.quads, info->quadsCount, &rf);
+                         0, -1, 0 };
+
+        // The runs of quads square to an axis, then the rest: of the runs,
+        // only the quads facing the camera, without a backface test. A quad's
+        // parity is its index's in the room, as one call over them all gave.
+        int32 offset = 0;
+        for (int32 run = gBenchMode == BENCH_NO_FACING ? 6 : 0; run <= 6; run++)
+        {
+            int32 count = run < 6 ? info->facing[run] : info->quadsCount - offset;
+            int32 first = 0;
+            int32 n = run < 6 ? facingQuads(data.quads + offset, count, run, job.camera, first) : count;
+            if (n > 0)
+            {
+                rf.facing = run < 6;
+                rf.parity = int32(gDetailFrame & 1) ^ ((info->quadsCount ^ (offset + first + n)) & 1);
+                faceAddRoomQuadsAsm(data.quads + offset + first, n, &rf);
+            }
+            offset += count;
         }
+
         rf.parity = -1;     // triangles decide every frame
         rf.cached = -1;
         if (info->trianglesCount > 0) {
@@ -877,6 +925,10 @@ void roomsQueue(const Room* room)
     job.matrix.tz = m.e23 >> (FIXED_SHIFT - 8);
     job.viewport = viewport;
     job.causticsFrame = gCausticsFrame;
+    const RoomInfo* info = room->info;
+    job.camera[0] = gCameraViewPos.x - (info->x << 8);
+    job.camera[1] = gCameraViewPos.y - info->yTop;
+    job.camera[2] = gCameraViewPos.z - (info->z << 8);
 
     if (gJobCount == 0) {
         slaveRun(roomBatch);

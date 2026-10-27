@@ -219,6 +219,7 @@ enum BenchMode
     BENCH_C_MESHES,     // the master's meshes by the C path, not meshxform.s renderMeshAsm
     BENCH_CLEAR,        // the scene's frames cleared too, as frames without rooms are
     BENCH_VOID_COLOR,   // VDP2's back colour magenta: shows where void fills (transparent) drew
+    BENCH_NO_FACING,    // every room quad backface-tested, none skipped by its facing run (RoomInfo.facing)
     BENCH_PROFILE,      // as Base, sampling where the master's time goes
     BENCH_COUNT
 };

@@ -50,6 +50,7 @@
 !                               of its parity (its index's), keeping them in its
 !                               flags' bits 24 .. 27; -1: every frame
 !   +68 int32 cached            the variant kept (REUSE), -1 for WHOLE to decide
+!   +72 int32 facing            the quads face the camera: no backface test
 !
 ! RoomQuad, RoomTriangle: uint32 flags; uint16 indices[4].
 ! Vertex: int16 x, y; int16 z; uint8 g, clip. Face: flags, next, int16 indices[4].
@@ -702,19 +703,15 @@ _faceAddMeshTrianglesBody:
 _faceAddRoomQuadsAsm:
     sts.l   pr, @-r15
     ENTER
+    mov     #72, r0
+    mov.l   @(r0, r6), r0
+    mov.l   r0, @-r15           ! facing, at @r15 while the quads go
     tst     r5, r5
     bf      .Lrquad
     bra     .LrquadsDone
     nop
 
-    ! culled: wholly past the far plane, filled; cut by a plane, to C, which
-    ! splits the quad or fills it
-.LrquadCulled:
-    GONE    .LrquadNext, .LrquadCut
-    mov.l   @(8, r4), r1
-    VOID    r1
-    bra     .LrquadNext
-    nop
+    ! culled and cut by a plane: to C, which splits the quad or fills it
 .LrquadCut:
     mov.l   @(8, r6), r0
     mov.l   r10, @r0            ! the list's next face, for C
@@ -730,7 +727,14 @@ _faceAddRoomQuadsAsm:
     mov.l   @r15+, r5
     mov.l   @r15+, r4
     mov.l   @(8, r6), r0
+    bra     .LrquadNext
     mov.l   @r0, r10
+
+    ! culled: wholly past the far plane, filled; cut by a plane, to C
+.LrquadCulled:
+    GONE    .LrquadNext, .LrquadCut
+    mov.l   @(8, r4), r1
+    VOID    r1
 
 .LrquadNext:
     dt      r5
@@ -746,8 +750,11 @@ _faceAddRoomQuadsAsm:
     bra     .LrquadsDone        ! out of faces
     nop
 1:  ROOM_INDICES
+    mov.l   @r15, r0
+    tst     r0, r0
+    bf      2f                  ! facing the camera
     BACKFACE .LrquadNext
-    mov.l   @(8, r4), r0
+2:  mov.l   @(8, r4), r0
     extu.w  r0, r7
     VERTEX  r7
     CULL    r7, .LrquadCulled
@@ -768,6 +775,7 @@ _faceAddRoomQuadsAsm:
     bra     .LrquadNext
     nop
 .LrquadsDone:
+    add     #4, r15             ! facing
     ROOM_LEAVE
 
     .global _faceAddRoomTrianglesAsm
