@@ -331,11 +331,6 @@ enum DarkFaces
                     // luminance, gouraud making each corner its mean's share
     DARK_SCALE_DEEP,    // as DARK_SCALE, with light below neutral squared, so
                         // dark corners go nearly as dark as DARK_ADD's
-    DARK_CONTRAST_EVEN, // every room face through the table of the last
-                        // contrast step (gContrastSteps), however lit
-    DARK_CONTRAST_MUL,  // the tables of DARK_CONTRAST, gouraud as DARK_SCALE's
-                        // (the mean at its share of the light): nothing
-                        // clips to black, texels keep the steps' contrast
     DARK_COUNT
 };
 extern int32 gDarkFaces;
@@ -347,18 +342,17 @@ extern int32 gContrastSteps;
 void renderSetContrastSteps(int32 steps);
 
 // DARK_CONTRAST: the tables of less contrast bring only colours brighter than
-// the texture's mean towards it, keeping the dark ones (whose specks hide the
-// straight edges of gouraud ramps between faces).
+// their centre towards it, keeping the dark ones.
 extern bool gContrastBrights;
 void renderSetContrastBrights(bool brights);
 
-// The tables of less contrast bring colours towards one grey for every
-// texture (16 a channel), not each texture's own mean: textures whose art
-// mixes light and dark (snow over rock) keep that edge, and every texture's
-// colours go through the same curve, so faces of different textures still
-// meet as they would at full contrast.
-extern bool gContrastCommon;
-void renderSetContrastCommon(bool common);
+// DARK_CONTRAST: where the tables of less contrast bring colours, in quarters
+// from the texture's own mean (0) to one grey shared by every texture (4, 16 a
+// channel). About its own mean, a texture whose art mixes light and dark
+// (snow painted over rock) flattens to a grey square beside its neighbours;
+// about one grey, every texture's colours go through the same curve.
+extern int32 gContrastGrey;
+void renderSetContrastGrey(int32 quarters);
 
 // The colour tables have swapped between the original and remastered sets
 // (palettes.cpp): textures take the other set's mean colours, and the tables

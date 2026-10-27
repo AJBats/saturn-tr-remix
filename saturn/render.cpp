@@ -387,10 +387,10 @@ bool renderFastShrink()
 {
     return gTexturePmod & PMOD_HSS;
 }
-int32 gDarkFaces = DARK_CONTRAST_MUL;
+int32 gDarkFaces = DARK_CONTRAST;
 int32 gContrastSteps = 4;
 bool gContrastBrights;
-bool gContrastCommon;
+int32 gContrastGrey = 4;
 int32 gFlatDist;
 int32 gTurnLines = 1;
 int32 gShadowMode = SHADOW_MESH;
@@ -589,14 +589,6 @@ X_INLINE bool shadeDark(uint32* w, uint32* grd, uint32 flags, const Vertex* a, c
     int32 lc = gShadeLevel[c->g];
     int32 ld = gShadeLevel[d->g];
 
-    if (gDarkFaces == DARK_CONTRAST_EVEN)
-    {
-        if (tex->contrast && ((w[0] >> 16) & 15) != CMD_POLYGON) {
-            w[1] = (w[1] & 0xFFFF0000) | (tex->contrast + (CONTRAST_TABLES - 1) * 4);
-        }
-        return false;
-    }
-
     if (gDarkFaces == DARK_SCALE || gDarkFaces == DARK_SCALE_DEEP)
     {
         if (gDarkFaces == DARK_SCALE_DEEP)
@@ -614,34 +606,8 @@ X_INLINE bool shadeDark(uint32* w, uint32* grd, uint32 flags, const Vertex* a, c
     int32 dark = (64 - (la + lb + lc + ld)) * 9;
     int32 third = int32(tex->attr >> 8) * 4;
 
-    bool polygon = ((w[0] >> 16) & 15) == CMD_POLYGON;
-
-    // DARK_CONTRAST_MUL: VDP1 adds; with the add of DARK_CONTRAST, where the
-    // light falls below the texture's mean the darkest texels clip to black,
-    // and a shadow's flat inside (every corner equally dark) clips wholly,
-    // set apart from the ramp around it, which keeps some texels; here
-    // gouraud brings the mean to its share of the light, as the PS1's
-    // multiply does, and the tables keep their contrast
-    if (gDarkFaces == DARK_CONTRAST_MUL)
-    {
-        if (tex->contrast && !polygon)
-        {
-            int32 k = 0;
-            for (int32 step = third; k < 4 && dark * 4 >= step; step += third) {
-                k++;
-            }
-            if (k) {
-                w[1] = (w[1] & 0xFFFF0000) | (tex->contrast + (k - 1) * 4);
-            }
-        }
-        uint32 m = tex->color;
-        grd[0] = (scaledGouraud(m, la, 16, false) << 16) | scaledGouraud(m, lb, 16, false);
-        grd[1] = (scaledGouraud(m, lc, 16, false) << 16) | scaledGouraud(m, ld, 16, false);
-        return true;
-    }
-
     // a room face drawn in its mean colour: the tables are for its texels
-    if (tex->contrast && polygon)
+    if (tex->contrast && ((w[0] >> 16) & 15) == CMD_POLYGON)
         return false;
 
     if (gDarkFaces == DARK_CONTRAST && tex->contrast)
@@ -782,10 +748,12 @@ static void buildContrast()
 
         const volatile uint16* lut = (const volatile uint16*)(VDP1_VRAM + t.colr * 8);
         volatile uint16* out = (volatile uint16*)(VDP1_VRAM + t.contrast * 8);
-        uint32 m = gContrastCommon ? RGB(16, 16, 16) : t.color;
-        int32 mr = m & 31;
-        int32 mg = (m >> 5) & 31;
-        int32 mb = (m >> 10) & 31;
+        // the centre: the texture's mean, gContrastGrey quarters of the way
+        // to one grey
+        uint32 m = t.color;
+        int32 mr = (int32(m & 31) * (4 - gContrastGrey) + 16 * gContrastGrey + 2) >> 2;
+        int32 mg = (int32((m >> 5) & 31) * (4 - gContrastGrey) + 16 * gContrastGrey + 2) >> 2;
+        int32 mb = (int32((m >> 10) & 31) * (4 - gContrastGrey) + 16 * gContrastGrey + 2) >> 2;
 
         for (int32 k = 1; k <= CONTRAST_TABLES; k++)
         {
@@ -829,9 +797,9 @@ static void buildContrast()
     shadeTablesReset();
 }
 
-void renderSetContrastCommon(bool common)
+void renderSetContrastGrey(int32 quarters)
 {
-    gContrastCommon = common;
+    gContrastGrey = quarters;
     buildContrast();
 }
 
@@ -1150,7 +1118,7 @@ static_assert(offsetof(FlushXform, vertices) == 12 && offsetof(FlushXform, grdLi
               "FlushXform layout is shared with flush.s");
 static_assert(sizeof(Face) == 16 && offsetof(Face, next) == 4 && offsetof(Face, indices) == 8 &&
               sizeof(Texture) == 16 && offsetof(Texture, attr) == 6 && offsetof(Texture, color) == 8 &&
-              offsetof(Texture, contrast) == 14 && DARK_CONTRAST == 2 && DARK_SCALE == 3 && DARK_SCALE_DEEP == 4 && DARK_CONTRAST_EVEN == 5 && DARK_CONTRAST_MUL == 6 &&
+              offsetof(Texture, contrast) == 14 && DARK_CONTRAST == 2 && DARK_SCALE == 3 && DARK_SCALE_DEEP == 4 &&
               sizeof(Command) == 32 && sizeof(gGouraud[0]) == 8, "layouts read by flush.s");
 static_assert(FACE_WATER == (1 << 30) && FACE_DETAIL == (1 << 29) && FACE_PARALLELOGRAM == (1 << 28) &&
               FACE_DETAIL_WHOLE == (1 << 27) && FACE_V0_AT_D == (1 << 27) && FACE_DETAIL_SLOT_SHIFT == 20 &&

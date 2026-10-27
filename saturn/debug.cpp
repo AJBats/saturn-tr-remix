@@ -28,7 +28,7 @@ struct Option
 };
 
 static const char* const kCurves[] = { "Saturn", "Soft", "Softer" };
-static const char* const kDark[] = { "Add", "Half luminance", "Contrast steps", "Scaled", "Scaled deep", "Contrast even", "Contrast multiply" };
+static const char* const kDark[] = { "Add", "Half luminance", "Contrast steps", "Scaled", "Scaled deep" };
 static const char* const kPalette[] = { "Saturn", "Remastered" };
 static const char* const kViews[] = { "Normal", "Texture cache", "Texel size", "Wireframe", "Contrast steps" };
 static const char* const kOnOff[] = { "Off", "On" };
@@ -39,7 +39,7 @@ static const char* const kShade[] = { "Gouraud", "Shaded tables", "All far faces
 static const char* const kShadow[] = { "Half", "Black", "Mesh" };
 static const char* const kSteps[] = { "1 (7/8)", "2 (6/8)", "3 (5/8)", "4 (4/8)" };
 static const char* const kStepWay[] = { "Both ways", "Brights only" };
-static const char* const kCentre[] = { "Texture mean", "One grey" };
+static const char* const kGrey[] = { "0 (own mean)", "1/4", "2/4", "3/4", "4/4" };
 static const char* const kFar[] = { "Textured", "Flat past 16", "Flat past 12", "Flat past 8" };
 static const int32 kFarDist[] = { 0, 16 * 1024, 12 * 1024, 8 * 1024 };
 
@@ -64,9 +64,9 @@ static const Option gOptions[] = {
     { "Contrast of", kStepWay, 2,
         [] { return int32(gContrastBrights); },
         [](int32 v) { renderSetContrastBrights(v); } },
-    { "Contrast about", kCentre, 2,
-        [] { return int32(gContrastCommon); },
-        [](int32 v) { renderSetContrastCommon(v); } },
+    { "Grey strength", kGrey, 5,
+        [] { return gContrastGrey; },
+        [](int32 v) { renderSetContrastGrey(v); } },
     { "Far faces", kFar, 4,
         [] { return gFarFaces; },
         [](int32 v) { gFarFaces = v; gFlatDist = kFarDist[v]; } },
@@ -96,7 +96,7 @@ static const Option gOptions[] = {
         [](int32 v) { gShowStats = v; } }
 };
 
-enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_STEP_WAY, OPTION_CENTRE, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
+enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_STEP_WAY, OPTION_GREY, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
        OPTION_PALETTE, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_COUNT };
 
 static uint16 gPad;
