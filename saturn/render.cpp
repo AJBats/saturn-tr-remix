@@ -393,6 +393,7 @@ int32 gContrastGrey = 4;
 int32 gFlatDist;
 int32 gTurnLines = 1;
 int32 gShadowMode = SHADOW_MESH;
+int32 gNearSplit = NEAR_SPLIT_STEEP;
 int32 gTextureLod = 4;
 int32 gShadeTables = 1;
 

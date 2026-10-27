@@ -194,6 +194,12 @@ X_INLINE void projectView(int16 x, int16 y, int32 z, uint32 clip, const RectMinM
 // quarters in front of it are drawn rather than the whole face culled.
 #define DETAIL_DIST     4096
 
+// Which other room quads near the camera are split 2x2 (debug menu): none,
+// those reaching far off the frame, or those too whose far corner is twice as
+// deep as their near one.
+enum NearSplit { NEAR_SPLIT_PLANE, NEAR_SPLIT_FAR, NEAR_SPLIT_STEEP, NEAR_SPLIT_COUNT };
+extern int32 gNearSplit;
+
 // Debug views (the debug pad's B cycles them).
 enum TexelView
 {

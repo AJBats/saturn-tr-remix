@@ -371,8 +371,9 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
         // depths (VDP1 maps the texture without perspective, which a large
         // near face shows badly, and the split's new corners are projected),
         // or reach far off the frame (the quarters off it dropped)
-        if (v0->z < NEAR_SPLIT_DIST && (zMax >= 2 * zMin || (((c0 | c1 | c2 | c3) & CLIP_FRAME) &&
-            farOffFrame(v0, v1, v2, v3))) &&
+        int32 split = *uncached(&gNearSplit);
+        if (v0->z < NEAR_SPLIT_DIST && ((split == NEAR_SPLIT_STEEP && zMax >= 2 * zMin) ||
+            (split != NEAR_SPLIT_PLANE && ((c0 | c1 | c2 | c3) & CLIP_FRAME) && farOffFrame(v0, v1, v2, v3))) &&
             zMin < DETAIL_DIST && tex->reserved && !faceFlat(flags, zMin, tex) &&
             faceAddRoomQuadDetail(polys, tex, v0, v1, v2, v3))
             continue;
