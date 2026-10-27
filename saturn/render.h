@@ -319,6 +319,8 @@ enum DarkFaces
     DARK_SCALE,     // as the PS1 multiplies: room textures through tables of
                     // their colours scaled towards black, objects' at half
                     // luminance, gouraud making each corner its mean's share
+    DARK_SCALE_DEEP,    // as DARK_SCALE, with light below neutral squared, so
+                        // dark corners go nearly as dark as DARK_ADD's
     DARK_COUNT
 };
 extern int32 gDarkFaces;

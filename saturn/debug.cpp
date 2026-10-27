@@ -28,7 +28,7 @@ struct Option
 };
 
 static const char* const kCurves[] = { "Saturn", "Soft", "Softer" };
-static const char* const kDark[] = { "Add", "Half luminance", "Contrast steps", "Scaled" };
+static const char* const kDark[] = { "Add", "Half luminance", "Contrast steps", "Scaled", "Scaled deep" };
 static const char* const kPalette[] = { "Saturn", "Remastered" };
 static const char* const kViews[] = { "Normal", "Texture cache", "Texel size" };
 static const char* const kOnOff[] = { "Off", "On" };
