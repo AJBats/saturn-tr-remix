@@ -11,6 +11,7 @@
 #include "slave.h"
 #include "sound.h"
 #include "system.h"
+#include "trace.h"
 
 // make START_LEVEL=LVL_TR1_2 ... starts in a level, for testing
 #ifndef START_LEVEL
@@ -48,6 +49,7 @@ int main()
     crashInit();
     slaveInit();
 #ifdef HW_LOG
+    traceInit();
     debugProfileInit();
     debugDspTest();
 #endif
@@ -85,6 +87,7 @@ int main()
         // Game logic runs in 30 Hz ticks: wait for the next one. The pads
         // are read from an interrupt, so a slow frame doesn't wait for theirs.
         uint32 tick;
+        traceBegin(TRACE_MASTER, TR_TICK_WAIT);
         while ((tick = gVblankCount >> 1) == lastTick);
         gPad = padButtons();
 
@@ -92,14 +95,19 @@ int main()
         lastTick = tick;
 
         uint32 t0 = timerTicks();
+        traceEndAt(TRACE_MASTER, t0, TR_TICK_WAIT);
+        traceBeginAt(TRACE_MASTER, t0, TR_UPDATE);
         updateInput();
         debugUpdate();
         gameUpdate(delta);
         sndFrame();
         uint32 t1 = timerTicks();
+        traceEndAt(TRACE_MASTER, t1, TR_UPDATE);
+        traceBeginAt(TRACE_MASTER, t1, TR_RENDER);
         gameRender();
         renderSwap();
         uint32 t2 = timerTicks();
+        traceEndAt(TRACE_MASTER, t2, TR_RENDER);
 
         gStats.updateTicks = (t1 - t0) & 0xFFFF;
         gStats.renderTicks = (t2 - t1) & 0xFFFF;

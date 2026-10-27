@@ -14,5 +14,5 @@ LARA_START=13@28773:4352:49888 python -I tools/pack_level.py \
     external_resources/disc/files/DATA LEVEL1 build/data/LEVEL1.PKD \
     external_resources/ps1/files/files/PSXDATA
 sleep 1     # make compares seconds
-touch build/data/LEVEL1.PKD saturn/main.cpp saturn/crash.cpp saturn/debug.cpp
+touch build/data/LEVEL1.PKD
 make disc START_LEVEL=LVL_TR1_1 START_YAW=0xD08E HW_LOG=1

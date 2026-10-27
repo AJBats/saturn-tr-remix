@@ -13,6 +13,7 @@
 #include "dsp.h"
 #include "slave.h"
 #include "system.h"
+#include "trace.h"
 #include "project_dsp.h"
 
 #define MAX_ROOM_JOBS   64
@@ -589,6 +590,7 @@ static void dspFeed()
     {
         if (dspBusy())
             return;
+        traceEnd(TRACE_DSP, TR_DSP_RUN, gDspRoom);
         gDspRoom = -1;
     }
     if (!*uncached(&gRoomsComplete))
@@ -609,6 +611,7 @@ static void dspFeed()
             return;
         int32 first = (w.hi - run) * CHUNK;
         int32 count = X_MIN(int32(job.room->info->verticesCount), w.hi * CHUNK) - first;
+        traceBegin(TRACE_DSP, TR_DSP_RUN, i);
         dspProject(job.matrix, job.viewport, job.room->data.vertices + first, gVertices + w.base + first,
                    (count + 15) >> 4);
         w.hi -= run;
@@ -670,7 +673,10 @@ static void roomChunk(int32 index, const RoomJob &job)
     roomBegin(job);
     gXform.count = first + count;   // count - vertices left: the index in the room
     transformRoomAsm(job.room->data.vertices + first, count, gVertices + w.base + first, &gXform);
-    gSlaveStats.xformTicks += (timerTicks() - t0) & 0xFFFF;
+    uint32 t1 = timerTicks();
+    gSlaveStats.xformTicks += (t1 - t0) & 0xFFFF;
+    traceBeginAt(TRACE_SLAVE, t0, TR_XFORM, index);
+    traceEndAt(TRACE_SLAVE, t1, TR_XFORM, index);
 }
 
 static void roomFaces(int32 index, const RoomJob &job)
@@ -736,7 +742,10 @@ static void roomFaces(int32 index, const RoomJob &job)
         gSlaveStats.detailFaces += rf.detailFaces;
         gSlaveStats.detailMisses += rf.detailMisses;
     }
-    gSlaveStats.faceTicks += (timerTicks() - t0) & 0xFFFF;
+    uint32 t1 = timerTicks();
+    gSlaveStats.faceTicks += (t1 - t0) & 0xFFFF;
+    traceBeginAt(TRACE_SLAVE, t0, TR_FACES, index);
+    traceEndAt(TRACE_SLAVE, t1, TR_FACES, index);
 }
 
 static void renderMeshJob(int32 index, const MeshJob &job)
@@ -754,7 +763,10 @@ static void renderMeshJob(int32 index, const MeshJob &job)
     meshJobDraw(job, gVertices + gTop, gMeshList);
     gFaceList.next = gMeshList.next;
     gSlaveStats.vertices += count;
-    gSlaveStats.meshTicks += (timerTicks() - t0) & 0xFFFF;
+    uint32 t1 = timerTicks();
+    gSlaveStats.meshTicks += (t1 - t0) & 0xFFFF;
+    traceBeginAt(TRACE_SLAVE, t0, TR_SLAVE_MESH, index);
+    traceEndAt(TRACE_SLAVE, t1, TR_SLAVE_MESH, index);
 }
 
 // Meshes' faces after the rooms' in each bucket, as the master draws what
@@ -800,6 +812,7 @@ static void roomBatch()
 
     uint32 meshesDone = 0;
     uint32 idleStart = timerTicks();
+    traceBeginAt(TRACE_SLAVE, idleStart, TR_BATCH);
     while (1)
     {
         uint32 queued = *uncached(&gJobsQueued);
@@ -856,6 +869,7 @@ static void roomBatch()
     if (meshesDone) {
         mergeMeshes();
     }
+    traceEnd(TRACE_SLAVE, TR_BATCH);
 }
 
 void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors)
@@ -1019,7 +1033,9 @@ Face** roomsFinish(RoomStats &stats, const uint16* &groups)
 
     bool idle = *uncached(&gJobsDone) == gJobCount + gMeshCount;
     *uncached(&gJobsClosed) = 1;
+    traceBegin(TRACE_MASTER, TR_ROOMS_WAIT);
     slaveWait();
+    traceEnd(TRACE_MASTER, TR_ROOMS_WAIT);
     cachePurge();
 
     for (uint32 i = 0; i < gMeshSkips; i++) {

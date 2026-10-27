@@ -11,6 +11,7 @@
 #include "palettes.h"
 #include "slave.h"
 #include "system.h"
+#include "trace.h"
 #include "vram.h"
 
 static_assert(FRAME_WIDTH == SCREEN_WIDTH && FRAME_HEIGHT == SCREEN_HEIGHT,
@@ -1199,7 +1200,9 @@ static int32 gFarShare = 45;
 
 static void flushFar()
 {
+    traceBegin(TRACE_SLAVE, TR_SLAVE_FLUSH);
     flushAsm(&gFarXform);
+    traceEnd(TRACE_SLAVE, TR_SLAVE_FLUSH);
 }
 
 // The commands of the faces in both ordering tables, far to near, emptying
@@ -1252,8 +1255,11 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
         if (splitBucket < OT_SIZE)
         {
             uint32 waitStart = timerTicks();
+            traceBeginAt(TRACE_MASTER, waitStart, TR_FAR_WAIT);
             slaveWait();
-            gStats.farWaitTicks = (timerTicks() - waitStart) & 0xFFFF;
+            uint32 waitEnd = timerTicks();
+            traceEndAt(TRACE_MASTER, waitEnd, TR_FAR_WAIT);
+            gStats.farWaitTicks = (waitEnd - waitStart) & 0xFFFF;
             gFarShare = gStats.farWaitTicks > FAR_WAITED ? X_MAX(gFarShare - 1, 20) : X_MIN(gFarShare + 1, 60);
             cachePurge(); // the slave emptied buckets of gOT that this CPU may hold
 
@@ -1336,6 +1342,7 @@ static void clearCommand(bool clear)
 void flush_c()
 {
     uint32 start = timerTicks();
+    traceBeginAt(TRACE_MASTER, start, TR_FLUSH);
 
     RoomStats rooms = {};
     const uint16* roomGroups = NULL;
@@ -1364,7 +1371,10 @@ void flush_c()
     gVerticesBase = gVertices;
 
     if (gFaceList.next == gFaces && !roomOT)
+    {
+        traceEnd(TRACE_MASTER, TR_FLUSH);
         return;
+    }
 
     gFaceList.next = gFaces;
 
@@ -1381,10 +1391,13 @@ void flush_c()
     benchCommands(count);
 
     uint32 waitStart = timerTicks();
+    traceBeginAt(TRACE_MASTER, waitStart, TR_VDP1_WAIT);
     vdp1WaitDrawn();
-    gStats.waitTicks = (timerTicks() - waitStart) & 0xFFFF;
-
     uint32 dmaStart = timerTicks();
+    gStats.waitTicks = (dmaStart - waitStart) & 0xFFFF;
+    traceEndAt(TRACE_MASTER, dmaStart, TR_VDP1_WAIT);
+    traceBeginAt(TRACE_MASTER, dmaStart, TR_UPLOAD);
+
     detailFlush();
     if (gItemTextures && !gInventoryFrame)
     {
@@ -1400,9 +1413,12 @@ void flush_c()
     dmaCopy(gGouraud, VDP1_VRAM + VRAM_GOURAUD_BASE, count * sizeof(gGouraud[0]));
     dmaWait();
     vdp1Plot();
-    gStats.dmaTicks = (timerTicks() - dmaStart) & 0xFFFF;
+    uint32 end = timerTicks();
+    gStats.dmaTicks = (end - dmaStart) & 0xFFFF;
+    traceEndAt(TRACE_MASTER, end, TR_UPLOAD);
 
-    gStats.flushTicks = ((timerTicks() - start) & 0xFFFF) - gStats.waitTicks - gStats.slaveWaitTicks;
+    gStats.flushTicks = ((end - start) & 0xFFFF) - gStats.waitTicks - gStats.slaveWaitTicks;
+    traceEndAt(TRACE_MASTER, end, TR_FLUSH);
 }
 
 void renderSetShadeCurve(int32 curve)
@@ -1835,8 +1851,14 @@ void renderMesh(const Mesh* mesh)
 // view, a job's fixed costs on the slave), it relieves the master least.
 void renderStaticMesh(const Mesh* mesh)
 {
-    if (gBenchMode == BENCH_MASTER_MESHES || !meshToSlave(mesh)) {
+    traceDetailBegin(TR_JOB_SETUP);
+    bool slave = gBenchMode != BENCH_MASTER_MESHES && meshToSlave(mesh);
+    traceDetailEnd(TR_JOB_SETUP, slave);
+    if (!slave)
+    {
+        traceDetailBegin(TR_MESH);
         renderMeshHere(mesh);
+        traceDetailEnd(TR_MESH);
     }
 }
 

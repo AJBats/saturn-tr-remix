@@ -3,6 +3,7 @@
 #include "system.h"
 #include "crash.h"
 #include "hw.h"
+#include "trace.h"
 
 #define BACK_COLOR_ADDR 0x7FFFE  // last word of VDP2 VRAM
 
@@ -74,6 +75,7 @@ extern "C" void lineEntry();
 extern "C" void vblankInHandler(const uint32_t* irqStack)
 {
     gVblankCount++;
+    traceBegin(TRACE_IRQ, TR_IRQ_VBLANK_IN, gVblankCount);
     crashWatchdog(irqStack);
 
     if (gVdp1State == VDP1_PLOTTING)
@@ -85,12 +87,14 @@ extern "C" void vblankInHandler(const uint32_t* irqStack)
         {
             VDP1_FBCR = FBCR_FCM | FBCR_FCT;
             gVdp1State = VDP1_CHANGING;
+            traceBegin(TRACE_IRQ, TR_CHANGE);
         }
         else
         {
             gStats.vdp1Late++;
         }
     }
+    traceEnd(TRACE_IRQ, TR_IRQ_VBLANK_IN);
 }
 
 // The frame buffer change is complete by then.
@@ -99,10 +103,12 @@ static void waitDisplayStart()
     while (vdp2Line() >= SCREEN_HEIGHT);
 }
 
-static void plotStart()
+// From the vblank-out interrupt or the master's flush: lane is the trace's.
+static void plotStart(int32_t lane)
 {
     gPlotsStarted++;
     gPlotStart = timerTicks();
+    traceAt(lane, gPlotStart, (TR_PLOT << 8) | (gPlotsStarted & 0xFF));
     gVdp1Drawn = false;
     gVdp1State = VDP1_PLOTTING;
     VDP1_PTMR = 1;
@@ -110,10 +116,12 @@ static void plotStart()
 
 extern "C" void vblankOutHandler()
 {
+    traceBegin(TRACE_IRQ, TR_IRQ_VBLANK_OUT);
     if (gVdp1State == VDP1_CHANGING)
     {
         waitDisplayStart();
         gVdp1State = VDP1_IDLE;
+        traceBegin(TRACE_IRQ, TR_SHOWN, gPlotsStarted);
 
         if (gOnShown) {
             gOnShown(gPlotsStarted);
@@ -131,19 +139,24 @@ extern "C" void vblankOutHandler()
     {
         waitDisplayStart();
         gPlotQueued = false;
-        plotStart();
+        plotStart(TRACE_IRQ);
     }
+    traceEnd(TRACE_IRQ, TR_IRQ_VBLANK_OUT);
 }
 
 extern "C" void lineHandler()
 {
+    traceBegin(TRACE_IRQ, TR_IRQ_LINE);
     gOnLine();
+    traceEnd(TRACE_IRQ, TR_IRQ_LINE);
 }
 
 extern "C" void spriteEndHandler()
 {
     gStats.vdp1EndLine = vdp2Line();
-    gStats.vdp1Ticks = (timerTicks() - gPlotStart) & 0xFFFF;
+    uint32_t t = timerTicks();
+    gStats.vdp1Ticks = (t - gPlotStart) & 0xFFFF;
+    traceAt(TRACE_IRQ, t, TR_DRAWN << 8);
     gVdp1Drawn = true;
 }
 
@@ -171,7 +184,7 @@ void vdp1Plot()
 {
     gPlotsAsked++;
     if (gVdp1State == VDP1_IDLE) {
-        plotStart();
+        plotStart(TRACE_MASTER);
     } else {
         gPlotQueued = true;
     }

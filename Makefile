@@ -35,16 +35,16 @@ OBJCOPY := $(SH_PREFIX)objcopy
 # -ffunction-sections: saturn.ld places the hot functions first, in a fixed order
 CFLAGS  := -m2 -mb $(OPT) -Wall -D__SATURN__ -Isaturn -Iopenlara -I$(BUILD)/gen -ffunction-sections
 ifdef START_LEVEL
-CFLAGS  += -DSTART_LEVEL=$(START_LEVEL)   # testing: touch saturn/main.cpp when changing it
+CFLAGS  += -DSTART_LEVEL=$(START_LEVEL)   # testing
 endif
 ifdef START_YAW
-CFLAGS  += -DSTART_YAW=$(START_YAW)       # testing: Lara's heading at the start; touch saturn/main.cpp
+CFLAGS  += -DSTART_YAW=$(START_YAW)       # testing: Lara's heading at the start
 endif
 ifdef HW_LOG
-CFLAGS  += -DHW_LOG     # testing on hardware: the boot log, stats and measurements on screen; touch saturn/crash.cpp saturn/debug.cpp when changing it
+CFLAGS  += -DHW_LOG     # testing on hardware: the boot log, stats, measurements and frame trace on screen
 endif
 ifdef VOID_VIEW
-CFLAGS  += -DVOID_VIEW  # testing: what nothing draws in the scene shows magenta; touch saturn/render.cpp
+CFLAGS  += -DVOID_VIEW  # testing: what nothing draws in the scene shows magenta
 endif
 # -fno-lifetime-dse: OpenLara sets ItemObj fields and then placement-news the
 # subclass over them (ItemObj::init); the constructors read those fields.
@@ -78,10 +78,15 @@ $(1)/disc/tomb.cue: $(1)/0MAIN.BIN $(wildcard disc/*) tools/mkdisc.py $(DISC)/fi
 		0MAIN.BIN=$(1)/0MAIN.BIN $(DISC_TXT) $(2)
 endef
 
+# The flags compiled with, in a file rewritten when they change, which every
+# object depends on: a build with other testing flags compiles everything.
+FLAGS_FILE := $(BUILD)/gen/flags.txt
+$(shell mkdir -p $(BUILD)/gen && echo '$(CXXFLAGS)' | cmp -s - $(FLAGS_FILE) || echo '$(CXXFLAGS)' > $(FLAGS_FILE))
+
 # SCU DSP programs, assembled into headers (tools/dspasm.py): saturn/NAME.dsp
 # to NAME_dsp.h holding NAME_dsp[]
 DSP_HEADERS := $(patsubst saturn/%.dsp,$(BUILD)/gen/%_dsp.h,$(wildcard saturn/*.dsp))
-HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h) $(DSP_HEADERS)
+HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h) $(DSP_HEADERS) $(FLAGS_FILE)
 
 .PHONY: all disc extract ghidra check-toolchain
 
@@ -101,7 +106,7 @@ $(BUILD)/obj/%.cpp.o: %.cpp $(HEADERS) | check-toolchain
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-$(BUILD)/obj/%.s.o: %.s | check-toolchain
+$(BUILD)/obj/%.s.o: %.s $(FLAGS_FILE) | check-toolchain
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c $< -o $@
 

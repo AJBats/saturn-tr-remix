@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "item.h"
+#include "trace.h"
 
 //#define TEST_ROOM_CACHE
 
@@ -819,6 +820,7 @@ void drawRoomObjects(Room* room)
         if (!sphereIsVisible(sx, sy, sz, sr))
             continue;
 
+        traceDetailBegin(TR_STATIC);
         matrixPush();
         matrixTranslateSet(px, py, pz);
         matrixRotateYQ(q);
@@ -827,13 +829,17 @@ void drawRoomObjects(Room* room)
         renderStaticMesh(level.meshes[staticMesh->meshIndex]);
 
         matrixPop();
+        traceDetailEnd(TR_STATIC);
     }
 
     ItemObj* item = room->firstItem;
     while (item)
     {
-        if ((item->flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE) {
+        if ((item->flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE)
+        {
+            traceDetailBegin(TR_ITEM, item->type);
             item->draw();
+            traceDetailEnd(TR_ITEM, item->type);
         }
         item = item->nextItem;
     }
@@ -847,6 +853,7 @@ void drawRoom(Room* room)
 
 void drawRooms(Camera* camera)
 {
+    traceBegin(TRACE_MASTER, TR_VIEW);
     RectMinMax vp = viewport;
 
     camera->view.room->clip = viewport;
@@ -856,17 +863,21 @@ void drawRooms(Camera* camera)
     setSceneClear(checkWall(camera->view.room, camera->view.pos.x, camera->view.pos.y + camera->shift, camera->view.pos.z));
 
     Room** visRoom = camera->view.room->getVisibleRooms();
+    traceEnd(TRACE_MASTER, TR_VIEW);
 
     // every room for the slave first, so that it never waits on the objects
+    traceBegin(TRACE_MASTER, TR_QUEUE);
     for (Room** room = visRoom; *room; room++) {
         queueRoom(*room);
     }
     renderRoomsQueued();
+    traceEnd(TRACE_MASTER, TR_QUEUE);
 
     // Lara before the rooms' objects and whether or not her room is seen, as
     // the original draws her: climbing out of a room, she is still in it
     uint32 laraStatus[MAX_PLAYERS] = {};
     setViewport(vp);
+    traceBegin(TRACE_MASTER, TR_LARA);
     for (int32 i = 0; i < MAX_PLAYERS; i++)
     {
         Lara* lara = players[i];
@@ -881,11 +892,14 @@ void drawRooms(Camera* camera)
             lara->flags |= ITEM_FLAG_STATUS_INVISIBLE; // skip drawing in the general pass
         }
     }
+    traceEnd(TRACE_MASTER, TR_LARA);
 
     while (*visRoom)
     {
         Room* room = *visRoom++;
+        traceDetailBegin(TR_OBJECTS, room - rooms);
         drawRoomObjects(room);
+        traceDetailEnd(TR_OBJECTS, room - rooms);
         room->reset();
     }
 

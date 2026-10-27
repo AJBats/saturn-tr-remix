@@ -108,6 +108,24 @@ static void drawChar(int32_t row, int32_t column, char ch)
     }
 }
 
+// A left-aligned row drawn over another: only the characters that differ.
+static void drawChanged(int32_t row, const Row &was, const Row &now)
+{
+    bool endWas = false, endNow = false;
+    for (int32_t i = 0; i < OVERLAY_COLUMNS; i++)
+    {
+        endWas = endWas || !was.text[i];
+        endNow = endNow || !now.text[i];
+        char a = endWas ? ' ' : was.text[i];
+        char b = endNow ? ' ' : now.text[i];
+        if (a != b) {
+            drawChar(row, i, b);
+        }
+        if (endWas && endNow)
+            break;
+    }
+}
+
 void overlayPin(int32_t row, const char* text)
 {
     if (row < 0 || row >= OVERLAY_ROWS)
@@ -169,7 +187,13 @@ void overlayFrame()
         }
         if (free && (next.align != shown.align || strcmp(next.text, shown.text)))
         {
-            drawRow(i, next);
+            // the characters that changed, unless the row moves or empties:
+            // a whole row costs VDP2 writes enough to drop a frame
+            if (next.align == OVERLAY_LEFT && shown.align == OVERLAY_LEFT && shown.text[0] && next.text[0]) {
+                drawChanged(i, shown, next);
+            } else {
+                drawRow(i, next);
+            }
             shown = next;
         }
         any |= next.text[0] != 0;

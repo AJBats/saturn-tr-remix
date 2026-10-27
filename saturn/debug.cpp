@@ -19,6 +19,7 @@
 #include "palettes.h"
 #include "render.h"
 #include "system.h"
+#include "trace.h"
 
 struct Option
 {
@@ -34,6 +35,7 @@ static const char* const kDark[] = { "Add", "Contrast steps", "Scaled" };
 static const char* const kPalette[] = { "Saturn", "Remastered" };
 static const char* const kViews[] = { "Normal", "Texture cache", "Texel size", "Wireframe", "Contrast steps" };
 static const char* const kOnOff[] = { "Off", "On" };
+static const char* const kTrace[] = { "Off", "Stages", "Detail" };
 static const char* const kShrink[] = { "Exact", "Fast" };
 static const char* const kLines[] = { "Fixed", "Turned" };
 static const char* const kLod[] = { "Full res", "1 texel a pixel", "1.5 texels", "2 texels" };
@@ -106,11 +108,20 @@ static const Option gOptions[] = {
         [](int32 v) { gTexelView = v; } },
     { "Stats", kOnOff, 2,
         [] { return int32(gShowStats); },
-        [](int32 v) { gShowStats = v; } }
+        [](int32 v) { gShowStats = v; } },
+#ifdef HW_LOG
+    { "Trace", kTrace, TRACE_MODES,
+        [] { return int32(traceMode()); },
+        [](int32 v) { traceSetMode(v); } },
+#endif
 };
 
 enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_MULTIPLY, OPTION_GREY, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
-       OPTION_PALETTE, OPTION_SPLIT, OPTION_DEPTH, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_COUNT };
+       OPTION_PALETTE, OPTION_SPLIT, OPTION_DEPTH, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS,
+#ifdef HW_LOG
+       OPTION_TRACE,
+#endif
+       OPTION_COUNT };
 
 static uint16 gPad;
 static int32 gCursor;
@@ -120,8 +131,9 @@ static bool gMenuOpen;
 #ifdef HW_LOG
 // R and L page through the overlay: the bench's table, then (held on Base)
 // the scene's rows with each frame's CPU, slave and VDP1 time, each frame's
-// time by stage, the menu over each frame's times, and nothing at all.
-enum OverlayPage { PAGE_BENCH, PAGE_FRAME, PAGE_STAGES, PAGE_MENU, PAGE_NONE, PAGE_COUNT };
+// time by stage, the trace's stages, the menu over each frame's times, and
+// nothing at all.
+enum OverlayPage { PAGE_BENCH, PAGE_FRAME, PAGE_STAGES, PAGE_TRACE, PAGE_MENU, PAGE_NONE, PAGE_COUNT };
 static int32 gPage;
 #endif
 
@@ -151,6 +163,7 @@ static bool menuShown()
 
 void debugUpdate()
 {
+    traceBegin(TRACE_MASTER, TR_DEBUG);
     uint16 pad = padDebug();
 
 #ifdef HW_LOG
@@ -215,7 +228,9 @@ void debugUpdate()
     }
     benchUpdate();
     sceneUpdate();
+    traceTally(gPage == PAGE_TRACE);
 #endif
+    traceEnd(TRACE_MASTER, TR_DEBUG);
 }
 
 static char* append(char* p, const char* text)
@@ -305,7 +320,7 @@ static uint32 gSplit[SPLIT_COUNT];
 static_assert(7 + BENCH_COUNT + PROFILE_TOP / 3 <= OVERLAY_ROWS, "the profile's rows fit the overlay");
 
 extern "C" void profileEntry();     // irq.s
-static uint16 gProfile[PROFILE_BLOCKS];   // held at 0xFFFF
+static_assert(PROFILE_BLOCKS <= TRACE_PROFILE_BLOCKS, "the profile fits in the trace's low work RAM");
 static uint32 gProfileSamples, gProfileOther;
 static uint32 gProfileRanked;           // gProfileSamples when ranked
 static bool gProfiling;
@@ -332,10 +347,11 @@ extern "C" void profileHandler(uint32 pc)
     FRT_FTCSR = FRT_FTCSR & ~FRT_OCIAE;
     profileArm();
     gProfileSamples++;
+    uint16* profile = traceProfileBlocks();   // held at 0xFFFF
     uint32 offset = (pc & 0x07FFFFFF) - PROFILE_START;
-    if (offset < (PROFILE_BLOCKS << PROFILE_SHIFT))
+    if (profile && offset < (PROFILE_BLOCKS << PROFILE_SHIFT))
     {
-        uint16 &n = gProfile[offset >> PROFILE_SHIFT];
+        uint16 &n = profile[offset >> PROFILE_SHIFT];
         if (n != 0xFFFF) {
             n++;
         }
@@ -461,13 +477,14 @@ static void profileSampling(bool on)
 static void profileRank()
 {
     uint32 total = gProfileSamples;
-    if (!total)
+    const uint16* profile = traceProfileBlocks();
+    if (!total || !profile)
         return;
     gProfileRanked = total;
     memset(gProfileTop, 0, sizeof(gProfileTop));
     for (int32 b = 0; b < PROFILE_BLOCKS; b++)
     {
-        uint32 share = gProfile[b] * 1000 / total;
+        uint32 share = profile[b] * 1000 / total;
         if (share <= gProfileTop[PROFILE_TOP - 1].share)
             continue;
         int32 i = PROFILE_TOP - 1;
@@ -825,9 +842,110 @@ static void benchDraw()
 }
 #endif
 
+#ifdef HW_LOG
+static char* appendShare(char* p, const char* name, uint32 value)
+{
+    p = append(p, name);
+    int2str(int32(value), p);
+    while (*p) {
+        p++;
+    }
+    return append(p, " ");
+}
+
+// The trace's stages from row on: each stage's own time (the stages inside it
+// apart) as a percentage of the time, over the last TRACE_WINDOW vblanks; a
+// CPU's numbers and its idle time add up to 100. The master's stages include
+// the interrupts that came during them ("irq" is their total). Composed once a
+// window: the numbers' digits cost the master a little every frame otherwise.
+#define TRACE_ROWS  7
+typedef char TraceRow[OVERLAY_COLUMNS + 1];
+static_assert(TRACE_ROWS * sizeof(TraceRow) <= TRACE_TEXT_BYTES, "the rows fit in traceText");
+static uint32 gTraceWindow = ~0u;   // the window traceText's rows show
+
+static void traceCompose(const TraceStages* s, TraceRow* rows)
+{
+    const uint16* v = s->self;
+    char text[64];
+    char* p = appendShare(text, "% of time  fps ", s->frames * 60 / s->vblanks);
+    p = appendShare(p, " events ", s->events);
+    append(p, gTraceDetail ? " detail" : "");
+    strncpy(rows[0], text, OVERLAY_COLUMNS);
+
+    p = appendShare(text, "master upd ", v[TR_UPDATE]);
+    p = appendShare(p, "dbg ", v[TR_DEBUG]);
+    p = appendShare(p, "view ", v[TR_VIEW]);
+    p = appendShare(p, "queue ", v[TR_QUEUE]);
+    appendShare(p, "lara ", v[TR_LARA]);
+    strncpy(rows[1], text, OVERLAY_COLUMNS);
+
+    p = appendShare(text, " objs ", v[TR_OBJECTS]);
+    p = appendShare(p, "static ", v[TR_STATIC]);
+    p = appendShare(p, "setup ", v[TR_JOB_SETUP]);
+    p = appendShare(p, "mesh ", v[TR_MESH]);
+    appendShare(p, "item ", v[TR_ITEM]);
+    strncpy(rows[2], text, OVERLAY_COLUMNS);
+
+    p = appendShare(text, " render ", v[TR_RENDER]);
+    p = appendShare(p, "flush ", v[TR_FLUSH]);
+    p = appendShare(p, "upload ", v[TR_UPLOAD]);
+    p = appendShare(p, "ovl ", v[TR_OVERLAY]);
+    appendShare(p, "irq ", s->busy[TRACE_IRQ]);
+    strncpy(rows[3], text, OVERLAY_COLUMNS);
+
+    p = appendShare(text, " wait rooms ", v[TR_ROOMS_WAIT]);
+    p = appendShare(p, "far ", v[TR_FAR_WAIT]);
+    p = appendShare(p, "vdp1 ", v[TR_VDP1_WAIT]);
+    p = appendShare(p, "tick ", v[TR_TICK_WAIT]);
+    appendShare(p, "gap ", 100 - X_MIN(s->busy[TRACE_MASTER], 100));
+    strncpy(rows[4], text, OVERLAY_COLUMNS);
+
+    p = appendShare(text, "slave xform ", v[TR_XFORM]);
+    p = appendShare(p, "faces ", v[TR_FACES]);
+    p = appendShare(p, "mesh ", v[TR_SLAVE_MESH]);
+    appendShare(p, "flush ", v[TR_SLAVE_FLUSH]);
+    strncpy(rows[5], text, OVERLAY_COLUMNS);
+
+    p = appendShare(text, " wait jobs ", v[TR_BATCH]);
+    p = appendShare(p, "idle ", 100 - X_MIN(s->busy[TRACE_SLAVE], 100));
+    appendShare(p, "  dsp ", s->busy[TRACE_DSP]);
+    strncpy(rows[6], text, OVERLAY_COLUMNS);
+}
+
+static void traceRows(int32 row)
+{
+    const TraceStages* s = traceStages();
+    if (!s || !s->valid)
+    {
+        overlayRow(row, s ? "trace: measuring" : "trace: off (menu, or no room above the level)");
+        gTraceWindow = ~0u;
+        return;
+    }
+    TraceRow* rows = (TraceRow*)traceText();
+    if (s->window != gTraceWindow)
+    {
+        memset(rows, 0, TRACE_ROWS * sizeof(TraceRow));
+        traceCompose(s, rows);
+        gTraceWindow = s->window;
+    }
+    for (int32 i = 0; i < TRACE_ROWS; i++) {
+        overlayRow(row + i, rows[i]);
+    }
+}
+#endif
+
 // Over the frame on VDP2 (overlay.h), with the fps counter: the frame's
 // measurements don't count them.
+static void drawDebug();
+
 void osDrawDebug()
+{
+    traceBegin(TRACE_MASTER, TR_OVERLAY);
+    drawDebug();
+    traceEnd(TRACE_MASTER, TR_OVERLAY);
+}
+
+static void drawDebug()
 {
     char text[64];
 
@@ -899,6 +1017,9 @@ void osDrawDebug()
             overlayRow(1, kBenchNames[gBenchMode]);
             for (int32 i = 0; i < SCENE_ROWS; i++) {
                 overlayRow(2 + i, gSceneRows[i]);
+            }
+            if (gPage == PAGE_TRACE) {
+                traceRows(3 + SCENE_ROWS);
             }
         }
         else

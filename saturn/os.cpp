@@ -11,6 +11,7 @@
 #include "render.h"
 #include "screen.h"
 #include "sound.h"
+#include "trace.h"
 #include "vram.h"
 
 // Packed levels load into low work RAM, which nothing else uses.
@@ -228,6 +229,7 @@ const void* osLoadLevel(LevelID id)
     const char* name = (const char*)gLevelInfo[id].data;
 
     crashHold(true);
+    traceStop();    // the level may load over the trace
     crashLog("LEVEL", id);
     playVideos(id);
     screenShow(loadingPicture(id), id == LVL_TR1_TITLE ? 352 : 320);
@@ -253,6 +255,7 @@ const void* osLoadLevel(LevelID id)
 
     strcpy(path + strlen(path) - 3, "ITX");
     detailItemInit(X_MAX(0, cdLoadFile(path, detailItemData(), detailItemDataMax())));
+    traceLevel(subData + subSize);
 
     screenRelease(false);
     crashHold(false);
