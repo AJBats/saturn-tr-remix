@@ -28,7 +28,7 @@ struct Option
 };
 
 static const char* const kCurves[] = { "Saturn", "Soft", "Softer" };
-static const char* const kDark[] = { "Add", "Half luminance", "Contrast steps", "Scaled", "Scaled deep" };
+static const char* const kDark[] = { "Add", "Contrast steps", "Scaled" };
 static const char* const kPalette[] = { "Saturn", "Remastered" };
 static const char* const kViews[] = { "Normal", "Texture cache", "Texel size", "Wireframe", "Contrast steps" };
 static const char* const kOnOff[] = { "Off", "On" };
@@ -38,7 +38,6 @@ static const char* const kLod[] = { "Full res", "1 texel a pixel", "1.5 texels",
 static const char* const kShade[] = { "Gouraud", "Shaded tables", "All far faces" };
 static const char* const kShadow[] = { "Half", "Black", "Mesh" };
 static const char* const kSteps[] = { "1 (7/8)", "2 (6/8)", "3 (5/8)", "4 (4/8)" };
-static const char* const kStepWay[] = { "Both ways", "Brights only" };
 static const char* const kMultiply[] = { "0 (Saturn add)", "1/4", "2/4", "3/4", "4/4 (PS1)" };
 static const char* const kGrey[] = { "0 (own mean)", "1/4", "2/4", "3/4", "4/4" };
 static const char* const kFar[] = { "Textured", "Flat past 16", "Flat past 12", "Flat past 8" };
@@ -62,9 +61,6 @@ static const Option gOptions[] = {
     { "Contrast steps", kSteps, 4,
         [] { return gContrastSteps - 1; },
         [](int32 v) { renderSetContrastSteps(v + 1); } },
-    { "Contrast of", kStepWay, 2,
-        [] { return int32(gContrastBrights); },
-        [](int32 v) { renderSetContrastBrights(v); } },
     { "Multiply", kMultiply, 5,
         [] { return gScaleMultiply; },
         [](int32 v) { renderSetScaleMultiply(v); } },
@@ -100,7 +96,7 @@ static const Option gOptions[] = {
         [](int32 v) { gShowStats = v; } }
 };
 
-enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_STEP_WAY, OPTION_MULTIPLY, OPTION_GREY, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
+enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_MULTIPLY, OPTION_GREY, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
        OPTION_PALETTE, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_COUNT };
 
 static uint16 gPad;
@@ -236,7 +232,7 @@ static uint32 gSplit[SPLIT_COUNT];
 // A sampling profiler for the master CPU: during the Profile way, the free-
 // running timer's compare A interrupts it every PROFILE_TICKS (128 cycles
 // each) and up to 31 more at random, and the interrupted PC counts towards
-// its 32-byte block of the program. The way draws as Base does; the other
+// its 64-byte block of the program. The way draws as Base does; the other
 // ways run without the interrupt.
 #define FRT_TIER        (*(volatile uint8*)0xFFFFFE10)
 #define FRT_FTCSR       (*(volatile uint8*)0xFFFFFE11)
@@ -253,7 +249,7 @@ static uint32 gSplit[SPLIT_COUNT];
 #define PROFILE_LEVEL   1       // under every other interrupt
 #define PROFILE_TICKS   40
 #define PROFILE_START   0x06004000
-#define PROFILE_SHIFT   5
+#define PROFILE_SHIFT   6
 #define PROFILE_BLOCKS  (152 * 1024 >> PROFILE_SHIFT)  // the code ends ~146 KB in
 #define PROFILE_TOP     15      // three to a row, under the table
 

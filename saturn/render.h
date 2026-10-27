@@ -323,21 +323,22 @@ void renderSetShadeCurve(int32 curve);
 enum DarkFaces
 {
     DARK_ADD,       // by gouraud alone, as the original
-    DARK_HALF,      // at half luminance, gouraud making up the rest
     DARK_CONTRAST,  // room textures through tables of less contrast as they
-                    // darken, by eighths down to a half; the rest as DARK_HALF
-    DARK_SCALE,     // as the PS1 multiplies: room textures through tables of
-                    // their colours scaled towards black, objects' at half
+                    // darken, by eighths down to a half; other textures at
+                    // half luminance once darkened by a third of their mean
+    DARK_SCALE,     // blending the PS1's multiply with VDP1's add
+                    // (gScaleMultiply): room textures through tables of their
+                    // colours scaled towards black, others at half
                     // luminance, gouraud making each corner its mean's share
-    DARK_SCALE_DEEP,    // as DARK_SCALE, with light below neutral squared, so
-                        // dark corners go nearly as dark as DARK_ADD's
     DARK_COUNT
 };
 extern int32 gDarkFaces;
 void renderSetDarkFaces(int32 mode);
 
-// DARK_SCALE, DARK_SCALE_DEEP: quarters of the PS1's multiply in the blend
-// with VDP1's add (0, the add alone; 4, the multiply alone).
+// DARK_SCALE: quarters of the PS1's multiply in the blend with VDP1's add (0,
+// the add alone; 4, the multiply alone). flush.s builds faces at 2 itself,
+// the rest go to faceCommand.
+#define SCALE_MULTIPLY_FAST 2
 extern int32 gScaleMultiply;
 void renderSetScaleMultiply(int32 quarters);
 
@@ -345,11 +346,6 @@ void renderSetScaleMultiply(int32 quarters);
 // down to 7/8 .. 4/8); faces darkened past the last keep its table.
 extern int32 gContrastSteps;
 void renderSetContrastSteps(int32 steps);
-
-// DARK_CONTRAST: the tables of less contrast bring only colours brighter than
-// their centre towards it, keeping the dark ones.
-extern bool gContrastBrights;
-void renderSetContrastBrights(bool brights);
 
 // DARK_CONTRAST: where the tables of less contrast bring colours, in quarters
 // from the texture's own mean (0) to one grey shared by every texture (4, 16 a

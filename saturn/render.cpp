@@ -389,7 +389,6 @@ bool renderFastShrink()
 }
 int32 gDarkFaces = DARK_SCALE;
 int32 gContrastSteps = 4;
-bool gContrastBrights;
 int32 gContrastGrey = 4;
 int32 gFlatDist;
 int32 gTurnLines = 1;
@@ -545,20 +544,21 @@ static uint32 scaledGouraud(uint32 m, int32 l, int32 s, bool half, int32 q)
 {
     int32 p = 64 - q * (16 - l);
     // 64ths: the blend's value for the mean, less what the table leaves,
-    // rounded once for the channels' average (the add's share with it); each
-    // channel's difference from the average taken towards zero, so a grey
+    // rounded once for the channels' average (the add's share with it), then
+    // each channel's difference from the average rounded, so a grey
     // texture's channels stay together (rounded per channel, a mean of
-    // 15/16/15 put green a step under red and blue, and grey snow went pink)
+    // 15/16/15 put green a step under red and blue, and grey snow went pink);
+    // offsets keep the sums positive for the shifts flush.s rounds with
     int32 avg = (int32(m & 31) + int32((m >> 5) & 31) + int32((m >> 10) & 31) + 1) / 3;
     int32 d = avg * (p - s) + 16 * (4 - q) * (l - 16);
     if (half) {
         d *= 2;
     }
-    int32 base = 16 + (d + (d < 0 ? -32 : 32)) / 64;
+    int32 base = 16 + ((d + 32 + 8192) >> 6) - 128;
     uint32 out = 0;
     for (int32 i = 0; i < 3; i++)
     {
-        int32 e = (int32((m >> (5 * i)) & 31) - avg) * (p - s) * (half ? 2 : 1) / 64;
+        int32 e = (((int32((m >> (5 * i)) & 31) - avg) * (p - s) * (half ? 2 : 1) + 32 + 4096) >> 6) - 64;
         out |= uint32(X_CLAMP(base + e, 0, 31)) << (5 * i);
     }
     return out;
@@ -618,18 +618,8 @@ X_INLINE bool shadeDark(uint32* w, uint32* grd, uint32 flags, const Vertex* a, c
 
     // the mode uncached: the slave builds faces too, and the master changes it
     int32 mode = *uncached(&gDarkFaces);
-    if (mode == DARK_SCALE || mode == DARK_SCALE_DEEP)
-    {
-        if (mode == DARK_SCALE_DEEP)
-        {
-            // L^2 / 16 below neutral
-            la = la < 16 ? (la * la + 8) >> 4 : la;
-            lb = lb < 16 ? (lb * lb + 8) >> 4 : lb;
-            lc = lc < 16 ? (lc * lc + 8) >> 4 : lc;
-            ld = ld < 16 ? (ld * ld + 8) >> 4 : ld;
-        }
+    if (mode == DARK_SCALE)
         return shadeScaled(w, grd, tex, la, lb, lc, ld);
-    }
 
     // average darkening (64 - sum) / 4 against a third of the mean luma / 3
     int32 dark = (64 - (la + lb + lc + ld)) * 9;
@@ -763,7 +753,7 @@ static void shadeTablesReset()
 // stays as it is.
 static bool darkScaled(int32 mode)
 {
-    return mode == DARK_SCALE || mode == DARK_SCALE_DEEP;
+    return mode == DARK_SCALE;
 }
 
 static void buildContrast()
@@ -807,18 +797,9 @@ static void buildContrast()
                 else
                 {
                     // m (8 - c) + col c >= 0, eighths
-                    r = col & 31;
-                    g = (col >> 5) & 31;
-                    b = (col >> 10) & 31;
-                    if (!gContrastBrights || int32(r) > mr) {
-                        r = (mr * (8 - c) + int32(r) * c + 4) >> 3;
-                    }
-                    if (!gContrastBrights || int32(g) > mg) {
-                        g = (mg * (8 - c) + int32(g) * c + 4) >> 3;
-                    }
-                    if (!gContrastBrights || int32(b) > mb) {
-                        b = (mb * (8 - c) + int32(b) * c + 4) >> 3;
-                    }
+                    r = (mr * (8 - c) + int32(col & 31) * c + 4) >> 3;
+                    g = (mg * (8 - c) + int32((col >> 5) & 31) * c + 4) >> 3;
+                    b = (mb * (8 - c) + int32((col >> 10) & 31) * c + 4) >> 3;
                 }
                 *out++ = (col & 0x8000) | (b << 10) | (g << 5) | r;
             }
@@ -838,12 +819,6 @@ void renderSetScaleMultiply(int32 quarters)
 void renderSetContrastGrey(int32 quarters)
 {
     gContrastGrey = quarters;
-    buildContrast();
-}
-
-void renderSetContrastBrights(bool brights)
-{
-    gContrastBrights = brights;
     buildContrast();
 }
 
@@ -1156,7 +1131,7 @@ static_assert(offsetof(FlushXform, vertices) == 12 && offsetof(FlushXform, grdLi
               "FlushXform layout is shared with flush.s");
 static_assert(sizeof(Face) == 16 && offsetof(Face, next) == 4 && offsetof(Face, indices) == 8 &&
               sizeof(Texture) == 16 && offsetof(Texture, attr) == 6 && offsetof(Texture, color) == 8 &&
-              offsetof(Texture, contrast) == 14 && DARK_CONTRAST == 2 && DARK_SCALE == 3 && DARK_SCALE_DEEP == 4 &&
+              offsetof(Texture, contrast) == 14 && DARK_CONTRAST == 1 && DARK_SCALE == 2 && SCALE_MULTIPLY_FAST == 2 &&
               sizeof(Command) == 32 && sizeof(gGouraud[0]) == 8, "layouts read by flush.s");
 static_assert(FACE_WATER == (1 << 30) && FACE_DETAIL == (1 << 29) && FACE_PARALLELOGRAM == (1 << 28) &&
               FACE_DETAIL_WHOLE == (1 << 27) && FACE_V0_AT_D == (1 << 27) && FACE_DETAIL_SLOT_SHIFT == 20 &&
@@ -1212,7 +1187,9 @@ static void flushXformInit(FlushXform &xf, Face** roomOT, int32 first, int32 cou
     xf.shadeGouraud = gShadeGouraud;
     xf.shadeLevel = gShadeLevel;
     xf.halfLevel = gHalfLevel;
-    xf.dark = gDarkFaces;
+    // flush.s: 0 add, 1 contrast, 2 scaled at SCALE_MULTIPLY_FAST, 3 scaled
+    // otherwise (faceCommand)
+    xf.dark = gDarkFaces != DARK_SCALE ? gDarkFaces : gScaleMultiply == SCALE_MULTIPLY_FAST ? 2 : 3;
     xf.detailVram = gDetailVramStart;
     xf.slow = faceSlow;
     xf.mipVram[0] = gDetailPoolVram[1];

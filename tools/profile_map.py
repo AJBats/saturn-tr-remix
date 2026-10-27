@@ -8,7 +8,7 @@ usage: profile_map.py ELF --dump HWRAM.bin
            the blocks the table shows (a photo of a Saturn's): each the low 5
            hex digits of a block's address and its share in percent
 
-A block is 32 bytes of the program; each counts towards the function it
+A block is 64 bytes of the program; each counts towards the function it
 starts in.
 """
 import bisect
@@ -21,7 +21,7 @@ from collections import defaultdict
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NM = os.path.join(ROOT, "toolchain", "gcc-14.2.0", "sh2eb-elf", "bin", "sh2eb-elf-nm")
 START = 0x06004000
-SHIFT = 5
+SHIFT = 6
 BLOCKS = 160 * 1024 >> SHIFT
 
 
