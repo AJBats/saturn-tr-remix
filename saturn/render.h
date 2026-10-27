@@ -333,6 +333,9 @@ enum DarkFaces
                         // dark corners go nearly as dark as DARK_ADD's
     DARK_CONTRAST_EVEN, // every room face through the table of the last
                         // contrast step (gContrastSteps), however lit
+    DARK_CONTRAST_MUL,  // the tables of DARK_CONTRAST, gouraud as DARK_SCALE's
+                        // (the mean at its share of the light): nothing
+                        // clips to black, texels keep the steps' contrast
     DARK_COUNT
 };
 extern int32 gDarkFaces;

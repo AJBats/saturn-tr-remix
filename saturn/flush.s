@@ -22,8 +22,8 @@
 !   +44 const uint8* shadeLevel
 !   +48 const uint8* halfLevel
 !   +52 int32 dark              gDarkFaces: 0 add, 1 half luminance, 2 contrast,
-!                               3, 4 scaled, 5 contrast even (faceCommand
-!                               builds those faces)
+!                               3, 4 scaled, 5 contrast even, 6 contrast
+!                               multiply (faceCommand builds those faces)
 !   +56 uint32 detailVram       gDetailVramStart
 !   +60 void (*slow)(const Face* face, uint32* w, uint32* grd, int32 room)
 !   +64 uint32 mipVram[2]       the mip levels' pools (gDetailPoolVram[1], [2])
@@ -647,7 +647,7 @@ _flushAsm:
     mov     #3, r3
     cmp/ge  r3, r0
     bf      .Lhalf
-    bra     .Lslow              ! DARK_SCALE, _DEEP, CONTRAST_EVEN: faceCommand
+    bra     .Lslow              ! DARK_SCALE, _DEEP, CONTRAST_EVEN, _MUL: faceCommand
     nop
 
     ! the corners' shades as they are
