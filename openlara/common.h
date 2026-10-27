@@ -2956,6 +2956,13 @@ void setCameraWater(bool water);
 void setSceneClear(bool clear);
 void clear();
 void renderRoom(Room* room);
+// The ordering table's layers (saturn/render.h OtLayer): begun for a frame's
+// rooms seen from cameraRoom; what follows is added to a room's layer, or to
+// that of an object in a sphere (its centre from the camera), until the end.
+void depthLayersBegin(const Room* cameraRoom);
+void depthLayerRoom(const Room* room);
+void depthLayerSphere(int32 x, int32 y, int32 z, int32 r);
+void depthLayersEnd();
 void renderRoomsQueued();
 void renderMesh(const Mesh* mesh);
 void renderStaticMesh(const Mesh* mesh);

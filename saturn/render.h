@@ -89,30 +89,82 @@ X_INLINE const Vertex* cornerVertex(int32 offset, const Vertex* half)
     return (const Vertex*)((const uint8*)half + offset);
 }
 
+// The ordering table holds layers, drawn one after another: what lies past
+// the camera's room's portals first (OT_LAYER_BACK), then that room and
+// whatever reaches into it (OT_LAYER_FRONT), each sorted by depth. A face
+// beyond a portal is behind every face of the room it is seen from, however
+// their depths compare. The last bucket, behind both, holds the void fills.
+enum OtLayer { OT_LAYER_FRONT, OT_LAYER_BACK, OT_LAYERS };
+
+// A layer's buckets: a depth's (z >> OT_SHIFT) bucket as it is to 256 (4096
+// units), at half the precision to 512, at an eighth beyond, where faces are
+// small on the frame.
+#define OT_LAYER_BUCKETS    512
+#define OT_BUCKETS          (OT_LAYERS * OT_LAYER_BUCKETS + 1)
+
+constexpr int32 otBucket(int32 depth)
+{
+    return depth < 256 ? depth : depth < 512 ? 128 + (depth >> 1) : 320 + (depth >> 3);
+}
+
 // Ordering table buckets counted together, for flush to share the frame's
-// faces between the CPUs.
+// faces between the CPUs. A layer is whole groups.
 #define OT_GROUP_SHIFT  5
-#define OT_GROUPS       ((OT_SIZE >> OT_GROUP_SHIFT) + 1)
+#define OT_GROUPS       ((OT_BUCKETS >> OT_GROUP_SHIFT) + 1)
+
+static_assert(OT_LAYER_BUCKETS % (1 << OT_GROUP_SHIFT) == 0 && otBucket(OT_SIZE - 1) < OT_LAYER_BUCKETS,
+              "a layer's buckets are whole groups and hold every depth");
 
 // A CPU's faces: a pool and an ordering table. flush merges the two CPUs'.
 struct FaceList
 {
     Face* next;
     Face* end;
-    Face** ot;
-    uint16 groups[OT_GROUPS];   // faces in each group of buckets
+    Face** ot;                  // the current layer's first bucket
+    uint16* groups;             // ... and its group's count
+    int32 last;                 // the table's last bucket, from the layer's first
+    Face** table;
+    uint16 counts[OT_GROUPS];   // faces in each group of the table's buckets
 };
 
+// Faces are added to layer from here on.
+X_INLINE void faceLayer(FaceList &list, int32 layer)
+{
+    int32 first = layer * OT_LAYER_BUCKETS;
+    list.ot = list.table + first;
+    list.groups = list.counts + (first >> OT_GROUP_SHIFT);
+    list.last = OT_BUCKETS - 1 - first;
+}
+
+X_INLINE void faceListInit(FaceList &list, Face* pool, Face* end, Face** table)
+{
+    list.next = pool;
+    list.end = end;
+    list.table = table;
+    faceLayer(list, OT_LAYER_FRONT);
+}
+
+X_INLINE Face* faceLink(FaceList &list, int32 bucket)
+{
+    Face* face = list.next++;
+    face->next = list.ot[bucket];
+    list.ot[bucket] = face;
+    list.groups[bucket >> OT_GROUP_SHIFT]++;
+
+    return face;
+}
+
+// A face at depth (z >> OT_SHIFT) in the current layer.
 X_INLINE Face* faceAdd(FaceList &list, int32 depth)
 {
     ASSERT(depth >= 0 && depth < OT_SIZE);
+    return faceLink(list, otBucket(depth));
+}
 
-    Face* face = list.next++;
-    face->next = list.ot[depth];
-    list.ot[depth] = face;
-    list.groups[depth >> OT_GROUP_SHIFT]++;
-
-    return face;
+// A face behind everything.
+X_INLINE Face* faceAddLast(FaceList &list)
+{
+    return faceLink(list, list.last);
 }
 
 // SH-2 has no barrel shifter, and GCC calls a library routine for most
@@ -200,11 +252,9 @@ X_INLINE void projectView(int16 x, int16 y, int32 z, uint32 clip, const RectMinM
 enum NearSplit { NEAR_SPLIT_PLANE, NEAR_SPLIT_FAR, NEAR_SPLIT_STEEP, NEAR_SPLIT_COUNT };
 extern int32 gNearSplit;
 
-// The depth a room face is sorted at (debug menu): its farthest corner's, as
-// OpenLara and the PC original, or its corners' mean, as the Saturn original
-// and every mesh face.
-enum RoomDepth { ROOM_DEPTH_FAR, ROOM_DEPTH_MEAN, ROOM_DEPTH_COUNT };
-extern int32 gRoomDepth;
+// The ordering table's layers (debug menu): the camera's room in front of
+// what lies past its portals, or every face in one.
+extern int32 gDepthLayers;
 
 // Debug views (the debug pad's B cycles them).
 enum TexelView
@@ -411,6 +461,7 @@ struct MeshJob
     int16 vCount, fCount;   // its vertices and faces
     int16 shadow[4];        // the shadow's x, z, sx, sz (renderShadow)
     uint32 flags;           // face flags (water)
+    int32 layer;            // the ordering table's (OtLayer)
     MeshXform xf;           // set up with the matrix and lighting it was queued with
 };
 
@@ -437,8 +488,9 @@ void roomsAllQueued();
 // that differ.
 void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors);
 
-// Queues a room for the slave, with the current matrix and viewport.
-void roomsQueue(const Room* room);
+// Queues a room for the slave, with the current matrix and viewport, its
+// faces into the ordering table's layer.
+void roomsQueue(const Room* room, int32 layer);
 
 // Queues a mesh for the slave, set up with the current matrix and lighting;
 // false when the master had better draw it (render.cpp hands it rooms'

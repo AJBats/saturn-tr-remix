@@ -9,7 +9,7 @@
 ! FlushXform (render.cpp):
 !   +0  Face** roomOT           the slave's ordering table
 !   +4  Face** meshOT           the master's
-!   +8  int32 buckets           OT_SIZE
+!   +8  int32 buckets           how many, from the first (render.h OT_BUCKETS)
 !   +12 const Vertex* vertices  gVertices
 !   +16 uint32* cmd             the next command; returned
 !   +20 uint32* cmdEnd          the last command slot, kept for the end

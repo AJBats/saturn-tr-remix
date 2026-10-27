@@ -65,6 +65,10 @@ def main():
     ap.add_argument('base', help='save state in LEVEL1')
     ap.add_argument('count', type=int)
     ap.add_argument('--seed', type=int, default=1)
+    ap.add_argument('--spots', help='a file of spots instead of random ones: NAME: room R X Y Z yaw HEX per line '
+                                    '(as this script writes them)')
+    ap.add_argument('--layers', choices=('camera', 'one'), default='camera', help='depth layers option')
+    ap.add_argument('--prefix', default='auto', help="the cases' names")
     args = ap.parse_args()
 
     elf = os.path.join(cap.CASES, '0MAIN.elf')
@@ -81,9 +85,18 @@ def main():
     ram = open(ram_path, 'rb').read()
     lara = struct.unpack_from('>I', ram, sym['players'] - 0x06000000)[0]
 
+    if args.spots:
+        listed = [l.split() for l in open(args.spots) if l.strip()]
+        chosen = [(int(p[2]), int(p[3]), int(p[4]), int(p[5]), int(p[7], 16)) for p in listed]
+        names = [p[0].rstrip(':') for p in listed]
+    else:
+        chosen = list(zip(range(args.count), spots(lvl, rng)))
+        chosen = [c for _, c in chosen]
+        names = [f'{args.seed}_{k}' for k in range(len(chosen))]
+
     made = []
-    for k, (room, x, y, z, yaw) in zip(range(args.count), spots(lvl, rng)):
-        name = f'auto_{args.seed}_{k}'
+    for name, (room, x, y, z, yaw) in zip(names, chosen):
+        name = f'{args.prefix}_{name}'
         state = os.path.join(cap.CASES, name + '.mcs').replace('\\', '/')
         cap.send(f'load_state {base}', 'ok load_state')
         poke(lara + ITEM_ROOM, 'I', sym['rooms'] + room * depthcheck.ROOM_SIZE)
@@ -93,10 +106,10 @@ def main():
         poke(lara + ITEM_YAW, 'H', yaw)
         cap.send(f'frame_advance {SETTLE_FRAMES}', 'done frame_advance', 120)
         cap.send(f'save_state {state}', 'ok save_state')
-        sys.argv = ['depthcapture.py', state, name]
+        sys.argv = ['depthcapture.py', state, name, '--layers', args.layers]
         cap.main()
         made.append(f'{name}: room {room} {x} {y} {z} yaw {yaw:04x}')
-    with open(os.path.join(cap.CASES, f'auto_{args.seed}.txt'), 'w') as f:
+    with open(os.path.join(cap.CASES, f'{args.prefix}_{args.seed}.txt'), 'w') as f:
         f.write('\n'.join(made) + '\n')
     print('\n'.join(made))
 

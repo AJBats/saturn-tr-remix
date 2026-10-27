@@ -40,7 +40,7 @@ static const char* const kLod[] = { "Full res", "1 texel a pixel", "1.5 texels",
 static const char* const kShade[] = { "Gouraud", "Shaded tables", "All far faces" };
 static const char* const kShadow[] = { "Half", "Black", "Mesh" };
 static const char* const kSplit[] = { "Plane only", "Far off frame", "Steep too" };
-static const char* const kRoomDepth[] = { "Farthest", "Mean" };
+static const char* const kLayers[] = { "One", "Camera room" };
 static const char* const kSteps[] = { "1 (7/8)", "2 (6/8)", "3 (5/8)", "4 (4/8)" };
 static const char* const kMultiply[] = { "0 (Saturn add)", "1/4", "2/4", "3/4", "4/4 (PS1)" };
 static const char* const kGrey[] = { "0 (own mean)", "1/4", "2/4", "3/4", "4/4" };
@@ -95,9 +95,9 @@ static const Option gOptions[] = {
     { "Near split", kSplit, NEAR_SPLIT_COUNT,
         [] { return gNearSplit; },
         [](int32 v) { gNearSplit = v; } },
-    { "Room depth", kRoomDepth, ROOM_DEPTH_COUNT,
-        [] { return gRoomDepth; },
-        [](int32 v) { gRoomDepth = v; } },
+    { "Depth layers", kLayers, 2,
+        [] { return gDepthLayers; },
+        [](int32 v) { gDepthLayers = v; } },
     { "Shadows", kShadow, SHADOW_COUNT,
         [] { return gShadowMode; },
         [](int32 v) { gShadowMode = v; } },

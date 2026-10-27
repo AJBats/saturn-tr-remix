@@ -58,9 +58,14 @@ FACE_TYPE_SHIFT, FACE_TYPE_MASK = 14, 15
 (T_SHADOW, T_F, T_FT, T_FTA, T_GT, T_GTA, T_SPRITE, T_FILL_S,
  T_LINE_H, T_LINE_V, T_AVG, T_VOID) = range(12)
 TYPE_NAMES = ['shadow', 'F', 'FT', 'FTA', 'GT', 'GTA', 'sprite', 'fill', 'lineH', 'lineV', 'avg', 'void']
+CLIP_FRAME = 1 << 0
 CLIP_PLANE = 1 << 5
 CMD_SKIP = 0x4000
 CMD_END = 0x8000
+
+# An object reaches into the rooms within this of its corners (its box, as
+# the game would test it, is never tight).
+REACH = 64
 
 # A sorting error: the face painted last is farther than the nearest face by
 # more than this fraction of its depth (faces meeting at an edge tie).
@@ -114,7 +119,7 @@ class Ram:
 
 
 class Face:
-    __slots__ = ('order', 'addr', 'room_list', 'flags', 'type', 'corners', 'kind', 'owner', 'room', 'touches', 'face_room', 'label',
+    __slots__ = ('order', 'addr', 'room_list', 'flags', 'type', 'corners', 'kind', 'owner', 'room', 'touches', 'face_room', 'bucket', 'label',
                  'skip', 'cmd', 'drawn')
 
     def __init__(self):
@@ -137,6 +142,7 @@ def faces_in_order(ram, sym):
             while f:
                 face = Face()
                 face.order = len(faces)
+                face.bucket = i
                 face.addr = f
                 face.room_list = room_list
                 face.flags = ram.u32(f)
@@ -236,28 +242,46 @@ def objects_by_vertices(faces):
 def screen_to_world(ram, sym, lvl, owners):
     """A function taking a vertex (screen x, y, depth z) to world x, y, z.
 
-    The view is fitted from the room vertices on the frame: x*z, y*z and z
-    are linear in a room vertex's world position, so least squares over a
-    room's vertices gives the map, and its inverse undoes it."""
+    The view's rotation is the room jobs' matrix; what's left is linear in a
+    room vertex's world position p: z = s (R2 p) + b, x z = a (R0 p) + cx z + c,
+    and y likewise. Each room's vertices on the frame (none clamped) are fitted
+    alone, as some rooms' don't fit (their far corners); the room with the
+    most vertices among those fitting to a pixel gives the map, and solving
+    for p undoes it."""
     verts = sym['gVertices']
+    job = sym['gJobs']
+    m = np.array([ram.s16(job + 4 + 2 * k) for k in range(9)], float).reshape(3, 3)
+    rot = m / np.linalg.norm(m, axis=1, keepdims=True)
     best = None
     for lo, hi, room in owners:
         r = lvl.rooms[room]
-        rows, rhs = [], []
+        pts, scr = [], []
         for k, (x, y, z) in enumerate(v[:3] for v in r.vertices):
             sx, sy, sz, clip = vertex(ram, verts + (lo + k) * VERTEX_SIZE)
-            if clip or sz <= 0:
-                continue
-            rows.append((x + r.x, y, z + r.z, 1.0))
-            rhs.append((sx * sz, sy * sz, sz))
-        if len(rows) >= 8 and (best is None or len(rows) > len(best[0])):
-            best = (rows, rhs)
+            if clip & ~CLIP_FRAME or sz <= 0:
+                continue    # clamped: past the guard band or the near plane
+            pts.append((x + r.x, y, z + r.z))
+            scr.append((sx, sy, sz))
+        if len(pts) < 8 or (best and len(pts) <= best[0]):
+            continue
+        q = np.array(pts, float) @ rot.T     # rotated world positions
+        sx, sy, sz = np.array(scr, float).T
+        ones = np.ones(len(q))
+        (s_, b), *_ = np.linalg.lstsq(np.c_[q[:, 2], ones], sz, rcond=None)
+        (ax, cx, c0), *_ = np.linalg.lstsq(np.c_[q[:, 0], sz, ones], sx * sz, rcond=None)
+        (ay, cy, c1), *_ = np.linalg.lstsq(np.c_[q[:, 1], sz, ones], sy * sz, rcond=None)
+        err = max(np.abs(s_ * q[:, 2] + b - sz).max(),
+                  (np.abs(ax * q[:, 0] + cx * sz + c0 - sx * sz) / sz).max(),
+                  (np.abs(ay * q[:, 1] + cy * sz + c1 - sy * sz) / sz).max())
+        if err <= 2.0:
+            best = (len(pts), (s_, b, ax, cx, c0, ay, cy, c1))
     if best is None:
         return None
-    a, *_ = np.linalg.lstsq(np.array(best[0]), np.array(best[1]), rcond=None)
-    m, t = a[:3].T, a[3]
-    m_inv = np.linalg.inv(m)
-    return lambda sx, sy, sz: m_inv @ (np.array((sx * sz, sy * sz, sz)) - t)
+    s_, b, ax, cx, c0, ay, cy, c1 = best[1]
+
+    def to_world(px, py, pz):
+        return rot.T @ np.array(((px * pz - cx * pz - c0) / ax, (py * pz - cy * pz - c1) / ay, (pz - b) / s_))
+    return to_world
 
 
 def door(lvl, floor_index):
@@ -301,7 +325,9 @@ def object_rooms(faces, ram, sym, lvl, owners):
         room = room_at(lvl, visible, p)
         return room if room is not None else room_at(lvl, others, p)
 
-    votes = {}
+    votes, reach = {}, {}
+    nudges = [np.array(d) for d in ((0, 0, 0), (REACH, 0, 0), (-REACH, 0, 0), (0, REACH, 0),
+                                    (0, -REACH, 0), (0, 0, REACH), (0, 0, -REACH))]
     for f in faces:
         f.face_room = f.room
         if f.kind != 'object':
@@ -315,6 +341,8 @@ def object_rooms(faces, ram, sym, lvl, owners):
             v = votes.setdefault(f.owner, {})
             room = room_of(points[-1])
             v[room] = v.get(room, 0) + 1
+            r = reach.setdefault(f.owner, set())
+            r.update(room_of(points[-1] + d) for d in nudges)
         if points:
             f.face_room = room_of(sum(points) / len(points))
     for f in faces:
@@ -322,7 +350,7 @@ def object_rooms(faces, ram, sym, lvl, owners):
             v = votes.get(f.owner, {})
             known = {r: n for r, n in v.items() if r is not None}
             f.room = max(known, key=known.get) if known else None
-            f.touches = set(known)
+            f.touches = set(known) | (reach.get(f.owner, set()) - {None})
             if v:
                 others = [('in a wall' if r is None else str(r)) for r in v if r != f.room]
                 f.label += ((f' (in room {f.room}' if known else ' (in a wall') +
@@ -410,13 +438,83 @@ ORDERS = {
     'portal': "rooms in walk order, each with the objects standing in it; by depth within",
     'portal-nearest': "... objects with the latest-drawn room they reach into",
     'portal-face': "... each object face with the room holding its centre",
+    'levels': "rooms by portal steps from the camera's room (--levels deep at most), farthest "
+              "first, objects with the nearest room they reach into; by depth within",
+    'camera': "the camera's room and what reaches into it last, the rest first; by depth within",
 }
 
 
-def draw_order(faces, walk, order):
-    """The faces in the order to paint them (stable: depth order kept within a layer)."""
-    if order == 'captured':
+def bucket_key(spec):
+    """The function taking a frame's bucket to the bucket of the ordering table --coarse describes."""
+    if ':' not in spec:
+        n = int(spec)
+        return lambda b: b >> n
+    ranges = []
+    for part in spec.split(','):
+        end, shift = part.split(':')
+        ranges.append((int(end) if end else 1 << 30, int(shift)))
+
+    def key(b):
+        start, base = 0, 0
+        for end, shift in ranges:
+            if b < end:
+                return base + ((b - start) >> shift)
+            base += (end - start) >> shift
+            start = end
+        return base
+    return key
+
+
+def portal_levels(lvl, walk):
+    """Each queued room's portal steps from the camera's room (the walk's last)."""
+    queued = set(walk)
+    level = {walk[-1]: 0}
+    frontier = [walk[-1]]
+    while frontier:
+        nxt = []
+        for room in frontier:
+            for p in lvl.rooms[room].portals:
+                if p[0] in queued and p[0] not in level:
+                    level[p[0]] = level[room] + 1
+                    nxt.append(p[0])
+        frontier = nxt
+    return level
+
+
+def draw_order(faces, walk, args, lvl):
+    """The faces in the order to paint them.
+
+    Within a layer they go as an ordering table of buckets --coarse bits
+    wider than the frame's would hold them: far to near, in a bucket the
+    slave's room faces, then its meshes', then the master's, each list
+    newest first (faceAdd pushes; pool addresses rise as faces are added)."""
+    order = args.order
+    if order == 'captured' and args.coarse == '0':
         return faces
+    if order in ('captured', 'levels', 'camera'):
+        level = portal_levels(lvl, walk) if walk else {}
+        deepest = max(level.values(), default=0)
+        if order == 'captured':
+            rank = {}
+        elif order == 'camera':
+            rank = {room: int(room == walk[-1]) for room in walk}
+        else:
+            cap = args.levels
+            rank = {room: cap - min(n, cap) for room, n in level.items()}
+
+        top = max(rank.values(), default=0)
+
+        def layer(f):
+            if f.kind == 'room':
+                return rank.get(f.room, 0)
+            return max((rank.get(r, 0) for r in f.touches), default=top)
+
+        def sub_list(f):
+            return 0 if f.kind == 'room' else 1 if f.room_list else 2
+
+        key = bucket_key(args.coarse)
+        return sorted(faces, key=lambda f: (layer(f), -key(f.bucket), sub_list(f), -f.addr))
+
     pos = {room: i for i, room in enumerate(walk)}
     last = len(walk)
 
@@ -435,11 +533,18 @@ def main():
     ap.add_argument('cases', nargs='+', help='names in build/depth_cases (CASE_faces.bin, CASE_cmds.bin)')
     ap.add_argument('--order', choices=ORDERS, default='captured',
                     help='paint order to score: ' + '; '.join(f'{k}: {v}' for k, v in ORDERS.items()))
+    ap.add_argument('--levels', type=int, default=1, help='portal steps kept apart (--order levels)')
+    ap.add_argument('--coarse', default='0',
+                    help="the ordering table's buckets from the frame's: N bits fewer, or by ranges, "
+                         "e.g. 256:0,512:1,:2 (below 256 as they are, below 512 halved, the rest quartered)")
     ap.add_argument('--dir', default=os.path.join(ROOT, 'build/depth_cases'))
+    ap.add_argument('--elf', help="the cases' build (default: 0MAIN.elf in --dir)")
     ap.add_argument('--level', default='LEVEL1')
     ap.add_argument('--png', help='write the frame (CASE in the name is replaced): faces grey (rooms) '
                                   'and blue (objects), errors red')
     ap.add_argument('--pairs', type=int, default=12, help='face pairs to list')
+    ap.add_argument('--check-model', action='store_true',
+                    help="check that the ordering table model (draw_order) gives the captured order")
     args = ap.parse_args()
     lvl = trsat.load(os.path.join(ROOT, 'external_resources/disc/files/DATA'), args.level)
     total = 0
@@ -456,7 +561,7 @@ def score(args, case, lvl):
     if not (os.path.exists(faces_bin) and os.path.exists(cmds_bin)):
         sys.exit(capture_steps(case))
 
-    sym = Symbols(os.path.join(args.dir, '0MAIN.elf'))
+    sym = Symbols(args.elf or os.path.join(args.dir, '0MAIN.elf'))
     ram, ram_cmds = Ram(faces_bin), Ram(cmds_bin)
 
     faces = faces_in_order(ram, sym)
@@ -472,7 +577,12 @@ def score(args, case, lvl):
     paint_w = np.zeros((FRAME_H, FRAME_W))
     best_w = np.zeros((FRAME_H, FRAME_W))
     left_out = {}
-    for f in draw_order(faces, walk_order(ram, sym), args.order):
+    order = draw_order(faces, walk_order(ram, sym), args, lvl)
+    if args.order == 'captured' and args.coarse == '0' and args.check_model:
+        model = sorted(faces, key=lambda f: (-f.bucket, 0 if f.kind == 'room' else 1 if f.room_list else 2, -f.addr))
+        moved = sum(a is not b for a, b in zip(model, faces))
+        print(f'ordering table model: {moved} faces out of place')
+    for f in order:
         tris, why = polygon(f, ram, sym)
         if tris is None:
             left_out[why] = left_out.get(why, 0) + 1
