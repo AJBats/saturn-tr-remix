@@ -18,9 +18,11 @@ rest with a quarter-resolution set (ROOMTQTR), which the blob leaves out but
 for its colour tables. The game rearranges a texture into quadrants for the
 faces it splits. Two mip levels follow the set, for faces drawn small.
 
-Sound effects keep the original's samples (16-bit PCM at 5512.5 Hz). They
-go to a separate file the game loads into sound RAM; the PKD holds the sound
-map, the sound infos and each sample's offset in that file.
+Sound effects are the original's samples (16-bit PCM at 5512.5 Hz) or,
+where the PlayStation level has the one a sample was made from, that one as
+8-bit PCM at 11025 Hz (tools/sfx.py). They go to a separate file the game
+loads into sound RAM; the PKD holds the sound map, the sound infos and each
+sample's offset in that file with its format and level (saturn/sound.h).
 
 Inventory item textures go to another file, which the game puts in the VRAM
 after the blob (where full-res room textures are cached during play) while
@@ -29,7 +31,7 @@ the inventory is open.
 The remastered colour tables go to another file, which the game swaps with
 the original ones in VRAM to compare them (saturn/palettes.h).
 
-usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD>
+usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD> [<PSXDATA dir>]
        (also writes <out>.TEX, the texture blob loaded at VRAM_TEX_BASE,
        <out>.SUB, the full-resolution room textures and their mip levels, <out>.SFX, the sound
        samples, <out>.ITX, the inventory item textures, and <out>.PAL, the
@@ -48,6 +50,8 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sfx  # noqa: E402
+import trpsx  # noqa: E402
 import trsat  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -412,8 +416,9 @@ MESH_LIGHT_SHADES = 2   # a shade per vertex (intensity >> 5), padded to even
 
 
 class Packer:
-    def __init__(self, lvl):
+    def __init__(self, lvl, sounds):
         self.lvl = lvl
+        self.sounds = sounds
         self.meshes = trsat.meshes(lvl)
         self.palette = []           # RGB555 colours of coloured faces
         self.textures = TextureTable(lvl)
@@ -733,20 +738,16 @@ class Packer:
         for info in lvl.sound_infos:
             out.pack("4H", *info)
 
-        # offsets of the samples in the .SFX file, and its size after the last
+        # offsets of the samples in the .SFX file with their formats, and its
+        # size after the last
         sound_offsets = out.align4()
-        offsets, self.sfx = [], bytearray()
-        for i in range(len(lvl.samples)):
-            offsets.append(len(self.sfx))
-            self.sfx += lvl.samples[i]
-            while len(self.sfx) & 3:
-                self.sfx.append(0)
-        out.pack(f"{len(offsets) + 1}i", *offsets, len(self.sfx))
+        self.sfx, offsets = self.sounds.build()
+        out.pack(f"{len(offsets)}I", *offsets)
 
         header = struct.pack(">I14H", 0x53415431,     # 'SAT1'
             0, len(lvl.rooms), len(lvl.models), len(lvl.mesh_offsets), len(lvl.static_meshes),
             len(lvl.sprite_sequences), len(lvl.sound_sources), len(lvl.boxes), textures_count,
-            len(lvl.sprite_textures), len(lvl.items), len(lvl.cameras), len(lvl.camera_frames), len(offsets))
+            len(lvl.sprite_textures), len(lvl.items), len(lvl.cameras), len(lvl.camera_frames), len(offsets) - 1)
         header += struct.pack(">35I",
             palette, 0, 0, rooms, floors, mesh_base, mesh_offsets_pos, anims, states, ranges,
             commands, nodes, frames, models, static_meshes, textures, sprites, sprite_sequences,
@@ -882,6 +883,31 @@ def move_lara(lvl, room_index, sector=None):
     lara.update(room=room_index, x=room.x + sx * 1024 + 512, y=floor * 256, z=room.z + sz * 1024 + 512)
 
 
+def load_ps1(psx_dir, name):
+    """The PlayStation level, if there is one with sound samples."""
+    if psx_dir is None or not os.path.exists(os.path.join(psx_dir, name + ".PSX")):
+        return None
+    lvl = trpsx.load(psx_dir, name)
+    return lvl if lvl.samples else None
+
+
+def report_sounds(name, lvl, sounds):
+    """Prints the samples made from the PlayStation's and the sound RAM they
+    take, restores cut sounds, and prints those."""
+    original = sounds.size({})
+    at_lengths = sounds.size()
+    sounds.restore()
+    size = sounds.size()
+    if size > sounds.budget:
+        raise ValueError(f"{name}: {size} bytes of sound samples, {sounds.budget} fit")
+    print(f"{name}: {len(sounds.matches)} of {len(lvl.samples)} sound samples from the PlayStation's, "
+          f"{original} bytes as the original's, {at_lengths} at their lengths, {size} with "
+          f"{len(sounds.restored)} restored, {sounds.budget - size} bytes of sound RAM spare")
+    for i, old, new in sounds.restored:
+        ids = ", ".join(str(sid) for sid, _ in sounds.ids.get(i, []))
+        print(f"  sample {i} (sound {ids or 'unused'}): {old / 11025:.2f} s -> {new / 11025:.2f} s")
+
+
 def main():
     data_dir, name, out_path = sys.argv[1:4]
     lvl = trsat.load(data_dir, name)
@@ -899,7 +925,9 @@ def main():
         if len(start) == 4:
             lara = next(it for it in lvl.items if it["type"] == ITEM["LARA"])
             lara["rotation"] = (round(start[3] / 90) * 0x4000) & 0xFFFF
-    packer = Packer(lvl)
+    sounds = sfx.Sfx(lvl, load_ps1(sys.argv[4] if len(sys.argv) > 4 else None, name))
+    report_sounds(name, lvl, sounds)
+    packer = Packer(lvl, sounds)
     data = packer.pack()
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with open(out_path, "wb") as f:

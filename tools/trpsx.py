@@ -1,7 +1,7 @@
 """Read the PlayStation Tomb Raider's level files (PSXDATA/*.PSX) far enough
 to compare them with the Saturn's: textures, rooms and their faces, meshes,
-object textures and sound samples. The layout follows OpenLara's
-loadTR1_PSX (external_resources/OpenLara/src/format.h).
+object textures, sound samples and the sound map and infos. The layout
+follows OpenLara's loadTR1_PSX (external_resources/OpenLara/src/format.h).
 
 Usage: python tools/trpsx.py <PSXDATA dir> <LEVEL>   (prints a summary)
 """
@@ -131,6 +131,19 @@ def load(data_dir, name):
         x0, y0, clut, x1, y1, tile, x2, y2, _u, x3, y3, attribute = r.unpack("BBHBBHBBHBBH")
         lvl.object_textures.append(dict(clut=clut, tile=tile & 0x3FFF, attribute=attribute,
                                         uv=[(x0, y0), (x1, y1), (x2, y2), (x3, y3)]))
+
+    r.skip(r.u32(), 16)  # sprite textures
+    r.skip(r.u32(), 8)  # sprite sequences
+    r.skip(r.u32(), 16)  # cameras
+    r.skip(r.u32(), 16)  # sound sources
+    boxes = r.u32()
+    r.skip(boxes, 20)
+    r.skip(r.u32(), 2)  # overlaps
+    r.skip(6 * boxes, 2)  # zones
+    r.skip(r.u32(), 2)  # animated textures
+    r.skip(r.u32(), 22)  # items
+    lvl.sound_map = list(r.unpack("256h"))
+    lvl.sound_infos = [r.unpack("4H") for _ in range(r.u32())]
     return lvl
 
 

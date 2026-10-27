@@ -115,7 +115,10 @@ $(BUILD)/gen/%_dsp.h: saturn/%.dsp tools/dspasm.py
 $(BUILD)/0MAIN.elf: $(patsubst %,$(BUILD)/obj/%.o,$(GAME_SRC)) saturn/saturn.ld
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
 
-# Levels packed from the original disc's DATA files (tools/pack_level.py).
+# Levels packed from the original disc's DATA files (tools/pack_level.py),
+# with sound samples from the PlayStation version's levels where they have
+# them (external_resources/ps1: the PlayStation disc extracted; optional)
+PSXDATA := $(ER)/ps1/files/files/PSXDATA
 LEVELS  := TITLE GYM LEVEL1 LEVEL2 LEVEL3A LEVEL3B LEVEL4 LEVEL5 LEVEL6 LEVEL7A LEVEL7B \
            LEVEL8A LEVEL8B LEVEL8C LEVEL10A LEVEL10B LEVEL10C CUT1 CUT2 CUT3 CUT4
 GAME_DISC := $(foreach l,$(LEVELS),$(foreach e,PKD TEX SUB SFX ITX PAL,DATA/$(l).$(e)=build/data/$(l).$(e)))
@@ -126,8 +129,9 @@ GAME_DISC += $(foreach p,$(PICTURES),BINDATA/$(p).BIN=$(DISC)/files/BINDATA/$(p)
 VIDEOS := CORELOGO CAFE MANSION SNOW LIFT VISION CANYON PYRAMID PRISON END
 GAME_DISC += $(foreach v,$(VIDEOS),FMV/$(v).CPK=$(DISC)/files/FMV/$(v).CPK)
 
-build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%.ITX build/data/%.PAL &: tools/pack_level.py tools/trsat.py openlara/common.h saturn/vram.h $(DISC)/filelist.txt
-	$(PY) tools/pack_level.py $(DISC)/files/DATA $* build/data/$*.PKD
+build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%.ITX build/data/%.PAL &: tools/pack_level.py tools/trsat.py tools/trpsx.py tools/sfx.py \
+		openlara/common.h saturn/vram.h saturn/sound.h $(DISC)/filelist.txt $(wildcard $(PSXDATA)/*.PSX)
+	$(PY) tools/pack_level.py $(DISC)/files/DATA $* build/data/$*.PKD $(PSXDATA)
 
 disc: $(BUILD)/disc/tomb.cue
 $(eval $(call DISC_RULE,$(BUILD),$(GAME_DISC)))
