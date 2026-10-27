@@ -394,6 +394,7 @@ int32 gFlatDist;
 int32 gTurnLines = 1;
 int32 gShadowMode = SHADOW_MESH;
 int32 gNearSplit = NEAR_SPLIT_PLANE;
+int32 gRoomDepth = ROOM_DEPTH_FAR;
 int32 gTextureLod = 4;
 int32 gShadeTables = 1;
 

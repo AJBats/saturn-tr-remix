@@ -200,6 +200,12 @@ X_INLINE void projectView(int16 x, int16 y, int32 z, uint32 clip, const RectMinM
 enum NearSplit { NEAR_SPLIT_PLANE, NEAR_SPLIT_FAR, NEAR_SPLIT_STEEP, NEAR_SPLIT_COUNT };
 extern int32 gNearSplit;
 
+// The depth a room face is sorted at (debug menu): its farthest corner's, as
+// OpenLara and the PC original, or its corners' mean, as the Saturn original
+// and every mesh face.
+enum RoomDepth { ROOM_DEPTH_FAR, ROOM_DEPTH_MEAN, ROOM_DEPTH_COUNT };
+extern int32 gRoomDepth;
+
 // Debug views (the debug pad's B cycles them).
 enum TexelView
 {

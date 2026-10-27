@@ -98,6 +98,7 @@ static FaceList gMeshList;      // meshes' faces: the same pool, an ordering tab
 static bool gTurn;              // faces may be turned (gTurnLines)
 static uint32 gRoomFaceFlags;   // FACE_WATER for wet rooms
 static bool gRipple;            // the room is across the water surface from the camera
+static bool gRoomMean;          // faces sorted at their corners' mean depth (gRoomDepth)
 static int32 gWibblePhase;      // drifts the ripple
 static RoomMatrix gMatrix;
 
@@ -193,6 +194,15 @@ X_INLINE void projectRoomPoint(int16 vx, int16 vy, int16 vz, Vertex* res)
 // instead, for VDP2's back colour to show (over the box of the corners
 // projected as clamped to the plane, render.cpp faceCommand). faces.s does the
 // same.
+// A room face's ordering table bucket (a triangle's D is its C).
+static int32 roomDepth(const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
+{
+    if (gRoomMean) {
+        return uint32(v0->z + v1->z + v2->z + v3->z) >> (2 + OT_SHIFT);
+    }
+    return X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z))) >> OT_SHIFT;
+}
+
 static void faceAddRoomVoid(const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
 {
     Face* f = faceAdd(gFaceList, OT_SIZE - 1);
@@ -246,9 +256,7 @@ static void faceAddDetailQuad(uint32 flags, const Vertex* v0, const Vertex* v1, 
         return;
     }
 
-    int32 depth = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z))) >> OT_SHIFT;
-
-    Face* f = faceAdd(gFaceList, depth);
+    Face* f = faceAdd(gFaceList, roomDepth(v0, v1, v2, v3));
     f->flags = flags;
     f->indices[0] = cornerOffset(v0, gSlaveVertices);
     f->indices[1] = cornerOffset(v1, gSlaveVertices);
@@ -388,7 +396,7 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
             flags = wholeTexture(flags, v0, v1, v2, v3);
         }
 
-        Face* f = faceAdd(gFaceList, zMax >> OT_SHIFT);
+        Face* f = faceAdd(gFaceList, roomDepth(v0, v1, v2, v3));
         f->flags = flags;
         f->indices[0] = cornerOffset(v0, gSlaveVertices);
         f->indices[1] = cornerOffset(v1, gSlaveVertices);
@@ -427,16 +435,13 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
 
         flags |= FACE_TRIANGLE;
 
-        int32 zMax = X_MAX(v0->z, X_MAX(v1->z, v2->z));
         if (faceFlat(flags, X_MIN(v0->z, X_MIN(v1->z, v2->z)), level.textures + (flags & FACE_TEXTURE))) {
             flags = flatFlags(flags);
             gSlaveStats.flatFaces++;
         } else {
             flags = wholeTexture(flags, v0, v1, v2, v2);
         }
-        int32 depth = zMax >> OT_SHIFT;
-
-        Face* f = faceAdd(gFaceList, depth);
+        Face* f = faceAdd(gFaceList, roomDepth(v0, v1, v2, v2));
         f->flags = flags;
         f->indices[0] = cornerOffset(v0, gSlaveVertices);
         f->indices[1] = cornerOffset(v1, gSlaveVertices);
@@ -468,13 +473,14 @@ struct RoomFaces
                             // of its own parity (faces.s REUSE); -1: every frame
     int32 cached;           // faces.s's
     int32 facing;           // the quads face the camera: no backface test
+    int32 mean;             // sorted at their corners' mean depth (gRoomDepth), else the farthest's
 };
 
 static_assert(offsetof(RoomFaces, textures) == 16 && offsetof(RoomFaces, end) == 28 &&
               offsetof(RoomFaces, frame) == 40 && offsetof(RoomFaces, miss) == 48 &&
               offsetof(RoomFaces, turn) == 52 && offsetof(RoomFaces, lod) == 60 &&
               offsetof(RoomFaces, parity) == 64 && offsetof(RoomFaces, cached) == 68 &&
-              offsetof(RoomFaces, facing) == 72 &&
+              offsetof(RoomFaces, facing) == 72 && offsetof(RoomFaces, mean) == 76 &&
               sizeof(RoomQuad) == 12 && sizeof(RoomTriangle) == 12 && sizeof(DetailSlot) == 8 &&
               offsetof(DetailSlot, frame) == 4 && DETAIL_MAX_KEYS == 1088 && sizeof(Texture) == 16 &&
               offsetof(Texture, size) == 4 && offsetof(Texture, reserved) == 10 &&
@@ -676,6 +682,7 @@ static void roomFaces(int32 index, const RoomJob &job)
     Vertex* roomBase = gVertices + w.base;
 
     roomBegin(job);
+    gRoomMean = *uncached(&gRoomDepth) == ROOM_DEPTH_MEAN;
     if (w.dsp) {
         cacheDrop(roomBase, info->verticesCount * sizeof(Vertex));  // this CPU's copies from before the DSP wrote
     }
@@ -701,7 +708,7 @@ static void roomFaces(int32 index, const RoomJob &job)
         RoomFaces rf = { roomBase, base * 0x10001, &gFaceList, gRoomFaceFlags, level.textures, 0, 0,
                          gFaceList.end, gDetailKeys[0], gDetailSlots, gDetailFrame, faceAddRoomQuads, detailSlotMiss,
                          gTurn, 0, detailMips() && gBenchMode != BENCH_NO_LOD ? gTextureLod : 0,
-                         0, -1, 0 };
+                         0, -1, 0, gRoomMean };
 
         // The runs of quads square to an axis, then the rest: of the runs,
         // only the quads facing the camera, without a backface test. A quad's
