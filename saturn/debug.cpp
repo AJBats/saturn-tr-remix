@@ -2,7 +2,9 @@
 //   START [Tab]       opens and closes the menu
 //   up/down [arrows]  pick an option, left/right change it
 //   A [P], B [H], C [G]  step the palette, view and dark faces options
-// Changes show for a moment at the bottom of the screen.
+// Changes show for a moment at the bottom of the screen. In HW_LOG builds the
+// player's pad pages the overlay with R and L, and on the menu's page its
+// d-pad and A, B, C work the menu as the debug pad's do (Lara stands still).
 
 #include "debug.h"
 #include "common.h"
@@ -111,9 +113,9 @@ static bool gMenuOpen;
 static int32 gCursor;
 #ifdef HW_LOG
 // R and L page through the overlay: the bench's table, then (held on Base)
-// the scene's rows with each frame's CPU, slave and VDP1 time, then each
-// frame's time by stage.
-enum OverlayPage { PAGE_BENCH, PAGE_FRAME, PAGE_STAGES, PAGE_COUNT };
+// the scene's rows with each frame's CPU, slave and VDP1 time, each frame's
+// time by stage, the menu over each frame's times, and nothing at all.
+enum OverlayPage { PAGE_BENCH, PAGE_FRAME, PAGE_STAGES, PAGE_MENU, PAGE_NONE, PAGE_COUNT };
 static int32 gPage;
 #endif
 
@@ -132,9 +134,37 @@ static void step(int32 index, int32 delta)
     gMessageEnd = gVblankCount + 120;
 }
 
+// The menu shows: opened from the debug pad, or the overlay's page.
+static bool menuShown()
+{
+#ifdef HW_LOG
+    if (gPage == PAGE_MENU)
+        return true;
+#endif
+    return gMenuOpen;
+}
+
 void debugUpdate()
 {
     uint16 pad = padDebug();
+
+#ifdef HW_LOG
+    // the player's pad: Lara has no use for its shoulder buttons
+    static uint32 shoulders;
+    uint32 pressed2 = keys & (IK_L | IK_R) & ~shoulders;
+    if (pressed2 & IK_R) {
+        gPage = (gPage + 1) % PAGE_COUNT;
+    } else if (pressed2 & IK_L) {
+        gPage = (gPage + PAGE_COUNT - 1) % PAGE_COUNT;
+    }
+    shoulders = keys & (IK_L | IK_R);
+    if (gPage == PAGE_MENU)
+    {
+        pad |= padButtons() & ~(PAD_START | PAD_L | PAD_R);
+        keys = 0;
+    }
+#endif
+
     uint16 pressed = pad & ~gPad;
     gPad = pad;
 
@@ -142,7 +172,7 @@ void debugUpdate()
         gMenuOpen = !gMenuOpen;
     }
 
-    if (gMenuOpen)
+    if (menuShown())
     {
         if (pressed & PAD_UP) {
             gCursor = (gCursor + OPTION_COUNT - 1) % OPTION_COUNT;
@@ -169,17 +199,8 @@ void debugUpdate()
     }
 
 #ifdef HW_LOG
-    // the player's pad: Lara has no use for its shoulder buttons
-    static uint32 shoulders;
-    uint32 pressed2 = keys & (IK_L | IK_R) & ~shoulders;
-    if (pressed2 & IK_R) {
-        gPage = (gPage + 1) % PAGE_COUNT;
-    } else if (pressed2 & IK_L) {
-        gPage = (gPage + PAGE_COUNT - 1) % PAGE_COUNT;
-    }
-    shoulders = keys & (IK_L | IK_R);
     vdp1OnShown(frameShown);
-    if (gPage == PAGE_BENCH && gFrameRows)
+    if ((gPage == PAGE_BENCH || gPage == PAGE_NONE) && gFrameRows)
     {
         gFrameRows = false;
         overlayUnpin(FRAME_ROW);
@@ -565,7 +586,7 @@ static void frameShown(uint32_t plot)
     static uint32 last;
     uint32 vblanks = gVblankCount - last;
     last = gVblankCount;
-    if (gPage == PAGE_BENCH)
+    if (gPage == PAGE_BENCH || gPage == PAGE_NONE)
         return;
 
     const FrameTag &t = gFrameTags[plot % FRAME_TAGS];
@@ -803,13 +824,21 @@ void osDrawDebug()
 {
     char text[64];
 
+#ifdef HW_LOG
+    if (gPage == PAGE_NONE && !gMenuOpen)
+    {
+        overlayFrame();
+        return;
+    }
+#endif
+
     if (gSettings.video_fps)
     {
         int2str(fps, text);
         overlayRow(0, text, OVERLAY_RIGHT);
     }
 
-    if (gMenuOpen)
+    if (menuShown())
     {
         for (int32 i = 0; i < OPTION_COUNT; i++)
         {
@@ -856,7 +885,7 @@ void osDrawDebug()
     }
 
 #ifdef HW_LOG
-    if (!gMenuOpen)
+    if (!menuShown() && gPage != PAGE_NONE)
     {
         if (gPage != PAGE_BENCH)
         {
