@@ -105,11 +105,11 @@ static_assert(offsetof(MeshXform, tx) == 20 && offsetof(MeshXform, divTable) == 
               offsetof(MeshXform, ambient) == 36 && offsetof(MeshXform, lx) == 40 &&
               offsetof(MeshXform, range) == 52 && offsetof(MeshXform, normals) == 56 &&
               offsetof(MeshXform, shades) == 60 && offsetof(MeshXform, g) == 64 &&
-              offsetof(MeshXform, inside) == 68,
+              offsetof(MeshXform, inside) == 68 && offsetof(MeshXform, edge) == 72,
               "MeshXform layout is shared with meshxform.s");
 static_assert(sizeof(MeshVertex) == 6 && sizeof(divTableInt) == 2 && VIEW_MIN_F == 0x100000 &&
-              VIEW_MAX_F == 0x14000000 && FIXED_SHIFT == 14 && BENCH_SPLIT_SHADE == 12,
-              "constants repeated in meshxform.s");
+              VIEW_MAX_F == 0x14000000 && FIXED_SHIFT == 14 && BENCH_SPLIT_SHADE == 12 &&
+              EDGE_REACH_X == 840 && EDGE_REACH_Y == 900, "constants repeated in meshxform.s");
 
 extern "C" void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst, MeshXform* xf);
 
@@ -140,6 +140,7 @@ static void meshXformSetup(MeshXform &xf, int32 intensity, const int8* normals, 
     xf.shades = shades;
     xf.g = X_CLAMP(asr16<8>(intensity + gLightAmbient), 0, 31);
     xf.inside = 0;
+    xf.edge = 0;
 
     if (center)
     {
@@ -147,11 +148,13 @@ static void meshXformSetup(MeshXform &xf, int32 intensity, const int8* normals, 
         int32 cy = sar<FIXED_SHIFT>(mul16(m.e10, center->x) + mul16(m.e11, center->y) + mul16(m.e12, center->z) + m.e13);
         int32 cz = sar<FIXED_SHIFT>(mul16(m.e20, center->x) + mul16(m.e21, center->y) + mul16(m.e22, center->z) + m.e23);
         int32 zNear = cz - radius;
+        int32 ex = (abs(cx) + radius) * 256;
+        int32 ey = (abs(cy) + radius) * 256;
         // a screen coordinate is about 256 * view / z from the centre; a few
         // pixels' margin covers the divide table's rounding
-        xf.inside = (zNear > (VIEW_MIN_F >> FIXED_SHIFT)) && (cz + radius < VIEW_DIST) &&
-                    ((abs(cx) + radius) * 256 < ((FRAME_WIDTH >> 1) - 4) * zNear) &&
-                    ((abs(cy) + radius) * 256 < ((FRAME_HEIGHT >> 1) - 4) * zNear);
+        xf.edge = (zNear > (VIEW_MIN_F >> FIXED_SHIFT)) && (cz + radius < VIEW_DIST) &&
+                  ex < EDGE_REACH_X * zNear && ey < EDGE_REACH_Y * zNear;
+        xf.inside = xf.edge && ex < ((FRAME_WIDTH >> 1) - 4) * zNear && ey < ((FRAME_HEIGHT >> 1) - 4) * zNear;
     }
 
     if (normals && gLightRange)
