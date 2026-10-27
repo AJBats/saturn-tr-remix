@@ -766,6 +766,64 @@ static bool darkScaled(int32 mode)
     return mode == DARK_SCALE || mode == DARK_SCALE_DEEP;
 }
 
+// How many of a room texture's texels take each of its 16 colours.
+static void textureCounts(const Texture &t, int32* counts)
+{
+    for (int32 j = 0; j < 16; j++) {
+        counts[j] = 0;
+    }
+    const uint8* p = detailTexels(t.reserved - 1);
+    if (!p)
+        return;
+    uint32 bytes = (t.size >> 8) * 16 * (t.size & 0xFF) * 2 / 2;
+    for (uint32 i = 0; i < bytes; i++)
+    {
+        counts[p[i] >> 4]++;
+        counts[p[i] & 15]++;
+    }
+    if (t.attr & TEX_ATTR_AKILL) {
+        counts[0] = 0;  // see-through: never drawn
+    }
+}
+
+// Each colour's brightness (its channels' mean) scaled by s / 64 and rounded,
+// then nudged a step at a time, each time the colour whose step brings the
+// total nearest, until the copy's texel-weighted brightness
+// is as near the exact scaling as whole steps allow. A copy whose rounding
+// left it brighter or darker as a whole would show its faces against those
+// of another copy, or of none, beside them.
+static void scaledLuma(const volatile uint16* lut, const int32* counts, int32 s, int32* luma)
+{
+    int32 err[16];  // 192ths: rounded less exact, three channels' worth
+    int32 total = 0, weight = 0;
+    for (int32 j = 0; j < 16; j++)
+    {
+        uint32 col = lut[j];
+        int32 exact = (int32(col & 31) + int32((col >> 5) & 31) + int32((col >> 10) & 31)) * s;
+        luma[j] = (exact + 96) / 192;
+        err[j] = luma[j] * 192 - exact;
+        total += counts[j] * err[j];
+        weight += counts[j];
+    }
+    for (int32 n = 0; n < 16 && weight; n++)
+    {
+        // the colour whose step moves the total nearest zero
+        int32 best = -1, dir = total > 0 ? -1 : 1, after = abs(total);
+        for (int32 j = 0; j < 16; j++)
+        {
+            int32 a = abs(total + dir * 192 * counts[j]);
+            if (counts[j] && a < after && luma[j] + dir >= 0 && luma[j] + dir <= 31) {
+                after = a;
+                best = j;
+            }
+        }
+        if (best < 0)
+            break;
+        luma[best] += dir;
+        total += dir * 192 * counts[best];
+    }
+}
+
 static void buildContrast()
 {
     bool scale = darkScaled(gDarkFaces);
@@ -785,9 +843,18 @@ static void buildContrast()
         int32 mg = (int32((m >> 5) & 31) * (4 - gContrastGrey) + 16 * gContrastGrey + 2) >> 2;
         int32 mb = (int32((m >> 10) & 31) * (4 - gContrastGrey) + 16 * gContrastGrey + 2) >> 2;
 
+        int32 counts[16];
+        if (scale) {
+            textureCounts(t, counts);
+        }
+
         for (int32 k = 1; k <= CONTRAST_TABLES; k++)
         {
             int32 c = 8 - X_MIN(k, gContrastSteps);
+            int32 luma[16];
+            if (scale) {
+                scaledLuma(lut, counts, gScaleSteps[k - 1], luma);
+            }
             for (int32 j = 0; j < 16; j++)
             {
                 uint32 col = lut[j];
@@ -799,10 +866,20 @@ static void buildContrast()
                 uint32 r, g, b;
                 if (scale)
                 {
-                    int32 s = gScaleSteps[k - 1];
-                    r = (int32(col & 31) * s + 32) >> 6;
-                    g = (int32((col >> 5) & 31) * s + 32) >> 6;
-                    b = (int32((col >> 10) & 31) * s + 32) >> 6;
+                    // the colour's brightness as scaledLuma rounded it, plus
+                    // each channel's difference from it scaled and rounded: a
+                    // grey stays grey, a tint keeps its channels' order
+                    int32 c3[3] = { int32(col & 31), int32((col >> 5) & 31), int32((col >> 10) & 31) };
+                    int32 sum = c3[0] + c3[1] + c3[2];
+                    int32 v[3];
+                    for (int32 n = 0; n < 3; n++)
+                    {
+                        int32 e = (3 * c3[n] - sum) * gScaleSteps[k - 1];
+                        v[n] = X_CLAMP(luma[j] + (e + (e < 0 ? -96 : 96)) / 192, 0, 31);
+                    }
+                    r = v[0];
+                    g = v[1];
+                    b = v[2];
                 }
                 else
                 {
