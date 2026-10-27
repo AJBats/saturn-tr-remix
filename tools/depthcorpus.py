@@ -39,8 +39,9 @@ def symbols(elf):
     return out
 
 
-def spots(lvl, rng, only=None):
-    """Endless random (room, x, y, z, yaw) on flat, open, dry floor, in the rooms only if given."""
+def spots(lvl, rng, only=None, near=None):
+    """Endless random (room, x, y, z, yaw) on flat, open, dry floor, in the rooms only if
+    given, within a distance (x, z, distance) of one of near if given."""
     flipped = {r.alternate for r in lvl.rooms if r.alternate >= 0}
     rooms = [r for r in lvl.rooms if r.index not in flipped and (only is None or r.index in only)]
     while True:
@@ -57,6 +58,8 @@ def spots(lvl, rng, only=None):
             continue    # too low for Lara
         x = r.x + sx * 1024 + rng.randrange(256, 768)
         z = r.z + sz * 1024 + rng.randrange(256, 768)
+        if near and not any((x - nx) ** 2 + (z - nz) ** 2 < d * d for nx, nz, d in near):
+            continue
         yield r.index, x, floor * 256, z, rng.randrange(0x10000)
 
 
@@ -74,6 +77,7 @@ def main():
                                     '(as this script writes them)')
     ap.add_argument('--layers', choices=('camera', 'one'), default='one', help='depth layers option')
     ap.add_argument('--rooms', help='random spots in these rooms only, e.g. 13,14,15')
+    ap.add_argument('--near', nargs='*', help='random spots within a distance of one of these, x:z:distance')
     ap.add_argument('--prefix', default='auto', help="the cases' names")
     args = ap.parse_args()
 
@@ -97,7 +101,8 @@ def main():
         names = [p[0].rstrip(':') for p in listed]
     else:
         only = {int(r) for r in args.rooms.split(',')} if args.rooms else None
-        chosen = list(zip(range(args.count), spots(lvl, rng, only)))
+        near = [tuple(int(v) for v in n.split(':')) for n in args.near] if args.near else None
+        chosen = list(zip(range(args.count), spots(lvl, rng, only, near)))
         chosen = [c for _, c in chosen]
         names = [f'{args.seed}_{k}' for k in range(len(chosen))]
 

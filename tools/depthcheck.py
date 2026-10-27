@@ -25,7 +25,8 @@ from:
 
 Shadows (decals on the floor), void fills (behind everything on purpose) and
 thin-face lines are left out of both drawings; see-through texels count as
-solid.
+solid, but pixels a sprite (mostly see-through) takes part in are counted
+apart.
 """
 import argparse
 import os
@@ -119,12 +120,13 @@ class Ram:
 
 
 class Face:
-    __slots__ = ('order', 'addr', 'room_list', 'flags', 'type', 'corners', 'kind', 'owner', 'room', 'touches', 'face_room', 'bucket', 'label',
+    __slots__ = ('order', 'addr', 'room_list', 'flags', 'type', 'corners', 'kind', 'owner', 'room', 'touches', 'face_room', 'bucket', 'label', 'ident',
                  'skip', 'cmd', 'drawn')
 
     def __init__(self):
         self.drawn = False
         self.face_room = None
+        self.ident = '?'
 
 
 def vertex(ram, a):
@@ -325,7 +327,7 @@ def object_rooms(faces, ram, sym, lvl, owners):
         room = room_at(lvl, visible, p)
         return room if room is not None else room_at(lvl, others, p)
 
-    votes, reach = {}, {}
+    votes, reach, extent = {}, {}, {}
     nudges = [np.array(d) for d in ((0, 0, 0), (REACH, 0, 0), (-REACH, 0, 0), (0, REACH, 0),
                                     (0, -REACH, 0), (0, 0, REACH), (0, 0, -REACH))]
     for f in faces:
@@ -338,6 +340,8 @@ def object_rooms(faces, ram, sym, lvl, owners):
             if sz <= 0 or clip & CLIP_PLANE:
                 continue
             points.append(to_world(sx, sy, sz))
+            e = extent.setdefault(f.owner, [points[-1], points[-1]])
+            e[0], e[1] = np.minimum(e[0], points[-1]), np.maximum(e[1], points[-1])
             v = votes.setdefault(f.owner, {})
             room = room_of(points[-1])
             v[room] = v.get(room, 0) + 1
@@ -355,6 +359,39 @@ def object_rooms(faces, ram, sym, lvl, owners):
                 others = [('in a wall' if r is None else str(r)) for r in v if r != f.room]
                 f.label += ((f' (in room {f.room}' if known else ' (in a wall') +
                             (', straddles ' + '/'.join(others) if known and others else '') + ')')
+    lara = ram.u32(sym['players'])
+    lara_pos = np.array([ram.s32(lara + o) for o in (8, 12, 16)]) if lara else None
+    names = {}
+    for owner, (lo, hi) in extent.items():
+        names[owner] = identify(lvl, (lo + hi) / 2, lo, hi, lara_pos)
+    for f in faces:
+        if f.kind == 'object':
+            f.ident = names.get(f.owner, '?')
+
+
+# Lara's parts lie this near her position (her feet)
+LARA_REACH = 900
+
+
+def identify(lvl, centre, lo, hi, lara_pos):
+    """An object's name from its box in the world: Lara, or the level's item or
+    room static (its start position) nearest its box, or '?'."""
+    def gap(x, y, z):
+        p = np.array((x, y, z))
+        return float(np.linalg.norm(np.maximum(0, np.maximum(lo - p, p - hi))))
+    if lara_pos is not None and gap(*lara_pos) < LARA_REACH:
+        return 'Lara'
+    best, name = 512, '?'
+    for i, it in enumerate(lvl.items):
+        g = gap(it['x'], it['y'], it['z'])
+        if g < best:
+            best, name = g, f"item {i} (type {it['type']})"
+    for r in lvl.rooms:
+        for i, st in enumerate(r.static_meshes):
+            g = gap(st['x'], st['y'], st['z'])
+            if g < best:
+                best, name = g, f"static {r.index}:{i} (mesh {st['mesh_id']})"
+    return name
 
 
 def check_commands(faces, cmds, ram, sym):
@@ -534,6 +571,21 @@ def draw_order(faces, walk, args, lvl):
     return sorted(faces, key=lambda f: (layer(f), f.order))
 
 
+def report(offenders, top, total):
+    """The things most often painted over what should show, over every case."""
+    single = {}
+    for (p, t), seen in offenders.items():
+        n = sum(x for _, x in seen)
+        for who in (p, t):
+            single[who] = single.get(who, 0) + n
+    print(f'offenders over all cases ({total} wrong pixels): pixels they take part in')
+    for who, n in sorted(single.items(), key=lambda kv: -kv[1])[:top]:
+        print(f'  {n:6d}  {who}')
+    print('pairs (painted over -> should show): pixels, cases')
+    for (p, t), seen in sorted(offenders.items(), key=lambda kv: -sum(x for _, x in kv[1]))[:top]:
+        print(f'  {sum(x for _, x in seen):6d} {len(seen):3d}  {p}  over  {t}')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('cases', nargs='+', help='names in build/depth_cases (CASE_faces.bin, CASE_cmds.bin)')
@@ -549,13 +601,17 @@ def main():
     ap.add_argument('--png', help='write the frame (CASE in the name is replaced): faces grey (rooms) '
                                   'and blue (objects), errors red')
     ap.add_argument('--pairs', type=int, default=12, help='face pairs to list')
+    ap.add_argument('--report', type=int, default=0, help='list this many of the worst offenders over all cases')
     ap.add_argument('--check-model', action='store_true',
                     help="check that the ordering table model (draw_order) gives the captured order")
     args = ap.parse_args()
     lvl = trsat.load(os.path.join(ROOT, 'external_resources/disc/files/DATA'), args.level)
     total = 0
+    args.offenders = {}
     for case in args.cases:
         total += score(args, case, lvl)
+    if args.report:
+        report(args.offenders, args.report, total)
     if len(args.cases) > 1:
         print(f'all {len(args.cases)} cases, {args.order}: {total} wrong pixels')
 
@@ -598,15 +654,27 @@ def score(args, case, lvl):
             rasterize(tri, f.order, paint, paint_w, best, best_w)
 
     wrong = (paint != best) & (best >= 0) & (best_w > paint_w * (1 + DEPTH_EPS))
+    # a sprite is mostly see-through, which the drawing here can't tell: a
+    # pixel it takes part in is counted apart
+    sprite = np.array([f.type == T_SPRITE for f in faces] + [False])
+    sprite_wrong = wrong & (sprite[paint] | sprite[best])
+    wrong &= ~sprite_wrong
     covered = int((paint >= 0).sum())
     print(f'{case} ({args.order}): {len(faces)} faces, {sum(f.drawn for f in faces)} drawn '
           f'(left out: {", ".join(f"{n} {k}" for k, n in sorted(left_out.items()))})')
-    print(f'wrong pixels: {int(wrong.sum())} of {covered} covered ({100.0 * wrong.sum() / max(covered, 1):.2f}%)')
+    print(f'wrong pixels: {int(wrong.sum())} of {covered} covered ({100.0 * wrong.sum() / max(covered, 1):.2f}%)'
+          + (f', and {int(sprite_wrong.sum())} with a sprite' if sprite_wrong.any() else ''))
 
     pairs = {}
     for y, x in zip(*np.nonzero(wrong)):
         key = (int(paint[y, x]), int(best[y, x]))
         pairs[key] = pairs.get(key, 0) + 1
+    for f in faces:
+        if f.kind == 'room':
+            f.ident = f.label
+    for (pi, ti), n in pairs.items():
+        key = (faces[pi].ident, faces[ti].ident)
+        args.offenders.setdefault(key, []).append((case, n))
     classes = {}
     for (pi, ti), n in pairs.items():
         c = classify(faces[pi], faces[ti])
