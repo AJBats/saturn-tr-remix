@@ -114,11 +114,12 @@ class Ram:
 
 
 class Face:
-    __slots__ = ('order', 'addr', 'room_list', 'flags', 'type', 'corners', 'kind', 'owner', 'room', 'label',
+    __slots__ = ('order', 'addr', 'room_list', 'flags', 'type', 'corners', 'kind', 'owner', 'room', 'touches', 'face_room', 'label',
                  'skip', 'cmd', 'drawn')
 
     def __init__(self):
         self.drawn = False
+        self.face_room = None
 
 
 def vertex(ram, a):
@@ -168,6 +169,12 @@ def commands(ram, sym):
     raise RuntimeError('no end command')
 
 
+def walk_order(ram, sym):
+    """The frame's rooms as queued: the portal walk's list, deepest first, the camera's room last."""
+    rooms = sym['rooms']
+    return [(ram.u32(sym['gJobs'] + j * JOB_SIZE) - rooms) // ROOM_SIZE for j in range(ram.s32(sym['gPlaced']))]
+
+
 def room_owners(ram, sym, lvl):
     """The slave's vertex ranges by room: [(first, last, room index)]."""
     rooms = sym['rooms']
@@ -191,11 +198,11 @@ def label_faces(faces, ram, sym, lvl):
 
     for f in faces:
         n = 3 if f.flags & FACE_TRIANGLE else 4
-        f.kind, f.owner, f.room, f.label = 'object', None, None, ''
+        f.kind, f.owner, f.room, f.touches, f.label = 'object', None, None, set(), ''
         if f.room_list:
             for lo, hi, room in owners:
                 if lo <= f.corners[0] < hi:
-                    f.kind, f.owner, f.room = 'room', room, room
+                    f.kind, f.owner, f.room, f.touches = 'room', room, room, {room}
                     local = frozenset(c - lo for c in f.corners[:n])
                     f.label = f'room {room} ' + quad_index.get((room, local), 'split')
                     break
@@ -290,28 +297,36 @@ def object_rooms(faces, ram, sym, lvl, owners):
     verts = sym['gVertices']
     visible = [room for _, _, room in owners]
     others = [r.index for r in lvl.rooms if r.index not in visible]
+    def room_of(p):
+        room = room_at(lvl, visible, p)
+        return room if room is not None else room_at(lvl, others, p)
+
     votes = {}
     for f in faces:
+        f.face_room = f.room
         if f.kind != 'object':
             continue
+        points = []
         for c in f.corners:
             sx, sy, sz, clip = vertex(ram, verts + c * VERTEX_SIZE)
             if sz <= 0 or clip & CLIP_PLANE:
                 continue
-            p = to_world(sx, sy, sz)
-            room = room_at(lvl, visible, p)
-            if room is None:
-                room = room_at(lvl, others, p)
+            points.append(to_world(sx, sy, sz))
             v = votes.setdefault(f.owner, {})
+            room = room_of(points[-1])
             v[room] = v.get(room, 0) + 1
+        if points:
+            f.face_room = room_of(sum(points) / len(points))
     for f in faces:
         if f.kind == 'object':
             v = votes.get(f.owner, {})
             known = {r: n for r, n in v.items() if r is not None}
             f.room = max(known, key=known.get) if known else None
+            f.touches = set(known)
             if v:
                 others = [('in a wall' if r is None else str(r)) for r in v if r != f.room]
-                f.label += (f' (in room {f.room}' if known else ' (in a wall') +                            (', straddles ' + '/'.join(others) if known and others else '') + ')'
+                f.label += ((f' (in room {f.room}' if known else ' (in a wall') +
+                            (', straddles ' + '/'.join(others) if known and others else '') + ')')
 
 
 def check_commands(faces, cmds, ram, sym):
@@ -390,23 +405,59 @@ def classify(p, t):
     return 'room in room' if not objs else 'object on room'
 
 
+ORDERS = {
+    'captured': 'as the frame drew them',
+    'portal': "rooms in walk order, each with the objects standing in it; by depth within",
+    'portal-nearest': "... objects with the latest-drawn room they reach into",
+    'portal-face': "... each object face with the room holding its centre",
+}
+
+
+def draw_order(faces, walk, order):
+    """The faces in the order to paint them (stable: depth order kept within a layer)."""
+    if order == 'captured':
+        return faces
+    pos = {room: i for i, room in enumerate(walk)}
+    last = len(walk)
+
+    def layer(f):
+        if f.kind == 'room' or order == 'portal':
+            return pos.get(f.room, last)
+        if order == 'portal-face' and f.face_room is not None:
+            return pos.get(f.face_room, last)
+        return max((pos.get(r, last) for r in f.touches), default=last)
+
+    return sorted(faces, key=lambda f: (layer(f), f.order))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('case', help='name in build/depth_cases (CASE_faces.bin, CASE_cmds.bin)')
+    ap.add_argument('cases', nargs='+', help='names in build/depth_cases (CASE_faces.bin, CASE_cmds.bin)')
+    ap.add_argument('--order', choices=ORDERS, default='captured',
+                    help='paint order to score: ' + '; '.join(f'{k}: {v}' for k, v in ORDERS.items()))
     ap.add_argument('--dir', default=os.path.join(ROOT, 'build/depth_cases'))
     ap.add_argument('--level', default='LEVEL1')
-    ap.add_argument('--png', help='write the frame: faces grey (rooms) and blue (objects), errors red')
+    ap.add_argument('--png', help='write the frame (CASE in the name is replaced): faces grey (rooms) '
+                                  'and blue (objects), errors red')
     ap.add_argument('--pairs', type=int, default=12, help='face pairs to list')
     args = ap.parse_args()
+    lvl = trsat.load(os.path.join(ROOT, 'external_resources/disc/files/DATA'), args.level)
+    total = 0
+    for case in args.cases:
+        total += score(args, case, lvl)
+    if len(args.cases) > 1:
+        print(f'all {len(args.cases)} cases, {args.order}: {total} wrong pixels')
 
-    faces_bin = os.path.join(args.dir, args.case + '_faces.bin')
-    cmds_bin = os.path.join(args.dir, args.case + '_cmds.bin')
+
+def score(args, case, lvl):
+    """Prints case's report; returns its wrong pixels."""
+    faces_bin = os.path.join(args.dir, case + '_faces.bin')
+    cmds_bin = os.path.join(args.dir, case + '_cmds.bin')
     if not (os.path.exists(faces_bin) and os.path.exists(cmds_bin)):
-        sys.exit(capture_steps(args.case))
+        sys.exit(capture_steps(case))
 
     sym = Symbols(os.path.join(args.dir, '0MAIN.elf'))
     ram, ram_cmds = Ram(faces_bin), Ram(cmds_bin)
-    lvl = trsat.load(os.path.join(ROOT, 'external_resources/disc/files/DATA'), args.level)
 
     faces = faces_in_order(ram, sym)
     owners = label_faces(faces, ram, sym, lvl)
@@ -421,7 +472,7 @@ def main():
     paint_w = np.zeros((FRAME_H, FRAME_W))
     best_w = np.zeros((FRAME_H, FRAME_W))
     left_out = {}
-    for f in faces:
+    for f in draw_order(faces, walk_order(ram, sym), args.order):
         tris, why = polygon(f, ram, sym)
         if tris is None:
             left_out[why] = left_out.get(why, 0) + 1
@@ -432,7 +483,7 @@ def main():
 
     wrong = (paint != best) & (best >= 0) & (best_w > paint_w * (1 + DEPTH_EPS))
     covered = int((paint >= 0).sum())
-    print(f'{args.case}: {len(faces)} faces, {sum(f.drawn for f in faces)} drawn '
+    print(f'{case} ({args.order}): {len(faces)} faces, {sum(f.drawn for f in faces)} drawn '
           f'(left out: {", ".join(f"{n} {k}" for k, n in sorted(left_out.items()))})')
     print(f'wrong pixels: {int(wrong.sum())} of {covered} covered ({100.0 * wrong.sum() / max(covered, 1):.2f}%)')
 
@@ -462,8 +513,11 @@ def main():
         img[..., 1] = np.where(k == 0, shade, np.where(k == 1, shade // 2, 0))
         img[..., 2] = np.where(k == 0, shade, np.where(k == 1, shade, 0))
         img[wrong] = (255, 40, 40)
-        Image.fromarray(img).resize((FRAME_W * 3, FRAME_H * 3), Image.NEAREST).save(args.png)
-        print('wrote', args.png)
+        png = args.png.replace('CASE', case)
+        Image.fromarray(img).resize((FRAME_W * 3, FRAME_H * 3), Image.NEAREST).save(png)
+        print('wrote', png)
+    print()
+    return int(wrong.sum())
 
 
 if __name__ == '__main__':
