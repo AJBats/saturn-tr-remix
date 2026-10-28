@@ -16,8 +16,7 @@
 !   +4  int32 base              minus its half of gVertices' address: a
 !                               corner's offset (render.h cornerOffset) is
 !                               its address + base
-!   +8  FaceList* list          next +0, ot +8 and groups (uint16*) +12 of
-!                               the current layer, last +16 (render.h)
+!   +8  FaceList* list          next +0, ot +8, groups (uint16) +12
 !   +12 uint32 flags            for every face (FACE_WATER)
 !   +16 int32 inside            no vertex has clip flags (the fast transform)
 !
@@ -133,8 +132,8 @@
     bf      \skip
     .endm
 
-! the face at r10 into bucket r13 of the layer; r0, r14
-    .macro  LINK_BUCKET
+! the face at r10 into bucket r13 (its depth); r0, r14
+    .macro  LINK
     mov     r13, r0
     shll2   r0
     mov.l   @(r0, r11), r14
@@ -148,28 +147,6 @@
     mov.w   @(r0, r12), r14
     add     #1, r14
     mov.w   r14, @(r0, r12)
-    .endm
-
-! the face at r10 into the layer's bucket for depth r13 (render.h otBucket:
-! as it is to 256, then at half and an eighth the precision); r0, r14
-    .macro  LINK
-    mov     r13, r0
-    shlr8   r0
-    tst     r0, r0
-    bt      .Lbucket\@
-    cmp/eq  #1, r0
-    bf/s    .Lfar\@
-    shlr    r13
-    add     #64, r13
-    bra     .Lbucket\@
-    add     #64, r13            ! 128 + depth / 2
-.Lfar\@:
-    shlr2   r13
-    mov     #80, r0
-    shll2   r0
-    add     r0, r13             ! 320 + depth / 8
-.Lbucket\@:
-    LINK_BUCKET
     .endm
 
 ! r1..r3 (and r7) from the indices of the face at r4; r0
@@ -199,7 +176,8 @@
     mov.l   @(8, r6), r0        ! list
     mov.l   @r0, r10            ! its next face
     mov.l   @(8, r0), r11       ! ot
-    mov.l   @(12, r0), r12      ! groups
+    mov     r0, r12
+    add     #12, r12            ! groups
     .endm
 
     .macro  LEAVE
@@ -702,9 +680,9 @@ _faceAddMeshTrianglesBody:
 ! faceAddRoomVoid), with the index pairs at r4 + 4 and in 'pair2'; r0, r13,
 ! r14
     .macro  VOID pair2
-    mov.l   @(8, r6), r0
-    mov.l   @(16, r0), r13      ! the table's last bucket, from the layer's first
-    LINK_BUCKET
+    mov     #5, r13
+    shll8   r13                 ! the last bucket, OT_SIZE - 1
+    LINK
     mov     #11, r0
     shll8   r0
     shll2   r0

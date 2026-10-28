@@ -80,7 +80,7 @@ def addresses(elf):
     # Mednafen stops at a breakpoint as its instruction is fetched, two
     # instructions ahead of the one executing: this one stops right after
     # the instruction at the return address.
-    return flush, ret + 6, ret, syms['gDepthLayers'], syms['gSlaveOT']
+    return flush, ret + 6, ret, syms.get('gDepthLayers'), syms['gSlaveOT']
 
 
 def main():
@@ -98,7 +98,8 @@ def main():
     send('pause', 'ok pause')
     send('breakpoint_clear', 'breakpoint_clear')
     send(f'load_state {state}', 'ok load_state')
-    send(f'poke {layers + 3:08X} {1 if args.layers == "camera" else 0:02X}', 'ok poke')
+    if layers is not None:      # builds with the depth layers option
+        send(f'poke {layers + 3:08X} {1 if args.layers == "camera" else 0:02X}', 'ok poke')
     send('frame_advance 3', 'done frame_advance', 60)
 
     send(f'breakpoint {after_rooms:08X}', 'breakpoint')

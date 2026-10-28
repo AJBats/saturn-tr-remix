@@ -1,0 +1,15 @@
+# Draw order hints, made into build/gen/depth_hints.h by tools/depth_hints.py.
+#
+# While Lara stands in a block of a room, a thing's faces sort that many
+# ordering table buckets farther (positive) or nearer (negative): for the few
+# places where the depth sort shows something through what hides it. A block
+# is a square of the world's 1024-unit grid, x >> 10 and z >> 10 (the debug
+# overlay's position row gives x and z). A thing is an item (its index in the
+# level) or a room's static mesh (room:index). Find a hint's buckets with
+# tools/depthhints.py on captures from the block, facing several ways.
+#
+# level       room  block x z  thing          buckets
+
+# the tilted plank (BRIDGE_TILT) under the edge of room 13's floor by the bridge,
+# from the pit below that edge: 619 -> 95 wrong pixels, 10 other directions no worse
+LVL_TR1_1     13    24 55      item 14        +8

@@ -29,8 +29,8 @@ ALIGN16 Vertex gVertices[MAX_VERTICES];
 // The master's faces: meshes, sprites, shadows and 2D. Rooms are drawn by the
 // slave into its own list (rooms.cpp).
 static ALIGN16 Face gFaces[MAX_FACES];
-static Face* gOT[OT_BUCKETS];
-static FaceList gFaceList;
+static Face* gOT[OT_SIZE];
+static FaceList gFaceList = { gFaces, gFaces + MAX_FACES, gOT };
 
 static Vertex* gVerticesBase = gVertices;
 
@@ -185,16 +185,20 @@ struct MeshFaces
 };
 
 static_assert(offsetof(FaceList, ot) == 8 && offsetof(FaceList, groups) == 12 && OT_GROUP_SHIFT == 5 &&
-              offsetof(FaceList, last) == 16 && otBucket(255) == 255 && otBucket(256) == 256 &&
-              otBucket(512) == 384 && otBucket(1280) == 480 &&
               OT_SHIFT == 4 && sizeof(MeshQuad) == 6 && sizeof(MeshTriangle) == 6 &&
               offsetof(MeshFaces, inside) == 16 && FACE_TRIANGLE == int32(0x80000000) &&
-              CLIP_DISCARD == 0x3E && CLIP_PLANE == 0x20, "layouts and constants shared with faces.s");
+              CLIP_DISCARD == 0x3E && CLIP_PLANE == 0x20, "layouts and constants shared with meshfaces.s");
 
 extern "C" void faceAddMeshQuadsAsm(const MeshQuad* polys, int32 count, MeshFaces* mf);
 extern "C" void faceAddMeshTrianglesAsm(const MeshTriangle* polys, int32 count, MeshFaces* mf);
 
-void faceAddMeshQuads(const MeshQuad* polys, int32 count)
+// A mesh face at depth, moved by a draw order hint's buckets (renderMeshHinted).
+static Face* faceAddHinted(int32 depth, int32 buckets)
+{
+    return faceAdd(gFaceList, X_MIN(X_MAX(depth + buckets, 0), OT_SIZE - 2));
+}
+
+void faceAddMeshQuads(const MeshQuad* polys, int32 count, int32 buckets = 0)
 {
     const Vertex* v = gVerticesBase;
 
@@ -225,7 +229,7 @@ void faceAddMeshQuads(const MeshQuad* polys, int32 count)
 
         int32 depth = uint32(v0->z + v1->z + v2->z + v3->z) >> (2 + OT_SHIFT);
 
-        Face* f = faceAdd(gFaceList, depth);
+        Face* f = faceAddHinted(depth, buckets);
         f->flags = flags;
         f->indices[0] = cornerOffset(v0, gVertices);
         f->indices[1] = cornerOffset(v1, gVertices);
@@ -238,7 +242,7 @@ void faceAddMeshQuads(const MeshQuad* polys, int32 count)
 // x + y - v0, y, with a texture whose end codes stop each line at the
 // triangle's far edge. The fourth byte of the indices says where v0 goes
 // (bit 0: corner D, else A) and whether x, y are v2, v1 (bit 1).
-void faceAddMeshTriangles(const MeshTriangle* polys, int32 count)
+void faceAddMeshTriangles(const MeshTriangle* polys, int32 count, int32 buckets = 0)
 {
     const Vertex* v = gVerticesBase;
 
@@ -282,7 +286,7 @@ void faceAddMeshTriangles(const MeshTriangle* polys, int32 count)
 
         int32 depth = uint32(v0->z + v1->z + v2->z + v2->z) >> (2 + OT_SHIFT);
 
-        Face* f = faceAdd(gFaceList, depth);
+        Face* f = faceAddHinted(depth, buckets);
         f->flags = flags;
         f->indices[0] = cornerOffset(v0, gVertices);
         f->indices[1] = cornerOffset(v1, gVertices);
@@ -396,7 +400,6 @@ int32 gFlatDist;
 int32 gTurnLines = 1;
 int32 gShadowMode = SHADOW_MESH;
 int32 gNearSplit = NEAR_SPLIT_PLANE;
-int32 gDepthLayers = 0;
 int32 gTextureLod = 4;
 int32 gShadeTables = 1;
 
@@ -1219,26 +1222,26 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
     {
         int32 total = 0;
         for (int32 i = 0; i < OT_GROUPS; i++) {
-            total += roomGroups[i] + gFaceList.counts[i];
+            total += roomGroups[i] + gFaceList.groups[i];
         }
 
         int32 split = OT_GROUPS;
         int32 farFaces = 0;
         while (split > 0)
         {
-            int32 faces = roomGroups[split - 1] + gFaceList.counts[split - 1];
+            int32 faces = roomGroups[split - 1] + gFaceList.groups[split - 1];
             if ((farFaces + faces) * 100 > total * gFarShare)
                 break;
             farFaces += faces;
             split--;
         }
 
-        int32 splitBucket = X_MIN(split << OT_GROUP_SHIFT, OT_BUCKETS);
+        int32 splitBucket = X_MIN(split << OT_GROUP_SHIFT, OT_SIZE);
         int32 nearStart = X_MIN(count + farFaces, MAX_CMDS - 1);
 
-        if (splitBucket < OT_BUCKETS)
+        if (splitBucket < OT_SIZE)
         {
-            flushXformInit(gFarXform, roomOT, splitBucket, OT_BUCKETS - splitBucket, count, nearStart, 1);
+            flushXformInit(gFarXform, roomOT, splitBucket, OT_SIZE - splitBucket, count, nearStart, 1);
             slaveRun(flushFar);
         }
 
@@ -1251,7 +1254,7 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
             end = (xf.cmd - gCmds[0].w) / 8;
         }
 
-        if (splitBucket < OT_BUCKETS)
+        if (splitBucket < OT_SIZE)
         {
             uint32 waitStart = timerTicks();
             slaveWait();
@@ -1270,7 +1273,7 @@ static int32 flushFaces(Face** roomOT, const uint16* roomGroups, int32 count)
     }
 
     // far to near; in each bucket rooms (the slave's) before what stands in them
-    for (int32 i = OT_BUCKETS - 1; i >= 0; i--)
+    for (int32 i = OT_SIZE - 1; i >= 0; i--)
     {
         Face* rooms = roomOT ? roomOT[i] : NULL;
         Face* meshes = gOT[i];
@@ -1372,7 +1375,7 @@ void flush_c()
 
     gShadeFrame++;
     int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (clearCommand)
-    memset(gFaceList.counts, 0, sizeof(gFaceList.counts));
+    memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
     clearCommand(!roomOT || gSceneClear || gBenchMode == BENCH_CLEAR ||
                  gTexelView == TEXEL_VIEW_WIRE || gTexelView == TEXEL_VIEW_STEPS);
     gSceneClear = false;
@@ -1435,7 +1438,6 @@ void renderInit()
     }
 
     renderSetShadeCurve(SHADE_CURVE_SATURN);
-    faceListInit(gFaceList, gFaces, gFaces + MAX_FACES, gOT);
     gDimFacesEnd = gFaces;
     roomsInit();
 
@@ -1700,92 +1702,69 @@ void clear()
     gDrawStart = timerTicks();
 }
 
-// The ordering table's layers (render.h OtLayer): the camera's room, and its
-// portals' boxes from the camera, through which an object in a room next to
-// it reaches in.
-struct CameraPortal
+// Draw order hints (saturn/depth_hints.txt): while Lara stands in a block of
+// a room, a thing's faces sort that many buckets farther or nearer.
+enum DepthHintKind { DEPTH_HINT_ITEM, DEPTH_HINT_STATIC };
+
+struct DepthHint
 {
-    int32 room;
-    int32 box[6];           // x, y, z from; x, y, z to
+    uint8 level;
+    uint8 room;             // Lara's
+    uint8 bx, bz;           // her block: x >> 10, z >> 10
+    uint8 kind;             // DepthHintKind
+    uint8 owner;            // a static's room
+    uint16 index;           // the item's, or the static's in its room
+    int16 buckets;
 };
 
-static const Room* gCameraRoom;
-static CameraPortal gCameraPortals[MAX_PORTALS];
-static int32 gCameraPortalCount;
-static int32 gLayer;            // the master's faces'
+#include "depth_hints.h"
 
-static void depthLayer(int32 layer)
+#define MAX_ACTIVE_HINTS 8
+static const DepthHint* gActiveHints[MAX_ACTIVE_HINTS];
+static int32 gActiveHintCount;
+static int32 gHintBuckets;      // the object being drawn's, 0 for none
+
+void depthHintsBegin()
 {
-    if (layer == gLayer)
+    gActiveHintCount = 0;
+    gHintBuckets = 0;
+    const ItemObj* lara = (const ItemObj*)(const void*)players[0];
+    if (!lara)
         return;
-    gLayer = layer;
-    faceLayer(gFaceList, layer);
-}
-
-void depthLayersBegin(const Room* cameraRoom)
-{
-    gCameraRoom = gDepthLayers ? cameraRoom : NULL;
-    const RoomInfo* info = cameraRoom->info;
-    int32 ox = (info->x << 8) - gCameraViewPos.x;
-    int32 oz = (info->z << 8) - gCameraViewPos.z;
-    gCameraPortalCount = X_MIN(int32(info->portalsCount), MAX_PORTALS);
-    for (int32 i = 0; i < gCameraPortalCount; i++)
+    int32 room = lara->room - rooms;
+    int32 bx = lara->pos.x >> 10;
+    int32 bz = lara->pos.z >> 10;
+    for (uint32 i = 0; i < sizeof(gDepthHints) / sizeof(gDepthHints[0]); i++)
     {
-        const Portal* portal = cameraRoom->data.portals + i;
-        CameraPortal &p = gCameraPortals[i];
-        p.room = portal->roomIndex;
-        int32* b = p.box;
-        b[0] = b[1] = b[2] = 0x7FFFFFFF;
-        b[3] = b[4] = b[5] = -0x7FFFFFFF;
-        for (int32 k = 0; k < 4; k++)
-        {
-            int32 v[3] = { portal->v[k].x + ox, portal->v[k].y - gCameraViewPos.y, portal->v[k].z + oz };
-            for (int32 a = 0; a < 3; a++)
-            {
-                b[a] = X_MIN(b[a], v[a]);
-                b[a + 3] = X_MAX(b[a + 3], v[a]);
-            }
+        const DepthHint &h = gDepthHints[i];
+        if (h.level == gLevelID && h.room == room && h.bx == bx && h.bz == bz &&
+            gActiveHintCount < MAX_ACTIVE_HINTS) {
+            gActiveHints[gActiveHintCount++] = &h;
         }
     }
-    depthLayer(OT_LAYER_FRONT);
 }
 
-void depthLayersEnd()
+void depthHintsEnd()
 {
-    gCameraRoom = NULL;
-    depthLayer(OT_LAYER_FRONT);
+    gActiveHintCount = 0;
+    gHintBuckets = 0;
 }
 
-static int32 roomLayer(const Room* room)
+void depthHintObject(int32 kind, int32 owner, int32 index)
 {
-    return gCameraRoom && room != gCameraRoom ? OT_LAYER_BACK : OT_LAYER_FRONT;
-}
-
-void depthLayerRoom(const Room* room)
-{
-    depthLayer(roomLayer(room));
-}
-
-// An object of room in a sphere, its centre from the camera: in front if it
-// stands in the camera's room or reaches into it, its sphere's box meeting a
-// portal between their rooms. Rooms' boxes overlap, so only a portal tells.
-void depthLayerObject(const Room* room, int32 x, int32 y, int32 z, int32 r)
-{
-    bool front = !gCameraRoom || room == gCameraRoom;
-    int32 index = room - rooms;
-    for (int32 i = 0; i < gCameraPortalCount && !front; i++)
+    gHintBuckets = 0;
+    for (int32 i = 0; i < gActiveHintCount; i++)
     {
-        const CameraPortal &p = gCameraPortals[i];
-        const int32* b = p.box;
-        front = p.room == index && x + r >= b[0] && x - r <= b[3] && y + r >= b[1] && y - r <= b[4] &&
-                z + r >= b[2] && z - r <= b[5];
+        const DepthHint &h = *gActiveHints[i];
+        if (h.kind == kind && h.index == index && (kind == DEPTH_HINT_ITEM || h.owner == owner)) {
+            gHintBuckets = h.buckets;
+        }
     }
-    depthLayer(front ? OT_LAYER_FRONT : OT_LAYER_BACK);
 }
 
 void renderRoom(Room* room)
 {
-    roomsQueue(room, roomLayer(room));
+    roomsQueue(room);
 }
 
 void renderRoomsQueued()
@@ -1894,6 +1873,28 @@ __attribute__((noinline)) static void renderMeshC(const Mesh* mesh)
     gVerticesBase += vCount;
 }
 
+// A mesh of an object with a draw order hint, here and in C (they are few):
+// its faces' buckets moved.
+static void renderMeshHinted(const Mesh* mesh)
+{
+    int32 vCount = mesh->vCount;
+    int32 fCount = mesh->rCount + mesh->tCount;
+    if (vCount <= 0 || (gVerticesBase - gVertices) + vCount > MASTER_VERTICES ||
+        (gFaceList.next - gFaces) + fCount > MAX_FACES)
+        return;
+
+    MeshParts parts;
+    meshParts(mesh, parts);
+    transformMesh(parts.vertices, vCount, mesh->intensity, parts.normals, parts.shades, &mesh->center, mesh->bound);
+    if (mesh->rCount > 0) {
+        faceAddMeshQuads(parts.quads, mesh->rCount, gHintBuckets);
+    }
+    if (mesh->tCount > 0) {
+        faceAddMeshTriangles(parts.triangles, mesh->tCount, gHintBuckets);
+    }
+    gVerticesBase += vCount;
+}
+
 // meshxform.s draws the mesh in one go but for far faces drawn flat
 // (gFlatDist): meshXformSetup, the transform and the faces with few stores.
 // Each a tail call: no registers saved here.
@@ -1911,6 +1912,11 @@ static void renderMeshHere(const Mesh* mesh)
 
 void renderMesh(const Mesh* mesh)
 {
+    if (gHintBuckets)
+    {
+        renderMeshHinted(mesh);
+        return;
+    }
     if (gBenchMode == BENCH_ALL_MESHES && meshToSlave(mesh))
         return;
     renderMeshHere(mesh);
@@ -1921,6 +1927,11 @@ void renderMesh(const Mesh* mesh)
 // view, a job's fixed costs on the slave), it relieves the master least.
 void renderStaticMesh(const Mesh* mesh)
 {
+    if (gHintBuckets)
+    {
+        renderMeshHinted(mesh);
+        return;
+    }
     if (gBenchMode == BENCH_MASTER_MESHES || !meshToSlave(mesh)) {
         renderMeshHere(mesh);
     }
@@ -1987,7 +1998,6 @@ void meshJobSetup(MeshJob &job, const Mesh* mesh)
     job.vCount = mesh->vCount;
     job.fCount = mesh->rCount + mesh->tCount;
     job.flags = gMeshFaceFlags;
-    job.layer = gLayer;
     meshXformSetup(job.xf, mesh->intensity, parts.normals, parts.shades, &mesh->center, mesh->bound);
 }
 
@@ -2001,7 +2011,6 @@ void meshJobShadow(MeshJob &job, int32 x, int32 z, int32 sx, int32 sz)
     job.shadow[2] = sx;
     job.shadow[3] = sz;
     job.flags = gMeshFaceFlags;
-    job.layer = gLayer;
     meshXformSetup(job.xf, 0, NULL, NULL, NULL, 0);
 }
 
@@ -2011,7 +2020,6 @@ void meshJobDraw(const MeshJob &job, Vertex* dst, FaceList &list)
     // the slave's, or the master's drawing one the slave had no room for
     const Vertex* half = dst >= gSlaveVertices ? gSlaveVertices : gVertices;
     MeshFaces mf = { dst, -int32(half), &list, job.flags, 0 };
-    faceLayer(list, job.layer);
 
     const Mesh* mesh = job.mesh;
     if (!mesh)
@@ -2046,7 +2054,6 @@ void meshJobRedraw(const MeshJob &job)
 
     meshJobDraw(job, gVerticesBase, gFaceList);
     gVerticesBase += job.vCount;
-    faceLayer(gFaceList, gLayer);
 }
 
 // A sprite facing the camera at a world position; the matrix is the view
@@ -2164,7 +2171,7 @@ static void renderRect(int32 x, int32 y, int32 width, int32 height, uint32 type,
     v[1].y = height;
     gVerticesBase += 2;
 
-    Face* f = z == OT_SIZE - 1 ? faceAddLast(gFaceList) : faceAdd(gFaceList, z);
+    Face* f = faceAdd(gFaceList, z);
     f->flags = type << FACE_TYPE_SHIFT;
     f->indices[0] = cornerOffset(v, gVertices);
 }

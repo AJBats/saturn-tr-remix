@@ -257,8 +257,6 @@ void drawShadow(const ItemObj* item, int32 size)
 
 void drawSprite(const ItemObj* item)
 {
-    depthLayerObject(item->room, item->pos.x - gCameraViewPos.x, item->pos.y - gCameraViewPos.y,
-                     item->pos.z - gCameraViewPos.z, 0);
     renderSprite(item->pos.x, item->pos.y, item->pos.z, item->intensity << 5, level.models[item->type].start + item->frameIndex);
 }
 
@@ -710,7 +708,7 @@ void drawModel(const ItemObj* item)
     if (!sphereIsVisible(sx, sy, sz, sr))
         return;
 
-    depthLayerObject(item->room, sx, sy, sz, sr);
+    depthHintObject(0, 0, item - items);
     matrixPush();
     matrixTranslateAbs(item->pos.x, item->pos.y, item->pos.z);
     matrixRotateYXZ(item->angle.x, item->angle.y, item->angle.z);
@@ -768,7 +766,6 @@ void drawRoomObjects(Room* room)
     int32 rz = info->z << 8;
 
     setPaletteIndex(ROOM_FLAG_WATER(info->flags) ? 1 : 0);
-    depthLayerRoom(room);
 
     for (int32 i = 0; i < info->spritesCount; i++)
     {
@@ -823,7 +820,7 @@ void drawRoomObjects(Room* room)
         if (!sphereIsVisible(sx, sy, sz, sr))
             continue;
 
-        depthLayerObject(room, sx, sy, sz, sr);
+        depthHintObject(1, room - rooms, i);
         matrixPush();
         matrixTranslateSet(px, py, pz);
         matrixRotateYQ(q);
@@ -861,7 +858,7 @@ void drawRooms(Camera* camera)
     setSceneClear(checkWall(camera->view.room, camera->view.pos.x, camera->view.pos.y + camera->shift, camera->view.pos.z));
 
     Room** visRoom = camera->view.room->getVisibleRooms();
-    depthLayersBegin(camera->view.room);
+    depthHintsBegin();
 
     // every room for the slave first, so that it never waits on the objects
     for (Room** room = visRoom; *room; room++) {
@@ -894,7 +891,7 @@ void drawRooms(Camera* camera)
         drawRoomObjects(room);
         room->reset();
     }
-    depthLayersEnd();
+    depthHintsEnd();
 
     for (int32 i = 0; i < MAX_PLAYERS; i++)
     {
@@ -918,7 +915,6 @@ void drawCinematicRooms()
     setCameraWater(ROOM_FLAG_WATER(gCinematicCamera.view.room->info->flags));
 
     Room** visRoom = gCinematicCamera.view.room->getVisibleRooms();
-    depthLayersBegin(gCinematicCamera.view.room);
 
     // draw rooms and objects
     while (*visRoom)
@@ -927,7 +923,6 @@ void drawCinematicRooms()
         drawRoom(room);
         room->reset();
     }
-    depthLayersEnd();
 #else
     for (int32 i = 0; i < level.roomsCount; i++)
     {

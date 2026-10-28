@@ -721,7 +721,8 @@ _renderMeshAsm:
     mov.l   @(8, r15), r0
     mov.l   @r0, r10
     mov.l   @(8, r0), r11
-    mov.l   @(12, r0), r12
+    mov     r0, r12
+    add     #12, r12
     mov     r15, r6
     add     #72, r6             ! +16: the MeshXform's inside
     mov.l   @(12, r15), r0

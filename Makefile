@@ -81,7 +81,8 @@ endef
 # SCU DSP programs, assembled into headers (tools/dspasm.py): saturn/NAME.dsp
 # to NAME_dsp.h holding NAME_dsp[]
 DSP_HEADERS := $(patsubst saturn/%.dsp,$(BUILD)/gen/%_dsp.h,$(wildcard saturn/*.dsp))
-HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h) $(DSP_HEADERS)
+# draw order hints (tools/depth_hints.py): saturn/depth_hints.txt
+HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h) $(DSP_HEADERS) $(BUILD)/gen/depth_hints.h
 
 .PHONY: all disc extract ghidra check-toolchain
 
@@ -108,6 +109,10 @@ $(BUILD)/obj/%.s.o: %.s | check-toolchain
 $(BUILD)/gen/%_dsp.h: saturn/%.dsp tools/dspasm.py
 	@mkdir -p $(@D)
 	$(PY) tools/dspasm.py $< $@ $*_dsp
+
+$(BUILD)/gen/depth_hints.h: saturn/depth_hints.txt tools/depth_hints.py
+	@mkdir -p $(@D)
+	$(PY) tools/depth_hints.py $< $@
 
 %/0MAIN.BIN: %/0MAIN.elf
 	$(OBJCOPY) -O binary $< $@

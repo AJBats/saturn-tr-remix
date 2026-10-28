@@ -35,7 +35,6 @@ SECTIONS
         *(.text.*matrix*)
         *(.text.*calcLighting*)
         *(.text.*sphereIsVisible*)
-        *(.text.*depthLayer*)
         *(.text.*drawRoomObjects*)
         *(.text.*checkPortal*)
         *(.text.*renderSprite*)

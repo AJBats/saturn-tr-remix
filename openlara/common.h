@@ -2956,14 +2956,12 @@ void setCameraWater(bool water);
 void setSceneClear(bool clear);
 void clear();
 void renderRoom(Room* room);
-// The ordering table's layers (saturn/render.h OtLayer): begun for a frame's
-// rooms seen from cameraRoom; what follows is added to a room's layer, or to
-// that of an object of a room in a sphere (its centre from the camera), until
-// the end.
-void depthLayersBegin(const Room* cameraRoom);
-void depthLayerRoom(const Room* room);
-void depthLayerObject(const Room* room, int32 x, int32 y, int32 z, int32 r);
-void depthLayersEnd();
+// Draw order hints (saturn/depth_hints.txt): begun for where Lara stands; the
+// object drawn next is an item (DEPTH_HINT_ITEM 0, its index) or a room's
+// static (DEPTH_HINT_STATIC 1, its room and index there).
+void depthHintsBegin();
+void depthHintsEnd();
+void depthHintObject(int32 kind, int32 owner, int32 index);
 void renderRoomsQueued();
 void renderMesh(const Mesh* mesh);
 void renderStaticMesh(const Mesh* mesh);
