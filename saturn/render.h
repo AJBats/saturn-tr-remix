@@ -431,6 +431,15 @@ void roomsAllQueued();
 // that differ.
 void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors);
 
+// Of a face of the master's from the last frame, drawn from mesh with its
+// vertices from base (the polygon hunt): its quad's or triangle's index in
+// the mesh, -1 if none.
+int32 renderMeshPolygon(const Mesh* mesh, const Vertex* base, const Face* face, bool &triangle);
+
+// Memory of size bytes for something done while no frame is drawn (a video's
+// codebooks): the frame's face pool.
+void* renderScratch(uint32 size);
+
 // Queues a room for the slave, with the current matrix and viewport.
 void roomsQueue(const Room* room);
 
@@ -447,5 +456,10 @@ bool roomsQueueShadow(int32 x, int32 z, int32 sx, int32 sz);
 // table (whose lists flush consumes and clears), or NULL if no rooms were
 // queued, and its faces in each group of buckets.
 Face** roomsFinish(RoomStats &stats, const uint16* &groups);
+
+// Of a face of the slave's from the last frame (the polygon hunt): its room,
+// and its quad's or triangle's index in the room's data (-1: a quarter of a
+// split quad); false if it is no room's (a mesh).
+bool roomsFaceSource(const Face* face, int32 &room, int32 &index, bool &triangle);
 
 #endif

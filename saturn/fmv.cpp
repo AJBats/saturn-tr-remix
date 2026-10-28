@@ -14,6 +14,7 @@
 #include "screen.h"
 #include "sound.h"
 #include "system.h"
+#include "render.h"
 
 #include <string.h>
 
@@ -63,7 +64,8 @@ struct Codebooks
     uint32_t v4[256][2];
 };
 
-static Codebooks gBooks[MAX_STRIPS];
+// In the frame's face pool (renderScratch): no frame is drawn while a video plays.
+static Codebooks* gBooks;
 
 static uint32_t rgb(int32_t r, int32_t g, int32_t b)
 {
@@ -317,6 +319,8 @@ void fmvPlay(const char* name)
     uint32_t lba, fileSize;
     if (cdFind(path, &lba, &fileSize) != 0)
         return;
+
+    gBooks = (Codebooks*)renderScratch(sizeof(Codebooks) * MAX_STRIPS);
 
     // the header
     if (cdRead(lba, CD_SECTOR_SIZE, HEADER) != 0 || memcmp(HEADER, "FILM", 4) != 0)

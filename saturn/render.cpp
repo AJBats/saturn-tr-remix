@@ -12,6 +12,7 @@
 #include "slave.h"
 #include "system.h"
 #include "vram.h"
+#include "hunt.h"
 
 static_assert(FRAME_WIDTH == SCREEN_WIDTH && FRAME_HEIGHT == SCREEN_HEIGHT,
               "OpenLara frame size must match the display mode");
@@ -30,6 +31,12 @@ ALIGN16 Vertex gVertices[MAX_VERTICES];
 // slave into its own list (rooms.cpp).
 static ALIGN16 Face gFaces[MAX_FACES];
 static Face* gOT[OT_SIZE];
+
+void* renderScratch(uint32 size)
+{
+    ASSERT(size <= sizeof(gFaces));
+    return gFaces;
+}
 static FaceList gFaceList = { gFaces, gFaces + MAX_FACES, gOT };
 
 static Vertex* gVerticesBase = gVertices;
@@ -1374,6 +1381,9 @@ void flush_c()
     gFaceList.next = gFaces;
 
     gShadeFrame++;
+    if (gHuntRecording) {
+        huntOrder(roomOT, gOT, OT_SIZE);
+    }
     int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (clearCommand)
     memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
     clearCommand(!roomOT || gSceneClear || gBenchMode == BENCH_CLEAR ||
@@ -1381,6 +1391,9 @@ void flush_c()
     gSceneClear = false;
 
     gCmds[count].w[0] = CMD_END << 16;
+    if (gHuntRecording) {
+        huntFlushed(gCmds[0].w);
+    }
     gRenderFaceCount = count;
     gStats.faces = count;
     benchCommands(count);
@@ -1752,6 +1765,9 @@ void depthHintsEnd()
 
 void depthHintObject(int32 kind, int32 owner, int32 index)
 {
+    if (gHuntRecording) {
+        huntObject(kind, owner, index);
+    }
     gHintBuckets = 0;
     for (int32 i = 0; i < gActiveHintCount; i++)
     {
@@ -1810,10 +1826,41 @@ static void meshParts(const Mesh* mesh, MeshParts &parts)
 }
 
 // To the slave as its share allows, when its faces are added in assembly (not
-// with gFlatDist).
+// with gFlatDist), and not while a hunt records the frame (the master keeps
+// who drew each face).
 static bool meshToSlave(const Mesh* mesh)
 {
-    return !gFlatDist && mesh->vCount > 0 && roomsQueueMesh(mesh);
+    return !gFlatDist && !gHuntRecording && mesh->vCount > 0 && roomsQueueMesh(mesh);
+}
+
+int32 renderMeshPolygon(const Mesh* mesh, const Vertex* base, const Face* face, bool &triangle)
+{
+    MeshParts parts;
+    meshParts(mesh, parts);
+    int32 v[4];
+    for (int32 i = 0; i < 4; i++) {
+        v[i] = cornerVertex(face->indices[i], gVertices) - base;
+    }
+    triangle = (face->flags & (FACE_TRIANGLE | FACE_PARALLELOGRAM)) != 0;
+    int32 n = triangle ? 3 : 4;
+    int32 count = triangle ? mesh->tCount : mesh->rCount;
+    for (int32 p = 0; p < count; p++)
+    {
+        const uint8* idx = triangle ? parts.triangles[p].indices : parts.quads[p].indices;
+        int32 k = 0;
+        for (; k < n; k++)
+        {
+            int32 m = 0;
+            while (m < n && v[m] != idx[k]) {
+                m++;
+            }
+            if (m == n)
+                break;
+        }
+        if (k == n)
+            return p;
+    }
+    return -1;
 }
 
 extern "C" void renderMeshAsm(const Mesh* mesh, Vertex** base, FaceList* list, uint32 flags);
@@ -1912,6 +1959,9 @@ static void renderMeshHere(const Mesh* mesh)
 
 void renderMesh(const Mesh* mesh)
 {
+    if (gHuntRecording) {
+        huntMesh(mesh, gFaceList.next, gVerticesBase);
+    }
     if (gHintBuckets)
     {
         renderMeshHinted(mesh);
@@ -1927,6 +1977,9 @@ void renderMesh(const Mesh* mesh)
 // view, a job's fixed costs on the slave), it relieves the master least.
 void renderStaticMesh(const Mesh* mesh)
 {
+    if (gHuntRecording) {
+        huntMesh(mesh, gFaceList.next, gVerticesBase);
+    }
     if (gHintBuckets)
     {
         renderMeshHinted(mesh);

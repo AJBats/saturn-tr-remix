@@ -1005,6 +1005,54 @@ bool roomsQueueShadow(int32 x, int32 z, int32 sx, int32 sz)
     return true;
 }
 
+// The same corners, in any order (a turned quad's are A D C B).
+static bool sameCorners(const int16* a, const uint16* b, uint32 base, int32 n)
+{
+    for (int32 i = 0; i < n; i++)
+    {
+        int32 k = 0;
+        while (k < n && uint16(a[k]) != uint16(b[i] + base)) {
+            k++;
+        }
+        if (k == n)
+            return false;
+    }
+    return true;
+}
+
+bool roomsFaceSource(const Face* face, int32 &room, int32 &index, bool &triangle)
+{
+    int32 v = MASTER_VERTICES + uint16(face->indices[0]) / int32(sizeof(Vertex));
+    for (int32 j = 0; j < gPlaced; j++)
+    {
+        const RoomWork &w = gWork[j];
+        const Room* r = gJobs[j].room;
+        if (w.base < 0 || v < w.base || v >= w.base + r->info->verticesCount)
+            continue;
+
+        room = r - rooms;
+        uint32 base = uint16(cornerOffset(gVertices + w.base, gSlaveVertices));
+        triangle = (face->flags & FACE_TRIANGLE) != 0;
+        if (triangle)
+        {
+            for (index = 0; index < r->info->trianglesCount; index++) {
+                if (sameCorners(face->indices, r->data.triangles[index].indices, base, 3))
+                    return true;
+            }
+        }
+        else
+        {
+            for (index = 0; index < r->info->quadsCount; index++) {
+                if (sameCorners(face->indices, r->data.quads[index].indices, base, 4))
+                    return true;
+            }
+        }
+        index = -1;     // a quarter of a split quad: corners of its own
+        return true;
+    }
+    return false;
+}
+
 Face** roomsFinish(RoomStats &stats, const uint16* &groups)
 {
     if (gJobCount == 0)

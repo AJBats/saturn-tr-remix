@@ -3064,6 +3064,7 @@ void osJoyVibrate(int32 index, int32 L, int32 R);
 void osSetPalette(const uint16* palette);
 const void* osLoadScreen(LevelID id);
 const void* osLoadLevel(LevelID id);
+uint8* osLowRamFree(uint32 &size);  // Saturn: low work RAM the level leaves, for debug tools
 #ifdef __SATURN__
 const void* osPlaceMeshes(const void* meshes, int32 size); // where the CPU reads them fastest
 void osPlaceRooms(); // the rooms' geometry, likewise
