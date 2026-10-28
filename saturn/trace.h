@@ -1,10 +1,11 @@
 // A timeline of every frame, in HW_LOG builds: both CPUs, the master's
 // interrupts and the SCU DSP note when each stage of the frame begins and
 // ends, a ring of events each, in low work RAM above the level (a header at
-// 0x002FFF00 says where). The overlay's
-// stages page sums them up on screen (debug.cpp); tools/trace.py turns a dump
-// of the rings into a Chrome trace (chrome://tracing, ui.perfetto.dev) with
-// VDP1 and the vblanks beside them.
+// 0x002FFF00 says where). tools/trace.py turns a dump of the rings
+// (Mednafen's) into a Chrome trace (chrome://tracing, ui.perfetto.dev) with
+// VDP1 and the vblanks beside them; on a Saturn, the overlay's playback page
+// shows the frames the rings hold one page each, for a video that
+// tools/trace.py reads into the same trace.
 //
 // The master writes its lanes and the DSP's mesh runs; the slave its own and
 // the DSP's room runs.
@@ -66,6 +67,13 @@ enum TraceId
 
 #define TR_FIRST_MOMENT TR_PLOT
 #define TRACE_END       0x80    // with the id: a span ends
+
+// The playback's letter for each id, '.' for those it leaves out (tools/
+// trace.py reads it): a span's, but TR_PLOT's is VDP1's from it to TR_DRAWN.
+// No two alike in the font by fewer than 6 of their 64 pixels.
+//                      0         1         2         3         4         5         6
+//                      01234567890123456789012345678901234567890123456789012345678901234567
+#define TRACE_LETTERS  ".TUGRVQLOSNMIYFWABXJ............bxfmkh..de......z...............p..s"
 
 enum TraceLane { TRACE_MASTER, TRACE_IRQ, TRACE_SLAVE, TRACE_DSP, TRACE_DSP_MESH, TRACE_LANES };
 
@@ -134,30 +142,24 @@ inline void traceDetailEnd(uint32_t id, uint32_t arg = 0)
     }
 }
 
-// The stages page: once a frame on the master, adds up the events written
-// since (or, with sum false, only skips them, so that other pages don't pay
-// for it); every TRACE_WINDOW vblanks, each id's own time (less the spans
-// inside it) and each lane's time in spans become percentages of the time: a
-// lane's add up to its busy time.
-#define TRACE_WINDOW    60
-struct TraceStages
-{
-    uint16_t self[TR_FIRST_MOMENT];     // percent of the time
-    uint16_t busy[TRACE_LANES];         // time in spans, likewise
-    uint16_t frames, vblanks;           // in the window
-    uint16_t events;                    // a frame, all lanes
-    uint16_t window;                    // counts the windows
-    bool valid;
-};
-void traceTally(bool sum);
-const TraceStages* traceStages();   // NULL while the rings are off
+// The overlay's playback page (debug.cpp) holds the game: the rings stop,
+// and each tick tracePlayFrame shows the next of the frames they hold on the
+// overlay, over and over, until tracePlayStop: then they record afresh. A
+// page: a header row (the frame's number of how many, its start and length,
+// its events shown and left out), then the events, five a row, as a letter
+// (TRACE_LETTERS) and its begin and end from the frame's start, in tenths of
+// a millisecond; the last character of each row checks the rest.
+// tools/trace.py video reads the pages back.
+void tracePlayStart();
+void tracePlayFrame();
+void tracePlayStop();
 
 // The master's profiler samples (debug.cpp), in the same low work RAM, or
 // NULL without room for them.
 #define TRACE_PROFILE_BLOCKS 2432
 uint16_t* traceProfileBlocks();
 
-// Room for the overlay's text there (the stages page's, the bench table's),
+// Room for the overlay's text there (the bench table's, the sync test's),
 // or NULL without room: high work RAM has none to spare in HW_LOG builds.
 #define TRACE_TEXT_BYTES 1616
 char* traceText();
@@ -176,6 +178,9 @@ inline void traceBeginAt(int32_t, uint32_t, uint32_t, uint32_t = 0) {}
 inline void traceEndAt(int32_t, uint32_t, uint32_t, uint32_t = 0) {}
 inline void traceDetailBegin(uint32_t, uint32_t = 0) {}
 inline void traceDetailEnd(uint32_t, uint32_t = 0) {}
+inline void tracePlayStart() {}
+inline void tracePlayFrame() {}
+inline void tracePlayStop() {}
 
 #endif
 

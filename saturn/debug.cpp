@@ -16,6 +16,7 @@
 #include "overlay.h"
 #include "palettes.h"
 #include "render.h"
+#include "screen.h"
 #include "system.h"
 #include "trace.h"
 
@@ -152,10 +153,44 @@ static bool gMenuOpen;
 #ifdef HW_LOG
 // R and L page through the overlay: the bench's table, then (held on the
 // menu's Way, Base unless changed) the scene's rows with each frame's CPU,
-// slave and VDP1 time, each frame's time by stage, the trace's stages, the
-// menu over each frame's times, and nothing at all.
-enum OverlayPage { PAGE_BENCH, PAGE_FRAME, PAGE_STAGES, PAGE_TRACE, PAGE_MENU, PAGE_NONE, PAGE_COUNT };
+// slave and VDP1 time, each frame's time by stage, the menu over each frame's
+// times, nothing at all, and the trace's playback (trace.h), which holds the
+// game.
+enum OverlayPage { PAGE_BENCH, PAGE_FRAME, PAGE_STAGES, PAGE_MENU, PAGE_NONE, PAGE_PLAYBACK, PAGE_COUNT };
 static int32 gPage;
+#endif
+
+#ifdef HW_LOG
+// The back colour the bench's way asks for.
+static uint16 benchBackColor()
+{
+    return gBenchMode == BENCH_VOID_COLOR ? RGB(31, 0, 31) : RGB(0, 0, 0);
+}
+
+// The playback page holds the game and shows the trace's frames (trace.h)
+// alone: on this colour round the overlay's text, for tools/trace.py to find.
+#define PLAYBACK_BACK   RGB(0, 16, 31)
+
+static void playbackStart()
+{
+    crashHold(true);    // the game loop stands still
+    screenFramesHidden(true);
+    vdp2SetBackColor(PLAYBACK_BACK);
+    tracePlayStart();
+}
+
+static void playbackEnd()
+{
+    tracePlayStop();
+    vdp2SetBackColor(benchBackColor());
+    screenFramesHidden(false);
+    crashHold(false);
+}
+
+bool debugHeld()
+{
+    return gPage == PAGE_PLAYBACK;
+}
 #endif
 
 static const char* gMessage;
@@ -191,12 +226,19 @@ void debugUpdate()
     // the player's pad: Lara has no use for its shoulder buttons
     static uint32 shoulders;
     uint32 pressed2 = keys & (IK_L | IK_R) & ~shoulders;
+    int32 was = gPage;
     if (pressed2 & IK_R) {
         gPage = (gPage + 1) % PAGE_COUNT;
     } else if (pressed2 & IK_L) {
         gPage = (gPage + PAGE_COUNT - 1) % PAGE_COUNT;
     }
     shoulders = keys & (IK_L | IK_R);
+    if (gPage != was && was == PAGE_PLAYBACK) {
+        playbackEnd();
+    }
+    if (gPage != was && gPage == PAGE_PLAYBACK) {
+        playbackStart();
+    }
     if (gPage == PAGE_MENU)
     {
         pad |= padButtons() & ~(PAD_START | PAD_L | PAD_R);
@@ -241,7 +283,7 @@ void debugUpdate()
 
 #ifdef HW_LOG
     vdp1OnShown(frameShown);
-    if ((gPage == PAGE_BENCH || gPage == PAGE_NONE) && gFrameRows)
+    if ((gPage == PAGE_BENCH || gPage == PAGE_NONE || gPage == PAGE_PLAYBACK) && gFrameRows)
     {
         gFrameRows = false;
         overlayUnpin(FRAME_ROW);
@@ -249,7 +291,6 @@ void debugUpdate()
     }
     benchUpdate();
     sceneUpdate();
-    traceTally(gPage == PAGE_TRACE);
 #endif
     traceEnd(TRACE_MASTER, TR_DEBUG);
 }
@@ -445,7 +486,7 @@ static void profileRank()
     }
 }
 
-// The bench table's rows, after the trace page's in traceText.
+// The bench table's rows, in traceText.
 typedef char OverlayText[OVERLAY_COLUMNS + 1];
 #define BENCH_TEXT_AT   320
 static_assert(BENCH_TEXT_AT + OVERLAY_ROWS * sizeof(OverlayText) <= TRACE_TEXT_BYTES, "the bench's rows fit in traceText");
@@ -569,7 +610,7 @@ static void frameShown(uint32_t plot)
     static uint32 last;
     uint32 vblanks = gVblankCount - last;
     last = gVblankCount;
-    if (gPage == PAGE_BENCH || gPage == PAGE_NONE)
+    if (gPage == PAGE_BENCH || gPage == PAGE_NONE || gPage == PAGE_PLAYBACK)
         return;
 
     const FrameTag &t = gFrameTags[plot % FRAME_TAGS];
@@ -641,7 +682,7 @@ static void benchUpdate()
         {
             gBenchMode = gBenchHold;
             profileSampling(gBenchMode == BENCH_PROFILE);
-            vdp2SetBackColor(gBenchMode == BENCH_VOID_COLOR ? RGB(31, 0, 31) : RGB(0, 0, 0));
+            vdp2SetBackColor(benchBackColor());
         }
         start = gVblankCount;
         frames = vdp1 = cpu = draw = slave = 0;
@@ -700,7 +741,7 @@ static void benchUpdate()
     dspVertices = roomVertices = 0;
 
     gBenchMode = (gBenchMode + 1) % BENCH_COUNT;
-    vdp2SetBackColor(gBenchMode == BENCH_VOID_COLOR ? RGB(31, 0, 31) : RGB(0, 0, 0));
+    vdp2SetBackColor(benchBackColor());
     start = gVblankCount;
     frames = vdp1 = cpu = draw = slave = 0;
 }
@@ -804,7 +845,7 @@ static void benchDraw()
 }
 #endif
 
-#ifdef HW_LOG
+#if defined(HW_LOG) && defined(SYNC_TEST)
 static char* appendShare(char* p, const char* name, uint32 value)
 {
     p = append(p, name);
@@ -815,68 +856,9 @@ static char* appendShare(char* p, const char* name, uint32 value)
     return append(p, " ");
 }
 
-// The trace's stages from row on: each stage's own time (the stages inside it
-// apart) as a percentage of the time, over the last TRACE_WINDOW vblanks; a
-// CPU's numbers and its idle time add up to 100. The master's stages include
-// the interrupts that came during them ("irq" is their total). Composed once a
-// window: the numbers' digits cost the master a little every frame otherwise.
-#define TRACE_ROWS  7
 typedef char TraceRow[OVERLAY_COLUMNS + 1];
-static_assert(TRACE_ROWS * sizeof(TraceRow) <= BENCH_TEXT_AT, "the rows fit before the bench's in traceText");
-static uint32 gTraceWindow = ~0u;   // the window traceText's rows show
 
-static void traceCompose(const TraceStages* s, TraceRow* rows)
-{
-    const uint16* v = s->self;
-    char text[64];
-    char* p = appendShare(text, "% of time  fps ", s->frames * 60 / s->vblanks);
-    p = appendShare(p, " events ", s->events);
-    append(p, gTraceDetail ? " detail" : "");
-    strncpy(rows[0], text, OVERLAY_COLUMNS);
-
-    p = appendShare(text, "master upd ", v[TR_UPDATE]);
-    p = appendShare(p, "dbg ", v[TR_DEBUG]);
-    p = appendShare(p, "view ", v[TR_VIEW]);
-    p = appendShare(p, "queue ", v[TR_QUEUE]);
-    appendShare(p, "lara ", v[TR_LARA]);
-    strncpy(rows[1], text, OVERLAY_COLUMNS);
-
-    p = appendShare(text, " objs ", v[TR_OBJECTS]);
-    p = appendShare(p, "static ", v[TR_STATIC]);
-    p = appendShare(p, "fin ", v[TR_MESHES_FINISH]);
-    p = appendShare(p, "mesh ", v[TR_MESH]);
-    appendShare(p, "item ", v[TR_ITEM]);
-    strncpy(rows[2], text, OVERLAY_COLUMNS);
-
-    p = appendShare(text, " render ", v[TR_RENDER]);
-    p = appendShare(p, "flush ", v[TR_FLUSH]);
-    p = appendShare(p, "upload ", v[TR_UPLOAD]);
-    p = appendShare(p, "ovl ", v[TR_OVERLAY]);
-    appendShare(p, "irq ", s->busy[TRACE_IRQ]);
-    strncpy(rows[3], text, OVERLAY_COLUMNS);
-
-    p = appendShare(text, " wait rooms ", v[TR_ROOMS_WAIT]);
-    p = appendShare(p, "far ", v[TR_FAR_WAIT]);
-    p = appendShare(p, "vdp1 ", v[TR_VDP1_WAIT]);
-    p = appendShare(p, "tick ", v[TR_TICK_WAIT]);
-    appendShare(p, "gap ", 100 - X_MIN(s->busy[TRACE_MASTER], 100));
-    strncpy(rows[4], text, OVERLAY_COLUMNS);
-
-    p = appendShare(text, "slave xform ", v[TR_XFORM]);
-    p = appendShare(p, "faces ", v[TR_FACES]);
-    p = appendShare(p, "mesh ", v[TR_SLAVE_MESH]);
-    appendShare(p, "flush ", v[TR_SLAVE_FLUSH]);
-    strncpy(rows[5], text, OVERLAY_COLUMNS);
-
-    p = appendShare(text, " wait jobs ", v[TR_BATCH]);
-    p = appendShare(p, "idle ", 100 - X_MIN(s->busy[TRACE_SLAVE], 100));
-    p = appendShare(p, "  dsp ", s->busy[TRACE_DSP]);
-    appendShare(p, "+", s->busy[TRACE_DSP_MESH]);
-    strncpy(rows[6], text, OVERLAY_COLUMNS);
-}
-
-#ifdef SYNC_TEST
-// The boot's sync test (debug.h), under the trace's rows.
+// The boot's sync test (debug.h), under the stages page's rows.
 #define SYNC_ROWS   3
 #define SYNC_TEXT_AT 1472
 static_assert(SYNC_TEXT_AT + SYNC_ROWS * sizeof(TraceRow) <= TRACE_TEXT_BYTES, "the sync rows fit in traceText");
@@ -914,29 +896,6 @@ static void syncRows(int32 row)
         composed = true;
     }
     for (int32 i = 0; i < SYNC_ROWS; i++) {
-        overlayRow(row + i, rows[i]);
-    }
-}
-
-#endif
-
-static void traceRows(int32 row)
-{
-    const TraceStages* s = traceStages();
-    if (!s || !s->valid)
-    {
-        overlayRow(row, s ? "trace: measuring" : "trace: off (menu, or no room above the level)");
-        gTraceWindow = ~0u;
-        return;
-    }
-    TraceRow* rows = (TraceRow*)traceText();
-    if (s->window != gTraceWindow)
-    {
-        memset(rows, 0, TRACE_ROWS * sizeof(TraceRow));
-        traceCompose(s, rows);
-        gTraceWindow = s->window;
-    }
-    for (int32 i = 0; i < TRACE_ROWS; i++) {
         overlayRow(row + i, rows[i]);
     }
 }
@@ -1026,13 +985,11 @@ static void drawDebug()
             for (int32 i = 0; i < SCENE_ROWS; i++) {
                 overlayRow(2 + i, gSceneRows[i]);
             }
-            if (gPage == PAGE_TRACE)
-            {
-                traceRows(3 + SCENE_ROWS);
 #ifdef SYNC_TEST
-                syncRows(4 + SCENE_ROWS + TRACE_ROWS);
-#endif
+            if (gPage == PAGE_STAGES) {
+                syncRows(3 + SCENE_ROWS);
             }
+#endif
         }
         else
         {

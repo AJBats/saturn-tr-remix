@@ -106,6 +106,13 @@ int main()
         traceBeginAt(TRACE_MASTER, t0, TR_UPDATE);
         updateInput();
         debugUpdate();
+#ifdef HW_LOG
+        if (debugHeld())
+        {
+            tracePlayFrame();
+            continue;
+        }
+#endif
         renderPoll();
         gameUpdate(delta);
         renderPoll();

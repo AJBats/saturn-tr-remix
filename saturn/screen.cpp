@@ -48,6 +48,15 @@ static void hideFrames()
     VDP2_PRISA = VDP2_PRISB = VDP2_PRISC = VDP2_PRISD = 0;
 }
 
+void screenFramesHidden(bool hidden)
+{
+    if (hidden) {
+        hideFrames();
+    } else {
+        showFrames();
+    }
+}
+
 // The bitmap is about to take a picture.
 static void takeBitmap()
 {

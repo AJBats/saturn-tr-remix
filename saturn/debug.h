@@ -12,13 +12,17 @@ void debugUpdate();
 // Starts the measurement table's sampling profiler (debug.cpp).
 void debugProfileInit();
 
+// The overlay's playback page holds the game: the main loop skips the
+// frame and gives the tick to tracePlayFrame.
+bool debugHeld();
+
 // Once a frame, after it is drawn and its plot asked for: notes its CPU time
 // and where Lara stands, for the rows that show each frame's own numbers
 // while that frame is on screen.
 void debugFrameDone();
 
 // The boot's test of how the CPUs can share work (synctest.cpp), shown on
-// the trace page: counter adds lost by both CPUs without a lock (raw: must
+// the stages page: counter adds lost by both CPUs without a lock (raw: must
 // not be 0, or the test sees no race), with TAS.B and with a Peterson lock on
 // uncached flags (both must be 0); messages read out of order (cached, after
 // a line purge); tasks claimed twice or never under TAS, and how

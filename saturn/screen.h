@@ -26,4 +26,8 @@ bool screenOverlayFree();
 void screenOverlay(bool show);
 uint32_t screenPictures();
 
+// VDP1's frames hidden during play, the back colour showing round the
+// overlay's text (the trace's playback page), and shown again.
+void screenFramesHidden(bool hidden);
+
 #endif

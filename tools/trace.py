@@ -1,19 +1,25 @@
 """The game's frame trace (saturn/trace.h, HW_LOG builds) as a Chrome trace.
 
-    trace.py capture CUE [--frame N] [--keys F:K,K,...] [--fps N] [--shots N] [--out NAME]
+    trace.py capture CUE [--frame N] [--keys F:K,K,...] [--fps N] [--shots N] [--playback N] [--out NAME]
         boots CUE in a Mednafen of its own (its own automation and home
         directories, so a Mednafen the MCP server runs is left alone), taps
         the player's pad buttons K from frame F, runs to frame N, dumps the
         trace (build/NAME.bin) and converts it (build/NAME.json). The default
-        keys page the HW_LOG overlay to the trace page with Trace detail on,
-        which holds the bench on Base. --fps N first counts the frames the
-        game draws over N vblanks (from the frame the keys end) for a frame
-        rate that a trace's few seconds can't give: frames take 2 or 3
-        vblanks, so a short window's rate moves with a handful of them.
-        --shots N takes a screenshot at each of the N vblanks after too
-        (build/NAME_1.png ...).
+        keys page the HW_LOG overlay to nothing at all, which holds the bench
+        on Base (Trace is at Detail unless the menu changes it). --fps N
+        first counts the frames the game draws over N vblanks (from the
+        frame the keys end) for a frame rate that a trace's few seconds can't
+        give: frames take 2 or 3 vblanks, so a short window's rate moves with
+        a handful of them. --shots N takes a screenshot at each of the N
+        vblanks after too (build/NAME_1.png ...). --playback N then pages on
+        to the playback and takes a screenshot every 4 vblanks for N
+        (build/NAME_play/), which "video" reads as it would a Saturn's.
     trace.py convert DUMP [--out JSON]
         converts a dump of low work RAM (1 MB from 0x00200000)
+    trace.py video VIDEO [--out JSON]
+        reads a video of a Saturn's playback page (HW_LOG overlay: R from
+        nothing at all; any recording that shows the whole screen at 30 fps
+        or more, the picture anywhere in it), or a directory of its pictures
     trace.py open JSON
         opens JSON in ui.perfetto.dev in the default browser
 
@@ -24,7 +30,7 @@ and each list on screen). Gaps are drawn as spans too: "idle" where a CPU is
 in no stage, "wait for jobs" where the slave polls for rooms in a batch, so
 that time no stage accounts for stands out next to the waits ("WAIT ...").
 
-Also prints each stage's own time a frame, as the overlay's trace page does.
+Also prints each stage's own time a frame.
 """
 import argparse
 import json
@@ -276,9 +282,8 @@ def convert(data, out_path):
         print(f'  {name:16s} {ticks * 100 / window:6.1f}')
 
 
-# from the bench's table: R to the trace page, R to the menu, up to its last
-# option (Trace), right from Stages to Detail, L back to the trace page
-DEFAULT_KEYS = '1500:R,R,R,R,UP,RIGHT,L'
+# from the bench's table: R past the frame, stages and menu pages to nothing
+DEFAULT_KEYS = '1500:R,R,R,R'
 
 
 def map_symbol(name):
@@ -293,7 +298,7 @@ def map_symbol(name):
 FRAMES_OFFSET = 24      # FrameStats.frames (system.h)
 
 
-def capture(cue, frame, keys, name, fps_window=0, shots=0):
+def capture(cue, frame, keys, name, fps_window=0, shots=0, playback=0):
     # the binary the MCP server picks (mednafen_bot.py): the calibrated fork
     exe = None
     for root in (ROOT, os.path.join(ROOT, '..', 'TombRaiderSaturn')):
@@ -405,6 +410,19 @@ def capture(cue, frame, keys, name, fps_window=0, shots=0):
             shot = os.path.join(ROOT, 'build', f'{name}_{i}.png')
             send(f'screenshot {shot.replace(os.sep, "/")}', 'screenshot', 30)
             time.sleep(0.2)
+        if playback:
+            folder = os.path.join(ROOT, 'build', name + '_play')
+            os.makedirs(folder, exist_ok=True)
+            for old in os.listdir(folder):
+                os.remove(os.path.join(folder, old))
+            send('input R', 'ok input', 10)
+            send('frame_advance 10', 'done frame_advance', 30)
+            send('input_release R', 'ok input_release', 10)
+            for i in range(0, playback, 4):
+                send('frame_advance 4', 'done frame_advance', 30)
+                shot = os.path.join(folder, f'{i:05d}.png')
+                send(f'screenshot {shot.replace(os.sep, "/")}', 'screenshot', 30)
+            time.sleep(0.5)
     finally:
         try:
             send('quit', 'quit', 5)
@@ -456,6 +474,298 @@ def open_ui(path):
     print(f'{name}: ' + ('opened in Perfetto' if served else 'Perfetto never asked for it (2 minutes)'))
 
 
+# The playback page (trace.h tracePlayFrame): 26 rows of 42 characters, a
+# character in from the 352x224 screen's edges, on the playback's back colour.
+PAGE_ROWS, PAGE_COLUMNS = 26, 42
+PAGE_CELLS = 5
+CHECK_DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+PAGE_HEADER = re.compile(r'F(\d{3})/(\d{3}) S(\d{7}) L(\d{3}) E(\d{3}) D(\d{3}) *$')
+OPEN_END = 999      # a span whose end the page couldn't hold
+
+
+def trace_letters():
+    """TRACE_LETTERS from saturn/trace.h: an id's letter at its index."""
+    text = open(os.path.join(ROOT, 'saturn/trace.h')).read()
+    return re.search(r'#define TRACE_LETTERS\s+"([^"]+)"', text).group(1)
+
+
+def font_glyphs(chars):
+    """saturn/font.cpp's 8 x 8 glyphs of chars, a row of 64 pixels each."""
+    import numpy as np
+    text = open(os.path.join(ROOT, 'saturn/font.cpp')).read()
+    body = text[text.index('gFont8'):]
+    rows = re.findall(r'\{\s*((?:0x[0-9A-Fa-f]{2}\s*,\s*){7}0x[0-9A-Fa-f]{2})\s*\}', body)
+    glyphs = []
+    for c in chars:
+        lines = [int(v, 16) for v in rows[ord(c) - 32].split(',')]
+        glyphs.append([(lines[y] >> x) & 1 for y in range(8) for x in range(8)])
+    return np.array(glyphs, dtype=bool)
+
+
+def row_checked(text):
+    total = sum((i + 1) * ord(c) for i, c in enumerate(text[:PAGE_COLUMNS - 1]))
+    return CHECK_DIGITS[total % 36] == text[PAGE_COLUMNS - 1]
+
+
+def find_page(img):
+    """The page's characters' rectangle in a picture (left, top, right,
+    bottom), as the black between the bands of back colour round it, or None."""
+    import numpy as np
+    b, g, r = (img[..., i].astype(np.int16) for i in range(3))
+    back = (b > 150) & (r < 100) & (g > 40) & (g < 220) & (b - r > 100)
+    if back.sum() < 2000:
+        return None
+    ys, xs = np.nonzero(back)
+    y0, y1, x0, x1 = ys.min(), ys.max(), xs.min(), xs.max()
+
+    def run(fractions):
+        best, start = (0, 0, 0), None
+        for i, f in enumerate(list(fractions) + [1.0]):
+            if f < 0.5 and start is None:
+                start = i
+            elif f >= 0.5 and start is not None:
+                if i - start > best[0]:
+                    best = (i - start, start, i)
+                start = None
+        return best[1], best[2]
+
+    h, w = y1 - y0, x1 - x0
+    left, right = run(back[y0 + h * 2 // 5:y0 + h * 3 // 5, x0:x1 + 1].mean(axis=0))
+    top, bottom = run(back[y0:y1 + 1, x0 + w * 2 // 5:x0 + w * 3 // 5].mean(axis=1))
+    if right - left < 168 or bottom - top < 104:
+        return None
+    return x0 + left, y0 + top, x0 + right, y0 + bottom
+
+
+class PageReader:
+    """The rows of text on a page's picture, matched against the font."""
+
+    def __init__(self):
+        import numpy as np
+        letters = trace_letters().replace('.', '')
+        self.chars = sorted(set(letters + CHECK_DIGITS + 'FSLED/ '))
+        self.glyphs = font_glyphs(self.chars)
+        self.rect = None
+
+        # what each column may hold, the rest barred: digits look too much
+        # like some letters to be told apart anywhere
+        def bars(allowed):
+            return np.array([[0 if c in a else 64 for c in self.chars] for a in allowed])
+        digits = '0123456789'
+        cell = [letters + ' '] + [digits + ' '] * 6 + [' ']
+        body = cell * PAGE_CELLS + [' '] * (PAGE_COLUMNS - 1 - PAGE_CELLS * 8) + [CHECK_DIGITS]
+        header = (['F'] + [digits] * 3 + ['/'] + [digits] * 3 + [' ', 'S'] + [digits] * 7 + [' ', 'L'] +
+                  [digits] * 3 + [' ', 'E'] + [digits] * 3 + [' ', 'D'] + [digits] * 3)
+        header += [' '] * (PAGE_COLUMNS - 1 - len(header)) + [CHECK_DIGITS]
+        self.barred = bars(body)
+        self.header_barred = bars(header)
+
+    def read(self, img):
+        import cv2
+        import numpy as np
+        if self.rect is None:
+            self.rect = find_page(img)
+            if self.rect is None:
+                return None
+        left, top, right, bottom = self.rect
+        grey = cv2.cvtColor(img[top:bottom, left:right], cv2.COLOR_BGR2GRAY)
+        small = cv2.resize(grey, (PAGE_COLUMNS * 8, PAGE_ROWS * 8), interpolation=cv2.INTER_AREA)
+        lit = small > (int(small.min()) + int(small.max())) // 2
+        cells = lit.reshape(PAGE_ROWS, 8, PAGE_COLUMNS, 8).transpose(0, 2, 1, 3).reshape(-1, 64)
+        misses = (cells[:, None, :] != self.glyphs[None, :, :]).sum(axis=2).reshape(PAGE_ROWS, PAGE_COLUMNS, -1)
+        misses = misses + self.barred[None, :, :]
+        misses[0] = misses[0] - self.barred + self.header_barred
+        best = misses.argmin(axis=2)
+        return [''.join(self.chars[i] for i in row) for row in best]
+
+
+def video_frames(path):
+    """The pictures of a video, or of a directory's images in name order."""
+    import cv2
+    if os.path.isdir(path):
+        for name in sorted(os.listdir(path)):
+            img = cv2.imread(os.path.join(path, name))
+            if img is not None:
+                yield img
+        return
+    video = cv2.VideoCapture(path)
+    if not video.isOpened():
+        sys.exit(f'{path}: not a video OpenCV can read')
+    while True:
+        ok, img = video.read()
+        if not ok:
+            break
+        yield img
+
+
+def read_pages(path):
+    """Each frame's page: {index: (header numbers, [(letter, begin, end)])},
+    from the pictures that hold it whole (header and every row checked), the
+    reading most of them agree on; and the frames' count."""
+    import collections
+    reader = PageReader()
+    readings = collections.defaultdict(collections.Counter)
+    total = None
+    pictures = torn = 0
+    misses = 0
+    for img in video_frames(path):
+        pictures += 1
+        rows = reader.read(img)
+        if rows is None or not row_checked(rows[0]):
+            misses += 1
+            if misses > 30:     # the picture moved: find the page again
+                reader.rect = None
+                misses = 0
+            continue
+        misses = 0
+        m = PAGE_HEADER.match(rows[0][:PAGE_COLUMNS - 1])
+        if not m:
+            continue
+        if not all(row_checked(r) for r in rows[1:]):
+            torn += 1
+            continue
+        index, frames, start, length, count, dropped = (int(v) for v in m.groups())
+        total = frames
+        events = []
+        for r in rows[1:]:
+            for c in range(PAGE_CELLS):
+                cell = r[c * 8:c * 8 + 7]
+                if cell[0] == ' ':
+                    break
+                events.append((cell[0], int(cell[1:4]), int(cell[4:7])))
+        if len(events) != count:
+            torn += 1
+            continue
+        readings[index][((start, length, count, dropped), tuple(events))] += 1
+    pages = {i: c.most_common(1)[0][0] for i, c in readings.items()}
+    print(f'{path}: {pictures} pictures, {len(pages)} frames read' +
+          (f' of {total}' if total is not None else '') + f', {torn} pictures torn or misread')
+    return pages, total
+
+
+def nest(spans):
+    """Spans (begin, end, name) with their depths, outer first."""
+    out, stack = [], []
+    for b, e, name in sorted(spans, key=lambda s: (s[0], -s[1])):
+        while stack and stack[-1] <= b:
+            stack.pop()
+        out.append((b, e, len(stack), name))
+        stack.append(e)
+    return out
+
+
+def uncovered(spans, lo, hi):
+    """The time from lo to hi in no span."""
+    out, t = [], lo
+    for b, e in sorted((max(b, lo), min(e, hi)) for b, e in spans if e > lo and b < hi):
+        if b > t:
+            out.append((t, b))
+        t = max(t, e)
+    if hi > t:
+        out.append((t, hi))
+    return out
+
+
+def video(path, out_path):
+    pages, total = read_pages(path)
+    if not pages:
+        sys.exit('no page read whole: is the playback page on, and the video sharp enough?')
+    ids, _ = trace_ids()
+    letters = trace_letters()
+    by_letter = {c: i for i, c in enumerate(letters) if c != '.'}
+    missing = [i for i in range(total or 0) if i not in pages]
+    if missing:
+        print(f'frames not read: {missing}')
+
+    lanes = {1: [], 2: [], 3: [], 4: [], 7: []}
+    vdp1, shown, vblanks, windows = [], [], [], []
+    clamped = 0
+    for index in sorted(pages):
+        (start, length, count, dropped), events = pages[index]
+        windows.append((start, start + length, index, dropped))
+        for letter, b, e in events:
+            ident = by_letter[letter]
+            name = ids[ident]
+            if e == OPEN_END:
+                clamped += 1
+            span = (start + b, start + e, name)
+            if name == 'PLOT':
+                vdp1.append(span)
+            elif name == 'SHOWN':
+                shown.append(start + b)
+            elif name == 'IRQ_VBLANK_IN':
+                vblanks.append(start + b)
+                lanes[2].append(span)
+            elif ident < 32:
+                lanes[1].append(span)
+            elif ident < 40:
+                lanes[3].append(span)
+            elif name == 'DSP_RUN':
+                lanes[4].append(span)
+            else:
+                lanes[7].append(span)
+
+    def ms_us(tenths):
+        return round(tenths * 100, 1)
+
+    events = []
+
+    def x(tid, b, e, name, cat, cname=None):
+        ev = {'name': name, 'cat': cat, 'ph': 'X', 'pid': 1, 'tid': tid, 'ts': ms_us(b), 'dur': ms_us(e - b)}
+        if cname:
+            ev['cname'] = cname
+        events.append(ev)
+
+    selfs, window = {}, sum(e - b for b, e, _, _ in windows)
+    for tid, spans in lanes.items():
+        nested = nest(spans)
+        for b, e, depth, name in nested:
+            wait = name in WAITS
+            label = 'WAIT ' + name[:-5].lower().replace('_', ' ') if wait else name.lower().replace('_', ' ')
+            x(tid, b, e, label, 'wait' if wait else 'work', 'terrible' if wait else None)
+            inner = sum(s[1] - s[0] for s in nested if s[2] == depth + 1 and b <= s[0] and s[1] <= e)
+            selfs[label] = selfs.get(label, 0) + (e - b) - inner
+        if tid in (1, 3):
+            top = [(b, e) for b, e, depth, _ in nested if depth == 0]
+            for lo, hi, _, _ in windows:
+                for b, e in uncovered(top, lo, hi):
+                    x(tid, b, e, 'idle', 'idle', 'grey')
+                    key = '(idle)' if tid == 1 else '(slave idle)'
+                    selfs[key] = selfs.get(key, 0) + e - b
+        if tid == 3:
+            for b0, e0, depth, name in nested:
+                if name == 'BATCH':
+                    inside = [(b, e) for b, e, d, _ in nested if d == depth + 1]
+                    for b, e in uncovered(inside, b0, e0):
+                        x(tid, b, e, 'wait for jobs', 'idle', 'bad')
+    for b, e, _ in vdp1:
+        x(5, b, e, 'VDP1 draws', 'vdp1')
+    shown.sort()
+    for b, e in zip(shown, shown[1:]):
+        x(6, b, e, 'list on screen', 'display')
+    for t in vblanks:
+        events.append({'name': 'vblank', 'ph': 'i', 's': 't', 'pid': 1, 'tid': 6, 'ts': ms_us(t)})
+    for lo, hi, index, dropped in windows:
+        x(8, lo, hi, f'frame {index}' + (f' ({dropped} events left out)' if dropped else ''), 'frame')
+
+    names = dict(TRACK_NAMES)
+    names[8] = 'Frames'
+    meta = []
+    for order, (tid, name) in enumerate(names.items()):
+        meta.append({'name': 'thread_name', 'ph': 'M', 'pid': 1, 'tid': tid, 'args': {'name': name}})
+        meta.append({'name': 'thread_sort_index', 'ph': 'M', 'pid': 1, 'tid': tid, 'args': {'sort_index': order}})
+    meta.append({'name': 'process_name', 'ph': 'M', 'pid': 1, 'args': {'name': 'Saturn (from the playback video)'}})
+    with open(out_path, 'w') as f:
+        json.dump({'traceEvents': meta + events, 'displayTimeUnit': 'ms'}, f)
+
+    print(f'{out_path}: {window / 10:.1f} ms in {len(windows)} frames '
+          f'({len(windows) * 10000 / window:.1f} fps), {sum(w[3] for w in windows)} events left out, '
+          f'{clamped} spans past 99.9 ms')
+    print('own time, % of the time (100 = all of it):')
+    for name, t in sorted(selfs.items(), key=lambda kv: -kv[1]):
+        print(f'  {name:16s} {t * 100 / window:6.1f}')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -465,10 +775,14 @@ def main():
     c.add_argument('--keys', default=DEFAULT_KEYS)
     c.add_argument('--fps', type=int, default=0)
     c.add_argument('--shots', type=int, default=0)
+    c.add_argument('--playback', type=int, default=0)
     c.add_argument('--out', default='trace')
     v = sub.add_parser('convert')
     v.add_argument('dump')
     v.add_argument('--out')
+    d = sub.add_parser('video')
+    d.add_argument('video')
+    d.add_argument('--out')
     o = sub.add_parser('open')
     o.add_argument('json')
     args = ap.parse_args()
@@ -476,8 +790,12 @@ def main():
     if args.cmd == 'open':
         open_ui(args.json)
         return
+    if args.cmd == 'video':
+        video(args.video, args.out or os.path.splitext(args.video.rstrip('/\\'))[0] + '.json')
+        return
     if args.cmd == 'capture':
-        dump = capture(os.path.abspath(args.cue), args.frame, args.keys, args.out, args.fps, args.shots)
+        dump = capture(os.path.abspath(args.cue), args.frame, args.keys, args.out, args.fps, args.shots,
+                       args.playback)
         out = os.path.join(ROOT, 'build', args.out + '.json')
     else:
         dump = args.dump
