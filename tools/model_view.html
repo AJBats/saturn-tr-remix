@@ -82,6 +82,7 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
     <h2>Geometry</h2>
     <label><input type="checkbox" id="cards"><span>Lower legs as cards<span class="sub">12 boxes (8 corners, 6 faces each) become flat polygons that turn round the bone to face the camera</span></span></label>
     <label><input type="checkbox" id="tailCards"><span>Tail as cards<span class="sub">its 3 boxes the same way</span></span></label>
+    <div class="row"><select id="cardLight"><option value="ends">Card lit by its box's corner normals, each end</option><option value="view">Card lit as if facing the camera</option></select></div>
     <div class="row"><select id="cardLook"><option value="baked">Card texture: the segment from the side</option><option value="flat">Card texture: none, one colour</option></select></div>
     <span class="sub">The card textures, 8 texels across, a texel every 5 units along (the wolf's own textures' density):</span>
     <canvas id="cardTex" height="1" style="width:100%;image-rendering:pixelated;margin-top:4px"></canvas>
@@ -267,15 +268,25 @@ function meshFace(mesh, f, place, rotate, shadeOf, cam, b, tint) {
 }
 
 // a card: a polygon from e0 to e1, w wide, turned round that line to the camera
-function card(e0, e1, w, cam, col, t, uAlong, b, tint) {
+// n0, n1: the normals at its ends (the camera's direction when not given)
+function card(e0, e1, w, cam, col, t, uAlong, b, tint, n0, n1) {
   const mid = scl(add(e0, e1), 0.5);
   let s = cross(sub(e1, e0), sub(cam, mid));
   s = scl(nrm(s), w / 2);
   const n = nrm(sub(cam, mid));
+  // a box's corner normals lean out as much as along its length: the card's
+  // corners lean the same way, out towards the camera across the bone
+  const ax = nrm(sub(e1, e0));
+  const out = nrm(sub(n, scl(ax, dot(n, ax))));
+  const lean = (e) => nrm(add(scl(e, 0.58), scl(out, 0.82)));
+  const a0 = n0 ? lean(n0) : n, a1 = n1 ? lean(n1) : n;
+  // corners in the order that faces the camera, so the card is lit by its
+  // own normals rather than as a back face
   const P = uAlong ? [sub(e0, s), sub(e1, s), add(e1, s), add(e0, s)]
-                   : [sub(e0, s), add(e0, s), add(e1, s), sub(e1, s)];
+                   : [add(e0, s), sub(e0, s), sub(e1, s), add(e1, s)];
+  const N = uAlong ? [a0, a1, a1, a0] : [a0, a0, a1, a1];
   const c = tint && opt.tint ? [col[0]*TINT[0], col[1]*TINT[1], col[2]*TINT[2]] : col;
-  b.quad(P, [n, n, n, n], [c, c, c, c], t, false, t ? 4 : 1);
+  b.quad(P, N, [c, c, c, c], t, false, t ? 4 : 1);
 }
 
 // ---- three.js views: left and right, each a scene with lit, prelit and card meshes
@@ -409,9 +420,12 @@ function buildWolf(simplified) {
   const keptOf = (j) => { while (simplified && merged.has(j)) j = W.parents[j]; return j; };
   for (let j = 0; j < NJ; j++) {
     const mesh = W.meshes[j];
+    if (opt.cardsOnly && !W.cards[j]) continue;
     if (isCard(j)) {
       const c = W.cards[j];
-      card(apply(M[j], c.e0), apply(M[j], c.e1), c.w, cam, flat ? c.col.map(x => x / 255) : WHITE, flat ? 0 : c.t, false, b.card, true);
+      const lit = ui('cardLight').value === 'ends';
+      card(apply(M[j], c.e0), apply(M[j], c.e1), c.w, cam, flat ? c.col.map(x => x / 255) : WHITE, flat ? 0 : c.t, false, b.card, true,
+           lit && c.n0 ? rv(M[j].R, c.n0) : null, lit && c.n1 ? rv(M[j].R, c.n1) : null);
       nCards++; sent++; faces++; verts += 2;
       continue;
     }
@@ -570,7 +584,7 @@ ui('speed').oninput = (e) => wolfState.speed = +e.target.value;
 ui('hold').onchange = (e) => { refR = e.target.value === 'typical' ? typicalR : standR; dirty = true; };
 ui('anim').onchange = (e) => { wolfState.anim = +e.target.value; wolfState.time = 0; dirty = true; };
 ui('frame').oninput = (e) => { const a = W.anims[wolfState.anim]; wolfState.time = +e.target.value / 100 * animLength(a); dirty = true; };
-['cards', 'tailCards', 'cardLook', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
+['cards', 'tailCards', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
 controls.addEventListener('change', () => { dirty = true; syncDist(); });
 
 function resize() {
@@ -679,12 +693,14 @@ function fromHash() {
   const tokens = decodeURIComponent(location.hash.slice(1)).split(',').filter(Boolean);
   const kv = Object.fromEntries(tokens.map(t => t.split('=')).map(([k, v]) => [k, v === undefined ? true : v]));
   if (kv.bridge) document.querySelector('[data-tab=bridge]').click(); else wolfClose();
-  for (const id of ['cards', 'tailCards', 'cardLook', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
+  for (const id of ['cards', 'tailCards', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
     if (id in kv) ui(id).checked = kv[id] !== '0';
   document.querySelectorAll('[data-merge]').forEach(c => { if (kv[c.dataset.merge]) { c.checked = true; c.dispatchEvent(new Event('change')); } });
   if (kv.anim) { ui('anim').value = kv.anim; wolfState.anim = +kv.anim; }
   if (kv.t) wolfState.time = +kv.t * animLength(W.anims[wolfState.anim]);
   if (kv.pause) { wolfState.playing = false; ui('play').textContent = 'Play'; }
+  for (const id of ['cardLight', 'cardLook']) if (kv[id]) ui(id).value = kv[id];
+  opt.cardsOnly = !!kv.cardsOnly;      // debugging: only the joints that can be cards
   if (kv.hold) { ui('hold').value = kv.hold; ui('hold').dispatchEvent(new Event('change')); }
   if (kv.far) wolfLedge();
   // debugging: both sides of every face, and/or no see-through texels

@@ -239,7 +239,17 @@ def card_of(mesh, atlas):
     view = 0 if axis != 0 else 2
     across = 3 - axis - view
     tex = bake_side(mesh, atlas, view, across, axis, lo, hi)
-    return {"e0": e0, "e1": e1, "w": width, "col": [round(q / max(total, 1)) for q in colour], "t": tex}
+    # each end lit by its corners' own normals, averaged: what the game would
+    # shade the card's corners with, keeping the box's light at either end
+    ends = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+    if mesh.normals:
+        for v, n in zip(mesh.vertices, mesh.normals):
+            end = ends[0 if v[axis] < mid[axis] else 1]
+            for k in range(3):
+                end[k] += n[k] / max(1.0, norm(n))
+    normals = [[round(c / norm(e), 3) for c in e] if norm(e) > 0.2 else None for e in ends]
+    return {"e0": e0, "e1": e1, "w": width, "col": [round(q / max(total, 1)) for q in colour], "t": tex,
+            "n0": normals[0], "n1": normals[1]}
 
 
 CARD_UNITS = 5      # model units a texel, about the wolf's own textures
@@ -291,7 +301,7 @@ def bake_side(mesh, atlas, view, across, along, lo, hi):
             if best is None:
                 out += bytes(4)
                 continue
-            shade = 0.8 + 0.3 * math.sin(math.pi * (i + 0.5) / w)
+            shade = 0.92 + 0.2 * math.sin(math.pi * (i + 0.5) / w)
             out += bytes(min(255, round(q * shade)) for q in best[1]) + bytes([255])
     return atlas.add_image(w, h, bytes(out))
 
