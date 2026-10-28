@@ -26,7 +26,6 @@ enum TraceId
     TR_TICK_WAIT = 1,   // waiting for the next 30 Hz tick
     TR_UPDATE,          // game logic, sound, input
     TR_DEBUG,           // the overlay's own work (debugUpdate)
-    TR_LOAD,            // the menu's Extra load: the master spinning (debugExtraLoad)
     TR_RENDER,          // gameRender: the stages below, the rest its own
     TR_VIEW,            // the camera's room, the rooms its portals show
     TR_QUEUE,           // the visible rooms queued for the slave

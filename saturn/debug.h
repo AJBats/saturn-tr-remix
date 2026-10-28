@@ -9,10 +9,6 @@
 void debugUpdate();
 
 #ifdef HW_LOG
-// The menu's Extra load: the master spins that share of a frame (render.cpp
-// calls it once the rooms are queued).
-void debugExtraLoad();
-
 // Starts the measurement table's sampling profiler (debug.cpp).
 void debugProfileInit();
 

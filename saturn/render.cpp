@@ -1785,9 +1785,6 @@ void renderRoomsQueued()
 {
     roomsAllQueued();
     renderPoll();
-#ifdef HW_LOG
-    debugExtraLoad();
-#endif
 }
 
 // A mesh's arrays, which follow it.

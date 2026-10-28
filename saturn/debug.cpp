@@ -37,14 +37,12 @@ static const char* const kTrace[] = { "Off", "Stages", "Detail" };
 static const char* const kUpload[] = { "Deferred", "Blocking" };
 static const char* const kItems[] = { "Either CPU", "Master only" };
 static const char* const kDsp[] = { "Rooms only", "Rooms, meshes", "Meshes first" };
-static const char* const kLoad[] = { "None", "5%", "10%", "15%", "20%" };
 #ifdef HW_LOG
 static const char* const kBenchNames[BENCH_COUNT] = {
     "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master meshes",
     "C meshes", "Clear", "Void colour", "Split shade", "Profile"
 };
 static int32 gBenchHold;    // the way every page but the bench's runs
-static int32 gExtraLoad;    // the master spins this many 5% of a 30 fps frame each frame
 #endif
 static const char* const kShrink[] = { "Exact", "Fast" };
 static const char* const kLines[] = { "Fixed", "Turned" };
@@ -132,9 +130,6 @@ static const Option gOptions[] = {
     { "Way", kBenchNames, BENCH_COUNT,
         [] { return gBenchHold; },
         [](int32 v) { gBenchHold = v; } },
-    { "Extra load", kLoad, 5,
-        [] { return gExtraLoad; },
-        [](int32 v) { gExtraLoad = v; } },
     { "Trace", kTrace, TRACE_MODES,
         [] { return int32(traceMode()); },
         [](int32 v) { traceSetMode(v); } },
@@ -144,7 +139,7 @@ static const Option gOptions[] = {
 enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_MULTIPLY, OPTION_GREY, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
        OPTION_PALETTE, OPTION_SPLIT, OPTION_DEPTH, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD, OPTION_ITEMS, OPTION_DSP,
 #ifdef HW_LOG
-       OPTION_WAY, OPTION_LOAD, OPTION_TRACE,
+       OPTION_WAY, OPTION_TRACE,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");
@@ -258,22 +253,6 @@ void debugUpdate()
 #endif
     traceEnd(TRACE_MASTER, TR_DEBUG);
 }
-
-#ifdef HW_LOG
-// Drawing work a frame that isn't there yet, on the master once the rooms are
-// queued (where its own drawing is), to see how the frame paces and shares
-// out with the master over its budget.
-void debugExtraLoad()
-{
-    if (!gExtraLoad)
-        return;
-    uint32 start = timerTicks();
-    traceBeginAt(TRACE_MASTER, start, TR_LOAD);
-    uint32 ticks = gExtraLoad * 5 * 7457 / 100;
-    while (((timerTicks() - start) & 0xFFFF) < ticks);
-    traceEnd(TRACE_MASTER, TR_LOAD);
-}
-#endif
 
 static char* append(char* p, const char* text)
 {
