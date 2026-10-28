@@ -155,6 +155,10 @@ def mesh_json(mesh, atlas):
                 v1, v2 = v2, v1
             f["p"] = [v0, v1, v2]
             f["c"] = [v1, -1, v2, v0] if arrangement & 1 else [v0, v1, -1, v2]
+            if arrangement & 2:
+                # the game culls by the triangle as stored, then draws the
+                # parallelogram, whichever way round it turned out
+                f["s"] = 1
             f["t"] = atlas.object(flags & 0x0FFF, TRIANGLE_VARIANT[code], transp, True)
         faces.append(f)
     out = {"v": [c for v in mesh.vertices for c in v], "f": faces}

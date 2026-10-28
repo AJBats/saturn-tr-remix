@@ -186,7 +186,7 @@ img.src = 'data:image/png;base64,' + D.atlas.png;
 // the face's own edges kept apart for the edge view (the grid is only for drawing)
 class Builder {
   constructor() { this.p = []; this.n = []; this.uv = []; this.c = []; this.e = []; }
-  quad(P, N, col, t, fh, div, outline) {
+  quad(P, N, col, t, fh, div, outline, reverse) {
     const o = outline || P;
     for (let k = 0; k < o.length; k++) {
       const a = o[k], b = o[(k + 1) % o.length];
@@ -213,8 +213,13 @@ class Builder {
     const at = (i, j) => g[j * (div + 1) + i];
     for (let j = 0; j < div; j++) for (let i = 0; i < div; i++) {
       // the half turn keeps TR's winding, which faces away: reversed for three.js
-      this.tri(at(i, j), at(i + 1, j + 1), at(i + 1, j));
-      this.tri(at(i, j), at(i, j + 1), at(i + 1, j + 1));
+      if (reverse) {
+        this.tri(at(i, j), at(i + 1, j), at(i + 1, j + 1));
+        this.tri(at(i, j), at(i + 1, j + 1), at(i, j + 1));
+      } else {
+        this.tri(at(i, j), at(i + 1, j + 1), at(i + 1, j));
+        this.tri(at(i, j), at(i, j + 1), at(i + 1, j + 1));
+      }
     }
   }
   tri(...vs) { for (const v of vs) { this.p.push(...v.p); this.n.push(...v.n); this.uv.push(...v.uv); this.c.push(...v.c); } }
@@ -255,8 +260,10 @@ function meshFace(mesh, f, place, rotate, shadeOf, cam, b, tint) {
   const isTri = !f.p && f.c[2] === f.c[3];
   // a textured triangle is drawn as a parallelogram whose end codes trim it to v0 v1 v2
   const outline = f.p ? f.p.map(vp) : isTri ? P.slice(0, 3) : P;
-  b.quad(P, N, col, f.t, f.fh, f.col || isTri ? 1 : 4, outline);
-  return dot(cross(sub(P[1], P[0]), sub(P[2], P[0])), sub(cam, P[0])) < 0;
+  b.quad(P, N, col, f.t, f.fh, f.col || isTri ? 1 : 4, outline, f.s);
+  // facing as the game tests it: a triangle by its corners as stored
+  const T = f.p ? (f.s ? [f.p[0], f.p[2], f.p[1]] : f.p).map(vp) : P;
+  return dot(cross(sub(T[1], T[0]), sub(T[2], T[0])), sub(cam, T[0])) < 0;
 }
 
 // a card: a polygon from e0 to e1, w wide, turned round that line to the camera
@@ -680,6 +687,9 @@ function fromHash() {
   if (kv.pause) { wolfState.playing = false; ui('play').textContent = 'Play'; }
   if (kv.hold) { ui('hold').value = kv.hold; ui('hold').dispatchEvent(new Event('change')); }
   if (kv.far) wolfLedge();
+  // debugging: both sides of every face, and/or no see-through texels
+  if (kv.double) for (const v of views) for (const k in v.mats) v.mats[k].side = THREE.DoubleSide;
+  if (kv.noalpha) for (const v of views) for (const k in v.mats) { v.mats[k].alphaTest = 0; v.mats[k].needsUpdate = true; }
   if (kv.cam) {     // cam=x:y:z:tx:ty:tz in the game's coordinates
     const c = kv.cam.split(':').map(Number);
     camera.up.set(0, 1, 0);
