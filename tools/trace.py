@@ -683,6 +683,8 @@ def uncovered(spans, lo, hi):
 def split_names():
     """The battery's splits by tag (saturn/debug.cpp kSplits), from 1."""
     text = open(os.path.join(ROOT, 'saturn/debug.cpp')).read()
+    if 'kSplits[] = {' not in text:
+        return {}   # a build without the battery
     body = text[text.index('kSplits[] = {'):]
     body = body[:body.index('};')]
     return {i + 1: name for i, name in enumerate(re.findall(r'\{ "([^"]+)",', body))}
