@@ -515,8 +515,15 @@ def find_page(img):
     back = (b > 150) & (r < 100) & (g > 40) & (g < 220) & (b - r > 100)
     if back.sum() < 2000:
         return None
-    ys, xs = np.nonzero(back)
-    y0, y1, x0, x1 = ys.min(), ys.max(), xs.min(), xs.max()
+    # the band round the page: the blue blob with the biggest box (a desktop
+    # has blue elsewhere)
+    import cv2
+    count, _, stats, _ = cv2.connectedComponentsWithStats(back.astype(np.uint8), connectivity=8)
+    if count < 2:
+        return None
+    best = max(range(1, count), key=lambda i: stats[i, cv2.CC_STAT_WIDTH] * stats[i, cv2.CC_STAT_HEIGHT])
+    x0, y0 = stats[best, cv2.CC_STAT_LEFT], stats[best, cv2.CC_STAT_TOP]
+    x1, y1 = x0 + stats[best, cv2.CC_STAT_WIDTH] - 1, y0 + stats[best, cv2.CC_STAT_HEIGHT] - 1
 
     def run(fractions):
         best, start = (0, 0, 0), None
@@ -544,13 +551,13 @@ class PageReader:
         import numpy as np
         letters = trace_letters().replace('.', '')
         self.chars = sorted(set(letters + CHECK_DIGITS + 'FSLED/ '))
-        self.glyphs = font_glyphs(self.chars)
+        self.glyphs = font_glyphs(self.chars).astype(np.float32)
         self.rect = None
 
         # what each column may hold, the rest barred: digits look too much
         # like some letters to be told apart anywhere
         def bars(allowed):
-            return np.array([[0 if c in a else 64 for c in self.chars] for a in allowed])
+            return np.array([[0 if c in a else 1000 for c in self.chars] for a in allowed], np.float32)
         digits = '0123456789'
         cell = [letters + ' '] + [digits + ' '] * 6 + [' ']
         body = cell * PAGE_CELLS + [' '] * (PAGE_COLUMNS - 1 - PAGE_CELLS * 8) + [CHECK_DIGITS]
@@ -568,11 +575,15 @@ class PageReader:
             if self.rect is None:
                 return None
         left, top, right, bottom = self.rect
-        grey = cv2.cvtColor(img[top:bottom, left:right], cv2.COLOR_BGR2GRAY)
+        grey = cv2.cvtColor(img[top:bottom, left:right], cv2.COLOR_BGR2GRAY).astype(np.float32)
+        # each of the Saturn's pixels as its mean brightness, black 0 to white
+        # 1, against the glyphs' (a soft picture's edges stay grey, where a
+        # threshold would make them either)
         small = cv2.resize(grey, (PAGE_COLUMNS * 8, PAGE_ROWS * 8), interpolation=cv2.INTER_AREA)
-        lit = small > (int(small.min()) + int(small.max())) // 2
+        lo, hi = np.percentile(small, 2), np.percentile(small, 98)
+        lit = np.clip((small - lo) / max(hi - lo, 1), 0, 1)
         cells = lit.reshape(PAGE_ROWS, 8, PAGE_COLUMNS, 8).transpose(0, 2, 1, 3).reshape(-1, 64)
-        misses = (cells[:, None, :] != self.glyphs[None, :, :]).sum(axis=2).reshape(PAGE_ROWS, PAGE_COLUMNS, -1)
+        misses = ((cells[:, None, :] - self.glyphs[None, :, :]) ** 2).sum(axis=2).reshape(PAGE_ROWS, PAGE_COLUMNS, -1)
         misses = misses + self.barred[None, :, :]
         misses[0] = misses[0] - self.barred + self.header_barred
         best = misses.argmin(axis=2)
@@ -607,17 +618,12 @@ def read_pages(path):
     readings = collections.defaultdict(collections.Counter)
     total = None
     pictures = torn = 0
-    misses = 0
     for img in video_frames(path):
         pictures += 1
         rows = reader.read(img)
         if rows is None or not row_checked(rows[0]):
-            misses += 1
-            if misses > 30:     # the picture moved: find the page again
-                reader.rect = None
-                misses = 0
+            reader.rect = None  # the page found again: it may have moved
             continue
-        misses = 0
         m = PAGE_HEADER.match(rows[0][:PAGE_COLUMNS - 1])
         if not m:
             continue

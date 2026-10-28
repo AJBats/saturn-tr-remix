@@ -89,6 +89,7 @@ struct Lane
 {
     uint32_t* ring;
     uint32_t mask, next;
+    uint32_t last;      // the last event's time
 };
 
 static Lane gLanes[TRACE_LANES];
@@ -119,6 +120,14 @@ void traceAt(int32_t lane, uint32_t ticks, uint32_t code)
     asm volatile("stc sr, %0" : "=r"(sr));
     asm volatile("ldc %0, sr" : : "r"(sr | 0xF0));
     Lane &l = gLanes[lane];
+    // an interrupt between the caller's reading of the time and here may
+    // have written a later event: this one goes no earlier (by under a
+    // millisecond; farther back is a gap of more than half the count's turn)
+    int32_t back = int16_t(ticks - l.last);
+    if (back < 0 && back > -256) {
+        ticks = l.last;
+    }
+    l.last = ticks;
     uint32_t n = l.next;
     l.ring[n & l.mask] = (ticks << 16) | code;
     l.next = n + 1;
@@ -434,6 +443,14 @@ static void composeFrame(TracePlay &p, int32_t start, int32_t end)
     int32_t plotCount = 0, drawnCount = 0;
     for (int32_t lane = 0; lane < TRACE_LANES; lane++) {
         collect(p, lane, start, end, plots, plotCount, drawn, drawnCount);
+    }
+    for (int32_t i = 1; i < plotCount; i++)  // the master's and the interrupts' in time order
+    {
+        int32_t t = plots[i], k = i - 1;
+        for (; k >= 0 && plots[k] > t; k--) {
+            plots[k + 1] = plots[k];
+        }
+        plots[k + 1] = t;
     }
     for (int32_t i = 0, d = 0; i < plotCount; i++, d++)
     {
