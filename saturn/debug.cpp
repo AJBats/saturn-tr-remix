@@ -827,7 +827,7 @@ static void benchCompose()
 // back, VDP1's EDSR at the last frame change.
 static const char* syncRow()
 {
-    static char text[OVERLAY_COLUMNS + 1];
+    static char text[64];   // 42 columns with 4-digit fields; a stall can make them 5
     static uint32 start;
     if (gVblankCount - start < 60 && text[0])
         return text;
