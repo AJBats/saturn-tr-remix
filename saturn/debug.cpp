@@ -478,15 +478,11 @@ static uint32 gSplit[SPLIT_COUNT];
 #define PROFILE_VECTOR  0x65    // as libyaul numbers it
 #define PROFILE_LEVEL   1       // under every other interrupt
 #define PROFILE_TICKS   40
-#define PROFILE_START   0x06004000
-#define PROFILE_SHIFT   6
-#define PROFILE_BLOCKS  (152 * 1024 >> PROFILE_SHIFT)  // the code ends ~146 KB in
 #define PROFILE_TOP     15      // three to a row, under the table
 
 static_assert(7 + BENCH_COUNT + PROFILE_TOP / 3 <= OVERLAY_ROWS, "the profile's rows fit the overlay");
 
 extern "C" void profileEntry();     // irq.s
-static_assert(PROFILE_BLOCKS <= TRACE_PROFILE_BLOCKS, "the profile fits in the trace's low work RAM");
 static uint32 gProfileSamples, gProfileOther;
 static uint32 gProfileRanked;           // gProfileSamples when ranked
 static bool gProfiling;
@@ -514,10 +510,10 @@ extern "C" void profileHandler(uint32 pc)
     profileArm();
     gProfileSamples++;
     uint16* profile = traceProfileBlocks();   // held at 0xFFFF
-    uint32 offset = (pc & 0x07FFFFFF) - PROFILE_START;
-    if (profile && offset < (PROFILE_BLOCKS << PROFILE_SHIFT))
+    uint32 offset = (pc & 0x07FFFFFF) - TRACE_PROFILE_START;
+    if (profile && offset < uint32(gTextEnd) - TRACE_PROFILE_START)
     {
-        uint16 &n = profile[offset >> PROFILE_SHIFT];
+        uint16 &n = profile[offset >> TRACE_PROFILE_SHIFT];
         if (n != 0xFFFF) {
             n++;
         }
@@ -573,7 +569,7 @@ static void profileRank()
         return;
     gProfileRanked = total;
     memset(gProfileTop, 0, sizeof(gProfileTop));
-    for (int32 b = 0; b < PROFILE_BLOCKS; b++)
+    for (int32 b = 0, blocks = traceProfileCount(); b < blocks; b++)
     {
         uint32 share = profile[b] * 1000 / total;
         if (share <= gProfileTop[PROFILE_TOP - 1].share)
@@ -784,7 +780,7 @@ static void benchUpdate()
     {
         generation = traceGeneration();
         if (uint16* profile = traceProfileBlocks()) {
-            memset(profile, 0, PROFILE_BLOCKS * sizeof(uint16));
+            memset(profile, 0, traceProfileCount() * sizeof(uint16));
         }
         gProfileSamples = gProfileOther = 0;
         gBenchChanged = true;
@@ -929,7 +925,7 @@ static void benchCompose(OverlayText* rows)
         for (int32 j = i; j < i + 3 && gProfileTop[j].share; j++)
         {
             static const char hex[] = "0123456789abcdef";
-            uint32 addr = (PROFILE_START & 0xFFFFF) + (gProfileTop[j].block << PROFILE_SHIFT);
+            uint32 addr = (TRACE_PROFILE_START & 0xFFFFF) + (gProfileTop[j].block << TRACE_PROFILE_SHIFT);
             for (int32 d = 16; d >= 0; d -= 4) {
                 *p++ = hex[(addr >> d) & 15];
             }

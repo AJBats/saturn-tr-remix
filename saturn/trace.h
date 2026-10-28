@@ -160,8 +160,15 @@ void tracePlayStop();
 void traceRestart();
 
 // The master's profiler samples (debug.cpp), in the same low work RAM, or
-// NULL without room for them.
-#define TRACE_PROFILE_BLOCKS 2432
+// NULL without room for them: a count for each 64 bytes of the program's
+// code, traceProfileCount of them.
+#define TRACE_PROFILE_START 0x06004000  // where the BIOS loads the program
+#define TRACE_PROFILE_SHIFT 6
+extern const char gTextEnd[] asm("__text_end");    // saturn.ld (C names take a "_")
+inline uint32_t traceProfileCount()
+{
+    return (uintptr_t(gTextEnd) - TRACE_PROFILE_START + (1 << TRACE_PROFILE_SHIFT) - 1) >> TRACE_PROFILE_SHIFT;
+}
 uint16_t* traceProfileBlocks();
 
 // Room for the overlay's text there (the bench table's, the sync test's),

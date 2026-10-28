@@ -9,8 +9,8 @@ usage: profile_map.py ELF --dump HWRAM.bin LWRAM.bin
            the blocks the table shows (a photo of a Saturn's): each the low 5
            hex digits of a block's address and its share in percent
 
-A block is 64 bytes of the program; each counts towards the function it
-starts in.
+A block is 64 bytes of the program's code, up to saturn.ld's __text_end;
+each counts towards the function it starts in.
 """
 import bisect
 import os
@@ -23,9 +23,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NM = os.path.join(ROOT, "toolchain", "gcc-14.2.0", "sh2eb-elf", "bin", "sh2eb-elf-nm")
 START = 0x06004000
 SHIFT = 6
-BLOCKS = 152 * 1024 >> SHIFT    # debug.cpp's PROFILE_BLOCKS
 TRACE_HEADER = 0x002FFF00
-TRACE_LANES = 4                 # trace.h: the header's profile pointer follows the lanes
+TRACE_LANES = 4                 # trace.h: the header's profile pointer and block count follow the lanes
 
 
 def symbols(elf):
@@ -55,9 +54,9 @@ def main():
     if sys.argv[2] == "--dump":
         ram = open(sys.argv[3], "rb").read()
         low = open(sys.argv[4], "rb").read()
-        hist, = struct.unpack_from(">I", low, TRACE_HEADER - 0x00200000 + 8 + TRACE_LANES * 16)
+        hist, blocks = struct.unpack_from(">II", low, TRACE_HEADER - 0x00200000 + 8 + TRACE_LANES * 16)
         hist -= 0x00200000
-        counts = struct.unpack_from(f">{BLOCKS}H", low, hist)
+        counts = struct.unpack_from(f">{blocks}H", low, hist)
         total = struct.unpack_from(">I", ram, data["gProfileSamples"] - 0x06000000)[0]
         other = struct.unpack_from(">I", ram, data["gProfileOther"] - 0x06000000)[0]
         print(f"{total} samples, {100 * other / max(1, total):.1f}% outside the program")

@@ -27,7 +27,7 @@ struct TraceHeader
     // next: events written; vblank: gVblankCount at the last, which places
     // a lane that has stopped (its 16-bit times alone can't)
     struct { uint32_t ring, size, next, vblank; } lanes[TRACE_LANES];
-    uint32_t profile;       // TraceArea's profile blocks (tools/profile_map.py)
+    uint32_t profile, profileBlocks;    // the profile's blocks, how many (tools/profile_map.py)
 };
 
 // The lanes the slave writes, which the master reads past its cache.
@@ -74,11 +74,11 @@ struct TracePlay
     char rows[OVERLAY_ROWS][OVERLAY_COLUMNS + 1];
 };
 
-// Above the level, the rings after it.
+// Above the level, then the profile's blocks (traceProfileCount) and the
+// rings.
 struct TraceArea
 {
     TracePlay play;
-    uint16_t profile[TRACE_PROFILE_BLOCKS];
     char text[TRACE_TEXT_BYTES];
 };
 
@@ -180,7 +180,8 @@ void traceLevel(const void* end)
     gLevelEnd = end;
     traceStop();
     uint32_t base = (uintptr_t(end) + 15) & ~15;
-    int32_t room = int32_t(TRACE_HEADER - base - sizeof(TraceArea)) / 4;   // ring events
+    uint32_t profileBytes = (traceProfileCount() * sizeof(uint16_t) + 3) & ~3;
+    int32_t room = int32_t(TRACE_HEADER - base - sizeof(TraceArea) - profileBytes) / 4;  // ring events
     int32_t shift = 0;
     uint32_t total = 0;
     for (int32_t i = 0; i < TRACE_LANES; i++) {
@@ -196,11 +197,12 @@ void traceLevel(const void* end)
     }
 
     TraceArea* area = (TraceArea*)base;
-    memset(area, 0, sizeof(TraceArea));
+    memset(area, 0, sizeof(TraceArea) + profileBytes);
     memset(gHeader, 0, sizeof(TraceHeader));
     gHeader->slaveOffset = gSlaveOffset;
-    gHeader->profile = uint32_t(area->profile);
-    uint32_t* ring = (uint32_t*)(area + 1);
+    gHeader->profile = uint32_t(area + 1);
+    gHeader->profileBlocks = traceProfileCount();
+    uint32_t* ring = (uint32_t*)(uintptr_t(area + 1) + profileBytes);
     for (int32_t i = 0; i < TRACE_LANES; i++)
     {
         uint32_t size = kRingSize[i] >> shift;
@@ -233,7 +235,7 @@ void traceResume()
 
 uint16_t* traceProfileBlocks()
 {
-    return gArea ? gArea->profile : nullptr;
+    return gArea ? (uint16_t*)(gArea + 1) : nullptr;
 }
 
 char* traceText()
