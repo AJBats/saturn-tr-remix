@@ -27,6 +27,10 @@
 LVL_TR1_1     *              item 14        m0 q3  behind room 13 q101
 LVL_TR1_1     *              item 14        m0 q2  behind room 13 q101
 
+# ... and the same at the second bridge (hunt: from room 15 block 18,45)
+LVL_TR1_1     *              item 20        m0 q3  behind room 13 q92
+LVL_TR1_1     *              item 20        m0 q2  behind room 13 q92
+
 # the icicle hanging in room 14 under room 13's floor blocks 30,48 and 29,48
 # (hunt: from blocks 29,48 29,47 28,47)
 LVL_TR1_1     *              static 14:0    behind room 13 q111 q106
