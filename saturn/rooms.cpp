@@ -1079,6 +1079,21 @@ bool roomsFaceDepth(int32 room, int32 index, bool triangle, int32 &depth)
             n = 4;
         }
 
+        // facing the camera: the camera on the side the corners wind clockwise
+        // from, with y down (room space: vertex units of 256 but y from the top)
+        const RoomVertex* rv = r->data.vertices;
+        const RoomVertex* a = rv + corners[0] / sizeof(Vertex);
+        const RoomVertex* b = rv + corners[1] / sizeof(Vertex);
+        const RoomVertex* c = rv + corners[2] / sizeof(Vertex);
+        int32 e1x = b->x - a->x, e1y = b->y - a->y, e1z = b->z - a->z;
+        int32 e2x = c->x - a->x, e2y = c->y - a->y, e2z = c->z - a->z;
+        const int32* cam = gJobs[j].camera;
+        int64_t side = int64_t(e1y * e2z - e1z * e2y) * (cam[0] - (a->x << 8)) +
+                     int64_t(e1z * e2x - e1x * e2z) * (cam[1] - (a->y << 8)) +
+                     int64_t(e1x * e2y - e1y * e2x) * (cam[2] - (a->z << 8));
+        if (side >= 0)
+            return false;
+
         const Vertex* v = gVertices + w.base;
         int32 z = 0;
         for (int32 i = 0; i < n; i++) {

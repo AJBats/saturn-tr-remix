@@ -1720,20 +1720,23 @@ void clear()
 }
 
 // Draw order hints (saturn/depth_hints.txt): while Lara stands in a block of
-// a room, a thing's faces sort that many buckets farther or nearer, or one of
-// its faces is drawn before a room's face.
+// a room, or anywhere, a thing's faces sort that many buckets farther or
+// nearer, or one face of it or all of them are drawn before a room's face.
 enum DepthHintKind { DEPTH_HINT_ITEM, DEPTH_HINT_STATIC };
+
+#define DEPTH_HINT_ANYWHERE 0xFF    // room: wherever Lara stands
+#define DEPTH_HINT_WHOLE    0xFF    // node: every face of the thing
 
 struct DepthHint
 {
     uint8 level;
-    uint8 room;             // Lara's
+    uint8 room;             // Lara's, or DEPTH_HINT_ANYWHERE
     uint8 bx, bz;           // her block: x >> 10, z >> 10
     uint8 kind;             // DepthHintKind
     uint8 owner;            // a static's room
     uint16 index;           // the item's, or the static's in its room
-    int16 buckets;          // the thing's faces moved by; 0 for one face:
-    uint8 node;             // ... of the thing's mesh, from its first
+    int16 buckets;          // the thing's faces moved by; 0 for faces drawn before a room's:
+    uint8 node;             // ... of the thing's mesh, from its first, or DEPTH_HINT_WHOLE
     uint8 behindRoom;       // ... drawn before a face of this room
     uint16 polygon;         // ... the mesh's quad, or triangle | DEPTH_HINT_TRIANGLE
     uint16 behind;          // ... and the room's
@@ -1741,9 +1744,9 @@ struct DepthHint
 
 #include "depth_hints.h"
 
-#define MAX_ACTIVE_HINTS 8
+#define MAX_ACTIVE_HINTS 16
 static const DepthHint* gActiveHints[MAX_ACTIVE_HINTS];
-static int32 gActiveHintCount;
+static int32 gActiveHintCount;  // until the frame's flush
 static bool gHinted;            // the object being drawn has a hint:
 static int32 gHintKind, gHintOwner, gHintIndex;     // ... it
 static int32 gHintNode;         // ... its mesh being drawn, from its first
@@ -1755,16 +1758,25 @@ struct HeldFace
 {
     Face* face;
     int32 depth;
-    const DepthHint* hint;
+    int16 kind, owner;
+    uint16 index;
+    uint8 node;
+    uint16 polygon;
 };
 
-#define MAX_HELD_FACES 8
+#define MAX_HELD_FACES 32
 static HeldFace gHeld[MAX_HELD_FACES];
 static int32 gHeldCount;
 
-static bool hintMatches(const DepthHint &h)
+static bool hintThing(const DepthHint &h, int32 kind, int32 owner, int32 index)
 {
-    return h.kind == gHintKind && h.index == gHintIndex && (h.kind == DEPTH_HINT_ITEM || h.owner == gHintOwner);
+    return h.kind == kind && h.index == index && (kind == DEPTH_HINT_ITEM || h.owner == owner);
+}
+
+// A hint that draws this face of the thing before a room's.
+static bool hintFace(const DepthHint &h, int32 node, uint32 polygon)
+{
+    return !h.buckets && (h.node == DEPTH_HINT_WHOLE || (h.node == node && h.polygon == polygon));
 }
 
 static Face* faceAddHinted(int32 depth, uint32 polygon)
@@ -1772,29 +1784,39 @@ static Face* faceAddHinted(int32 depth, uint32 polygon)
     for (int32 i = 0; i < gActiveHintCount; i++)
     {
         const DepthHint &h = *gActiveHints[i];
-        if (!h.buckets && h.node == gHintNode && h.polygon == polygon && hintMatches(h) &&
+        if (hintFace(h, gHintNode, polygon) && hintThing(h, gHintKind, gHintOwner, gHintIndex) &&
             gHeldCount < MAX_HELD_FACES)
         {
             HeldFace &held = gHeld[gHeldCount++];
             held.face = gFaceList.next++;
             held.depth = depth;
-            held.hint = &h;
+            held.kind = gHintKind;
+            held.owner = gHintOwner;
+            held.index = gHintIndex;
+            held.node = gHintNode;
+            held.polygon = polygon;
             return held.face;
         }
     }
     return faceAdd(gFaceList, X_MIN(X_MAX(depth + gHintBuckets, 0), OT_SIZE - 2));
 }
 
+// Each held face one bucket farther than the farthest of its room faces that
+// face the camera (flush draws it first), or where it was if none do.
 static void depthHintsPlace()
 {
     for (int32 i = 0; i < gHeldCount; i++)
     {
         const HeldFace &held = gHeld[i];
-        const DepthHint &h = *held.hint;
         int32 depth = held.depth;
-        int32 behind;
-        if (roomsFaceDepth(h.behindRoom, h.behind & ~DEPTH_HINT_TRIANGLE, (h.behind & DEPTH_HINT_TRIANGLE) != 0, behind)) {
-            depth = X_MAX(depth, behind + 1);     // a farther bucket: flush draws it first
+        for (int32 j = 0; j < gActiveHintCount; j++)
+        {
+            const DepthHint &h = *gActiveHints[j];
+            int32 behind;
+            if (hintFace(h, held.node, held.polygon) && hintThing(h, held.kind, held.owner, held.index) &&
+                roomsFaceDepth(h.behindRoom, h.behind & ~DEPTH_HINT_TRIANGLE, (h.behind & DEPTH_HINT_TRIANGLE) != 0, behind)) {
+                depth = X_MAX(depth, behind + 1);
+            }
         }
         depth = X_MIN(depth, OT_SIZE - 2);
         held.face->next = gFaceList.ot[depth];
@@ -1819,7 +1841,7 @@ void depthHintsBegin()
     for (uint32 i = 0; i < sizeof(gDepthHints) / sizeof(gDepthHints[0]); i++)
     {
         const DepthHint &h = gDepthHints[i];
-        if (h.level == gLevelID && h.room == room && h.bx == bx && h.bz == bz &&
+        if (h.level == gLevelID && (h.room == DEPTH_HINT_ANYWHERE || (h.room == room && h.bx == bx && h.bz == bz)) &&
             gActiveHintCount < MAX_ACTIVE_HINTS) {
             gActiveHints[gActiveHintCount++] = &h;
         }
@@ -1828,7 +1850,6 @@ void depthHintsBegin()
 
 void depthHintsEnd()
 {
-    gActiveHintCount = 0;
     gHinted = false;
     gHintBuckets = 0;
 }
@@ -1849,7 +1870,7 @@ void depthHintObject(int32 kind, int32 owner, int32 index)
     for (int32 i = 0; i < gActiveHintCount; i++)
     {
         const DepthHint &h = *gActiveHints[i];
-        if (hintMatches(h))
+        if (hintThing(h, kind, owner, index))
         {
             gHinted = true;
             if (h.buckets) {

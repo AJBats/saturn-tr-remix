@@ -463,7 +463,8 @@ Face** roomsFinish(RoomStats &stats, const uint16* &groups);
 bool roomsFaceSource(const Face* face, int32 &room, int32 &index, bool &triangle);
 
 // After roomsFinish: the bucket the slave sorts a room's quad or triangle in
-// (its farthest corner's), whether drawn or not; false if the room isn't drawn.
+// (its farthest corner's); false if the room isn't drawn or the face turns
+// away from the camera.
 bool roomsFaceDepth(int32 room, int32 index, bool triangle, int32 &depth);
 
 #endif
