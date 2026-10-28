@@ -25,7 +25,7 @@ START = 0x06004000
 SHIFT = 6
 BLOCKS = 152 * 1024 >> SHIFT    # debug.cpp's PROFILE_BLOCKS
 TRACE_HEADER = 0x002FFF00
-TRACE_LANES = 5                 # trace.h: the header's profile pointer follows the lanes
+TRACE_LANES = 4                 # trace.h: the header's profile pointer follows the lanes
 
 
 def symbols(elf):

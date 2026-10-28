@@ -37,7 +37,6 @@ static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kTrace[] = { "Off", "Stages", "Detail" };
 static const char* const kUpload[] = { "Deferred", "Blocking" };
 static const char* const kItems[] = { "Either CPU", "Master only" };
-static const char* const kDsp[] = { "Rooms only", "Rooms, meshes", "Meshes first" };
 #ifdef HW_LOG
 static const char* const kBenchNames[BENCH_COUNT] = {
     "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master meshes",
@@ -54,16 +53,15 @@ static int32 gBenchHold;    // the way every page but the bench's runs
 struct Split
 {
     const char* name;
-    int32 way, dsp;
+    int32 way;
     bool masterItems;
 };
 static const Split kSplits[] = {
-    { "Default", BENCH_BASE, DSP_ROOMS_MESHES, false },
-    { "Meshes first", BENCH_BASE, DSP_MESHES_FIRST, false },
-    { "DSP rooms only", BENCH_BASE, DSP_ROOMS_ONLY, false },
-    { "No DSP", BENCH_NO_DSP, DSP_ROOMS_MESHES, false },
-    { "Master statics", BENCH_MASTER_MESHES, DSP_ROOMS_MESHES, false },
-    { "Master piled", BENCH_MASTER_MESHES, DSP_ROOMS_ONLY, true },
+    { "Default", BENCH_BASE, false },
+    { "No DSP", BENCH_NO_DSP, false },
+    { "Master statics", BENCH_MASTER_MESHES, false },
+    { "Master items", BENCH_BASE, true },
+    { "Master piled", BENCH_MASTER_MESHES, true },
 };
 #define SPLITS          int32(sizeof(kSplits) / sizeof(kSplits[0]))
 #define BATTERY_SETTLE  30
@@ -153,9 +151,6 @@ static const Option gOptions[] = {
     { "Items", kItems, 2,
         [] { return int32(gMasterItems); },
         [](int32 v) { gMasterItems = v; } },
-    { "DSP", kDsp, DSP_MODES,
-        [] { return gDspMeshes; },
-        [](int32 v) { gDspMeshes = v; } },
 #ifdef HW_LOG
     { "Way", kBenchNames, BENCH_COUNT,
         [] { return gBenchHold; },
@@ -170,7 +165,7 @@ static const Option gOptions[] = {
 };
 
 enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_MULTIPLY, OPTION_GREY, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
-       OPTION_PALETTE, OPTION_SPLIT, OPTION_DEPTH, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD, OPTION_ITEMS, OPTION_DSP,
+       OPTION_PALETTE, OPTION_SPLIT, OPTION_DEPTH, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD, OPTION_ITEMS,
 #ifdef HW_LOG
        OPTION_WAY, OPTION_TRACE, OPTION_BATTERY,
 #endif
@@ -227,7 +222,6 @@ bool debugHeld()
 static void batterySplit(const Split &s)
 {
     gBenchHold = s.way;
-    gDspMeshes = s.dsp;
     gMasterItems = s.masterItems;
 }
 
@@ -249,7 +243,7 @@ static void batteryStart()
 {
     if (gBattery)
         return;
-    gBatterySaved = { nullptr, gBenchHold, gDspMeshes, gMasterItems };
+    gBatterySaved = { nullptr, gBenchHold, gMasterItems };
     batteryNext();
 }
 
@@ -530,14 +524,6 @@ void debugDspTest()
     crashLog("PJDSP", dspTicks);
     crashLog("PJCPU", cpuTicks);
     crashLog("PJERR", errors);
-
-    // meshjobs.dsp: 8 meshes, 64 meshes, the CPU, errors
-    uint32 shortTicks;
-    meshDspTest(dspTicks, shortTicks, cpuTicks, errors);
-    crashLog("MJ8", dspTicks);
-    crashLog("MJ64", shortTicks);
-    crashLog("MJCPU", cpuTicks);
-    crashLog("MJERR", errors);
 }
 
 void debugProfileInit()

@@ -51,7 +51,7 @@ LWRAM = 0x00200000
 LWRAM_BYTES = 0x100000
 HEADER = 0x002FFF00
 MAGIC = 0x54524331
-LANES = ['master', 'irq', 'slave', 'dsp', 'dsp meshes']
+LANES = ['master', 'irq', 'slave', 'dsp']
 SLAVE_LANES = (2, 3)     # written by the slave, on its own clock
 CLOCK = 28636360        # SH-2 cycles a second at the 352-dot clock
 TICK = 128              # cycles an FRT tick
@@ -60,8 +60,8 @@ END = 0x80
 
 # tid: name, in the order shown
 TRACK_NAMES = {1: 'Master SH-2', 2: 'Master interrupts', 3: 'Slave SH-2', 4: 'SCU DSP (rooms, slave)',
-               7: "SCU DSP (master's meshes)", 5: 'VDP1', 6: 'Display'}
-WAITS = {'TICK_WAIT', 'ROOMS_WAIT', 'FAR_WAIT', 'VDP1_WAIT', 'DSP_WAIT'}
+               5: 'VDP1', 6: 'Display'}
+WAITS = {'TICK_WAIT', 'ROOMS_WAIT', 'FAR_WAIT', 'VDP1_WAIT'}
 
 
 def trace_ids():
@@ -141,10 +141,6 @@ def span_name(name, arg_begin, arg_end):
         return f'{name.lower().replace("_", " ")} job {arg_begin}'
     if name == 'DSP_RUN':
         return f'DSP run job {arg_begin}'
-    if name == 'MESHES_FINISH':
-        return f'meshes finish ({arg_begin})'
-    if name == 'DSP_MESHES':
-        return f'DSP meshes from slot {arg_begin}'
     if name in WAITS:
         return 'WAIT ' + name[:-5].lower().replace('_', ' ')
     return name.lower().replace('_', ' ')
@@ -216,7 +212,7 @@ def convert(data, out_path):
                 ev['args'] = args
             events.append(ev)
 
-    tids = {0: 1, 1: 2, 2: 3, 3: 4, 4: 7}
+    tids = {0: 1, 1: 2, 2: 3, 3: 4}
     paired = [pair_spans(l, ids, first_moment) for l in lanes]
     selfs = {}      # own ticks by id name
     for lane, (spans, moments) in enumerate(paired):
@@ -699,7 +695,7 @@ def page_trace(pages, out_path, title):
     letters = trace_letters()
     by_letter = {c: i for i, c in enumerate(letters) if c != '.'}
 
-    lanes = {1: [], 2: [], 3: [], 4: [], 7: []}
+    lanes = {1: [], 2: [], 3: [], 4: []}
     vdp1, shown, vblanks, windows = [], [], [], []
     opened = set()      # spans whose end the page couldn't hold
     for index in sorted(pages):
@@ -722,10 +718,8 @@ def page_trace(pages, out_path, title):
                 lanes[1].append(span)
             elif ident < 40:
                 lanes[3].append(span)
-            elif name == 'DSP_RUN':
-                lanes[4].append(span)
             else:
-                lanes[7].append(span)
+                lanes[4].append(span)
 
     def ms_us(tenths):
         return round(tenths * 100, 1)
@@ -807,12 +801,12 @@ def page_trace(pages, out_path, title):
 
 # the battery's table: each split's own time a frame of these, then the mean
 # of one piece of work, by kind and by the master's item order
-TABLE_OWN = ['update', 'view', 'queue', 'lara', 'objects', 'item', 'static', 'mesh', 'meshes finish', 'flush',
-             'upload', 'overlay', 'WAIT rooms', 'WAIT far', 'WAIT vdp1', 'WAIT dsp', 'WAIT tick', '(idle)',
+TABLE_OWN = ['update', 'view', 'queue', 'lara', 'objects', 'item', 'static', 'mesh', 'flush',
+             'upload', 'overlay', 'WAIT rooms', 'WAIT far', 'WAIT vdp1', 'WAIT tick', '(idle)',
              'xform', 'faces', 'slave mesh', 'slave item', 'slave flush', '(wait for jobs)',
-             '(slave idle)', 'dsp run', 'dsp meshes']
+             '(slave idle)', 'dsp run']
 TABLE_PIECES = ['lara', 'static', 'mesh', 'xform', 'faces', 'slave mesh', 'slave item', 'slave flush',
-                'dsp run', 'dsp meshes', 'VDP1 draws']
+                'dsp run', 'VDP1 draws']
 
 
 def battery_table(summaries, names):

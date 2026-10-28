@@ -46,9 +46,6 @@ SECTIONS
         *(.text.*meshJobDraw*)
         *(.text.shadeTableMiss)
         *(.text.meshwarm)
-        *(.text.*meshDsp*)
-        *(.text.*pending*)
-        *(.text.*renderMeshesFinish*)
         __hot_end = .;
         *(.text .text.*)
         __text_end = .;

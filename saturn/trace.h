@@ -7,8 +7,8 @@
 // shows the frames the rings hold one page each, for a video that
 // tools/trace.py reads into the same trace.
 //
-// The master writes its lanes and the DSP's mesh runs; the slave its own and
-// the DSP's room runs.
+// The master writes its lanes; the slave its own and the DSP's (it runs the
+// DSP).
 //
 // An event is one longword: the writer's FRT count (ticks of 128 cycles, as
 // timerTicks) in the top half, then the id (TRACE_END set on a span's end),
@@ -33,7 +33,6 @@ enum TraceId
     TR_LARA,            // Lara drawn
     TR_OBJECTS,         // a room's sprites, static meshes and items (arg: room)
     TR_STATIC,          // a static mesh: its matrix, test and lighting
-    TR_MESHES_FINISH,   // meshes the DSP hadn't reached projected here, the faces still waiting added
     TR_MESH,            // a static mesh drawn on the master
     TR_ITEM,            // an item drawn (arg: its type)
     TR_OVERLAY,         // the overlay's text drawn (osDrawDebug)
@@ -42,7 +41,6 @@ enum TraceId
     TR_FAR_WAIT,        // waiting for the slave's share of the commands
     TR_VDP1_WAIT,       // waiting for VDP1 to finish the last list
     TR_UPLOAD,          // textures, commands and gouraud table to VDP1
-    TR_DSP_WAIT,        // waiting for the DSP to stop on a mesh taken back, before the slave's frame
     // the slave
     TR_BATCH = 32,      // rooms and meshes as the master queues them
     TR_XFORM,           // a room's chunk of vertices (arg: its job)
@@ -52,7 +50,6 @@ enum TraceId
     TR_SLAVE_ITEM,      // an item drawn here (arg: its type)
     // the SCU DSP, as the CPU that runs it sees it start and finish
     TR_DSP_RUN = 40,    // a run of room chunks (arg: its job), the slave's
-    TR_DSP_MESHES,      // a run of the master's mesh jobs (arg: the first's slot)
     // the master's interrupts
     TR_IRQ_VBLANK_IN = 48,
     TR_IRQ_VBLANK_OUT,
@@ -73,9 +70,9 @@ enum TraceId
 // No two alike in the font by fewer than 6 of their 64 pixels.
 //                      0         1         2         3         4         5         6
 //                      01234567890123456789012345678901234567890123456789012345678901234567
-#define TRACE_LETTERS  ".TUGRVQLOSNMIYFWABXJ............bxfmkh..de......z...............p..s"
+#define TRACE_LETTERS  ".TUGRVQLOSMIYFWABX..............bxfmkh..d.......z...............p..s"
 
-enum TraceLane { TRACE_MASTER, TRACE_IRQ, TRACE_SLAVE, TRACE_DSP, TRACE_DSP_MESH, TRACE_LANES };
+enum TraceLane { TRACE_MASTER, TRACE_IRQ, TRACE_SLAVE, TRACE_DSP, TRACE_LANES };
 
 #ifdef HW_LOG
 

@@ -17,7 +17,7 @@
 // Events each lane's ring holds at most, powers of two: some 120 frames with
 // the detail spans. Halved together until they fit between the level and the
 // header (LEVEL1 takes them whole).
-static const uint32_t kRingSize[TRACE_LANES] = { 16384, 2048, 16384, 1024, 1024 };
+static const uint32_t kRingSize[TRACE_LANES] = { 16384, 2048, 16384, 1024 };
 #define TRACE_RING_MIN  256
 
 struct TraceHeader
@@ -234,7 +234,7 @@ static_assert(sizeof(kLetters) == TR_ID_COUNT + 1, "a letter for each id");
 
 // The page's lanes in order: the master, the slave, the DSP's runs for each,
 // then the interrupts' (VDP1's and the vblanks).
-static const uint8_t kGroup[TRACE_LANES] = { 0, 4, 1, 2, 3 };
+static const uint8_t kGroup[TRACE_LANES] = { 0, 3, 1, 2 };
 
 #define PLAY_LOOKAHEAD  (FRAME_TICKS * 2)   // past the frame's end, for the ends of its spans
 

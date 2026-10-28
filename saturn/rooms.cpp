@@ -93,7 +93,7 @@ static int32 gPlaced;               // jobs given their place
 static int32 gBottom, gTop;         // the free vertices between
 static int32 gFaced;                // rooms done
 static int32 gDspRoom;              // the room whose chunks the DSP projects, -1 none
-static bool gDspGone;               // handed to the master for the frame
+static bool gDspGone;               // no more room chunks for it this frame
 
 static Face gSlaveFaces[MAX_FACES];
 static Face* gSlaveOT[OT_SIZE];
@@ -533,7 +533,7 @@ static int32 facingQuads(const RoomQuad* quads, int32 count, int32 run, const in
 }
 
 // project.dsp's divide table: divTable << 4 as longwords, by z >> 12.
-int32 gDspDivide[DIV_TABLE_SIZE];
+static int32 gDspDivide[DIV_TABLE_SIZE];
 
 // Starts project.dsp on batches of 16 vertices from src to dst.
 static void dspProject(const RoomMatrix &m, const RectMinMax &vp, const RoomVertex* src, Vertex* dst, int32 batches)
@@ -589,8 +589,7 @@ static void placeRooms(int32 queued)
 
 // Notes the DSP's run done; once every room is queued, gives the idle DSP
 // a run of chunks from the back of the highest room it can project, as long
-// as one is left for this CPU. With none left (or the master's meshes to come
-// first), hands it to the master.
+// as one is left for this CPU. With none left, it is done for the frame.
 static void dspFeed()
 {
     if (gDspRoom >= 0)
@@ -602,12 +601,6 @@ static void dspFeed()
     }
     if (gDspGone || !*uncached(&gRoomsComplete))
         return;
-    if (gDspMeshes == DSP_MESHES_FIRST && gBenchMode != BENCH_NO_DSP && meshDspWanted())
-    {
-        gDspGone = true;
-        meshDspHandOver();
-        return;
-    }
 
     int32 left = 0;
     for (int32 i = 0; i < gPlaced; i++) {
@@ -634,9 +627,6 @@ static void dspFeed()
         return;
     }
     gDspGone = true;
-    if (gDspMeshes != DSP_ROOMS_ONLY && gBenchMode != BENCH_NO_DSP) {
-        meshDspHandOver();
-    }
 }
 
 // Sets up what projecting and adding the faces of job need.
@@ -1014,7 +1004,6 @@ static void roomBatch()
     gItemJob = ITEMS_UNSTARTED;
     gDspRoom = -1;
     gDspGone = false;
-    meshDspRooms();
 
     uint32 idleStart = timerTicks();
     traceBeginAt(TRACE_SLAVE, idleStart, TR_BATCH);

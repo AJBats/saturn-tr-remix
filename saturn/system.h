@@ -42,8 +42,6 @@ struct FrameStats
     uint32_t rooms;         // rooms drawn (HW_LOG builds)
     uint32_t meshes;        // meshes the master drew
     uint32_t slaveMeshes;   // ... the slave
-    uint32_t meshDspVertices;   // master mesh vertices the DSP projected
-    uint32_t meshTakenVertices; // ... queued for it but projected on the master
 };
 
 extern FrameStats gStats;
