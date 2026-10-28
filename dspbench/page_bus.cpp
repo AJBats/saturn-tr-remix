@@ -15,7 +15,7 @@
 #define MASTER_LOW      ((uint32_t*)0x00200000)
 #define SLAVE_LOW       ((uint32_t*)0x00210000)
 #define BUFFER_BYTES    0x10000
-#define PASS_BYTES      0x8000  // a timed pass: well inside the timer's 16 bits
+#define PASS_ACCESSES   2048    // a timed pass: inside the timer's 16 bits at 250 cycles an access
 #define CHUNK_BYTES     0x400   // a pass between polls of the DSP
 
 // --- the CPUs' loads ----------------------------------------------------------
@@ -108,7 +108,8 @@ static uint32_t masterAccess(int32_t kernel)
     for (int32_t i = 0; i < 4; i++)
     {
         uint32_t t0 = ticks();
-        accesses += run(kernel, MASTER_BUFFER, MASTER_LOW, i & 1 ? PASS_BYTES : 0, PASS_BYTES);
+        uint32_t bytes = PASS_ACCESSES * (kernel == K_LINES || kernel == K_LOW_LINES ? 16 : 4);
+        accesses += run(kernel, MASTER_BUFFER, MASTER_LOW, i * bytes & (BUFFER_BYTES - 1), bytes);
         cycles += ((ticks() - t0) & 0xFFFF) * TICK_CYCLES;
     }
     return cycles * 10 / accesses;
