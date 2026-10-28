@@ -1,9 +1,10 @@
 """The measurement table's sampling profile (HW_LOG builds, debug.cpp) by
 function.
 
-usage: profile_map.py ELF --dump HWRAM.bin
-           every block, from a dump of high work RAM (Mednafen:
-           raw_command "dump_region wram_high <path>")
+usage: profile_map.py ELF --dump HWRAM.bin LWRAM.bin
+           every block, from dumps of high and low work RAM (the blocks are
+           kept with the trace, below its rings: trace.py capture writes
+           both dumps)
        profile_map.py ELF ADDR SHARE [ADDR SHARE ...]
            the blocks the table shows (a photo of a Saturn's): each the low 5
            hex digits of a block's address and its share in percent
@@ -22,7 +23,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NM = os.path.join(ROOT, "toolchain", "gcc-14.2.0", "sh2eb-elf", "bin", "sh2eb-elf-nm")
 START = 0x06004000
 SHIFT = 6
-BLOCKS = 160 * 1024 >> SHIFT
+BLOCKS = 152 * 1024 >> SHIFT    # debug.cpp's PROFILE_BLOCKS
+TRACE_HEADER = 0x002FFF00
+TRACE_LANES = 5                 # trace.h: the header's profile pointer follows the lanes
 
 
 def symbols(elf):
@@ -51,11 +54,15 @@ def main():
     shares = defaultdict(float)
     if sys.argv[2] == "--dump":
         ram = open(sys.argv[3], "rb").read()
-        hist = data["gProfile"] - 0x06000000
-        counts = struct.unpack_from(f">{BLOCKS}H", ram, hist)
+        low = open(sys.argv[4], "rb").read()
+        hist, = struct.unpack_from(">I", low, TRACE_HEADER - 0x00200000 + 8 + TRACE_LANES * 16)
+        hist -= 0x00200000
+        counts = struct.unpack_from(f">{BLOCKS}H", low, hist)
         total = struct.unpack_from(">I", ram, data["gProfileSamples"] - 0x06000000)[0]
         other = struct.unpack_from(">I", ram, data["gProfileOther"] - 0x06000000)[0]
         print(f"{total} samples, {100 * other / max(1, total):.1f}% outside the program")
+        if abs(sum(counts) + other - total) > total // 100:
+            print(f"the blocks hold {sum(counts)} samples: misread")
         for b, n in enumerate(counts):
             if n:
                 shares[func(START + (b << SHIFT))] += 100 * n / total

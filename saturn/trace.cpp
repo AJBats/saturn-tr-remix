@@ -16,15 +16,24 @@
 // Events each lane's ring holds at most, powers of two: some 120 frames with
 // the detail spans. Halved together until they fit between the level and the
 // header (LEVEL1 takes them whole).
-static const uint32_t kRingSize[TRACE_LANES] = { 16384, 2048, 16384, 1024 };
+static const uint32_t kRingSize[TRACE_LANES] = { 16384, 2048, 16384, 1024, 1024 };
 #define TRACE_RING_MIN  256
 
 struct TraceHeader
 {
     uint32_t magic;         // TRACE_MAGIC while the lanes record
     uint32_t slaveOffset;   // the slave's FRT count less the master's
-    struct { uint32_t ring, size, next; } lanes[TRACE_LANES];   // next: events written
+    // next: events written; vblank: gVblankCount at the last, which places
+    // a lane that has stopped (its 16-bit times alone can't)
+    struct { uint32_t ring, size, next, vblank; } lanes[TRACE_LANES];
+    uint32_t profile;       // TraceArea's profile blocks (tools/profile_map.py)
 };
+
+// The lanes the slave writes, which the master reads past its cache.
+static bool slaveLane(int32_t lane)
+{
+    return lane == TRACE_SLAVE || lane == TRACE_DSP;
+}
 
 struct Open
 {
@@ -93,6 +102,7 @@ void traceAt(int32_t lane, uint32_t ticks, uint32_t code)
     l.ring[n & l.mask] = (ticks << 16) | code;
     l.next = n + 1;
     gHeader->lanes[lane].next = n + 1;
+    gHeader->lanes[lane].vblank = *uncached(&gVblankCount);
     asm volatile("ldc %0, sr" : : "r"(sr));
 }
 
@@ -137,10 +147,14 @@ void traceLevel(const void* end)
     uint32_t base = (uintptr_t(end) + 15) & ~15;
     int32_t room = int32_t(TRACE_HEADER - base - sizeof(TraceArea)) / 4;   // ring events
     int32_t shift = 0;
-    while (room >= 0 && (kRingSize[0] + kRingSize[1] + kRingSize[2] + kRingSize[3]) >> shift > uint32_t(room)) {
+    uint32_t total = 0;
+    for (int32_t i = 0; i < TRACE_LANES; i++) {
+        total += kRingSize[i];
+    }
+    while (room >= 0 && total >> shift > uint32_t(room)) {
         shift++;
     }
-    if (room < 0 || (kRingSize[3] >> shift) < TRACE_RING_MIN)
+    if (room < 0 || (kRingSize[TRACE_DSP] >> shift) < TRACE_RING_MIN)
     {
         crashLog("TRACE", 0);
         return;
@@ -150,6 +164,7 @@ void traceLevel(const void* end)
     memset(area, 0, sizeof(TraceArea));
     memset(gHeader, 0, sizeof(TraceHeader));
     gHeader->slaveOffset = gSlaveOffset;
+    gHeader->profile = uint32_t(area->profile);
     uint32_t* ring = (uint32_t*)(area + 1);
     for (int32_t i = 0; i < TRACE_LANES; i++)
     {
@@ -242,7 +257,7 @@ void traceTally(bool sum)
         // a fresh window when the page comes back
         for (int32_t lane = 0; lane < TRACE_LANES; lane++)
         {
-            t.read[lane] = lane >= TRACE_SLAVE ? uncached(gLanes + lane)->next : gLanes[lane].next;
+            t.read[lane] = slaveLane(lane) ? uncached(gLanes + lane)->next : gLanes[lane].next;
             t.depth[lane] = 0;
         }
         memset(t.self, 0, sizeof(t.self));
@@ -256,7 +271,7 @@ void traceTally(bool sum)
     for (int32_t lane = 0; lane < TRACE_LANES; lane++)
     {
         // the slave's lanes from memory, past this CPU's cache
-        bool slave = lane >= TRACE_SLAVE;
+        bool slave = slaveLane(lane);
         uint32_t written = slave ? uncached(gLanes + lane)->next : gLanes[lane].next;
         const uint32_t* ring = slave ? uncached(gLanes[lane].ring) : gLanes[lane].ring;
         uint32_t mask = gLanes[lane].mask;

@@ -8,14 +8,15 @@
 ; written out of MD1. A mesh's last batch may run past its vertices: the
 ; output has room for whole batches.
 ;
-; The list (rooms.cpp DspMeshJob): each job 23 longwords, which the DSP
+; The list (meshdsp.cpp DspMeshJob): each job 23 longwords, which the DSP
 ; reads itself, so that one start runs every mesh queued:
-;   0..11  m00 m01 m02 tx  m10 m11 m12 ty  m20 m21 m22 tz   to MD0 0..11
-;   12..17 lx ly lz  range << 8  4  ambient                  to MD0 32..37
-;   18..22 batches  normals' longwords a batch (8, or 0 for a flat mesh, which
+;   0..4   batches  normals' longwords a batch (8, or 0 for a flat mesh, which
 ;          reads the same 8 zero normals each batch)  the vertices' address / 4
 ;          the output's / 4  the normals' / 4               to MD3 0..4
-; and a job of no batches ends it.
+;   5..16  m00 m01 m02 tx  m10 m11 m12 ty  m20 m21 m22 tz   to MD0 0..11
+;   17..22 lx ly lz  range << 8  4  ambient                  to MD0 32..37
+; and a job of no batches ends it, read before the rest: the SH-2 writes a
+; job's batches last, so that the DSP may come to a job as it is written.
 ;
 ; The projected x (and y) is clamped once, to what VDP1 can address less the
 ; centre, as project.dsp does for xform.s's two clamps: the wider can't
@@ -30,7 +31,7 @@
 ; the value within 0 .. 0x1FFF and 0x1F00. A flat mesh's normals are zero and
 ; its ambient its shade << 8.
 ;
-; Data RAM, set once by the SH-2 (rooms.cpp meshDspInit):
+; Data RAM, set once by the SH-2 (meshdsp.cpp meshDspInit):
 ;   MD0  12 VIEW_MIN_F  13 VIEW_MAX_F  14 4  15 4096  16 the table's address / 4
 ;        17 1023-halfW  18 -1024-halfW  19 halfW
 ;        20 1023-halfH  21 -1024-halfH  22 halfH
@@ -49,24 +50,25 @@
         ; writes through
 job:    mov #40,ct3
         mov m3,ra0
-        mov #0,ct0
-        dma d0,mc0,12                   ; the matrix
-jw0:    jmp jw0,t0
         mov #0,ct3
-        mov #32,ct0
-        dma d0,mc0,6                    ; the light
+        dma d0,mc3,5                    ; batches .. the normals' address
+jw0:    jmp jw0,t0
+        mov #0,ct0
+        mov #0,ct3
+        mov m3,a | mov #0,pl
+        or
+        jmp jend,z                      ; no batches: the list's end
+        nop
+        dma d0,mc0,12                   ; the matrix
 jw1:    jmp jw1,t0
         nop
-        dma d0,mc3,5                    ; batches .. the normals' address
+        mov #32,ct0
+        dma d0,mc0,6                    ; the light
 jw2:    jmp jw2,t0
-        nop
         mov #40,ct3
         mov m3,a | mov #23,pl
         add | mov all,mc3               ; the job after
-        mov #0,ct3
-        mov m3,a | mov #0,pl
-        or | mov #3,ct3
-        jmp jend,z                      ; no batches: the list's end
+        mov #3,ct3
         mov mc3,wa0                     ; the output
 
 batch:  mov #2,ct3

@@ -3,8 +3,8 @@
 // room's vertices and adds its faces to its own face list, which flush merges
 // with the master's. Once every room is queued, the SCU DSP projects rooms
 // from the back of the queue (project.dsp) while the slave takes them from
-// the front. The master carries on with meshes meanwhile, handing the slave
-// rooms' static meshes as long as it keeps up.
+// the front; then the DSP is the master's, for its meshes (meshdsp.cpp). The
+// slave takes rooms' static meshes and items as the rooms leave it time.
 
 #include <stddef.h>
 
@@ -15,7 +15,6 @@
 #include "system.h"
 #include "trace.h"
 #include "project_dsp.h"
-#include "meshjobs_dsp.h"
 
 #define MAX_ROOM_JOBS   64
 
@@ -94,6 +93,7 @@ static int32 gPlaced;               // jobs given their place
 static int32 gBottom, gTop;         // the free vertices between
 static int32 gFaced;                // rooms done
 static int32 gDspRoom;              // the room whose chunks the DSP projects, -1 none
+static bool gDspGone;               // handed to the master for the frame
 
 static Face gSlaveFaces[MAX_FACES];
 static Face* gSlaveOT[OT_SIZE];
@@ -533,7 +533,7 @@ static int32 facingQuads(const RoomQuad* quads, int32 count, int32 run, const in
 }
 
 // project.dsp's divide table: divTable << 4 as longwords, by z >> 12.
-static int32 gDspDivide[DIV_TABLE_SIZE];
+int32 gDspDivide[DIV_TABLE_SIZE];
 
 // Starts project.dsp on batches of 16 vertices from src to dst.
 static void dspProject(const RoomMatrix &m, const RectMinMax &vp, const RoomVertex* src, Vertex* dst, int32 batches)
@@ -589,7 +589,8 @@ static void placeRooms(int32 queued)
 
 // Notes the DSP's run done; once every room is queued, gives the idle DSP
 // a run of chunks from the back of the highest room it can project, as long
-// as one is left for this CPU.
+// as one is left for this CPU. With none left (or the master's meshes to come
+// first), hands it to the master.
 static void dspFeed()
 {
     if (gDspRoom >= 0)
@@ -599,8 +600,14 @@ static void dspFeed()
         traceEnd(TRACE_DSP, TR_DSP_RUN, gDspRoom);
         gDspRoom = -1;
     }
-    if (!*uncached(&gRoomsComplete))
+    if (gDspGone || !*uncached(&gRoomsComplete))
         return;
+    if (gDspMeshes == DSP_MESHES_FIRST && gBenchMode != BENCH_NO_DSP && meshDspWanted())
+    {
+        gDspGone = true;
+        meshDspHandOver();
+        return;
+    }
 
     int32 left = 0;
     for (int32 i = 0; i < gPlaced; i++) {
@@ -614,7 +621,7 @@ static void dspFeed()
             continue;
         int32 run = X_MIN(X_MIN(DSP_RUN, w.hi - w.lo), left - 1);
         if (run <= 0)
-            return;
+            break;
         int32 first = (w.hi - run) * CHUNK;
         int32 count = X_MIN(int32(job.room->info->verticesCount), w.hi * CHUNK) - first;
         traceBegin(TRACE_DSP, TR_DSP_RUN, i);
@@ -625,6 +632,10 @@ static void dspFeed()
         gDspRoom = i;
         gSlaveStats.dspVertices += count;
         return;
+    }
+    gDspGone = true;
+    if (gDspMeshes != DSP_ROOMS_ONLY && gBenchMode != BENCH_NO_DSP) {
+        meshDspHandOver();
     }
 }
 
@@ -995,6 +1006,8 @@ static void roomBatch()
     gStaticAt = NO_STATIC;
     gItemJob = ITEMS_UNSTARTED;
     gDspRoom = -1;
+    gDspGone = false;
+    meshDspRooms();
 
     uint32 idleStart = timerTicks();
     traceBeginAt(TRACE_SLAVE, idleStart, TR_BATCH);
@@ -1070,188 +1083,6 @@ static void roomBatch()
     }
     traceEnd(TRACE_SLAVE, TR_BATCH);
 }
-
-// A mesh for meshjobs.dsp, which reads each of a list of them by DMA.
-struct DspMeshJob
-{
-    int32 m[12];            // m00 m01 m02 tx  m10 m11 m12 ty  m20 m21 m22 tz
-    int32 light[6];         // lx ly lz  range << 8  4  ambient
-    uint32 batches;         // of 8 vertices; 0 ends the list
-    uint32 step;            // the normals' longwords a batch: 8, or 0 for a flat mesh
-    uint32 src, dst, normals;   // DSP addresses
-};
-static_assert(sizeof(DspMeshJob) == 23 * 4, "meshjobs.dsp reads 23 longwords a job");
-
-static const uint32 gDspNoNormals[8] = {};  // a flat mesh's, read again each batch
-
-// meshjobs.dsp's constants, once it is loaded (the DSP stopped).
-static void meshDspInit()
-{
-    const int32 md0[29] = {
-        VIEW_MIN_F, VIEW_MAX_F, 4, 4096, int32(dspAddress(gDspDivide)),
-        1023 - FRAME_WIDTH / 2, -1024 - FRAME_WIDTH / 2, FRAME_WIDTH / 2,
-        1023 - FRAME_HEIGHT / 2, -1024 - FRAME_HEIGHT / 2, FRAME_HEIGHT / 2,
-        0, FRAME_WIDTH, 0, FRAME_HEIGHT, 0xFFFF, 0x8000, 65536, 1,
-        int32(0xFF000000), 0, 0, 0, 0, 0, 0, 0x1FFF, 0x1F00, 0x1FFF
-    };
-    dspWrite(0, 12, (const uint32_t*)md0, 29);
-}
-
-// Sets job up to project count vertices from src to dst (room for whole
-// batches of 8) as xf says; false for a mesh lit by its vertices' shades,
-// which the DSP doesn't do.
-static bool meshDspJob(DspMeshJob &job, const MeshXform &xf, const MeshVertex* src, Vertex* dst, int32 count)
-{
-    if (xf.shades)
-        return false;
-    for (int32 r = 0; r < 3; r++)
-    {
-        job.m[r * 4] = xf.rows[r * 3];
-        job.m[r * 4 + 1] = xf.rows[r * 3 + 1];
-        job.m[r * 4 + 2] = xf.rows[r * 3 + 2];
-    }
-    job.m[3] = xf.tx;
-    job.m[7] = xf.ty;
-    job.m[11] = xf.tz;
-    // meshxform.s multiplies the light's direction and range as 16 bits
-    job.light[0] = int16(xf.lx);
-    job.light[1] = int16(xf.ly);
-    job.light[2] = int16(xf.lz);
-    job.light[3] = int16(xf.range) * 256;
-    job.light[4] = 4;
-    job.light[5] = xf.normals ? xf.ambient : xf.g << 8;
-    job.batches = (count + 7) >> 3;
-    job.step = xf.normals ? 8 : 0;
-    job.src = dspAddress(src);
-    job.dst = dspAddress(dst);
-    job.normals = dspAddress(xf.normals ? (const void*)xf.normals : gDspNoNormals);
-    return true;
-}
-
-// Starts meshjobs.dsp on the list at jobs (ended by a job of no batches).
-static void meshDspStart(const DspMeshJob* jobs)
-{
-    uint32_t at = dspAddress(jobs);
-    dspWrite(3, 40, &at, 1);
-    dspStart(0);
-}
-
-#ifdef HW_LOG
-extern "C" void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst, MeshXform* xf);
-
-// meshjobs.dsp against transformMeshAsm on random meshes: the same 512
-// vertices as 8 jobs of 64 and as 64 jobs of 8 (their difference is the
-// DSP's cost a job), this CPU's ticks, and the vertices that differ.
-void meshDspTest(uint32 &longTicks, uint32 &shortTicks, uint32 &cpuTicks, int32 &errors)
-{
-    const int32 runs = 8, count = 64, total = runs * count;
-    MeshVertex* src = (MeshVertex*)(gVertices + MAX_VERTICES / 2);
-    int8* normals = (int8*)(src + total);
-    Vertex* ref = gVertices;
-    Vertex* out = gVertices + total;
-    DspMeshJob* jobs = (DspMeshJob*)(out + total);
-    static_assert(MAX_VERTICES / 2 + 512 * (6 + 4) / sizeof(Vertex) <= MAX_VERTICES &&
-                  2 * 512 * sizeof(Vertex) + 65 * sizeof(DspMeshJob) <= MAX_VERTICES / 2 * sizeof(Vertex), "they fit");
-
-    uint32 seed = 0x13579BDF;
-    int16* c = (int16*)src;
-    for (int32 i = 0; i < total * 3; i++)
-    {
-        seed = seed * 1664525 + 1013904223;
-        c[i] = int16(((seed >> 16) & 2047) - 1024);
-    }
-    for (int32 i = 0; i < total * 4; i++)
-    {
-        seed = seed * 1664525 + 1013904223;
-        normals[i] = int8((i & 3) == 3 ? seed >> 24 : ((seed >> 16) % 147) - 73);
-    }
-
-    // views (in world units) that put vertices behind the camera, before the
-    // near plane, past the far plane, off each side of the frame and past
-    // what VDP1 can address; flat and lit by normals, with lights that take
-    // vertices below the darkest and past the brightest
-    static const int32 moves[runs][3] = {
-        { 0, 0, 2000 }, { 0, 0, 600 }, { 0, 0, -1500 }, { 0, 0, 20000 },
-        { -3000, 2000, 3000 }, { 3000, -2000, 3000 }, { 25000, -25000, 1500 }, { 300, -200, 1200 }
-    };
-    static const int16 rows[2][9] = {
-        { 14189, 0, -8192, 4096, 15851, 7094, 7094, -4096, 12288 },
-        { 14189, 4096, 7094, 0, 15851, -4096, -8192, 7094, 12288 }
-    };
-    static const int32 lights[runs][2] = {     // ambient, range
-        { 0, 0 }, { 707, 0 }, { 8117, 5822 }, { 4000, 16000 }, { 0, 0 }, { -320, 0 }, { 1000, 12000 }, { 3000, -16000 }
-    };
-
-    MeshXform xf[runs];
-    cpuTicks = 0;
-    for (int32 r = 0; r < runs; r++)
-    {
-        MeshXform &x = xf[r];
-        for (int32 i = 0; i < 9; i++) {
-            x.rows[i] = rows[r & 1][i];
-        }
-        x.tx = moves[r][0] << FIXED_SHIFT;
-        x.ty = moves[r][1] << FIXED_SHIFT;
-        x.tz = moves[r][2] << FIXED_SHIFT;
-        x.divTable = divTable;
-        x.inside = 0;
-        seed = seed * 1664525 + 1013904223;
-        x.g = r * 4 + 3;
-        x.normals = lights[r][1] ? normals + r * count * 4 : NULL;
-        x.shades = NULL;
-        x.ambient = lights[r][0];
-        x.range = lights[r][1];
-        x.lx = int32((seed >> 20) % 147) - 73;
-        x.ly = int32((seed >> 12) % 147) - 73;
-        x.lz = int32((seed >> 4) % 147) - 73;
-
-        uint32 t0 = timerTicks();
-        transformMeshAsm(src + r * count, count, ref + r * count, &x);
-        cpuTicks += (timerTicks() - t0) & 0xFFFF;
-    }
-
-    dspLoad(meshjobs_dsp, MESHJOBS_DSP_COUNT);
-    meshDspInit();
-
-    // 8 jobs of 64
-    for (int32 r = 0; r < runs; r++) {
-        meshDspJob(jobs[r], xf[r], src + r * count, out + r * count, count);
-    }
-    jobs[runs].batches = 0;
-    uint32 t0 = timerTicks();
-    meshDspStart(jobs);
-    while (dspBusy());
-    longTicks = (timerTicks() - t0) & 0xFFFF;
-    cachePurge();   // the DSP wrote behind the cache
-    errors = 0;
-    for (int32 i = 0; i < total; i++) {
-        errors += memcmp(ref + i, out + i, sizeof(Vertex)) != 0;
-    }
-
-    // 64 jobs of 8
-    memset(out, 0, total * sizeof(Vertex));
-    for (int32 j = 0; j < total / 8; j++)
-    {
-        const MeshXform &x = xf[j / (count / 8)];
-        MeshXform part = x;
-        if (part.normals) {
-            part.normals += (j % (count / 8)) * 8 * 4;
-        }
-        meshDspJob(jobs[j], part, src + j * 8, out + j * 8, 8);
-    }
-    jobs[total / 8].batches = 0;
-    t0 = timerTicks();
-    meshDspStart(jobs);
-    while (dspBusy());
-    shortTicks = (timerTicks() - t0) & 0xFFFF;
-    cachePurge();
-    for (int32 i = 0; i < total; i++) {
-        errors += memcmp(ref + i, out + i, sizeof(Vertex)) != 0;
-    }
-
-    dspLoad(project_dsp, PROJECT_DSP_COUNT);   // the rooms' again
-}
-#endif
 
 void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors)
 {

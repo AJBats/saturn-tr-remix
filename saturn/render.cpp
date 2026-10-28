@@ -83,7 +83,12 @@ bool gCameraWater;
 static uint32 gMeshFlatFaces;   // mesh faces drawn flat this frame
 #ifdef HW_LOG
 static uint32 gMeshesDrawn;     // meshes drawn here this frame
+static uint32 gMeshDspVertices, gMeshTakenVertices;     // of them, the DSP's; taken back from it
 #endif
+
+// Why every pending mesh is finished (the trace's argument).
+enum { FINISH_FLUSH = 1, FINISH_C_PATH, FINISH_NO_ROOM, FINISH_2D };
+static void renderMeshesFinish(uint32 why);
 
 // OpenLara selects palette 1 for whatever is in a water room.
 void setPaletteIndex(int32 index)
@@ -112,8 +117,6 @@ static_assert(offsetof(MeshXform, tx) == 20 && offsetof(MeshXform, divTable) == 
 static_assert(sizeof(MeshVertex) == 6 && sizeof(divTableInt) == 2 && VIEW_MIN_F == 0x100000 &&
               VIEW_MAX_F == 0x14000000 && FIXED_SHIFT == 14 && BENCH_SPLIT_SHADE == 11,
               "constants repeated in meshxform.s");
-
-extern "C" void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst, MeshXform* xf);
 
 // Vertices are shaded as TR1 does: by their normals against the brightest
 // light (calcLightingDynamic), by their own shades, or all alike. Meshes are
@@ -1406,6 +1409,8 @@ void flush_c()
     const uint16* roomGroups = NULL;
     Face** roomOT = roomsFinish(rooms, roomGroups);
     gStats.slaveWaitTicks = (timerTicks() - start) & 0xFFFF;
+    renderMeshesFinish(FINISH_FLUSH);
+    meshDspEnd();
 
     gStats.vertices = (gVerticesBase - gVertices) + rooms.vertices;
     gStats.roomVertices = rooms.vertices;
@@ -1424,6 +1429,9 @@ void flush_c()
     gStats.slaveMeshes = rooms.meshes;
     gStats.meshes = gMeshesDrawn;
     gMeshesDrawn = 0;
+    gStats.meshDspVertices = gMeshDspVertices;
+    gStats.meshTakenVertices = gMeshTakenVertices;
+    gMeshDspVertices = gMeshTakenVertices = 0;
 #endif
 
     gVerticesBase = gVertices;
@@ -1876,19 +1884,215 @@ __attribute__((noinline)) static void renderMeshC(const Mesh* mesh)
     gVerticesBase += vCount;
 }
 
+// An octagon on the floor under the item, darkening what is drawn below it.
+#define SHADOW_VERTICES 8
+static const MeshQuad gShadowQuads[] = {
+    { (FACE_TYPE_SHADOW << FACE_TYPE_SHIFT), {0, 1, 2, 7} },
+    { (FACE_TYPE_SHADOW << FACE_TYPE_SHIFT), {7, 2, 3, 6} },
+    { (FACE_TYPE_SHADOW << FACE_TYPE_SHIFT), {6, 3, 4, 5} }
+};
+#define SHADOW_QUADS    3
+
+// The master's meshes whose faces wait their turn: those the DSP projects
+// (meshdsp.cpp), and whatever is drawn after one, so that faces go into the
+// ordering table in the order they were drawn, as they always have. The
+// first five fields are a MeshFaces; meshxform.s renderMeshPendAsm sets the
+// vertices, inside, quads and sentinel.
+struct PendingMesh
+{
+    Vertex* dst;
+    int32 base;         // -gVertices
+    FaceList* list;
+    uint32 flags;       // gMeshFaceFlags; a sprite's face flags
+    int32 inside;       // a sprite's depth
+    const Mesh* mesh;   // or PENDING_SHADOW, PENDING_SPRITE
+    const MeshQuad* quads;
+    volatile uint32* sentinel;  // past the cache, its DSP job's, or NULL once projected here
+    uint32 job;
+};
+static_assert(sizeof(PendingMesh) == 36 && offsetof(PendingMesh, inside) == 16 && offsetof(PendingMesh, quads) == 24 &&
+              offsetof(PendingMesh, sentinel) == 28, "PendingMesh's layout is shared with meshxform.s");
+#define PENDING_SHADOW  ((const Mesh*)0)
+#define PENDING_SPRITE  ((const Mesh*)1)
+#define MAX_PENDING     64      // a ring
+static PendingMesh gPending[MAX_PENDING];
+static int32 gPendingFirst, gPendingCount;
+static int32 gPendingFaces;     // theirs, kept free in gFaces
+
+static PendingMesh &pending(int32 n)
+{
+    return gPending[(gPendingFirst + n) & (MAX_PENDING - 1)];
+}
+
+extern "C" int32 renderMeshPendAsm(const Mesh* mesh, Vertex** base, PendingMesh* p, DspMeshJob* job);
+extern "C" void pendingFacesAsm(const PendingMesh* p);
+
+static int32 pendingFaceCount(const PendingMesh &p)
+{
+    if (p.mesh == PENDING_SPRITE)
+        return 1;
+    return p.mesh ? p.mesh->rCount + p.mesh->tCount : SHADOW_QUADS;
+}
+
+static void pendingFaces(const PendingMesh &p)
+{
+    if (p.mesh == PENDING_SPRITE)
+    {
+        Face* f = faceAdd(gFaceList, p.inside);
+        f->flags = p.flags;
+        f->indices[0] = cornerOffset(p.dst, gVertices);
+        return;
+    }
+    if (p.mesh == PENDING_SHADOW)
+    {
+        // faceAddMeshQuads adds the shadow's from gVerticesBase, as drawn
+        Vertex* base = gVerticesBase;
+        uint32 flags = gMeshFaceFlags;
+        gVerticesBase = p.dst;
+        gMeshFaceFlags = p.flags;
+        faceAddMeshQuads(gShadowQuads, SHADOW_QUADS);
+        gVerticesBase = base;
+        gMeshFaceFlags = flags;
+        return;
+    }
+    pendingFacesAsm(&p);
+}
+
+// Adds the faces of the meshes at the front whose vertices are out; with the
+// first not yet out, sees that the DSP is on it.
+static void pendingCollect()
+{
+    for (; gPendingCount; gPendingFirst = (gPendingFirst + 1) & (MAX_PENDING - 1), gPendingCount--)
+    {
+        const PendingMesh &p = pending(0);
+        if (p.sentinel)
+        {
+            if (*p.sentinel == DSP_SENTINEL)
+            {
+                meshDspPoll();
+                return;
+            }
+            meshDspFinished(p.job);
+            cacheDrop(p.dst, p.mesh->vCount * sizeof(Vertex));  // the DSP wrote behind the cache
+#ifdef HW_LOG
+            gMeshDspVertices += p.mesh->vCount;
+#endif
+        }
+        pendingFaces(p);
+        gPendingFaces -= pendingFaceCount(p);
+    }
+}
+
+// Every pending mesh's faces now: those the DSP hasn't done projected here
+// (the one it is on as well: it writes the same vertices).
+static void renderMeshesFinish(uint32 why)
+{
+    if (!gPendingCount)
+        return;
+    traceBegin(TRACE_MASTER, TR_MESHES_FINISH, why);
+    for (int32 n = gPendingCount - 1; n >= 0; n--)
+    {
+        PendingMesh &p = pending(n);
+        if (!p.sentinel || *p.sentinel != DSP_SENTINEL)
+            continue;   // projected here, or by the DSP
+        MeshParts parts;
+        meshParts(p.mesh, parts);
+        MeshXform xf;
+        meshDspTake(p.job, parts.normals, xf);
+        xf.inside = p.inside;   // the same vertices by the shorter path
+        transformMeshAsm(parts.vertices, p.mesh->vCount, p.dst, &xf);
+        p.sentinel = NULL;
+#ifdef HW_LOG
+        gMeshTakenVertices += p.mesh->vCount;
+#endif
+    }
+    meshDspStop();
+    pendingCollect();
+    traceEnd(TRACE_MASTER, TR_MESHES_FINISH);
+}
+
+// Room for one more pending mesh of vertices (whole batches of 8 for the DSP)
+// and faces; if there isn't, every pending one is finished.
+static bool pendingRoom(int32 vertices, int32 faces)
+{
+    if (gPendingCount < MAX_PENDING && (gVerticesBase - gVertices) + ((vertices + 7) & ~7) <= MASTER_VERTICES &&
+        (gFaceList.next - gFaces) + gPendingFaces + faces <= MAX_FACES)
+        return true;
+    renderMeshesFinish(FINISH_NO_ROOM);
+    return false;
+}
+
+// The DSP takes the master's meshes as the menu has it, but for the bench's
+// ways without it and far faces drawn flat (the C path's), and those it can:
+// lit by normals or flat, their arrays longword aligned in high work RAM for
+// its DMA (the normals follow 6 bytes a vertex).
+static bool meshForDsp(const Mesh* mesh)
+{
+    return gDspMeshes != DSP_ROOMS_ONLY && gBenchMode != BENCH_NO_DSP && mesh->hasNormals != MESH_LIGHT_SHADES &&
+           !((uint32(mesh) | (mesh->hasNormals == MESH_LIGHT_NORMALS ? mesh->vCount * 2 : 0)) & 3) &&
+           (uint32(mesh) & 0x0FF00000) == 0x06000000 && meshDspReady();
+}
+
 // meshxform.s draws the mesh in one go but for far faces drawn flat
 // (gFlatDist): meshXformSetup, the transform and the faces with few stores.
-// Each a tail call: no registers saved here.
+// Or it queues the mesh for the DSP, its faces to come; or, behind meshes
+// pending, projects it with its faces to come after theirs.
 static void renderMeshHere(const Mesh* mesh)
 {
     renderPoll();
 #ifdef HW_LOG
     gMeshesDrawn++;
 #endif
-    if (!gFlatDist && gBenchMode != BENCH_C_MESHES) {
-        renderMeshAsm(mesh, &gVerticesBase, &gFaceList, gMeshFaceFlags);
-    } else {
+    if (gFlatDist || gBenchMode == BENCH_C_MESHES)
+    {
+        renderMeshesFinish(FINISH_C_PATH);
         renderMeshC(mesh);
+        return;
+    }
+    if (gPendingCount) {
+        pendingCollect();
+    }
+    bool dsp = meshForDsp(mesh);
+    int32 vCount = mesh->vCount;
+    int32 faces = mesh->rCount + mesh->tCount;
+    if ((!dsp && !gPendingCount) || vCount <= 0 || !pendingRoom(vCount, faces))
+    {
+        renderMeshAsm(mesh, &gVerticesBase, &gFaceList, gMeshFaceFlags);
+        return;
+    }
+    DspMeshJob* job = dsp ? meshDspSlot() : NULL;
+    if (!job && !gPendingCount)
+    {
+        renderMeshAsm(mesh, &gVerticesBase, &gFaceList, gMeshFaceFlags);
+        return;
+    }
+    PendingMesh &p = pending(gPendingCount++);
+    p.base = -int32(gVertices);
+    p.list = &gFaceList;
+    p.flags = gMeshFaceFlags;
+    p.mesh = mesh;
+    gPendingFaces += faces;
+    if (renderMeshPendAsm(mesh, &gVerticesBase, &p, job))
+    {
+#ifdef MESH_DSP_CHECK
+        {
+            static uint32 jobs, bad, fields;
+            MeshParts parts;
+            meshParts(mesh, parts);
+            MeshXform xf;
+            meshXformSetup(xf, mesh->intensity, parts.normals, parts.shades, &mesh->center, mesh->bound);
+            uint32 b = meshDspCheck(job, xf, parts.vertices, p.dst, vCount);
+            bad += b != 0;
+            fields |= b;
+            if (++jobs % 4096 == 0) {
+                crashLog("MJOBS", jobs); crashLog("MJBAD", bad); crashLog("MJFLD", fields);
+            }
+        }
+#endif
+        p.job = meshDspPublish((const uint32*)p.sentinel);
+        if (!meshDspRunning()) {
+            meshDspPoll();
+        }
     }
 }
 
@@ -1915,15 +2119,6 @@ void renderStaticMesh(const Mesh* mesh)
     renderMeshHere(mesh);
     traceDetailEnd(TR_MESH);
 }
-
-// An octagon on the floor under the item, darkening what is drawn below it.
-#define SHADOW_VERTICES 8
-static const MeshQuad gShadowQuads[] = {
-    { (FACE_TYPE_SHADOW << FACE_TYPE_SHIFT), {0, 1, 2, 7} },
-    { (FACE_TYPE_SHADOW << FACE_TYPE_SHIFT), {7, 2, 3, 6} },
-    { (FACE_TYPE_SHADOW << FACE_TYPE_SHIFT), {6, 3, 4, 5} }
-};
-#define SHADOW_QUADS    3
 
 static void shadowVertices(MeshVertex* v, int32 x, int32 z, int32 sx, int32 sz)
 {
@@ -1965,7 +2160,17 @@ void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
     MeshVertex v[SHADOW_VERTICES];
     shadowVertices(v, x, z, sx, sz);
     transformMesh(v, SHADOW_VERTICES, 0, NULL, NULL, NULL, 0);
-    faceAddMeshQuads(gShadowQuads, SHADOW_QUADS);
+    // behind the meshes pending, as drawn
+    if (gPendingCount && pendingRoom(SHADOW_VERTICES, SHADOW_QUADS) && gPendingCount)   // still: no room finishes them
+    {
+        pending(gPendingCount++) = { gVerticesBase, -int32(gVertices), &gFaceList, gMeshFaceFlags, 0, PENDING_SHADOW,
+                                     NULL, NULL, 0 };
+        gPendingFaces += SHADOW_QUADS;
+    }
+    else
+    {
+        faceAddMeshQuads(gShadowQuads, SHADOW_QUADS);
+    }
 
     gVerticesBase += SHADOW_VERTICES;
 }
@@ -2094,13 +2299,22 @@ void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index)
     gVerticesBase += 2;
 
     // drawn in front of the geometry it stands on
-    Face* f = faceAdd(gFaceList, X_MAX(0, z - 128) >> OT_SHIFT);
-    f->flags = (FACE_TYPE_SPRITE << FACE_TYPE_SHIFT) | index;
+    int32 depth = X_MAX(0, z - 128) >> OT_SHIFT;
+    uint32 flags = (FACE_TYPE_SPRITE << FACE_TYPE_SHIFT) | index;
+    if (gPendingCount && pendingRoom(2, 1) && gPendingCount)   // behind the meshes pending
+    {
+        pending(gPendingCount++) = { v, -int32(gVertices), &gFaceList, flags, depth, PENDING_SPRITE, NULL, NULL, 0 };
+        gPendingFaces++;
+        return;
+    }
+    Face* f = faceAdd(gFaceList, depth);
+    f->flags = flags;
     f->indices[0] = cornerOffset(v, gVertices);
 }
 
 void renderGlyph(int32 vx, int32 vy, int32 index)
 {
+    renderMeshesFinish(FINISH_2D);
     if (gVerticesBase - gVertices + 2 > MASTER_VERTICES || gFaceList.next - gFaces + 1 > MAX_FACES)
     {
         ASSERT(false);
@@ -2132,6 +2346,7 @@ void renderGlyph(int32 vx, int32 vy, int32 index)
 
 static void renderRect(int32 x, int32 y, int32 width, int32 height, uint32 type, uint16 color, int32 z)
 {
+    renderMeshesFinish(FINISH_2D);
     if (gVerticesBase - gVertices + 2 > MASTER_VERTICES || gFaceList.next - gFaces + 1 > MAX_FACES)
     {
         ASSERT(false);

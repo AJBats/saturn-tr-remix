@@ -36,6 +36,7 @@ static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kTrace[] = { "Off", "Stages", "Detail" };
 static const char* const kUpload[] = { "Deferred", "Blocking" };
 static const char* const kItems[] = { "Either CPU", "Master only" };
+static const char* const kDsp[] = { "Rooms only", "Rooms, meshes", "Meshes first" };
 static const char* const kLoad[] = { "None", "5%", "10%", "15%", "20%" };
 #ifdef HW_LOG
 static const char* const kBenchNames[BENCH_COUNT] = {
@@ -124,6 +125,9 @@ static const Option gOptions[] = {
     { "Items", kItems, 2,
         [] { return int32(gMasterItems); },
         [](int32 v) { gMasterItems = v; } },
+    { "DSP", kDsp, DSP_MODES,
+        [] { return gDspMeshes; },
+        [](int32 v) { gDspMeshes = v; } },
 #ifdef HW_LOG
     { "Way", kBenchNames, BENCH_COUNT,
         [] { return gBenchHold; },
@@ -138,11 +142,12 @@ static const Option gOptions[] = {
 };
 
 enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_MULTIPLY, OPTION_GREY, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
-       OPTION_PALETTE, OPTION_SPLIT, OPTION_DEPTH, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD, OPTION_ITEMS,
+       OPTION_PALETTE, OPTION_SPLIT, OPTION_DEPTH, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD, OPTION_ITEMS, OPTION_DSP,
 #ifdef HW_LOG
        OPTION_WAY, OPTION_LOAD, OPTION_TRACE,
 #endif
        OPTION_COUNT };
+static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");
 
 static uint16 gPad;
 static int32 gCursor;
@@ -859,7 +864,7 @@ static void traceCompose(const TraceStages* s, TraceRow* rows)
 
     p = appendShare(text, " objs ", v[TR_OBJECTS]);
     p = appendShare(p, "static ", v[TR_STATIC]);
-    p = appendShare(p, "setup ", v[TR_JOB_SETUP]);
+    p = appendShare(p, "fin ", v[TR_MESHES_FINISH]);
     p = appendShare(p, "mesh ", v[TR_MESH]);
     appendShare(p, "item ", v[TR_ITEM]);
     strncpy(rows[2], text, OVERLAY_COLUMNS);
@@ -886,7 +891,8 @@ static void traceCompose(const TraceStages* s, TraceRow* rows)
 
     p = appendShare(text, " wait jobs ", v[TR_BATCH]);
     p = appendShare(p, "idle ", 100 - X_MIN(s->busy[TRACE_SLAVE], 100));
-    appendShare(p, "  dsp ", s->busy[TRACE_DSP]);
+    p = appendShare(p, "  dsp ", s->busy[TRACE_DSP]);
+    appendShare(p, "+", s->busy[TRACE_DSP_MESH]);
     strncpy(rows[6], text, OVERLAY_COLUMNS);
 }
 

@@ -14,6 +14,15 @@
 !   vertices fit below MASTER_VERTICES and the faces before list->end. One
 !   entry and exit and few stores: every store goes to the bus.
 !
+! int32 renderMeshPendAsm(const Mesh* mesh, Vertex** base, PendingMesh* p, DspMeshJob* job)
+!   the master's mesh with its faces to come (render.cpp meshPend): the same
+!   setup; with a job, the job written for meshjobs.dsp (meshdsp.cpp) and its
+!   sentinel, *base moved past whole batches of 8, and 1 returned; without,
+!   the transform to *base, *base moved past the vertices, and 0 returned.
+!   Either way p's vertices, inside, quads and sentinel (0 for none) set. The
+!   caller has checked that it all fits, that the mesh isn't lit by shades
+!   and, for a job, that its arrays suit the DSP's DMA.
+!
 ! MeshXform (render.cpp):
 !   +0  int16 rows[9]       rotation rows: m00 m01 m02 m10 m11 m12 m20 m21 m22
 !   +20 int32 tx, ty, tz    translation, << FIXED_SHIFT
@@ -489,7 +498,15 @@ _renderMeshAsm:
     mov.l   r7, @(12, r15)
     mov     r15, r14
     add     #20, r14
+    bsr     meshSetupBody
+    nop
+    bra     .LrmVertices
+    nop
 
+! meshXformSetup's work for the mesh r4 into the MeshXform r14, the quads'
+! address to +16 of the frame (r15) the caller set up; leaves the vertices'
+! address in r7, vCount in r8, inside in r13
+meshSetupBody:
     ! rows and translation from the matrix (int32 e00 e01 e02 e03 e10 ..)
     stc     gbr, r3                 ! CpuState (common.h)
     mov.l   @(36, r3), r3           ! matrixPtr
@@ -703,9 +720,11 @@ _renderMeshAsm:
 .LrmTested:
     mov     r14, r2
     add     #64, r2
+    rts
     mov.l   r13, @(4, r2)       ! inside
 
     ! the vertices
+.LrmVertices:
     mov     r7, r4
     mov     r8, r5
     mov.l   @(4, r15), r0
@@ -761,6 +780,7 @@ _renderMeshAsm:
     mov.l   @(4, r15), r1
     mov.l   r0, @r1             ! base past the vertices
 
+.LrmLeave:
     add     #92, r15
     lds.l   @r15+, pr
     mov.l   @r15+, r14
@@ -781,6 +801,231 @@ _renderMeshAsm:
 .Lsar14Bit:     .long   0x00020000  ! 1 << (31 - 14)
 .Lsar21Bit:     .short  0x0400      ! 1 << (31 - 21)
 .LviewDist:     .short  20480       ! VIEW_DIST
+
+    ! the frame as renderMeshAsm's: +0 mesh, +4 base, +8 p, +12 job, +16
+    ! quads, +20 the MeshXform (r14)
+    .align 2
+    .global _renderMeshPendAsm
+_renderMeshPendAsm:
+    mov.l   r8, @-r15
+    mov.l   r9, @-r15
+    mov.l   r10, @-r15
+    mov.l   r11, @-r15
+    mov.l   r12, @-r15
+    mov.l   r13, @-r15
+    mov.l   r14, @-r15
+    sts.l   pr, @-r15
+    add     #-92, r15
+    mov.l   r4, @r15
+    mov.l   r5, @(4, r15)
+    mov.l   r6, @(8, r15)
+    mov.l   r7, @(12, r15)
+    mov     r15, r14
+    bsr     meshSetupBody
+    add     #20, r14
+
+    ! p: the vertices, inside, the quads (PendingMesh: render.cpp)
+    mov.l   @(4, r15), r0
+    mov.l   @r0, r9             ! dst
+    mov.l   @(8, r15), r1
+    mov.l   r9, @r1
+    mov.l   r13, @(16, r1)
+    mov.l   @(16, r15), r0
+    mov.l   r0, @(24, r1)
+    mov.l   @(12, r15), r3
+    tst     r3, r3
+    bf      .LpDsp
+
+    ! here: the transform
+    mov     #0, r0
+    mov.l   r0, @(28, r1)       ! no sentinel
+    mov     r7, r4
+    mov     r8, r5
+    mov     r9, r6
+    bsr     transformMeshBody
+    mov     r14, r7
+    mov.l   @r15, r1            ! the transform kept no registers
+    mov.b   @(10, r1), r0
+    extu.b  r0, r0
+    shll2   r0
+    shll    r0
+    mov.l   @(4, r15), r1
+    mov.l   @r1, r2
+    add     r2, r0
+    mov.l   r0, @r1             ! base past the vertices
+    bra     .LrmLeave
+    mov     #0, r0
+
+    ! the job (meshdsp.cpp DspMeshJob): +0 batches, +4 step, +8 src, +12
+    ! dst, +16 normals (DSP addresses), +20 m[12], +68 light[6]
+.LpDsp:
+    mov     r8, r2
+    add     #7, r2
+    shlr2   r2
+    shlr    r2                  ! batches
+    mov.l   .LphysMask, r10
+    mov     r7, r0
+    and     r10, r0
+    shlr2   r0
+    mov.l   r0, @(8, r3)        ! src
+    mov     r9, r0
+    and     r10, r0
+    shlr2   r0
+    mov.l   r0, @(12, r3)       ! dst
+    mov.l   @(56, r14), r0      ! normals
+    tst     r0, r0
+    bt      .LpFlat
+    and     r10, r0
+    shlr2   r0
+    mov.l   r0, @(16, r3)
+    mov     #8, r0
+    mov.l   r0, @(4, r3)        ! step
+    bra     .LpRows
+    mov.l   @(36, r14), r11     ! ambient
+.LpFlat:
+    mov.l   .LnoNormals, r0
+    and     r10, r0
+    shlr2   r0
+    mov.l   r0, @(16, r3)
+    mov     #0, r0
+    mov.l   r0, @(4, r3)
+    mov     r14, r0
+    add     #64, r0
+    mov.l   @r0, r11
+    shll8   r11                 ! g << 8
+.LpRows:
+    mov     r14, r4             ! the rows, int16
+    mov     r3, r5
+    add     #20, r5             ! m
+    mov.w   @r4+, r0
+    mov.l   r0, @r5
+    mov.w   @r4+, r0
+    mov.l   r0, @(4, r5)
+    mov.w   @r4+, r0
+    mov.l   r0, @(8, r5)
+    mov.l   @(20, r14), r0
+    mov.l   r0, @(12, r5)       ! tx
+    mov.w   @r4+, r0
+    mov.l   r0, @(16, r5)
+    mov.w   @r4+, r0
+    mov.l   r0, @(20, r5)
+    mov.w   @r4+, r0
+    mov.l   r0, @(24, r5)
+    mov.l   @(24, r14), r0
+    mov.l   r0, @(28, r5)       ! ty
+    mov.w   @r4+, r0
+    mov.l   r0, @(32, r5)
+    mov.w   @r4+, r0
+    mov.l   r0, @(36, r5)
+    mov.w   @r4+, r0
+    mov.l   r0, @(40, r5)
+    mov.l   @(28, r14), r0
+    mov.l   r0, @(44, r5)       ! tz
+    ! the light: lx ly lz range as meshxform.s multiplies them, 16 bits
+    mov.l   @(40, r14), r0
+    exts.w  r0, r0
+    mov.l   r0, @(48, r5)
+    mov.l   @(44, r14), r0
+    exts.w  r0, r0
+    mov.l   r0, @(52, r5)
+    mov.l   @(48, r14), r0
+    exts.w  r0, r0
+    mov.l   r0, @(56, r5)
+    mov.l   @(52, r14), r0
+    exts.w  r0, r0
+    shll8   r0
+    mov.l   r0, @(60, r5)
+    add     #64, r5
+    mov     #4, r0
+    mov.l   r0, @r5
+    mov.l   r11, @(4, r5)       ! ambient, or the flat shade
+
+    ! the sentinel in the last batch's last vertex, written past the cache
+    mov     r2, r0
+    shll2   r0
+    shll2   r0
+    shll2   r0                  ! the batches' bytes
+    add     r9, r0
+    mov.l   .Luncached, r10
+    add     #-4, r0
+    or      r10, r0
+    mov     #-1, r10
+    mov.l   r10, @r0
+    mov.l   r0, @(28, r1)
+    mov.l   r2, @r3             ! batches last: the DSP may come to it at once
+    mov     r2, r0
+    shll2   r0
+    shll2   r0
+    shll2   r0
+    add     r9, r0
+    mov.l   @(4, r15), r1
+    mov.l   r0, @r1             ! base past whole batches
+    bra     .LrmLeave
+    mov     #1, r0
+
+    .align 2
+.LphysMask:     .long   0x07FFFFFF
+.LnoNormals:    .long   _gDspNoNormals
+.Luncached:     .long   0x20000000
+
+! void pendingFacesAsm(const PendingMesh* p)
+!   the faces of a mesh renderMeshPendAsm left to come, into p's list (p is
+!   a MeshFaces, its mesh +20 and quads +24 after)
+    .global _pendingFacesAsm
+_pendingFacesAsm:
+    mov.l   r8, @-r15
+    mov.l   r9, @-r15
+    mov.l   r10, @-r15
+    mov.l   r11, @-r15
+    mov.l   r12, @-r15
+    mov.l   r13, @-r15
+    mov.l   r14, @-r15
+    sts.l   pr, @-r15
+    mov     r4, r6
+    mov.l   @r6, r8             ! vertices
+    mov.l   @(4, r6), r9        ! base
+    mov.l   @(8, r6), r0        ! list
+    mov.l   @r0, r10            ! its next face
+    mov.l   @(8, r0), r11       ! ot
+    mov     r0, r12
+    add     #12, r12            ! groups
+    mov.l   @(20, r6), r1       ! the mesh
+    mov.w   @(12, r1), r0
+    mov     r0, r5              ! quads
+    cmp/pl  r5
+    bf      1f
+    mov.l   .LpfQuads, r0
+    jsr     @r0
+    mov.l   @(24, r6), r4
+1:  mov.l   @(20, r6), r1
+    mov.w   @(12, r1), r0
+    mov     r0, r2
+    add     r2, r2
+    add     r0, r2
+    add     r2, r2              ! the quads' bytes
+    mov.l   @(24, r6), r4
+    add     r2, r4
+    mov.w   @(14, r1), r0
+    cmp/pl  r0
+    bf      2f
+    mov.l   .LpfTriangles, r1
+    jsr     @r1
+    mov     r0, r5
+2:  mov.l   @(8, r6), r0
+    mov.l   r10, @r0            ! the list's next face
+    lds.l   @r15+, pr
+    mov.l   @r15+, r14
+    mov.l   @r15+, r13
+    mov.l   @r15+, r12
+    mov.l   @r15+, r11
+    mov.l   @r15+, r10
+    mov.l   @r15+, r9
+    rts
+    mov.l   @r15+, r8
+
+    .align 2
+.LpfQuads:      .long   _faceAddMeshQuadsBody
+.LpfTriangles:  .long   _faceAddMeshTrianglesBody
 
 ! The loops that shade in the transform, after every other hot function
 ! (saturn.ld) so that their size moves none of them in the cache.

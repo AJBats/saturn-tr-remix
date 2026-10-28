@@ -403,6 +403,8 @@ struct MeshXform
     int32 inside;           // every vertex lands inside the frame, between the planes
 };
 
+extern "C" void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst, MeshXform* xf);
+
 // A mesh, or an item's shadow, for the slave to draw (rooms.cpp).
 struct MeshJob
 {
@@ -432,6 +434,57 @@ void roomsAllQueued();
 // self-test): the DSP's ticks with the start, this CPU's, and the vertices
 // that differ.
 void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors);
+
+// project.dsp's and meshjobs.dsp's divide table: divTable << 4 as longwords
+// (rooms.cpp).
+extern int32 gDspDivide[DIV_TABLE_SIZE];
+
+// The master's meshes on the SCU DSP (meshdsp.cpp), once the slave is done
+// with it for the frame: what the menu gives it after the rooms.
+enum { DSP_ROOMS_ONLY, DSP_ROOMS_MESHES, DSP_MESHES_FIRST, DSP_MODES };
+extern int32 gDspMeshes;
+
+// A job's slot for meshxform.s renderMeshPendAsm to write, or NULL with none
+// free; then the job is published with its sentinel (past the cache), the
+// second longword of its last output vertex, which the DSP's write changes
+// from DSP_SENTINEL (its shade byte is at most 31): its number.
+struct DspMeshJob;
+DspMeshJob* meshDspSlot();
+uint32 meshDspPublish(const uint32* sentinel);
+#define DSP_SENTINEL    0xFFFFFFFF
+uint32 meshDspCheck(const DspMeshJob* job, const MeshXform &xf, const MeshVertex* src, Vertex* dst, int32 count);
+
+// The job's done and its faces added: its slot is free, and those before it.
+void meshDspFinished(uint32 job);
+
+// The master may queue jobs: the DSP is its for the frame (taken over once
+// the slave hands it over), or the menu has meshes first (the slave hands it
+// over once a job is queued).
+bool meshDspReady();
+
+// Takes over the DSP once the slave hands it over, and starts it on the jobs
+// it hasn't done when it has stopped.
+void meshDspPoll();
+bool meshDspRunning();     // started and not yet seen to stop
+
+// Takes a job back from the DSP, which won't start it (it may have, writing
+// the same vertices): the transform for this CPU, given the mesh's normals.
+void meshDspTake(uint32 job, const int8* normals, MeshXform &xf);
+
+// ... the transform alone, the full path's (no inside).
+void meshDspXform(uint32 job, const int8* normals, MeshXform &xf);
+
+// The DSP starts none of the jobs queued so far, and their slots are free.
+void meshDspStop();
+
+// The master's done with the DSP for the frame, every job finished or taken.
+void meshDspEnd();
+
+// On the slave: it's done with the DSP for the frame (rooms.cpp dspFeed); and
+// at its frame's start, its program is loaded again if the master's is.
+bool meshDspWanted();
+void meshDspHandOver();
+void meshDspRooms();
 
 // meshjobs.dsp against transformMeshAsm (debug.cpp's boot self-test): the
 // DSP's ticks for 512 vertices as 8 meshes and as 64, this CPU's, and the

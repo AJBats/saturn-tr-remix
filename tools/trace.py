@@ -1,6 +1,6 @@
 """The game's frame trace (saturn/trace.h, HW_LOG builds) as a Chrome trace.
 
-    trace.py capture CUE [--frame N] [--keys F:K,K,...] [--fps N] [--out NAME]
+    trace.py capture CUE [--frame N] [--keys F:K,K,...] [--fps N] [--shots N] [--out NAME]
         boots CUE in a Mednafen of its own (its own automation and home
         directories, so a Mednafen the MCP server runs is left alone), taps
         the player's pad buttons K from frame F, runs to frame N, dumps the
@@ -10,6 +10,8 @@
         game draws over N vblanks (from the frame the keys end) for a frame
         rate that a trace's few seconds can't give: frames take 2 or 3
         vblanks, so a short window's rate moves with a handful of them.
+        --shots N takes a screenshot at each of the N vblanks after too
+        (build/NAME_1.png ...).
     trace.py convert DUMP [--out JSON]
         converts a dump of low work RAM (1 MB from 0x00200000)
     trace.py open JSON
@@ -39,14 +41,17 @@ LWRAM = 0x00200000
 LWRAM_BYTES = 0x100000
 HEADER = 0x002FFF00
 MAGIC = 0x54524331
-LANES = ['master', 'irq', 'slave', 'dsp']
+LANES = ['master', 'irq', 'slave', 'dsp', 'dsp meshes']
+SLAVE_LANES = (2, 3)     # written by the slave, on its own clock
 CLOCK = 28636360        # SH-2 cycles a second at the 352-dot clock
 TICK = 128              # cycles an FRT tick
 FRAME_TICKS = 7457      # a 30 fps frame
 END = 0x80
 
-TRACK_NAMES = {1: 'Master SH-2', 2: 'Master interrupts', 3: 'Slave SH-2', 4: 'SCU DSP', 5: 'VDP1', 6: 'Display'}
-WAITS = {'TICK_WAIT', 'ROOMS_WAIT', 'FAR_WAIT', 'VDP1_WAIT'}
+# tid: name, in the order shown
+TRACK_NAMES = {1: 'Master SH-2', 2: 'Master interrupts', 3: 'Slave SH-2', 4: 'SCU DSP (rooms, slave)',
+               7: "SCU DSP (master's meshes)", 5: 'VDP1', 6: 'Display'}
+WAITS = {'TICK_WAIT', 'ROOMS_WAIT', 'FAR_WAIT', 'VDP1_WAIT', 'DSP_WAIT'}
 
 
 def trace_ids():
@@ -69,43 +74,47 @@ def us(ticks):
 
 
 def read_lanes(data):
-    """Each lane's events, oldest first, as (16-bit master ticks, code, arg)."""
+    """Each lane's events, oldest first, as (16-bit master ticks, code, arg),
+    and the vblank count at each lane's last."""
     header = HEADER - LWRAM
     magic, offset = struct.unpack_from('>II', data, header)
     if magic != MAGIC:
         sys.exit(f'no trace in the dump (magic {magic:#x}): an HW_LOG build in a level?')
-    lanes = []
+    lanes, vblanks = [], []
     for i in range(len(LANES)):
-        ring, size, nxt = struct.unpack_from('>III', data, header + 8 + i * 12)
+        ring, size, nxt, vblank = struct.unpack_from('>IIII', data, header + 8 + i * 16)
+        vblanks.append(vblank)
         count = min(nxt, size)
         base = ring - LWRAM
         events = []
         for n in range(nxt - count, nxt):
             e, = struct.unpack_from('>I', data, base + (n & (size - 1)) * 4)
             t = e >> 16
-            if i >= 2:      # the slave's counter
+            if i in SLAVE_LANES:
                 t = (t - offset) & 0xFFFF
             events.append((t, (e >> 8) & 0xFF, e & 0xFF))
         lanes.append(events)
-    return lanes, offset
+    return lanes, vblanks, offset
 
 
-def unwrap(lanes):
+def unwrap(lanes, vblanks):
     """Ticks on one timeline: each lane's newest event placed against the
-    master's newest (lanes end within a few frames of each other), then
-    walked back by the 16-bit differences."""
+    master's newest, by the vblanks between them (a lane may have stopped
+    long before) and then to the tick by its 16-bit time, then walked back by
+    the 16-bit differences."""
     ref = lanes[0][-1][0] if lanes[0] else 0
     base = 1 << 24
     out = []
-    for events in lanes:
+    for events, vblank in zip(lanes, vblanks):
         if not events:
             out.append([])
             continue
         t16 = events[-1][0]
-        d = (t16 - ref) & 0xFFFF
+        guess = -int((vblanks[0] - vblank) * FRAME_TICKS / 2)
+        d = (t16 - ref - guess) & 0xFFFF
         if d >= 0x8000:
             d -= 0x10000
-        times = [base + ref + d]
+        times = [base + ref + guess + d]
         for i in range(len(events) - 1, 0, -1):
             times.append(times[-1] - ((events[i][0] - events[i - 1][0]) & 0xFFFF))
         times.reverse()
@@ -120,10 +129,12 @@ def span_name(name, arg_begin, arg_end):
         return f'item type {arg_begin}'
     if name in ('XFORM', 'FACES', 'SLAVE_MESH'):
         return f'{name.lower().replace("_", " ")} job {arg_begin}'
-    if name == 'JOB_SETUP':
-        return 'job setup (to slave)' if arg_end else 'job setup (kept)'
     if name == 'DSP_RUN':
         return f'DSP run job {arg_begin}'
+    if name == 'MESHES_FINISH':
+        return f'meshes finish ({arg_begin})'
+    if name == 'DSP_MESHES':
+        return f'DSP meshes from slot {arg_begin}'
     if name in WAITS:
         return 'WAIT ' + name[:-5].lower().replace('_', ' ')
     return name.lower().replace('_', ' ')
@@ -164,8 +175,8 @@ def gaps(spans, start, end, depth, name, parent=None):
 
 def convert(data, out_path):
     ids, first_moment = trace_ids()
-    lanes, offset = read_lanes(data)
-    lanes = unwrap(lanes)
+    lanes, vblanks, offset = read_lanes(data)
+    lanes = unwrap(lanes, vblanks)
     if not lanes[0]:
         sys.exit('the master lane is empty')
 
@@ -195,7 +206,7 @@ def convert(data, out_path):
                 ev['args'] = args
             events.append(ev)
 
-    tids = {0: 1, 1: 2, 2: 3, 3: 4}
+    tids = {0: 1, 1: 2, 2: 3, 3: 4, 4: 7}
     paired = [pair_spans(l, ids, first_moment) for l in lanes]
     selfs = {}      # own ticks by id name
     for lane, (spans, moments) in enumerate(paired):
@@ -247,9 +258,9 @@ def convert(data, out_path):
             x(6, b, e, 'vblank', 'display', 'grey')
 
     meta = []
-    for tid, name in TRACK_NAMES.items():
+    for order, (tid, name) in enumerate(TRACK_NAMES.items()):
         meta.append({'name': 'thread_name', 'ph': 'M', 'pid': 1, 'tid': tid, 'args': {'name': name}})
-        meta.append({'name': 'thread_sort_index', 'ph': 'M', 'pid': 1, 'tid': tid, 'args': {'sort_index': tid}})
+        meta.append({'name': 'thread_sort_index', 'ph': 'M', 'pid': 1, 'tid': tid, 'args': {'sort_index': order}})
     meta.append({'name': 'process_name', 'ph': 'M', 'pid': 1, 'args': {'name': 'Saturn'}})
     with open(out_path, 'w') as f:
         json.dump({'traceEvents': meta + events, 'displayTimeUnit': 'ms'}, f)
@@ -282,7 +293,7 @@ def map_symbol(name):
 FRAMES_OFFSET = 24      # FrameStats.frames (system.h)
 
 
-def capture(cue, frame, keys, name, fps_window=0):
+def capture(cue, frame, keys, name, fps_window=0, shots=0):
     # the binary the MCP server picks (mednafen_bot.py): the calibrated fork
     exe = None
     for root in (ROOT, os.path.join(ROOT, '..', 'TombRaiderSaturn')):
@@ -347,9 +358,9 @@ def capture(cue, frame, keys, name, fps_window=0):
             send(f'run_to_frame {at}', 'done run_to_frame')
             for b in buttons.split(','):
                 send(f'input {b}', 'ok input', 10)
-                send('frame_advance 6', 'done frame_advance', 30)
+                send('frame_advance 10', 'done frame_advance', 30)
                 send(f'input_release {b}', 'ok input_release', 10)
-                send('frame_advance 6', 'done frame_advance', 30)
+                send('frame_advance 10', 'done frame_advance', 30)
         if fps_window:
             def word(address):
                 reply = send(f'dump_mem {address:x} 4', 'mem ', 10)
@@ -387,6 +398,13 @@ def capture(cue, frame, keys, name, fps_window=0):
             os.remove(shot)
         print(send(f'screenshot {shot.replace(os.sep, "/")}', 'screenshot', 30))
         time.sleep(0.5)
+        # the vblanks after, each its own (two builds' pictures can be
+        # matched though their frames fall on different vblanks)
+        for i in range(1, shots + 1):
+            send('frame_advance 1', 'done frame_advance', 30)
+            shot = os.path.join(ROOT, 'build', f'{name}_{i}.png')
+            send(f'screenshot {shot.replace(os.sep, "/")}', 'screenshot', 30)
+            time.sleep(0.2)
     finally:
         try:
             send('quit', 'quit', 5)
@@ -446,6 +464,7 @@ def main():
     c.add_argument('--frame', type=int, default=1900)
     c.add_argument('--keys', default=DEFAULT_KEYS)
     c.add_argument('--fps', type=int, default=0)
+    c.add_argument('--shots', type=int, default=0)
     c.add_argument('--out', default='trace')
     v = sub.add_parser('convert')
     v.add_argument('dump')
@@ -458,7 +477,7 @@ def main():
         open_ui(args.json)
         return
     if args.cmd == 'capture':
-        dump = capture(os.path.abspath(args.cue), args.frame, args.keys, args.out, args.fps)
+        dump = capture(os.path.abspath(args.cue), args.frame, args.keys, args.out, args.fps, args.shots)
         out = os.path.join(ROOT, 'build', args.out + '.json')
     else:
         dump = args.dump
