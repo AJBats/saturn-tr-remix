@@ -92,7 +92,7 @@ DSP_HEADERS := $(patsubst saturn/%.dsp,$(BUILD)/gen/%_dsp.h,$(wildcard saturn/*.
 # draw order hints (tools/depth_hints.py): saturn/depth_hints.txt
 HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h) $(DSP_HEADERS) $(BUILD)/gen/depth_hints.h $(FLAGS_FILE)
 
-.PHONY: all disc extract ghidra check-toolchain
+.PHONY: all disc dspbench extract ghidra check-toolchain
 
 # keep intermediate files (0MAIN.BIN) produced through pattern rules
 .SECONDARY:
@@ -148,6 +148,33 @@ build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%
 
 disc: $(BUILD)/disc/tomb.cue
 $(eval $(call DISC_RULE,$(BUILD),$(GAME_DISC)))
+
+# The SCU DSP benchmark (dspbench/bench.cpp): a program of its own, on a disc
+# of its own: make dspbench
+BENCH := build/dspbench
+BENCH_SRC := $(wildcard dspbench/*.cpp dspbench/*.s) saturn/font.cpp saturn/dsp.cpp
+BENCH_DSP := $(patsubst dspbench/%.dsp,$(BENCH)/gen/%_dsp.h,$(wildcard dspbench/*.dsp))
+BENCH_FLAGS := -m2 -mb -O2 -Wall -Idspbench -Isaturn -I$(BENCH)/gen -ffunction-sections
+BENCH_CXXFLAGS := $(BENCH_FLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
+	-fno-asynchronous-unwind-tables
+
+$(BENCH)/obj/%.cpp.o: %.cpp $(wildcard dspbench/*.h) saturn/hw.h saturn/dsp.h saturn/font.h $(BENCH_DSP) | check-toolchain
+	@mkdir -p $(@D)
+	$(CXX) $(BENCH_CXXFLAGS) -c $< -o $@
+
+$(BENCH)/obj/%.s.o: %.s | check-toolchain
+	@mkdir -p $(@D)
+	$(CC) $(BENCH_FLAGS) -c $< -o $@
+
+$(BENCH)/gen/%_dsp.h: dspbench/%.dsp tools/dspasm.py
+	@mkdir -p $(@D)
+	$(PY) tools/dspasm.py $< $@ $*_dsp
+
+$(BENCH)/0MAIN.elf: $(patsubst %,$(BENCH)/obj/%.o,$(BENCH_SRC)) saturn/saturn.ld
+	$(CXX) $(BENCH_CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
+
+dspbench: $(BENCH)/disc/tomb.cue
+$(eval $(call DISC_RULE,$(BENCH),))
 
 extract: $(DISC)/filelist.txt
 
