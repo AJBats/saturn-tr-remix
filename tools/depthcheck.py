@@ -120,13 +120,14 @@ class Ram:
 
 
 class Face:
-    __slots__ = ('order', 'addr', 'room_list', 'flags', 'type', 'corners', 'kind', 'owner', 'room', 'touches', 'face_room', 'bucket', 'label', 'ident',
+    __slots__ = ('order', 'addr', 'room_list', 'flags', 'type', 'corners', 'kind', 'owner', 'room', 'touches', 'face_room', 'bucket', 'label', 'ident', 'world',
                  'skip', 'cmd', 'drawn')
 
     def __init__(self):
         self.drawn = False
         self.face_room = None
         self.ident = '?'
+        self.world = []     # an object face's corners in the world, those found
 
 
 def vertex(ram, a):
@@ -340,6 +341,7 @@ def object_rooms(faces, ram, sym, lvl, owners):
             if sz <= 0 or clip & CLIP_PLANE:
                 continue
             points.append(to_world(sx, sy, sz))
+            f.world.append(points[-1])
             e = extent.setdefault(f.owner, [points[-1], points[-1]])
             e[0], e[1] = np.minimum(e[0], points[-1]), np.maximum(e[1], points[-1])
             v = votes.setdefault(f.owner, {})

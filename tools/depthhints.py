@@ -23,6 +23,11 @@ sys.path.insert(0, os.path.dirname(__file__))
 import depthcheck as dc
 import trsat
 
+# a room face this near an object (its box, world units) may hide it
+NEAR_FACE = 512
+# an object this far behind a face's plane lies behind it
+BEHIND_MARGIN = 8
+
 BIASES = (-64, -32, -16, -8, -4, -2, -1, 1, 2, 4, 8, 16, 32, 64)
 MIN_GAIN = 20       # wrong pixels a hint must remove over its cases
 
@@ -54,6 +59,7 @@ class Case:
         best_w = np.zeros(dc.FRAME_H * dc.FRAME_W)
         for f in faces:
             tris, _ = dc.polygon(f, ram, sym)
+            f.drawn = tris is not None
             pix, w = [], []
             for tri in tris or ():
                 p, ww = coverage(tri)
@@ -68,12 +74,62 @@ class Case:
             best_w[p[nearer]] = ww[nearer]
         self.best, self.best_w = best, best_w
         self.sprite = np.array([f.type == dc.T_SPRITE for f in faces] + [False])
+        cam = sym['gCameraViewPos']
+        self.camera = np.array([ram.s32(cam + 4 * k) for k in range(3)], float)
+        self.lvl = lvl
         self.idents = {f.ident for f in faces}
 
-    def wrong(self, hints):
-        """Wrong pixels painted in the ordering table's order, buckets moved by hints."""
+    def behind_shifts(self):
+        """Per object (owner), the buckets to move it farther so that it sorts behind every
+        room face on the frame near it whose plane it lies wholly behind (seen from the camera)."""
+        objects = {}
+        for f in self.faces:
+            if f.kind == 'object' and f.ident not in ('Lara', '?') and f.world:
+                o = objects.setdefault(f.owner, {'points': [], 'near': 1 << 30})
+                o['points'] += f.world
+                o['near'] = min(o['near'], f.bucket)
+        rooms = []
+        for f in self.faces:
+            if f.kind != "room" or not f.drawn:
+                continue
+            parts = f.label.split()
+            if len(parts) != 3 or parts[2] == 'split':
+                continue
+            r = self.lvl.rooms[int(parts[1])]
+            idx = int(parts[2][1:])
+            poly = r.quads[idx] if parts[2][0] == 'q' else r.triangles[idx]
+            n = 4 if parts[2][0] == 'q' else 3
+            vs = np.array([(r.vertices[i][0] + r.x, r.vertices[i][1], r.vertices[i][2] + r.z) for i in poly[:n]], float)
+            normal = np.cross(vs[1] - vs[0], vs[2] - vs[0])
+            length = np.linalg.norm(normal)
+            if length == 0:
+                continue
+            normal /= length
+            if np.dot(self.camera - vs[0], normal) < 0:
+                normal = -normal        # the camera's side out
+            rooms.append((f.bucket, vs[0], normal, vs.min(0) - NEAR_FACE, vs.max(0) + NEAR_FACE))
+        shifts = {}
+        for owner, o in objects.items():
+            pts = np.array(o['points'])
+            lo, hi = pts.min(0), pts.max(0)
+            need = -1
+            for bucket, v0, normal, flo, fhi in rooms:
+                if np.any(hi < flo) or np.any(lo > fhi):
+                    continue
+                if np.all((pts - v0) @ normal < -BEHIND_MARGIN):
+                    need = max(need, bucket + 1)
+            if need > o['near']:
+                shifts[owner] = need - o['near']
+        return shifts
+
+    def wrong(self, hints, behind=False):
+        """Wrong pixels painted in the ordering table's order, buckets moved by hints (and
+        objects behind room faces' planes moved behind them)."""
+        shifts = self.behind_shifts() if behind else {}
+
         def key(f):
-            b = min(max(f.bucket + hints.get(f.ident, 0), 0), 1 << 16)
+            b = f.bucket + hints.get(f.ident, 0) + (shifts.get(f.owner, 0) if f.kind == 'object' else 0)
+            b = min(max(b, 0), 1 << 16)
             return (-b, 0 if f.kind == 'room' else 1 if f.room_list else 2, -f.addr)
         paint = np.full(self.best.shape, -1, np.int32)
         paint_w = np.zeros(self.best.shape)
@@ -110,8 +166,8 @@ def coverage(tri):
     return (ys[inside] * dc.FRAME_W + xs[inside]).astype(np.int64), w[inside]
 
 
-def total(cases, hints):
-    return sum(int(c.wrong(hints)[0].sum()) for c in cases)
+def total(cases, hints, behind=False):
+    return sum(int(c.wrong(hints, behind)[0].sum()) for c in cases)
 
 
 def main():
@@ -124,11 +180,19 @@ def main():
     ap.add_argument('--check', nargs='*', default=[], help='cases to check the hints on, not found from')
     ap.add_argument('--out', help='write the hints (JSON)')
     ap.add_argument('--by-camera', action='store_true', help="hints apply only with the camera in a room")
+    ap.add_argument('--behind', action='store_true',
+                    help='no search: score objects moved behind the room faces whose planes they lie behind')
     args = ap.parse_args()
 
     lvl = trsat.load(os.path.join(dc.ROOT, 'external_resources/disc/files/DATA'), args.level)
     cases = [Case(n, args, lvl) for n in args.cases]
     checks = [Case(n, args, lvl) for n in args.check]
+
+    if args.behind:
+        for name, cs in (('cases', cases), ('checks', checks)):
+            if cs:
+                print(f'{name}: {len(cs)}, wrong pixels {total(cs, {})} -> {total(cs, {}, True)} with objects behind faces')
+        return
 
     hints = {}
     before = total(cases, hints)
