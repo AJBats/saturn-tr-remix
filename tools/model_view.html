@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asset Diet Viewer</title>
+<style>
+:root {
+  --bg: #f4f4f1; --panel: #ffffff; --ink: #1d1f23; --muted: #62666e; --line: #d9d9d4;
+  --accent: #b5476b; --accent-ink: #ffffff; --view: #2a2d33; --chip: #ececE7;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171b; --panel: #1d2026; --ink: #e8e8e4; --muted: #9a9ea6; --line: #30343c;
+    --accent: #e0789a; --accent-ink: #15171b; --view: #23262c; --chip: #2a2e35;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171b; --panel: #1d2026; --ink: #e8e8e4; --muted: #9a9ea6; --line: #30343c;
+  --accent: #e0789a; --accent-ink: #15171b; --view: #23262c; --chip: #2a2e35;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
+header { display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+.tabs { display: flex; gap: 4px; }
+.tabs button { border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 5px 14px; border-radius: 6px; cursor: pointer; font: inherit; }
+.tabs button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+header .note { color: var(--muted); font-size: 12px; margin-left: auto; }
+main { flex: 1; display: flex; min-height: 0; }
+aside { width: 310px; flex: none; overflow-y: auto; padding: 12px 14px 24px; border-right: 1px solid var(--line); background: var(--panel); }
+aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 6px; font-weight: 600; }
+aside h2:first-child { margin-top: 4px; }
+aside label { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; cursor: pointer; }
+aside label input { margin-top: 3px; }
+aside .sub { color: var(--muted); font-size: 12px; display: block; }
+aside select, aside input[type=range] { width: 100%; }
+aside .row { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
+aside .row > * { flex: 1; }
+aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--chip); color: var(--ink); cursor: pointer; }
+.pane { display: none; }
+.pane.on { display: block; }
+#view { position: relative; flex: 1; min-width: 0; background: var(--view); }
+#c { display: block; width: 100%; height: 100%; }
+.label { position: absolute; top: 10px; padding: 8px 10px; background: rgba(12,13,16,.72); color: #e8e8e4; border-radius: 8px; font-size: 12px; pointer-events: none; max-width: 46%; }
+.label b { font-size: 13px; display: block; margin-bottom: 2px; }
+.label table { border-collapse: collapse; }
+.label td { padding: 0 8px 0 0; white-space: nowrap; }
+.label td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.label .d { color: #8fd18f; }
+.label .u { color: #e89a9a; }
+#labelL { left: 10px; }
+#labelR { left: calc(50% + 10px); }
+.divider { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: rgba(255,255,255,.18); pointer-events: none; }
+.foot { position: absolute; bottom: 8px; left: 10px; right: 10px; color: #aeb2b9; font-size: 11px; pointer-events: none; }
+@media (max-width: 760px) {
+  main { flex-direction: column; }
+  aside { width: 100%; max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--line); }
+  .label { max-width: 48%; font-size: 11px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Asset Diet Viewer</h1>
+  <div class="tabs"><button data-tab="wolf" class="on">Wolf</button><button data-tab="bridge">Bridges</button></div>
+  <span class="note">left: as the Saturn data has it · right: simplified · drag to orbit, wheel to zoom</span>
+</header>
+<main>
+<aside>
+  <div class="pane on" id="pane-wolf">
+    <h2>Animation</h2>
+    <select id="anim"></select>
+    <div class="row"><button class="small" id="play">Pause</button><span><input type="range" id="speed" min="0.1" max="2" step="0.05" value="1"></span></div>
+    <div class="row"><input type="range" id="frame" min="0" max="100" step="0.01" value="0"></div>
+    <span class="sub" id="frameInfo"></span>
+    <h2>Bones merged into their parent</h2>
+    <span class="sub">A merged joint holds one pose relative to its parent: its mesh would be built into the parent's in that pose.</span>
+    <div class="row"><select id="hold"><option value="stand">Hold the standing pose</option><option value="typical">Hold each joint's most typical awake pose</option></select></div>
+    <div id="merges"></div>
+    <h2>Geometry</h2>
+    <label><input type="checkbox" id="cards"><span>Lower legs as cards<span class="sub">12 boxes (8 corners, 6 faces each) become flat polygons that turn round the bone to face the camera</span></span></label>
+    <h2>View</h2>
+    <div class="row"><button class="small" id="wolfClose">Close up</button><button class="small" id="wolfLedge">As far as from the ledge</button></div>
+  </div>
+  <div class="pane" id="pane-bridge">
+    <h2>Planks (12 items)</h2>
+    <label><input type="checkbox" id="inside" checked><span>Drop inside faces<span class="sub">each plank's sides are drawn from both sides; the copies facing in can only show through the gaps between boards</span></span></label>
+    <label><input type="checkbox" id="tiles"><span>One quad per plank face<span class="sub">the top, the underside and each edge are 2 or 4 tiles; drawn as one quad with the tiles' textures side by side</span></span></label>
+    <h2>Rope statics (8)</h2>
+    <label><input type="checkbox" id="ropes"><span>Ropes as cards<span class="sub">three-sided tubes become one polygon per segment, turned round the rope to face the camera</span></span></label>
+    <label><input type="checkbox" id="posts"><span>Posts as cards too<span class="sub">the thick tube of each static</span></span></label>
+    <h2>Context</h2>
+    <label><input type="checkbox" id="rooms" checked><span>Rooms 13, 14, 16<span class="sub">in each texture's mean colour</span></span></label>
+    <h2>View</h2>
+    <div class="row"><button class="small" id="ledge">The game's ledge view</button></div>
+  </div>
+  <h2>Display</h2>
+  <label><input type="checkbox" id="pixels"><span>Saturn pixels<span class="sub">each side drawn at 352×224 with the game's field of view, then enlarged</span></span></label>
+  <label><input type="checkbox" id="tint"><span>Tint what changed</span></label>
+  <label><input type="checkbox" id="wire"><span>Wireframe</span></label>
+  <label><input type="checkbox" id="smooth"><span>Smooth textures<span class="sub">off: texels as the Saturn draws them</span></span></label>
+</aside>
+<section id="view">
+  <canvas id="c"></canvas>
+  <div class="divider"></div>
+  <div class="label" id="labelL"></div>
+  <div class="label" id="labelR"></div>
+  <div class="foot" id="foot"></div>
+</section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+window.addEventListener('error', (e) => {
+  document.getElementById('foot').textContent = 'Error: ' + e.message + (e.lineno ? ' (line ' + e.lineno + ')' : '');
+  document.getElementById('foot').style.color = '#ff9a9a';
+});
+if (!window.THREE) document.getElementById('foot').textContent = 'three.js did not load (cdn.jsdelivr.net unreachable?)';
+const D = /*DATA*/null;
+
+// ---- unit costs measured at the ledge (calibrated Mednafen, sleeping wolves), master cycles
+const COST = { joint: 520, mesh: 570, vertex: 133, face: 88, card: 150, wolfItem: 3900, sent: 280,
+               plankItem: 2400, plankVertex: 125, plankFace: 90, staticMesh: 1500, staticVertex: 133,
+               cardPoint: 80 };
+const MHZ = 28636.36;   // cycles a millisecond
+const FOV = 2 * Math.atan(112 / 256) * 180 / Math.PI;   // the game projects with a focal length of 256 px
+const SAT_W = 352, SAT_H = 224;
+
+// ---- TR space: x, y down, z; three.js: x, y up, -z (a half turn about x)
+const T3 = (p) => [p[0], -p[1], -p[2]];
+const TAU = Math.PI * 2;
+function mul3(a, b) {
+  const o = new Array(9);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++)
+    o[i * 3 + j] = a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j];
+  return o;
+}
+function rotYXZ(ax, ay, az) {           // as matrixRotateYXZ: R = Ry Rx Rz
+  const x = ax * TAU / 65536, y = ay * TAU / 65536, z = az * TAU / 65536;
+  const sx = Math.sin(x), cx = Math.cos(x), sy = Math.sin(y), cy = Math.cos(y), sz = Math.sin(z), cz = Math.cos(z);
+  return mul3(mul3([cy, 0, sy, 0, 1, 0, -sy, 0, cy], [1, 0, 0, 0, cx, -sx, 0, sx, cx]), [cz, -sz, 0, sz, cz, 0, 0, 0, 1]);
+}
+const ID3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+function rv(R, v) { return [R[0]*v[0]+R[1]*v[1]+R[2]*v[2], R[3]*v[0]+R[4]*v[1]+R[5]*v[2], R[6]*v[0]+R[7]*v[1]+R[8]*v[2]]; }
+function apply(M, v) { const p = rv(M.R, v); return [p[0] + M.t[0], p[1] + M.t[1], p[2] + M.t[2]]; }
+function child(P, offset, R) { return { R: mul3(P.R, R), t: apply(P, offset) }; }
+const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+const add = (a, b) => [a[0]+b[0], a[1]+b[1], a[2]+b[2]];
+const scl = (a, s) => [a[0]*s, a[1]*s, a[2]*s];
+const dot = (a, b) => a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const nrm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
+function angLerp(a, b, t) { let d = ((b - a + 32768) % 65536 + 65536) % 65536 - 32768; return a + d * t; }
+
+// ---- atlas
+const rects = D.atlas.rects;
+const img = new Image();
+const atlasTex = new THREE.Texture(img);
+atlasTex.flipY = false; atlasTex.generateMipmaps = false;
+atlasTex.magFilter = atlasTex.minFilter = THREE.NearestFilter;
+img.onload = () => { atlasTex.needsUpdate = true; };
+img.src = 'data:image/png;base64,' + D.atlas.png;
+
+// ---- triangles out of faces, each face a grid so the texture lands on the quad as VDP1 puts it
+class Builder {
+  constructor() { this.p = []; this.n = []; this.uv = []; this.c = []; }
+  quad(P, N, col, t, fh, div) {
+    const r = rects[t], AW = D.atlas.w, AH = D.atlas.h;
+    if (!N) {   // drawn side faces away from cross(B - A, C - A)
+      let f = cross(sub(P[1], P[0]), sub(P[2], P[0]));
+      if (dot(f, f) < 1e-6) f = cross(sub(P[2], P[0]), sub(P[3], P[0]));
+      const n = nrm(scl(f, -1)); N = [n, n, n, n];
+    }
+    const g = [];
+    for (let j = 0; j <= div; j++) for (let i = 0; i <= div; i++) {
+      const u = i / div, v = j / div;
+      const w = [(1-u)*(1-v), u*(1-v), u*v, (1-u)*v];
+      const p = [0, 0, 0], n = [0, 0, 0];
+      for (let k = 0; k < 4; k++) for (let q = 0; q < 3; q++) { p[q] += w[k] * P[k][q]; n[q] += w[k] * N[k][q]; }
+      const tu = fh ? 1 - u : u;
+      g.push({ p: T3(p), n: T3(nrm(n)), uv: [(r[0] + tu * r[2]) / AW, (r[1] + v * r[3]) / AH],
+               c: [col[0][0]*w[0]+col[1][0]*w[1]+col[2][0]*w[2]+col[3][0]*w[3],
+                   col[0][1]*w[0]+col[1][1]*w[1]+col[2][1]*w[2]+col[3][1]*w[3],
+                   col[0][2]*w[0]+col[1][2]*w[1]+col[2][2]*w[2]+col[3][2]*w[3]] });
+    }
+    const at = (i, j) => g[j * (div + 1) + i];
+    for (let j = 0; j < div; j++) for (let i = 0; i < div; i++) {
+      // the half turn keeps TR's winding, which faces away: reversed for three.js
+      this.tri(at(i, j), at(i + 1, j + 1), at(i + 1, j));
+      this.tri(at(i, j), at(i, j + 1), at(i + 1, j + 1));
+    }
+  }
+  tri(...vs) { for (const v of vs) { this.p.push(...v.p); this.n.push(...v.n); this.uv.push(...v.uv); this.c.push(...v.c); } }
+  geometry() {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
+    return g;
+  }
+}
+
+const WHITE = [1, 1, 1];
+const TINT = [1.0, 0.45, 0.85];
+const ui = (id) => document.getElementById(id);
+const opt = { tint: false };
+
+// a mesh's face with its vertices placed: corners, normals, colours; true when it faces the camera
+function meshFace(mesh, f, place, rotate, shadeOf, cam, b, tint) {
+  const vp = (i) => place([mesh.v[i*3], mesh.v[i*3+1], mesh.v[i*3+2]]);
+  let P;
+  if (f.p) {
+    const [a, c1, c2] = f.p.map(vp);
+    const x = sub(add(c1, c2), a);
+    P = f.c.map(i => i < 0 ? x : vp(i));
+  } else P = f.c.map(vp);
+  let N = null;
+  const zero = (i) => i >= 0 && !mesh.n[i*3] && !mesh.n[i*3+1] && !mesh.n[i*3+2];
+  if (mesh.n && !f.c.some(zero)) {     // the planks' normals are all zero: lit by their faces
+    const vn = (i) => rotate([mesh.n[i*3], mesh.n[i*3+1], mesh.n[i*3+2]]);
+    if (f.p) { const [a, c1, c2] = f.p.map(vn); const x = nrm(sub(add(c1, c2), a)); N = f.c.map(i => i < 0 ? x : vn(i)); }
+    else N = f.c.map(vn);
+  }
+  const base = f.col ? f.col.map(x => x / 255) : WHITE;
+  const tinted = tint && opt.tint ? [base[0]*TINT[0], base[1]*TINT[1], base[2]*TINT[2]] : base;
+  const col = f.c.map(i => { const s = shadeOf(i < 0 ? f.p[0] : i); return [tinted[0]*s, tinted[1]*s, tinted[2]*s]; });
+  const isTri = !f.p && f.c[2] === f.c[3];
+  b.quad(P, N, col, f.t, f.fh, f.col || isTri ? 1 : 4);
+  return dot(cross(sub(P[1], P[0]), sub(P[2], P[0])), sub(cam, P[0])) < 0;
+}
+
+// a card: a polygon from e0 to e1, w wide, turned round that line to the camera
+function card(e0, e1, w, cam, col, t, uAlong, b, tint) {
+  const mid = scl(add(e0, e1), 0.5);
+  let s = cross(sub(e1, e0), sub(cam, mid));
+  s = scl(nrm(s), w / 2);
+  const n = nrm(sub(cam, mid));
+  const P = uAlong ? [sub(e0, s), sub(e1, s), add(e1, s), add(e0, s)]
+                   : [sub(e0, s), add(e0, s), add(e1, s), sub(e1, s)];
+  const c = tint && opt.tint ? [col[0]*TINT[0], col[1]*TINT[1], col[2]*TINT[2]] : col;
+  b.quad(P, [n, n, n, n], [c, c, c, c], t, false, t ? 4 : 1);
+}
+
+// ---- three.js views: left and right, each a scene with lit, prelit and card meshes
+function makeView() {
+  const scene = new THREE.Scene();
+  scene.add(new THREE.AmbientLight(0xffffff, 0.62));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.75);
+  sun.position.set(0.45, 1, 0.55);
+  scene.add(sun);
+  const mats = {
+    lit: new THREE.MeshLambertMaterial({ map: atlasTex, vertexColors: true, alphaTest: 0.5, side: THREE.FrontSide }),
+    pre: new THREE.MeshBasicMaterial({ map: atlasTex, vertexColors: true, alphaTest: 0.5, side: THREE.FrontSide }),
+    card: new THREE.MeshLambertMaterial({ map: atlasTex, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide }),
+    cardPre: new THREE.MeshBasicMaterial({ map: atlasTex, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide }),
+  };
+  const meshes = {};
+  for (const k in mats) { meshes[k] = new THREE.Mesh(new THREE.BufferGeometry(), mats[k]); meshes[k].frustumCulled = false; scene.add(meshes[k]); }
+  return { scene, mats, meshes,
+    set(builders) {
+      for (const k in meshes) {
+        meshes[k].geometry.dispose();
+        meshes[k].geometry = builders[k] ? builders[k].geometry() : new THREE.BufferGeometry();
+      }
+    } };
+}
+const views = [makeView(), makeView()];
+
+const canvas = ui('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+const camera = new THREE.PerspectiveCamera(40, 1, 10, 200000);
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.enableDamping = true;
+const rts = [0, 1].map(() => new THREE.WebGLRenderTarget(SAT_W, SAT_H, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter }));
+const blitScene = new THREE.Scene();
+const blitCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const blitQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: null }));
+blitScene.add(blitQuad);
+function camTR() { return [camera.position.x, -camera.position.y, -camera.position.z]; }
+
+// ---- the wolf
+const W = D.wolf;
+const NJ = W.parents.length;
+const awake = W.anims.map((a, i) => i).filter(i => !/DEATH|SLEEP/.test(W.anims[i].state));
+const standR = []; for (let j = 0; j < NJ; j++) standR.push(rotYXZ(W.ref[j*3], W.ref[j*3+1], W.ref[j*3+2]));
+function angleBetween(R, Q) { let tr = 0; for (let i = 0; i < 9; i++) tr += R[i] * Q[i]; return Math.acos(Math.max(-1, Math.min(1, (tr - 1) / 2))); }
+// per joint, the awake keyframe's turn closest to all the others (the medoid)
+const typicalR = standR.map((R, j) => {
+  if (!Object.values(W.merges).some(js => js.includes(j))) return R;
+  const all = [];
+  for (const ai of awake) for (const kf of W.anims[ai].kf) all.push(rotYXZ(kf.r[j*3], kf.r[j*3+1], kf.r[j*3+2]));
+  let best = R, bestSum = Infinity;
+  for (const A of all) { let sum = 0; for (const B of all) sum += angleBetween(A, B); if (sum < bestSum) { bestSum = sum; best = A; } }
+  return best;
+});
+let refR = standR;
+const wolfState = { anim: W.anims.findIndex(a => a.state === 'RUN' && a.kf.length > 4), time: 0, playing: true, speed: 1 };
+const merged = new Set();
+
+function motionText(joints) {      // how far the joints turn from the standing pose in the awake animations
+  const angs = [];
+  for (const ai of awake) for (const kf of W.anims[ai].kf) for (const j of joints) {
+    angs.push(angleBetween(rotYXZ(kf.r[j*3], kf.r[j*3+1], kf.r[j*3+2]), standR[j]) * 180 / Math.PI);
+  }
+  angs.sort((a, b) => a - b);
+  const med = angs[angs.length >> 1], max = angs[angs.length - 1];
+  return `turns ${med.toFixed(0)}° in a typical awake frame, ${max.toFixed(0)}° at most`;
+}
+const MERGE_LABELS = { ears: 'Ears into the head', jaw: 'Jaw into the head', paws: 'Paws into the lower legs',
+                       tail: 'Tail as one piece', chest: 'Chest into the hips' };
+for (const [k, joints] of Object.entries(W.merges)) {
+  const l = document.createElement('label');
+  l.innerHTML = `<input type="checkbox" data-merge="${k}"><span>${MERGE_LABELS[k] || k} <span class="sub">${joints.length} joint${joints.length > 1 ? 's' : ''} (${joints.map(j => W.names[j]).join(', ')}); ${motionText(joints)}</span></span>`;
+  ui('merges').appendChild(l);
+}
+document.querySelectorAll('[data-merge]').forEach(el => el.addEventListener('change', () => {
+  merged.clear();
+  document.querySelectorAll('[data-merge]:checked').forEach(c => W.merges[c.dataset.merge].forEach(j => merged.add(j)));
+  dirty = true;
+}));
+W.anims.forEach((a, i) => { const o = document.createElement('option'); o.value = i; o.textContent = `${a.name} (${a.kf.length} keyframes)`; ui('anim').appendChild(o); });
+ui('anim').value = wolfState.anim;
+
+function animLength(a) { return Math.max(1, (a.kf.length - 1) * a.rate); }
+function wolfPose(simplified) {
+  const a = W.anims[wolfState.anim];
+  const f = Math.min(wolfState.time, animLength(a)) / a.rate;
+  const i = Math.min(Math.floor(f), a.kf.length - 1), t = i >= a.kf.length - 1 ? 0 : f - i;
+  const A = a.kf[i], B = a.kf[Math.min(i + 1, a.kf.length - 1)];
+  const M = [];
+  for (let j = 0; j < NJ; j++) {
+    const R = simplified && merged.has(j) ? refR[j]
+      : rotYXZ(angLerp(A.r[j*3], B.r[j*3], t), angLerp(A.r[j*3+1], B.r[j*3+1], t), angLerp(A.r[j*3+2], B.r[j*3+2], t));
+    M.push(j === 0 ? { R, t: [0, 1, 2].map(q => A.p[q] + (B.p[q] - A.p[q]) * t) }
+                   : child(M[W.parents[j]], W.offsets[j], R));
+  }
+  return M;
+}
+
+function buildWolf(simplified) {
+  const M = wolfPose(simplified);
+  const cam = camTR();
+  const b = { lit: new Builder(), card: new Builder() };
+  const cards = simplified && ui('cards').checked;
+  let sent = 0, verts = 0, faces = 0, nCards = 0;
+  const meshOwner = new Array(NJ).fill(false);   // kept joints that set up a mesh
+  const keptOf = (j) => { while (simplified && merged.has(j)) j = W.parents[j]; return j; };
+  for (let j = 0; j < NJ; j++) {
+    const mesh = W.meshes[j];
+    if (cards && W.cards[j]) {
+      const c = W.cards[j];
+      card(apply(M[j], c.e0), apply(M[j], c.e1), c.w, cam, c.col.map(x => x / 255), 0, true, b.card, true);
+      nCards++; sent++; faces++; verts += 2;
+      continue;
+    }
+    meshOwner[keptOf(j)] = true;
+    verts += mesh.v.length / 3; faces += mesh.f.length;
+    const place = (v) => apply(M[j], v), rotate = (n) => rv(M[j].R, n);
+    for (const f of mesh.f) if (meshFace(mesh, f, place, rotate, () => 1, cam, b.lit, simplified && merged.has(j))) sent++;
+  }
+  const joints = simplified ? NJ - merged.size : NJ;
+  const setups = meshOwner.filter(x => x).length;
+  const draw = (COST.wolfItem + joints * COST.joint + setups * COST.mesh + verts * COST.vertex + faces * COST.face + nCards * COST.card) / MHZ;
+  return { b, stats: { joints, setups, verts, faces, sent, draw, flush: sent * COST.sent / MHZ } };
+}
+
+// ---- the bridges
+const BR = D.bridge;
+const plankM = BR.planks.map(p => {
+  const item = { R: rotYXZ(0, p.yaw, 0), t: p.pos };
+  return child(item, p.frame.p, rotYXZ(p.frame.r[0], p.frame.r[1], p.frame.r[2]));
+});
+const staticM = BR.statics.map(s => ({ R: rotYXZ(0, s.yaw, 0), t: s.pos }));
+
+function buildBridge(simplified) {
+  const cam = camTR();
+  const b = { lit: new Builder(), pre: new Builder(), cardPre: new Builder() };
+  const st = { plankVerts: 0, plankFaces: 0, plankSent: 0, welded: 0, ropeVerts: 0, ropeFaces: 0, ropeSent: 0, ropeCards: 0, cardPoints: 0 };
+  const useTiles = simplified && ui('tiles').checked;
+  const dropInside = simplified && (ui('inside').checked || useTiles);
+  const weldByBridge = {};
+  BR.planks.forEach((p, k) => {
+    const mesh = useTiles ? BR.simple[p.mesh] : BR.meshes[p.mesh];
+    const M = plankM[k];
+    const used = new Set();
+    const key = p.pos[0];
+    const weld = weldByBridge[key] || (weldByBridge[key] = new Set());
+    for (const f of mesh.f) {
+      if (dropInside && f.in) continue;
+      f.c.forEach(i => { if (i >= 0) { used.add(i); const w = apply(M, [mesh.v[i*3], mesh.v[i*3+1], mesh.v[i*3+2]]); weld.add(w.map(x => Math.round(x / 4)).join(',')); } });
+      st.plankFaces++;
+      if (meshFace(mesh, f, (v) => apply(M, v), (n) => rv(M.R, n), () => 1, cam, b.lit, simplified && (f.tiles > 1))) st.plankSent++;
+    }
+    st.plankVerts += used.size;
+  });
+  st.welded = Object.values(weldByBridge).reduce((n, s) => n + s.size, 0);
+  const ropeCards = simplified && ui('ropes').checked, postCards = simplified && ui('posts').checked;
+  BR.statics.forEach((s, k) => {
+    const mesh = BR.staticMeshes[s.mesh];
+    const M = staticM[k];
+    const strands = BR.ropes[s.mesh] || [];
+    const carded = new Set();
+    const isRope = strands.length > 0;
+    for (const strand of strands) {
+      const post = strand.r > 100;
+      if (!(post ? postCards : ropeCards)) continue;
+      strand.seg.forEach((seg, i) => {
+        seg.faces.forEach(fi => carded.add(fi));
+        const e0 = apply(M, strand.pts[i]), e1 = apply(M, strand.pts[i + 1]);
+        const sh = 2 * strand.shade;
+        card(e0, e1, strand.r * 1.6, cam, [sh, sh, sh], seg.t, seg.u === 1, b.cardPre, true);
+        st.ropeCards++; st.ropeSent++; st.ropeFaces++;
+      });
+      st.cardPoints += strand.pts.length;
+    }
+    const used = new Set();
+    mesh.f.forEach((f, fi) => {
+      if (carded.has(fi)) return;
+      f.c.forEach(i => { if (i >= 0) used.add(i); });
+      const shade = mesh.s ? (i) => 2 * mesh.s[i] : () => 1;
+      const sent = meshFace(mesh, f, (v) => apply(M, v), (n) => rv(M.R, n), shade, cam, mesh.s ? b.pre : b.lit, false);
+      if (isRope) { st.ropeFaces++; if (sent) st.ropeSent++; }
+    });
+    if (isRope) st.ropeVerts += used.size;
+  });
+  if (ui('rooms').checked) {
+    for (const room of BR.rooms) {
+      for (const f of room.f) {
+        const P = f.c.map(i => [room.v[i*3], room.v[i*3+1], room.v[i*3+2]]);
+        const col = f.c.map(i => { const s = room.s[i]; return [f.col[0]/255*s, f.col[1]/255*s, f.col[2]/255*s]; });
+        b.pre.quad(P, null, col, 0, false, 1);
+      }
+    }
+  }
+  const planks = (BR.planks.length * COST.plankItem + st.plankVerts * COST.plankVertex + st.plankFaces * COST.plankFace) / MHZ;
+  const ropes = (8 * COST.staticMesh + st.ropeVerts * COST.staticVertex + (st.ropeFaces - st.ropeCards) * COST.face
+                 + st.cardPoints * COST.cardPoint + st.ropeCards * COST.card) / MHZ;
+  return { b, stats: Object.assign(st, { planks, ropes }) };
+}
+
+// ---- stats boxes
+function fmt(v, base, digits = 0) {
+  const s = typeof v === 'number' ? v.toFixed(digits) : v;
+  if (base === undefined || base === v) return `<td class="n">${s}</td>`;
+  return `<td class="n ${v < base ? 'd' : 'u'}">${s}</td>`;
+}
+function wolfLabel(title, s, o) {
+  o = o || {};
+  return `<b>${title}</b><table>
+    <tr><td>joints animated</td>${fmt(s.joints, o.joints)}</tr>
+    <tr><td>mesh setups</td>${fmt(s.setups, o.setups)}</tr>
+    <tr><td>vertices</td>${fmt(s.verts, o.verts)}</tr>
+    <tr><td>faces tested</td>${fmt(s.faces, o.faces)}</tr>
+    <tr><td>faces sent (this view)</td>${fmt(s.sent, o.sent)}</tr>
+    <tr><td>est. master draw, ms</td>${fmt(s.draw, o.draw, 2)}</tr>
+    <tr><td>est. command build, ms</td>${fmt(s.flush, o.flush, 2)}</tr></table>`;
+}
+function bridgeLabel(title, s, o) {
+  o = o || {};
+  return `<b>${title}</b><table>
+    <tr><td>plank vertices</td>${fmt(s.plankVerts, o.plankVerts)}</tr>
+    <tr><td>&nbsp; as one mesh a bridge</td>${fmt(s.welded, o.welded)}</tr>
+    <tr><td>plank faces</td>${fmt(s.plankFaces, o.plankFaces)}</tr>
+    <tr><td>plank faces sent (this view)</td>${fmt(s.plankSent, o.plankSent)}</tr>
+    <tr><td>rope static vertices + card ends</td>${fmt(s.ropeVerts + s.cardPoints, o.ropeVerts === undefined ? undefined : o.ropeVerts + o.cardPoints)}</tr>
+    <tr><td>rope static faces</td>${fmt(s.ropeFaces, o.ropeFaces)}</tr>
+    <tr><td>rope faces sent (this view)</td>${fmt(s.ropeSent, o.ropeSent)}</tr>
+    <tr><td>est. planks draw, ms</td>${fmt(s.planks, o.planks, 2)}</tr>
+    <tr><td>est. rope statics draw, ms</td>${fmt(s.ropes, o.ropes, 2)}</tr></table>`;
+}
+
+// ---- tabs, controls, cameras
+let tab = 'wolf';
+let dirty = true;
+function wolfClose() {
+  camera.fov = FOV; camera.near = 10; camera.far = 50000;
+  camera.position.set(900, 420, 1150); controls.target.set(0, 230, 0);
+  camera.up.set(0, 1, 0); camera.updateProjectionMatrix(); controls.update();
+}
+function wolfLedge() {   // about as far and as high as the ledge's camera from the wolf it sees
+  camera.fov = FOV; camera.near = 10; camera.far = 50000;
+  const d = 7400, e = 0.42;
+  camera.position.set(d * Math.cos(e) * 0.8, 230 + d * Math.sin(e), d * Math.cos(e) * 0.6);
+  controls.target.set(0, 230, 0); camera.up.set(0, 1, 0); camera.updateProjectionMatrix(); controls.update();
+}
+function ledgeView() {
+  const r = BR.camera.rot.map(x => x / 16384), p = T3(BR.camera.pos);
+  const fwd = [r[6], -r[7], -r[8]], up = [-r[3], r[4], r[5]];
+  camera.fov = FOV; camera.near = 20; camera.far = 120000;
+  camera.position.set(...p);
+  camera.up.set(...up);
+  controls.target.set(p[0] + fwd[0] * 3000, p[1] + fwd[1] * 3000, p[2] + fwd[2] * 3000);
+  camera.updateProjectionMatrix(); controls.update();
+}
+document.querySelectorAll('.tabs button').forEach(bt => bt.addEventListener('click', () => {
+  tab = bt.dataset.tab;
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === bt));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + tab));
+  if (tab === 'wolf') wolfClose(); else ledgeView();
+  dirty = true;
+}));
+ui('wolfClose').onclick = wolfClose;
+ui('wolfLedge').onclick = () => { wolfLedge(); ui('pixels').checked = true; dirty = true; };
+ui('ledge').onclick = ledgeView;
+ui('play').onclick = () => { wolfState.playing = !wolfState.playing; ui('play').textContent = wolfState.playing ? 'Pause' : 'Play'; };
+ui('speed').oninput = (e) => wolfState.speed = +e.target.value;
+ui('hold').onchange = (e) => { refR = e.target.value === 'typical' ? typicalR : standR; dirty = true; };
+ui('anim').onchange = (e) => { wolfState.anim = +e.target.value; wolfState.time = 0; dirty = true; };
+ui('frame').oninput = (e) => { const a = W.anims[wolfState.anim]; wolfState.time = +e.target.value / 100 * animLength(a); dirty = true; };
+['cards', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
+controls.addEventListener('change', () => dirty = true);
+
+function resize() {
+  const v = ui('view');
+  const w = v.clientWidth, h = v.clientHeight;
+  if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) {
+    renderer.setSize(w, h, false);
+  }
+  return [w, h];
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.max(0, Math.min(0.1, (now - last) / 1000)); last = now;
+  controls.update();
+  if (tab === 'wolf' && wolfState.playing) {
+    const a = W.anims[wolfState.anim];
+    wolfState.time = (wolfState.time + dt * 30 * wolfState.speed) % (animLength(a) + a.rate);
+    ui('frame').value = Math.min(100, wolfState.time / animLength(a) * 100);
+    dirty = true;
+  }
+  if (dirty) { update(); dirty = false; }
+  draw();
+  requestAnimationFrame(frame);
+}
+
+function update() {
+  opt.tint = ui('tint').checked;
+  const wire = ui('wire').checked, smooth = ui('smooth').checked;
+  const filter = smooth ? THREE.LinearFilter : THREE.NearestFilter;
+  if (atlasTex.magFilter !== filter) { atlasTex.magFilter = atlasTex.minFilter = filter; atlasTex.needsUpdate = true; }
+  for (const v of views) for (const k in v.mats) v.mats[k].wireframe = wire;
+  if (tab === 'wolf') {
+    const L = buildWolf(false), R = buildWolf(true);
+    views[0].set(L.b); views[1].set(R.b);
+    ui('labelL').innerHTML = wolfLabel('Original', L.stats);
+    ui('labelR').innerHTML = wolfLabel('Simplified', R.stats, L.stats);
+    const a = W.anims[wolfState.anim];
+    ui('frameInfo').textContent = `game frame ${Math.floor(wolfState.time)} of ${animLength(a)}, a keyframe every ${a.rate}`;
+    ui('foot').textContent = 'Costs: master cycles measured per joint, mesh, vertex and face at the ledge (calibrated Mednafen, sleeping wolf); an animated wolf also blends frames, so its joints cost more.';
+  } else {
+    const L = buildBridge(false), R = buildBridge(true);
+    views[0].set(L.b); views[1].set(R.b);
+    ui('labelL').innerHTML = bridgeLabel('Original', L.stats);
+    ui('labelR').innerHTML = bridgeLabel('Simplified', R.stats, L.stats);
+    ui('foot').textContent = 'Costs: master cycles per plank item, vertex and face measured at the ledge (calibrated Mednafen); card costs are estimates. Faces sent: facing this camera, before the frame clip.';
+  }
+}
+
+function draw() {
+  const [w, h] = resize();
+  const half = Math.floor(w / 2);
+  const pixels = ui('pixels').checked;
+  renderer.setScissorTest(true);
+  for (let i = 0; i < 2; i++) {
+    const x = i * half, vw = i ? w - half : half;
+    const bg = pixels ? 0x000000 : 0x2a2d33;
+    views[i].scene.background = new THREE.Color(bg);
+    if (pixels) {
+      camera.aspect = SAT_W / SAT_H; camera.updateProjectionMatrix();
+      renderer.setRenderTarget(rts[i]);
+      renderer.setViewport(0, 0, SAT_W, SAT_H); renderer.setScissor(0, 0, SAT_W, SAT_H);
+      renderer.render(views[i].scene, camera);
+      renderer.setRenderTarget(null);
+      const s = Math.min(vw / SAT_W, h / SAT_H);
+      const bw = SAT_W * s, bh = SAT_H * s;
+      renderer.setViewport(x, 0, vw, h); renderer.setScissor(x, 0, vw, h);
+      renderer.setClearColor(0x2a2d33); renderer.clear();
+      renderer.setViewport(x + (vw - bw) / 2, (h - bh) / 2, bw, bh); renderer.setScissor(x + (vw - bw) / 2, (h - bh) / 2, bw, bh);
+      blitQuad.material.map = rts[i].texture; blitQuad.material.needsUpdate = true;
+      renderer.render(blitScene, blitCam);
+    } else {
+      camera.aspect = vw / h; camera.updateProjectionMatrix();
+      renderer.setViewport(x, 0, vw, h); renderer.setScissor(x, 0, vw, h);
+      renderer.render(views[i].scene, camera);
+    }
+  }
+}
+
+// the page's state from its address: #bridge,tiles,ropes,pixels / #jaw,ears,cards,anim=9,t=0.4,pause
+function fromHash() {
+  const tokens = decodeURIComponent(location.hash.slice(1)).split(',').filter(Boolean);
+  const kv = Object.fromEntries(tokens.map(t => t.split('=')).map(([k, v]) => [k, v === undefined ? true : v]));
+  if (kv.bridge) document.querySelector('[data-tab=bridge]').click(); else wolfClose();
+  for (const id of ['cards', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
+    if (id in kv) ui(id).checked = kv[id] !== '0';
+  document.querySelectorAll('[data-merge]').forEach(c => { if (kv[c.dataset.merge]) { c.checked = true; c.dispatchEvent(new Event('change')); } });
+  if (kv.anim) { ui('anim').value = kv.anim; wolfState.anim = +kv.anim; }
+  if (kv.t) wolfState.time = +kv.t * animLength(W.anims[wolfState.anim]);
+  if (kv.pause) { wolfState.playing = false; ui('play').textContent = 'Play'; }
+  if (kv.hold) { ui('hold').value = kv.hold; ui('hold').dispatchEvent(new Event('change')); }
+  if (kv.far) wolfLedge();
+  if (kv.cam) {     // cam=x:y:z:tx:ty:tz in the game's coordinates
+    const c = kv.cam.split(':').map(Number);
+    camera.up.set(0, 1, 0);
+    camera.position.set(...T3(c.slice(0, 3)));
+    controls.target.set(...T3(c.slice(3, 6)));
+    controls.update();
+  }
+  dirty = true;
+}
+fromHash();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
