@@ -15,14 +15,14 @@
         to the playback and takes a screenshot every 4 vblanks for N
         (build/NAME_play/), which "video" reads as it would a Saturn's;
         --record N takes them without paging (the battery: keys
-        1500:R,R,R,UP,RIGHT start it from the menu).
+        1500:R,R,R,UP,A start it from the menu).
     trace.py convert DUMP [--out JSON]
         converts a dump of low work RAM (1 MB from 0x00200000)
     trace.py video VIDEO [--out JSON]
         reads a video of a Saturn's playback page (HW_LOG overlay: R from
         nothing at all; any recording that shows the whole screen at 30 fps
         or more, the picture anywhere in it), or a directory of its pictures.
-        A battery's (menu: Battery, Run) gives a trace for each split
+        A battery's (menu: A on Battery) gives a trace for each split
         (JSON_c1 ...) and a table of them side by side.
     trace.py open JSON
         opens JSON in ui.perfetto.dev in the default browser
@@ -639,7 +639,6 @@ def read_pages(path):
             continue
         index, frames, start, length, count, dropped = (int(v) for v in m.groups()[:6])
         tag = int(m.group(7) or 0)
-        totals[tag] = frames
         events = []
         for r in rows[1:]:
             for c in range(PAGE_CELLS):
@@ -650,6 +649,7 @@ def read_pages(path):
         if len(events) != count:
             torn += 1
             continue
+        totals[tag] = frames
         readings[(tag, index)][((start, length, count, dropped), tuple(events))] += 1
     pages = {k: c.most_common(1)[0][0] for k, c in readings.items()}
     print(f'{path}: {pictures} pictures, {len(pages)} frames read of {sum(totals.values())}, '
@@ -699,7 +699,7 @@ def page_trace(pages, out_path, title):
 
     lanes = {1: [], 2: [], 3: [], 4: [], 7: []}
     vdp1, shown, vblanks, windows = [], [], [], []
-    clamped = 0
+    opened = set()      # spans whose end the page couldn't hold
     for index in sorted(pages):
         (start, length, count, dropped), events = pages[index]
         windows.append((start, start + length, index, dropped))
@@ -707,7 +707,7 @@ def page_trace(pages, out_path, title):
             ident = by_letter[letter]
             name = ids[ident]
             if e == OPEN_END:
-                clamped += 1
+                opened.add((start + b, name))
             span = (start + b, start + e, name)
             if name == 'PLOT':
                 vdp1.append(span)
@@ -750,7 +750,7 @@ def page_trace(pages, out_path, title):
             x(tid, b, e, label(name), 'wait' if wait else 'work', 'terrible' if wait else None)
             inner = sum(s[1] - s[0] for s in nested if s[2] == depth + 1 and b <= s[0] and s[1] <= e)
             selfs[label(name)] += (e - b) - inner
-            if e - b < OPEN_END:
+            if (b, name) not in opened:
                 pieces[label(name)].append(e - b)
         if tid in (1, 3):
             top = [(b, e) for b, e, depth, _ in nested if depth == 0]
@@ -765,9 +765,9 @@ def page_trace(pages, out_path, title):
                     for b, e in uncovered(inside, b0, e0):
                         x(tid, b, e, 'wait for jobs', 'idle', 'bad')
                         selfs['(wait for jobs)'] += e - b
-    for b, e, _ in vdp1:
+    for b, e, name in vdp1:
         x(5, b, e, 'VDP1 draws', 'vdp1')
-        if e - b < OPEN_END - 100:
+        if (b, name) not in opened:
             pieces['VDP1 draws'].append(e - b)
     shown.sort()
     for b, e in zip(shown, shown[1:]):
@@ -796,7 +796,7 @@ def page_trace(pages, out_path, title):
 
     frames = len(windows)
     print(f'{out_path}: {window / 10:.1f} ms in {frames} frames ({frames * 10000 / window:.1f} fps), '
-          f'{sum(w[3] for w in windows)} events left out, {clamped} spans past 99.9 ms')
+          f'{sum(w[3] for w in windows)} events left out, {len(opened)} spans past 99.9 ms')
     return {'frames': frames, 'frame': window / frames / 10,
             'own': {k: v / frames / 10 for k, v in selfs.items()},
             'pieces': {k: sum(v) / len(v) / 10 for k, v in pieces.items()},

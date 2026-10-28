@@ -45,11 +45,12 @@ static const char* const kBenchNames[BENCH_COUNT] = {
 };
 static int32 gBenchHold;    // the way every page but the bench's runs
 
-// The battery (menu, Run): the same scene drawn with the work split between
-// the CPUs and the DSP each of these ways, BATTERY_SETTLE frames to settle,
-// then BATTERY_FRAMES traced and played back once (the header's C number is
-// the split's, from 1; tools/trace.py video reads the names here), then the
-// next. L or R stops it.
+// The battery (menu, A on Battery): the same scene drawn with the work split
+// between the CPUs and the DSP each of these ways, BATTERY_SETTLE frames to
+// settle, then BATTERY_FRAMES traced and played back once (the header's C
+// number is the split's, from 1; tools/trace.py video reads the names here),
+// then the next. The game gets no pad while it runs, so that Lara stands
+// exactly where she was; L or R stops it.
 struct Split
 {
     const char* name;
@@ -67,12 +68,11 @@ static const Split kSplits[] = {
 #define SPLITS          int32(sizeof(kSplits) / sizeof(kSplits[0]))
 #define BATTERY_SETTLE  30
 #define BATTERY_FRAMES  40
-static const char* const kBattery[] = { "Off", "Run" };
+static const char* const kBattery[] = { "A to start" };
 static int32 gBattery;          // the split running, from 1; 0 off
 static int32 gBatteryLeft;      // frames left settling, or recording
 static bool gBatteryRecording;
 static Split gBatterySaved;     // the menu's settings before it
-static void batteryStart();
 #endif
 static const char* const kShrink[] = { "Exact", "Fast" };
 static const char* const kLines[] = { "Fixed", "Turned" };
@@ -163,9 +163,9 @@ static const Option gOptions[] = {
     { "Trace", kTrace, TRACE_MODES,
         [] { return int32(traceMode()); },
         [](int32 v) { traceSetMode(v); } },
-    { "Battery", kBattery, 2,
-        [] { return int32(gBattery != 0); },
-        [](int32 v) { if (v) batteryStart(); } },
+    { "Battery", kBattery, 1,
+        [] { return 0; },
+        [](int32) {} },
 #endif
 };
 
@@ -330,6 +330,9 @@ void debugUpdate()
     if (gPage != was && gPage == PAGE_PLAYBACK) {
         playbackStart();
     }
+    if (gBattery) {
+        keys = 0;
+    }
     if (gPage == PAGE_MENU)
     {
         pad |= padButtons() & ~(PAD_START | PAD_L | PAD_R);
@@ -362,6 +365,13 @@ void debugUpdate()
         }
     }
 
+#ifdef HW_LOG
+    if ((pressed & PAD_A) && menuShown() && gCursor == OPTION_BATTERY)
+    {
+        batteryStart();
+        pressed &= ~PAD_A;
+    }
+#endif
     if (pressed & PAD_A) {
         step(OPTION_PALETTE, 1);
     }
