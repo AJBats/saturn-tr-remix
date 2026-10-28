@@ -50,9 +50,11 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import diet  # noqa: E402
 import sfx  # noqa: E402
 import trpsx  # noqa: E402
 import trsat  # noqa: E402
+from diet import TRIANGLE_ARRANGEMENT, TRIANGLE_VARIANT  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -277,6 +279,20 @@ class TextureTable:
             self.entries.append(self.entry(self.lvl.object_tex_data, self.obj_off, t, tile, attr, variant != 0))
         return self.index[key]
 
+    def custom(self, pixels, colors, w, h, attr):
+        """A texture made by the packer (tools/diet.py): its colour table
+        and 4-bit texels in a segment of their own, before the cache."""
+        if any(k[0] == "item" for k in self.index):
+            raise ValueError("custom textures go in before the inventory's")
+        seg = self.add_segment(struct.pack(">16H", *colors) + bytes(pixels))
+        self.cache_off = (len(self.blob) + 31) & ~31
+        if self.cache_off + len(self.lvl.item_tex_data) > 0x80000 - VRAM_TEX_BASE:
+            raise ValueError(f"textures need {self.cache_off + len(self.lvl.item_tex_data)} bytes of VDP1 VRAM")
+        self.sources.append((bytes(pixels), list(colors), seg, False))
+        base = VRAM_TEX_BASE + seg
+        self.entries.append([(base + 32) >> 3, base >> 3, ((w // 8) << 8) | h, attr, 0])
+        return len(self.entries) - 1
+
     def item(self, tex, attr):
         """Inventory item textures, in VRAM after the blob while the inventory is open."""
         key = ("item", tex, attr)
@@ -400,19 +416,15 @@ def remaster_palette(colors, counts, keep_first):
     return out
 
 
-# Textured mesh triangles, after the original's handlers (0x0603E6D0, one per
-# code in the top 3 bits of the face flags): each is drawn as the
-# parallelogram v0, v1, v1 + v2 - v0, with a texture variant whose end codes
-# stop every line at the triangle's far edge. Per code: the variant
-# (n = sub[n - 1]) and the corner arrangement packed with the indices,
-# bit 0: v0 at corner D (else A), bit 1: the other two corners swapped.
-TRIANGLE_VARIANT = {0: 1, 10: 1, 2: 2, 8: 2, 4: 3, 14: 3, 6: 4, 12: 4}
-TRIANGLE_ARRANGEMENT = {0: 0, 4: 0, 10: 2, 14: 2, 2: 1, 6: 1, 8: 3, 12: 3}
+# Textured mesh triangles: see diet.TRIANGLE_VARIANT.
 TRIANGLE_PLAIN = 0x80   # a textured triangle drawn without the parallelogram
 
 # Mesh.hasNormals: what follows a mesh's vertices
 MESH_LIGHT_NORMALS = 1  # an 8-bit normal (and a pad byte) per vertex
 MESH_LIGHT_SHADES = 2   # a shade per vertex (intensity >> 5), padded to even
+MESH_CARDS_SHIFT = 4    # the lighting byte's high nibble: the cards after the triangles
+MAX_MESHES = 512        # common.h
+CARD_MESH_BYTES = 2048  # render.cpp: a mesh with its cards turned into quads
 
 
 class Packer:
@@ -424,6 +436,7 @@ class Packer:
         self.textures = TextureTable(lvl)
         self.item_tex_index = {t["index"]: i for i, t in enumerate(lvl.item_textures)}
         self.inventory_meshes = set()
+        self.diet_textures = {}
         for m in lvl.models:
             name = next((n for n, v in ITEM.items() if v == m["type"]), "")
             if name.startswith("INV_") and lvl.item_textures:
@@ -579,6 +592,115 @@ class Packer:
                 arrangement = TRIANGLE_ARRANGEMENT[flags >> 12]
             out.pack("H4B", self.mesh_face_flags(index, ftype, flags), *idx, arrangement)
 
+    # --- the diet (tools/diet.py) -----------------------------------------
+
+    def diet(self):
+        """Simplified meshes to swap in for the originals: [(original index,
+        DietMesh)], and the nodes of the joints they hold still. DIET=0 in the
+        environment packs none."""
+        if os.environ.get("DIET") == "0":
+            return [], []
+        lvl = self.lvl
+        atlas = diet.Atlas(lvl)
+        pairs, nodes = [], []
+        for m in lvl.models:
+            if m["type"] == ITEM["WOLF"]:
+                meshes, frozen = diet.wolf_diet(lvl, m, self.meshes, atlas)
+                pairs += [(m["start"] + j, dm) for j, dm in sorted(meshes.items())]
+                nodes += [m["node"] // 4 + j - 1 for j in frozen]
+            elif m["type"] in (ITEM["BRIDGE_FLAT"], ITEM["BRIDGE_TILT_1"], ITEM["BRIDGE_TILT_2"]):
+                pairs.append((m["start"], diet.plank_diet(self.meshes[m["start"]], m["start"], atlas)))
+        for st in lvl.static_meshes:
+            if not any(p[0] == st["mesh"] for p in pairs):
+                dm = diet.rope_diet(self.meshes[st["mesh"]], st["mesh"])
+                if dm:
+                    pairs.append((st["mesh"], dm))
+        return pairs, nodes
+
+    def diet_texture(self, image, transparent):
+        """The face flags of a texture made for the diet, once per image."""
+        key = (image, transparent)
+        if key not in self.diet_textures:
+            pixels, colors = diet.quantize(*image)
+            index = self.textures.custom(pixels, colors, image[0], image[1], TEX_ATTR_AKILL if transparent else 0)
+            self.diet_textures[key] = ((FACE_TYPE_FTA if transparent else FACE_TYPE_FT) << FACE_TYPE_SHIFT) | index
+        return self.diet_textures[key]
+
+    def diet_mesh(self, dm):
+        """A DietMesh as write_mesh lays a mesh out, its cards after the
+        triangles (render.h MeshCard)."""
+        out = Out()
+        quads, tris = [], []
+        for f in dm.faces:
+            if isinstance(f, dict):
+                quads.append((self.diet_texture(f["image"], f["transp"]), f["c"]))
+                continue
+            ftype, idx, flags, src = f
+            packed = self.mesh_face_flags(src, ftype, flags)
+            if len(idx) == 4:
+                quads.append((packed, idx))
+            elif ftype == trsat.MESH_T_COLOR:
+                tris.append((packed, idx, 0))
+            else:
+                tris.append((packed, idx, TRIANGLE_ARRANGEMENT[flags >> 12]))
+        cards = []
+        for c in dm.cards:
+            if c["texture"][0] == "image":
+                packed = self.diet_texture(c["texture"][1], True)
+            else:
+                _, ftype, flags, src = c["texture"]
+                packed = self.mesh_face_flags(src, ftype, flags)
+            light = []
+            for end in (1, 2):
+                if c["light"][0] == "normals":
+                    n = c["light"][end]
+                    light.append([round(127 * q) & 0xFF for q in n] + [0] if n else [0, 0, 0, 0])
+                else:
+                    light.append([max(0, min(255, int(c["light"][end]) >> 5)), 0, 0, 0])
+            # p, q: across the line, a right-handed basis with it
+            a = c["axis"]
+            helper = min(([1, 0, 0], [0, 1, 0], [0, 0, 1]), key=lambda h: abs(diet.dot(h, a)))
+            p = diet.unit(diet.cross(a, helper))
+            q = diet.cross(a, p)
+            cards.append(([round(v) for v in c["e0"]], [round(v) for v in c["e1"]], round(c["half"]),
+                          [round(c["half"] * v) for v in p], [round(c["half"] * v) for v in q], packed,
+                          [round(127 * v) & 0xFF for v in p], [round(127 * v) & 0xFF for v in q], light))
+        if len(cards) > 15 or len(dm.vertices) + 4 * len(cards) > 255:
+            raise ValueError("a diet mesh with too many cards")
+        n = len(dm.vertices)
+        lighting = (MESH_LIGHT_NORMALS if dm.normals is not None else
+                    MESH_LIGHT_SHADES if dm.intensities is not None else 0)
+        intensity = sum(dm.intensities) // len(dm.intensities) if dm.intensities else 0
+        cx, cy, cz = dm.center
+        reach = [math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) for x, y, z in dm.vertices]
+        for e0, e1, half, *_ in cards:
+            for e in (e0, e1):
+                reach.append(math.sqrt((e[0] - cx) ** 2 + (e[1] - cy) ** 2 + (e[2] - cz) ** 2) + half)
+        bound = math.ceil(max(reach, default=0))
+        out.pack("4hH2B4h", cx, cy, cz, dm.radius, intensity, n, lighting | (len(cards) << MESH_CARDS_SHIFT),
+                 len(quads), len(tris), bound, 0)
+        for v in dm.vertices:
+            out.pack("3h", *v)
+        if lighting == MESH_LIGHT_NORMALS:
+            for q in dm.normals:
+                out.pack("4b", *(max(-127, min(127, c >> 7)) for c in q), 0)
+        elif lighting == MESH_LIGHT_SHADES:
+            out.pack(f"{n}B", *(max(0, min(255, i >> 5)) for i in dm.intensities))
+            if n & 1:
+                out.pack("B", 0)
+        for packed, idx in quads:
+            out.pack("H4B", packed, *idx)
+        for packed, idx, arrangement in tris:
+            out.pack("H4B", packed, *idx, arrangement)
+        for e0, e1, half, hp, hq, packed, p, q, light in cards:
+            out.pack("12hH4B4B4B4BH", *e0, *e1, *hp, *hq, packed, *p, 0, *q, 0, *light[0], *light[1], 0)
+        # as meshCards builds it: the vertices and quads the cards add
+        expanded = (20 + (n + 4 * len(cards)) * (6 + (4 if lighting == MESH_LIGHT_NORMALS else 1) + 1)
+                    + (len(quads) + len(cards) + len(tris)) * 6)
+        if expanded > CARD_MESH_BYTES:
+            raise ValueError(f"a diet mesh needs {expanded} bytes with its cards")
+        return bytes(out.b)
+
     # --- animation -------------------------------------------------------
 
     def frames_pc_order(self):
@@ -609,12 +731,15 @@ class Packer:
     def pack(self):
         lvl = self.lvl
         out = Out()
-        out.raw(bytes(172))     # header, written last
+        out.raw(bytes(176))     # header, written last
 
         rooms = self.write_rooms(out)
 
         floors = out.align4()
         out.pack(f"{len(lvl.floors)}H", *lvl.floors)
+
+        diet_pairs, diet_nodes = self.diet()
+        diet_meshes = [(index, self.diet_mesh(dm)) for index, dm in diet_pairs]
 
         mesh_base = out.align4()
         mesh_offsets = []
@@ -624,6 +749,14 @@ class Packer:
                 written[src_offset] = out.align4() - mesh_base
                 self.write_mesh(out, i, mesh)
             mesh_offsets.append(written[src_offset])
+        diet_swaps = []
+        for index, data in diet_meshes:
+            diet_swaps.append((index, len(mesh_offsets)))
+            mesh_offsets.append(out.align4() - mesh_base)
+            out.raw(data)
+        if len(mesh_offsets) > MAX_MESHES:
+            raise ValueError(f"{len(mesh_offsets)} meshes with the diet's")
+        self.mesh_bytes = out.align4() - mesh_base
 
         mesh_offsets_pos = out.align4()
         out.pack(f"{len(mesh_offsets)}i", *mesh_offsets)
@@ -744,17 +877,26 @@ class Packer:
         self.sfx, offsets = self.sounds.build()
         out.pack(f"{len(offsets)}I", *offsets)
 
+        # the diet: (original, simplified) mesh pairs, then the nodes held still
+        diet_table = out.align4()
+        out.pack("H", len(diet_swaps))
+        for a, b in diet_swaps:
+            out.pack("2H", a, b)
+        out.pack("H", len(diet_nodes))
+        out.pack(f"{len(diet_nodes)}H", *diet_nodes)
+        self.diet_swaps = diet_swaps
+
         header = struct.pack(">I14H", 0x53415431,     # 'SAT1'
-            0, len(lvl.rooms), len(lvl.models), len(lvl.mesh_offsets), len(lvl.static_meshes),
+            0, len(lvl.rooms), len(lvl.models), len(mesh_offsets), len(lvl.static_meshes),
             len(lvl.sprite_sequences), len(lvl.sound_sources), len(lvl.boxes), textures_count,
             len(lvl.sprite_textures), len(lvl.items), len(lvl.cameras), len(lvl.camera_frames), len(offsets) - 1)
-        header += struct.pack(">35I",
+        header += struct.pack(">36I",
             palette, 0, 0, rooms, floors, mesh_base, mesh_offsets_pos, anims, states, ranges,
             commands, nodes, frames, models, static_meshes, textures, sprites, sprite_sequences,
             cameras, sound_sources, boxes, overlaps, *zones, anim_tex, items,
-            camera_frames, sound_map, sound_infos, 0, sound_offsets)
-        assert len(header) == 172
-        out.b[0:172] = header
+            camera_frames, sound_map, sound_infos, 0, sound_offsets, diet_table)
+        assert len(header) == 176
+        out.b[0:176] = header
         return bytes(out.b)
 
 
@@ -948,6 +1090,7 @@ def main():
         f.write(struct.pack(">I", len(palettes)))
         for lut, colors in palettes:
             f.write(struct.pack(">I16H", lut, *colors))
+    print(f"{name}: {len(packer.diet_swaps)} diet meshes, {packer.mesh_bytes} bytes of meshes")
     print(f"{name}: {len(data)} bytes -> {out_path}, {len(packer.textures.blob)} bytes -> {tex_path}, "
           f"{len(lvl.room_tex_sub)} bytes -> {sub_path}, {len(packer.sfx)} bytes -> {sfx_path}, "
           f"{len(packer.textures.entries)} textures, {len(palettes)} colour tables remastered")

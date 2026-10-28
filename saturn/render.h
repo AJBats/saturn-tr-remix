@@ -251,6 +251,7 @@ enum BenchMode
     BENCH_CLEAR,        // the scene's frames cleared too, as frames without rooms are
     BENCH_VOID_COLOR,   // VDP2's back colour magenta: shows where void fills (transparent) drew
     BENCH_SPLIT_SHADE,  // meshes shaded by normals in a pass of their own after the transform (meshxform.s)
+    BENCH_DIET,         // the simplified meshes swapped in (renderDietSync)
     BENCH_PROFILE,      // as Base, sampling where the master's time goes
     BENCH_COUNT
 };
@@ -403,6 +404,49 @@ struct MeshXform
 };
 
 extern "C" void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst, MeshXform* xf);
+
+// A card (tools/diet.py), after a mesh's triangles: a quad from e0 to e1
+// which the game turns about that line to face the camera (render.cpp
+// meshCards). p and q (127 long) and the line make a right-handed basis; hp
+// and hq are p and q half the card's width long. Each end is lit by a normal,
+// 127 long and leant out towards the camera as a box corner's is (none: by
+// the side facing the camera), or has a shade (light[0] as a uint8) when the
+// mesh has shades.
+struct MeshCard
+{
+    vec3s e0;
+    vec3s e1;
+    vec3s hp;
+    vec3s hq;
+    uint16 flags;       // its face's: the texture
+    int8 p[4];          // and pad
+    int8 q[4];
+    int8 light0[4];     // e0's
+    int8 light1[4];     // e1's
+    uint16 pad;
+};
+
+// What a mesh draws, its cards counted as quads.
+X_INLINE int32 meshCardCount(const Mesh* mesh)
+{
+    return mesh->hasNormals >> MESH_CARDS_SHIFT;
+}
+
+X_INLINE int32 meshVertexCount(const Mesh* mesh)
+{
+    return mesh->vCount + 4 * meshCardCount(mesh);
+}
+
+X_INLINE int32 meshFaceCount(const Mesh* mesh)
+{
+    return mesh->rCount + mesh->tCount + meshCardCount(mesh);
+}
+
+// The simplified meshes the packer put beside the originals (tools/diet.py)
+// swapped in while the debug menu's Diet or the bench way Diet asks for them;
+// settled before each frame's drawing.
+extern int32 gDiet;
+void renderDietSync();
 
 // A mesh, or an item's shadow, for the slave to draw (rooms.cpp).
 struct MeshJob

@@ -1019,7 +1019,8 @@ enum NodeFlag {
     NODE_FLAG_PUSH = (1 << 1),
     NODE_FLAG_ROTX = (1 << 2),
     NODE_FLAG_ROTY = (1 << 3),
-    NODE_FLAG_ROTZ = (1 << 4)
+    NODE_FLAG_ROTZ = (1 << 4),
+    NODE_FLAG_FROZEN = (1 << 5)     // the joint stays put on its parent: no matrix, no mesh (render.cpp renderDietSync)
 };
 
 struct ModelNode {
@@ -1039,11 +1040,14 @@ struct Model {
 
 // What follows a mesh's vertices (tools/pack_level.py): nothing, a normal per
 // vertex (int8 x, y, z, pad; 127 long), or a shade per vertex (intensity >> 5,
-// padded to an even count).
+// padded to an even count). The lighting byte's high nibble counts the cards
+// that follow the triangles (render.h MeshCard).
 enum MeshLighting {
     MESH_LIGHT_FLAT,
     MESH_LIGHT_NORMALS,
-    MESH_LIGHT_SHADES
+    MESH_LIGHT_SHADES,
+    MESH_LIGHT_MASK = 15,
+    MESH_CARDS_SHIFT = 4
 };
 
 struct Mesh {
@@ -2224,6 +2228,7 @@ struct Level
     const SoundInfo* soundsInfo;
     const uint8* soundData;
     const int32* soundOffsets;
+    const uint16* diet;     // simplified meshes and the joints they hold still (render.cpp renderDietSync)
 };
 
 // used by enemies
@@ -2978,6 +2983,7 @@ void renderSwap();
 void renderLevelInit();
 void renderLevelFree();
 #endif
+void renderDietSync();      // simplified meshes in or out, before a frame's drawing (render.cpp)
 
 void setViewport(const RectMinMax &vp);
 void setPaletteIndex(int32 index);

@@ -279,6 +279,19 @@ void drawFlash(const ExtraInfoLara::Arm::Flash &flash)
     matrixPop();
 }
 
+// A joint held still (NODE_FLAG_FROZEN) stays on its parent's matrix, its
+// mesh merged into the parent's: the extra angles meant for it go unused.
+X_INLINE const int16* skipExtraAngles(const ModelNode* node, const int16* extraAngles)
+{
+    if (extraAngles)
+    {
+        if (node->flags & NODE_FLAG_ROTY) extraAngles++;
+        if (node->flags & NODE_FLAG_ROTX) extraAngles++;
+        if (node->flags & NODE_FLAG_ROTZ) extraAngles++;
+    }
+    return extraAngles;
+}
+
 void drawNodes(const ItemObj* item, const AnimFrame* frameA)
 {
     const Model* model = level.models + item->type;
@@ -304,17 +317,24 @@ void drawNodes(const ItemObj* item, const AnimFrame* frameA)
         if (node->flags & NODE_FLAG_POP)  matrixPop();
         if (node->flags & NODE_FLAG_PUSH) matrixPush();
 
-        matrixFrame(&node->pos, angles);
-
-        if (extraAngles)
+        if (node->flags & NODE_FLAG_FROZEN)
         {
-            if (node->flags & NODE_FLAG_ROTY) matrixRotateY(*extraAngles++);
-            if (node->flags & NODE_FLAG_ROTX) matrixRotateX(*extraAngles++);
-            if (node->flags & NODE_FLAG_ROTZ) matrixRotateZ(*extraAngles++);
+            extraAngles = skipExtraAngles(node, extraAngles);
         }
+        else
+        {
+            matrixFrame(&node->pos, angles);
 
-        if (visibleMask & 1) {
-            drawMesh(meshIndex);
+            if (extraAngles)
+            {
+                if (node->flags & NODE_FLAG_ROTY) matrixRotateY(*extraAngles++);
+                if (node->flags & NODE_FLAG_ROTX) matrixRotateX(*extraAngles++);
+                if (node->flags & NODE_FLAG_ROTZ) matrixRotateZ(*extraAngles++);
+            }
+
+            if (visibleMask & 1) {
+                drawMesh(meshIndex);
+            }
         }
 
         meshCount--;
@@ -362,17 +382,24 @@ void drawNodesLerp(const ItemObj* item, const AnimFrame* frameA, const AnimFrame
         if (node->flags & NODE_FLAG_POP)  matrixPop();
         if (node->flags & NODE_FLAG_PUSH) matrixPush();
 
-        matrixFrameLerp(&node->pos, anglesA, anglesB, frameDelta, frameRate);
-
-        if (extraAngles)
+        if (node->flags & NODE_FLAG_FROZEN)
         {
-            if (node->flags & NODE_FLAG_ROTY) matrixRotateY(*extraAngles++);
-            if (node->flags & NODE_FLAG_ROTX) matrixRotateX(*extraAngles++);
-            if (node->flags & NODE_FLAG_ROTZ) matrixRotateZ(*extraAngles++);
+            extraAngles = skipExtraAngles(node, extraAngles);
         }
+        else
+        {
+            matrixFrameLerp(&node->pos, anglesA, anglesB, frameDelta, frameRate);
 
-        if (visibleMask & 1) {
-            drawMesh(meshIndex);
+            if (extraAngles)
+            {
+                if (node->flags & NODE_FLAG_ROTY) matrixRotateY(*extraAngles++);
+                if (node->flags & NODE_FLAG_ROTX) matrixRotateX(*extraAngles++);
+                if (node->flags & NODE_FLAG_ROTZ) matrixRotateZ(*extraAngles++);
+            }
+
+            if (visibleMask & 1) {
+                drawMesh(meshIndex);
+            }
         }
 
         meshCount--;
@@ -866,6 +893,7 @@ void drawRoom(Room* room)
 
 void drawRooms(Camera* camera)
 {
+    renderDietSync();
     traceBegin(TRACE_MASTER, TR_VIEW);
     RectMinMax vp = viewport;
 

@@ -42,7 +42,7 @@ static const char* const kItems[] = { "Either CPU", "Master only" };
 #ifdef HW_LOG
 static const char* const kBenchNames[BENCH_COUNT] = {
     "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master meshes",
-    "C meshes", "Clear", "Void colour", "Split shade", "Profile"
+    "C meshes", "Clear", "Void colour", "Split shade", "Diet", "Profile"
 };
 static int32 gBenchHold;    // the way every page but the bench's runs
 
@@ -150,6 +150,9 @@ static const Option gOptions[] = {
     { "Items", kItems, 2,
         [] { return int32(gMasterItems); },
         [](int32 v) { gMasterItems = v; } },
+    { "Diet", kOnOff, 2,
+        [] { return gDiet; },
+        [](int32 v) { gDiet = v; } },
     { "Polygon hunt", kHunt, 1,
         [] { return 0; },
         [](int32) {} },
@@ -167,7 +170,8 @@ static const Option gOptions[] = {
 };
 
 enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_MULTIPLY, OPTION_GREY, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
-       OPTION_PALETTE, OPTION_SPLIT, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD, OPTION_ITEMS, OPTION_HUNT,
+       OPTION_PALETTE, OPTION_SPLIT, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD, OPTION_ITEMS, OPTION_DIET,
+       OPTION_HUNT,
 #ifdef HW_LOG
        OPTION_WAY, OPTION_TRACE, OPTION_BATTERY,
 #endif

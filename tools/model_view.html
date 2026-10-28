@@ -82,6 +82,7 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
     <h2>Geometry</h2>
     <label><input type="checkbox" id="cards"><span>Lower legs as cards<span class="sub">12 boxes (8 corners, 6 faces each) become flat polygons that turn round the bone to face the camera</span></span></label>
     <label><input type="checkbox" id="tailCards"><span>Tail as cards<span class="sub">its 3 boxes the same way</span></span></label>
+    <label><input type="checkbox" id="earCards"><span>Ears as cards<span class="sub">upright, textured as seen from the front</span></span></label>
     <div class="row"><select id="cardLight"><option value="ends">Card lit by its box's corner normals, each end</option><option value="view">Card lit as if facing the camera</option></select></div>
     <div class="row"><select id="cardLook"><option value="baked">Card texture: the segment from the side</option><option value="flat">Card texture: none, one colour</option></select></div>
     <span class="sub">The card textures, 8 texels across, a texel every 5 units along (the wolf's own textures' density):</span>
@@ -414,7 +415,8 @@ function buildWolf(simplified) {
   const b = { lit: new Builder(), card: new Builder() };
   const legCards = simplified && ui('cards').checked, tailCards = simplified && ui('tailCards').checked;
   const flat = ui('cardLook').value === 'flat';
-  const isCard = (j) => W.cards[j] && (W.tailCards.includes(j) ? tailCards : legCards);
+  const earCards = simplified && ui('earCards').checked;
+  const isCard = (j) => W.cards[j] && (W.tailCards.includes(j) ? tailCards : W.earCards.includes(j) ? earCards : legCards);
   let sent = 0, verts = 0, faces = 0, nCards = 0;
   const meshOwner = new Array(NJ).fill(false);   // kept joints that set up a mesh
   const keptOf = (j) => { while (simplified && merged.has(j)) j = W.parents[j]; return j; };
@@ -584,7 +586,7 @@ ui('speed').oninput = (e) => wolfState.speed = +e.target.value;
 ui('hold').onchange = (e) => { refR = e.target.value === 'typical' ? typicalR : standR; dirty = true; };
 ui('anim').onchange = (e) => { wolfState.anim = +e.target.value; wolfState.time = 0; dirty = true; };
 ui('frame').oninput = (e) => { const a = W.anims[wolfState.anim]; wolfState.time = +e.target.value / 100 * animLength(a); dirty = true; };
-['cards', 'tailCards', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
+['cards', 'tailCards', 'earCards', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
 controls.addEventListener('change', () => { dirty = true; syncDist(); });
 
 function resize() {
@@ -693,7 +695,7 @@ function fromHash() {
   const tokens = decodeURIComponent(location.hash.slice(1)).split(',').filter(Boolean);
   const kv = Object.fromEntries(tokens.map(t => t.split('=')).map(([k, v]) => [k, v === undefined ? true : v]));
   if (kv.bridge) document.querySelector('[data-tab=bridge]').click(); else wolfClose();
-  for (const id of ['cards', 'tailCards', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
+  for (const id of ['cards', 'tailCards', 'earCards', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
     if (id in kv) ui(id).checked = kv[id] !== '0';
   document.querySelectorAll('[data-merge]').forEach(c => { if (kv[c.dataset.merge]) { c.checked = true; c.dispatchEvent(new Event('change')); } });
   if (kv.anim) { ui('anim').value = kv.anim; wolfState.anim = +kv.anim; }

@@ -882,8 +882,8 @@ static void modelSize(const ItemObj* item, int32 &vertices, int32 &faces)
         for (int32 i = 0; i < model.count; i++)
         {
             const Mesh* mesh = level.meshes[model.start + i];
-            vertices += mesh->vCount;
-            faces += mesh->rCount + mesh->tCount;
+            vertices += meshVertexCount(mesh);
+            faces += meshFaceCount(mesh);
         }
     }
 }
