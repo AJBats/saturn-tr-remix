@@ -50,6 +50,7 @@ WOLF_JOINTS = ["hips", "chest", "neck", "head", "ear R", "ear L", "jaw",
 # joints frozen to the standing pose when merged into their parent
 WOLF_MERGES = {"ears": [4, 5], "jaw": [6], "paws": [10, 14, 18, 22], "tail": [24, 25], "chest": [1]}
 WOLF_CARDS = [8, 9, 10, 12, 13, 14, 16, 17, 18, 20, 21, 22]
+WOLF_TAIL_CARDS = [23, 24, 25]
 BRIDGE_ROOMS = (13, 14)
 CONTEXT_ROOMS = (13, 14, 16)
 
@@ -207,7 +208,9 @@ def model_json(lvl, meshes, atlas, type_, states=None):
 
 def card_of(mesh, atlas):
     """A box-like mesh as a card: the middle of each end of its long side,
-    its thickness across, and its faces' mean colour by area."""
+    its thickness across, its faces' mean colour by area, and a texture:
+    the mesh seen from the side (along x, or z when x is its length),
+    shaded a little across so the flat card reads as round."""
     xs = list(zip(*mesh.vertices))
     lo, hi = [min(a) for a in xs], [max(a) for a in xs]
     ext = [h - l for l, h in zip(lo, hi)]
@@ -229,7 +232,89 @@ def card_of(mesh, atlas):
             c = atlas.mean(atlas.object(tex, 0, False, False))
         total += a
         colour = [q + a * k for q, k in zip(colour, c)]
-    return {"e0": e0, "e1": e1, "w": width, "col": [round(q / max(total, 1)) for q in colour]}
+    view = 0 if axis != 0 else 2
+    across = 3 - axis - view
+    tex = bake_side(mesh, atlas, view, across, axis, lo, hi)
+    return {"e0": e0, "e1": e1, "w": width, "col": [round(q / max(total, 1)) for q in colour], "t": tex}
+
+
+CARD_UNITS = 5      # model units a texel, about the wolf's own textures
+
+
+def bake_side(mesh, atlas, view, across, along, lo, hi):
+    """The mesh's faces as seen from +view, orthographic: an image 8 texels
+    across and a texel every CARD_UNITS along, row 0 at the low end."""
+    w = 8
+    h = max(4, round((hi[along] - lo[along]) / CARD_UNITS))
+    faces = []
+    for ftype, idx, flags in mesh.faces:
+        P = [mesh.vertices[i] for i in idx]
+        if ftype in COLOUR_TYPES:
+            faces.append((P[:3] if len(P) == 3 else P, None, rgb(flags), False))
+        elif len(idx) == 4:
+            faces.append((P, atlas.object(flags >> 4, 0, ftype in TRANSP_TYPES, False), None, ftype in FLIP_TYPES))
+        else:
+            code = flags >> 12
+            v0, v1, v2 = idx
+            arrangement = TRIANGLE_ARRANGEMENT[code]
+            if arrangement & 2:
+                v1, v2 = v2, v1
+            p0, p1, p2 = (mesh.vertices[i] for i in (v0, v1, v2))
+            x = [b + c - a for a, b, c in zip(p0, p1, p2)]
+            quad = [p1, x, p2, p0] if arrangement & 1 else [p0, p1, x, p2]
+            faces.append((quad, atlas.object(flags & 0x0FFF, TRIANGLE_VARIANT[code], ftype in TRANSP_TYPES, True), None, False))
+    out = bytearray()
+    for j in range(h):
+        a = lo[along] + (j + 0.5) / h * (hi[along] - lo[along])
+        for i in range(w):
+            c = lo[across] + (i + 0.5) / w * (hi[across] - lo[across])
+            best = None
+            for P, img, col, flip in faces:
+                hit = cover(P, across, along, c, a)
+                if not hit:
+                    continue
+                depth, u, v = hit
+                if best and depth <= best[0]:
+                    continue
+                if img is None:
+                    best = (depth, col)
+                    continue
+                tw, th, px = atlas.images[img]
+                tu = 1 - u if flip else u
+                k = (min(th - 1, int(v * th)) * tw + min(tw - 1, int(tu * tw))) * 4
+                if px[k + 3]:
+                    best = (depth, list(px[k:k + 3]))
+            if best is None:
+                out += bytes(4)
+                continue
+            shade = 0.8 + 0.3 * math.sin(math.pi * (i + 0.5) / w)
+            out += bytes(min(255, round(q * shade)) for q in best[1]) + bytes([255])
+    return atlas.add_image(w, h, bytes(out))
+
+
+def cover(P, across, along, c, a):
+    """Where the point (c, a) falls on face P seen along the third axis: the
+    face's depth there and its texture coordinates (A at 0,0, B at 1,0, D at
+    0,1, each half of the quad its own triangle), or None."""
+    view = 3 - across - along
+    tris = [((0, 1, 2), ((0, 0), (1, 0), (1, 1)))]
+    if len(P) == 4:
+        tris.append(((0, 2, 3), ((0, 0), (1, 1), (0, 1))))
+    for (i0, i1, i2), uv in tris:
+        x0, y0 = P[i0][across], P[i0][along]
+        x1, y1 = P[i1][across], P[i1][along]
+        x2, y2 = P[i2][across], P[i2][along]
+        d = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+        if abs(d) < 1e-9:
+            continue
+        l0 = ((y1 - y2) * (c - x2) + (x2 - x1) * (a - y2)) / d
+        l1 = ((y2 - y0) * (c - x2) + (x0 - x2) * (a - y2)) / d
+        l2 = 1 - l0 - l1
+        if min(l0, l1, l2) < -1e-6:
+            continue
+        depth = l0 * P[i0][view] + l1 * P[i1][view] + l2 * P[i2][view]
+        return depth, l0 * uv[0][0] + l1 * uv[1][0] + l2 * uv[2][0], l0 * uv[0][1] + l1 * uv[1][1] + l2 * uv[2][1]
+    return None
 
 
 def sub(a, b): return [x - y for x, y in zip(a, b)]
@@ -406,7 +491,8 @@ def main():
     stop = next(i for i, a in enumerate(wolf["anims"]) if a["state"] == "STOP" and len(a["kf"]) == 1)
     wolf["ref"] = wolf["anims"][stop]["kf"][0]["r"]
     wolf["cards"] = {str(j): card_of(meshes[next(m for m in lvl.models if m["type"] == ITEM["WOLF"])["start"] + j], atlas)
-                     for j in WOLF_CARDS}
+                     for j in WOLF_CARDS + WOLF_TAIL_CARDS}
+    wolf["tailCards"] = WOLF_TAIL_CARDS
 
     # the bridges: plank items with their model's first frame, rope statics
     planks, plank_meshes = [], {}

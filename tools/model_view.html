@@ -81,6 +81,10 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
     <div id="merges"></div>
     <h2>Geometry</h2>
     <label><input type="checkbox" id="cards"><span>Lower legs as cards<span class="sub">12 boxes (8 corners, 6 faces each) become flat polygons that turn round the bone to face the camera</span></span></label>
+    <label><input type="checkbox" id="tailCards"><span>Tail as cards<span class="sub">its 3 boxes the same way</span></span></label>
+    <div class="row"><select id="cardLook"><option value="baked">Card texture: the segment from the side</option><option value="flat">Card texture: none, one colour</option></select></div>
+    <span class="sub">The card textures, 8 texels across, a texel every 5 units along (the wolf's own textures' density):</span>
+    <canvas id="cardTex" height="1" style="width:100%;image-rendering:pixelated;margin-top:4px"></canvas>
     <h2>View</h2>
     <div class="row"><button class="small" id="wolfClose">Close up</button><button class="small" id="wolfLedge">As far as from the ledge</button></div>
   </div>
@@ -163,7 +167,19 @@ const img = new Image();
 const atlasTex = new THREE.Texture(img);
 atlasTex.flipY = false; atlasTex.generateMipmaps = false;
 atlasTex.magFilter = atlasTex.minFilter = THREE.NearestFilter;
-img.onload = () => { atlasTex.needsUpdate = true; };
+img.onload = () => { atlasTex.needsUpdate = true; drawCardTextures(); };
+// the wolf's card textures side by side in the panel, four times their size
+function drawCardTextures() {
+  const cv = document.getElementById('cardTex'), keys = Object.keys(D.wolf.cards);
+  const ts = keys.map(k => rects[D.wolf.cards[k].t]);
+  const S = 4, gap = 3;
+  cv.width = ts.reduce((n, r) => n + (r[2] + gap) * S, 0);
+  cv.height = Math.max(...ts.map(r => r[3])) * S;
+  const g = cv.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  let x = 0;
+  for (const r of ts) { g.drawImage(img, r[0], r[1], r[2], r[3], x, 0, r[2] * S, r[3] * S); x += (r[2] + gap) * S; }
+}
 img.src = 'data:image/png;base64,' + D.atlas.png;
 
 // ---- triangles out of faces, each face a grid so the texture lands on the quad as VDP1 puts it;
@@ -378,15 +394,17 @@ function buildWolf(simplified) {
   const M = wolfPose(simplified);
   const cam = camTR();
   const b = { lit: new Builder(), card: new Builder() };
-  const cards = simplified && ui('cards').checked;
+  const legCards = simplified && ui('cards').checked, tailCards = simplified && ui('tailCards').checked;
+  const flat = ui('cardLook').value === 'flat';
+  const isCard = (j) => W.cards[j] && (W.tailCards.includes(j) ? tailCards : legCards);
   let sent = 0, verts = 0, faces = 0, nCards = 0;
   const meshOwner = new Array(NJ).fill(false);   // kept joints that set up a mesh
   const keptOf = (j) => { while (simplified && merged.has(j)) j = W.parents[j]; return j; };
   for (let j = 0; j < NJ; j++) {
     const mesh = W.meshes[j];
-    if (cards && W.cards[j]) {
+    if (isCard(j)) {
       const c = W.cards[j];
-      card(apply(M[j], c.e0), apply(M[j], c.e1), c.w, cam, c.col.map(x => x / 255), 0, true, b.card, true);
+      card(apply(M[j], c.e0), apply(M[j], c.e1), c.w, cam, flat ? c.col.map(x => x / 255) : WHITE, flat ? 0 : c.t, false, b.card, true);
       nCards++; sent++; faces++; verts += 2;
       continue;
     }
@@ -545,7 +563,7 @@ ui('speed').oninput = (e) => wolfState.speed = +e.target.value;
 ui('hold').onchange = (e) => { refR = e.target.value === 'typical' ? typicalR : standR; dirty = true; };
 ui('anim').onchange = (e) => { wolfState.anim = +e.target.value; wolfState.time = 0; dirty = true; };
 ui('frame').oninput = (e) => { const a = W.anims[wolfState.anim]; wolfState.time = +e.target.value / 100 * animLength(a); dirty = true; };
-['cards', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
+['cards', 'tailCards', 'cardLook', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
 controls.addEventListener('change', () => { dirty = true; syncDist(); });
 
 function resize() {
@@ -654,7 +672,7 @@ function fromHash() {
   const tokens = decodeURIComponent(location.hash.slice(1)).split(',').filter(Boolean);
   const kv = Object.fromEntries(tokens.map(t => t.split('=')).map(([k, v]) => [k, v === undefined ? true : v]));
   if (kv.bridge) document.querySelector('[data-tab=bridge]').click(); else wolfClose();
-  for (const id of ['cards', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
+  for (const id of ['cards', 'tailCards', 'cardLook', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
     if (id in kv) ui(id).checked = kv[id] !== '0';
   document.querySelectorAll('[data-merge]').forEach(c => { if (kv[c.dataset.merge]) { c.checked = true; c.dispatchEvent(new Event('change')); } });
   if (kv.anim) { ui('anim').value = kv.anim; wolfState.anim = +kv.anim; }
