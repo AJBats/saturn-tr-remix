@@ -775,6 +775,20 @@ static void benchUpdate()
     static uint32 frames, vdp1, cpu, draw, slave;
     static uint32 split[SPLIT_COUNT];
     static uint32 dspVertices, roomVertices;
+    static uint32 generation;
+
+    // the trace's memory set up afresh: the profile counts again from empty
+    // blocks (emptied again here of the samples since), and the rows kept
+    // there are composed again
+    if (generation != traceGeneration())
+    {
+        generation = traceGeneration();
+        if (uint16* profile = traceProfileBlocks()) {
+            memset(profile, 0, PROFILE_BLOCKS * sizeof(uint16));
+        }
+        gProfileSamples = gProfileOther = 0;
+        gBenchChanged = true;
+    }
 
     // held on the menu's Way while the scene's rows show; a fresh window after
     if (gPage != PAGE_BENCH)
@@ -998,8 +1012,7 @@ static void syncRows(int32 row)
     if (!text)
         return;
     TraceRow* rows = (TraceRow*)(text + SYNC_TEXT_AT);
-    static bool composed;
-    if (!composed)
+    if (!rows[0][0])    // once for each trace area: a fresh one is empty
     {
         const SyncResults &s = gSync;
         char line[64];
@@ -1021,7 +1034,6 @@ static void syncRows(int32 row)
         p = appendShare(p, "tas2 ", s.tasCycles);
         appendShare(p, "pet2 ", s.petersonCycles);
         strncpy(rows[2], line, OVERLAY_COLUMNS);
-        composed = true;
     }
     for (int32 i = 0; i < SYNC_ROWS; i++) {
         overlayRow(row + i, rows[i]);

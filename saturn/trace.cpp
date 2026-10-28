@@ -173,6 +173,7 @@ void traceInit()
 }
 
 static const void* gLevelEnd;   // traceLevel's
+static uint32_t gGeneration;    // traceGeneration's
 
 void traceLevel(const void* end)
 {
@@ -213,6 +214,7 @@ void traceLevel(const void* end)
     gHeader->magic = TRACE_MAGIC;
     crashLog("TRACE", kRingSize[0] >> shift);
     gArea = area;
+    gGeneration++;
     traceSetMode(gMode);
 }
 
@@ -237,6 +239,11 @@ uint16_t* traceProfileBlocks()
 char* traceText()
 {
     return gArea ? gArea->text : nullptr;
+}
+
+uint32_t traceGeneration()
+{
+    return gGeneration;
 }
 
 static const char kLetters[] = TRACE_LETTERS;

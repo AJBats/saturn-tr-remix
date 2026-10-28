@@ -169,6 +169,10 @@ uint16_t* traceProfileBlocks();
 #define TRACE_TEXT_BYTES 1616
 char* traceText();
 
+// Counts the times traceLevel has set that memory up afresh: the profile's
+// blocks and the text are empty again after each.
+uint32_t traceGeneration();
+
 #else
 
 inline void traceInit() {}
