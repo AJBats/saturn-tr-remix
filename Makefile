@@ -172,7 +172,7 @@ $(BENCH)/gen/%_dsp.h: dspbench/%.dsp tools/dspasm.py
 	@mkdir -p $(@D)
 	$(PY) tools/dspasm.py $< $@ $*_dsp
 
-$(BENCH)/gen/%.dsp: dspbench/gen_%.py
+$(BENCH)/gen/%.dsp: dspbench/gen_%.py dspbench/dspsched.py
 	@mkdir -p $(@D)
 	$(PY) $< $@
 

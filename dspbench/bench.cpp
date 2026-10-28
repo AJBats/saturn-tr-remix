@@ -7,6 +7,8 @@
 // and the DSP cost each other on the bus.
 // Page 2, the arithmetic (page_arithmetic.cpp): what the DSP's work on a point
 // costs, by the way it is written, against the SH-2's.
+// Page 3, streaming (page_stream.cpp): points through the DSP from memory and
+// back, its transfers waited for or overlapped, and what they cost the CPUs.
 
 #include "bench.h"
 #include "dsp.h"
@@ -81,7 +83,7 @@ static void waitVblank()
     while (!(VDP2_TVSTAT & TVSTAT_VBLANK));
 }
 
-static Page gPages[2];
+static Page gPages[3];
 
 int main()
 {
@@ -91,6 +93,7 @@ int main()
 
     pageBus(gPages[0]);
     pageArithmetic(gPages[1]);
+    pageStream(gPages[2]);
 
     while (1)
     {

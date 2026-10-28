@@ -23,6 +23,7 @@ char* pad(char* line, char* p, int32_t column);             // spaces up to colu
 // The pages' tests.
 void pageBus(Page& page);
 void pageArithmetic(Page& page);
+void pageStream(Page& page);
 
 // The CPUs' loads (kernels.s).
 extern "C" void kReadLines(const void* p, uint32_t n);
