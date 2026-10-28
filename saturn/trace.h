@@ -23,7 +23,7 @@ enum TraceId
     TR_TICK_WAIT = 1,   // waiting for the next 30 Hz tick
     TR_UPDATE,          // game logic, sound, input
     TR_DEBUG,           // the overlay's own work (debugUpdate)
-    TR_LOAD,            // the menu's Extra load: the master spinning
+    TR_LOAD,            // the menu's Extra load: the master spinning (debugExtraLoad)
     TR_RENDER,          // gameRender: the stages below, the rest its own
     TR_VIEW,            // the camera's room, the rooms its portals show
     TR_QUEUE,           // the visible rooms queued for the slave
@@ -45,6 +45,7 @@ enum TraceId
     TR_FACES,           // a room's faces (arg: its job)
     TR_SLAVE_MESH,      // a static mesh's MeshJob (arg: its index)
     TR_SLAVE_FLUSH,     // its share of the commands
+    TR_SLAVE_ITEM,      // an item drawn here (arg: its type)
     // the SCU DSP, as the slave sees it start and finish
     TR_DSP_RUN = 40,    // a run of room chunks (arg: its job)
     // the master's interrupts

@@ -53,11 +53,18 @@ static RoomJob gJobs[MAX_ROOM_JOBS];
 static uint32 gJobCount;
 static uint8 gStaticRooms[(MAX_ROOMS + 7) / 8];    // rooms whose statics went with them
 static volatile uint16 gStaticTaken[MAX_ROOM_JOBS];  // a job's statics claimed so far, uncached
-static volatile uint8 gStaticLock;                  // gStaticTaken's (tasClaim)
+static volatile uint8 gClaimLock;                   // gStaticTaken's and gItemClaims' (tasClaim)
+
+// Items are claimed one by one, by the master as it reaches them in its
+// rooms (claimItem) and by the slave when the rooms and their statics leave
+// it nothing else: an item holds this frame's mark once taken. Uncached.
+static volatile uint8 gItemClaims[MAX_ITEMS];
+static uint8 gClaimFrame;           // 1 to 255; the marks are cleared as it wraps
 static Matrix gViewMatrix;          // the camera's, for the statics'
 
 // Slave side: statics it had no room for (job << 8 | static), for the master
 #define MAX_STATIC_SKIPS 32
+#define NO_STATIC       0xFFFFFFFF  // gStaticAt while no static is being drawn
 static uint16 gStaticSkipped[MAX_STATIC_SKIPS];
 static uint32 gStaticSkips;
 static uint32 gStaticAt;            // the static being drawn, as gStaticSkipped holds it
@@ -781,6 +788,9 @@ static void roomStatic(int32 index, const RoomJob &job, int32 i)
     }
     drawRoomStatic(job.room->data.meshes + i, (info->x << 8) - gCameraViewPos.x, -gCameraViewPos.y,
                    (info->z << 8) - gCameraViewPos.z);
+    if (slave) {
+        gStaticAt = NO_STATIC;
+    }
     matrixPop();
     uint32 t1 = timerTicks();
     if (slave)
@@ -799,12 +809,12 @@ static void roomStatic(int32 index, const RoomJob &job, int32 i)
 static int32 claimStatic(int32 index)
 {
     int32 count = uncached(gJobs + index)->room->info->meshesCount;
-    while (!tasClaim(uncached(&gStaticLock)));
+    while (!tasClaim(uncached(&gClaimLock)));
     int32 n = *uncached(gStaticTaken + index);
     if (n < count) {
         *uncached(gStaticTaken + index) = n + 1;
     }
-    *uncached(&gStaticLock) = 0;
+    *uncached(&gClaimLock) = 0;
     return n < count ? n : -1;
 }
 
@@ -824,28 +834,134 @@ static int32 claimStatics(uint32 queued)
     return -1;
 }
 
-void roomsStaticMesh(const Mesh* mesh)
+// A mesh job set up here, drawn into the meshes' list at the top of the
+// slave's vertices; false without room.
+static bool slaveJob(const MeshJob &job)
 {
-    int32 count = mesh->vCount;
-    if (count <= 0)
-        return;
-    if (gTop - count < gBottom || gFaceList.next + mesh->rCount + mesh->tCount > gFaceList.end)
-    {
-        if (gStaticSkips < MAX_STATIC_SKIPS) {
-            gStaticSkipped[gStaticSkips++] = gStaticAt;
-        }
-        return;
-    }
-
-    MeshJob job;
-    meshJobSetup(job, mesh);
+    int32 count = job.vCount;
+    if (gTop - count < gBottom || gFaceList.next + job.fCount > gFaceList.end)
+        return false;
     gTop -= count;
     gMeshList.next = gFaceList.next;
     meshJobDraw(job, gVertices + gTop, gMeshList);
     gFaceList.next = gMeshList.next;
     gSlaveStats.vertices += count;
-    gSlaveStats.meshes++;
     gStaticsDrawn = true;
+    return true;
+}
+
+void roomsSlaveMesh(const Mesh* mesh)
+{
+    if (mesh->vCount <= 0)
+        return;
+    MeshJob job;
+    meshJobSetup(job, mesh);
+    if (slaveJob(job))
+    {
+        gSlaveStats.meshes++;
+    }
+    else if (gStaticAt != NO_STATIC && gStaticSkips < MAX_STATIC_SKIPS)
+    {
+        gStaticSkipped[gStaticSkips++] = gStaticAt;   // the master draws it
+    }
+}
+
+void roomsSlaveShadow(int32 x, int32 z, int32 sx, int32 sz)
+{
+    MeshJob job;
+    meshJobShadow(job, x, z, sx, sz);
+    slaveJob(job);
+}
+
+// The vertices and faces an item's model may draw, its shadow's with them.
+static void modelSize(const ItemObj* item, int32 &vertices, int32 &faces)
+{
+    const Model &model = level.models[item->type];
+    vertices = 8;
+    faces = 3;
+    for (int32 i = 0; i < model.count; i++)
+    {
+        const Mesh* mesh = level.meshes[model.start + i];
+        vertices += mesh->vCount;
+        faces += mesh->rCount + mesh->tCount;
+    }
+}
+
+bool claimItem(const ItemObj* item)
+{
+    if (!cpuState()->slave && gJobCount == 0)
+        return true;    // no rooms for the slave this frame (the inventory's frames)
+    int32 i = item - items;
+    while (!tasClaim(uncached(&gClaimLock)));
+    bool mine = uncached(gItemClaims)[i] != gClaimFrame;
+    if (mine) {
+        uncached(gItemClaims)[i] = gClaimFrame;
+    }
+    *uncached(&gClaimLock) = 0;
+    return mine;
+}
+
+// The slave's: the next item it can draw, from the last room queued back,
+// claimed, or NULL. Items with meshes only: the master draws the sprites,
+// and Lara before any.
+static int32 gItemJob;              // the room it takes items from
+static const ItemObj* gItemNext;    // and the next of them
+
+#define ITEMS_UNSTARTED (-2)
+
+bool gMasterItems;
+
+static const ItemObj* claimSlaveItem(int32 &index)
+{
+    if (gMasterItems)
+        return NULL;
+    if (gItemJob == ITEMS_UNSTARTED)
+    {
+        gItemJob = *uncached(&gJobsQueued);     // every room is queued by now
+        gItemNext = NULL;
+    }
+    while (gItemJob >= 0)
+    {
+        const ItemObj* item = gItemNext;
+        if (!item)
+        {
+            if (--gItemJob < 0)
+                break;
+            gItemNext = uncached(gJobs + gItemJob)->room->firstItem;
+            continue;
+        }
+        gItemNext = item->nextItem;
+
+        if ((item->flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INVISIBLE || item->type == ITEM_LARA ||
+            level.models[item->type].count <= 0)
+            continue;
+        int32 vertices, faces;
+        modelSize(item, vertices, faces);
+        if (gTop - vertices < gBottom || gFaceList.next + faces > gFaceList.end)
+            continue;
+        if (claimItem(item))
+        {
+            index = gItemJob;
+            return item;
+        }
+    }
+    return NULL;
+}
+
+static void slaveItem(int32 index, const ItemObj* item)
+{
+    uint32 t0 = timerTicks();
+    const RoomJob &job = *uncached(gJobs + index);
+    matrixPush();
+    *gMatrixPtr = gViewMatrix;
+    setViewport(job.clip);
+    setPaletteIndex(ROOM_FLAG_WATER(job.room->info->flags) ? 1 : 0);
+    const_cast<ItemObj*>(item)->draw();
+    matrixPop();
+    uint32 t1 = timerTicks();
+    gSlaveStats.meshTicks += (t1 - t0) & 0xFFFF;
+    traceBeginAt(TRACE_SLAVE, t0, TR_SLAVE_ITEM, item->type);
+    traceEndAt(TRACE_SLAVE, t1, TR_SLAVE_ITEM, item->type);
 }
 
 static void renderMeshJob(int32 index, const MeshJob &job)
@@ -911,6 +1027,8 @@ static void roomBatch()
     gStaticSkips = 0;
     gStaticsDrawn = false;
     gStaticNext = 0;
+    gStaticAt = NO_STATIC;
+    gItemJob = ITEMS_UNSTARTED;
     gDspRoom = -1;
 
     uint32 meshesDone = 0;
@@ -946,6 +1064,17 @@ static void roomBatch()
             {
                 gSlaveStats.idleTicks += (timerTicks() - idleStart) & 0xFFFF;
                 roomStatic(s >> 8, *uncached(gJobs + (s >> 8)), s & 0xFF);
+                idleStart = timerTicks();
+                continue;
+            }
+            // then items the master hasn't reached, once every room is queued
+            // (so that the last room is known) and the DSP's run is done
+            int32 at;
+            const ItemObj* item = *uncached(&gRoomsComplete) && gDspRoom < 0 ? claimSlaveItem(at) : NULL;
+            if (item)
+            {
+                gSlaveStats.idleTicks += (timerTicks() - idleStart) & 0xFFFF;
+                slaveItem(at, item);
                 idleStart = timerTicks();
                 continue;
             }
@@ -1123,6 +1252,11 @@ void roomsQueue(const Room* room)
     if (gJobCount == 0)
     {
         gViewMatrix = gMatrixPtr[-1];   // queueRoom pushed the room's offset on the camera's
+        if (++gClaimFrame == 0)
+        {
+            memset((void*)uncached(gItemClaims), 0, sizeof(gItemClaims));
+            gClaimFrame = 1;
+        }
         slaveRun(roomBatch);
     }
 

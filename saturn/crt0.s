@@ -46,7 +46,7 @@ stack_top:  .long __stack_top
 ccr:        .long 0xFFFFFE92
 bss_start:  .long __bss_start
 bss_end:    .long __bss_end
-cpu_state:  .long _gCpuStates
+cpu_state:  .long _gMasterState
 init_start: .long __init_array_start
 init_end:   .long __init_array_end
 main:       .long _main

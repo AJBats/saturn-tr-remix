@@ -6,8 +6,6 @@ vec3i gCameraViewPos;
 
 EWRAM_DATA Sphere gSpheres[2][MAX_SPHERES]; // EWRAM 1k
 
-const FloorData* gLastFloorData;
-FloorData gLastFloorSlant;
 EWRAM_DATA TargetInfo tinfo;
 
 EWRAM_DATA Settings gSettings;

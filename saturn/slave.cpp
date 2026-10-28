@@ -47,14 +47,13 @@ void cachePurge()
 
 #define FRT_TCR     (*(volatile uint8_t*)0xFFFFFE16)
 
-extern "C" CpuState gCpuStates[2];  // the master's, the slave's
-CpuState gCpuStates[2];
-static_assert(sizeof(CpuState) == 432 && offsetof(CpuState, matrixPtr) == 36,
-              "irq.s and meshxform.s repeat the layout");
+extern "C" CpuState gMasterState, gSlaveState;   // crt0.s and irq.s point GBR at them
+CpuState gMasterState, gSlaveState;
+static_assert(offsetof(CpuState, matrixPtr) == 36, "meshxform.s repeats the layout");
 
 void cpuInit(bool slave)
 {
-    CpuState &s = gCpuStates[slave];
+    CpuState &s = slave ? gSlaveState : gMasterState;
     s.slave = slave;
     s.matrixPtr = s.matrixStack;
 }

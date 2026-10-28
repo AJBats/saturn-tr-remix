@@ -247,10 +247,10 @@ void debugSyncTest()
 
 bool debugSyncKept()
 {
-    extern CpuState gCpuStates[2];
+    extern CpuState gMasterState;
     CpuState* g;
     asm volatile("stc gbr, %0" : "=r"(g));
-    return g == gCpuStates;
+    return g == &gMasterState;
 }
 
 #endif

@@ -77,8 +77,10 @@ SECTIONS
 
     __stack_top = ORIGIN(HWRAM) + LENGTH(HWRAM);
 
-    /* the master's stack grows down from the top into what bss leaves */
-    ASSERT(__stack_top - __bss_end >= 0x2000, "less than 8 KB of high work RAM left for the master's stack")
+    /* the master's stack grows down from the top into what bss leaves: it
+       went 780 bytes deep through boot, a level's load, play and the
+       inventory (Mednafen, 2026-10-27, HW_LOG build) */
+    ASSERT(__stack_top - __bss_end >= 0x1000, "less than 4 KB of high work RAM left for the master's stack")
 
     /DISCARD/ : { *(.comment) *(.eh_frame) *(.eh_frame_hdr) }
 }

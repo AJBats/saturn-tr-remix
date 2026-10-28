@@ -5,7 +5,6 @@
 #include "camera.h"
 #include "room.h"
 
-EWRAM_DATA AABBs tmpBox;
 
 #define GRAVITY      6
 

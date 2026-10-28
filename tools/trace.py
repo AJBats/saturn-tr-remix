@@ -367,17 +367,20 @@ def capture(cue, frame, keys, name, fps_window=0):
         send(f'run_to_frame {frame}', 'done run_to_frame')
         dump = os.path.join(ROOT, 'build', name + '.bin')
         part = os.path.join(ipc, 'part.bin')
-        with open(dump, 'wb') as out:
-            for at in range(LWRAM, LWRAM + LWRAM_BYTES, 0x10000):
-                if os.path.exists(part):
-                    os.remove(part)
-                send(f'dump_mem_bin {at:x} 10000 {part.replace(os.sep, "/")}', 'dump_mem_bin', 30)
-                for _ in range(50):
-                    if os.path.exists(part) and os.path.getsize(part) == 0x10000:
-                        break
-                    time.sleep(0.05)
-                with open(part, 'rb') as f:
-                    out.write(f.read())
+        # low work RAM (the trace), and high (build/NAME_hwram.bin: stack
+        # depth and the like)
+        for base, path in ((LWRAM, dump), (0x06000000, os.path.join(ROOT, 'build', name + '_hwram.bin'))):
+            with open(path, 'wb') as out:
+                for at in range(base, base + LWRAM_BYTES, 0x10000):
+                    if os.path.exists(part):
+                        os.remove(part)
+                    send(f'dump_mem_bin {at:x} 10000 {part.replace(os.sep, "/")}', 'dump_mem_bin', 30)
+                    for _ in range(50):
+                        if os.path.exists(part) and os.path.getsize(part) == 0x10000:
+                            break
+                        time.sleep(0.05)
+                    with open(part, 'rb') as f:
+                        out.write(f.read())
         send('frame_advance 1', 'done frame_advance', 30)
         shot = os.path.join(ROOT, 'build', name + '.png')
         if os.path.exists(shot):

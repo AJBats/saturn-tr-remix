@@ -6,6 +6,7 @@
 
 #include "render.h"
 #include "detail.h"
+#include "debug.h"
 #include "crash.h"
 #include "hw.h"
 #include "palettes.h"
@@ -1769,6 +1770,9 @@ void renderRoomsQueued()
 {
     roomsAllQueued();
     renderPoll();
+#ifdef HW_LOG
+    debugExtraLoad();
+#endif
 }
 
 // A mesh's arrays, which follow it.
@@ -1890,6 +1894,11 @@ static void renderMeshHere(const Mesh* mesh)
 
 void renderMesh(const Mesh* mesh)
 {
+    if (cpuState()->slave)
+    {
+        roomsSlaveMesh(mesh);
+        return;
+    }
     if (gBenchMode == BENCH_ALL_MESHES && meshToSlave(mesh))
         return;
     renderMeshHere(mesh);
@@ -1901,7 +1910,7 @@ void renderStaticMesh(const Mesh* mesh)
 {
     if (cpuState()->slave)
     {
-        roomsStaticMesh(mesh);
+        roomsSlaveMesh(mesh);
         return;
     }
     traceDetailBegin(TR_MESH);
@@ -1942,6 +1951,12 @@ static void shadowVertices(MeshVertex* v, int32 x, int32 z, int32 sx, int32 sz)
 
 void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
 {
+    if (cpuState()->slave)
+    {
+        roomsSlaveShadow(x, z, sx, sz);
+        return;
+    }
+
     // to the slave with the items' meshes, as it draws its faces in a bucket
     // before this CPU's: an item's there would be darkened
     if (gBenchMode == BENCH_ALL_MESHES && !gFlatDist && roomsQueueShadow(x, z, sx, sz))
@@ -2030,8 +2045,15 @@ void meshJobRedraw(const MeshJob &job)
 
 // A sprite facing the camera at a world position; the matrix is the view
 // rotation.
+// The slave draws only items with meshes (roomsSlaveItem), which draw none.
 void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index)
 {
+    if (cpuState()->slave)
+    {
+        ASSERT(false);
+        return;
+    }
+
     if (gVerticesBase - gVertices + 2 > MASTER_VERTICES || gFaceList.next - gFaces + 1 > MAX_FACES)
     {
         ASSERT(false);

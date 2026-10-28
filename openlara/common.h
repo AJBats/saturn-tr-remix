@@ -2712,6 +2712,9 @@ struct CpuState
     uint32 meshFaceFlags;   // render.cpp
     bool slave;             // this CPU is the slave
     Matrix matrixStack[MAX_MATRICES];
+    const FloorData* lastFloorData; // Sector::getFloor's, for the caller
+    FloorData lastFloorSlant;
+    AABBs tmpBox;           // ItemObj::getBoundingBox's
 };
 
 // GBR changes only at boot: the compiler may reuse a read.
@@ -2728,13 +2731,14 @@ inline CpuState* cpuState()
 #define viewport        (cpuState()->viewport)
 #define gMatrixPtr      (cpuState()->matrixPtr)
 #define gMatrixStack    (cpuState()->matrixStack)
+#define gLastFloorData  (cpuState()->lastFloorData)
+#define gLastFloorSlant (cpuState()->lastFloorSlant)
+#define tmpBox          (cpuState()->tmpBox)
 extern int16 gViewRotation[9];
 extern int32 gRandTable[MAX_RAND_TABLE];
 extern int32 gCaustics[MAX_CAUSTICS];
 extern int32 gCausticsFrame;
 
-extern const FloorData* gLastFloorData;
-extern FloorData gLastFloorSlant;
 
 extern Room rooms[MAX_ROOMS];
 extern ItemObj items[MAX_ITEMS];
@@ -2983,6 +2987,7 @@ void clear();
 void renderRoom(Room* room);
 void renderRoomsQueued();
 bool roomStaticsQueued(const Room* room);   // its static meshes go with it (to the slave)
+bool claimItem(const ItemObj* item);        // this CPU draws it: the other hasn't taken it
 void drawRoomStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz);
 void renderMesh(const Mesh* mesh);
 void renderStaticMesh(const Mesh* mesh);

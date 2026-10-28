@@ -35,6 +35,7 @@ static const char* const kViews[] = { "Normal", "Texture cache", "Texel size", "
 static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kTrace[] = { "Off", "Stages", "Detail" };
 static const char* const kUpload[] = { "Deferred", "Blocking" };
+static const char* const kItems[] = { "Either CPU", "Master only" };
 static const char* const kLoad[] = { "None", "5%", "10%", "15%", "20%" };
 #ifdef HW_LOG
 static const char* const kBenchNames[BENCH_COUNT] = {
@@ -120,6 +121,9 @@ static const Option gOptions[] = {
     { "Upload", kUpload, 2,
         [] { return int32(gBlockingUpload); },
         [](int32 v) { gBlockingUpload = v; } },
+    { "Items", kItems, 2,
+        [] { return int32(gMasterItems); },
+        [](int32 v) { gMasterItems = v; } },
 #ifdef HW_LOG
     { "Way", kBenchNames, BENCH_COUNT,
         [] { return gBenchHold; },
@@ -134,7 +138,7 @@ static const Option gOptions[] = {
 };
 
 enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_MULTIPLY, OPTION_GREY, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
-       OPTION_PALETTE, OPTION_SPLIT, OPTION_DEPTH, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD,
+       OPTION_PALETTE, OPTION_SPLIT, OPTION_DEPTH, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD, OPTION_ITEMS,
 #ifdef HW_LOG
        OPTION_WAY, OPTION_LOAD, OPTION_TRACE,
 #endif
@@ -248,20 +252,23 @@ void debugUpdate()
     traceTally(gPage == PAGE_TRACE);
 #endif
     traceEnd(TRACE_MASTER, TR_DEBUG);
+}
 
 #ifdef HW_LOG
-    // CPU work a frame that isn't there yet, to see how the frame paces with
-    // the master over its budget
-    if (gExtraLoad)
-    {
-        uint32 start = timerTicks();
-        traceBeginAt(TRACE_MASTER, start, TR_LOAD);
-        uint32 ticks = gExtraLoad * 5 * 7457 / 100;
-        while (((timerTicks() - start) & 0xFFFF) < ticks);
-        traceEnd(TRACE_MASTER, TR_LOAD);
-    }
-#endif
+// Drawing work a frame that isn't there yet, on the master once the rooms are
+// queued (where its own drawing is), to see how the frame paces and shares
+// out with the master over its budget.
+void debugExtraLoad()
+{
+    if (!gExtraLoad)
+        return;
+    uint32 start = timerTicks();
+    traceBeginAt(TRACE_MASTER, start, TR_LOAD);
+    uint32 ticks = gExtraLoad * 5 * 7457 / 100;
+    while (((timerTicks() - start) & 0xFFFF) < ticks);
+    traceEnd(TRACE_MASTER, TR_LOAD);
 }
+#endif
 
 static char* append(char* p, const char* text)
 {

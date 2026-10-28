@@ -440,9 +440,10 @@ void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors);
 // Queues a room for the slave, with the current matrix and viewport.
 void roomsQueue(const Room* room);
 
-// On the slave, a room's static mesh (draw.h drawRoomStatic), as the room's
-// own faces were drawn: set up with this CPU's matrix and lighting.
-void roomsStaticMesh(const Mesh* mesh);
+// On the slave, a mesh (a room's static, an item's) and a shadow, as the
+// rooms' own faces are drawn: set up with this CPU's matrix and lighting.
+void roomsSlaveMesh(const Mesh* mesh);
+void roomsSlaveShadow(int32 x, int32 z, int32 sx, int32 sz);
 
 // Queues a mesh for the slave, set up with the current matrix and lighting;
 // false when the master had better draw it (render.cpp hands it rooms'
@@ -464,6 +465,7 @@ Face** roomsFinish(RoomStats &stats, const uint16* &groups);
 // renderPoll between pieces of work (meshes, stages) for that.
 extern bool gListPending;
 extern bool gBlockingUpload;    // debug option: flush waits and uploads at once, as it used to
+extern bool gMasterItems;       // debug option: the slave takes no items (rooms.cpp)
 void renderUploadReady();
 inline void renderPoll()
 {

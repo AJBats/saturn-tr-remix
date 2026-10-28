@@ -846,7 +846,7 @@ void drawRoomObjects(Room* room)
     ItemObj* item = room->firstItem;
     while (item)
     {
-        if ((item->flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE)
+        if ((item->flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE && claimItem(item))
         {
             traceDetailBegin(TR_ITEM, item->type);
             item->draw();

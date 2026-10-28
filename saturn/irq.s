@@ -134,9 +134,7 @@ _slaveEntry:
     .align 2
 1:  .long 0xF0
 2:  .long _slaveMain
-3:  .long _gCpuStates + CPU_STATE_SIZE
-
-    .set CPU_STATE_SIZE, 432    ! sizeof(CpuState), checked in slave.cpp
+3:  .long _gSlaveState
 
 ! Slave interrupts that may arrive before slaveEntry masks them.
     .global _slaveIgnoreIrq
