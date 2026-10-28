@@ -48,7 +48,9 @@ def main():
     with open(out, 'w', newline='\n') as f:
         f.write(f'// Made from {src} by tools/depth_hints.py\n')
         f.write('static const DepthHint gDepthHints[] = {\n')
-        f.write('\n'.join(hints) + ('\n' if hints else ''))
+        # with none, one for no level: an empty table lets GCC prove the
+        # active hints null and turn their uses into traps, which need abort
+        f.write('\n'.join(hints) + '\n' if hints else '    { 0xFF },\n')
         f.write('};\n')
 
 

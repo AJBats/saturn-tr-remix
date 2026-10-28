@@ -1087,10 +1087,13 @@ bool roomsFaceDepth(int32 room, int32 index, bool triangle, int32 &depth)
         const RoomVertex* c = rv + corners[2] / sizeof(Vertex);
         int32 e1x = b->x - a->x, e1y = b->y - a->y, e1z = b->z - a->z;
         int32 e2x = c->x - a->x, e2y = c->y - a->y, e2z = c->z - a->z;
+        // the camera's offset in units of 32: the products, under 2^17 * 2^12,
+        // sum within 32 bits
         const int32* cam = gJobs[j].camera;
-        int64_t side = int64_t(e1y * e2z - e1z * e2y) * (cam[0] - (a->x << 8)) +
-                     int64_t(e1z * e2x - e1x * e2z) * (cam[1] - (a->y << 8)) +
-                     int64_t(e1x * e2y - e1y * e2x) * (cam[2] - (a->z << 8));
+        int32 dx = asr16<5>(X_CLAMP(cam[0] - (a->x << 8), -(1 << 17), 1 << 17));
+        int32 dy = asr16<5>(X_CLAMP(cam[1] - (a->y << 8), -(1 << 17), 1 << 17));
+        int32 dz = asr16<5>(X_CLAMP(cam[2] - (a->z << 8), -(1 << 17), 1 << 17));
+        int32 side = (e1y * e2z - e1z * e2y) * dx + (e1z * e2x - e1x * e2z) * dy + (e1x * e2y - e1y * e2x) * dz;
         if (side >= 0)
             return false;
 

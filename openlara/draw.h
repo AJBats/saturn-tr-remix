@@ -858,7 +858,7 @@ void drawRooms(Camera* camera)
     setSceneClear(checkWall(camera->view.room, camera->view.pos.x, camera->view.pos.y + camera->shift, camera->view.pos.z));
 
     Room** visRoom = camera->view.room->getVisibleRooms();
-    depthHintsBegin();
+    depthHintsBegin(visRoom);
 
     // every room for the slave first, so that it never waits on the objects
     for (Room** room = visRoom; *room; room++) {

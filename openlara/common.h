@@ -2956,10 +2956,11 @@ void setCameraWater(bool water);
 void setSceneClear(bool clear);
 void clear();
 void renderRoom(Room* room);
-// Draw order hints (saturn/depth_hints.txt): begun for where Lara stands; the
-// object drawn next is an item (DEPTH_HINT_ITEM 0, its index) or a room's
-// static (DEPTH_HINT_STATIC 1, its room and index there).
-void depthHintsBegin();
+// Draw order hints (saturn/depth_hints.txt): begun for where Lara stands and
+// the rooms drawn (a NULL-ended list); the object drawn next is an item
+// (DEPTH_HINT_ITEM 0, its index) or a room's static (DEPTH_HINT_STATIC 1, its
+// room and index there).
+void depthHintsBegin(Room* const* visible);
 void depthHintsEnd();
 void depthHintObject(int32 kind, int32 owner, int32 index);
 void renderRoomsQueued();
