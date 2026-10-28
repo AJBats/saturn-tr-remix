@@ -1,15 +1,22 @@
 # Draw order hints, made into build/gen/depth_hints.h by tools/depth_hints.py.
 #
-# While Lara stands in a block of a room, a thing's faces sort that many
-# ordering table buckets farther (positive) or nearer (negative): for the few
-# places where the depth sort shows something through what hides it. A block
-# is a square of the world's 1024-unit grid, x >> 10 and z >> 10 (the debug
-# overlay's position row gives x and z). A thing is an item (its index in the
-# level) or a room's static mesh (room:index). Find a hint's buckets with
-# tools/depthhints.py on captures from the block, facing several ways.
+# For the few places where the depth sort shows something through what hides
+# it, while Lara stands in a block of a room. A block is a square of the
+# world's 1024-unit grid, x >> 10 and z >> 10. A thing is an item (its index in
+# the level) or a room's static mesh (room:index). Then either
 #
-# level       room  block x z  thing          buckets
+#   buckets                     its faces sort that many ordering table buckets
+#                               farther (positive) or nearer (negative)
+#   mN qN behind room R qN      one face, of its mesh N (from its first), a quad
+#                               (q) or triangle (t), is drawn before a face of
+#                               room R, whatever the view
+#
+# The polygon hunt (debug menu) reads off all of these: Lara's room and block,
+# the face drawn "over" and the one "under" it.
+#
+# level       room  block x z  thing          hint
 
-# the tilted plank (BRIDGE_TILT) under the edge of room 13's floor by the bridge,
-# from the pit below that edge: 619 -> 95 wrong pixels, 10 other directions no worse
-LVL_TR1_1     13    24 55      item 14        +8
+# the tilted plank (BRIDGE_TILT) through room 13's floor by the bridge,
+# from the pit below that edge (hunt: q3 560 px facing 96A3, q2 480 px facing A240)
+LVL_TR1_1     13    24 55      item 14        m0 q3  behind room 13 q101
+LVL_TR1_1     13    24 55      item 14        m0 q2  behind room 13 q101

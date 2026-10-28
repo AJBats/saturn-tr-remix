@@ -199,13 +199,12 @@ static_assert(offsetof(FaceList, ot) == 8 && offsetof(FaceList, groups) == 12 &&
 extern "C" void faceAddMeshQuadsAsm(const MeshQuad* polys, int32 count, MeshFaces* mf);
 extern "C" void faceAddMeshTrianglesAsm(const MeshTriangle* polys, int32 count, MeshFaces* mf);
 
-// A mesh face at depth, moved by a draw order hint's buckets (renderMeshHinted).
-static Face* faceAddHinted(int32 depth, int32 buckets)
-{
-    return faceAdd(gFaceList, X_MIN(X_MAX(depth + buckets, 0), OT_SIZE - 2));
-}
+// A mesh face of an object with a draw order hint (renderMeshHinted), its
+// polygon a quad's index or a triangle's | DEPTH_HINT_TRIANGLE.
+#define DEPTH_HINT_TRIANGLE 0x8000
+static Face* faceAddHinted(int32 depth, uint32 polygon);
 
-void faceAddMeshQuads(const MeshQuad* polys, int32 count, int32 buckets = 0)
+void faceAddMeshQuads(const MeshQuad* polys, int32 count, bool hinted = false)
 {
     const Vertex* v = gVerticesBase;
 
@@ -236,7 +235,7 @@ void faceAddMeshQuads(const MeshQuad* polys, int32 count, int32 buckets = 0)
 
         int32 depth = uint32(v0->z + v1->z + v2->z + v3->z) >> (2 + OT_SHIFT);
 
-        Face* f = faceAddHinted(depth, buckets);
+        Face* f = hinted ? faceAddHinted(depth, i) : faceAdd(gFaceList, depth);
         f->flags = flags;
         f->indices[0] = cornerOffset(v0, gVertices);
         f->indices[1] = cornerOffset(v1, gVertices);
@@ -249,7 +248,7 @@ void faceAddMeshQuads(const MeshQuad* polys, int32 count, int32 buckets = 0)
 // x + y - v0, y, with a texture whose end codes stop each line at the
 // triangle's far edge. The fourth byte of the indices says where v0 goes
 // (bit 0: corner D, else A) and whether x, y are v2, v1 (bit 1).
-void faceAddMeshTriangles(const MeshTriangle* polys, int32 count, int32 buckets = 0)
+void faceAddMeshTriangles(const MeshTriangle* polys, int32 count, bool hinted = false)
 {
     const Vertex* v = gVerticesBase;
 
@@ -293,7 +292,7 @@ void faceAddMeshTriangles(const MeshTriangle* polys, int32 count, int32 buckets 
 
         int32 depth = uint32(v0->z + v1->z + v2->z + v2->z) >> (2 + OT_SHIFT);
 
-        Face* f = faceAddHinted(depth, buckets);
+        Face* f = hinted ? faceAddHinted(depth, i | DEPTH_HINT_TRIANGLE) : faceAdd(gFaceList, depth);
         f->flags = flags;
         f->indices[0] = cornerOffset(v0, gVertices);
         f->indices[1] = cornerOffset(v1, gVertices);
@@ -1345,6 +1344,10 @@ static void clearCommand(bool clear)
     w[7] = 0;
 }
 
+// The faces a draw order hint holds back, into the ordering table once the
+// rooms' are placed.
+static void depthHintsPlace();
+
 void flush_c()
 {
     uint32 start = timerTicks();
@@ -1353,6 +1356,7 @@ void flush_c()
     const uint16* roomGroups = NULL;
     Face** roomOT = roomsFinish(rooms, roomGroups);
     gStats.slaveWaitTicks = (timerTicks() - start) & 0xFFFF;
+    depthHintsPlace();
 
     gStats.vertices = (gVerticesBase - gVertices) + rooms.vertices;
     gStats.roomVertices = rooms.vertices;
@@ -1716,7 +1720,8 @@ void clear()
 }
 
 // Draw order hints (saturn/depth_hints.txt): while Lara stands in a block of
-// a room, a thing's faces sort that many buckets farther or nearer.
+// a room, a thing's faces sort that many buckets farther or nearer, or one of
+// its faces is drawn before a room's face.
 enum DepthHintKind { DEPTH_HINT_ITEM, DEPTH_HINT_STATIC };
 
 struct DepthHint
@@ -1727,7 +1732,11 @@ struct DepthHint
     uint8 kind;             // DepthHintKind
     uint8 owner;            // a static's room
     uint16 index;           // the item's, or the static's in its room
-    int16 buckets;
+    int16 buckets;          // the thing's faces moved by; 0 for one face:
+    uint8 node;             // ... of the thing's mesh, from its first
+    uint8 behindRoom;       // ... drawn before a face of this room
+    uint16 polygon;         // ... the mesh's quad, or triangle | DEPTH_HINT_TRIANGLE
+    uint16 behind;          // ... and the room's
 };
 
 #include "depth_hints.h"
@@ -1735,12 +1744,72 @@ struct DepthHint
 #define MAX_ACTIVE_HINTS 8
 static const DepthHint* gActiveHints[MAX_ACTIVE_HINTS];
 static int32 gActiveHintCount;
-static int32 gHintBuckets;      // the object being drawn's, 0 for none
+static bool gHinted;            // the object being drawn has a hint:
+static int32 gHintKind, gHintOwner, gHintIndex;     // ... it
+static int32 gHintNode;         // ... its mesh being drawn, from its first
+static int32 gHintBuckets;      // ... its faces moved by
+
+// Faces drawn before a room's, held out of the ordering table until the
+// slave has placed the rooms' (depthHintsPlace).
+struct HeldFace
+{
+    Face* face;
+    int32 depth;
+    const DepthHint* hint;
+};
+
+#define MAX_HELD_FACES 8
+static HeldFace gHeld[MAX_HELD_FACES];
+static int32 gHeldCount;
+
+static bool hintMatches(const DepthHint &h)
+{
+    return h.kind == gHintKind && h.index == gHintIndex && (h.kind == DEPTH_HINT_ITEM || h.owner == gHintOwner);
+}
+
+static Face* faceAddHinted(int32 depth, uint32 polygon)
+{
+    for (int32 i = 0; i < gActiveHintCount; i++)
+    {
+        const DepthHint &h = *gActiveHints[i];
+        if (!h.buckets && h.node == gHintNode && h.polygon == polygon && hintMatches(h) &&
+            gHeldCount < MAX_HELD_FACES)
+        {
+            HeldFace &held = gHeld[gHeldCount++];
+            held.face = gFaceList.next++;
+            held.depth = depth;
+            held.hint = &h;
+            return held.face;
+        }
+    }
+    return faceAdd(gFaceList, X_MIN(X_MAX(depth + gHintBuckets, 0), OT_SIZE - 2));
+}
+
+static void depthHintsPlace()
+{
+    for (int32 i = 0; i < gHeldCount; i++)
+    {
+        const HeldFace &held = gHeld[i];
+        const DepthHint &h = *held.hint;
+        int32 depth = held.depth;
+        int32 behind;
+        if (roomsFaceDepth(h.behindRoom, h.behind & ~DEPTH_HINT_TRIANGLE, (h.behind & DEPTH_HINT_TRIANGLE) != 0, behind)) {
+            depth = X_MAX(depth, behind + 1);     // a farther bucket: flush draws it first
+        }
+        depth = X_MIN(depth, OT_SIZE - 2);
+        held.face->next = gFaceList.ot[depth];
+        gFaceList.ot[depth] = held.face;
+        gFaceList.groups[depth >> OT_GROUP_SHIFT]++;
+    }
+    gHeldCount = 0;
+}
 
 void depthHintsBegin()
 {
     gActiveHintCount = 0;
+    gHinted = false;
     gHintBuckets = 0;
+    gHeldCount = 0;
     const ItemObj* lara = (const ItemObj*)(const void*)players[0];
     if (!lara)
         return;
@@ -1760,6 +1829,7 @@ void depthHintsBegin()
 void depthHintsEnd()
 {
     gActiveHintCount = 0;
+    gHinted = false;
     gHintBuckets = 0;
 }
 
@@ -1768,12 +1838,23 @@ void depthHintObject(int32 kind, int32 owner, int32 index)
     if (gHuntRecording) {
         huntObject(kind, owner, index);
     }
+    gHinted = false;
     gHintBuckets = 0;
+    if (!gActiveHintCount)
+        return;
+    gHintKind = kind;
+    gHintOwner = owner;
+    gHintIndex = index;
+    gHintNode = 0;
     for (int32 i = 0; i < gActiveHintCount; i++)
     {
         const DepthHint &h = *gActiveHints[i];
-        if (h.kind == kind && h.index == index && (kind == DEPTH_HINT_ITEM || h.owner == owner)) {
-            gHintBuckets = h.buckets;
+        if (hintMatches(h))
+        {
+            gHinted = true;
+            if (h.buckets) {
+                gHintBuckets = h.buckets;
+            }
         }
     }
 }
@@ -1920,8 +2001,7 @@ __attribute__((noinline)) static void renderMeshC(const Mesh* mesh)
     gVerticesBase += vCount;
 }
 
-// A mesh of an object with a draw order hint, here and in C (they are few):
-// its faces' buckets moved.
+// A mesh of an object with a draw order hint, here and in C (they are few).
 static void renderMeshHinted(const Mesh* mesh)
 {
     int32 vCount = mesh->vCount;
@@ -1934,10 +2014,10 @@ static void renderMeshHinted(const Mesh* mesh)
     meshParts(mesh, parts);
     transformMesh(parts.vertices, vCount, mesh->intensity, parts.normals, parts.shades, &mesh->center, mesh->bound);
     if (mesh->rCount > 0) {
-        faceAddMeshQuads(parts.quads, mesh->rCount, gHintBuckets);
+        faceAddMeshQuads(parts.quads, mesh->rCount, true);
     }
     if (mesh->tCount > 0) {
-        faceAddMeshTriangles(parts.triangles, mesh->tCount, gHintBuckets);
+        faceAddMeshTriangles(parts.triangles, mesh->tCount, true);
     }
     gVerticesBase += vCount;
 }
@@ -1962,9 +2042,10 @@ void renderMesh(const Mesh* mesh)
     if (gHuntRecording) {
         huntMesh(mesh, gFaceList.next, gVerticesBase);
     }
-    if (gHintBuckets)
+    if (gHinted)
     {
         renderMeshHinted(mesh);
+        gHintNode++;
         return;
     }
     if (gBenchMode == BENCH_ALL_MESHES && meshToSlave(mesh))
@@ -1980,9 +2061,10 @@ void renderStaticMesh(const Mesh* mesh)
     if (gHuntRecording) {
         huntMesh(mesh, gFaceList.next, gVerticesBase);
     }
-    if (gHintBuckets)
+    if (gHinted)
     {
         renderMeshHinted(mesh);
+        gHintNode++;
         return;
     }
     if (gBenchMode == BENCH_MASTER_MESHES || !meshToSlave(mesh)) {

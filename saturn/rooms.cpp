@@ -1053,6 +1053,43 @@ bool roomsFaceSource(const Face* face, int32 &room, int32 &index, bool &triangle
     return false;
 }
 
+bool roomsFaceDepth(int32 room, int32 index, bool triangle, int32 &depth)
+{
+    for (int32 j = 0; j < gPlaced; j++)
+    {
+        const RoomWork &w = gWork[j];
+        const Room* r = gJobs[j].room;
+        if (w.base < 0 || r - rooms != room)
+            continue;
+
+        const uint16* corners;
+        int32 n;
+        if (triangle)
+        {
+            if (index >= r->info->trianglesCount)
+                return false;
+            corners = r->data.triangles[index].indices;
+            n = 3;
+        }
+        else
+        {
+            if (index >= r->info->quadsCount)
+                return false;
+            corners = r->data.quads[index].indices;
+            n = 4;
+        }
+
+        const Vertex* v = gVertices + w.base;
+        int32 z = 0;
+        for (int32 i = 0; i < n; i++) {
+            z = X_MAX(z, int32(cornerVertex(corners[i], v)->z));
+        }
+        depth = z >> OT_SHIFT;
+        return true;
+    }
+    return false;
+}
+
 Face** roomsFinish(RoomStats &stats, const uint16* &groups)
 {
     if (gJobCount == 0)
