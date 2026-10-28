@@ -48,6 +48,39 @@ _kWriteLongs:
     rts
     nop
 
+! void kRotate(const int32* points, const int32* rows, int32* out, uint32 n)
+!   page 2's rotation on the SH-2: each of n points (x y z) by each row (m0
+!   m1 m2 t), (v . row + t) >> 16 over 64 bits, x' y' z' a point out; mac.l
+!   takes both operands from memory
+    .global _kRotate
+_kRotate:
+    mov.l   r9, @-r15
+1:  mov     r5, r1              ! the rows
+    mov     #3, r9
+2:  mov     r4, r2              ! the point
+    mov.l   @(12, r1), r0       ! t, over 64 bits
+    mov     r0, r3
+    shll    r3
+    subc    r3, r3
+    lds     r3, mach
+    lds     r0, macl
+    mac.l   @r2+, @r1+
+    mac.l   @r2+, @r1+
+    mac.l   @r2+, @r1+
+    add     #4, r1              ! past t
+    sts     mach, r3
+    sts     macl, r0
+    xtrct   r3, r0              ! bits 16..47
+    mov.l   r0, @r6
+    dt      r9
+    bf/s    2b
+    add     #4, r6
+    dt      r7
+    bf/s    1b
+    add     #12, r4
+    rts
+    mov.l   @r15+, r9
+
 ! void kRegisters(uint32 n)
 !   n passes of a loop that touches no memory
     .global _kRegisters

@@ -154,6 +154,8 @@ $(eval $(call DISC_RULE,$(BUILD),$(GAME_DISC)))
 BENCH := build/dspbench
 BENCH_SRC := $(wildcard dspbench/*.cpp dspbench/*.s) saturn/font.cpp saturn/dsp.cpp
 BENCH_DSP := $(patsubst dspbench/%.dsp,$(BENCH)/gen/%_dsp.h,$(wildcard dspbench/*.dsp))
+# and those dspbench/gen_NAME.py writes
+BENCH_DSP += $(patsubst dspbench/gen_%.py,$(BENCH)/gen/%_dsp.h,$(wildcard dspbench/gen_*.py))
 BENCH_FLAGS := -m2 -mb -O2 -Wall -Idspbench -Isaturn -I$(BENCH)/gen -ffunction-sections
 BENCH_CXXFLAGS := $(BENCH_FLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
 	-fno-asynchronous-unwind-tables
@@ -168,6 +170,13 @@ $(BENCH)/obj/%.s.o: %.s | check-toolchain
 
 $(BENCH)/gen/%_dsp.h: dspbench/%.dsp tools/dspasm.py
 	@mkdir -p $(@D)
+	$(PY) tools/dspasm.py $< $@ $*_dsp
+
+$(BENCH)/gen/%.dsp: dspbench/gen_%.py
+	@mkdir -p $(@D)
+	$(PY) $< $@
+
+$(BENCH)/gen/%_dsp.h: $(BENCH)/gen/%.dsp tools/dspasm.py
 	$(PY) tools/dspasm.py $< $@ $*_dsp
 
 $(BENCH)/0MAIN.elf: $(patsubst %,$(BENCH)/obj/%.o,$(BENCH_SRC)) saturn/saturn.ld
