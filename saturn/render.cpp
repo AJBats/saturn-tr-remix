@@ -96,6 +96,11 @@ void setPaletteIndex(int32 index)
     gMeshFaceFlags = index || gCameraWater ? FACE_WATER : 0;
 }
 
+void setMeshWater(bool wet)
+{
+    gMeshFaceFlags = wet ? FACE_WATER : 0;
+}
+
 void setCameraWater(bool water)
 {
     gCameraWater = water;

@@ -41,16 +41,9 @@ struct Message { uint32_t seq, a, b, c; };   // a cache line
 static Message* ring() { return (Message*)((uintptr_t(gVertices) + 15) & ~15); }
 static uint8_t* claimed(int32_t cpu) { return (uint8_t*)gVertices + sizeof(Message) * RING + cpu * TASKS; }
 
-static bool tasTry(volatile uint8_t* p)
-{
-    uint32_t t;
-    asm volatile("tas.b @%1\n\tmovt %0" : "=r"(t) : "r"(p) : "t", "memory");
-    return t;
-}
-
 static void tasLock()
 {
-    while (!tasTry(uncached(&gLock)));
+    while (!tasClaim(uncached(&gLock)));
 }
 
 static void tasUnlock()

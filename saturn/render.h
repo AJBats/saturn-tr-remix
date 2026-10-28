@@ -252,7 +252,7 @@ enum BenchMode
     BENCH_NO_GOURAUD,
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
     BENCH_NO_DSP,       // rooms projected on the slave alone, without the SCU DSP
-    BENCH_MASTER_MESHES,    // every mesh drawn on the master, none by the slave
+    BENCH_MASTER_MESHES,    // rooms' statics drawn on the master, none by the slave (items as the menu's Items has it)
     BENCH_C_MESHES,     // the master's meshes by the C path, not meshxform.s renderMeshAsm
     BENCH_CLEAR,        // the scene's frames cleared too, as frames without rooms are
     BENCH_VOID_COLOR,   // VDP2's back colour magenta: shows where void fills (transparent) drew
@@ -265,6 +265,11 @@ extern int32 gBenchMode;
 // The camera is in a water room: every room and mesh drawn gets caustics and
 // the underwater fade, and the rooms above the surface ripple (rooms.cpp).
 extern bool gCameraWater;
+
+// The meshes drawn next get FACE_WATER or not, as a queued room's job has it
+// (RoomJob::wet: its room's water or the camera's, as the frame queued it),
+// for meshes drawn after drawRooms has cleared gCameraWater, or on the slave.
+void setMeshWater(bool wet);
 
 // VDP1 draws a quad as lines from edge AD to edge BC, as many as the longer
 // of those is long, each through a row of the texture. Room faces whose edges

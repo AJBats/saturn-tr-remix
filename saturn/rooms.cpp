@@ -61,7 +61,7 @@ static uint8 gClaimFrame;           // 1 to 255; the marks are cleared as it wra
 static Matrix gViewMatrix;          // the camera's, for the statics'
 
 // Slave side: statics it had no room for (job << 8 | static), for the master
-#define MAX_STATIC_SKIPS 32
+#define MAX_STATIC_SKIPS 128
 #define NO_STATIC       0xFFFFFFFF  // gStaticAt while no static is being drawn
 static uint16 gStaticSkipped[MAX_STATIC_SKIPS];
 static uint32 gStaticSkips;
@@ -780,7 +780,7 @@ static void roomStatic(int32 index, const RoomJob &job, int32 i)
     matrixPush();
     *gMatrixPtr = gViewMatrix;
     setViewport(job.clip);
-    setPaletteIndex(ROOM_FLAG_WATER(info->flags) ? 1 : 0);
+    setMeshWater(job.wet);
     if (slave) {
         gStaticAt = (index << 8) | i;
     }
@@ -871,17 +871,24 @@ void roomsSlaveShadow(int32 x, int32 z, int32 sx, int32 sz)
     slaveJob(job);
 }
 
-// The vertices and faces an item's model may draw, its shadow's with them.
+// The vertices and faces an item may draw: its model's, its shadow's, and
+// the board a skater draws with his own.
 static void modelSize(const ItemObj* item, int32 &vertices, int32 &faces)
 {
-    const Model &model = level.models[item->type];
     vertices = 8;
     faces = 3;
-    for (int32 i = 0; i < model.count; i++)
+    const int32 types[2] = { int32(item->type), item->type == ITEM_SKATER ? int32(ITEM_SKATEBOARD) : -1 };
+    for (int32 type : types)
     {
-        const Mesh* mesh = level.meshes[model.start + i];
-        vertices += mesh->vCount;
-        faces += mesh->rCount + mesh->tCount;
+        if (type < 0)
+            continue;
+        const Model &model = level.models[type];
+        for (int32 i = 0; i < model.count; i++)
+        {
+            const Mesh* mesh = level.meshes[model.start + i];
+            vertices += mesh->vCount;
+            faces += mesh->rCount + mesh->tCount;
+        }
     }
 }
 
@@ -953,7 +960,7 @@ static void slaveItem(int32 index, const ItemObj* item)
     matrixPush();
     *gMatrixPtr = gViewMatrix;
     setViewport(job.clip);
-    setPaletteIndex(ROOM_FLAG_WATER(job.room->info->flags) ? 1 : 0);
+    setMeshWater(job.wet);
     const_cast<ItemObj*>(item)->draw();
     matrixPop();
     uint32 t1 = timerTicks();
@@ -1239,6 +1246,7 @@ Face** roomsFinish(RoomStats &stats, const uint16* &groups)
         return NULL;
 
     *uncached(&gJobsClosed) = 1;
+    RectMinMax vp = viewport;
 
     // the statics the slave hasn't reached, from the last room queued back,
     // rather than wait for it to
@@ -1257,21 +1265,11 @@ Face** roomsFinish(RoomStats &stats, const uint16* &groups)
     cachePurge();
 
     // the statics the slave had no room for
-    if (gStaticSkips)
-    {
-        matrixPush();
-        *gMatrixPtr = gViewMatrix;
-        for (uint32 i = 0; i < gStaticSkips; i++)
-        {
-            const RoomJob &job = gJobs[gStaticSkipped[i] >> 8];
-            const RoomInfo* info = job.room->info;
-            setViewport(job.clip);
-            setPaletteIndex(ROOM_FLAG_WATER(info->flags) ? 1 : 0);
-            drawRoomStatic(job.room->data.meshes + (gStaticSkipped[i] & 0xFF), (info->x << 8) - gCameraViewPos.x,
-                           -gCameraViewPos.y, (info->z << 8) - gCameraViewPos.z);
-        }
-        matrixPop();
+    for (uint32 i = 0; i < gStaticSkips; i++) {
+        roomStatic(gStaticSkipped[i] >> 8, gJobs[gStaticSkipped[i] >> 8], gStaticSkipped[i] & 0xFF);
     }
+    setViewport(vp);
+    setMeshWater(false);    // as drawRooms left it
     memset(gStaticRooms, 0, sizeof(gStaticRooms));
 
     gSlaveStats.rooms = gJobCount;
