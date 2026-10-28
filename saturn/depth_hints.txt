@@ -28,5 +28,6 @@ LVL_TR1_1     14    24 56      item 14        m0 q3  behind room 13 q101
 LVL_TR1_1     14    24 56      item 14        m0 q2  behind room 13 q101
 
 # the icicle hanging in room 14, through room 13's floor at the ledge where
-# the level's bench starts (hunt: 1248 px facing 1569)
+# the level's bench starts (hunt: 1248 px facing 1569; 504 px facing 185A)
 LVL_TR1_1     13    29 48      static 14:0    m0 q0  behind room 13 q111
+LVL_TR1_1     13    29 47      static 14:0    m0 q0  behind room 13 q111
