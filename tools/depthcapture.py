@@ -1,9 +1,9 @@
 """Captures a depth-order test case from a running Mednafen (tools/depthcheck.py).
 
-    depthcapture.py STATE CASE [--depth far|mean]
+    depthcapture.py STATE CASE [--layers camera|one]
 
 Loads save state STATE (made with build/depth_cases/0MAIN.elf's binary), sets
-the room depth option, and dumps high work RAM twice for build/depth_cases:
+the depth layers option, and dumps high work RAM twice for build/depth_cases:
 CASE_faces.bin in flush_c just after roomsFinish returns, both ordering
 tables full, and CASE_cmds.bin at the next flush_c, that frame's commands
 still in gCmds. Leaves the emulator paused with no breakpoints.
@@ -64,7 +64,7 @@ def send(cmd, expect, timeout=30):
 
 
 def addresses(elf):
-    """flush_c, the break just after its call of roomsFinish returns, gRoomDepth, gSlaveOT."""
+    """flush_c, the break just after its call of roomsFinish returns, gDepthLayers, gSlaveOT."""
     syms = {}
     for line in subprocess.run([NM, '-C', elf], capture_output=True, text=True, check=True).stdout.splitlines():
         parts = line.split(None, 2)
@@ -80,25 +80,26 @@ def addresses(elf):
     # Mednafen stops at a breakpoint as its instruction is fetched, two
     # instructions ahead of the one executing: this one stops right after
     # the instruction at the return address.
-    return flush, ret + 6, ret, syms['gRoomDepth'], syms['gSlaveOT']
+    return flush, ret + 6, ret, syms.get('gDepthLayers'), syms['gSlaveOT']
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('state', help='save state (.mcs)')
     ap.add_argument('case', help='name for the dumps in build/depth_cases')
-    ap.add_argument('--depth', choices=('far', 'mean'), default='far', help='room depth option')
+    ap.add_argument('--layers', choices=('camera', 'one'), default='camera', help='depth layers option')
     args = ap.parse_args()
 
     elf = os.path.join(CASES, '0MAIN.elf')
-    flush, after_rooms, ret, room_depth, slave_ot = addresses(elf)
+    flush, after_rooms, ret, layers, slave_ot = addresses(elf)
     state = os.path.abspath(args.state).replace('\\', '/')
     out = lambda kind: os.path.join(CASES, f'{args.case}_{kind}.bin').replace('\\', '/')
 
     send('pause', 'ok pause')
     send('breakpoint_clear', 'breakpoint_clear')
     send(f'load_state {state}', 'ok load_state')
-    send(f'poke {room_depth + 3:08X} {1 if args.depth == "mean" else 0:02X}', 'ok poke')
+    if layers is not None:      # builds with the depth layers option
+        send(f'poke {layers + 3:08X} {1 if args.layers == "camera" else 0:02X}', 'ok poke')
     send('frame_advance 3', 'done frame_advance', 60)
 
     send(f'breakpoint {after_rooms:08X}', 'breakpoint')

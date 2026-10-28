@@ -370,25 +370,9 @@ _faceAddMeshTrianglesBody:
     ROOM_VERTEX r3
     .endm
 
-! r13 = the largest z of r1, r2, r3 and r, >> OT_SHIFT, or their mean's
-! (RoomFaces.mean, r6); r0
+! r13 = the largest z of r1, r2, r3 and r, >> OT_SHIFT; r0
     .macro  ZMAX r
-    mov     #76, r0
-    mov.l   @(r0, r6), r0
-    tst     r0, r0
-    bt      4f
     mov.w   @(4, r1), r0
-    mov     r0, r13
-    mov.w   @(4, r2), r0
-    add     r0, r13
-    mov.w   @(4, r3), r0
-    add     r0, r13
-    mov.w   @(4, \r), r0
-    add     r0, r13
-    shlr2   r13
-    bra     5f
-    shlr2   r13
-4:  mov.w   @(4, r1), r0
     mov     r0, r13
     mov.w   @(4, r2), r0
     cmp/gt  r13, r0
@@ -403,7 +387,7 @@ _faceAddMeshTrianglesBody:
     bf      3f
     mov     r0, r13
 3:  shlr2   r13
-5:  shlr2   r13
+    shlr2   r13
     .endm
 
 ! acc = max(acc, |a.x - b.x|, |a.y - b.y|), the steps along edge a b

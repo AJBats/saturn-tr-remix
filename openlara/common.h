@@ -2985,6 +2985,13 @@ void setCameraWater(bool water);
 void setSceneClear(bool clear);
 void clear();
 void renderRoom(Room* room);
+// Draw order hints (saturn/depth_hints.txt): begun for where Lara stands and
+// the rooms drawn (a NULL-ended list); the object drawn next is an item
+// (DEPTH_HINT_ITEM 0, its index) or a room's static (DEPTH_HINT_STATIC 1, its
+// room and index there).
+void depthHintsBegin(Room* const* visible);
+void depthHintsEnd();
+void depthHintObject(int32 kind, int32 owner, int32 index);
 void renderRoomsQueued();
 bool roomStaticsQueued(const Room* room);   // its static meshes go with it (to the slave)
 bool claimItem(const ItemObj* item);        // this CPU draws it: the other hasn't taken it
@@ -3090,6 +3097,7 @@ void osJoyVibrate(int32 index, int32 L, int32 R);
 void osSetPalette(const uint16* palette);
 const void* osLoadScreen(LevelID id);
 const void* osLoadLevel(LevelID id);
+uint8* osLowRamFree(uint32 &size);  // Saturn: low work RAM the level leaves, for debug tools
 #ifdef __SATURN__
 const void* osPlaceMeshes(const void* meshes, int32 size); // where the CPU reads them fastest
 void osPlaceRooms(); // the rooms' geometry, likewise

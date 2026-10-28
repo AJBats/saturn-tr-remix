@@ -8,6 +8,11 @@ the room depth option at Farthest. Score them with
 depthcheck.py auto_SEED_* (a shell glob of the names).
 
 Same caveat as depthcapture.py: no MCP tool call may be in flight.
+
+The saved states are for capturing only, not for playing on: the poke moves
+Lara's room pointer but not her link in the rooms' item lists, and once she
+walks into another room the game loops on a broken list (the watchdog's blue
+screen, the master in drawRoomObjects).
 """
 import argparse
 import os
@@ -34,10 +39,11 @@ def symbols(elf):
     return out
 
 
-def spots(lvl, rng):
-    """Endless random (room, x, y, z, yaw) on flat, open, dry floor."""
+def spots(lvl, rng, only=None, near=None):
+    """Endless random (room, x, y, z, yaw) on flat, open, dry floor, in the rooms only if
+    given, within a distance (x, z, distance) of one of near if given."""
     flipped = {r.alternate for r in lvl.rooms if r.alternate >= 0}
-    rooms = [r for r in lvl.rooms if r.index not in flipped]   # shown only after a flip
+    rooms = [r for r in lvl.rooms if r.index not in flipped and (only is None or r.index in only)]
     while True:
         r = rng.choice(rooms)
         if r.flags & 1:
@@ -52,6 +58,8 @@ def spots(lvl, rng):
             continue    # too low for Lara
         x = r.x + sx * 1024 + rng.randrange(256, 768)
         z = r.z + sz * 1024 + rng.randrange(256, 768)
+        if near and not any((x - nx) ** 2 + (z - nz) ** 2 < d * d for nx, nz, d in near):
+            continue
         yield r.index, x, floor * 256, z, rng.randrange(0x10000)
 
 
@@ -65,6 +73,12 @@ def main():
     ap.add_argument('base', help='save state in LEVEL1')
     ap.add_argument('count', type=int)
     ap.add_argument('--seed', type=int, default=1)
+    ap.add_argument('--spots', help='a file of spots instead of random ones: NAME: room R X Y Z yaw HEX per line '
+                                    '(as this script writes them)')
+    ap.add_argument('--layers', choices=('camera', 'one'), default='one', help='depth layers option')
+    ap.add_argument('--rooms', help='random spots in these rooms only, e.g. 13,14,15')
+    ap.add_argument('--near', nargs='*', help='random spots within a distance of one of these, x:z:distance')
+    ap.add_argument('--prefix', default='auto', help="the cases' names")
     args = ap.parse_args()
 
     elf = os.path.join(cap.CASES, '0MAIN.elf')
@@ -81,9 +95,20 @@ def main():
     ram = open(ram_path, 'rb').read()
     lara = struct.unpack_from('>I', ram, sym['players'] - 0x06000000)[0]
 
+    if args.spots:
+        listed = [l.split() for l in open(args.spots) if l.strip()]
+        chosen = [(int(p[2]), int(p[3]), int(p[4]), int(p[5]), int(p[7], 16)) for p in listed]
+        names = [p[0].rstrip(':') for p in listed]
+    else:
+        only = {int(r) for r in args.rooms.split(',')} if args.rooms else None
+        near = [tuple(int(v) for v in n.split(':')) for n in args.near] if args.near else None
+        chosen = list(zip(range(args.count), spots(lvl, rng, only, near)))
+        chosen = [c for _, c in chosen]
+        names = [f'{args.seed}_{k}' for k in range(len(chosen))]
+
     made = []
-    for k, (room, x, y, z, yaw) in zip(range(args.count), spots(lvl, rng)):
-        name = f'auto_{args.seed}_{k}'
+    for name, (room, x, y, z, yaw) in zip(names, chosen):
+        name = f'{args.prefix}_{name}'
         state = os.path.join(cap.CASES, name + '.mcs').replace('\\', '/')
         cap.send(f'load_state {base}', 'ok load_state')
         poke(lara + ITEM_ROOM, 'I', sym['rooms'] + room * depthcheck.ROOM_SIZE)
@@ -93,10 +118,10 @@ def main():
         poke(lara + ITEM_YAW, 'H', yaw)
         cap.send(f'frame_advance {SETTLE_FRAMES}', 'done frame_advance', 120)
         cap.send(f'save_state {state}', 'ok save_state')
-        sys.argv = ['depthcapture.py', state, name]
+        sys.argv = ['depthcapture.py', state, name, '--layers', args.layers]
         cap.main()
         made.append(f'{name}: room {room} {x} {y} {z} yaw {yaw:04x}')
-    with open(os.path.join(cap.CASES, f'auto_{args.seed}.txt'), 'w') as f:
+    with open(os.path.join(cap.CASES, f'{args.prefix}_{args.seed}.txt'), 'w') as f:
         f.write('\n'.join(made) + '\n')
     print('\n'.join(made))
 

@@ -5,6 +5,7 @@
 #include "crash.h"
 #include "debug.h"
 #include "fmv.h"
+#include "hunt.h"
 #include "hw.h"
 #include "input.h"
 #include "render.h"
@@ -97,6 +98,14 @@ int main()
             renderPoll();
         }
         gPad = padButtons();
+
+        if (huntFrozen())
+        {
+            // the game stands still while a polygon hunt holds the frame
+            lastTick = tick;
+            huntUpdate(gPad);
+            continue;
+        }
 
         int32 delta = X_MIN(int32(tick - lastTick), MAX_UPDATE_FRAMES);
         lastTick = tick;

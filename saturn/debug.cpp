@@ -1,7 +1,8 @@
 // The debug pad (port 2). Mednafen keys in brackets:
 //   START [Tab]       opens and closes the menu (not in HW_LOG builds)
 //   up/down [arrows]  pick an option, left/right change it
-//   A [P], B [H], C [G]  step the palette, view and dark faces options
+//   A [P], B [H], C [G]  step the palette, view and dark faces options; A on
+//                     Polygon hunt starts one (hunt.h)
 // Changes show for a moment at the bottom of the screen. In HW_LOG builds the
 // player's pad pages the overlay with R and L, and the menu is one of its
 // pages, where its d-pad and A, B, C work the menu too (Lara stands still).
@@ -10,6 +11,7 @@
 #include "common.h"
 #include "crash.h"
 #include "dsp.h"
+#include "hunt.h"
 #include "hw.h"
 #include "slave.h"
 #include "input.h"
@@ -78,10 +80,10 @@ static const char* const kLod[] = { "Full res", "1 texel a pixel", "1.5 texels",
 static const char* const kShade[] = { "Gouraud", "Shaded tables", "All far faces" };
 static const char* const kShadow[] = { "Half", "Black", "Mesh" };
 static const char* const kSplit[] = { "Plane only", "Far off frame", "Steep too" };
-static const char* const kRoomDepth[] = { "Farthest", "Mean" };
 static const char* const kSteps[] = { "1 (7/8)", "2 (6/8)", "3 (5/8)", "4 (4/8)" };
 static const char* const kMultiply[] = { "0 (Saturn add)", "1/4", "2/4", "3/4", "4/4 (PS1)" };
 static const char* const kGrey[] = { "0 (own mean)", "1/4", "2/4", "3/4", "4/4" };
+static const char* const kHunt[] = { "A to start" };
 static const char* const kFar[] = { "Textured", "Flat past 16", "Flat past 12", "Flat past 8" };
 static const int32 kFarDist[] = { 0, 16 * 1024, 12 * 1024, 8 * 1024 };
 
@@ -133,9 +135,6 @@ static const Option gOptions[] = {
     { "Near split", kSplit, NEAR_SPLIT_COUNT,
         [] { return gNearSplit; },
         [](int32 v) { gNearSplit = v; } },
-    { "Room depth", kRoomDepth, ROOM_DEPTH_COUNT,
-        [] { return gRoomDepth; },
-        [](int32 v) { gRoomDepth = v; } },
     { "Shadows", kShadow, SHADOW_COUNT,
         [] { return gShadowMode; },
         [](int32 v) { gShadowMode = v; } },
@@ -151,6 +150,9 @@ static const Option gOptions[] = {
     { "Items", kItems, 2,
         [] { return int32(gMasterItems); },
         [](int32 v) { gMasterItems = v; } },
+    { "Polygon hunt", kHunt, 1,
+        [] { return 0; },
+        [](int32) {} },
 #ifdef HW_LOG
     { "Way", kBenchNames, BENCH_COUNT,
         [] { return gBenchHold; },
@@ -165,7 +167,7 @@ static const Option gOptions[] = {
 };
 
 enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_MULTIPLY, OPTION_GREY, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
-       OPTION_PALETTE, OPTION_SPLIT, OPTION_DEPTH, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD, OPTION_ITEMS,
+       OPTION_PALETTE, OPTION_SPLIT, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD, OPTION_ITEMS, OPTION_HUNT,
 #ifdef HW_LOG
        OPTION_WAY, OPTION_TRACE, OPTION_BATTERY,
 #endif
@@ -366,7 +368,18 @@ void debugUpdate()
         pressed &= ~PAD_A;
     }
 #endif
-    if (pressed & PAD_A) {
+    if ((pressed & PAD_A) && menuShown() && gCursor == OPTION_HUNT)
+    {
+        gMessageName = "Polygon hunt";
+        gMessage = huntArm() ? "freezing" : "no low work RAM left";
+        gMessageEnd = gVblankCount + 120;
+#ifdef HW_LOG
+        gFrameRows = false;
+        overlayUnpin(FRAME_ROW);
+        overlayUnpin(FRAME_ROW + 1);
+#endif
+    }
+    else if (pressed & PAD_A) {
         step(OPTION_PALETTE, 1);
     }
     if (pressed & PAD_B) {
@@ -698,7 +711,7 @@ static void frameShown(uint32_t plot)
     static uint32 last;
     uint32 vblanks = gVblankCount - last;
     last = gVblankCount;
-    if (gPage == PAGE_BENCH || gPage == PAGE_NONE || gPage == PAGE_PLAYBACK)
+    if (gPage == PAGE_BENCH || gPage == PAGE_NONE || gPage == PAGE_PLAYBACK || huntFrozen())
         return;
 
     const FrameTag &t = gFrameTags[plot % FRAME_TAGS];

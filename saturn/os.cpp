@@ -18,6 +18,8 @@
 #define LEVEL_ADDR  ((uint8*)0x00200000)
 #define LEVEL_MAX   (1024 * 1024)
 
+static uint8* gLowFree = LEVEL_ADDR;    // past the loaded level's data
+
 int32 osGetSystemTimeMS()
 {
     return 0; // TODO FRT based timer
@@ -224,6 +226,12 @@ void osPlaceRooms()
     crashLog("ROOMS", (placed << 16) | (level.roomsCount << 8) | ((next - gRoomData) >> 10));
 }
 
+uint8* osLowRamFree(uint32 &size)
+{
+    size = LEVEL_ADDR + LEVEL_MAX - gLowFree;
+    return gLowFree;
+}
+
 const void* osLoadLevel(LevelID id)
 {
     const char* name = (const char*)gLevelInfo[id].data;
@@ -243,6 +251,7 @@ const void* osLoadLevel(LevelID id)
     uint32 levelSize = (loadOrHalt(name, ".PKD", LEVEL_ADDR, LEVEL_MAX) + 15) & ~15;
     uint8* subData = LEVEL_ADDR + levelSize;
     uint32 subSize = loadOrHalt(name, ".SUB", subData, LEVEL_MAX - levelSize);
+    gLowFree = subData + ((subSize + 15) & ~15);
     detailInit(VRAM_TEX_BASE + texSize, subData, subSize);
 
     // sound effects straight to sound RAM, and inventory item textures (some

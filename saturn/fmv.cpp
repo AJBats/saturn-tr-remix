@@ -15,6 +15,7 @@
 #include "screen.h"
 #include "sound.h"
 #include "system.h"
+#include "render.h"
 
 #include <string.h>
 
@@ -320,6 +321,8 @@ void fmvPlay(const char* name)
     uint32_t lba, fileSize;
     if (cdFind(path, &lba, &fileSize) != 0)
         return;
+
+    gBooks = (Codebooks*)renderScratch(sizeof(Codebooks) * MAX_STRIPS);
 
     // the header
     if (cdRead(lba, CD_SECTOR_SIZE, HEADER) != 0 || memcmp(HEADER, "FILM", 4) != 0)

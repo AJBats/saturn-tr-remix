@@ -709,6 +709,7 @@ void drawModel(const ItemObj* item)
     if (!sphereIsVisible(sx, sy, sz, sr))
         return;
 
+    depthHintObject(0, 0, item - items);
     matrixPush();
     matrixTranslateAbs(item->pos.x, item->pos.y, item->pos.z);
     matrixRotateYXZ(item->angle.x, item->angle.y, item->angle.z);
@@ -838,6 +839,7 @@ void drawRoomObjects(Room* room)
         for (int32 i = 0; i < info->meshesCount; i++)
         {
             traceDetailBegin(TR_STATIC);
+            depthHintObject(1, room - rooms, i);
             drawRoomStatic(data.meshes + i, rx, ry, rz);
             traceDetailEnd(TR_STATIC);
         }
@@ -874,6 +876,7 @@ void drawRooms(Camera* camera)
     setSceneClear(checkWall(camera->view.room, camera->view.pos.x, camera->view.pos.y + camera->shift, camera->view.pos.z));
 
     Room** visRoom = camera->view.room->getVisibleRooms();
+    depthHintsBegin(visRoom);
     traceEnd(TRACE_MASTER, TR_VIEW);
 
     // every room for the slave first, so that it never waits on the objects
@@ -913,6 +916,7 @@ void drawRooms(Camera* camera)
         traceDetailEnd(TR_OBJECTS, room - rooms);
         room->reset();
     }
+    depthHintsEnd();
 
     for (int32 i = 0; i < MAX_PLAYERS; i++)
     {

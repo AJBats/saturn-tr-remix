@@ -200,12 +200,6 @@ X_INLINE void projectView(int16 x, int16 y, int32 z, uint32 clip, const RectMinM
 enum NearSplit { NEAR_SPLIT_PLANE, NEAR_SPLIT_FAR, NEAR_SPLIT_STEEP, NEAR_SPLIT_COUNT };
 extern int32 gNearSplit;
 
-// The depth a room face is sorted at (debug menu): its farthest corner's, as
-// OpenLara and the PC original, or its corners' mean, as the Saturn original
-// and every mesh face.
-enum RoomDepth { ROOM_DEPTH_FAR, ROOM_DEPTH_MEAN, ROOM_DEPTH_COUNT };
-extern int32 gRoomDepth;
-
 // Debug views (the debug pad's B cycles them).
 enum TexelView
 {
@@ -440,6 +434,11 @@ void roomsAllQueued();
 // that differ.
 void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors);
 
+// Of a face of the master's from the last frame, drawn from mesh with its
+// vertices from base (the polygon hunt): its quad's or triangle's index in
+// the mesh, -1 if none.
+int32 renderMeshPolygon(const Mesh* mesh, const Vertex* base, const Face* face, bool &triangle);
+
 // Queues a room for the slave, with the current matrix and viewport.
 void roomsQueue(const Room* room);
 
@@ -472,5 +471,19 @@ inline void renderPoll()
         renderUploadReady();
     }
 }
+
+// Of a face of the slave's from the last frame (the polygon hunt): its room,
+// and its quad's or triangle's index in the room's data (-1: a quarter of a
+// split quad); false if it is no room's (a mesh).
+bool roomsFaceSource(const Face* face, int32 &room, int32 &index, bool &triangle);
+
+// After roomsFinish: the bucket the slave sorts a room's quad or triangle in
+// (its farthest corner's); false if the room isn't drawn or the face turns
+// away from the camera.
+bool roomsFaceDepth(int32 room, int32 index, bool triangle, int32 &depth);
+
+// A thing the slave leaves to the master this frame: one a draw order hint
+// may move (kind as depthHintObject's), or anything while a hunt records.
+bool depthHintKept(int32 kind, int32 owner, int32 index);
 
 #endif

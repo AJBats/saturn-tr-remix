@@ -11,6 +11,7 @@
 #include "render.h"
 #include "detail.h"
 #include "dsp.h"
+#include "hunt.h"
 #include "slave.h"
 #include "system.h"
 #include "trace.h"
@@ -105,7 +106,6 @@ static FaceList gMeshList;      // meshes' faces: the same pool, an ordering tab
 static bool gTurn;              // faces may be turned (gTurnLines)
 static uint32 gRoomFaceFlags;   // FACE_WATER for wet rooms
 static bool gRipple;            // the room is across the water surface from the camera
-static bool gRoomMean;          // faces sorted at their corners' mean depth (gRoomDepth)
 static int32 gWibblePhase;      // drifts the ripple
 static RoomMatrix gMatrix;
 
@@ -201,15 +201,6 @@ X_INLINE void projectRoomPoint(int16 vx, int16 vy, int16 vz, Vertex* res)
 // instead, for VDP2's back colour to show (over the box of the corners
 // projected as clamped to the plane, render.cpp faceCommand). faces.s does the
 // same.
-// A room face's ordering table bucket (a triangle's D is its C).
-static int32 roomDepth(const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
-{
-    if (gRoomMean) {
-        return uint32(v0->z + v1->z + v2->z + v3->z) >> (2 + OT_SHIFT);
-    }
-    return X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z))) >> OT_SHIFT;
-}
-
 static void faceAddRoomVoid(const Vertex* v0, const Vertex* v1, const Vertex* v2, const Vertex* v3)
 {
     Face* f = faceAdd(gFaceList, OT_SIZE - 1);
@@ -263,7 +254,9 @@ static void faceAddDetailQuad(uint32 flags, const Vertex* v0, const Vertex* v1, 
         return;
     }
 
-    Face* f = faceAdd(gFaceList, roomDepth(v0, v1, v2, v3));
+    int32 depth = X_MAX(v0->z, X_MAX(v1->z, X_MAX(v2->z, v3->z))) >> OT_SHIFT;
+
+    Face* f = faceAdd(gFaceList, depth);
     f->flags = flags;
     f->indices[0] = cornerOffset(v0, gSlaveVertices);
     f->indices[1] = cornerOffset(v1, gSlaveVertices);
@@ -403,7 +396,7 @@ static void faceAddRoomQuads(const Vertex* v, const RoomQuad* polys, int32 count
             flags = wholeTexture(flags, v0, v1, v2, v3);
         }
 
-        Face* f = faceAdd(gFaceList, roomDepth(v0, v1, v2, v3));
+        Face* f = faceAdd(gFaceList, zMax >> OT_SHIFT);
         f->flags = flags;
         f->indices[0] = cornerOffset(v0, gSlaveVertices);
         f->indices[1] = cornerOffset(v1, gSlaveVertices);
@@ -442,13 +435,16 @@ static void faceAddRoomTriangles(const Vertex* v, const RoomTriangle* polys, int
 
         flags |= FACE_TRIANGLE;
 
+        int32 zMax = X_MAX(v0->z, X_MAX(v1->z, v2->z));
         if (faceFlat(flags, X_MIN(v0->z, X_MIN(v1->z, v2->z)), level.textures + (flags & FACE_TEXTURE))) {
             flags = flatFlags(flags);
             gSlaveStats.flatFaces++;
         } else {
             flags = wholeTexture(flags, v0, v1, v2, v2);
         }
-        Face* f = faceAdd(gFaceList, roomDepth(v0, v1, v2, v2));
+        int32 depth = zMax >> OT_SHIFT;
+
+        Face* f = faceAdd(gFaceList, depth);
         f->flags = flags;
         f->indices[0] = cornerOffset(v0, gSlaveVertices);
         f->indices[1] = cornerOffset(v1, gSlaveVertices);
@@ -480,14 +476,13 @@ struct RoomFaces
                             // of its own parity (faces.s REUSE); -1: every frame
     int32 cached;           // faces.s's
     int32 facing;           // the quads face the camera: no backface test
-    int32 mean;             // sorted at their corners' mean depth (gRoomDepth), else the farthest's
 };
 
 static_assert(offsetof(RoomFaces, textures) == 16 && offsetof(RoomFaces, end) == 28 &&
               offsetof(RoomFaces, frame) == 40 && offsetof(RoomFaces, miss) == 48 &&
               offsetof(RoomFaces, turn) == 52 && offsetof(RoomFaces, lod) == 60 &&
               offsetof(RoomFaces, parity) == 64 && offsetof(RoomFaces, cached) == 68 &&
-              offsetof(RoomFaces, facing) == 72 && offsetof(RoomFaces, mean) == 76 &&
+              offsetof(RoomFaces, facing) == 72 &&
               sizeof(RoomQuad) == 12 && sizeof(RoomTriangle) == 12 && sizeof(DetailSlot) == 8 &&
               offsetof(DetailSlot, frame) == 4 && DETAIL_MAX_KEYS == 1088 && sizeof(Texture) == 16 &&
               offsetof(Texture, size) == 4 && offsetof(Texture, reserved) == 10 &&
@@ -695,7 +690,6 @@ static void roomFaces(int32 index, const RoomJob &job)
     Vertex* roomBase = gVertices + w.base;
 
     roomBegin(job);
-    gRoomMean = *uncached(&gRoomDepth) == ROOM_DEPTH_MEAN;
     if (w.dsp) {
         cacheDrop(roomBase, info->verticesCount * sizeof(Vertex));  // this CPU's copies from before the DSP wrote
     }
@@ -721,7 +715,7 @@ static void roomFaces(int32 index, const RoomJob &job)
         RoomFaces rf = { roomBase, base * 0x10001, &gFaceList, gRoomFaceFlags, level.textures, 0, 0,
                          gFaceList.end, gDetailKeys[0], gDetailSlots, gDetailFrame, faceAddRoomQuads, detailSlotMiss,
                          gTurn, 0, detailMips() && gBenchMode != BENCH_NO_LOD ? gTextureLod : 0,
-                         0, -1, 0, gRoomMean };
+                         0, -1, 0 };
 
         // The runs of quads square to an axis, then the rest: of the runs,
         // only the quads facing the camera, without a backface test. A quad's
@@ -762,6 +756,12 @@ static void roomFaces(int32 index, const RoomJob &job)
 static void roomStatic(int32 index, const RoomJob &job, int32 i)
 {
     bool slave = cpuState()->slave;
+    int32 room = job.room - rooms;
+    if (slave && gStaticSkips < MAX_STATIC_SKIPS && depthHintKept(1, room, i))
+    {
+        gStaticSkipped[gStaticSkips++] = (index << 8) | i;  // the master draws it
+        return;
+    }
     uint32 t0 = timerTicks();
     if (!slave) {
         traceBeginAt(TRACE_MASTER, t0, TR_STATIC, index);  // before the mesh's own span
@@ -773,11 +773,15 @@ static void roomStatic(int32 index, const RoomJob &job, int32 i)
     setMeshWater(job.wet);
     if (slave) {
         gStaticAt = (index << 8) | i;
+    } else {
+        depthHintObject(1, room, i);
     }
     drawRoomStatic(job.room->data.meshes + i, (info->x << 8) - gCameraViewPos.x, -gCameraViewPos.y,
                    (info->z << 8) - gCameraViewPos.z);
     if (slave) {
         gStaticAt = NO_STATIC;
+    } else {
+        depthHintsEnd();
     }
     matrixPop();
     uint32 t1 = timerTicks();
@@ -811,6 +815,8 @@ static uint32 gStaticNext;
 
 static int32 claimStatics(uint32 queued)
 {
+    if (*uncached(&gHuntRecording))
+        return -1;  // the master draws them all, where the hunt sees them
     for (; gStaticNext < queued; gStaticNext++)
     {
         if (!uncached(gJobs + gStaticNext)->statics)
@@ -928,7 +934,7 @@ static const ItemObj* claimSlaveItem(int32 &index)
         gItemNext = item->nextItem;
 
         if ((item->flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INVISIBLE || item->type == ITEM_LARA ||
-            level.models[item->type].count <= 0)
+            level.models[item->type].count <= 0 || depthHintKept(0, 0, item - items))
             continue;
         int32 vertices, faces;
         modelSize(item, vertices, faces);
@@ -1229,6 +1235,109 @@ void roomsQueue(const Room* room)
     *uncached(&gJobsQueued) = gJobCount;
 }
 
+// The same corners, in any order (a turned quad's are A D C B).
+static bool sameCorners(const int16* a, const uint16* b, uint32 base, int32 n)
+{
+    for (int32 i = 0; i < n; i++)
+    {
+        int32 k = 0;
+        while (k < n && uint16(a[k]) != uint16(b[i] + base)) {
+            k++;
+        }
+        if (k == n)
+            return false;
+    }
+    return true;
+}
+
+bool roomsFaceSource(const Face* face, int32 &room, int32 &index, bool &triangle)
+{
+    int32 v = MASTER_VERTICES + uint16(face->indices[0]) / int32(sizeof(Vertex));
+    for (int32 j = 0; j < gPlaced; j++)
+    {
+        const RoomWork &w = gWork[j];
+        const Room* r = gJobs[j].room;
+        if (w.base < 0 || v < w.base || v >= w.base + r->info->verticesCount)
+            continue;
+
+        room = r - rooms;
+        uint32 base = uint16(cornerOffset(gVertices + w.base, gSlaveVertices));
+        triangle = (face->flags & FACE_TRIANGLE) != 0;
+        if (triangle)
+        {
+            for (index = 0; index < r->info->trianglesCount; index++) {
+                if (sameCorners(face->indices, r->data.triangles[index].indices, base, 3))
+                    return true;
+            }
+        }
+        else
+        {
+            for (index = 0; index < r->info->quadsCount; index++) {
+                if (sameCorners(face->indices, r->data.quads[index].indices, base, 4))
+                    return true;
+            }
+        }
+        index = -1;     // a quarter of a split quad: corners of its own
+        return true;
+    }
+    return false;
+}
+
+bool roomsFaceDepth(int32 room, int32 index, bool triangle, int32 &depth)
+{
+    for (int32 j = 0; j < gPlaced; j++)
+    {
+        const RoomWork &w = gWork[j];
+        const Room* r = gJobs[j].room;
+        if (w.base < 0 || r - rooms != room)
+            continue;
+
+        const uint16* corners;
+        int32 n;
+        if (triangle)
+        {
+            if (index >= r->info->trianglesCount)
+                return false;
+            corners = r->data.triangles[index].indices;
+            n = 3;
+        }
+        else
+        {
+            if (index >= r->info->quadsCount)
+                return false;
+            corners = r->data.quads[index].indices;
+            n = 4;
+        }
+
+        // facing the camera: the camera on the side the corners wind clockwise
+        // from, with y down (room space: vertex units of 256 but y from the top)
+        const RoomVertex* rv = r->data.vertices;
+        const RoomVertex* a = rv + corners[0] / sizeof(Vertex);
+        const RoomVertex* b = rv + corners[1] / sizeof(Vertex);
+        const RoomVertex* c = rv + corners[2] / sizeof(Vertex);
+        int32 e1x = b->x - a->x, e1y = b->y - a->y, e1z = b->z - a->z;
+        int32 e2x = c->x - a->x, e2y = c->y - a->y, e2z = c->z - a->z;
+        // the camera's offset in units of 32: the products, under 2^17 * 2^12,
+        // sum within 32 bits
+        const int32* cam = gJobs[j].camera;
+        int32 dx = asr16<5>(X_CLAMP(cam[0] - (a->x << 8), -(1 << 17), 1 << 17));
+        int32 dy = asr16<5>(X_CLAMP(cam[1] - (a->y << 8), -(1 << 17), 1 << 17));
+        int32 dz = asr16<5>(X_CLAMP(cam[2] - (a->z << 8), -(1 << 17), 1 << 17));
+        int32 side = (e1y * e2z - e1z * e2y) * dx + (e1z * e2x - e1x * e2z) * dy + (e1x * e2y - e1y * e2x) * dz;
+        if (side >= 0)
+            return false;
+
+        const Vertex* v = gVertices + w.base;
+        int32 z = 0;
+        for (int32 i = 0; i < n; i++) {
+            z = X_MAX(z, int32(cornerVertex(corners[i], v)->z));
+        }
+        depth = z >> OT_SHIFT;
+        return true;
+    }
+    return false;
+}
+
 Face** roomsFinish(RoomStats &stats, const uint16* &groups)
 {
     if (gJobCount == 0)
@@ -1253,7 +1362,7 @@ Face** roomsFinish(RoomStats &stats, const uint16* &groups)
     traceEnd(TRACE_MASTER, TR_ROOMS_WAIT);
     cachePurge();
 
-    // the statics the slave had no room for
+    // the statics the slave had no room for or left for a draw order hint
     for (uint32 i = 0; i < gStaticSkips; i++) {
         roomStatic(gStaticSkipped[i] >> 8, gJobs[gStaticSkipped[i] >> 8], gStaticSkipped[i] & 0xFF);
     }
