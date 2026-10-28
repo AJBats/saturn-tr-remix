@@ -20,3 +20,6 @@
 # from the pit below that edge (hunt: q3 560 px facing 96A3, q2 480 px facing A240)
 LVL_TR1_1     13    24 55      item 14        m0 q3  behind room 13 q101
 LVL_TR1_1     13    24 55      item 14        m0 q2  behind room 13 q101
+# ... and from the ledge beside it (hunt: q3 360 px facing 8B9D)
+LVL_TR1_1     14    24 56      item 14        m0 q3  behind room 13 q101
+LVL_TR1_1     14    24 56      item 14        m0 q2  behind room 13 q101
