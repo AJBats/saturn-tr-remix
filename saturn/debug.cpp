@@ -822,6 +822,32 @@ static void benchCompose()
     }
 }
 
+// The display's health (system.h SyncStats), a second at a time: field
+// length in FRT ticks (least-most), TVSTAT ORed/ANDed, TVMD and EXTEN read
+// back, VDP1's EDSR at the last frame change.
+static const char* syncRow()
+{
+    static char text[OVERLAY_COLUMNS + 1];
+    static uint32 start;
+    if (gVblankCount - start < 60 && text[0])
+        return text;
+    start = gVblankCount;
+    SyncStats s = syncStatsTake();
+    char* p = appendStat(text, "fld ", s.least);
+    p = appendStat(p - 2, "-", s.most);
+    p = append(p - 1, "st ");
+    p = appendHex(p, s.statOr, 3);
+    p = append(p, "/");
+    p = appendHex(p, s.statAnd, 3);
+    p = append(p, " md ");
+    p = appendHex(p, VDP2_TVMD, 4);
+    p = append(p, " ex ");
+    p = appendHex(p, VDP2_EXTEN, 1);
+    p = append(p, " ed ");
+    appendHex(p, s.edsr, 1);
+    return text;
+}
+
 static void benchDraw()
 {
     if (gBenchChanged)
@@ -829,6 +855,7 @@ static void benchDraw()
         benchCompose();
         gBenchChanged = false;
     }
+    overlayRow(3, syncRow());
     for (int32 i = 0; i < OVERLAY_ROWS; i++)
     {
         if (gBenchRows[i][0]) {
