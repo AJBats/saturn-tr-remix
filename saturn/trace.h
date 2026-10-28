@@ -144,15 +144,20 @@ inline void traceDetailEnd(uint32_t id, uint32_t arg = 0)
 
 // The overlay's playback page (debug.cpp) holds the game: the rings stop,
 // and each tick tracePlayFrame shows the next of the frames they hold on the
-// overlay, over and over, until tracePlayStop: then they record afresh. A
-// page: a header row (the frame's number of how many, its start and length,
-// its events shown and left out), then the events, five a row, as a letter
-// (TRACE_LETTERS) and its begin and end from the frame's start, in tenths of
-// a millisecond; the last character of each row checks the rest.
-// tools/trace.py video reads the pages back.
-void tracePlayStart();
-void tracePlayFrame();
+// overlay, over and over (true once the last has been up), until
+// tracePlayStop: then they record afresh. A page: a header row (the frame's
+// number of how many, its start and length, its events shown and left out,
+// and the tag tracePlayStart was given unless 0), then the events, five a
+// row, as a letter (TRACE_LETTERS) and its begin and end from the frame's
+// start, in tenths of a millisecond; the last character of each row checks
+// the rest. tools/trace.py video reads the pages back.
+void tracePlayStart(int32_t tag = 0);
+bool tracePlayFrame();
 void tracePlayStop();
+
+// The rings record afresh from here (what they hold is left out of the
+// next playback).
+void traceRestart();
 
 // The master's profiler samples (debug.cpp), in the same low work RAM, or
 // NULL without room for them.
@@ -178,9 +183,10 @@ inline void traceBeginAt(int32_t, uint32_t, uint32_t, uint32_t = 0) {}
 inline void traceEndAt(int32_t, uint32_t, uint32_t, uint32_t = 0) {}
 inline void traceDetailBegin(uint32_t, uint32_t = 0) {}
 inline void traceDetailEnd(uint32_t, uint32_t = 0) {}
-inline void tracePlayStart() {}
-inline void tracePlayFrame() {}
+inline void tracePlayStart(int32_t = 0) {}
+inline bool tracePlayFrame() { return false; }
 inline void tracePlayStop() {}
+inline void traceRestart() {}
 
 #endif
 

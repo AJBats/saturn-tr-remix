@@ -109,7 +109,7 @@ int main()
 #ifdef HW_LOG
         if (debugHeld())
         {
-            tracePlayFrame();
+            debugPlayFrame();
             continue;
         }
 #endif

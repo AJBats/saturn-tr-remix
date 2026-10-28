@@ -15,6 +15,7 @@ void debugProfileInit();
 // The overlay's playback page holds the game: the main loop skips the
 // frame and gives the tick to tracePlayFrame.
 bool debugHeld();
+void debugPlayFrame();
 
 // Once a frame, after it is drawn and its plot asked for: notes its CPU time
 // and where Lara stands, for the rows that show each frame's own numbers

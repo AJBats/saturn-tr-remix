@@ -68,6 +68,7 @@ struct TracePlay
     int32_t start;                  // the first frame's start
     uint32_t index, frames;         // the frame shown, of how many
     uint32_t phase;                 // ticks it has been up
+    int32_t tag;                    // tracePlayStart's
     uint32_t count, dropped;        // its events
     Shown shown[PLAY_EVENTS];
     char rows[OVERLAY_ROWS][OVERLAY_COLUMNS + 1];
@@ -507,7 +508,13 @@ static void composeFrame(TracePlay &p, int32_t start, int32_t end)
     q = digits(q, p.count, 3);
     *q++ = ' ';
     *q++ = 'D';
-    digits(q, p.dropped, 3);
+    q = digits(q, p.dropped, 3);
+    if (p.tag)
+    {
+        *q++ = ' ';
+        *q++ = 'C';
+        digits(q, p.tag, 2);
+    }
     rowCheck(row);
 
     for (int32_t r = 0; r < PLAY_ROWS; r++)
@@ -558,11 +565,12 @@ static void playFirst(TracePlay &p)
     }
 }
 
-void tracePlayStart()
+void tracePlayStart(int32_t tag)
 {
     if (!gArea)
         return;
     gTraceOn = gTraceDetail = false;
+    gArea->play.tag = tag;
 
     // each lane's events on the master's timeline: its last placed against
     // the master's last by the vblanks between them (a lane may have stopped
@@ -598,16 +606,16 @@ void tracePlayStart()
     playFirst(p);
 }
 
-void tracePlayFrame()
+bool tracePlayFrame()
 {
     if (!gArea)
-        return;
+        return true;
     TracePlay &p = gArea->play;
     if (!p.frames)
     {
         overlayRow(0, "trace: no frames (Trace off in the menu?)");
         overlayFrame();
-        return;
+        return true;
     }
 
     if (p.phase == 0)
@@ -628,13 +636,16 @@ void tracePlayFrame()
     if (++p.phase > PLAY_HOLD)
     {
         p.phase = 0;
-        if (++p.index == p.frames) {
+        if (++p.index == p.frames)
+        {
             playFirst(p);
+            return true;
         }
     }
+    return false;
 }
 
-void tracePlayStop()
+void traceRestart()
 {
     if (!gArea)
         return;
@@ -642,6 +653,11 @@ void tracePlayStop()
     for (int32_t lane = 0; lane < TRACE_LANES; lane++) {
         p.floor[lane] = slaveLane(lane) ? uncached(gLanes + lane)->next : gLanes[lane].next;
     }
+}
+
+void tracePlayStop()
+{
+    traceRestart();
     traceSetMode(gMode);
 }
 

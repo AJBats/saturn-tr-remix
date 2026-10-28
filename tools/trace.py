@@ -13,13 +13,17 @@
         a handful of them. --shots N takes a screenshot at each of the N
         vblanks after too (build/NAME_1.png ...). --playback N then pages on
         to the playback and takes a screenshot every 4 vblanks for N
-        (build/NAME_play/), which "video" reads as it would a Saturn's.
+        (build/NAME_play/), which "video" reads as it would a Saturn's;
+        --record N takes them without paging (the battery: keys
+        1500:R,R,R,UP,RIGHT start it from the menu).
     trace.py convert DUMP [--out JSON]
         converts a dump of low work RAM (1 MB from 0x00200000)
     trace.py video VIDEO [--out JSON]
         reads a video of a Saturn's playback page (HW_LOG overlay: R from
         nothing at all; any recording that shows the whole screen at 30 fps
-        or more, the picture anywhere in it), or a directory of its pictures
+        or more, the picture anywhere in it), or a directory of its pictures.
+        A battery's (menu: Battery, Run) gives a trace for each split
+        (JSON_c1 ...) and a table of them side by side.
     trace.py open JSON
         opens JSON in ui.perfetto.dev in the default browser
 
@@ -298,7 +302,7 @@ def map_symbol(name):
 FRAMES_OFFSET = 24      # FrameStats.frames (system.h)
 
 
-def capture(cue, frame, keys, name, fps_window=0, shots=0, playback=0):
+def capture(cue, frame, keys, name, fps_window=0, shots=0, playback=0, record=0):
     # the binary the MCP server picks (mednafen_bot.py): the calibrated fork
     exe = None
     for root in (ROOT, os.path.join(ROOT, '..', 'TombRaiderSaturn')):
@@ -410,15 +414,16 @@ def capture(cue, frame, keys, name, fps_window=0, shots=0, playback=0):
             shot = os.path.join(ROOT, 'build', f'{name}_{i}.png')
             send(f'screenshot {shot.replace(os.sep, "/")}', 'screenshot', 30)
             time.sleep(0.2)
-        if playback:
+        if playback or record:
             folder = os.path.join(ROOT, 'build', name + '_play')
             os.makedirs(folder, exist_ok=True)
             for old in os.listdir(folder):
                 os.remove(os.path.join(folder, old))
-            send('input R', 'ok input', 10)
-            send('frame_advance 10', 'done frame_advance', 30)
-            send('input_release R', 'ok input_release', 10)
-            for i in range(0, playback, 4):
+            if playback:
+                send('input R', 'ok input', 10)
+                send('frame_advance 10', 'done frame_advance', 30)
+                send('input_release R', 'ok input_release', 10)
+            for i in range(0, playback or record, 4):
                 send('frame_advance 4', 'done frame_advance', 30)
                 shot = os.path.join(folder, f'{i:05d}.png')
                 send(f'screenshot {shot.replace(os.sep, "/")}', 'screenshot', 30)
@@ -479,7 +484,7 @@ def open_ui(path):
 PAGE_ROWS, PAGE_COLUMNS = 26, 42
 PAGE_CELLS = 5
 CHECK_DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-PAGE_HEADER = re.compile(r'F(\d{3})/(\d{3}) S(\d{7}) L(\d{3}) E(\d{3}) D(\d{3}) *$')
+PAGE_HEADER = re.compile(r'F(\d{3})/(\d{3}) S(\d{7}) L(\d{3}) E(\d{3}) D(\d{3})(?: C(\d{2}))? *$')
 OPEN_END = 999      # a span whose end the page couldn't hold
 
 
@@ -562,7 +567,8 @@ class PageReader:
         cell = [letters + ' '] + [digits + ' '] * 6 + [' ']
         body = cell * PAGE_CELLS + [' '] * (PAGE_COLUMNS - 1 - PAGE_CELLS * 8) + [CHECK_DIGITS]
         header = (['F'] + [digits] * 3 + ['/'] + [digits] * 3 + [' ', 'S'] + [digits] * 7 + [' ', 'L'] +
-                  [digits] * 3 + [' ', 'E'] + [digits] * 3 + [' ', 'D'] + [digits] * 3)
+                  [digits] * 3 + [' ', 'E'] + [digits] * 3 + [' ', 'D'] + [digits] * 3 +
+                  [' ', 'C '] + [digits + ' '] * 2)   # the battery's split, if any
         header += [' '] * (PAGE_COLUMNS - 1 - len(header)) + [CHECK_DIGITS]
         self.barred = bars(body)
         self.header_barred = bars(header)
@@ -610,13 +616,14 @@ def video_frames(path):
 
 
 def read_pages(path):
-    """Each frame's page: {index: (header numbers, [(letter, begin, end)])},
-    from the pictures that hold it whole (header and every row checked), the
-    reading most of them agree on; and the frames' count."""
+    """Each frame's page: {(tag, index): (header numbers, [(letter, begin,
+    end)])}, from the pictures that hold it whole (header and every row
+    checked), the reading most of them agree on; and each tag's frame count.
+    A page without a tag (the playback page's own) has tag 0."""
     import collections
     reader = PageReader()
     readings = collections.defaultdict(collections.Counter)
-    total = None
+    totals = {}
     pictures = torn = 0
     for img in video_frames(path):
         pictures += 1
@@ -630,8 +637,9 @@ def read_pages(path):
         if not all(row_checked(r) for r in rows[1:]):
             torn += 1
             continue
-        index, frames, start, length, count, dropped = (int(v) for v in m.groups())
-        total = frames
+        index, frames, start, length, count, dropped = (int(v) for v in m.groups()[:6])
+        tag = int(m.group(7) or 0)
+        totals[tag] = frames
         events = []
         for r in rows[1:]:
             for c in range(PAGE_CELLS):
@@ -642,11 +650,11 @@ def read_pages(path):
         if len(events) != count:
             torn += 1
             continue
-        readings[index][((start, length, count, dropped), tuple(events))] += 1
-    pages = {i: c.most_common(1)[0][0] for i, c in readings.items()}
-    print(f'{path}: {pictures} pictures, {len(pages)} frames read' +
-          (f' of {total}' if total is not None else '') + f', {torn} pictures torn or misread')
-    return pages, total
+        readings[(tag, index)][((start, length, count, dropped), tuple(events))] += 1
+    pages = {k: c.most_common(1)[0][0] for k, c in readings.items()}
+    print(f'{path}: {pictures} pictures, {len(pages)} frames read of {sum(totals.values())}, '
+          f'{torn} pictures torn or misread')
+    return pages, totals
 
 
 def nest(spans):
@@ -672,16 +680,22 @@ def uncovered(spans, lo, hi):
     return out
 
 
-def video(path, out_path):
-    pages, total = read_pages(path)
-    if not pages:
-        sys.exit('no page read whole: is the playback page on, and the video sharp enough?')
+def split_names():
+    """The battery's splits by tag (saturn/debug.cpp kSplits), from 1."""
+    text = open(os.path.join(ROOT, 'saturn/debug.cpp')).read()
+    body = text[text.index('kSplits[] = {'):]
+    body = body[:body.index('};')]
+    return {i + 1: name for i, name in enumerate(re.findall(r'\{ "([^"]+)",', body))}
+
+
+def page_trace(pages, out_path, title):
+    """One playback's pages ({index: page}) as a Chrome trace at out_path.
+    Returns its summary: frames, ms read, each label's own ms, and each piece's
+    ms (its spans' mean) by label and by the master's item order."""
+    import collections
     ids, _ = trace_ids()
     letters = trace_letters()
     by_letter = {c: i for i, c in enumerate(letters) if c != '.'}
-    missing = [i for i in range(total or 0) if i not in pages]
-    if missing:
-        print(f'frames not read: {missing}')
 
     lanes = {1: [], 2: [], 3: [], 4: [], 7: []}
     vdp1, shown, vblanks, windows = [], [], [], []
@@ -722,30 +736,39 @@ def video(path, out_path):
             ev['cname'] = cname
         events.append(ev)
 
-    selfs, window = {}, sum(e - b for b, e, _, _ in windows)
+    def label(name):
+        if name in WAITS:
+            return 'WAIT ' + name[:-5].lower().replace('_', ' ')
+        return name.lower().replace('_', ' ')
+
+    selfs, window = collections.Counter(), sum(e - b for b, e, _, _ in windows)
+    pieces = collections.defaultdict(list)
     for tid, spans in lanes.items():
         nested = nest(spans)
         for b, e, depth, name in nested:
             wait = name in WAITS
-            label = 'WAIT ' + name[:-5].lower().replace('_', ' ') if wait else name.lower().replace('_', ' ')
-            x(tid, b, e, label, 'wait' if wait else 'work', 'terrible' if wait else None)
+            x(tid, b, e, label(name), 'wait' if wait else 'work', 'terrible' if wait else None)
             inner = sum(s[1] - s[0] for s in nested if s[2] == depth + 1 and b <= s[0] and s[1] <= e)
-            selfs[label] = selfs.get(label, 0) + (e - b) - inner
+            selfs[label(name)] += (e - b) - inner
+            if e - b < OPEN_END:
+                pieces[label(name)].append(e - b)
         if tid in (1, 3):
             top = [(b, e) for b, e, depth, _ in nested if depth == 0]
             for lo, hi, _, _ in windows:
                 for b, e in uncovered(top, lo, hi):
                     x(tid, b, e, 'idle', 'idle', 'grey')
-                    key = '(idle)' if tid == 1 else '(slave idle)'
-                    selfs[key] = selfs.get(key, 0) + e - b
+                    selfs['(idle)' if tid == 1 else '(slave idle)'] += e - b
         if tid == 3:
             for b0, e0, depth, name in nested:
                 if name == 'BATCH':
                     inside = [(b, e) for b, e, d, _ in nested if d == depth + 1]
                     for b, e in uncovered(inside, b0, e0):
                         x(tid, b, e, 'wait for jobs', 'idle', 'bad')
+                        selfs['(wait for jobs)'] += e - b
     for b, e, _ in vdp1:
         x(5, b, e, 'VDP1 draws', 'vdp1')
+        if e - b < OPEN_END - 100:
+            pieces['VDP1 draws'].append(e - b)
     shown.sort()
     for b, e in zip(shown, shown[1:]):
         x(6, b, e, 'list on screen', 'display')
@@ -754,22 +777,93 @@ def video(path, out_path):
     for lo, hi, index, dropped in windows:
         x(8, lo, hi, f'frame {index}' + (f' ({dropped} events left out)' if dropped else ''), 'frame')
 
+    # the master's items in the order it draws them each frame
+    items = collections.defaultdict(list)
+    for lo, hi, _, _ in windows:
+        mine = sorted((b, e) for b, e, name in lanes[1] if name == 'ITEM' and lo <= b < hi)
+        for k, (b, e) in enumerate(mine):
+            items[k].append(e - b)
+
     names = dict(TRACK_NAMES)
     names[8] = 'Frames'
     meta = []
     for order, (tid, name) in enumerate(names.items()):
         meta.append({'name': 'thread_name', 'ph': 'M', 'pid': 1, 'tid': tid, 'args': {'name': name}})
         meta.append({'name': 'thread_sort_index', 'ph': 'M', 'pid': 1, 'tid': tid, 'args': {'sort_index': order}})
-    meta.append({'name': 'process_name', 'ph': 'M', 'pid': 1, 'args': {'name': 'Saturn (from the playback video)'}})
+    meta.append({'name': 'process_name', 'ph': 'M', 'pid': 1, 'args': {'name': title}})
     with open(out_path, 'w') as f:
         json.dump({'traceEvents': meta + events, 'displayTimeUnit': 'ms'}, f)
 
-    print(f'{out_path}: {window / 10:.1f} ms in {len(windows)} frames '
-          f'({len(windows) * 10000 / window:.1f} fps), {sum(w[3] for w in windows)} events left out, '
-          f'{clamped} spans past 99.9 ms')
-    print('own time, % of the time (100 = all of it):')
-    for name, t in sorted(selfs.items(), key=lambda kv: -kv[1]):
-        print(f'  {name:16s} {t * 100 / window:6.1f}')
+    frames = len(windows)
+    print(f'{out_path}: {window / 10:.1f} ms in {frames} frames ({frames * 10000 / window:.1f} fps), '
+          f'{sum(w[3] for w in windows)} events left out, {clamped} spans past 99.9 ms')
+    return {'frames': frames, 'frame': window / frames / 10,
+            'own': {k: v / frames / 10 for k, v in selfs.items()},
+            'pieces': {k: sum(v) / len(v) / 10 for k, v in pieces.items()},
+            'items': {k: sum(v) / len(v) / 10 for k, v in items.items() if len(v) * 2 >= frames}}
+
+
+# the battery's table: each split's own time a frame of these, then the mean
+# of one piece of work, by kind and by the master's item order
+TABLE_OWN = ['update', 'view', 'queue', 'lara', 'objects', 'item', 'static', 'mesh', 'meshes finish', 'flush',
+             'upload', 'overlay', 'WAIT rooms', 'WAIT far', 'WAIT vdp1', 'WAIT dsp', 'WAIT tick', '(idle)',
+             'xform', 'faces', 'slave mesh', 'slave item', 'slave flush', '(wait for jobs)',
+             '(slave idle)', 'dsp run', 'dsp meshes']
+TABLE_PIECES = ['lara', 'static', 'mesh', 'xform', 'faces', 'slave mesh', 'slave item', 'slave flush',
+                'dsp run', 'dsp meshes', 'VDP1 draws']
+
+
+def battery_table(summaries, names):
+    tags = sorted(summaries)
+    width = 15
+    head = '%-22s' % '' + ''.join(f'{names.get(t, str(t))[:width - 1]:>{width}}' for t in tags)
+    print('\nms a frame (own time; a CPU or the DSP adds up to its busy time)')
+    print(head)
+    print('%-22s' % 'frame' + ''.join(f'{summaries[t]["frame"]:{width}.2f}' for t in tags))
+    for k in TABLE_OWN:
+        if any(summaries[t]['own'].get(k, 0) >= 0.005 for t in tags):
+            print('%-22s' % k + ''.join(f'{summaries[t]["own"].get(k, 0):{width}.2f}' for t in tags))
+    print('\nms one piece of work takes (the mean of its spans)')
+    print(head)
+    for k in TABLE_PIECES:
+        if any(k in summaries[t]['pieces'] for t in tags):
+            print('%-22s' % k + ''.join(
+                f'{summaries[t]["pieces"][k]:{width}.2f}' if k in summaries[t]['pieces'] else ' ' * (width - 1) + '-'
+                for t in tags))
+    count = max(len(summaries[t]['items']) for t in tags)
+    for i in range(count):
+        print('%-22s' % f'master item #{i + 1}' + ''.join(
+            f'{summaries[t]["items"][i]:{width}.2f}' if i in summaries[t]['items'] else ' ' * (width - 1) + '-'
+            for t in tags))
+
+
+def video(path, out_path):
+    pages, totals = read_pages(path)
+    if not pages:
+        sys.exit('no page read whole: is the playback page on, and the video sharp enough?')
+    names = split_names()
+    summaries = {}
+    for tag in sorted(totals):
+        mine = {i: p for (t, i), p in pages.items() if t == tag}
+        missing = [i for i in range(totals[tag]) if i not in mine]
+        if missing:
+            print(f'{names.get(tag, "playback")}: frames not read: {missing}')
+        if not mine:
+            continue
+        if tag:
+            base, ext = os.path.splitext(out_path)
+            name = f'{base}_c{tag}{ext}'
+            title = f'Saturn battery: {names.get(tag, tag)}'
+        else:
+            name, title = out_path, 'Saturn (from the playback video)'
+        summaries[tag] = page_trace(mine, name, title)
+    if len(summaries) > 1 or 0 not in summaries:
+        battery_table(summaries, names)
+    else:
+        s = summaries[0]
+        print('own time, ms a frame:')
+        for k, v in sorted(s['own'].items(), key=lambda kv: -kv[1]):
+            print(f'  {k:16s} {v:6.2f}')
 
 
 def main():
@@ -782,6 +876,7 @@ def main():
     c.add_argument('--fps', type=int, default=0)
     c.add_argument('--shots', type=int, default=0)
     c.add_argument('--playback', type=int, default=0)
+    c.add_argument('--record', type=int, default=0)
     c.add_argument('--out', default='trace')
     v = sub.add_parser('convert')
     v.add_argument('dump')
@@ -801,7 +896,7 @@ def main():
         return
     if args.cmd == 'capture':
         dump = capture(os.path.abspath(args.cue), args.frame, args.keys, args.out, args.fps, args.shots,
-                       args.playback)
+                       args.playback, args.record)
         out = os.path.join(ROOT, 'build', args.out + '.json')
     else:
         dump = args.dump

@@ -44,6 +44,35 @@ static const char* const kBenchNames[BENCH_COUNT] = {
     "C meshes", "Clear", "Void colour", "Split shade", "Profile"
 };
 static int32 gBenchHold;    // the way every page but the bench's runs
+
+// The battery (menu, Run): the same scene drawn with the work split between
+// the CPUs and the DSP each of these ways, BATTERY_SETTLE frames to settle,
+// then BATTERY_FRAMES traced and played back once (the header's C number is
+// the split's, from 1; tools/trace.py video reads the names here), then the
+// next. L or R stops it.
+struct Split
+{
+    const char* name;
+    int32 way, dsp;
+    bool masterItems;
+};
+static const Split kSplits[] = {
+    { "Default", BENCH_BASE, DSP_ROOMS_MESHES, false },
+    { "Meshes first", BENCH_BASE, DSP_MESHES_FIRST, false },
+    { "DSP rooms only", BENCH_BASE, DSP_ROOMS_ONLY, false },
+    { "No DSP", BENCH_NO_DSP, DSP_ROOMS_MESHES, false },
+    { "Master statics", BENCH_MASTER_MESHES, DSP_ROOMS_MESHES, false },
+    { "Master piled", BENCH_MASTER_MESHES, DSP_ROOMS_ONLY, true },
+};
+#define SPLITS          int32(sizeof(kSplits) / sizeof(kSplits[0]))
+#define BATTERY_SETTLE  30
+#define BATTERY_FRAMES  40
+static const char* const kBattery[] = { "Off", "Run" };
+static int32 gBattery;          // the split running, from 1; 0 off
+static int32 gBatteryLeft;      // frames left settling, or recording
+static bool gBatteryRecording;
+static Split gBatterySaved;     // the menu's settings before it
+static void batteryStart();
 #endif
 static const char* const kShrink[] = { "Exact", "Fast" };
 static const char* const kLines[] = { "Fixed", "Turned" };
@@ -134,13 +163,16 @@ static const Option gOptions[] = {
     { "Trace", kTrace, TRACE_MODES,
         [] { return int32(traceMode()); },
         [](int32 v) { traceSetMode(v); } },
+    { "Battery", kBattery, 2,
+        [] { return int32(gBattery != 0); },
+        [](int32 v) { if (v) batteryStart(); } },
 #endif
 };
 
 enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_MULTIPLY, OPTION_GREY, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
        OPTION_PALETTE, OPTION_SPLIT, OPTION_DEPTH, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD, OPTION_ITEMS, OPTION_DSP,
 #ifdef HW_LOG
-       OPTION_WAY, OPTION_TRACE,
+       OPTION_WAY, OPTION_TRACE, OPTION_BATTERY,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");
@@ -176,7 +208,7 @@ static void playbackStart()
     crashHold(true);    // the game loop stands still
     screenFramesHidden(true);
     vdp2SetBackColor(PLAYBACK_BACK);
-    tracePlayStart();
+    tracePlayStart(gBattery);
 }
 
 static void playbackEnd()
@@ -190,6 +222,60 @@ static void playbackEnd()
 bool debugHeld()
 {
     return gPage == PAGE_PLAYBACK;
+}
+
+static void batterySplit(const Split &s)
+{
+    gBenchHold = s.way;
+    gDspMeshes = s.dsp;
+    gMasterItems = s.masterItems;
+}
+
+static void batteryNext()
+{
+    gPage = PAGE_NONE;
+    if (gBattery == SPLITS)
+    {
+        gBattery = 0;
+        batterySplit(gBatterySaved);
+        return;
+    }
+    batterySplit(kSplits[gBattery++]);
+    gBatteryLeft = BATTERY_SETTLE;
+    gBatteryRecording = false;
+}
+
+static void batteryStart()
+{
+    if (gBattery)
+        return;
+    gBatterySaved = { nullptr, gBenchHold, gDspMeshes, gMasterItems };
+    batteryNext();
+}
+
+// Once a frame while it runs: settles, records, then plays back.
+static void batteryFrame()
+{
+    if (!gBattery || gPage == PAGE_PLAYBACK || --gBatteryLeft > 0)
+        return;
+    if (!gBatteryRecording)
+    {
+        traceRestart();
+        gBatteryRecording = true;
+        gBatteryLeft = BATTERY_FRAMES;
+        return;
+    }
+    gPage = PAGE_PLAYBACK;
+    playbackStart();
+}
+
+void debugPlayFrame()
+{
+    if (tracePlayFrame() && gBattery)
+    {
+        playbackEnd();
+        batteryNext();
+    }
 }
 #endif
 
@@ -233,6 +319,11 @@ void debugUpdate()
         gPage = (gPage + PAGE_COUNT - 1) % PAGE_COUNT;
     }
     shoulders = keys & (IK_L | IK_R);
+    if (gPage != was && gBattery)
+    {
+        gBattery = 0;
+        batterySplit(gBatterySaved);
+    }
     if (gPage != was && was == PAGE_PLAYBACK) {
         playbackEnd();
     }
@@ -289,6 +380,7 @@ void debugUpdate()
         overlayUnpin(FRAME_ROW);
         overlayUnpin(FRAME_ROW + 1);
     }
+    batteryFrame();
     benchUpdate();
     sceneUpdate();
 #endif
