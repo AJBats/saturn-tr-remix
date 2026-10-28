@@ -80,9 +80,12 @@ enum TraceLane { TRACE_MASTER, TRACE_IRQ, TRACE_SLAVE, TRACE_DSP, TRACE_LANES };
 void traceInit();
 
 // The level's data ends at end in low work RAM: the rings record if they fit
-// above it. traceStop stops them before a level loads over them.
+// above it. traceStop stops them before a level loads over them, or the
+// polygon hunt borrows that memory (osLowRamFree); traceResume starts them
+// afresh above the same level once it is given back.
 void traceLevel(const void* end);
 void traceStop();
+void traceResume();
 
 // The overlay's Trace option: no events (each costs a Saturn a timer read,
 // about 110 cycles, and a few stores), the stages, or the stages and the
@@ -173,6 +176,7 @@ inline void traceSetMode(int32_t) {}
 inline int32_t traceMode() { return 0; }
 inline void traceLevel(const void*) {}
 inline void traceStop() {}
+inline void traceResume() {}
 inline void traceAt(int32_t, uint32_t, uint32_t) {}
 inline void traceBegin(int32_t, uint32_t, uint32_t = 0) {}
 inline void traceEnd(int32_t, uint32_t, uint32_t = 0) {}

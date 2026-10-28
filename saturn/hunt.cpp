@@ -11,6 +11,7 @@
 #include "input.h"
 #include "overlay.h"
 #include "system.h"
+#include "trace.h"
 #include "vram.h"
 
 #include <string.h>
@@ -80,10 +81,15 @@ static int32 gLaraRoom, gLaraYaw;
 
 bool huntArm()
 {
+    // the trace's rings lie in the same memory: they stop for the hunt
+    traceStop();
     uint32 size;
     uint8* ram = osLowRamFree(size);
     if (size < sizeof(HuntBuffers))
+    {
+        traceResume();
         return false;
+    }
     gHunt = (HuntBuffers*)(uint32(ram + 15) & ~15);
     gFaceCount = gMeshCount = gLitCount = 0;
     gKind = gOwner = 0;
@@ -542,6 +548,7 @@ void huntUpdate(uint16 pad)
         overlayFrame();
         crashHold(false);
         gState = HUNT_IDLE;
+        traceResume();
         return;
     }
 

@@ -172,8 +172,11 @@ void traceInit()
     crashLog("TRSYNC", gSlaveOffset);
 }
 
+static const void* gLevelEnd;   // traceLevel's
+
 void traceLevel(const void* end)
 {
+    gLevelEnd = end;
     traceStop();
     uint32_t base = (uintptr_t(end) + 15) & ~15;
     int32_t room = int32_t(TRACE_HEADER - base - sizeof(TraceArea)) / 4;   // ring events
@@ -217,6 +220,13 @@ void traceStop()
 {
     gArea = nullptr;
     traceSetMode(gMode);
+}
+
+void traceResume()
+{
+    if (gLevelEnd) {
+        traceLevel(gLevelEnd);
+    }
 }
 
 uint16_t* traceProfileBlocks()
