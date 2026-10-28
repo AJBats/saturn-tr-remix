@@ -51,6 +51,18 @@ extern FrameStats gStats;
 void systemInit();
 void waitVblank();
 
+#ifdef HW_LOG
+// The display's health (the HW_LOG overlay's sync row), since last taken:
+// FRT ticks between vblank-ins, the least and most (a 352-dot NTSC field is
+// 3739), TVSTAT's bits ORed and ANDed at each vblank-in, and VDP1's EDSR at
+// the last frame buffer change.
+struct SyncStats
+{
+    uint32_t least, most, statOr, statAnd, edsr;
+};
+SyncStats syncStatsTake();
+#endif
+
 // Issues an SMPC command with no parameters and waits for it to finish.
 void smpcCommand(uint8_t command);
 

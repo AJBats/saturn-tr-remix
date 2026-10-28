@@ -66,6 +66,22 @@ static uint32_t gSmpcCommands;
 volatile uint32_t gVblankCount;
 FrameStats gStats;
 
+#ifdef HW_LOG
+static SyncStats gSync = { 0xFFFF, 0, 0, 0xFFFF, 0 };
+
+SyncStats syncStatsTake()
+{
+    uint32_t sr;
+    asm volatile("stc sr, %0" : "=r"(sr));
+    asm volatile("ldc %0, sr" : : "r"(sr | 0xF0));
+    SyncStats s = gSync;
+    gSync.least = gSync.statAnd = 0xFFFF;
+    gSync.most = gSync.statOr = 0;
+    asm volatile("ldc %0, sr" : : "r"(sr));
+    return s;
+}
+#endif
+
 // irq.s entries: save registers, call the handlers below
 extern "C" void vblankInEntry();
 extern "C" void vblankOutEntry();
@@ -77,6 +93,17 @@ extern "C" void vblankInHandler(const uint32_t* irqStack)
     gVblankCount++;
     traceBegin(TRACE_IRQ, TR_IRQ_VBLANK_IN, gVblankCount);
     crashWatchdog(irqStack);
+#ifdef HW_LOG
+    static uint32_t last;
+    uint32_t now = timerTicks();
+    uint32_t field = (now - last) & 0xFFFF;
+    last = now;
+    gSync.least = field < gSync.least ? field : gSync.least;
+    gSync.most = field > gSync.most ? field : gSync.most;
+    uint32_t status = VDP2_TVSTAT;
+    gSync.statOr |= status;
+    gSync.statAnd &= status;
+#endif
 
     if (gVdp1State == VDP1_PLOTTING)
     {
@@ -119,6 +146,9 @@ extern "C" void vblankOutHandler()
     traceBegin(TRACE_IRQ, TR_IRQ_VBLANK_OUT);
     if (gVdp1State == VDP1_CHANGING)
     {
+#ifdef HW_LOG
+        gSync.edsr = VDP1_EDSR;     // the change done: the last list's end now BEF
+#endif
         waitDisplayStart();
         gVdp1State = VDP1_IDLE;
         traceBegin(TRACE_IRQ, TR_SHOWN, gPlotsStarted);
@@ -205,9 +235,30 @@ uint32_t vdp1DebugState()
     return (uint32_t(gVdp1State) << 24) | (uint32_t(gPlotQueued) << 16) | (uint32_t(gVdp1Drawn) << 8);
 }
 
+// The display comes on inside a vertical blank, as the VDP2 manual has it
+// (TVMD's DISP may go from 0 to 1 only then). TVSTAT's VBLANK bit reads 1
+// while the display is off, so the line counter says where the beam is. Log
+// line TVMD: the line << 16 | dot it was written at (bit 31: the counter
+// never got there, written anyway).
+#define DISPLAY_POLLS   200000
+
+static void displayOn()
+{
+    uint32_t polls = 0;
+    while (vdp2Line() >= SCREEN_HEIGHT && ++polls < DISPLAY_POLLS);
+    while (vdp2Line() < SCREEN_HEIGHT && ++polls < DISPLAY_POLLS);
+    (void)VDP2_EXTEN;   // latch the counters
+    VDP2_TVMD = TVMD_DISP | TVMD_HRES_352; // 224 lines, non-interlaced, as the original
+    crashLog("TVMD", (polls >= DISPLAY_POLLS ? 0x80000000u : 0) | (uint32_t(VDP2_VCNT & 0x1FF) << 16) |
+                     (VDP2_HCNT & 0x3FF));
+}
+
+// The BIOS's clock change left VDP2 as at power on, with the display off at
+// 352 dots (TVMD 0x0001): the 320/352 switch is the BIOS's alone (in
+// horizontal retrace), so TVMD is written only to turn the display on.
 static void vdp2Init()
 {
-    VDP2_TVMD = 0;
+    VDP2_EXTEN = 0;
     VDP2_BGON = 0;
     VDP2_CCCTL = 0;
     VDP2_CLOFEN = 0;
@@ -218,7 +269,7 @@ static void vdp2Init()
     VDP2_BKTAU = (BACK_COLOR_ADDR >> 17) & 7;
     VDP2_BKTAL = (BACK_COLOR_ADDR >> 1) & 0xFFFF;
 
-    VDP2_TVMD = TVMD_DISP | TVMD_HRES_352; // 224 lines, non-interlaced, as the original
+    displayOn();
 }
 
 void vdp2SetBackColor(uint16_t color)
@@ -299,6 +350,34 @@ static uint32_t smpcStatus()
     return (SMPC_OREG(9) << 8) | SMPC_OREG(10);
 }
 
+#ifdef HW_LOG
+static uint32_t rtcSecond()
+{
+    smpcStatus();
+    return SMPC_OREG(7);    // BCD
+}
+
+static uint32_t vblanksPerRtc()
+{
+    uint32_t start = gVblankCount;
+    uint32_t s = rtcSecond();
+    while (rtcSecond() == s) {
+        if (gVblankCount - start > 180)
+            return 0;
+    }
+    start = gVblankCount;
+    for (int32_t i = 0; i < 2; i++)
+    {
+        s = rtcSecond();
+        while (rtcSecond() == s) {
+            if (gVblankCount - start > 300)
+                return 0;
+        }
+    }
+    return gVblankCount - start;
+}
+#endif
+
 void systemInit()
 {
     // 352x240; the 352-dot clock also runs the CPUs 6.6% faster. The BIOS
@@ -329,6 +408,14 @@ void systemInit()
     BIOS_SET_SINT(VECTOR_VBLANK_OUT, vblankOutEntry);
     BIOS_SET_SINT(VECTOR_SPRITE_END, spriteEndEntry);
     BIOS_CHG_SCUIM(~(SCU_IMS_VBLANK_IN | SCU_IMS_VBLANK_OUT | SCU_IMS_SPRITE_END), 0);
+
+#ifdef HW_LOG
+    // vblanks over two seconds of the SMPC's clock, which runs off its own
+    // crystal: 120 at the 352-dot clock's 59.8 Hz, 112 had the system clock
+    // stayed at the 320-dot rate under 352-dot timing (0: the clock never
+    // ticked)
+    crashLog("VBRTC", vblanksPerRtc());
+#endif
 }
 
 void waitVblank()
