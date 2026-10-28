@@ -39,7 +39,7 @@
     .equ    MESH_LIGHT_NORMALS, 1
     .equ    MESH_LIGHT_SHADES,  2
 
-    .equ    BENCH_SPLIT_SHADE,  12  ! render.h: the shade pass apart all the same
+    .equ    BENCH_SPLIT_SHADE,  11  ! render.h: the shade pass apart all the same
 
 ! r >> 14 and r >> 21, arithmetic: logical, the sign bit's place flipped
 ! back; r10 holds 1 << (31 - N), r11 its negation

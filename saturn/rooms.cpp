@@ -18,8 +18,6 @@
 #include "meshjobs_dsp.h"
 
 #define MAX_ROOM_JOBS   64
-#define MAX_MESH_JOBS   128
-#define MESH_STEP       32      // mesh vertices the slave's share moves by a frame
 
 // The bits of a room quad's flags that are the packer's; faces.s keeps the
 // quad's turn and mip level in the rest (REUSE).
@@ -74,18 +72,6 @@ static volatile uint32 gJobsQueued;
 static volatile uint32 gJobsClosed;
 static volatile uint32 gRoomsComplete;  // every room of the frame queued
 
-// Meshes, queued the same way. The slave takes as many vertices of them a
-// frame as its share, which grows while it has finished every job by the
-// time the master is done drawing and shrinks when it hasn't.
-static MeshJob gMeshJobs[MAX_MESH_JOBS];
-static uint32 gMeshCount;
-static int32 gMeshShare;
-static int32 gMeshTaken;
-static bool gMeshHeld;      // a mesh was drawn here for want of share
-static volatile uint32 gMeshesQueued;
-static volatile uint32 gJobsDone;   // rooms and meshes the slave has drawn
-static uint8 gMeshSkipped[MAX_MESH_JOBS];   // jobs the slave had no room for, for the master
-static uint32 gMeshSkips;
 
 // Slave side.
 // Each room's vertices have their place in gVertices from the bottom up, in
@@ -965,27 +951,6 @@ static void slaveItem(int32 index, const ItemObj* item)
     traceEndAt(TRACE_SLAVE, t1, TR_SLAVE_ITEM, item->type);
 }
 
-static void renderMeshJob(int32 index, const MeshJob &job)
-{
-    int32 count = job.vCount;
-    if (gTop - count < gBottom || gFaceList.next + job.fCount > gFaceList.end)
-    {
-        gMeshSkipped[gMeshSkips++] = index;
-        return;
-    }
-
-    uint32 t0 = timerTicks();
-    gTop -= count;
-    gMeshList.next = gFaceList.next;
-    meshJobDraw(job, gVertices + gTop, gMeshList);
-    gFaceList.next = gMeshList.next;
-    gSlaveStats.vertices += count;
-    uint32 t1 = timerTicks();
-    gSlaveStats.meshTicks += (t1 - t0) & 0xFFFF;
-    traceBeginAt(TRACE_SLAVE, t0, TR_SLAVE_MESH, index);
-    traceEndAt(TRACE_SLAVE, t1, TR_SLAVE_MESH, index);
-}
-
 // Meshes' faces after the rooms' in each bucket, as the master draws what
 // stands in rooms.
 static void mergeMeshes()
@@ -1024,7 +989,6 @@ static void roomBatch()
     gBottom = MASTER_VERTICES;
     gTop = MAX_VERTICES;
     gFaced = 0;
-    gMeshSkips = 0;
     gStaticSkips = 0;
     gStaticsDrawn = false;
     gStaticNext = 0;
@@ -1032,13 +996,11 @@ static void roomBatch()
     gItemJob = ITEMS_UNSTARTED;
     gDspRoom = -1;
 
-    uint32 meshesDone = 0;
     uint32 idleStart = timerTicks();
     traceBeginAt(TRACE_SLAVE, idleStart, TR_BATCH);
     while (1)
     {
         uint32 queued = *uncached(&gJobsQueued);
-        uint32 meshes = *uncached(&gMeshesQueued);
         asm volatile("" : : : "memory"); // read the jobs only after their count
         placeRooms(queued);
         dspFeed();
@@ -1055,7 +1017,7 @@ static void roomBatch()
             }
         }
 
-        if (ready < 0 && front < 0 && meshesDone == meshes)
+        if (ready < 0 && front < 0)
         {
             // nothing of the rooms' to do (or the DSP's run to wait for):
             // their statics, which need nothing but the camera, unless the
@@ -1085,7 +1047,7 @@ static void roomBatch()
                 continue;
             }
             // the last jobs may have been queued just before the queue closed
-            if (queued == *uncached(&gJobsQueued) && meshesDone == *uncached(&gMeshesQueued))
+            if (queued == *uncached(&gJobsQueued))
                 break;
             continue;
         }
@@ -1096,21 +1058,14 @@ static void roomBatch()
         {
             roomFaces(ready, *uncached(gJobs + ready));
         }
-        else if (front >= 0)
+        else
         {
             roomChunk(front, *uncached(gJobs + front));
         }
-        else
-        {
-            MeshJob job = *uncached(gMeshJobs + meshesDone);
-            renderMeshJob(meshesDone, job);
-            meshesDone++;
-        }
-        *uncached(&gJobsDone) = gFaced + meshesDone;
         idleStart = timerTicks();
     }
 
-    if (meshesDone || gStaticsDrawn) {
+    if (gStaticsDrawn) {
         mergeMeshes();
     }
     traceEnd(TRACE_SLAVE, TR_BATCH);
@@ -1447,40 +1402,11 @@ void roomsQueue(const Room* room)
     *uncached(&gJobsQueued) = gJobCount;
 }
 
-bool roomsQueueMesh(const Mesh* mesh)
-{
-    if (gJobCount == 0 || gMeshCount == MAX_MESH_JOBS)
-        return false;
-    if (gMeshTaken + mesh->vCount > gMeshShare)
-    {
-        gMeshHeld = true;
-        return false;
-    }
-
-    meshJobSetup(gMeshJobs[gMeshCount], mesh);
-    gMeshTaken += mesh->vCount;
-    gMeshCount++;
-    *uncached(&gMeshesQueued) = gMeshCount;
-    return true;
-}
-
-bool roomsQueueShadow(int32 x, int32 z, int32 sx, int32 sz)
-{
-    if (gJobCount == 0 || gMeshCount == MAX_MESH_JOBS)
-        return false;
-
-    meshJobShadow(gMeshJobs[gMeshCount], x, z, sx, sz);
-    gMeshCount++;
-    *uncached(&gMeshesQueued) = gMeshCount;
-    return true;
-}
-
 Face** roomsFinish(RoomStats &stats, const uint16* &groups)
 {
     if (gJobCount == 0)
         return NULL;
 
-    bool idle = *uncached(&gJobsDone) == gJobCount + gMeshCount;
     *uncached(&gJobsClosed) = 1;
 
     // the statics the slave hasn't reached, from the last room queued back,
@@ -1498,10 +1424,6 @@ Face** roomsFinish(RoomStats &stats, const uint16* &groups)
     slaveWait();
     traceEnd(TRACE_MASTER, TR_ROOMS_WAIT);
     cachePurge();
-
-    for (uint32 i = 0; i < gMeshSkips; i++) {
-        meshJobRedraw(gMeshJobs[gMeshSkipped[i]]);
-    }
 
     // the statics the slave had no room for
     if (gStaticSkips)
@@ -1521,25 +1443,11 @@ Face** roomsFinish(RoomStats &stats, const uint16* &groups)
     }
     memset(gStaticRooms, 0, sizeof(gStaticRooms));
 
-    // it grows only while it holds meshes back, not to slow its shrinking when
-    // the view gets busier
-    if (!idle) {
-        gMeshShare = X_MAX(gMeshShare - MESH_STEP, 0);
-    } else if (gMeshHeld) {
-        gMeshShare += MESH_STEP;
-    }
-    gMeshTaken = 0;
-    gMeshHeld = false;
-
     gSlaveStats.rooms = gJobCount;
-    gSlaveStats.meshes += gMeshCount - gMeshSkips;
     gJobCount = 0;
-    gMeshCount = 0;
     *uncached(&gJobsQueued) = 0;
     *uncached(&gJobsClosed) = 0;
     *uncached(&gRoomsComplete) = 0;
-    *uncached(&gMeshesQueued) = 0;
-    *uncached(&gJobsDone) = 0;
 
     stats = gSlaveStats;
     groups = gFaceList.groups;

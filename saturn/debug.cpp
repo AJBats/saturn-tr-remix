@@ -40,7 +40,7 @@ static const char* const kLoad[] = { "None", "5%", "10%", "15%", "20%" };
 #ifdef HW_LOG
 static const char* const kBenchNames[BENCH_COUNT] = {
     "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master meshes",
-    "All meshes", "C meshes", "Clear", "Void colour", "Split shade", "Profile"
+    "C meshes", "Clear", "Void colour", "Split shade", "Profile"
 };
 static int32 gBenchHold;    // the way every page but the bench's runs
 static int32 gExtraLoad;    // the master spins this many 5% of a 30 fps frame each frame

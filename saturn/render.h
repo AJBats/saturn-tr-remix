@@ -253,7 +253,6 @@ enum BenchMode
     BENCH_NO_TEXTURE,   // textured faces as grey polygons
     BENCH_NO_DSP,       // rooms projected on the slave alone, without the SCU DSP
     BENCH_MASTER_MESHES,    // every mesh drawn on the master, none by the slave
-    BENCH_ALL_MESHES,   // items' meshes and shadows to the slave too, not only rooms' static meshes
     BENCH_C_MESHES,     // the master's meshes by the C path, not meshxform.s renderMeshAsm
     BENCH_CLEAR,        // the scene's frames cleared too, as frames without rooms are
     BENCH_VOID_COLOR,   // VDP2's back colour magenta: shows where void fills (transparent) drew
@@ -423,9 +422,6 @@ void meshJobShadow(MeshJob &job, int32 x, int32 z, int32 sx, int32 sz);
 // Draws job's mesh on the slave: its vertices to dst, its faces into list.
 void meshJobDraw(const MeshJob &job, Vertex* dst, FaceList &list);
 
-// Draws on the master a job the slave had no room for.
-void meshJobRedraw(const MeshJob &job);
-
 // Loads the rooms' DSP program (project.dsp), which projects whole rooms.
 void roomsInit();
 
@@ -449,15 +445,6 @@ void roomsQueue(const Room* room);
 // rooms' own faces are drawn: set up with this CPU's matrix and lighting.
 void roomsSlaveMesh(const Mesh* mesh);
 void roomsSlaveShadow(int32 x, int32 z, int32 sx, int32 sz);
-
-// Queues a mesh for the slave, set up with the current matrix and lighting;
-// false when the master had better draw it (render.cpp hands it rooms'
-// static meshes).
-bool roomsQueueMesh(const Mesh* mesh);
-
-// Queues an item's shadow for the slave, whatever its share; false when it
-// takes no meshes (only in BENCH_ALL_MESHES).
-bool roomsQueueShadow(int32 x, int32 z, int32 sx, int32 sz);
 
 // Waits for the slave to finish the frame's rooms; returns its ordering
 // table (whose lists flush consumes and clears), or NULL if no rooms were

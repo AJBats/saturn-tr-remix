@@ -110,7 +110,7 @@ static_assert(offsetof(MeshXform, tx) == 20 && offsetof(MeshXform, divTable) == 
               offsetof(MeshXform, inside) == 68,
               "MeshXform layout is shared with meshxform.s");
 static_assert(sizeof(MeshVertex) == 6 && sizeof(divTableInt) == 2 && VIEW_MIN_F == 0x100000 &&
-              VIEW_MAX_F == 0x14000000 && FIXED_SHIFT == 14 && BENCH_SPLIT_SHADE == 12,
+              VIEW_MAX_F == 0x14000000 && FIXED_SHIFT == 14 && BENCH_SPLIT_SHADE == 11,
               "constants repeated in meshxform.s");
 
 extern "C" void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst, MeshXform* xf);
@@ -1819,13 +1819,6 @@ static void meshParts(const Mesh* mesh, MeshParts &parts)
     parts.triangles = (MeshTriangle*)ptr;
 }
 
-// To the slave as its share allows, when its faces are added in assembly (not
-// with gFlatDist).
-static bool meshToSlave(const Mesh* mesh)
-{
-    return !gFlatDist && mesh->vCount > 0 && roomsQueueMesh(mesh);
-}
-
 extern "C" void renderMeshAsm(const Mesh* mesh, Vertex** base, FaceList* list, uint32 flags);
 
 static_assert(sizeof(Mesh) == 20 && offsetof(Mesh, intensity) == 8 && offsetof(Mesh, vCount) == 10 &&
@@ -1906,8 +1899,6 @@ void renderMesh(const Mesh* mesh)
         roomsSlaveMesh(mesh);
         return;
     }
-    if (gBenchMode == BENCH_ALL_MESHES && meshToSlave(mesh))
-        return;
     renderMeshHere(mesh);
 }
 
@@ -1963,11 +1954,6 @@ void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
         roomsSlaveShadow(x, z, sx, sz);
         return;
     }
-
-    // to the slave with the items' meshes, as it draws its faces in a bucket
-    // before this CPU's: an item's there would be darkened
-    if (gBenchMode == BENCH_ALL_MESHES && !gFlatDist && roomsQueueShadow(x, z, sx, sz))
-        return;
 
     if (gVerticesBase - gVertices + SHADOW_VERTICES > MASTER_VERTICES ||
         gFaceList.next - gFaces + SHADOW_QUADS > MAX_FACES)
@@ -2036,18 +2022,6 @@ void meshJobDraw(const MeshJob &job, Vertex* dst, FaceList &list)
     if (mesh->tCount > 0) {
         faceAddMeshTrianglesAsm(parts.triangles, mesh->tCount, &mf);
     }
-}
-
-void meshJobRedraw(const MeshJob &job)
-{
-    if ((gVerticesBase - gVertices) + job.vCount > MASTER_VERTICES || (gFaceList.next - gFaces) + job.fCount > MAX_FACES)
-    {
-        ASSERT(false);
-        return;
-    }
-
-    meshJobDraw(job, gVerticesBase, gFaceList);
-    gVerticesBase += job.vCount;
 }
 
 // A sprite facing the camera at a world position; the matrix is the view
