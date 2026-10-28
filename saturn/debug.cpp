@@ -403,6 +403,14 @@ void debugDspTest()
     crashLog("PJDSP", dspTicks);
     crashLog("PJCPU", cpuTicks);
     crashLog("PJERR", errors);
+
+    // meshjobs.dsp: 8 meshes, 64 meshes, the CPU, errors
+    uint32 shortTicks;
+    meshDspTest(dspTicks, shortTicks, cpuTicks, errors);
+    crashLog("MJ8", dspTicks);
+    crashLog("MJ64", shortTicks);
+    crashLog("MJCPU", cpuTicks);
+    crashLog("MJERR", errors);
 }
 
 void debugProfileInit()

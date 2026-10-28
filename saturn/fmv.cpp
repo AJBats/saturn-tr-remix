@@ -8,6 +8,7 @@
 // the VDP2 bitmap once its time comes.
 
 #include "fmv.h"
+#include "render.h"
 #include "cd.h"
 #include "hw.h"
 #include "input.h"
@@ -63,7 +64,8 @@ struct Codebooks
     uint32_t v4[256][2];
 };
 
-static Codebooks gBooks[MAX_STRIPS];
+// In the frame's command buffer while a video plays (renderScratch)
+static Codebooks* gBooks;
 
 static uint32_t rgb(int32_t r, int32_t g, int32_t b)
 {
@@ -310,6 +312,7 @@ static void audioWrite(uint32_t ring, uint32_t pos, const uint8_t* src, uint32_t
 
 void fmvPlay(const char* name)
 {
+    gBooks = (Codebooks*)renderScratch(sizeof(Codebooks) * MAX_STRIPS);
     char path[32] = "FMV/";
     strcat(path, name);
     strcat(path, ".CPK");

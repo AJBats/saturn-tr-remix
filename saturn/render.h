@@ -437,6 +437,11 @@ void roomsAllQueued();
 // that differ.
 void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors);
 
+// meshjobs.dsp against transformMeshAsm (debug.cpp's boot self-test): the
+// DSP's ticks for 512 vertices as 8 meshes and as 64, this CPU's, and the
+// vertices that differ.
+void meshDspTest(uint32 &longTicks, uint32 &shortTicks, uint32 &cpuTicks, int32 &errors);
+
 // Queues a room for the slave, with the current matrix and viewport.
 void roomsQueue(const Room* room);
 
@@ -463,6 +468,11 @@ Face** roomsFinish(RoomStats &stats, const uint16* &groups);
 // the master goes on with the next frame and uploads it, with the textures it
 // queued, and asks for its plot as soon as VDP1 is done. The master calls
 // renderPoll between pieces of work (meshes, stages) for that.
+// Memory to borrow while nothing is drawn (videos between levels): the
+// frame's command buffer, at least size bytes. The list pending in it is
+// dropped.
+void* renderScratch(uint32 size);
+
 extern bool gListPending;
 extern bool gBlockingUpload;    // debug option: flush waits and uploads at once, as it used to
 extern bool gMasterItems;       // debug option: the slave takes no items (rooms.cpp)

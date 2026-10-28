@@ -1382,6 +1382,13 @@ static void listUploadWaiting()
     listUpload();
 }
 
+void* renderScratch(uint32 size)
+{
+    ASSERT(size <= sizeof(gCmds));
+    gListPending = false;
+    return gCmds;
+}
+
 void renderUploadReady()
 {
     if (vdp1Drawn()) {
