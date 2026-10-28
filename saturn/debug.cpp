@@ -875,6 +875,7 @@ static void traceCompose(const TraceStages* s, TraceRow* rows)
     strncpy(rows[6], text, OVERLAY_COLUMNS);
 }
 
+#ifdef SYNC_TEST
 // The boot's sync test (debug.h), under the trace's rows.
 #define SYNC_ROWS   3
 #define SYNC_TEXT_AT 1472
@@ -916,6 +917,8 @@ static void syncRows(int32 row)
         overlayRow(row + i, rows[i]);
     }
 }
+
+#endif
 
 static void traceRows(int32 row)
 {
@@ -1026,7 +1029,9 @@ static void drawDebug()
             if (gPage == PAGE_TRACE)
             {
                 traceRows(3 + SCENE_ROWS);
+#ifdef SYNC_TEST
                 syncRows(4 + SCENE_ROWS + TRACE_ROWS);
+#endif
             }
         }
         else

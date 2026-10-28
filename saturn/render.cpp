@@ -1895,20 +1895,18 @@ void renderMesh(const Mesh* mesh)
     renderMeshHere(mesh);
 }
 
-// Only rooms' static meshes go to the slave: its share counts vertices, and
-// spent on items' small meshes, which the master draws fastest (wholly in
-// view, a job's fixed costs on the slave), it relieves the master least.
+// A room's static mesh: the slave draws those of the rooms it was given
+// (roomStaticsQueued), the master the rest.
 void renderStaticMesh(const Mesh* mesh)
 {
-    traceDetailBegin(TR_JOB_SETUP);
-    bool slave = gBenchMode != BENCH_MASTER_MESHES && meshToSlave(mesh);
-    traceDetailEnd(TR_JOB_SETUP, slave);
-    if (!slave)
+    if (cpuState()->slave)
     {
-        traceDetailBegin(TR_MESH);
-        renderMeshHere(mesh);
-        traceDetailEnd(TR_MESH);
+        roomsStaticMesh(mesh);
+        return;
     }
+    traceDetailBegin(TR_MESH);
+    renderMeshHere(mesh);
+    traceDetailEnd(TR_MESH);
 }
 
 // An octagon on the floor under the item, darkening what is drawn below it.

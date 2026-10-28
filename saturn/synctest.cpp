@@ -1,5 +1,5 @@
 // What the two SH-2s can use to share work, tested at boot in HW_LOG builds
-// (see debug.h): whether TAS.B is atomic between them, whether a Peterson
+// made with SYNC_TEST=1 (see debug.h): whether TAS.B is atomic between them, whether a Peterson
 // lock on uncached flags is, whether one CPU's stores reach the other in the
 // order made, and whether GBR stays each CPU's own (per-CPU variables through
 // __thread). Each test runs both CPUs at once, flat out, ROUNDS times.
@@ -12,7 +12,10 @@
 
 #include <string.h>
 
-#ifdef HW_LOG
+// Saturn, 2026-10-27 (71e9556): adds lost raw 19963, TAS 0, Peterson 0; claims
+// 0 errors (2320/1776); order 0; GBR 0, kept. Cycles: uncached access 8, add
+// under TAS alone 36, contended TAS 66, Peterson 178.
+#if defined(HW_LOG) && defined(SYNC_TEST)
 
 #define ROUNDS      20000
 #define TASKS       4096        // the claim test's

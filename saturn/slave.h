@@ -20,6 +20,16 @@ void slaveInit();
 // in main, the slave's in slaveMain.
 void cpuInit(bool slave);
 
+// Claims what the byte at p (uncached) stands for: true for the CPU that finds
+// it 0, which TAS.B sets in one locked access (atomic between the CPUs on the
+// Saturn: synctest.cpp).
+inline bool tasClaim(volatile uint8_t* p)
+{
+    uint32_t t;
+    asm volatile("tas.b @%1\n\tmovt %0" : "=r"(t) : "r"(p) : "t", "memory");
+    return t;
+}
+
 // Starts task on the slave; the previous task must have returned.
 void slaveRun(void (*task)());
 

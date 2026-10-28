@@ -43,6 +43,9 @@ endif
 ifdef HW_LOG
 CFLAGS  += -DHW_LOG     # testing on hardware: the boot log, stats, measurements and frame trace on screen
 endif
+ifdef SYNC_TEST
+CFLAGS  += -DSYNC_TEST  # testing, with HW_LOG: the CPUs' synchronisation test at boot (synctest.cpp)
+endif
 ifdef VOID_VIEW
 CFLAGS  += -DVOID_VIEW  # testing: what nothing draws in the scene shows magenta
 endif

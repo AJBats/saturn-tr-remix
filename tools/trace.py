@@ -1,12 +1,15 @@
 """The game's frame trace (saturn/trace.h, HW_LOG builds) as a Chrome trace.
 
-    trace.py capture CUE [--frame N] [--keys F:K,K,...] [--out NAME]
+    trace.py capture CUE [--frame N] [--keys F:K,K,...] [--fps N] [--out NAME]
         boots CUE in a Mednafen of its own (its own automation and home
         directories, so a Mednafen the MCP server runs is left alone), taps
         the player's pad buttons K from frame F, runs to frame N, dumps the
         trace (build/NAME.bin) and converts it (build/NAME.json). The default
         keys page the HW_LOG overlay to the trace page with Trace detail on,
-        which holds the bench on Base.
+        which holds the bench on Base. --fps N first counts the frames the
+        game draws over N vblanks (from the frame the keys end) for a frame
+        rate that a trace's few seconds can't give: frames take 2 or 3
+        vblanks, so a short window's rate moves with a handful of them.
     trace.py convert DUMP [--out JSON]
         converts a dump of low work RAM (1 MB from 0x00200000)
     trace.py open JSON
@@ -267,7 +270,19 @@ def convert(data, out_path):
 DEFAULT_KEYS = '1500:R,R,R,R,UP,RIGHT,L'
 
 
-def capture(cue, frame, keys, name):
+def map_symbol(name):
+    """A symbol's address from build/0MAIN.map."""
+    for line in open(os.path.join(ROOT, 'build/0MAIN.map')):
+        parts = line.split()
+        if len(parts) == 2 and parts[1] == name and parts[0].startswith('0x'):
+            return int(parts[0], 16)
+    sys.exit(f'{name} not in build/0MAIN.map')
+
+
+FRAMES_OFFSET = 24      # FrameStats.frames (system.h)
+
+
+def capture(cue, frame, keys, name, fps_window=0):
     # the binary the MCP server picks (mednafen_bot.py): the calibrated fork
     exe = None
     for root in (ROOT, os.path.join(ROOT, '..', 'TombRaiderSaturn')):
@@ -335,6 +350,20 @@ def capture(cue, frame, keys, name):
                 send('frame_advance 6', 'done frame_advance', 30)
                 send(f'input_release {b}', 'ok input_release', 10)
                 send('frame_advance 6', 'done frame_advance', 30)
+        if fps_window:
+            def word(address):
+                reply = send(f'dump_mem {address:x} 4', 'mem ', 10)
+                hexes = [t for t in reply.split()[2:] if '=' not in t]
+                return int(''.join(hexes[:4]), 16)
+
+            def counters():
+                return word(map_symbol('gVblankCount')), word(map_symbol('gStats') + FRAMES_OFFSET)
+            at = int(send('status', 'status', 10).split('frame=')[1].split()[0])
+            vb0, fr0 = counters()
+            send(f'run_to_frame {at + fps_window}', 'done run_to_frame')
+            vb1, fr1 = counters()
+            print(f'fps over {vb1 - vb0} vblanks: {(fr1 - fr0) * 60 / (vb1 - vb0):.2f} ({fr1 - fr0} frames)')
+            frame = max(frame, at + fps_window + 10)
         send(f'run_to_frame {frame}', 'done run_to_frame')
         dump = os.path.join(ROOT, 'build', name + '.bin')
         part = os.path.join(ipc, 'part.bin')
@@ -413,6 +442,7 @@ def main():
     c.add_argument('cue')
     c.add_argument('--frame', type=int, default=1900)
     c.add_argument('--keys', default=DEFAULT_KEYS)
+    c.add_argument('--fps', type=int, default=0)
     c.add_argument('--out', default='trace')
     v = sub.add_parser('convert')
     v.add_argument('dump')
@@ -425,7 +455,7 @@ def main():
         open_ui(args.json)
         return
     if args.cmd == 'capture':
-        dump = capture(os.path.abspath(args.cue), args.frame, args.keys, args.out)
+        dump = capture(os.path.abspath(args.cue), args.frame, args.keys, args.out, args.fps)
         out = os.path.join(ROOT, 'build', args.out + '.json')
     else:
         dump = args.dump

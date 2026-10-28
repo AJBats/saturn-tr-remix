@@ -753,6 +753,62 @@ void queueRoom(Room* room)
     matrixPop();
 }
 
+// A static mesh of a room whose origin is (rx, ry, rz) from the camera, if
+// in view, on the CPU drawing it: on the Saturn the slave draws the statics
+// of the rooms queued for it (roomStaticsQueued), after their faces.
+void drawRoomStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz)
+{
+#ifdef NO_STATIC_MESH_PLANTS
+    if (STATIC_MESH_ID(mesh->zf) < 10)
+        return;
+#endif
+
+    const StaticMesh* staticMesh = level.staticMeshes + STATIC_MESH_ID(mesh->zf);
+
+    if (!(staticMesh->flags & STATIC_MESH_FLAG_VISIBLE))
+        return; // invisible
+
+    int32 px = rx + (int32(mesh->xy) >> 16);
+    int32 py = ry + (int32(mesh->xy) << 16 >> 16);
+    int32 pz = rz + (int32(mesh->zf) >> 16);
+
+    int32 sx = (int32(staticMesh->vs.xy) >> 16);
+    int32 sy = (int32(staticMesh->vs.xy) << 16 >> 16);
+    int32 sz = (int32(staticMesh->vs.zr) >> 16);
+    int32 sr = (int32(staticMesh->vs.zr) << 16 >> 16);
+
+    // rotate visible sphere offset
+    int32 q = STATIC_MESH_QUADRANT(mesh->zf);
+    if (q == 0) {
+        sx = -sx;
+        sz = -sz;
+    } else if (q == 1) {
+        int32 t = sx;
+        sx = -sz;
+        sz = t;
+    } else if (q == 3) {
+        int32 t = sz;
+        sz = -sx;
+        sx = t;
+    }
+
+    sx += px;
+    sy += py;
+    sz += pz;
+
+    if (!sphereIsVisible(sx, sy, sz, sr))
+        return;
+
+    matrixPush();
+    matrixTranslateSet(px, py, pz);
+    matrixRotateYQ(q);
+
+    calcLightingStatic(STATIC_MESH_INTENSITY(mesh->zf));
+    renderStaticMesh(level.meshes[staticMesh->meshIndex]);
+
+    matrixPop();
+}
+
 // What stands in a queued room: sprites, static meshes, items.
 void drawRoomObjects(Room* room)
 {
@@ -777,59 +833,14 @@ void drawRoomObjects(Room* room)
     ry = -gCameraViewPos.y;
     rz -= gCameraViewPos.z;
 
-    for (int32 i = 0; i < info->meshesCount; i++)
+    if (!roomStaticsQueued(room))
     {
-        const RoomMesh* mesh = data.meshes + i;
-
-    #ifdef NO_STATIC_MESH_PLANTS
-        if (STATIC_MESH_ID(mesh->zf) < 10) continue;
-    #endif
-
-        const StaticMesh* staticMesh = level.staticMeshes + STATIC_MESH_ID(mesh->zf);
-
-        if (!(staticMesh->flags & STATIC_MESH_FLAG_VISIBLE)) continue; // invisible
-
-        int32 px = rx + (int32(mesh->xy) >> 16);
-        int32 py = ry + (int32(mesh->xy) << 16 >> 16);
-        int32 pz = rz + (int32(mesh->zf) >> 16);
-
-        int32 sx = (int32(staticMesh->vs.xy) >> 16);
-        int32 sy = (int32(staticMesh->vs.xy) << 16 >> 16);
-        int32 sz = (int32(staticMesh->vs.zr) >> 16);
-        int32 sr = (int32(staticMesh->vs.zr) << 16 >> 16);
-
-        // rotate visible sphere offset
-        int32 q = STATIC_MESH_QUADRANT(mesh->zf);
-        if (q == 0) {
-            sx = -sx;
-            sz = -sz;
-        } else if (q == 1) {
-            int32 t = sx;
-            sx = -sz;
-            sz = t;
-        } else if (q == 3) {
-            int32 t = sz;
-            sz = -sx;
-            sx = t;
+        for (int32 i = 0; i < info->meshesCount; i++)
+        {
+            traceDetailBegin(TR_STATIC);
+            drawRoomStatic(data.meshes + i, rx, ry, rz);
+            traceDetailEnd(TR_STATIC);
         }
-
-        sx += px;
-        sy += py;
-        sz += pz;
-
-        if (!sphereIsVisible(sx, sy, sz, sr))
-            continue;
-
-        traceDetailBegin(TR_STATIC);
-        matrixPush();
-        matrixTranslateSet(px, py, pz);
-        matrixRotateYQ(q);
-
-        calcLightingStatic(STATIC_MESH_INTENSITY(mesh->zf));
-        renderStaticMesh(level.meshes[staticMesh->meshIndex]);
-
-        matrixPop();
-        traceDetailEnd(TR_STATIC);
     }
 
     ItemObj* item = room->firstItem;

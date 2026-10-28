@@ -85,6 +85,9 @@ extern bool gTraceOn;       // the rings record
 extern bool gTraceDetail;   // and the detail spans too
 
 // An event at ticks on lane, from the CPU (and context) that owns the lane.
+// A lane's events must be written in time order (tools/trace.py unwraps the
+// 16-bit counts by their differences): a span written after the work it
+// times may hold no other event of its lane.
 void traceAt(int32_t lane, uint32_t ticks, uint32_t code);
 
 inline void traceBegin(int32_t lane, uint32_t id, uint32_t arg = 0)

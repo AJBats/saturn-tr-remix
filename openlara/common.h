@@ -2982,6 +2982,8 @@ void setSceneClear(bool clear);
 void clear();
 void renderRoom(Room* room);
 void renderRoomsQueued();
+bool roomStaticsQueued(const Room* room);   // its static meshes go with it (to the slave)
+void drawRoomStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz);
 void renderMesh(const Mesh* mesh);
 void renderStaticMesh(const Mesh* mesh);
 void renderShadow(int32 x, int32 z, int32 sx, int32 sz);

@@ -25,6 +25,7 @@ void debugFrameDone();
 // many each CPU took; GBR changing under a CPU. And the cycles each costs: an
 // uncached access, an add under TAS alone, then under TAS and Peterson with
 // both CPUs at it.
+#ifdef SYNC_TEST
 struct SyncResults
 {
     uint32_t raw, tas, peterson, claim, claimMaster, claimSlave, order, gbr;
@@ -33,6 +34,7 @@ struct SyncResults
 extern SyncResults gSync;
 void debugSyncTest();
 bool debugSyncKept();   // GBR still points at the master's CpuState
+#endif
 
 // Times the SCU DSP's whole room projection (project.dsp) against the
 // SH-2's and checks its results: boot log lines PJDSP and PJCPU (ticks),

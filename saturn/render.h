@@ -440,6 +440,10 @@ void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors);
 // Queues a room for the slave, with the current matrix and viewport.
 void roomsQueue(const Room* room);
 
+// On the slave, a room's static mesh (draw.h drawRoomStatic), as the room's
+// own faces were drawn: set up with this CPU's matrix and lighting.
+void roomsStaticMesh(const Mesh* mesh);
+
 // Queues a mesh for the slave, set up with the current matrix and lighting;
 // false when the master had better draw it (render.cpp hands it rooms'
 // static meshes).

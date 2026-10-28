@@ -54,7 +54,9 @@ int main()
     traceInit();
     debugProfileInit();
     debugDspTest();
+#ifdef SYNC_TEST
     debugSyncTest();
+#endif
 #endif
     crashLog("CD", cdInit());
     sndInit();
