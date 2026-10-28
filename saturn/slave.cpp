@@ -1,6 +1,8 @@
 // Slave SH-2 start-up and task hand-off (after libyaul's polling mode).
 
 #include "slave.h"
+#include <stddef.h>
+#include "common.h"
 #include "crash.h"
 #include "system.h"
 
@@ -45,9 +47,22 @@ void cachePurge()
 
 #define FRT_TCR     (*(volatile uint8_t*)0xFFFFFE16)
 
+extern "C" CpuState gCpuStates[2];  // the master's, the slave's
+CpuState gCpuStates[2];
+static_assert(sizeof(CpuState) == 432 && offsetof(CpuState, matrixPtr) == 36,
+              "irq.s and meshxform.s repeat the layout");
+
+void cpuInit(bool slave)
+{
+    CpuState &s = gCpuStates[slave];
+    s.slave = slave;
+    s.matrixPtr = s.matrixStack;
+}
+
 extern "C" void slaveMain()
 {
     asm volatile("ldc %0, sr" : : "r"(0xF0)); // no interrupts on the slave
+    cpuInit(true);
     cachePurge();
     FRT_TCR = 2; // its own free-running timer, at the master's rate (timerTicks)
     *uncached(&gStarted) = true;

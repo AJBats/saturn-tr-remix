@@ -45,6 +45,7 @@ static void updateInput()
 
 int main()
 {
+    cpuInit(false);
     systemInit();
     screenInit();
     crashInit();

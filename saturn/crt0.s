@@ -20,8 +20,12 @@ start:
     bra     1b
     add     #4, r1
 
+    ! GBR: this CPU's CpuState (common.h)
+2:  mov.l   cpu_state, r0
+    ldc     r0, gbr
+
     ! run static constructors
-2:  mov.l   init_start, r8
+    mov.l   init_start, r8
     mov.l   init_end, r9
 3:  cmp/hs  r9, r8
     bt      4f
@@ -42,6 +46,7 @@ stack_top:  .long __stack_top
 ccr:        .long 0xFFFFFE92
 bss_start:  .long __bss_start
 bss_end:    .long __bss_end
+cpu_state:  .long _gCpuStates
 init_start: .long __init_array_start
 init_end:   .long __init_array_end
 main:       .long _main

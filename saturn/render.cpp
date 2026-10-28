@@ -77,7 +77,7 @@ void setViewport(const RectMinMax &vp)
 
 // Meshes drawn while this is set (items in water rooms, or everything while
 // the camera is under water) get FACE_WATER.
-static uint32 gMeshFaceFlags;
+#define gMeshFaceFlags  (cpuState()->meshFaceFlags)
 bool gCameraWater;
 static uint32 gMeshFlatFaces;   // mesh faces drawn flat this frame
 #ifdef HW_LOG

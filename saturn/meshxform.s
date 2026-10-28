@@ -491,8 +491,8 @@ _renderMeshAsm:
     add     #20, r14
 
     ! rows and translation from the matrix (int32 e00 e01 e02 e03 e10 ..)
-    mov.l   .LmatrixPtr, r0
-    mov.l   @r0, r3
+    stc     gbr, r3                 ! CpuState (common.h)
+    mov.l   @(36, r3), r3           ! matrixPtr
     mov     r14, r1
     add     #18, r1
     mov.l   @(40, r3), r0
@@ -521,11 +521,11 @@ _renderMeshAsm:
     mov.l   r12, @(28, r14)
     mov.l   .LdivTableAddr, r0
     mov.l   r0, @(32, r14)
-    mov.l   .LlightAmbient, r0
-    mov.l   @r0, r5
+    stc     gbr, r5
+    mov.l   @(0, r5), r5            ! lightAmbient
     mov.l   r5, @(36, r14)
-    mov.l   .LlightRange, r0
-    mov.l   @r0, r6
+    stc     gbr, r6
+    mov.l   @(4, r6), r6            ! lightRange
     mov.l   r6, @(52, r14)
 
     ! g = clamp(int16((intensity + ambient) >> 8), 0, 31)
@@ -583,7 +583,8 @@ _renderMeshAsm:
     mov.l   r13, @(56, r14)
     mov     #0, r0
     mov.l   r0, @(60, r14)
-    mov.l   .LlightView, r0
+    stc     gbr, r0
+    add     #8, r0                  ! lightView
     mov.l   @r0, r5
     mov.l   @(4, r0), r6
     mov.l   @(8, r0), r1
@@ -774,11 +775,7 @@ _renderMeshAsm:
     .align 2
 .LvertexEnd:    .long   _gVertices + 2048 * 8   ! MASTER_VERTICES
 .LvertexBase:   .long   _gVertices
-.LmatrixPtr:    .long   _gMatrixPtr
 .LdivTableAddr: .long   _divTable
-.LlightAmbient: .long   _gLightAmbient
-.LlightRange:   .long   _gLightRange
-.LlightView:    .long   _gLightView
 .LquadsBody:    .long   _faceAddMeshQuadsBody
 .LtrianglesBody: .long  _faceAddMeshTrianglesBody
 .Lsar14Bit:     .long   0x00020000  ! 1 << (31 - 14)

@@ -119,12 +119,14 @@ _profileEntry:
     EXC_ENTRY _crashSlaveDmaEntry, 10, 1
 
 ! Slave CPU entry after SMPC SSHON (the BIOS has set its stack): mask
-! interrupts, then run slaveMain.
+! interrupts, point GBR at its CpuState (common.h), then run slaveMain.
     .global _slaveEntry
     .align 2
 _slaveEntry:
     mov.l   1f, r0
     ldc     r0, sr
+    mov.l   3f, r0
+    ldc     r0, gbr
     mov.l   2f, r0
     jmp     @r0
     nop
@@ -132,6 +134,9 @@ _slaveEntry:
     .align 2
 1:  .long 0xF0
 2:  .long _slaveMain
+3:  .long _gCpuStates + CPU_STATE_SIZE
+
+    .set CPU_STATE_SIZE, 432    ! sizeof(CpuState), checked in slave.cpp
 
 ! Slave interrupts that may arrive before slaveEntry masks them.
     .global _slaveIgnoreIrq

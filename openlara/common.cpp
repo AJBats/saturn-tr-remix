@@ -2,10 +2,7 @@
 #include "lang/en.h"
 
 EWRAM_DATA uint32 keys;
-EWRAM_DATA RectMinMax viewport;
 vec3i gCameraViewPos;
-Matrix gMatrixStack[MAX_MATRICES];
-Matrix* gMatrixPtr = gMatrixStack;
 
 EWRAM_DATA Sphere gSpheres[2][MAX_SPHERES]; // EWRAM 1k
 
@@ -20,9 +17,6 @@ EWRAM_DATA uint8 gSaveData[SAVEGAME_SIZE - sizeof(SaveGame)];
 EWRAM_DATA int32 gCurTrack;
 EWRAM_DATA int32 gAnimTexFrame;
 
-int32 gLightAmbient;
-vec3i gLightView;
-int32 gLightRange;
 int16 gViewRotation[9];
 int32 gRandTable[MAX_RAND_TABLE];
 int32 gCaustics[MAX_CAUSTICS];

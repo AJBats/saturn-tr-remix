@@ -32,7 +32,7 @@ struct SyncResults
 };
 extern SyncResults gSync;
 void debugSyncTest();
-bool debugSyncKept();   // GBR still holds what debugSyncTest left in it
+bool debugSyncKept();   // GBR still points at the master's CpuState
 
 // Times the SCU DSP's whole room projection (project.dsp) against the
 // SH-2's and checks its results: boot log lines PJDSP and PJCPU (ticks),

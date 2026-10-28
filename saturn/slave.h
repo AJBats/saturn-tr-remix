@@ -16,6 +16,10 @@ inline T* uncached(T* p)
 // Starts the slave CPU waiting for tasks.
 void slaveInit();
 
+// Starts this CPU's CpuState (common.h), which GBR points at: the master's
+// in main, the slave's in slaveMain.
+void cpuInit(bool slave);
+
 // Starts task on the slave; the previous task must have returned.
 void slaveRun(void (*task)());
 

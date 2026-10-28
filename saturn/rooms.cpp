@@ -39,7 +39,7 @@ struct RoomJob
 {
     const Room* room;
     RoomMatrix matrix;
-    RectMinMax viewport;
+    RectMinMax clip;        // the room's portal window
     int32 causticsFrame;
     int32 camera[3];        // the camera's position from the room's origin
     bool wet;               // caustics and the underwater fade (gCameraWater)
@@ -612,7 +612,7 @@ static void dspFeed()
         int32 first = (w.hi - run) * CHUNK;
         int32 count = X_MIN(int32(job.room->info->verticesCount), w.hi * CHUNK) - first;
         traceBegin(TRACE_DSP, TR_DSP_RUN, i);
-        dspProject(job.matrix, job.viewport, job.room->data.vertices + first, gVertices + w.base + first,
+        dspProject(job.matrix, job.clip, job.room->data.vertices + first, gVertices + w.base + first,
                    (count + 15) >> 4);
         w.hi -= run;
         w.dsp = true;
@@ -626,7 +626,7 @@ static void dspFeed()
 static void roomBegin(const RoomJob &job)
 {
     gMatrix = job.matrix;
-    gViewport = job.viewport;
+    gViewport = job.clip;
     gRoomVertices = job.room->data.vertices;
     gRoomFaceFlags = job.wet ? FACE_WATER : 0;
     gRipple = job.ripple;
@@ -975,7 +975,7 @@ void roomsQueue(const Room* room)
     job.matrix.tx = m.e03 >> (FIXED_SHIFT - 8);
     job.matrix.ty = m.e13 >> (FIXED_SHIFT - 8);
     job.matrix.tz = m.e23 >> (FIXED_SHIFT - 8);
-    job.viewport = viewport;
+    job.clip = viewport;
     job.causticsFrame = gCausticsFrame;
     const RoomInfo* info = room->info;
     job.camera[0] = gCameraViewPos.x - (info->x << 8);

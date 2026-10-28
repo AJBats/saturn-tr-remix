@@ -764,7 +764,7 @@ struct RectMinMax
     int32 x1;
     int32 y1;
 
-    RectMinMax() {}
+    RectMinMax() = default;
     RectMinMax(int32 x0, int32 y0, int32 x1, int32 y1) : x0(x0), y0(y0), x1(x1), y1(y1) {}
 };
 
@@ -2685,10 +2685,9 @@ enum TextAlign {
 
 // renderer internal
 extern uint32 keys;
-extern RectMinMax viewport;
+
 extern vec3i gCameraViewPos;
-extern Matrix* gMatrixPtr;
-extern Matrix gMatrixStack[MAX_MATRICES];
+
 extern const uint32 gSinCosTable[4096];
 
 extern Sphere gSpheres[2][MAX_SPHERES];
@@ -2700,9 +2699,35 @@ extern uint8 gSaveData[SAVEGAME_SIZE - sizeof(SaveGame)];
 extern int32 gCurTrack;
 extern int32 gAnimTexFrame;
 extern int32 gBrightness;
-extern int32 gLightAmbient;
-extern vec3i gLightView;    // toward the brightest light, in view space (1 << FIXED_SHIFT long)
-extern int32 gLightRange;   // what facing it adds to the light, and facing away takes off (0: none)
+// The drawing state each CPU keeps for itself, so that both can draw at once:
+// GBR points at the running CPU's (crt0.s, irq.s slaveEntry), so a field
+// costs a load like a global's. meshxform.s reads the first fields.
+struct CpuState
+{
+    int32 lightAmbient;
+    int32 lightRange;       // what facing the light adds, and facing away takes off (0: none)
+    vec3i lightView;        // toward the brightest light, in view space (1 << FIXED_SHIFT long)
+    RectMinMax viewport;
+    Matrix* matrixPtr;
+    uint32 meshFaceFlags;   // render.cpp
+    bool slave;             // this CPU is the slave
+    Matrix matrixStack[MAX_MATRICES];
+};
+
+// GBR changes only at boot: the compiler may reuse a read.
+inline CpuState* cpuState()
+{
+    CpuState* state;
+    asm("stc gbr, %0" : "=r"(state));
+    return state;
+}
+
+#define gLightAmbient   (cpuState()->lightAmbient)
+#define gLightRange     (cpuState()->lightRange)
+#define gLightView      (cpuState()->lightView)
+#define viewport        (cpuState()->viewport)
+#define gMatrixPtr      (cpuState()->matrixPtr)
+#define gMatrixStack    (cpuState()->matrixStack)
 extern int16 gViewRotation[9];
 extern int32 gRandTable[MAX_RAND_TABLE];
 extern int32 gCaustics[MAX_CAUSTICS];

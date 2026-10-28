@@ -5,6 +5,7 @@
 // __thread). Each test runs both CPUs at once, flat out, ROUNDS times.
 
 #include "debug.h"
+#include "common.h"
 #include "render.h"
 #include "slave.h"
 #include "system.h"
@@ -180,6 +181,8 @@ static void consume()
 static void __attribute__((noinline)) gbr(int32_t me)
 {
     uint32_t value = me ? GBR_SLAVE : GBR_MASTER;
+    uint32_t saved;
+    asm volatile("stc gbr, %0" : "=r"(saved));
     asm volatile("ldc %0, gbr" : : "r"(value));
     uint32_t errors = 0;
     for (int32_t i = 0; i < ROUNDS * 4; i++)
@@ -188,6 +191,7 @@ static void __attribute__((noinline)) gbr(int32_t me)
         asm volatile("stc gbr, %0" : "=r"(g));
         errors += g != value;
     }
+    asm volatile("ldc %0, gbr" : : "r"(saved));
     uncached(gGbrErrors)[me] = errors;
 }
 
@@ -234,16 +238,16 @@ void debugSyncTest()
     both(consume, produce);
     gSync.order = gOrderErrors;
 
-    // GBR stays GBR_MASTER on this CPU: debugSyncKept checks it later
     both(gbrMaster, gbrSlave);
     gSync.gbr = uncached(gGbrErrors)[0] + uncached(gGbrErrors)[1];
 }
 
 bool debugSyncKept()
 {
-    uint32_t g;
+    extern CpuState gCpuStates[2];
+    CpuState* g;
     asm volatile("stc gbr, %0" : "=r"(g));
-    return g == GBR_MASTER;
+    return g == gCpuStates;
 }
 
 #endif
