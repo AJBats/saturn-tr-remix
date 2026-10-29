@@ -408,9 +408,12 @@
 .Lface\sfx:
     CORNERS \tri
     .ifeq \facing
+.LFaceBack\sfx:
     BACKFACE .Lnext\sfx
     .endif
+.LFaceCull\sfx:
     CULL    \tri, .Lculled\sfx
+.LFaceNear\sfx:
     mov.l   r13, @r15           ! the clip flags ored
     .ifeq \tri
     mov.w   @(4, r1), r0
@@ -418,6 +421,7 @@
     tst     #0xF8, r0
     bt      .Lcareful\sfx       ! corner A nearer than 2048: C decides on a split
     .endif
+.LFaceMaterial\sfx:
     MATERIAL
     mov.w   @(8, r14), r0
     cmp/pz  r0
@@ -427,6 +431,7 @@
     DECIDE
     mov     r13, r6
     .else
+.LFaceReuse\sfx:
     ! the turn and mip level kept from the quad's last frame to decide, or
     ! decided now and kept
     mov.l   @(RUN_PARITY, gbr), r0
@@ -511,9 +516,13 @@
     bt      1f
     bsr     .Lmirror
     nop
+.LTailBucket\sfx:
 1:  BUCKET
+.LTailLink\sfx:
     LINK
+.LTailCorners\sfx:
     QUAD_CORNERS
+.LTailShade\sfx:
     cmp/pz  r13
     bf      .Lwater\sfx
     mov.l   @(RUN_SHADE_GOURAUD, gbr), r0
@@ -524,6 +533,7 @@
     SHADE   r7
     tst     r13, r13
     bf      .LfarOrPlain\sfx
+.LTailOne\sfx:
     cmp/eq  r1, r2              ! near: one shade, perhaps a shaded colour table
     bf      .Ltable\sfx
     cmp/eq  r1, r3
@@ -540,6 +550,7 @@
 .Ltable\sfx:
     TABLE
 .Lshaded\sfx:
+.LTailNext\sfx:
     NEXT
     bt      .Lfull\sfx
     bra     .Lnext\sfx

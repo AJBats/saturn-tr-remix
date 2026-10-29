@@ -405,13 +405,21 @@ _facesMeshAsm:
     mov.l   @r4, r1
     mov.l   @(4, r4), r7
     CORNERS 0
+.LQuadBack\sfx:
     BACKFACE .LquadNext\sfx
+.LQuadCull\sfx:
     CULL    .LquadNext\sfx
+.LQuadMirror\sfx:
     MIRROR
+.LQuadDepth\sfx:
     DEPTH
+.LQuadLink\sfx:
     LINK
+.LQuadCorners\sfx:
     QUAD_CORNERS
+.LQuadShade\sfx:
     SHADING \water
+.LQuadNext\sfx:
     NEXT
     bt      .LfullQuads\sfx
     bra     .LquadNext\sfx
@@ -443,7 +451,9 @@ _facesMeshAsm:
     mov.l   @r4, r1
     mov.l   @(4, r4), r7
     CORNERS 1
+.LTriBack\sfx:
     BACKFACE .LtriNext\sfx
+.LTriCull\sfx:
     CULL    .LtriNext\sfx
     mov.l   @(12, r15), r0
     tst     #TRI_PARALLELOGRAM, r0
@@ -452,10 +462,15 @@ _facesMeshAsm:
     nop
 1:  ! a quad A B C C
     MIRROR
+.LTriDepth\sfx:
     DEPTH
+.LTriLink\sfx:
     LINK
+.LTriCorners\sfx:
     QUAD_CORNERS
+.LTriShade\sfx:
     SHADING \water
+.LTriNext\sfx:
     NEXT
     bt      .LfullTris\sfx
     bra     .LtriNext\sfx
@@ -474,8 +489,11 @@ _facesMeshAsm:
     mov     r6, r3              ! x, y = v2, v1
 1:  mov     r3, r7
     mov     #0, r5
+.LParaDepth\sfx:
     DEPTH                       ! v0 + x + y + y
+.LParaLink\sfx:
     LINK
+.LParaCorner\sfx:
     ! the fourth corner, within VDP1's coordinates
     mov.w   @r2, r5
     mov.w   @r3, r0
@@ -520,6 +538,7 @@ _facesMeshAsm:
     mov.l   r0, @(24, r9)
 .LparaShade\sfx:
     SHADING \water
+.LParaNext\sfx:
     NEXT
     bt      .LfullPara\sfx
     bra     .LtriNext\sfx

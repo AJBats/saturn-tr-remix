@@ -60,6 +60,7 @@ struct LabResults
                                 // where the other has gouraud of its value, or the other way
     int32_t newAsmBad;          // what the scene seldom gives the new way (every draw and room under
                                 // water, the rooms a frame on): commands its assembly makes not as its C
+    int32_t newFrames;          // the frames the new way ran at this view before its list settled
     uint32_t meshCommands;      // the master's draws' commands
     uint32_t roomCommands;      // the rooms'
     uint32_t vdp1New;           // cycles VDP1 drew the new list in
@@ -170,6 +171,32 @@ static uint32_t measure(Prepare prepare, Work work)
         }
     }
     return total / RUNS;
+}
+
+// The shaded copies of colour tables in VDP1 VRAM: the game's, as the scene
+// has them, and the new way's once its frames have run; each list drawn
+// with its own.
+#define SHADE_TABLES    (256 * SHADE_TABLE_SIZE)
+static uint32_t gGameTables[2][SHADE_TABLES / 4];
+static uint32_t gNewTables[2][SHADE_TABLES / 4];
+
+static void shadeTables(uint32_t (*tables)[SHADE_TABLES / 4], bool save)
+{
+    for (int32_t cpu = 0; cpu < 2; cpu++)
+    {
+        const ShadeCache* cache = gameShadeCache(cpu);
+        if (!cache->vram)
+            continue;
+        volatile uint32_t* vram = (volatile uint32_t*)(VDP1_VRAM + cache->vram);
+        for (int32_t i = 0; i < SHADE_TABLES / 4; i++)
+        {
+            if (save) {
+                tables[cpu][i] = vram[i];
+            } else {
+                vram[i] = tables[cpu][i];
+            }
+        }
+    }
 }
 
 // A list into VDP1 VRAM where the game puts its own.
@@ -451,6 +478,36 @@ static uint32_t commandHash(int32_t slot)
     return ((h << 5) | (h >> 27)) ^ gNewGrd[slot][0] ^ (gNewGrd[slot][1] << 1);
 }
 
+// The new way's frames at this view, its caches of shaded tables settling on
+// what it draws (a copy drawn is kept two frames): until its list is the
+// frame before's, at most 8. The frames run.
+static int32_t newSettle()
+{
+    static uint32_t hashes[MAX_CMDS];
+    for (int32_t f = 1; f <= 8; f++)
+    {
+        gameShadeCache(0)->frame++;
+        gameShadeCache(1)->frame++;
+        newPrepare();
+        newRooms(false);
+        newMeshes(false);
+        int32_t rooms = facesSlot(gRoomList.link), meshes = facesSlot(gMeshList.link);
+        bool settled = f > 1;
+        for (int32_t i = 1; i < meshes; i++)
+        {
+            if (i == rooms) {
+                i = gMeshFirst;
+            }
+            uint32_t h = commandHash(i);
+            settled = settled && h == hashes[i];
+            hashes[i] = h;
+        }
+        if (settled)
+            return f;
+    }
+    return 8;
+}
+
 // The quads' flags, their kept turns and mip levels in the top byte, saved
 // (save) or put back.
 static void roomQuadFlags(bool save)
@@ -564,6 +621,11 @@ static void stageNew()
     gLab.meshFlush = measure([] { gameFlushPrepare(FLUSH_MESHES); }, [] { gameFlush(false); });
     gLab.roomFlush = measure([] { gameFlushPrepare(FLUSH_ROOMS); }, [] { gameFlush(false); });
 
+    // the new way at this view as a run of frames shows it, its own copies of
+    // shaded tables made (the game's kept for its list)
+    shadeTables(gGameTables, true);
+    gLab.newFrames = newSettle();
+
     // in C, then in assembly (which finds the caches of shaded tables warm, as
     // a frame does after the one before)
     newPrepare();
@@ -578,6 +640,7 @@ static void stageNew()
     gLab.newAsmBad = newAsmCheck();
     gLab.newJoin = measure([] { newPrepare(); newRooms(false); newMeshes(false); }, [] { newJoin(false); });
     gLab.newBad = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded) + gRoomTexturesShort;
+    shadeTables(gNewTables, true);
 }
 
 // A row: a name, ms, and SH-2 cycles a unit.
@@ -637,6 +700,10 @@ static void newPage()
     p = put(p, " followed,");
     p = putNumber(p, gLab.newShaded, 4);
     put(p, " shaded another way");
+    page.add(line);
+    p = put(line, "(its shaded copies settled in");
+    p = putNumber(p, gLab.newFrames, 2);
+    put(p, " frames)");
     page.add(line);
     p = put(line, "wet, a frame on, misses: asm ");
     p = put(p, gLab.newAsmBad ? "OFF" : "as C");
@@ -732,11 +799,13 @@ static void show(int32_t page)
     if (page == PAGE_GAME)
     {
         const SceneInfo &info = sceneInfo();
+        shadeTables(gGameTables, false);
         upload(sceneArray<const Command>("CMDS"), (const uint32_t (*)[2])sceneChunk("GRDS"), info.commands);
         textRow(0, "THE GAME'S LIST");
     }
     else
     {
+        shadeTables(gNewTables, false);
         upload(gNewCmds, gNewGrd, gNewEnd);
         textRow(0, "THE NEW LIST");
     }
@@ -764,12 +833,14 @@ int main()
     // the lists drawn: the game's, the lab's of the game's way (the split
     // flush's, as the game's is), the new
     const SceneInfo &info = sceneInfo();
+    shadeTables(gGameTables, false);
     upload(sceneArray<const Command>("CMDS"), (const uint32_t (*)[2])sceneChunk("GRDS"), info.commands);
     gLab.vdp1Game = vdp1Show();
     gameFlushPrepare();
     int32_t end = gameFlush(true);
     upload(gCmds, gGouraud, end);
     gLab.vdp1Lab = vdp1Show();
+    shadeTables(gNewTables, false);
     upload(gNewCmds, gNewGrd, gNewEnd);
     gLab.vdp1New = vdp1Show();
     gLab.magic = LAB_MAGIC;

@@ -33,11 +33,11 @@ LAB_MAGIC = 0x4C414231
 MAX_CMDS = 1792
 SHADE_CACHE = struct.Struct('>4I256I256I')      # game.h ShadeCache
 SHADE_TABLE_SIZE = 32
-LAB_RESULTS = struct.Struct('>7I4i4I5I5i3I')    # lab.cpp LabResults
+LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I')    # lab.cpp LabResults
 FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSlave', 'floor',
           'facesBad', 'flushBad', 'splitBad', 'floorBad', 'vdp1Game', 'vdp1Lab', 'meshFacesGiven',
           'roomFacesGiven', 'meshFlush', 'roomFlush', 'newMeshes', 'newRooms', 'newJoin', 'newBad', 'newBadC',
-          'newVisited', 'newShaded', 'newAsmBad', 'meshCommands', 'roomCommands', 'vdp1New')
+          'newVisited', 'newShaded', 'newAsmBad', 'newFrames', 'meshCommands', 'roomCommands', 'vdp1New')
 TEXT_ROWS, TEXT_COLUMNS = 26, 42
 PAGE = struct.Struct(f'>{TEXT_ROWS * (TEXT_COLUMNS + 1)}s2xi')     # lab.h Page
 VRAM_FRAME_CMDS = 0x60
@@ -78,7 +78,8 @@ def shaded_alike(copy_w1, w1, grd, keys):
 def same(a, ga, b, gb, keys):
     """lab/game.cpp sameCommand: a command as VDP1 reads it, jumps aside, a
     shaded copy of a colour table as good as another of the same (SAME), or
-    as gouraud of its value at every corner (SAME_PICTURE)."""
+    as gouraud of its value at every corner (SAME_PICTURE); keys: the copies'
+    keys in the caches a's list left, and b's."""
     ca, cb = a[0] >> 16, b[0] >> 16
     if ca & ~JUMPS != cb & ~JUMPS or ca & CMD_SKIP != cb & CMD_SKIP:
         return SAME_NOT
@@ -89,19 +90,42 @@ def same(a, ga, b, gb, keys):
     if any(a[k] != b[k] for k in words):
         return SAME_NOT
     if a[1] != b[1]:
-        key = keys(a[1] & 0xFFFF)
-        if a[1] >> 16 == b[1] >> 16 and key and key == keys(b[1] & 0xFFFF):
+        key = keys[0](a[1] & 0xFFFF)
+        if a[1] >> 16 == b[1] >> 16 and key and key == keys[1](b[1] & 0xFFFF):
             return SAME
-        if shaded_alike(a[1], b[1], gb, keys) or (ga and shaded_alike(b[1], a[1], ga, keys)):
+        if shaded_alike(a[1], b[1], gb, keys[0]) or (ga and shaded_alike(b[1], a[1], ga, keys[1])):
             return SAME_PICTURE
         return SAME_NOT
     return SAME if not (b[1] >> 16) & PMOD_GOURAUD or ga == gb else SAME_NOT
 
 
+def copies(cmds, keys):
+    """Of a list's commands, those drawn through a shaded copy of a colour
+    table."""
+    return sum(1 for w in cmds if (w[0] >> 16) & 0xF < CMD_POLYGON and not (w[1] >> 16) & PMOD_GOURAUD
+               and keys(w[1] & 0xFFFF))
+
+
+def cache_keys(caches):
+    """A colour table address / 8 to the key of the shaded copy there in the
+    caches (two ShadeCaches), or 0."""
+    cache = [SHADE_CACHE.unpack_from(caches, i * SHADE_CACHE.size) for i in range(2)]
+
+    def keys(colr):
+        address = colr << 3
+        for c in cache:
+            vram = c[2]
+            if vram and vram <= address < vram + 256 * SHADE_TABLE_SIZE:
+                return c[4 + (address - vram) // SHADE_TABLE_SIZE]
+        return 0
+    return keys
+
+
 def follow(cmds, grds, ref_cmds, ref_grds, keys):
     """The list from slot 0 as VDP1 follows its jumps, against the game's
     sequential one: the commands followed and those that differ. Of the
-    first that differs, where each list has the other's command."""
+    first that differs, where each list has the other's command. The
+    commands of each drawn through shaded copies."""
     count = len(ref_grds) // 8
     slot, bad, other, seq, followed = 0, [], 0, [], 0
     for k in range(count + 1):
@@ -139,7 +163,9 @@ def follow(cmds, grds, ref_cmds, ref_grds, keys):
                                                   struct.unpack_from('>2I', ref_grds, 8 * i), keys) != SAME_NOT]
         print(f"  the game's command {first} is the new list's {mine or 'none'}; "
               f"the new list's is the game's {theirs or 'none'}")
-    return followed, bad, other
+    shaded = (copies([a for a, _ in seq], keys[0]),
+              copies([struct.unpack_from('>8I', ref_cmds, 32 * i) for i in range(count)], keys[1]))
+    return followed, bad, other, shaded
 
 
 def draw(vram, cmds, grds):
@@ -343,23 +369,17 @@ def main():
     import numpy as np
     scene = chunks(os.path.join(ROOT, 'build/lab', args.scene.upper() + '.SCN'))
     ref_cmds, ref_grds = scene['CMDS'], scene['GRDS']
-    cache = [SHADE_CACHE.unpack_from(caches, i * SHADE_CACHE.size) for i in range(2)]
-
-    def keys(colr):
-        address = colr << 3
-        for c in cache:
-            vram = c[2]
-            if vram and vram <= address < vram + 256 * SHADE_TABLE_SIZE:
-                return c[4 + (address - vram) // SHADE_TABLE_SIZE]
-        return 0
-
-    followed, bad, other = follow(new_cmds, new_grds, ref_cmds, ref_grds, keys)
+    keys = (cache_keys(caches), cache_keys(scene['SHCA']))
+    followed, bad, other, shaded = follow(new_cmds, new_grds, ref_cmds, ref_grds, keys)
     print(f'new list: {followed} commands followed (the game\'s {len(ref_grds) // 8 + 1}); '
           f'{len(bad)} differ from the game\'s' + (f': {bad[:10]}' if bad else '')
-          + f'; {other} shaded another way (a shaded copy of a colour table for gouraud of one value)')
+          + f'; {other} shaded another way (a shaded copy of a colour table for gouraud of one value); '
+          f'drawn through shaded copies: new {shaded[0]}, game {shaded[1]}; the new way\'s frames to settle '
+          f'{results["newFrames"]}')
 
-    # drawn over VDP1 VRAM as the lab left it: the shaded copies it made too
-    game_frame, game_cycles = draw(vram, ref_cmds, ref_grds)
+    # each drawn over VDP1 VRAM with its own shaded copies: the game's as the
+    # scene has them, the new way's as the lab left them
+    game_frame, game_cycles = draw(scene['VRAM'], ref_cmds, ref_grds)
     new_frame, new_cycles = draw(vram, new_cmds[:(end + 1) * 32], new_grds[:end * 8])
     differ = int(np.any(game_frame != new_frame, axis=2).sum())
     print(f'drawn (Mednafen VDP1): {differ} pixels differ; VDP1 game {game_cycles * 1000 / VDP1_HZ:.2f} ms, '

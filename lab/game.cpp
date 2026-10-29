@@ -174,6 +174,7 @@ static const uint8_t* gShadeLevel;
 static const uint8_t* gHalfLevel;
 static const uint16_t* gShadeGouraud;
 static ShadeCache* gShadeCaches;
+static ShadeCache gRefShadeCaches[2];   // as the game left them: its list's copies
 static uint8_t (*gDetailKeys)[DETAIL_MAX_KEYS];
 static DetailSlot* gDetailSlots;
 static uint32_t gDetailFrame;
@@ -1161,13 +1162,13 @@ int32_t gameFlush(bool split, uint32_t* slaveCycles)
 
 enum { SAME_NOT, SAME, SAME_PICTURE };
 
-// The key of the shaded copy a colour table address / 8 is, or 0.
-static uint32_t copyKey(uint32_t colr)
+// The key of the shaded copy a colour table address / 8 is in caches, or 0.
+static uint32_t copyKey(uint32_t colr, const ShadeCache* caches)
 {
     uint32_t address = colr << 3;
     for (int32_t i = 0; i < 2; i++)
     {
-        const ShadeCache &cache = gShadeCaches[i];
+        const ShadeCache &cache = caches[i];
         if (cache.vram && address >= cache.vram && address < cache.vram + 256 * SHADE_TABLE_SIZE)
             return cache.keys[(address - cache.vram) / SHADE_TABLE_SIZE];
     }
@@ -1177,9 +1178,9 @@ static uint32_t copyKey(uint32_t colr)
 // A command drawn through a shaded copy of a colour table (pmod p, its key)
 // and one drawn with gouraud of one value at every corner, from that table:
 // the same picture.
-static bool shadedAlike(uint32_t copyW1, const uint32_t* w1, const uint32_t* grd)
+static bool shadedAlike(uint32_t copyW1, const ShadeCache* caches, const uint32_t* w1, const uint32_t* grd)
 {
-    uint32_t key = copyKey(copyW1 & 0xFFFF);
+    uint32_t key = copyKey(copyW1 & 0xFFFF, caches);
     uint32_t g = grd[0] >> 16;
     const uint32_t calc = PMOD_GOURAUD_HALF << 16;     // the colour calculation's bits
     return key && (w1[0] & calc) == (PMOD_GOURAUD << 16) && (copyW1 & 0xFFFF0000) == (w1[0] & 0xFFFF0000 & ~calc) &&
@@ -1202,11 +1203,12 @@ static int32_t sameCommand(const uint32_t* a, const uint32_t* ga, const uint32_t
     if (a[1] != b[1])
     {
         // a shaded copy of a table as good as another of the same, or as
-        // gouraud of the copy's value at every corner
-        uint32_t key = copyKey(a[1] & 0xFFFF);
-        if ((a[1] >> 16) == (b[1] >> 16) && key && key == copyKey(b[1] & 0xFFFF))
+        // gouraud of the copy's value at every corner (each list's copies in
+        // the caches as it left them)
+        uint32_t key = copyKey(a[1] & 0xFFFF, gShadeCaches);
+        if ((a[1] >> 16) == (b[1] >> 16) && key && key == copyKey(b[1] & 0xFFFF, gRefShadeCaches))
             return SAME;
-        if (shadedAlike(a[1], b + 1, gb) || shadedAlike(b[1], a + 1, ga))
+        if (shadedAlike(a[1], gShadeCaches, b + 1, gb) || shadedAlike(b[1], gRefShadeCaches, a + 1, ga))
             return SAME_PICTURE;
         return SAME_NOT;
     }
@@ -1302,8 +1304,10 @@ void gameInit()
     gHalfLevel = shad + 32;
     gShadeGouraud = (const uint16_t*)(shad + 128);
     gShadeCaches = sceneArray<ShadeCache>("SHCA");
-    for (int32_t i = 0; i < 2; i++) {
+    for (int32_t i = 0; i < 2; i++)
+    {
         gShadeCaches[i].miss = shadeTableMiss;
+        gRefShadeCaches[i] = gShadeCaches[i];
     }
     gDetailKeys = (uint8_t (*)[DETAIL_MAX_KEYS])sceneChunk("DKEY");
     gDetailSlots = sceneArray<DetailSlot>("DSLT");
