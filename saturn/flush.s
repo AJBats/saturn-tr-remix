@@ -325,7 +325,8 @@ _flushAsm:
     bra     .Lfaced
     nop
 
-    ! a room face drawn with a mip level: its slot in its pool
+    ! a room face drawn with a mip level: its slot in its pool, and the
+    ! level's colour table, which follows the texture's (r3 = w[1])
 .Lmip:
     mov     r1, r0
     shlr16  r0
@@ -339,6 +340,8 @@ _flushAsm:
     mov     r0, r4
     mov     #64, r0
     mov.l   @(r0, r8), r0       ! mipVram[0]
+    add     #4, r3              ! the half size table
+    mov.l   r3, @(4, r10)       ! w[1]
     bra     .Lturned
     add     r0, r4              ! half size: the quadrant's
 1:  shll2   r0
@@ -348,6 +351,8 @@ _flushAsm:
     mov     r0, r4
     mov     #68, r0
     mov.l   @(r0, r8), r0       ! mipVram[1]
+    add     #8, r3              ! the quarter size table
+    mov.l   r3, @(4, r10)       ! w[1]
     add     r0, r4
     bra     .Lturned
     shlr    r5                  ! a quarter: half the quadrant's

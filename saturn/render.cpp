@@ -867,6 +867,7 @@ X_INLINE void faceMaterial(uint32* w, uint32 flags)
             }
 
             uint32 srca = tex->srca;
+            uint32 colr = tex->colr;
             uint32 size = tex->size;
             if (flags & FACE_DETAIL)
             {
@@ -879,6 +880,7 @@ X_INLINE void faceMaterial(uint32* w, uint32 flags)
                     {
                         level = flags & FACE_DETAIL_MIP2 ? 2 : 1;
                         srca = (gDetailPoolVram[level] + (slot & 0x3F) * (DETAIL_SLOT_SIZE >> 2 * level)) >> 3;
+                        colr += level * 4; // the level's colour table, after the texture's
                     }
                     uint32 w = (size >> 8) * 16 >> level;
                     uint32 h = (size & 0xFF) * 2 >> level;
@@ -897,7 +899,7 @@ X_INLINE void faceMaterial(uint32* w, uint32 flags)
             }
 
             w[0] = (CMD_DISTORTED_SPRITE | (tex->attr & TEX_ATTR_DIR)) << 16;
-            w[1] = pair(pmod, tex->colr);
+            w[1] = pair(pmod, colr);
             w[2] = pair(srca, size);
             return;
         }

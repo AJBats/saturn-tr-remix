@@ -14,7 +14,8 @@
 // at a quarter of its size, at a sixteenth. A face small on the frame takes
 // one (faces.s), so VDP1 reads about a texel a pixel along its lines rather
 // than skipping through the full texture. Each level has a pool of slots its
-// size at the top of the cache.
+// size at the top of the cache, and its own colour table in the blob, right
+// after the texture's (Texture.colr + 4 for half size, + 8 for a quarter).
 #ifndef DETAIL_H
 #define DETAIL_H
 

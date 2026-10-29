@@ -18,6 +18,14 @@ rest with a quarter-resolution set (ROOMTQTR), which the blob leaves out but
 for its colour tables. The game rearranges a texture into quadrants for the
 faces it splits. Two mip levels follow the set, for faces drawn small.
 
+Room textures are drawn as the remaster's art has them (tools/texart.py, as
+the crunch lab measured): each full-res texture's texel-to-texel grain cut
+and its 2-6 texel detail lifted, in a colour table fitted to it; each mip
+level reduced in a colour table of its own instead of dithered into the
+full texture's. A room texture's three tables (full res, half, quarter) lie
+side by side in the blob, so a face drawn with a mip level takes its
+texture's table + 4 or + 8 (in VDP1's 8-byte units).
+
 Sound effects are the original's samples (16-bit PCM at 5512.5 Hz) or,
 where the PlayStation level has the one a sample was made from, that one as
 8-bit PCM at 11025 Hz (tools/sfx.py). They go to a separate file the game
@@ -54,6 +62,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sfx  # noqa: E402
+import texart  # noqa: E402
 import trpsx  # noqa: E402
 import trsat  # noqa: E402
 
@@ -64,6 +73,8 @@ FACE_TYPE_SHIFT = 14
 TEX_ATTR_AKILL = 1
 FACE_TEXTURE_MAX = 0x3FFF
 DETAIL_UNIT = 256   # Texture.reserved: full-res offset / DETAIL_UNIT + 1
+ROOM_TABLES = 3     # a room texture's colour tables: full res, half, quarter (saturn/detail.h)
+TABLE_BYTES = 32
 ROOM_INFO_SIZE = 68 # common.h RoomInfo
 VERTEX_SIZE = 8     # render.h Vertex
 
@@ -203,16 +214,19 @@ class TextureTable:
     VRAM_TEX_BASE. Room textures come first with fixed indices (animated
     texture ranges refer to them): they have no character in the blob (srca
     0), only their colour tables, and their size is a quadrant's, half the
-    full-res texture's each way. Object texture variants are added as faces
-    use them."""
+    full-res texture's each way; their colour tables are ROOM_TABLES each
+    (until room_art fits the mip levels' own, all three the original's).
+    Object texture variants are added as faces use them."""
 
     def __init__(self, lvl):
         self.lvl = lvl
-        self.sub = whole_textures(lvl)
+        self.sub = bytearray(whole_textures(lvl))
+        self.mips = {}      # (full-res offset, factor) -> a mip level's 4-bit texels (room_art)
+        self.mip_uses = []  # each mip level drawn: its texels, its table's blob offset, attr
         self.blob = bytearray()
         self.obj_off = self.add_segment(lvl.object_tex_data)
-        self.room_off = self.add_segment(b"".join(lvl.room_tex_qtr[self.room_lut(t):self.room_lut(t) + 32]
-                                                  for t in lvl.room_textures))
+        self.room_off = self.add_segment(b"".join(lvl.room_tex_qtr[self.room_lut(t):self.room_lut(t) + TABLE_BYTES]
+                                                  * ROOM_TABLES for t in lvl.room_textures))
         self.spr_off = self.add_segment(lvl.sprite_tex_data)
         # the VRAM after the blob: full-res room texture cache, or item textures
         self.cache_off = (len(self.blob) + 31) & ~31
@@ -225,10 +239,11 @@ class TextureTable:
             pix = t["sub"][0] * 8
             n = t["w"] * t["h"] * 2  # the whole full-res texture
             lut = self.room_lut(t)
-            colr = self.room_off + i * 32
+            colr = self.room_off + i * TABLE_BYTES * ROOM_TABLES
             if pix + n > len(self.sub) or lut + 32 > len(lvl.room_tex_qtr):
                 raise ValueError(f"room texture outside the level's data: {t}")
-            self.sources.append((self.sub[pix:pix + n], struct.unpack_from(">16H", lvl.room_tex_qtr, lut), colr, False))
+            self.sources.append((bytes(self.sub[pix:pix + n]), struct.unpack_from(">16H", lvl.room_tex_qtr, lut),
+                                 colr, False))
             self.entries.append([0, (VRAM_TEX_BASE + colr) >> 3, ((t["w"] // 8) << 8) | t["h"], 0, self.detail_key(t)])
 
     @staticmethod
@@ -289,6 +304,45 @@ class TextureTable:
             self.entries.append(self.entry(self.lvl.item_tex_data, self.cache_off, t, t["tile"], attr))
         return self.index[key]
 
+    def room_art(self):
+        """The room textures as the remaster draws them (tools/texart.py):
+        each full-res texture's grain reworked in a table fitted to it
+        (bands_reweighted), and each mip level reduced from that in a table of
+        its own (own_palette), the tables side by side in the blob. Textures
+        sharing texels must share their table. Call after the rooms are
+        packed (faces mark textures see-through) and before pack."""
+        groups = {}
+        for i, t in enumerate(self.lvl.room_textures):
+            groups.setdefault(t["sub"][0] * 8, []).append(i)
+        for offset, members in groups.items():
+            t = self.lvl.room_textures[members[0]]
+            w, h = t["w"] * 2, t["h"] * 2
+            colors = list(self.sources[members[0]][1])
+            if any(list(self.sources[i][1]) != colors for i in members):
+                raise ValueError(f"room textures at {offset:#x} share texels but not colour tables")
+            attr = TEX_ATTR_AKILL if any(self.entries[i][3] & TEX_ATTR_AKILL for i in members) else 0
+            texels = texart.texels_of(bytes(self.sub[offset:offset + w * h // 2]), w, h)
+            texels, colors = texart.bands_reweighted(texels, colors, bool(attr))
+            pixels = texart.pack_texels(texels)
+            self.sub[offset:offset + len(pixels)] = pixels
+            tables = [colors]
+            for factor in (2, 4):
+                if w % (factor * 2) or h % factor:
+                    tables.append(colors)   # no such level (detail_set)
+                    continue
+                small, table = texart.own_palette(texels, colors, bool(attr), factor, factor)
+                self.mips[(offset, factor)] = texart.pack_texels(small)
+                tables.append(table)
+            for i in members:
+                colr = self.sources[i][2]
+                self.sources[i] = (pixels, tuple(colors), colr, False)
+                for level, table in enumerate(tables):
+                    struct.pack_into(">16H", self.blob, colr + level * TABLE_BYTES, *table)
+                    if level:
+                        mip = self.mips.get((offset, 1 << level))
+                        if mip is not None:
+                            self.mip_uses.append((mip, colr + level * TABLE_BYTES, attr))
+
     def pack(self):
         """Each entry: srca, colr, size, attr, mean colour, full-res key, mean
         colour under the remastered colour tables, and 0 for the game to fill
@@ -306,10 +360,10 @@ class TextureTable:
         """The full-res set (padded to DETAIL_UNIT) and its mip levels after
         it: each texture at half its size each way, at a quarter of its
         offset in the first set after the full-res one, and at a quarter of
-        its size, at a sixteenth of its offset in the second (saturn/detail.h).
-        Each texture is reduced in its first colour table; colour 0 stays
-        see-through if any face draws it so. Call after pack (faces mark
-        textures see-through)."""
+        its size, at a sixteenth of its offset in the second (saturn/detail.h):
+        room_art's, or else each texture reduced in its first colour table;
+        colour 0 stays see-through if any face draws it so. Call after pack
+        (faces mark textures see-through)."""
         full = bytearray(self.sub)
         full += bytes(-len(full) % DETAIL_UNIT)
         mip1 = bytearray(len(full) // 4)
@@ -328,7 +382,7 @@ class TextureTable:
             for factor, out, scale in ((2, mip1, 4), (4, mip2, 16)):
                 if w % (factor * 2) or h % factor:
                     continue
-                data = mip_texture(pixels, w, h, colors, transparent, factor)
+                data = self.mips.get((offset, factor)) or mip_texture(pixels, w, h, colors, transparent, factor)
                 out[offset // scale:offset // scale + len(data)] = data
         return bytes(full + mip1 + mip2)
 
@@ -350,6 +404,8 @@ class TextureTable:
         for e, (pixels, _, lut, _) in zip(self.entries, self.sources):
             if lut is not None:  # inventory item textures live outside the blob
                 count(pixels, lut, e[3])
+        for pixels, lut, attr in self.mip_uses:
+            count(pixels, lut, attr)
         for s in self.lvl.sprite_textures:
             pix = self.spr_off + s["tile"] * 8
             count(self.blob[pix:pix + s["w"] * s["h"] // 2], self.spr_off + s["clut"] * 8, TEX_ATTR_AKILL)
@@ -674,6 +730,7 @@ class Packer:
             out.pack("6h", *s["cbox"])
 
         textures = out.align4()
+        self.textures.room_art()
         out.raw(self.textures.pack())
         textures_count = len(self.textures.entries)
 
