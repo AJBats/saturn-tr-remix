@@ -58,6 +58,7 @@ struct LabResults
     int32_t newVisited;         // commands VDP1 follows in the new list
     int32_t newShaded;          // ... the same as the game's but for a shaded copy of a colour table
                                 // where the other has gouraud of its value, or the other way
+    int32_t newWaterBad;        // every draw under water: commands facesMeshAsm makes not as facesMeshC
     uint32_t meshCommands;      // the master's draws' commands
     uint32_t roomCommands;      // the rooms'
     uint32_t vdp1New;           // cycles VDP1 drew the new list in
@@ -365,8 +366,8 @@ static void newRoomsInit()
 }
 
 // The master's draws in order, their faces through facesMeshAsm or (c)
-// facesMeshC.
-static void newMeshes(bool c)
+// facesMeshC; with water, every draw under water.
+static void newMeshes(bool c, bool water = false)
 {
     const DrawScene* draws = gDraws;
     const uint8_t* sets = gFaceSets;
@@ -381,7 +382,7 @@ static void newMeshes(bool c)
         }
         const FaceSet* set = d.type == DRAW_SHADOW ? facesShadow()
                                                    : (const FaceSet*)(sets + ((const uint32_t*)sets)[d.mesh]);
-        uint32_t mode = (d.inside ? MESH_INSIDE : 0) | (d.flags & FACE_WATER ? MESH_WATER : 0);
+        uint32_t mode = (d.inside ? MESH_INSIDE : 0) | (water || (d.flags & FACE_WATER) ? MESH_WATER : 0);
         if (c) {
             facesMeshC(set, vertices, mode, gMeshList);
         } else {
@@ -404,6 +405,36 @@ static void newJoin(bool c)
     } else {
         facesJoinRoomsMeshes(gRoomList, gMeshList, gNewCmds, 0, gNewEnd);
     }
+}
+
+// A command's words and gouraud table, hashed.
+static uint32_t commandHash(int32_t slot)
+{
+    uint32_t h = 0;
+    for (int32_t i = 0; i < 8; i++) {
+        h = ((h << 5) | (h >> 27)) ^ gNewCmds[slot].w[i];
+    }
+    return ((h << 5) | (h >> 27)) ^ gNewGrd[slot][0] ^ (gNewGrd[slot][1] << 1);
+}
+
+// Every draw under water, through facesMeshC and facesMeshAsm: the commands
+// that differ. A scene has few draws under water, if any, and fewer far off.
+static int32_t newWaterCheck()
+{
+    static uint32_t hashes[MAX_CMDS];
+    newPrepare();
+    newMeshes(true, true);
+    int32_t end = facesSlot(gMeshList.link);
+    for (int32_t i = gMeshFirst; i < end; i++) {
+        hashes[i] = commandHash(i);
+    }
+    newPrepare();
+    newMeshes(false, true);
+    int32_t bad = facesSlot(gMeshList.link) != end;
+    for (int32_t i = gMeshFirst; i < end; i++) {
+        bad += commandHash(i) != hashes[i];
+    }
+    return bad;
 }
 
 static void stageNew()
@@ -434,6 +465,7 @@ static void stageNew()
     gLab.roomCommands = facesSlot(gRoomList.link) - 1;
     gLab.newMeshes = measure([] { newPrepare(); }, [] { newMeshes(false); });
     gLab.meshCommands = facesSlot(gMeshList.link) - gMeshFirst;
+    gLab.newWaterBad = newWaterCheck();
     gLab.newJoin = measure([] { newPrepare(); newRooms(false); newMeshes(false); }, [] { newJoin(false); });
     gLab.newBad = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded);
 }
@@ -495,6 +527,12 @@ static void newPage()
     p = put(p, " followed,");
     p = putNumber(p, gLab.newShaded, 4);
     put(p, " shaded another way");
+    page.add(line);
+    p = put(line, "all draws under water: asm ");
+    p = put(p, gLab.newWaterBad ? "OFF" : "as C");
+    p = put(p, " (");
+    p = putNumber(p, gLab.newWaterBad, 0);
+    put(p, " off)");
     page.add(line);
     p = put(line, "VDP1 ms: game's list");
     p = putFixed(p, cyclesToHundredths(gLab.vdp1Game), 2, 7);

@@ -5,7 +5,8 @@
 ! Each face facing the camera and not culled has its command and gouraud
 ! table written at once into the list, chained into its depth bucket: its
 ! link is the bucket's last command added (heads), the first added recorded
-! for the join (tails). faces.cpp facesMeshC does the same in C.
+! for the join (tails). A draw under water (MESH_WATER) takes the loops built
+! with its shading. faces.cpp facesMeshC does the same in C.
 !
 ! FaceSet: uint16 quads, triangles; then the quads, then the triangles.
 ! FaceQuad: uint16 corners[4], byte offsets into the vertices; uint16 material,
@@ -14,7 +15,8 @@
 ! Vertex: int16 x, y; int16 z; uint8 g, clip.
 ! Material: uint32 w0 (control | jump << 16), w1, w2, flags (MAT_SHADEABLE 1).
 ! CommandList: +0 cmd, +4 end, +8 grd, +12 link, +16 grdLink, +20 heads,
-! +24 tails, +28 materials, +32 shadeGouraud, +36 shade (ShadeCache, or 0).
+! +24 tails, +28 materials, +32 shadeGouraud, +36 shade (ShadeCache, or 0),
+! +40 shadeLevel.
 ! ShadeCache: +0 frame, +4 validFrom, +8 vram, +12 miss(cache, key, slot),
 ! +16 keys[256], +1040 frames[256].
 !
@@ -274,6 +276,62 @@
 4:
     .endm
 
+! corner v's gouraud colour under water in place (render.cpp waterGouraud):
+! its shade's level, red losing 2 for every 1024 beyond the first 1024 of
+! depth; r6 shadeLevel, r14 1024; r0, r5
+    .macro  WATER v
+    mov.b   @(6, \v), r0
+    extu.b  r0, r0
+    mov.b   @(r0, r6), r5       ! the level
+    mov.w   @(4, \v), r0
+    sub     r14, r0             ! z - 1024
+    cmp/pl  r0
+    bf/s    1f
+    mov     r5, \v              ! red
+    shlr8   r0
+    shlr2   r0
+    add     r0, r0
+    sub     r0, \v
+    cmp/pz  \v
+    bt      1f
+    mov     #0, \v
+1:  mov     r5, r0
+    shll2   r0
+    shll2   r0
+    shll    r0
+    or      r5, r0
+    shll2   r0
+    shll2   r0
+    shll    r0
+    or      r0, \v              ! level << 10 | level << 5 | red
+    .endm
+
+! the gouraud table of corners r1, r2, r3, r7 under water; r0, r5, r6, r14
+    .macro  WATER_SHADE
+    mov.l   @(40, r13), r6      ! shadeLevel
+    mov     #4, r14
+    shll8   r14                 ! 1024
+    WATER   r1
+    WATER   r2
+    WATER   r3
+    WATER   r7
+    shll16  r1
+    or      r2, r1
+    mov.l   r1, @r10
+    shll16  r3
+    or      r7, r3
+    mov.l   r3, @(4, r10)
+    .endm
+
+! the shading: under water or not
+    .macro  SHADING water
+    .if \water
+    WATER_SHADE
+    .else
+    SHADE
+    .endif
+    .endm
+
 ! on to the next command: T set when the list is full; r0
     .macro  NEXT
     add     #32, r9
@@ -324,37 +382,45 @@ _facesMeshAsm:
     shll2   r1                  ! the quads' bytes
     add     r4, r1
     mov.l   r1, @r15            ! their end
-    bra     .LquadTest
+    mov.l   @(4, r15), r0
+    tst     #MESH_WATER, r0
+    bt      .LquadTest
+    bra     .LquadTestWater
     nop
 
-.LquadNext:
+! the quads, then the triangles, shaded under water or not; labels end in
+! sfx
+    .macro  FACES sfx, water
+    .align 2
+    nop                         ! the loops placed as measured fastest (Mednafen, the ledge: 1%)
+.LquadNext\sfx:
     add     #12, r4
-.LquadTest:
+.LquadTest\sfx:
     mov.l   @r15, r0
     cmp/eq  r0, r4
-    bf      .Lquad
-    bra     .LquadsDone
+    bf      .Lquad\sfx
+    bra     .LquadsDone\sfx
     nop
-.Lquad:
+.Lquad\sfx:
     mov.l   @r4, r1
     mov.l   @(4, r4), r7
     CORNERS 0
-    BACKFACE .LquadNext
-    CULL    .LquadNext
+    BACKFACE .LquadNext\sfx
+    CULL    .LquadNext\sfx
     MIRROR
     DEPTH
     LINK
     QUAD_CORNERS
-    SHADE
+    SHADING \water
     NEXT
-    bt      .LfullQuads
-    bra     .LquadNext
+    bt      .LfullQuads\sfx
+    bra     .LquadNext\sfx
     nop
-.LfullQuads:
+.LfullQuads\sfx:
     bra     .Ldone
     nop
 
-.LquadsDone:
+.LquadsDone\sfx:
     mov.l   @(8, r15), r0
     mov     r0, r1
     add     r1, r1
@@ -362,45 +428,45 @@ _facesMeshAsm:
     shll2   r1                  ! the triangles' bytes
     add     r4, r1
     mov.l   r1, @r15            ! their end
-    bra     .LtriTest
+    bra     .LtriTest\sfx
     nop
 
-.LtriNext:
+.LtriNext\sfx:
     add     #12, r4
-.LtriTest:
+.LtriTest\sfx:
     mov.l   @r15, r0
     cmp/eq  r0, r4
-    bf      .Ltri
+    bf      .Ltri\sfx
     bra     .Ldone
     nop
-.Ltri:
+.Ltri\sfx:
     mov.l   @r4, r1
     mov.l   @(4, r4), r7
     CORNERS 1
-    BACKFACE .LtriNext
-    CULL    .LtriNext
+    BACKFACE .LtriNext\sfx
+    CULL    .LtriNext\sfx
     mov.l   @(12, r15), r0
     tst     #TRI_PARALLELOGRAM, r0
     bt      1f
-    bra     .Lparallelogram
+    bra     .Lparallelogram\sfx
     nop
 1:  ! a quad A B C C
     MIRROR
     DEPTH
     LINK
     QUAD_CORNERS
-    SHADE
+    SHADING \water
     NEXT
-    bt      .LfullTris
-    bra     .LtriNext
+    bt      .LfullTris\sfx
+    bra     .LtriNext\sfx
     nop
-.LfullTris:
+.LfullTris\sfx:
     bra     .Ldone
     nop
 
     ! v0 (r1), x (r2), y (r3): the parallelogram v0, x, x + y - v0, y, its v0
     ! at corner A or D
-.Lparallelogram:
+.Lparallelogram\sfx:
     tst     #TRI_SWAP, r0
     bt      1f
     mov     r2, r6
@@ -431,7 +497,7 @@ _facesMeshAsm:
     or      r6, r5              ! x + y - v0
     mov.l   @(12, r15), r0
     tst     #TRI_V0_AT_D, r0
-    bt      .LparaA
+    bt      .LparaA\sfx
     ! v0 at D: x, p, y, v0, shaded x, x, y, v0
     mov.l   @r2, r0
     mov.l   r0, @(12, r9)
@@ -441,10 +507,10 @@ _facesMeshAsm:
     mov.l   @r1, r0
     mov.l   r0, @(24, r9)
     mov     r1, r7
-    bra     .LparaShade
+    bra     .LparaShade\sfx
     mov     r2, r1
     ! v0 at A: v0, x, p, y, shaded v0, x, y, y
-.LparaA:
+.LparaA\sfx:
     mov.l   @r1, r0
     mov.l   r0, @(12, r9)
     mov.l   @r2, r0
@@ -452,12 +518,18 @@ _facesMeshAsm:
     mov.l   r5, @(20, r9)
     mov.l   @r3, r0
     mov.l   r0, @(24, r9)
-.LparaShade:
-    SHADE
+.LparaShade\sfx:
+    SHADING \water
     NEXT
-    bt      .Ldone
-    bra     .LtriNext
+    bt      .LfullPara\sfx
+    bra     .LtriNext\sfx
     nop
+.LfullPara\sfx:
+    bra     .Ldone
+    nop
+    .endm
+
+    FACES   , 0
 
 .Ldone:
     mov.l   r9, @r13
@@ -576,3 +648,7 @@ _facesMeshAsm:
     .align 2
 .LnoGouraud:    .long   0xFFF80000  ! w1 without the colour calculation and table
 .LframesAt:     .short  1040        ! ShadeCache.frames
+
+    ! under water, out of the way of the loops above
+    .align 2
+    FACES   Water, 1
