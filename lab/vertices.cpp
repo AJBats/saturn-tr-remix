@@ -4,6 +4,7 @@
 #include "scene.h"
 
 #include "dsp.h"
+#include "meshlight3_dsp.h"
 #include "roomrot_dsp.h"
 
 #include <string.h>
@@ -24,26 +25,52 @@
 #define MESH_LIGHT_NORMALS  1
 #define MESH_LIGHT_SHADES   2
 #define SHADOW_VERTICES 8
+#define MAX_ROOMS       64
 #define MAX_DRAWS       256
+#define MAX_MESHES      256
+#define MAX_ROOM_VERTICES   (MAX_VERTICES - MASTER_VERTICES + 3 * MAX_ROOMS)
+#define MAX_MESH_VERTICES   (MASTER_VERTICES + 3 * MAX_DRAWS)
 
 static const int8_t kWibble[32] = {
     0, 0, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 0,
     0, 0, -1, -1, -1, -2, -2, -2, -2, -2, -2, -2, -1, -1, -1, 0
 };
 
+// A room's job for roomrot.dsp (lab/gen_roomrot.py).
+struct RoomDspJob
+{
+    uint32_t vertices;          // / 4
+    uint32_t out;               // / 4
+    int32_t groups;             // of 4 vertices: 0 ends the list
+    int32_t m[12];              // t m0 m1 m2 a row, m times 4
+};
+
+// A mesh's job for meshlight3.dsp (dspbench/gen_meshlight3.py): its
+// coefficients ready to use.
+struct MeshDspJob
+{
+    uint32_t src;               // its vertices laid out for the DSP / 4
+    int32_t groups;             // of 4 vertices, - 1; -1 ends the list
+    int32_t k[16];              // 4t 4m 4m 4m a row; ambient << 16 | 0xFFFF and l * range * -4
+};
+
 // A mesh's projection and shading, as feeding it to the DSP set them up.
 struct MeshJob
 {
-    Vertex* out;                // its vertices in gVertices
+    Vertex* out;                // its vertices: the DSP's output, projected in place (whole groups)
+    const Vertex* game;         // the game's, in the scene's
     int32_t count;
     int32_t inside;
     int32_t shading;            // MeshShading
     const uint8_t* shades;      // MESH_SHADES'
-    const int8_t* normals;      // MESH_NORMALS'
-    int32_t ambient;
+    const int8_t* normals;      // the mesh's, MESH_NORMALS' and the DSP's when lit by them
+    int32_t intensity;
     int32_t far;                // might reach past 1 << 29 in z: the DSP's z >> 14 would wrap, so
                                 // the vertices are worked out here (meshExact)
-    const MeshVertex* vertices; // in mesh space, for exact
+    const MeshVertex* vertices; // in mesh space
+    const int16_t* center;      // a mesh's bounding sphere, or none (a shadow)
+    int32_t radius;
+    int32_t* ready;             // in the DSP's layout
     const DrawXform* xform;
 };
 
@@ -56,50 +83,25 @@ static const DrawScene* gDraws;
 static const DrawXform* gXforms;
 static uint32_t gDrawCount;
 static const uint32_t* gMeshes;
+static uint32_t gMeshCount;
 static const uint8_t* gMeshGeometry;
+static const Vertex* gSceneVertices;
 
-// A room's job for roomrot.dsp (lab/gen_roomrot.py).
-struct RoomDspJob
-{
-    uint32_t vertices;          // / 4
-    uint32_t out;               // / 4
-    int32_t groups;             // of 4 vertices: 0 ends the list
-    int32_t m[12];              // t m0 m1 m2 a row, m times 4
-};
-
-#define MAX_ROOMS   64
-
-// The rooms' rotations, the DSP's and vertexModel's, a room's at its own
-// place (whole groups of 4); the rooms' jobs; the meshes' jobs, a shadow's
-// vertices made in its job.
-static RoomRotated gRoomRotated[MAX_VERTICES + 3 * MAX_ROOMS];
-static RoomRotated gRoomModel[MAX_VERTICES + 3 * MAX_ROOMS];
+// The rooms' rotations, the DSP's, a room's at its own place (whole groups
+// of 4), and their jobs.
+static RoomRotated gRoomRotated[MAX_ROOM_VERTICES];
 static int32_t gRotatedAt[MAX_ROOMS];
 static RoomDspJob gRoomJobs[MAX_ROOMS + 1];
-static MeshJob gJobs[MAX_DRAWS];
-static int32_t gJobCount;
-static MeshVertex gShadows[MAX_DRAWS][SHADOW_VERTICES];
 
-void verticesInit()
-{
-    gRooms = sceneArray<const RoomScene>("ROOM", &gRoomCount);
-    gRoomGeometry = sceneArray<const uint8_t>("RGEO");
-    gCaustics = (const int16_t (*)[32])sceneChunk("CAUS");
-    gDivTable = sceneArray<const uint16_t>("DIVT");
-    gDraws = sceneArray<const DrawScene>("DRAW", &gDrawCount);
-    gXforms = sceneArray<const DrawXform>("XFRM");
-    gMeshes = sceneArray<const uint32_t>("MESH");
-    gMeshGeometry = sceneArray<const uint8_t>("MGEO");
-    if (gRoomCount > MAX_ROOMS) {
-        gRoomCount = MAX_ROOMS;
-    }
-    int32_t at = 0;
-    for (uint32_t i = 0; i < gRoomCount; i++)
-    {
-        gRotatedAt[i] = at;
-        at += (gRooms[i].verticesCount + 3) & ~3;
-    }
-}
+// The meshes' vertices as the DSP takes them (x y z nx ny nz a longword,
+// groups of 4: a mesh's once, a shadow's each frame); their jobs and the
+// DSP's; their vertices, a job's after another, whole groups.
+static int32_t gMeshReady[MAX_MESH_VERTICES * 6];
+static int32_t* gReadyOf[MAX_MESHES];
+static MeshJob gJobs[MAX_DRAWS];
+static MeshDspJob gDspJobs[MAX_DRAWS + 1];
+static int32_t gJobCount;
+static Vertex gMeshVertices[MAX_MESH_VERTICES];
 
 static inline const RoomVertex* roomPoints(const RoomScene &room)
 {
@@ -144,97 +146,78 @@ static void shadowVertices(MeshVertex* v, int32_t x, int32_t z, int32_t sx, int3
     v[7] = { xns2, 0, zps1 };
 }
 
-// render.cpp meshXformSetup's test, the bounding sphere wholly in the frame
-// and between the planes; and whether the sphere might reach past 1 << 29 in
-// z, either way (by over a margin for meshes whose vertices stray past it).
-static bool meshInside(const DrawXform &d, const int16_t* center, int32_t radius, bool &far)
+// A mesh's vertices and normals in the DSP's layout, its last group's
+// spare vertices 0.
+static void readyVertices(int32_t* ready, const MeshVertex* v, const int8_t* normals, int32_t count)
 {
-    const int32_t* m = d.m;
-    int32_t cx = (m[0] * center[0] + m[1] * center[1] + m[2] * center[2] + m[3]) >> FIXED_SHIFT;
-    int32_t cy = (m[4] * center[0] + m[5] * center[1] + m[6] * center[2] + m[7]) >> FIXED_SHIFT;
-    int32_t cz = (m[8] * center[0] + m[9] * center[1] + m[10] * center[2] + m[11]) >> FIXED_SHIFT;
-    far = cz + radius > 30000 || cz - radius < -30000;
-    int32_t zNear = cz - radius;
-    return (zNear > (VIEW_MIN_F >> FIXED_SHIFT)) && (cz + radius < VIEW_DIST) &&
-           (((cx < 0 ? -cx : cx) + radius) * 256 < ((FRAME_WIDTH >> 1) - 4) * zNear) &&
-           (((cy < 0 ? -cy : cy) + radius) * 256 < ((FRAME_HEIGHT >> 1) - 4) * zNear);
+    int32_t whole = (count + 3) & ~3;
+    for (int32_t k = 0; k < whole; k++, ready += 6)
+    {
+        bool real = k < count;
+        ready[0] = real ? v[k].x : 0;
+        ready[1] = real ? v[k].y : 0;
+        ready[2] = real ? v[k].z : 0;
+        ready[3] = real && normals ? normals[4 * k] : 0;
+        ready[4] = real && normals ? normals[4 * k + 1] : 0;
+        ready[5] = real && normals ? normals[4 * k + 2] : 0;
+    }
 }
 
-// The game's arithmetic for one mesh vertex but its shade (meshxform.s
-// .Lloop), from the job's mesh.
-static void meshExact(MeshProject* mp, int32_t index, Vertex* v)
+void verticesInit()
 {
-    const MeshJob &job = *mp->job;
-    const int32_t* m = job.xform->m;
-    const MeshVertex &p = job.vertices[index];
-    int32_t z = row(m + 8, m[11], p.x, p.y, p.z);
-    uint32_t clip = 0;
-    if (!(z > VIEW_MIN_F))
-    {
-        z = VIEW_MIN_F;
-        clip = CLIP_PLANE;
+    gRooms = sceneArray<const RoomScene>("ROOM", &gRoomCount);
+    gRoomGeometry = sceneArray<const uint8_t>("RGEO");
+    gCaustics = (const int16_t (*)[32])sceneChunk("CAUS");
+    gDivTable = sceneArray<const uint16_t>("DIVT");
+    gDraws = sceneArray<const DrawScene>("DRAW", &gDrawCount);
+    gXforms = sceneArray<const DrawXform>("XFRM");
+    gMeshes = sceneArray<const uint32_t>("MESH", &gMeshCount);
+    gMeshGeometry = sceneArray<const uint8_t>("MGEO");
+    gSceneVertices = sceneArray<const Vertex>("VERT");
+    if (gRoomCount > MAX_ROOMS) {
+        gRoomCount = MAX_ROOMS;
     }
-    if (z >= VIEW_MAX_F)
-    {
-        z = VIEW_MAX_F;
-        clip = CLIP_PLANE;
-    }
-    int32_t x = int16_t(uint32_t(row(m, m[3], p.x, p.y, p.z)) >> FIXED_SHIFT);
-    int32_t y = int16_t(uint32_t(row(m + 4, m[7], p.x, p.y, p.z)) >> FIXED_SHIFT);
-    int32_t d = mp->divTable[uint32_t(z) >> (FIXED_SHIFT + 4)];
-    int32_t sx = int16_t(uint32_t(clamp(x * d, -P_MAX, P_MAX)) >> 12) + (FRAME_WIDTH >> 1);
-    int32_t sy = int16_t(uint32_t(clamp(y * d, -P_MAX, P_MAX)) >> 12) + (FRAME_HEIGHT >> 1);
-    if (uint32_t(sx) > FRAME_WIDTH || uint32_t(sy) > FRAME_HEIGHT)
-    {
-        clip += CLIP_FRAME;
-        sx = clamp(sx, -1024, 1023);
-        sy = clamp(sy, -1024, 1023);
-        clip += (sx < 0 ? CLIP_LEFT : 0) + (sx > FRAME_WIDTH ? CLIP_RIGHT : 0);
-        clip += (sy < 0 ? CLIP_TOP : 0) + (sy > FRAME_HEIGHT ? CLIP_BOTTOM : 0);
-    }
-    v->x = sx;
-    v->y = sy;
-    v->z = uint32_t(z) >> FIXED_SHIFT;
-    v->clip = clip;
-}
-
-void vertexModel()
-{
+    int32_t at = 0;
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
-        const RoomScene &room = gRooms[i];
-        const RoomVertex* p = roomPoints(room);
-        RoomRotated* out = gRoomModel + gRotatedAt[i];
-        for (int32_t k = 0; k < room.verticesCount; k++, p++, out++)
-        {
-            int32_t x = p->x * 4, y = p->y * 4, z = p->z * 4;
-            out->x = row16(room.m, room.tx, x, y, z);
-            out->y = row16(room.m + 3, room.ty, x, y, z);
-            out->z = row16(room.m + 6, room.tz, x, y, z);
-        }
+        gRotatedAt[i] = at;
+        at += (gRooms[i].verticesCount + 3) & ~3;
     }
 
+    // the meshes in the DSP's layout, once
+    int32_t* ready = gMeshReady;
+    for (uint32_t m = 0; m < gMeshCount && m < MAX_MESHES; m++)
+    {
+        const uint8_t* mesh = gMeshGeometry + gMeshes[m];
+        int32_t count = mesh[10];
+        const int8_t* normals = mesh[11] == MESH_LIGHT_NORMALS ? (const int8_t*)(mesh + 20 + count * 6) : nullptr;
+        gReadyOf[m] = ready;
+        readyVertices(ready, (const MeshVertex*)(mesh + 20), normals, count);
+        ready += ((count + 3) & ~3) * 6;
+    }
+
+    // the draws' jobs: where each one's vertices go, its parts
     gJobCount = 0;
+    Vertex* out = gMeshVertices;
     for (uint32_t i = 0; i < gDrawCount && gJobCount < MAX_DRAWS; i++)
     {
         const DrawScene &d = gDraws[i];
-        const DrawXform &x = gXforms[i];
         if (d.type != DRAW_MESH && d.type != DRAW_SHADOW)
             continue;
-        MeshJob &job = gJobs[gJobCount];
-        job.out = gVertices + d.base;
-        job.xform = &x;
+        MeshJob &job = gJobs[gJobCount++];
+        job.xform = gXforms + i;
+        job.game = gSceneVertices + d.base;
         job.normals = nullptr;
         job.shades = nullptr;
-        job.ambient = x.ambient;
-        int32_t intensity = 0;
-        const int16_t* center = nullptr;
-        int32_t radius = 0;
+        job.intensity = 0;
+        job.center = nullptr;
+        job.radius = 0;
         if (d.type == DRAW_SHADOW)
         {
-            shadowVertices(gShadows[gJobCount], x.shadow[0], x.shadow[1], x.shadow[2], x.shadow[3]);
-            job.vertices = gShadows[gJobCount];
             job.count = SHADOW_VERTICES;
+            job.vertices = nullptr;
+            job.ready = ready;
+            ready += SHADOW_VERTICES * 6;
         }
         else
         {
@@ -248,59 +231,26 @@ void vertexModel()
             } else if (mesh[11] == MESH_LIGHT_SHADES) {
                 job.shades = after;
             }
-            intensity = *(const uint16_t*)(mesh + 8);
-            center = (const int16_t*)mesh;
-            radius = *(const int16_t*)(mesh + 16);
+            job.intensity = *(const uint16_t*)(mesh + 8);
+            job.center = (const int16_t*)mesh;
+            job.radius = *(const int16_t*)(mesh + 16);
+            job.ready = gReadyOf[d.mesh];
         }
-        bool far = false;
-        job.inside = center && meshInside(x, center, radius, far);
-        job.far = far;
-
-        // the light: the DSP's arithmetic keeps a shade in 0 .. 31 while
-        // ambient - range .. ambient + range does (|n . l| < 1 << 14)
-        int32_t lx = 0, ly = 0, lz = 0, flat = 0;
-        if (job.normals && x.range)
-        {
-            const int32_t* m = x.m;
-            const int16_t* l = x.light;
-            lx = (m[0] * l[0] + m[4] * l[1] + m[8] * l[2]) >> (FIXED_SHIFT + 7);
-            ly = (m[1] * l[0] + m[5] * l[1] + m[9] * l[2]) >> (FIXED_SHIFT + 7);
-            lz = (m[2] * l[0] + m[6] * l[1] + m[10] * l[2]) >> (FIXED_SHIFT + 7);
-            bool safe = x.ambient >= x.range && x.ambient + x.range <= 0x1FFF;
-            job.shading = safe ? MESH_SHADED : MESH_NORMALS;
-        }
-        else if (job.shades)
-        {
-            job.shading = MESH_SHADES;
-        }
-        else
-        {
-            job.shading = MESH_SHADED;
-            job.normals = nullptr;
-            int32_t g = clamp(int16_t(uint32_t(intensity + x.ambient) >> 8), 0, 31);
-            flat = g << 8;
-        }
-
-        // the vertices rotated and lit, in place
-        uint32_t* out = (uint32_t*)job.out;
-        for (int32_t k = 0; k < job.count; k++, out += 2)
-        {
-            const MeshVertex &p = job.vertices[k];
-            const int32_t* m = x.m;
-            int32_t vx = row(m, m[3], p.x, p.y, p.z) >> FIXED_SHIFT;
-            int32_t vy = row(m + 4, m[7], p.x, p.y, p.z) >> FIXED_SHIFT;
-            int32_t vz = row(m + 8, m[11], p.x, p.y, p.z) >> FIXED_SHIFT;
-            int32_t t = flat;
-            if (job.shading == MESH_SHADED && job.normals)
-            {
-                const int8_t* n = job.normals + 4 * k;
-                t = x.ambient - (((n[0] * lx + n[1] * ly + n[2] * lz) * x.range) >> 14);
-            }
-            out[0] = (uint32_t(vx) << 16) | (vy & 0xFFFF);
-            out[1] = (uint32_t(vz) << 16) | (t & 0x1F00);
-        }
-        gJobCount++;
+        job.out = out;
+        out += (job.count + 3) & ~3;
     }
+}
+
+// --- rooms ---------------------------------------------------------------
+
+// xform.s's multiplies for a room's vertex: its bytes times 4 against each
+// row, the translation first.
+static RoomRotated roomModel(const RoomScene &room, int32_t k)
+{
+    const RoomVertex* p = roomPoints(room) + k;
+    int32_t x = p->x * 4, y = p->y * 4, z = p->z * 4;
+    return { row16(room.m, room.tx, x, y, z), row16(room.m + 3, room.ty, x, y, z),
+             row16(room.m + 6, room.tz, x, y, z) };
 }
 
 uint32_t verticesRoomsDsp()
@@ -342,9 +292,10 @@ int32_t verticesRoomsDspCheck()
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
         const RoomRotated* a = gRoomRotated + gRotatedAt[i];
-        const RoomRotated* b = gRoomModel + gRotatedAt[i];
-        for (int32_t k = 0; k < gRooms[i].verticesCount; k++) {
-            bad += a[k].x != b[k].x || a[k].y != b[k].y || a[k].z != b[k].z;
+        for (int32_t k = 0; k < gRooms[i].verticesCount; k++)
+        {
+            RoomRotated b = roomModel(gRooms[i], k);
+            bad += a[k].x != b.x || a[k].y != b.y || a[k].z != b.z;
         }
     }
     return bad;
@@ -373,55 +324,209 @@ void verticesRooms()
     }
 }
 
+// --- meshes --------------------------------------------------------------
+
+// render.cpp meshXformSetup's test, the bounding sphere wholly in the frame
+// and between the planes; and whether the sphere might reach past 1 << 29 in
+// z, either way (by over a margin for meshes whose vertices stray past it).
+static bool meshInside(const DrawXform &d, const int16_t* center, int32_t radius, bool &far)
+{
+    const int32_t* m = d.m;
+    int32_t cx = (m[0] * center[0] + m[1] * center[1] + m[2] * center[2] + m[3]) >> FIXED_SHIFT;
+    int32_t cy = (m[4] * center[0] + m[5] * center[1] + m[6] * center[2] + m[7]) >> FIXED_SHIFT;
+    int32_t cz = (m[8] * center[0] + m[9] * center[1] + m[10] * center[2] + m[11]) >> FIXED_SHIFT;
+    far = cz + radius > 30000 || cz - radius < -30000;
+    int32_t zNear = cz - radius;
+    return (zNear > (VIEW_MIN_F >> FIXED_SHIFT)) && (cz + radius < VIEW_DIST) &&
+           (((cx < 0 ? -cx : cx) + radius) * 256 < ((FRAME_WIDTH >> 1) - 4) * zNear) &&
+           (((cy < 0 ? -cy : cy) + radius) * 256 < ((FRAME_HEIGHT >> 1) - 4) * zNear);
+}
+
+// A vertex of the job's in mesh space (a shadow's made from its record).
+static MeshVertex jobVertex(const MeshJob &job, int32_t k)
+{
+    if (job.vertices)
+        return job.vertices[k];
+    const int16_t* s = job.xform->shadow;
+    MeshVertex v[SHADOW_VERTICES];
+    shadowVertices(v, s[0], s[1], s[2], s[3]);
+    return v[k];
+}
+
+// The light's direction in the mesh's space (meshXformSetup).
+static void meshLight(const DrawXform &x, int32_t &lx, int32_t &ly, int32_t &lz)
+{
+    const int32_t* m = x.m;
+    const int16_t* l = x.light;
+    lx = (m[0] * l[0] + m[4] * l[1] + m[8] * l[2]) >> (FIXED_SHIFT + 7);
+    ly = (m[1] * l[0] + m[5] * l[1] + m[9] * l[2]) >> (FIXED_SHIFT + 7);
+    lz = (m[2] * l[0] + m[6] * l[1] + m[10] * l[2]) >> (FIXED_SHIFT + 7);
+}
+
+// The game's arithmetic for one mesh vertex but its shade (meshxform.s
+// .Lloop), from the job's mesh.
+static void meshExact(MeshProject* mp, int32_t index, Vertex* v)
+{
+    const MeshJob &job = *mp->job;
+    const int32_t* m = job.xform->m;
+    MeshVertex p = jobVertex(job, index);
+    int32_t z = row(m + 8, m[11], p.x, p.y, p.z);
+    uint32_t clip = 0;
+    if (!(z > VIEW_MIN_F))
+    {
+        z = VIEW_MIN_F;
+        clip = CLIP_PLANE;
+    }
+    if (z >= VIEW_MAX_F)
+    {
+        z = VIEW_MAX_F;
+        clip = CLIP_PLANE;
+    }
+    int32_t x = int16_t(uint32_t(row(m, m[3], p.x, p.y, p.z)) >> FIXED_SHIFT);
+    int32_t y = int16_t(uint32_t(row(m + 4, m[7], p.x, p.y, p.z)) >> FIXED_SHIFT);
+    int32_t d = mp->divTable[uint32_t(z) >> (FIXED_SHIFT + 4)];
+    int32_t sx = int16_t(uint32_t(clamp(x * d, -P_MAX, P_MAX)) >> 12) + (FRAME_WIDTH >> 1);
+    int32_t sy = int16_t(uint32_t(clamp(y * d, -P_MAX, P_MAX)) >> 12) + (FRAME_HEIGHT >> 1);
+    if (uint32_t(sx) > FRAME_WIDTH || uint32_t(sy) > FRAME_HEIGHT)
+    {
+        clip += CLIP_FRAME;
+        sx = clamp(sx, -1024, 1023);
+        sy = clamp(sy, -1024, 1023);
+        clip += (sx < 0 ? CLIP_LEFT : 0) + (sx > FRAME_WIDTH ? CLIP_RIGHT : 0);
+        clip += (sy < 0 ? CLIP_TOP : 0) + (sy > FRAME_HEIGHT ? CLIP_BOTTOM : 0);
+    }
+    v->x = sx;
+    v->y = sy;
+    v->z = uint32_t(z) >> FIXED_SHIFT;
+    v->clip = clip;
+}
+
+void verticesFeed()
+{
+    for (int32_t i = 0; i < gJobCount; i++)
+    {
+        MeshJob &job = gJobs[i];
+        const DrawXform &x = *job.xform;
+        MeshDspJob &dsp = gDspJobs[i];
+        if (!job.vertices)
+        {
+            const int16_t* s = x.shadow;
+            MeshVertex v[SHADOW_VERTICES];
+            shadowVertices(v, s[0], s[1], s[2], s[3]);
+            readyVertices(job.ready, v, nullptr, SHADOW_VERTICES);
+        }
+        bool far = false;
+        job.inside = job.center && meshInside(x, job.center, job.radius, far);
+        job.far = far;
+
+        // the rows times 4; the light: by its normals, the DSP's arithmetic
+        // keeping a shade in 0 .. 31 while ambient - range .. ambient + range
+        // does (|n . l| < 1 << 14); else a shade for all, or the vertices'
+        // own (meshShadesAsm), or by the normals here
+        const int32_t t[3] = { x.m[3], x.m[7], x.m[11] };
+        for (int32_t r = 0; r < 3; r++)
+        {
+            dsp.k[4 * r] = t[r] * 4;
+            for (int32_t k = 0; k < 3; k++) {
+                dsp.k[4 * r + 1 + k] = x.m[4 * r + k] * 4;
+            }
+        }
+        int32_t ambient = 0, lx = 0, ly = 0, lz = 0;
+        if (job.normals && x.range)
+        {
+            meshLight(x, lx, ly, lz);
+            bool safe = x.ambient >= x.range && x.ambient + x.range <= 0x1FFF;
+            job.shading = safe ? MESH_SHADED : MESH_NORMALS;
+            ambient = x.ambient;
+        }
+        else if (job.shades)
+        {
+            job.shading = MESH_SHADES;
+        }
+        else
+        {
+            job.shading = MESH_SHADED;
+            ambient = clamp(int16_t(uint32_t(job.intensity + x.ambient) >> 8), 0, 31) << 8;
+        }
+        int32_t range = x.range * -4;
+        dsp.k[12] = int32_t(uint32_t(ambient) << 16 | 0xFFFF);
+        dsp.k[13] = lx * range;
+        dsp.k[14] = ly * range;
+        dsp.k[15] = lz * range;
+        dsp.src = dspAddress(job.ready);
+        dsp.groups = ((job.count + 3) >> 2) - 1;
+    }
+    gDspJobs[gJobCount].src = gJobCount ? gDspJobs[0].src : dspAddress(gMeshReady);
+    gDspJobs[gJobCount].groups = -1;
+}
+
+uint32_t verticesMeshesDsp()
+{
+    static const uint32_t md0[3] = { 65536, 0xFFFF, 0x1F00 };
+    static const uint32_t one = 1;
+    dspLoad(meshlight3_dsp, MESHLIGHT3_DSP_COUNT);
+    dspWrite(0, 16, md0, 3);
+    dspWrite(3, 16, &one, 1);
+    const uint32_t first = dspAddress(gDspJobs);
+    const uint32_t staged[2] = { first + 18, 20 };     // the record after; where the first is staged
+    const uint32_t ends[2] = { dspAddress(gMeshVertices), first };
+    dspWrite(0, 20, staged, 2);
+    dspWrite(0, 23, ends, 2);
+    uint32_t t0 = ticks();
+    dspStart(MESHLIGHT3_DSP_START);
+    while (dspBusy());
+    uint32_t cycles = ticksCycles(t0, ticks());
+    cachePurge();       // the DSP wrote behind the cache
+    return cycles;
+}
+
+int32_t verticesMeshesDspCheck()
+{
+    int32_t bad = 0;
+    for (int32_t i = 0; i < gJobCount; i++)
+    {
+        const MeshJob &job = gJobs[i];
+        const DrawXform &x = *job.xform;
+        const int32_t* m = x.m;
+        int32_t lx = 0, ly = 0, lz = 0;
+        if (job.shading == MESH_SHADED && job.normals) {
+            meshLight(x, lx, ly, lz);
+        }
+        int32_t flat = job.shading == MESH_SHADED && !job.normals
+                       ? clamp(int16_t(uint32_t(job.intensity + x.ambient) >> 8), 0, 31) << 8 : 0;
+        const uint32_t* out = (const uint32_t*)job.out;
+        for (int32_t k = 0; k < job.count; k++, out += 2)
+        {
+            MeshVertex p = jobVertex(job, k);
+            int32_t vx = row(m, m[3], p.x, p.y, p.z) >> FIXED_SHIFT;
+            int32_t vy = row(m + 4, m[7], p.x, p.y, p.z) >> FIXED_SHIFT;
+            int32_t vz = row(m + 8, m[11], p.x, p.y, p.z) >> FIXED_SHIFT;
+            int32_t t = flat;
+            if (job.shading == MESH_SHADED && job.normals)
+            {
+                const int8_t* n = job.normals + 4 * k;
+                t = x.ambient - (((n[0] * lx + n[1] * ly + n[2] * lz) * x.range) >> 14);
+            }
+            bad += out[0] != ((uint32_t(vx) << 16) | (vy & 0xFFFF)) ||
+                   (job.shading != MESH_SHADED ? (out[1] >> 16) != (uint32_t(vz) & 0xFFFF)
+                                               : out[1] != ((uint32_t(vz) << 16) | (t & 0x1F00)));
+        }
+    }
+    return bad;
+}
+
 // A mesh's shades by its normals, the game's arithmetic (meshxform.s
 // .Lnormal), where the DSP's might leave 0 .. 31.
 static void meshNormals(const MeshJob &job)
 {
-    const int32_t* m = job.xform->m;
-    const int16_t* l = job.xform->light;
-    int32_t lx = (m[0] * l[0] + m[4] * l[1] + m[8] * l[2]) >> (FIXED_SHIFT + 7);
-    int32_t ly = (m[1] * l[0] + m[5] * l[1] + m[9] * l[2]) >> (FIXED_SHIFT + 7);
-    int32_t lz = (m[2] * l[0] + m[6] * l[1] + m[10] * l[2]) >> (FIXED_SHIFT + 7);
+    int32_t lx, ly, lz;
+    meshLight(*job.xform, lx, ly, lz);
     for (int32_t k = 0; k < job.count; k++)
     {
         const int8_t* n = job.normals + 4 * k;
         int32_t dot = int16_t(n[0] * lx + n[1] * ly + n[2] * lz) * int16_t(job.xform->range);
-        job.out[k].g = clamp(int16_t(uint32_t(job.ambient - int16_t(uint32_t(dot) >> 14)) >> 8), 0, 31);
+        job.out[k].g = clamp(int16_t(uint32_t(job.xform->ambient - int16_t(uint32_t(dot) >> 14)) >> 8), 0, 31);
     }
-}
-
-int32_t verticesFallbacksCheck(const Vertex* scene)
-{
-    int32_t bad = 0;
-    MeshProject mp;
-    mp.divTable = gDivTable;
-    mp.exact = meshExact;
-    mp.inside = 0;
-    for (int32_t pass = 0; pass < 2; pass++)
-    {
-        for (int32_t i = 0; i < gJobCount; i++)
-        {
-            const MeshJob &job = gJobs[i];
-            if (job.far)
-                continue;
-            if (pass == 1)
-            {
-                for (int32_t k = 0; k < job.count; k++) {
-                    job.out[k].z = 64;
-                }
-            }
-            mp.job = &job;
-            meshProjectAsm(job.out, job.count, &mp);
-            const Vertex* want = scene + (job.out - gVertices);
-            for (int32_t k = 0; k < job.count; k++)
-            {
-                const Vertex &v = job.out[k];
-                bad += v.xy != want[k].xy || v.z != want[k].z || v.clip != want[k].clip;
-            }
-        }
-        vertexModel();
-    }
-    return bad;
 }
 
 void verticesMeshes()
@@ -445,9 +550,70 @@ void verticesMeshes()
             meshProjectAsm(job.out, job.count, &mp);
         }
         if (job.shading == MESH_SHADES) {
-            meshShadesAsm(job.out, job.count, job.shades, job.ambient);
+            meshShadesAsm(job.out, job.count, job.shades, job.xform->ambient);
         } else if (job.shading == MESH_NORMALS) {
             meshNormals(job);
         }
     }
+}
+
+int32_t verticesMeshesCheck(int32_t &vertices)
+{
+    int32_t bad = 0;
+    vertices = 0;
+    for (int32_t i = 0; i < gJobCount; i++)
+    {
+        const MeshJob &job = gJobs[i];
+        vertices += job.count;
+        bad += memcmp(job.out, job.game, job.count * sizeof(Vertex)) != 0 ? job.count : 0;
+    }
+    return bad;
+}
+
+int32_t verticesFallbacksCheck()
+{
+    int32_t bad = 0;
+    MeshProject mp;
+    mp.divTable = gDivTable;
+    mp.exact = meshExact;
+    mp.inside = 0;
+    for (int32_t pass = 0; pass < 2; pass++)
+    {
+        verticesMeshesDsp();
+        for (int32_t i = 0; i < gJobCount; i++)
+        {
+            const MeshJob &job = gJobs[i];
+            if (job.far)
+                continue;
+            if (pass == 1)
+            {
+                for (int32_t k = 0; k < job.count; k++) {
+                    job.out[k].z = 64;
+                }
+            }
+            mp.job = &job;
+            meshProjectAsm(job.out, job.count, &mp);
+            for (int32_t k = 0; k < job.count; k++)
+            {
+                const Vertex &v = job.out[k];
+                bad += v.xy != job.game[k].xy || v.z != job.game[k].z || v.clip != job.game[k].clip;
+            }
+        }
+    }
+    return bad;
+}
+
+int32_t verticesRoomsCheck(int32_t &vertices)
+{
+    int32_t bad = 0;
+    vertices = 0;
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        const RoomScene &room = gRooms[i];
+        vertices += room.verticesCount;
+        for (int32_t k = room.base; k < room.base + room.verticesCount; k++) {
+            bad += memcmp(gVertices + k, gSceneVertices + k, sizeof(Vertex)) != 0;
+        }
+    }
+    return bad;
 }

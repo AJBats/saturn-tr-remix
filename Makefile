@@ -195,8 +195,9 @@ LAB_SCENE ?= ledge
 LAB_SCENE_FILE := $(LAB)/$(shell echo $(LAB_SCENE) | tr a-z A-Z).SCN
 LAB_SRC := $(wildcard lab/*.cpp lab/*.s) saturn/font.cpp saturn/cd.cpp saturn/dsp.cpp saturn/faces.s \
 	saturn/flush.s saturn/xform.s saturn/meshxform.s
-# DSP programs lab/gen_NAME.py writes, assembled into NAME_dsp.h
-LAB_DSP := $(patsubst lab/gen_%.py,$(LAB)/gen/%_dsp.h,$(wildcard lab/gen_*.py))
+# DSP programs lab/gen_NAME.py writes, assembled into NAME_dsp.h; and the
+# bench's v3 mesh program
+LAB_DSP := $(patsubst lab/gen_%.py,$(LAB)/gen/%_dsp.h,$(wildcard lab/gen_*.py)) $(LAB)/gen/meshlight3_dsp.h
 # -g: lines for profiles (tools/lab.py's trace), and the assembly's local
 # labels kept, for the places inside its macros; the code is the same without
 LAB_FLAGS := -m2 -mb -O2 -g -Wall -Ilab -Isaturn -I$(LAB)/gen -ffunction-sections
@@ -209,6 +210,10 @@ $(LAB)/obj/%.cpp.o: %.cpp $(wildcard lab/*.h) saturn/hw.h saturn/font.h saturn/c
 	$(CXX) $(LAB_CXXFLAGS) -c $< -o $@
 
 $(LAB)/gen/%.dsp: lab/gen_%.py
+	@mkdir -p $(@D)
+	$(PY) $< $@
+
+$(LAB)/gen/meshlight3.dsp: dspbench/gen_meshlight3.py
 	@mkdir -p $(@D)
 	$(PY) $< $@
 

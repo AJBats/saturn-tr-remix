@@ -9,9 +9,9 @@
 // master's draws' (meshxform.s), each set up as the game sets it up, checked
 // against the vertices the game drew with.
 //
-// Stage 2 the new way (vertices.h): the CPU's projection of the vertices
-// the DSP rotated (vertexModel standing in for it), checked against the
-// game's.
+// Stage 2 the new way (vertices.h): the DSP's rotations (and the meshes'
+// light), the meshes' feeding and the CPU's projection of what the DSP
+// made, checked against the game's.
 //
 // Stage 3, faces to VDP1 commands, the game's way (game.h): the master's
 // draws' faces (faces.s), the rooms' (faces.s and the C it calls), then flush
@@ -84,7 +84,10 @@ struct LabResults
     int32_t newVertsSeldom;     // the meshes' vertices not the game's projected as though none lay
                                 // inside the frame, or each worked out at the near plane
     uint32_t dspRooms;          // cycles the DSP took over the rooms' rotations
-    int32_t dspRoomsBad;        // its rotations not vertexModel's
+    int32_t dspRoomsBad;        // its rotations not xform.s's arithmetic
+    uint32_t newVertsFeed;      // cycles: the meshes fed to the DSP
+    uint32_t dspMeshes;         // cycles the DSP took over the meshes
+    int32_t dspMeshesBad;       // its output not meshxform.s's arithmetic
 };
 
 extern "C" LabResults gLab;
@@ -249,20 +252,20 @@ static void stageTwo()
 static void stageTwoNew()
 {
     verticesInit();
-    vertexModel();
     gLab.dspRooms = verticesRoomsDsp();
     gLab.dspRoomsBad = verticesRoomsDspCheck();
-    gLab.newVertsRooms = measure([] { gameVerticesPrepare(); vertexModel(); }, [] { verticesRooms(); });
-    gLab.newVertsMeshes = measure([] { gameVerticesPrepare(); vertexModel(); }, [] { verticesMeshes(); });
+    gLab.newVertsRooms = measure([] { gameVerticesPrepare(); }, [] { verticesRooms(); });
+    gLab.newVertsFeed = measure([] {}, [] { verticesFeed(); });
+    gLab.dspMeshes = verticesMeshesDsp();
+    gLab.dspMeshesBad = verticesMeshesDspCheck();
+    gLab.newVertsMeshes = measure([] { verticesMeshesDsp(); }, [] { verticesMeshes(); });
     gameVerticesPrepare();
-    vertexModel();
     verticesRooms();
+    verticesMeshesDsp();
     verticesMeshes();
     int32_t rooms, meshes;
-    gLab.newVertsBad = gameVerticesCheck(rooms, meshes);
-    gameVerticesPrepare();
-    vertexModel();
-    gLab.newVertsSeldom = verticesFallbacksCheck(sceneArray<const Vertex>("VERT"));
+    gLab.newVertsBad = verticesRoomsCheck(rooms) + verticesMeshesCheck(meshes);
+    gLab.newVertsSeldom = verticesFallbacksCheck();
 }
 
 static void stageThree()
@@ -745,6 +748,8 @@ static void newPage()
     timeRow(page, "  DSP", gLab.dspRooms, gLab.roomVertices, "vertex");
     timeRow(page, "  projected", gLab.newVertsRooms, gLab.roomVertices, "vertex");
     timeRow(page, "meshes: game's", gLab.vertsMeshes, gLab.meshVertices, "vertex");
+    timeRow(page, "  DSP", gLab.dspMeshes, gLab.meshVertices, "vertex");
+    timeRow(page, "  fed", gLab.newVertsFeed, gLab.meshVertices, "vertex");
     timeRow(page, "  projected", gLab.newVertsMeshes, gLab.meshVertices, "vertex");
     p = put(line, "vertices ");
     p = put(p, gLab.newVertsBad ? "OFF" : "exact");
@@ -754,10 +759,11 @@ static void newPage()
     p = putNumber(p, gLab.newVertsSeldom, 2);
     put(p, " off");
     page.add(line);
-    p = put(line, "DSP rooms as modelled");
-    p = put(p, gLab.dspRoomsBad ? ": OFF (" : " (");
-    p = putNumber(p, gLab.dspRoomsBad, 0);
-    put(p, " off)");
+    p = put(line, "DSP as modelled: rooms");
+    p = putNumber(p, gLab.dspRoomsBad, 2);
+    p = put(p, " off, meshes");
+    p = putNumber(p, gLab.dspMeshesBad, 2);
+    put(p, " off");
     page.add(line);
     page.add("");
     page.add("STAGE 3, FACES TO COMMANDS: THE NEW WAY");

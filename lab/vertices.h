@@ -1,10 +1,11 @@
 // Stage 2 the new way: vertices. The DSP rotates every vertex of the frame
-// (and lights the meshes'), from the level's data as stored; the CPUs
-// project what it hands them, the divide, the clamps and the clip flags,
-// into the records the face stage reads (game.h Vertex).
+// (and lights the meshes'), from the level's data; the CPUs project what it
+// hands them, the divide, the clamps and the clip flags, into the records
+// the face stage reads (game.h Vertex).
 //
-// Until the DSP's programs are written, vertexModel stands in for them: the
-// same numbers, made in C.
+// Rooms: roomrot.dsp (lab/gen_roomrot.py) from the rooms' data as stored;
+// meshes: meshlight3.dsp (dspbench/gen_meshlight3.py) from their vertices
+// and normals laid out for it, a longword each (the bench's v3).
 #ifndef VERTICES_H
 #define VERTICES_H
 
@@ -34,15 +35,15 @@ struct RoomProject
 
 extern "C" void roomProjectAsm(const RoomRotated* src, int32_t count, Vertex* dst, RoomProject* rp);
 
-// A mesh vertex as the DSP leaves it, in its place in gVertices: x >> 14 <<
-// 16 | y >> 14 & 0xFFFF, z >> 14 << 16 | shade << 8, the sums of each row
-// times the vertex plus the translation >> FIXED_SHIFT (meshxform.s's), and
-// for a mesh lit by its normals, its shade (else 0).
+// A mesh vertex as the DSP leaves it: x >> 14 << 16 | y >> 14 & 0xFFFF,
+// z >> 14 << 16 | shade << 8, the sums of each row times the vertex plus
+// the translation >> FIXED_SHIFT (meshxform.s's), and for a mesh lit by its
+// normals or by one shade for all, its shade (else 0).
 
-// How a mesh is shaded: by its normals on the DSP, a shade for all its
-// vertices (from the DSP too), by each vertex's own shade (meshShadesAsm),
-// or by its normals here, when the light could take a shade out of 0 .. 31
-// on the DSP's arithmetic (never in TR1's levels so far).
+// How a mesh is shaded: by the DSP (by its normals or one shade for all),
+// by each vertex's own shade (meshShadesAsm), or by its normals here, when
+// the light could take a shade out of 0 .. 31 on the DSP's arithmetic
+// (never in TR1's levels so far).
 enum MeshShading { MESH_SHADED, MESH_SHADES, MESH_NORMALS };
 
 // What projecting a mesh's vertices takes (meshproject.s): the DSP's output
@@ -59,29 +60,38 @@ struct MeshProject
 extern "C" void meshProjectAsm(Vertex* v, int32_t count, MeshProject* mp);
 extern "C" void meshShadesAsm(Vertex* v, int32_t count, const uint8_t* shades, int32_t ambient);
 
-// The scene's rooms and draws, for the new way.
+// The scene's rooms and draws for the new way: the meshes laid out for the
+// DSP, each draw's job and where its vertices go.
 void verticesInit();
 
-// The DSP's work for the frame, made in C: the rooms' rotations and the
-// meshes' rotated and lit vertices, in place in gVertices; with each mesh's
-// job.
-void vertexModel();
-
-// The rooms' rotations on the DSP (roomrot.dsp, lab/gen_roomrot.py), a job a
-// room; the master waiting for its end: the SH-2 cycles it took. Then its
-// rotations against vertexModel's: those that differ.
+// The rooms' rotations on the DSP, a job a room, the master waiting for its
+// end: the SH-2 cycles it took. Then its rotations against xform.s's
+// arithmetic: those that differ.
 uint32_t verticesRoomsDsp();
 int32_t verticesRoomsDspCheck();
 
-// The rooms' vertices projected from the DSP's rotations, and the meshes' in
-// place, into gVertices where the game put them.
+// The rooms' vertices projected from the DSP's rotations, into gVertices
+// where the game put them; against the game's: the vertices that differ.
 void verticesRooms();
+int32_t verticesRoomsCheck(int32_t &vertices);
+
+// The meshes fed to the DSP: each one's job (its coefficients, how it's
+// lit, whether it lies inside the frame), a shadow's vertices laid out.
+// Then the DSP run over them, the master waiting: the SH-2 cycles it took;
+// and its output against meshxform.s's arithmetic: the vertices that differ.
+void verticesFeed();
+uint32_t verticesMeshesDsp();
+int32_t verticesMeshesDspCheck();
+
+// The meshes' vertices projected in place and shaded; against the game's:
+// the vertices that differ (vertices: the meshes').
 void verticesMeshes();
+int32_t verticesMeshesCheck(int32_t &vertices);
 
 // What the scene seldom takes: the meshes' vertices projected as though none
 // lay inside the frame, then as though each lay at the near plane (its z >>
-// 14 64, so meshproject.s has it worked out from its mesh), against the
-// game's (scene): the vertices that differ. vertexModel's output is used up.
-int32_t verticesFallbacksCheck(const Vertex* scene);
+// 14 64, so meshproject.s has it worked out from its mesh), each from the
+// DSP's output again, against the game's: the vertices that differ.
+int32_t verticesFallbacksCheck();
 
 #endif
