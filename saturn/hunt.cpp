@@ -127,6 +127,11 @@ void huntMesh(const Mesh* mesh, const Face* first, const Vertex* base)
     m.node = gNode++;
 }
 
+void huntMeshSkipped()
+{
+    gNode++;
+}
+
 void huntOrder(Face* const* roomOT, Face* const* meshOT, int32 buckets)
 {
     // as flush draws them: far to near, in each bucket the slave's before the master's
@@ -448,11 +453,11 @@ static char* name(char* p, const HuntFace &h)
         p = number(append(number(append(p, "static "), m->owner), ":"), m->index);
     }
     p = number(append(p, " m"), m->node);
-    bool triangle;
-    int32 index = renderMeshPolygon(m->mesh, m->base, h.face, triangle);
+    char kind[3] = { ' ', 0, 0 };
+    int32 index = renderMeshPolygon(m->mesh, m->base, h.face, kind[1]);
     if (index < 0)
         return append(p, " ?");
-    return number(append(p, triangle ? " t" : " q"), index);
+    return number(append(p, kind), index);
 }
 
 static void readout()

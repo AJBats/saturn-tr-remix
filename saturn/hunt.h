@@ -20,6 +20,7 @@ bool huntArm();
 extern bool gHuntRecording;
 void huntObject(int32 kind, int32 owner, int32 index);
 void huntMesh(const Mesh* mesh, const Face* first, const Vertex* base);
+void huntMeshSkipped();
 
 // flush_c, before its commands: the faces in the order they are drawn, from
 // the slave's and the master's ordering tables. After them: the commands.

@@ -405,22 +405,17 @@ struct MeshXform
 
 extern "C" void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst, MeshXform* xf);
 
-// A card (tools/diet.py), after a mesh's triangles: a quad drawn on the
-// screen down the line between two of the mesh's vertices, half wide either
-// side of it at each end's depth, so that it always faces the camera. Its
-// texture runs across from corner A to B and along from A to D, v0 to v1.
-// The ends are vertices of the card's own, lit as any other: it moves them
-// to its corners A and D, and puts B and C in two vertices after the mesh's.
-// A card is long and thin, so VDP1 is best drawing its lines along it: at
-// level start its texture becomes a turned copy where there is one, as a
-// mesh's tall quads' do (render.cpp turnObjectQuads), and it is drawn D A B C.
+// A card (tools/diet.py), after a mesh's triangles: a quad down the line on
+// the screen between its two ends, half wide either side of it at each
+// end's depth, so that it always faces the camera (faces.s
+// faceAddMeshCardsBody). Its ends are the mesh's last vertices, two a card,
+// transformed and lit with the rest; two of its corners go over them and two
+// in vertices past the mesh's. Its texture runs along it from its first end,
+// so that VDP1 draws a few long lines along it.
 struct MeshCard
 {
-    uint8 v0;
-    uint8 v1;
-    int16 half;         // model units
+    int16 half;         // model units, at most 255 (tools/diet.py CARD_HALF_MAX)
     uint16 flags;       // its face's
-    uint16 turned;      // its texture is a turned copy
 };
 
 // What a mesh draws: its vertices with two more for each card's corners,
@@ -434,12 +429,6 @@ X_INLINE int32 meshFaceCount(const Mesh* mesh)
 {
     return mesh->rCount + mesh->tCount + mesh->cCount;
 }
-
-// Adds count cards to list, their mesh's vertices transformed at v, two
-// vertices for each card's corners B and C from extra on; flags as the
-// mesh's faces get (gMeshFaceFlags), corners as offsets from half.
-void faceAddMeshCards(const MeshCard* cards, int32 count, Vertex* v, Vertex* extra, FaceList &list, uint32 flags,
-                      const Vertex* half);
 
 // The simplified meshes the packer put beside the originals (tools/diet.py)
 // swapped in while the debug menu's Diet or the bench way Diet asks for them;
@@ -478,9 +467,11 @@ void roomsAllQueued();
 void roomsDspTest(uint32 &dspTicks, uint32 &cpuTicks, int32 &errors);
 
 // Of a face of the master's from the last frame, drawn from mesh with its
-// vertices from base (the polygon hunt): its quad's or triangle's index in
-// the mesh, -1 if none.
-int32 renderMeshPolygon(const Mesh* mesh, const Vertex* base, const Face* face, bool &triangle);
+// vertices from base (the polygon hunt): its quad's, triangle's or card's
+// index in the mesh, kind 'q', 't' or 'c'; while the diet is in place, of
+// the original mesh's polygon it draws (as draw order hints name it). -1 if
+// none.
+int32 renderMeshPolygon(const Mesh* mesh, const Vertex* base, const Face* face, char &kind);
 
 // Queues a room for the slave, with the current matrix and viewport.
 void roomsQueue(const Room* room);

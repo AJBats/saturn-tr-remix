@@ -4,13 +4,17 @@ side by side with them by the HD viewer (tools/model_view.py).
 
 The wolf: its ears merged into its head and the last two tail joints into the
 first, held in the standing pose; its lower legs and tail drawn as cards. A
-card is a quad from one end of a segment to the other that the game turns
+card is a quad from one end of a segment to the other that the game places
 on the screen to face the camera, textured with the segment seen from the
-side (render.h MeshCard, render.cpp faceAddMeshCards).
+side (render.h MeshCard, faces.s faceAddMeshCardsBody). Its texture runs
+along it, x from its first end to its second, so that VDP1 draws its lines
+along the card: a few long lines rather than many short ones.
 
 The bridges: each plank's inside faces gone and the tiles of each of its
-faces drawn as one quad, their textures placed side by side; the rope
-statics' three-sided tubes (ropes and posts) drawn as cards.
+faces drawn as one quad, their textures placed side by side, but for tiles a
+draw order hint (saturn/depth_hints.txt) tells apart; the rope statics'
+three-sided tubes (ropes and posts) drawn as cards, for the statics the user
+has looked over (ROPE_STATICS).
 
 The geometry here is neutral: meshes as lists of vertices, lighting, faces
 and cards, which the packer turns into its records and the viewer into its
@@ -60,6 +64,13 @@ CARD_UNITS = 5      # model units a texel along a card, about the wolf's own tex
 # along-bone half alone, about 0.58 of a whole normal's.
 CARD_LIGHT = 0.58
 ROPE_CARD_WIDTH = 1.6   # a tube's card, in radii: between a three-sided tube's narrowest and widest
+# Half a card's width at most, in model units: faces.s keeps the width on the
+# screen in sixteenths of a pixel, and its products in 32 bits, to this.
+CARD_HALF_MAX = 255
+# The rope statics drawn as cards, by level: those the user judged in the
+# viewer (2026-10-28, the LEVEL1 bridges' posts and ropes). The detector
+# finds tubes in many other statics; each is added here once it is seen.
+ROPE_STATICS = {"LEVEL1": (33, 34)}
 
 
 def rgb(c):
@@ -113,6 +124,16 @@ class Atlas:
     def add_image(self, w, h, rgba):
         self.images.append((w, h, rgba))
         return len(self.images) - 1
+
+    def indexed(self, tex):
+        """An object texture's 4-bit texels (one per byte, rows from the
+        top), its size and its 16-colour table."""
+        t = self.lvl.object_textures[tex]
+        data = self.lvl.object_tex_data
+        pix = t["tile"] * 8
+        lut = ((t["clut"] + t["tile"]) & 0xFFFF) * 8
+        texels = [q for b in data[pix:pix + t["w"] * t["h"] // 2] for q in (b >> 4, b & 15)]
+        return t["w"], t["h"], texels, list(struct.unpack_from(">16H", data, lut))
 
     def mean(self, index):
         w, h, px = self.images[index]
@@ -258,7 +279,8 @@ def card_of(mesh, atlas, axis=None, view=None):
     colour by area, an image of it seen from the side (along x, or z when x
     is its length, or along the given view) shaded a little across so the
     flat card reads as round, and each end's light: its corners' normals
-    averaged (along the bone, for a box), or None."""
+    averaged (along the bone, for a box), or None, and the corners' normals
+    themselves (ns0, ns1)."""
     xs = list(zip(*mesh.vertices))
     lo, hi = [min(a) for a in xs], [max(a) for a in xs]
     ext = [h - l for l, h in zip(lo, hi)]
@@ -289,17 +311,21 @@ def card_of(mesh, atlas, axis=None, view=None):
             for k in range(3):
                 end[k] += n[k] / max(1.0, norm(n))
     normals = [unit(e) if norm(e) > 0.2 else None for e in ends]
+    corners = [[], []]
+    if mesh.normals:
+        for v, n in zip(mesh.vertices, mesh.normals):
+            corners[0 if v[axis] < mid[axis] else 1].append(unit(n))
     return {"e0": e0, "e1": e1, "half": width / 2, "col": [round(q / max(total, 1)) for q in colour],
-            "image": image, "n0": normals[0], "n1": normals[1]}
+            "image": image, "n0": normals[0], "n1": normals[1], "ns0": corners[0], "ns1": corners[1]}
 
 
 def bake_side(mesh, atlas, view, across, along, lo, hi):
-    """The mesh's faces as seen from +view, orthographic: an RGBA image 8
-    texels across and about a texel every CARD_UNITS along, row 0 at the low
-    end; at least twice as long as wide and a multiple of 8 long, as the game
-    can turn it (render.cpp turnable)."""
-    w = 8
-    h = max(16, -(-round((hi[along] - lo[along]) / CARD_UNITS) // 8) * 8)
+    """The mesh's faces as seen from +view, orthographic: an RGBA image with
+    x along the card from its low end, about a texel every CARD_UNITS and a
+    multiple of 8 long (VDP1's textures are a multiple of 8 wide), and 8
+    texels across."""
+    w = max(8, -(-round((hi[along] - lo[along]) / CARD_UNITS) // 8) * 8)
+    h = 8
     faces = []
     for ftype, idx, flags in mesh.faces:
         P = [mesh.vertices[i] for i in idx]
@@ -319,10 +345,10 @@ def bake_side(mesh, atlas, view, across, along, lo, hi):
             faces.append((quad, atlas.object(flags & 0x0FFF, TRIANGLE_VARIANT[code], ftype in TRANSP_TYPES, True),
                           None, False))
     out = bytearray()
-    for j in range(h):
-        a = lo[along] + (j + 0.5) / h * (hi[along] - lo[along])
-        for i in range(w):
-            c = lo[across] + (i + 0.5) / w * (hi[across] - lo[across])
+    for i in range(h):
+        c = lo[across] + (i + 0.5) / h * (hi[across] - lo[across])
+        for j in range(w):
+            a = lo[along] + (j + 0.5) / w * (hi[along] - lo[along])
             best = None
             for P, img, col, flip in faces:
                 hit = cover(P, across, along, c, a)
@@ -342,9 +368,23 @@ def bake_side(mesh, atlas, view, across, along, lo, hi):
             if best is None:
                 out += bytes(4)
                 continue
-            shade = 0.92 + 0.2 * math.sin(math.pi * (i + 0.5) / w)
+            shade = 0.92 + 0.2 * math.sin(math.pi * (i + 0.5) / h)
             out += bytes(min(255, round(q * shade)) for q in best[1]) + bytes([255])
     return w, h, bytes(out)
+
+
+def transposed(w, h, texels, flip):
+    """A texture's 4-bit texels turned so that its rows run along x: w x h
+    becomes h x w, h stretched to a multiple of 8 texels (VDP1's textures are
+    a multiple of 8 wide); flip mirrors the original across (a face drawn
+    flipped). Returns the new width, height and texels, a byte each."""
+    nw = -(-h // 8) * 8
+    out = []
+    for y in range(w):
+        u = w - 1 - y if flip else y
+        for x in range(nw):
+            out.append(texels[(x * h // nw) * w + u])
+    return nw, w, out
 
 
 def cover(P, across, along, c, a):
@@ -374,11 +414,14 @@ def cover(P, across, along, c, a):
 
 # --- planks ------------------------------------------------------------------
 
-def plank_parts(mesh, atlas):
+def plank_parts(mesh, atlas, apart=None):
     """A plank's inside faces (sides drawn facing its middle, which only show
     through the gaps between boards) and the rest in groups sharing a plane
     and a facing; a group of tiles comes with its quad (corners A B C D) and
-    its textures side by side as one RGBA image."""
+    its textures side by side as one RGBA image. Faces with different keys
+    in apart (by face index; the draw order hints naming them) never share a
+    group, so that each hint still names faces of its own."""
+    apart = apart or {}
     centre = [sum(c) / len(mesh.vertices) for c in zip(*mesh.vertices)]
     groups = []
     inside = []
@@ -389,12 +432,13 @@ def plank_parts(mesh, atlas):
             inside.append(fi)
             continue
         # tilted planks' tiles miss their plane by a unit or two
+        key = apart.get(fi)
         for g in groups:
-            if dot(g["n"], n) > 0.995 and abs(dot(g["n"], v[0]) - g["d"]) < 8:
+            if g["key"] == key and dot(g["n"], n) > 0.995 and abs(dot(g["n"], v[0]) - g["d"]) < 8:
                 g["faces"].append(fi)
                 break
         else:
-            groups.append({"n": n, "d": dot(n, v[0]), "faces": [fi]})
+            groups.append({"n": n, "d": dot(n, v[0]), "key": key, "faces": [fi]})
     for g in groups:
         g["merged"] = merge_tiles(mesh, g["faces"], atlas) if len(g["faces"]) > 1 else None
     return inside, groups
@@ -525,10 +569,13 @@ def rope_strands(mesh):
 #
 # A simplified mesh for the packer: the source mesh's centre and radius (its
 # collision sphere stays), vertices with normals or intensities, faces as the
-# level has them (type, corners, flags and the mesh they came from) or merged
-# ("merged": corners and an RGBA image), and cards: e0, e1, half width,
-# texture ("image" RGBA with see-through texels, or "face" of the source
-# mesh), and each end's light (unit normals along the bone, or intensities).
+# level has them (type, corners, flags, and the mesh and face they came from)
+# or merged ("merged": corners, an RGBA image, and the mesh and faces they
+# came from), and cards: e0, e1, half width, texture ("image": RGBA and
+# whether it has see-through texels, or "indexed": its size, 4-bit texels a
+# byte each, the 16-colour table and whether colour 0 is see-through), x
+# along the card from e0, and each end's light (unit normals along the bone,
+# or intensities).
 
 class DietMesh:
     def __init__(self, source):
@@ -537,7 +584,7 @@ class DietMesh:
         self.vertices = []
         self.normals = [] if source.normals else None
         self.intensities = [] if source.intensities else None
-        self.faces = []     # (ftype, idx, flags, source mesh index) or {"merged": ...}
+        self.faces = []     # (ftype, idx, flags, source mesh, source face) or {"merged": ...}
         self.cards = []
 
     def add_mesh(self, mesh, index, M=None, skip=()):
@@ -556,7 +603,7 @@ class DietMesh:
                 self.intensities.append(mesh.intensities[i])
         for fi, (ftype, idx, flags) in enumerate(mesh.faces):
             if fi not in skip:
-                self.faces.append((ftype, tuple(remap[i] for i in idx), flags, index))
+                self.faces.append((ftype, tuple(remap[i] for i in idx), flags, index, fi))
         return remap
 
 
@@ -586,7 +633,7 @@ def wolf_diet(lvl, model, meshes, atlas, states=WOLF_STATES):
                 n0 = rotate(M, n0) if n0 else None
                 n1 = rotate(M, n1) if n1 else None
             out[k].cards.append({"e0": e0, "e1": e1, "half": c["half"],
-                                 "texture": ("image", c["image"]), "light": ("normals", n0, n1)})
+                                 "texture": ("image", c["image"], True), "light": ("normals", n0, n1)})
         elif j != k:
             out[k].add_mesh(mesh, start + j, M)
         else:
@@ -597,8 +644,8 @@ def wolf_diet(lvl, model, meshes, atlas, states=WOLF_STATES):
     return out, frozen
 
 
-def plank_diet(mesh, index, atlas):
-    inside, groups = plank_parts(mesh, atlas)
+def plank_diet(mesh, index, atlas, apart=None):
+    inside, groups = plank_parts(mesh, atlas, apart)
     out = DietMesh(mesh)
     keep = [fi for g in groups for fi in g["faces"] if g["merged"] is None]
     remap = out.add_mesh(mesh, index, skip=set(range(len(mesh.faces))) - set(keep))
@@ -615,11 +662,14 @@ def plank_diet(mesh, index, atlas):
                 if out.intensities is not None:
                     out.intensities.append(mesh.intensities[i])
         out.faces.append({"merged": True, "c": [remap[i] for i in m["c"]], "image": m["image"],
-                          "transp": m["transp"]})
+                          "transp": m["transp"], "src": index, "from": g["faces"]})
     return out
 
 
-def rope_diet(mesh, index):
+def rope_diet(mesh, index, atlas):
+    """A rope static's tubes as cards, each segment's textured with its first
+    face's texture turned to run along it from the end at the face's corner
+    A (where the texture's first row is); None if mesh isn't one."""
     strands = rope_strands(mesh)
     if not strands or any(s["intensity"] is None for s in strands):
         return None
@@ -633,6 +683,12 @@ def rope_diet(mesh, index):
                 return None     # every texture here runs v along its tube
             ftype, idx, flags = mesh.faces[seg["faces"][0]]
             e0, e1 = s["pts"][k], s["pts"][k + 1]
+            a = mesh.vertices[idx[0]]
+            if norm(sub(a, e1)) < norm(sub(a, e0)):
+                e0, e1 = e1, e0
+            w, h, texels, colours = atlas.indexed(flags >> 4)
+            w, h, texels = transposed(w, h, texels, ftype in FLIP_TYPES)
             out.cards.append({"e0": e0, "e1": e1, "half": s["r"] * ROPE_CARD_WIDTH / 2,
-                              "texture": ("face", ftype, flags, index), "light": ("intensities", shade, shade)})
+                              "texture": ("indexed", w, h, tuple(texels), tuple(colours), ftype in TRANSP_TYPES),
+                              "light": ("intensities", shade, shade)})
     return out

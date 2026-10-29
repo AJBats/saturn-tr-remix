@@ -37,7 +37,7 @@ import trsat  # noqa: E402
 from diet import (COLOUR_TYPES, FLIP_TYPES, TRANSP_TYPES, TRIANGLE_ARRANGEMENT, TRIANGLE_VARIANT,  # noqa: E402
                   WOLF_EAR_CARDS, WOLF_JOINTS, WOLF_LEG_CARDS, WOLF_MERGES, WOLF_STATES, WOLF_TAIL_CARDS,
                   frame_at, rgb)
-from pack_level import ITEM, TextureTable, texture_average  # noqa: E402
+from pack_level import ITEM, TextureTable, hinted_faces, texture_average  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -145,14 +145,16 @@ def model_json(lvl, meshes, atlas, type_, states=None):
 
 
 def card_json(card, atlas):
+    r = lambda ns: [[round(c, 3) for c in n] for n in ns]
     return {"e0": card["e0"], "e1": card["e1"], "w": 2 * card["half"], "col": card["col"],
-            "t": atlas.add_image(*card["image"]), "n0": card["n0"], "n1": card["n1"]}
+            "t": atlas.add_image(*card["image"]), "ns0": r(card["ns0"]), "ns1": r(card["ns1"])}
 
 
-def plank_json(mesh, atlas, mj):
+def plank_json(mesh, atlas, mj, apart):
     """The plank as mesh_json has it, its inside faces marked, and the
-    simplified plank (diet.plank_parts)."""
-    inside, groups = diet.plank_parts(mesh, atlas)
+    simplified plank (diet.plank_parts, the faces of draw order hints apart
+    as the packer keeps them)."""
+    inside, groups = diet.plank_parts(mesh, atlas, apart)
     for fi in inside:
         mj["f"][fi]["in"] = 1
     faces = []
@@ -217,9 +219,10 @@ def main():
                            "yaw": quadrant_yaw(it["rotation"]), "frame": frame})
             plank_meshes[model["start"]] = None
     plank_out, plank_simple = {}, {}
+    hinted = hinted_faces(lvl, meshes)
     for mi in plank_meshes:
         mj = mesh_json(meshes[mi], atlas)
-        plank_simple[str(mi)] = plank_json(meshes[mi], atlas, mj)
+        plank_simple[str(mi)] = plank_json(meshes[mi], atlas, mj, hinted.get(mi))
         plank_out[str(mi)] = mj
     statics, static_meshes = [], {}
     for ri in BRIDGE_ROOMS:
@@ -230,10 +233,11 @@ def main():
                             "light": round(max(0.0, min(1.0, 1 - s["intensity"] / 8191)), 3)})
             static_meshes[st["mesh"]] = None
     static_out, ropes = {}, {}
+    rope_meshes = {st["mesh"] for st in lvl.static_meshes if st["id"] in diet.ROPE_STATICS.get(lvl.name, ())}
     for mi in static_meshes:
         mj = mesh_json(meshes[mi], atlas)
         static_out[str(mi)] = mj
-        if mi in (213, 214):
+        if mi in rope_meshes:
             ropes[str(mi)] = rope_json(meshes[mi], mj)
 
     table = TextureTable(lvl)

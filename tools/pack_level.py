@@ -50,6 +50,7 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import depth_hints  # noqa: E402
 import diet  # noqa: E402
 import sfx  # noqa: E402
 import trpsx  # noqa: E402
@@ -600,6 +601,7 @@ class Packer:
             return [], []
         lvl = self.lvl
         atlas = diet.Atlas(lvl)
+        hinted = hinted_faces(lvl, self.meshes)
         pairs, nodes = [], []
         for m in lvl.models:
             if m["type"] == ITEM["WOLF"]:
@@ -607,61 +609,69 @@ class Packer:
                 pairs += [(m["start"] + j, dm) for j, dm in sorted(meshes.items())]
                 nodes += [m["node"] // 4 + j - 1 for j in frozen]
             elif m["type"] in (ITEM["BRIDGE_FLAT"], ITEM["BRIDGE_TILT_1"], ITEM["BRIDGE_TILT_2"]):
-                pairs.append((m["start"], diet.plank_diet(self.meshes[m["start"]], m["start"], atlas)))
+                i = m["start"]
+                pairs.append((i, diet.plank_diet(self.meshes[i], i, atlas, hinted.get(i))))
+        ropes = diet.ROPE_STATICS.get(lvl.name, ())
         for st in lvl.static_meshes:
-            if not any(p[0] == st["mesh"] for p in pairs):
-                dm = diet.rope_diet(self.meshes[st["mesh"]], st["mesh"])
-                if dm:
-                    pairs.append((st["mesh"], dm))
+            if st["id"] in ropes:
+                dm = diet.rope_diet(self.meshes[st["mesh"]], st["mesh"], atlas)
+                if dm is None:
+                    raise ValueError(f"static {st['id']} (diet.ROPE_STATICS) is not a rope static")
+                pairs.append((st["mesh"], dm))
         return pairs, nodes
 
-    def diet_texture(self, image, transparent):
-        """The face flags of a texture made for the diet, once per image."""
-        key = (image, transparent)
-        if key not in self.diet_textures:
-            pixels, colors = diet.quantize(*image)
-            index = self.textures.custom(pixels, colors, image[0], image[1], TEX_ATTR_AKILL if transparent else 0)
-            self.diet_textures[key] = ((FACE_TYPE_FTA if transparent else FACE_TYPE_FT) << FACE_TYPE_SHIFT) | index
-        return self.diet_textures[key]
+    def diet_texture(self, texture):
+        """The face flags of a texture made for the diet, once per texture:
+        ("image", RGBA, transparent) or ("indexed", w, h, texels, colours,
+        transparent) (diet.DietMesh)."""
+        if texture not in self.diet_textures:
+            if texture[0] == "image":
+                (w, h, rgba), transparent = texture[1:]
+                pixels, colors = diet.quantize(w, h, rgba)
+            else:
+                _, w, h, texels, colors, transparent = texture
+                pixels = bytes((texels[i] << 4) | texels[i + 1] for i in range(0, len(texels), 2))
+            index = self.textures.custom(pixels, colors, w, h, TEX_ATTR_AKILL if transparent else 0)
+            face_type = FACE_TYPE_FTA if transparent else FACE_TYPE_FT
+            self.diet_textures[texture] = (face_type << FACE_TYPE_SHIFT) | index
+        return self.diet_textures[texture]
 
     def diet_mesh(self, dm):
-        """A DietMesh as write_mesh lays a mesh out, each card's ends two
-        vertices of its own after the mesh's, its card after the triangles
-        (render.h MeshCard)."""
+        """A DietMesh as write_mesh lays a mesh out, its cards after the
+        triangles (render.h MeshCard) with their ends the last vertices, two
+        a card. Returns the mesh and each face's polygon as a draw order hint
+        names it (a quad's index, a triangle's | depth_hints.TRIANGLE)."""
         out = Out()
-        quads, tris = [], []
+        quads, tris, polygon = [], [], []
         for f in dm.faces:
             if isinstance(f, dict):
-                quads.append((self.diet_texture(f["image"], f["transp"]), f["c"]))
+                polygon.append(len(quads))
+                quads.append((self.diet_texture(("image", f["image"], f["transp"])), f["c"]))
                 continue
-            ftype, idx, flags, src = f
+            ftype, idx, flags, src, _ = f
             packed = self.mesh_face_flags(src, ftype, flags)
             if len(idx) == 4:
+                polygon.append(len(quads))
                 quads.append((packed, idx))
-            elif ftype == trsat.MESH_T_COLOR:
-                tris.append((packed, idx, 0))
             else:
-                tris.append((packed, idx, TRIANGLE_ARRANGEMENT[flags >> 12]))
+                polygon.append(len(tris) | depth_hints.TRIANGLE)
+                tris.append((packed, idx, 0 if ftype == trsat.MESH_T_COLOR else TRIANGLE_ARRANGEMENT[flags >> 12]))
         vertices = [list(v) for v in dm.vertices]
         normals = [list(n) for n in dm.normals] if dm.normals is not None else None
         intensities = list(dm.intensities) if dm.intensities is not None else None
         cards = []
         for c in dm.cards:
-            if c["texture"][0] == "image":
-                packed = self.diet_texture(c["texture"][1], True)
-            else:
-                _, ftype, flags, src = c["texture"]
-                packed = self.mesh_face_flags(src, ftype, flags)
-            ends = []
             for e, end in ((c["e0"], 1), (c["e1"], 2)):
-                ends.append(len(vertices))
                 vertices.append([round(q) for q in e])
                 if c["light"][0] == "normals":
                     n = c["light"][end] or [0, 0, 0]
                     normals.append([round(16384 * diet.CARD_LIGHT * q) for q in n])
                 else:
                     intensities.append(round(c["light"][end]))
-            cards.append((ends[0], ends[1], round(c["half"]), packed))
+            half = round(c["half"])
+            if not 0 < half <= diet.CARD_HALF_MAX:
+                raise ValueError(f"a card {half} units wide either side")
+            cards.append((half, self.diet_texture(c["texture"])))
         n = len(vertices)
         if n > 255 or len(cards) > 255:
             raise ValueError(f"a diet mesh of {n} vertices, {len(cards)} cards")
@@ -670,8 +680,11 @@ class Packer:
         intensity = sum(intensities) // len(intensities) if intensities else 0
         cx, cy, cz = dm.center
         reach = [math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) for x, y, z in vertices]
-        for v0, v1, half, _ in cards:
-            reach += [reach[v0] + half, reach[v1] + half]
+        # a card's corners lie half its width from its ends, within the 4% of
+        # faces.s's length on the screen
+        for k, (half, _) in enumerate(cards):
+            end = n - 2 * len(cards) + 2 * k
+            reach += [reach[end] + 1.05 * half, reach[end + 1] + 1.05 * half]
         bound = math.ceil(max(reach, default=0))
         out.pack("4hH2B3h2B", cx, cy, cz, dm.radius, intensity, n, lighting, len(quads), len(tris), bound, 0,
                  len(cards))
@@ -688,9 +701,25 @@ class Packer:
             out.pack("H4B", packed, *idx)
         for packed, idx, arrangement in tris:
             out.pack("H4B", packed, *idx, arrangement)
-        for v0, v1, half, packed in cards:
-            out.pack("2BhHH", v0, v1, half, packed, 0)
-        return bytes(out.b)
+        for half, packed in cards:
+            out.pack("hH", half, packed)
+        return bytes(out.b), polygon
+
+    def diet_map(self, index, dm, polygon):
+        """For each polygon of mesh index (its quads, then its triangles),
+        the diet mesh's that draws it (diet_mesh's polygons), or 0xFFFF: the
+        face of a draw order hint while the diet is in place."""
+        faces = self.meshes[index].faces
+        order = [fi for fi, f in enumerate(faces) if len(f[1]) == 4] + \
+                [fi for fi, f in enumerate(faces) if len(f[1]) == 3]
+        drawn = {}
+        for f, p in zip(dm.faces, polygon):
+            if isinstance(f, dict):
+                if f["src"] == index:
+                    drawn.update((fi, p) for fi in f["from"])
+            elif f[3] == index:
+                drawn[f[4]] = p
+        return [drawn.get(fi, 0xFFFF) for fi in order]
 
     # --- animation -------------------------------------------------------
 
@@ -730,7 +759,7 @@ class Packer:
         out.pack(f"{len(lvl.floors)}H", *lvl.floors)
 
         diet_pairs, diet_nodes = self.diet()
-        diet_meshes = [(index, self.diet_mesh(dm)) for index, dm in diet_pairs]
+        diet_meshes = [(index, dm, *self.diet_mesh(dm)) for index, dm in diet_pairs]
 
         mesh_base = out.align4()
         mesh_offsets = []
@@ -741,8 +770,8 @@ class Packer:
                 self.write_mesh(out, i, mesh)
             mesh_offsets.append(written[src_offset])
         diet_swaps = []
-        for index, data in diet_meshes:
-            diet_swaps.append((index, len(mesh_offsets)))
+        for index, dm, data, polygon in diet_meshes:
+            diet_swaps.append((index, len(mesh_offsets), self.diet_map(index, dm, polygon)))
             mesh_offsets.append(out.align4() - mesh_base)
             out.raw(data)
         if len(mesh_offsets) > MAX_MESHES:
@@ -868,13 +897,21 @@ class Packer:
         self.sfx, offsets = self.sounds.build()
         out.pack(f"{len(offsets)}I", *offsets)
 
-        # the diet: (original, simplified) mesh pairs, then the nodes held still
+        # the diet: (original, simplified, polygon map) for each mesh swapped,
+        # the nodes held still, then the maps (diet_map), each at its place in
+        # uint16s from the table's start
         diet_table = out.align4()
         out.pack("H", len(diet_swaps))
-        for a, b in diet_swaps:
-            out.pack("2H", a, b)
+        at = 2 + 3 * len(diet_swaps) + len(diet_nodes)
+        for a, b, polygons in diet_swaps:
+            out.pack("3H", a, b, at)
+            at += len(polygons)
+        if at > 0xFFFF:
+            raise ValueError(f"a diet table of {at} entries")
         out.pack("H", len(diet_nodes))
         out.pack(f"{len(diet_nodes)}H", *diet_nodes)
+        for _, _, polygons in diet_swaps:
+            out.pack(f"{len(polygons)}H", *polygons)
         self.diet_swaps = diet_swaps
 
         header = struct.pack(">I14H", 0x53415431,     # 'SAT1'
@@ -892,6 +929,29 @@ class Packer:
 
 
 MIP_DIFFUSION = 0.75    # how much of each texel's colour error its neighbours take
+
+
+def hinted_faces(lvl, meshes):
+    """The faces lvl's draw order hints name (saturn/depth_hints.txt), {mesh
+    index: {face index (as mesh.faces has them): the hints naming it}}: the
+    diet keeps faces named by different hints apart."""
+    level = depth_hints.level_id(lvl.name)
+    named = {}
+    for h in depth_hints.parse(os.path.join(ROOT, "saturn", "depth_hints.txt")):
+        if h["level"] != level or h["node"] == depth_hints.WHOLE:
+            continue
+        if h["kind"] == "item":
+            model = next(m for m in lvl.models if m["type"] == lvl.items[h["index"]]["type"])
+            mesh = model["start"] + h["node"]
+        else:
+            sid = lvl.rooms[h["owner"]].static_meshes[h["index"]]["mesh_id"]
+            mesh = next(st["mesh"] for st in lvl.static_meshes if st["id"] == sid)
+        triangle = bool(h["polygon"] & depth_hints.TRIANGLE)
+        polygons = [fi for fi, f in enumerate(meshes[mesh].faces) if (len(f[1]) == 3) == triangle]
+        fi = polygons[h["polygon"] & ~depth_hints.TRIANGLE]
+        hint = (h["kind"], h["owner"], h["index"], h["room"], h["bx"], h["bz"], h["behind_room"], tuple(h["behind"]))
+        named.setdefault(mesh, {}).setdefault(fi, set()).add(hint)
+    return {mesh: {fi: frozenset(hints) for fi, hints in faces.items()} for mesh, faces in named.items()}
 
 
 def mip_texture(pixels, w, h, colors, transparent, factor):

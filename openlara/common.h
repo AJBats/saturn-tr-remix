@@ -2982,6 +2982,10 @@ void renderLevelInit();
 void renderLevelFree();
 #endif
 void renderDietSync();      // simplified meshes in or out, before a frame's drawing (render.cpp)
+// A joint held still by the diet (NODE_FLAG_FROZEN) draws nothing, but its
+// mesh keeps its place in its object's numbering (draw order hints, the
+// polygon hunt; render.cpp).
+void renderMeshSkipped();
 
 void setViewport(const RectMinMax &vp);
 void setPaletteIndex(int32 index);

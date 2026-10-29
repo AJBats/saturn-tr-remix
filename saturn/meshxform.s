@@ -9,10 +9,11 @@
 !
 ! void renderMeshAsm(const Mesh* mesh, Vertex** base, FaceList* list, uint32 flags)
 !   the master's whole mesh (render.cpp renderMeshHere without gFlatDist):
-!   meshXformSetup's work, the transform to *base, the faces into list with
-!   flags (faces.s), *base moved past the vertices; nothing done unless the
-!   vertices fit below MASTER_VERTICES and the faces before list->end. One
-!   entry and exit and few stores: every store goes to the bus.
+!   meshXformSetup's work, the transform to *base, the faces and cards into
+!   list with flags (faces.s), *base moved past the vertices and the cards'
+!   corners; nothing done unless they fit below MASTER_VERTICES and the
+!   faces before list->end. One entry and exit and few stores: every store
+!   goes to the bus.
 !
 ! MeshXform (render.cpp):
 !   +0  int16 rows[9]       rotation rows: m00 m01 m02 m10 m11 m12 m20 m21 m22
@@ -448,24 +449,28 @@ _renderMeshAsm:
     extu.b  r0, r1              ! vCount
     tst     r1, r1
     bt      .LrmNone
-    mov.l   @r5, r2
-    mov     r1, r3
-    shll2   r3
-    shll    r3
-    add     r2, r3              ! the end of its vertices
+    mov     #19, r0
+    mov.b   @(r0, r4), r0
+    extu.b  r0, r2              ! cCount: two vertices more a card
+    add     r2, r1
+    add     r2, r1
+    shll2   r1
+    shll    r1
+    mov.l   @r5, r0
+    add     r0, r1              ! the end of its vertices
     mov.l   .LvertexEnd, r0
-    cmp/hi  r0, r3
+    cmp/hi  r0, r1
     bt      .LrmNone
-    mov.w   @(12, r4), r0       ! quads and triangles
-    mov     r0, r3
+    mov.w   @(12, r4), r0       ! cards, quads and triangles
+    add     r0, r2
     mov.w   @(14, r4), r0
-    add     r0, r3
-    shll2   r3
-    shll2   r3
+    add     r0, r2
+    shll2   r2
+    shll2   r2
     mov.l   @r6, r0             ! the list's next face
-    add     r0, r3
+    add     r0, r2
     mov.l   @(4, r6), r0        ! its end
-    cmp/hi  r0, r3
+    cmp/hi  r0, r2
     bf      .LrmGo
 .LrmNone:
     rts
@@ -750,16 +755,30 @@ _renderMeshAsm:
     mov.l   .LtrianglesBody, r1
     jsr     @r1
     mov     r0, r5
-8:  mov.l   @(8, r15), r0
+8:  mov.l   @r15, r1
+    mov     #19, r0
+    mov.b   @(r0, r1), r0
+    extu.b  r0, r5
+    tst     r5, r5
+    bt      9f
+    mov.l   .LrmCardsAddr, r0
+    jsr     @r0
+    nop
+9:  mov.l   @(8, r15), r0
     mov.l   r10, @r0            ! the list's next face
     mov.l   @r15, r1
     mov.b   @(10, r1), r0
+    extu.b  r0, r2
+    mov     #19, r0
+    mov.b   @(r0, r1), r0
     extu.b  r0, r0
-    shll2   r0
-    shll    r0
-    add     r8, r0
+    add     r0, r2
+    add     r0, r2
+    shll2   r2
+    shll    r2
+    add     r8, r2
     mov.l   @(4, r15), r1
-    mov.l   r0, @r1             ! base past the vertices
+    mov.l   r2, @r1             ! base past the vertices and the cards' corners
 
     add     #92, r15
     lds.l   @r15+, pr
@@ -778,6 +797,7 @@ _renderMeshAsm:
 .LdivTableAddr: .long   _divTable
 .LquadsBody:    .long   _faceAddMeshQuadsBody
 .LtrianglesBody: .long  _faceAddMeshTrianglesBody
+.LrmCardsAddr:  .long   .LrmCards
 .Lsar14Bit:     .long   0x00020000  ! 1 << (31 - 14)
 .Lsar21Bit:     .short  0x0400      ! 1 << (31 - 21)
 .LviewDist:     .short  20480       ! VIEW_DIST
@@ -895,3 +915,34 @@ _renderMeshAsm:
 
     .align 2
 .LfsCentre:     .long   0x00B00070  ! FRAME_WIDTH / 2 << 16 | FRAME_HEIGHT / 2
+
+! renderMeshAsm's r5 cards with its faces' registers, beside faces.s's
+! (saturn.ld): their records past the triangles, their ends the mesh's last
+! vertices
+    .section .text.meshcards, "ax"
+    .align 2
+.LrmCards:
+    mov.l   @r15, r1            ! the mesh
+    mov.w   @(12, r1), r0
+    mov     r0, r2
+    mov.w   @(14, r1), r0
+    add     r0, r2
+    mov     r2, r0
+    add     r2, r2
+    add     r0, r2
+    add     r2, r2              ! 6 bytes a quad or triangle
+    mov.l   @(16, r15), r4
+    add     r2, r4
+    mov.b   @(10, r1), r0
+    extu.b  r0, r7
+    sub     r5, r7
+    sub     r5, r7
+    shll2   r7
+    shll    r7
+    add     r8, r7
+    mov.l   .LrmCardsBody, r0
+    jmp     @r0
+    nop
+
+    .align 2
+.LrmCardsBody:  .long   _faceAddMeshCardsBody

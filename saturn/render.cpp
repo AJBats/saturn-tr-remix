@@ -198,6 +198,7 @@ static_assert(offsetof(FaceList, ot) == 8 && offsetof(FaceList, groups) == 12 &&
 
 extern "C" void faceAddMeshQuadsAsm(const MeshQuad* polys, int32 count, MeshFaces* mf);
 extern "C" void faceAddMeshTrianglesAsm(const MeshTriangle* polys, int32 count, MeshFaces* mf);
+extern "C" void faceAddMeshCardsAsm(const MeshCard* cards, int32 count, MeshFaces* mf, Vertex* ends);
 
 void faceAddMeshQuads(const MeshQuad* polys, int32 count)
 {
@@ -1711,18 +1712,6 @@ static void turnObjectQuads(uint32 budget)
             q.indices[1] = q.indices[0];
             q.indices[0] = d;
         }
-
-        MeshCard* cards = (MeshCard*)((MeshTriangle*)(quads + mesh->rCount) + mesh->tCount);
-        for (int32 j = 0; j < mesh->cCount; j++)
-        {
-            MeshCard &c = cards[j];
-            int32 turned = turnedIndex[c.flags & FACE_TEXTURE];
-            if (turned)
-            {
-                c.flags = (c.flags & ~FACE_TEXTURE) | turned;
-                c.turned = 1;
-            }
-        }
     }
     level.texturesCount = gTurnedBase + gTurnedCount;
 }
@@ -1736,10 +1725,11 @@ void renderDietSync()
     if (on == gDietOn)
         return;
     gDietOn = on;
-    // (original, simplified) pairs, swapped either way; the nodes held still
+    // (original, simplified, polygon map) for each mesh, swapped either way;
+    // the nodes held still
     const uint16* d = level.diet;
     const Mesh** meshes = (const Mesh**)level.meshes;
-    for (int32 pairs = *d++; pairs > 0; pairs--, d += 2)
+    for (int32 pairs = *d++; pairs > 0; pairs--, d += 3)
     {
         const Mesh* t = meshes[d[0]];
         meshes[d[0]] = meshes[d[1]];
@@ -2042,7 +2032,46 @@ static void meshParts(const Mesh* mesh, MeshParts &parts)
     parts.cards = (MeshCard*)ptr;
 }
 
-int32 renderMeshPolygon(const Mesh* mesh, const Vertex* base, const Face* face, bool &triangle)
+// While the diet is in place, the polygon map of mesh if it is a simplified
+// one (tools/pack_level.py diet_map: for each of its original's quads, then
+// triangles, its polygon that draws it), its original's quads and polygons
+// in rCount and count; else NULL.
+static const uint16* dietMap(const Mesh* mesh, int32 &rCount, int32 &count)
+{
+    if (!gDietOn)
+        return NULL;
+    const uint16* d = level.diet;
+    const Mesh* const* meshes = (const Mesh* const*)level.meshes;
+    for (int32 pairs = *d++; pairs > 0; pairs--, d += 3)
+    {
+        if (meshes[d[0]] != mesh)
+            continue;
+        const Mesh* original = meshes[d[1]];
+        rCount = original->rCount;
+        count = original->rCount + original->tCount;
+        return level.diet + d[2];
+    }
+    return NULL;
+}
+
+// The polygon of mesh that draws polygon of the mesh it simplifies (a draw
+// order hint names the original's), -1 if none does.
+static int32 dietPolygon(const Mesh* mesh, int32 polygon)
+{
+    int32 rCount, count;
+    const uint16* map = dietMap(mesh, rCount, count);
+    if (!map)
+        return polygon;
+    int32 i = polygon & ~DEPTH_HINT_TRIANGLE;
+    if (polygon & DEPTH_HINT_TRIANGLE) {
+        i += rCount;
+    } else if (i >= rCount) {
+        return -1;
+    }
+    return i < count && map[i] != 0xFFFF ? map[i] : -1;
+}
+
+int32 renderMeshPolygon(const Mesh* mesh, const Vertex* base, const Face* face, char &kind)
 {
     MeshParts parts;
     meshParts(mesh, parts);
@@ -2050,10 +2079,20 @@ int32 renderMeshPolygon(const Mesh* mesh, const Vertex* base, const Face* face, 
     for (int32 i = 0; i < 4; i++) {
         v[i] = cornerVertex(face->indices[i], gVertices) - base;
     }
-    triangle = (face->flags & (FACE_TRIANGLE | FACE_PARALLELOGRAM)) != 0;
+
+    // a card's corner A is its first end, among the mesh's last vertices
+    int32 ends = mesh->vCount - 2 * mesh->cCount;
+    if (v[0] >= ends && v[0] < mesh->vCount)
+    {
+        kind = 'c';
+        return (v[0] - ends) >> 1;
+    }
+
+    bool triangle = (face->flags & (FACE_TRIANGLE | FACE_PARALLELOGRAM)) != 0;
     int32 n = triangle ? 3 : 4;
     int32 count = triangle ? mesh->tCount : mesh->rCount;
-    for (int32 p = 0; p < count; p++)
+    int32 polygon = -1;
+    for (int32 p = 0; p < count && polygon < 0; p++)
     {
         const uint8* idx = triangle ? parts.triangles[p].indices : parts.quads[p].indices;
         int32 k = 0;
@@ -2066,21 +2105,42 @@ int32 renderMeshPolygon(const Mesh* mesh, const Vertex* base, const Face* face, 
             if (m == n)
                 break;
         }
-        if (k == n)
-            return p;
+        if (k == n) {
+            polygon = triangle ? p | DEPTH_HINT_TRIANGLE : p;
+        }
     }
-    return -1;
+    if (polygon < 0)
+        return -1;
+
+    // the diet's: the first of its original's it draws
+    int32 rCount, all;
+    const uint16* map = dietMap(mesh, rCount, all);
+    if (map)
+    {
+        int32 i = 0;
+        while (i < all && map[i] != polygon) {
+            i++;
+        }
+        if (i == all)
+            return -1;
+        polygon = i < rCount ? i : (i - rCount) | DEPTH_HINT_TRIANGLE;
+    }
+    kind = (polygon & DEPTH_HINT_TRIANGLE) ? 't' : 'q';
+    return polygon & ~DEPTH_HINT_TRIANGLE;
 }
 
 extern "C" void renderMeshAsm(const Mesh* mesh, Vertex** base, FaceList* list, uint32 flags);
 
-static_assert(sizeof(Mesh) == 20 && offsetof(Mesh, cCount) == 19 && sizeof(MeshCard) == 8 &&
+static_assert(sizeof(Mesh) == 20 && offsetof(Mesh, cCount) == 19 && sizeof(MeshCard) == 4 &&
+              offsetof(MeshCard, flags) == 2 && offsetof(MeshFaces, flags) == 12 && DIV_TABLE_SIZE == 1281 &&
+              PROJ_SHIFT == 4 && OT_SHIFT == 4 && FRAME_WIDTH == 352 && FRAME_HEIGHT == 224 &&
+              VDP1_COORD_MAX == 1023 && VDP1_COORD_MIN == -1024 &&
               offsetof(Mesh, intensity) == 8 && offsetof(Mesh, vCount) == 10 &&
               offsetof(Mesh, hasNormals) == 11 && offsetof(Mesh, rCount) == 12 && offsetof(Mesh, tCount) == 14 &&
               offsetof(Mesh, bound) == 16 && MESH_LIGHT_NORMALS == 1 && MESH_LIGHT_SHADES == 2 &&
               MASTER_VERTICES == 2048 && offsetof(FaceList, end) == 4 && offsetof(Matrix, e03) == 12 &&
               offsetof(Matrix, e23) == 44 && VIEW_DIST == 20480 && sizeof(vec3i) == 12,
-              "layouts and constants repeated in meshxform.s renderMeshAsm");
+              "layouts and constants repeated in meshxform.s renderMeshAsm and faces.s faceAddMeshCardsBody");
 
 __attribute__((noinline)) static void renderMeshC(const Mesh* mesh)
 {
@@ -2088,14 +2148,13 @@ __attribute__((noinline)) static void renderMeshC(const Mesh* mesh)
     if (vCount <= 0)
         return;
 
-    if ((gVerticesBase - gVertices) + vCount > MASTER_VERTICES)
+    if ((gVerticesBase - gVertices) + meshVertexCount(mesh) > MASTER_VERTICES)
     {
         ASSERT(false);
         return;
     }
 
-    int32 fCount = mesh->rCount + mesh->tCount;
-    if ((gFaceList.next - gFaces) + fCount > MAX_FACES)
+    if ((gFaceList.next - gFaces) + meshFaceCount(mesh) > MAX_FACES)
     {
         ASSERT(false);
         return;
@@ -2107,6 +2166,7 @@ __attribute__((noinline)) static void renderMeshC(const Mesh* mesh)
     bool inside = transformMesh(parts.vertices, vCount, mesh->intensity, parts.normals, parts.shades, &mesh->center,
                                 mesh->bound);
 
+    MeshFaces mf = { gVerticesBase, -int32(gVertices), &gFaceList, gMeshFaceFlags, inside };
     if (gFlatDist)
     {
         if (mesh->rCount > 0) {
@@ -2118,7 +2178,6 @@ __attribute__((noinline)) static void renderMeshC(const Mesh* mesh)
     }
     else
     {
-        MeshFaces mf = { gVerticesBase, -int32(gVertices), &gFaceList, gMeshFaceFlags, inside };
         if (mesh->rCount > 0) {
             faceAddMeshQuadsAsm(parts.quads, mesh->rCount, &mf);
         }
@@ -2126,8 +2185,11 @@ __attribute__((noinline)) static void renderMeshC(const Mesh* mesh)
             faceAddMeshTrianglesAsm(parts.triangles, mesh->tCount, &mf);
         }
     }
+    if (mesh->cCount > 0) {
+        faceAddMeshCardsAsm(parts.cards, mesh->cCount, &mf, gVerticesBase + vCount - 2 * mesh->cCount);
+    }
 
-    gVerticesBase += vCount;
+    gVerticesBase += meshVertexCount(mesh);
 }
 
 // An octagon on the floor under the item, darkening what is drawn below it.
@@ -2148,22 +2210,10 @@ static void renderMeshHere(const Mesh* mesh)
 #ifdef HW_LOG
     gMeshesDrawn++;
 #endif
-    Vertex* base = gVerticesBase;
     if (!gFlatDist && gBenchMode != BENCH_C_MESHES) {
         renderMeshAsm(mesh, &gVerticesBase, &gFaceList, gMeshFaceFlags);
     } else {
         renderMeshC(mesh);
-    }
-
-    // its cards, if the mesh was drawn and their corners and faces fit
-    int32 cards = mesh->cCount;
-    if (cards && gVerticesBase != base && (gVerticesBase - gVertices) + 2 * cards <= MASTER_VERTICES &&
-        (gFaceList.next - gFaces) + cards <= MAX_FACES)
-    {
-        MeshParts parts;
-        meshParts(mesh, parts);
-        faceAddMeshCards(parts.cards, cards, base, gVerticesBase, gFaceList, gMeshFaceFlags, gVertices);
-        gVerticesBase += 2 * cards;
     }
 }
 
@@ -2261,19 +2311,35 @@ static void renderMeshHinted(const Mesh* mesh)
         }
         else if (h.node == gHintNode)
         {
+            // the diet's face that draws the one named
+            int32 polygon = dietPolygon(mesh, h.polygon);
+            if (polygon < 0)
+                continue;
             MeshParts parts;
             meshParts(mesh, parts);
-            int32 index = h.polygon & ~DEPTH_HINT_TRIANGLE;
+            int32 index = polygon & ~DEPTH_HINT_TRIANGLE;
             Face* f = NULL;
-            if (!(h.polygon & DEPTH_HINT_TRIANGLE) && index < mesh->rCount) {
+            if (!(polygon & DEPTH_HINT_TRIANGLE) && index < mesh->rCount) {
                 f = meshFace(first, index, base, parts.quads[index].indices, 4);
-            } else if ((h.polygon & DEPTH_HINT_TRIANGLE) && index < mesh->tCount) {
+            } else if ((polygon & DEPTH_HINT_TRIANGLE) && index < mesh->tCount) {
                 f = meshFace(first, mesh->rCount + index, base, parts.triangles[index].indices, 3);
             }
             if (f) {
                 depthHintHold(f, &h);
             }
         }
+    }
+}
+
+void renderMeshSkipped()
+{
+    if (cpuState()->slave)
+        return;
+    if (gHuntRecording) {
+        huntMeshSkipped();
+    }
+    if (gHinted) {
+        gHintNode++;
     }
 }
 
@@ -2417,103 +2483,7 @@ void meshJobDraw(const MeshJob &job, Vertex* dst, FaceList &list)
         faceAddMeshTrianglesAsm(parts.triangles, mesh->tCount, &mf);
     }
     if (mesh->cCount > 0) {
-        faceAddMeshCards(parts.cards, mesh->cCount, dst, dst + mesh->vCount, list, job.flags, half);
-    }
-}
-
-// A card's corner at (x, y) on the screen, with its end's depth and shade:
-// flagged and clamped off the frame as projectView does.
-X_INLINE void cardCorner(Vertex* out, int32 x, int32 y, const Vertex* end)
-{
-    uint32 clip = 0;
-    if (uint32(x) > FRAME_WIDTH || uint32(y) > FRAME_HEIGHT)
-    {
-        clip = CLIP_FRAME;
-        if (x < 0) clip |= CLIP_LEFT;
-        if (x > FRAME_WIDTH) clip |= CLIP_RIGHT;
-        if (y < 0) clip |= CLIP_TOP;
-        if (y > FRAME_HEIGHT) clip |= CLIP_BOTTOM;
-        x = X_CLAMP(x, VDP1_COORD_MIN, VDP1_COORD_MAX);
-        y = X_CLAMP(y, VDP1_COORD_MIN, VDP1_COORD_MAX);
-    }
-    out->x = x;
-    out->y = y;
-    out->z = end->z;
-    out->g = end->g;
-    out->clip = clip;
-}
-
-// Each card's ends are on the screen: its corners are the ends moved either
-// way across the line between them, by half its width at that end's depth
-// (half * 256 / z, as PERSPECTIVE projects), so the quad faces the camera
-// whatever the mesh's turn. The width is kept in sixteenths of a pixel until
-// the corners are rounded to whole ones (a rope far off is a pixel or two
-// wide), the line's length within 4% (the longer side and 2/5 of the shorter).
-void faceAddMeshCards(const MeshCard* cards, int32 count, Vertex* v, Vertex* extra, FaceList &list, uint32 flags,
-                      const Vertex* half)
-{
-    for (; count > 0; count--, cards++, extra += 2)
-    {
-        Vertex* a = v + cards->v0;
-        Vertex* d = v + cards->v1;
-        // past the near or far plane, as the mesh's faces with such corners
-        if ((a->clip | d->clip) & CLIP_PLANE)
-            continue;
-
-        int32 dx = d->x - a->x;
-        int32 dy = d->y - a->y;
-        uint32 ax = abs(dx);
-        uint32 ay = abs(dy);
-        uint32 len = (ax > ay ? ax * 123 + ay * 51 : ay * 123 + ax * 51) >> 7;
-        len = X_CLAMP(len, 1, DIV_TABLE_SIZE - 1);
-        uint32 inv = FixedInvU(len);
-
-        // (-dy, dx) * 65536 / len: across the line, 65536 long within 4%,
-        // each part at most about 68K; times half the width at each end in
-        // sixteenths of a pixel (at most 16320, from the near plane on) it
-        // fits 32 bits. The corners' offsets in pixels, rounded.
-        int32 nx = -dy * int32(inv);
-        int32 ny = dx * int32(inv);
-        int32 wa = (uint32(cards->half) * FixedInvU(uint32(a->z) >> PROJ_SHIFT)) >> (12 - PROJ_SHIFT);
-        int32 wd = (uint32(cards->half) * FixedInvU(uint32(d->z) >> PROJ_SHIFT)) >> (12 - PROJ_SHIFT);
-        int32 oax = sar<20>(nx * wa + (1 << 19));
-        int32 oay = sar<20>(ny * wa + (1 << 19));
-        int32 odx = sar<20>(nx * wd + (1 << 19));
-        int32 ody = sar<20>(ny * wd + (1 << 19));
-
-        Vertex* b = extra;
-        Vertex* c = extra + 1;
-        int32 x0 = a->x, y0 = a->y, x1 = d->x, y1 = d->y;
-        cardCorner(b, x0 - oax, y0 - oay, a);
-        cardCorner(c, x1 - odx, y1 - ody, d);
-        cardCorner(a, x0 + oax, y0 + oay, a);
-        cardCorner(d, x1 + odx, y1 + ody, d);
-
-        uint32 c0 = a->clip, c1 = b->clip, c2 = c->clip, c3 = d->clip;
-        if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
-            continue;
-
-        uint32 f = cards->flags | flags;
-        if (faceFlat(f, X_MIN(a->z, d->z), level.textures + (f & FACE_TEXTURE))) {
-            f = flatFlags(f);
-        }
-
-        Face* face = faceAdd(list, uint32(a->z + d->z) >> (1 + OT_SHIFT));
-        face->flags = f;
-        if (cards->turned)
-        {
-            face->indices[0] = cornerOffset(d, half);
-            face->indices[1] = cornerOffset(a, half);
-            face->indices[2] = cornerOffset(b, half);
-            face->indices[3] = cornerOffset(c, half);
-        }
-        else
-        {
-            face->indices[0] = cornerOffset(a, half);
-            face->indices[1] = cornerOffset(b, half);
-            face->indices[2] = cornerOffset(c, half);
-            face->indices[3] = cornerOffset(d, half);
-        }
+        faceAddMeshCardsAsm(parts.cards, mesh->cCount, &mf, dst + mesh->vCount - 2 * mesh->cCount);
     }
 }
 

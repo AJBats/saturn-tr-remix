@@ -320,6 +320,7 @@ void drawNodes(const ItemObj* item, const AnimFrame* frameA)
         if (node->flags & NODE_FLAG_FROZEN)
         {
             extraAngles = skipExtraAngles(node, extraAngles);
+            renderMeshSkipped();
         }
         else
         {
@@ -385,6 +386,7 @@ void drawNodesLerp(const ItemObj* item, const AnimFrame* frameA, const AnimFrame
         if (node->flags & NODE_FLAG_FROZEN)
         {
             extraAngles = skipExtraAngles(node, extraAngles);
+            renderMeshSkipped();
         }
         else
         {

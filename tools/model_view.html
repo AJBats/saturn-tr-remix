@@ -83,7 +83,7 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
     <label><input type="checkbox" id="cards"><span>Lower legs as cards<span class="sub">12 boxes (8 corners, 6 faces each) become flat polygons that turn round the bone to face the camera</span></span></label>
     <label><input type="checkbox" id="tailCards"><span>Tail as cards<span class="sub">its 3 boxes the same way</span></span></label>
     <label><input type="checkbox" id="earCards"><span>Ears as cards<span class="sub">upright, textured as seen from the front</span></span></label>
-    <div class="row"><select id="cardLight"><option value="ends">Card lit by its box's corner normals, each end</option><option value="view">Card lit as if facing the camera</option></select></div>
+    <div class="row"><select id="cardLight"><option value="ends">Card ends lit as the mean of their box's corners (as the game)</option><option value="view">Card lit as if facing the camera</option></select></div>
     <div class="row"><select id="cardLook"><option value="baked">Card texture: the segment from the side</option><option value="flat">Card texture: none, one colour</option></select></div>
     <span class="sub">The card textures, 8 texels across, a texel every 5 units along (the wolf's own textures' density):</span>
     <canvas id="cardTex" height="1" style="width:100%;image-rendering:pixelated;margin-top:4px"></canvas>
@@ -129,10 +129,10 @@ window.addEventListener('error', (e) => {
 if (!window.THREE) document.getElementById('foot').textContent = 'three.js did not load (cdn.jsdelivr.net unreachable?)';
 const D = /*DATA*/null;
 
-// ---- unit costs measured at the ledge (calibrated Mednafen, sleeping wolves), master cycles
-const COST = { joint: 520, mesh: 570, vertex: 133, face: 88, card: 150, wolfItem: 3900, sent: 280,
-               plankItem: 2400, plankVertex: 125, plankFace: 90, staticMesh: 1500, staticVertex: 133,
-               cardPoint: 80 };
+// ---- unit costs measured at the ledge (calibrated Mednafen, sleeping wolves), master cycles; a
+// card: its corners and face (faces.s), its two ends are vertices of the mesh's
+const COST = { joint: 520, mesh: 570, vertex: 133, face: 88, card: 280, wolfItem: 3900, sent: 280,
+               plankItem: 2400, plankVertex: 125, plankFace: 90, staticMesh: 1500, staticVertex: 133 };
 const MHZ = 28636.36;   // cycles a millisecond
 const FOV = 2 * Math.atan(112 / 256) * 180 / Math.PI;   // the game projects with a focal length of 256 px
 const SAT_W = 352, SAT_H = 224;
@@ -170,17 +170,18 @@ const atlasTex = new THREE.Texture(img);
 atlasTex.flipY = false; atlasTex.generateMipmaps = false;
 atlasTex.magFilter = atlasTex.minFilter = THREE.NearestFilter;
 img.onload = () => { atlasTex.needsUpdate = true; drawCardTextures(); };
-// the wolf's card textures side by side in the panel, four times their size
+// the wolf's card textures one under another in the panel, four times their
+// size (each along the card from its first end, as the game has them)
 function drawCardTextures() {
   const cv = document.getElementById('cardTex'), keys = Object.keys(D.wolf.cards);
   const ts = keys.map(k => rects[D.wolf.cards[k].t]);
   const S = 4, gap = 3;
-  cv.width = ts.reduce((n, r) => n + (r[2] + gap) * S, 0);
-  cv.height = Math.max(...ts.map(r => r[3])) * S;
+  cv.width = Math.max(...ts.map(r => r[2])) * S;
+  cv.height = ts.reduce((n, r) => n + (r[3] + gap) * S, 0);
   const g = cv.getContext('2d');
   g.imageSmoothingEnabled = false;
-  let x = 0;
-  for (const r of ts) { g.drawImage(img, r[0], r[1], r[2], r[3], x, 0, r[2] * S, r[3] * S); x += (r[2] + gap) * S; }
+  let y = 0;
+  for (const r of ts) { g.drawImage(img, r[0], r[1], r[2], r[3], 0, y, r[2] * S, r[3] * S); y += (r[3] + gap) * S; }
 }
 img.src = 'data:image/png;base64,' + D.atlas.png;
 
@@ -268,26 +269,27 @@ function meshFace(mesh, f, place, rotate, shadeOf, cam, b, tint) {
   return dot(cross(sub(T[1], T[0]), sub(T[2], T[0])), sub(cam, T[0])) < 0;
 }
 
-// a card: a polygon from e0 to e1, w wide, turned round that line to the camera
-// n0, n1: the normals at its ends (the camera's direction when not given)
-function card(e0, e1, w, cam, col, t, uAlong, b, tint, n0, n1) {
+// The sun as the views light (makeView), in TR's space (T3 turns it), and
+// the light a normal there gets from it and the ambient light.
+const SUN_TR = nrm([0.45, -1, -0.55]);
+const lambert = (n) => 0.62 + 0.75 * Math.max(0, dot(n, SUN_TR));
+
+// a card: a polygon from e0 to e1, w wide, turned round that line to the camera.
+// shades: each end's light, drawn prelit (b a prelit builder); else lit as
+// facing the camera
+function card(e0, e1, w, cam, col, t, uAlong, b, tint, shades) {
   const mid = scl(add(e0, e1), 0.5);
   let s = cross(sub(e1, e0), sub(cam, mid));
   s = scl(nrm(s), w / 2);
   const n = nrm(sub(cam, mid));
-  // a box's corner normals lean out as much as along its length: the card's
-  // corners lean the same way, out towards the camera across the bone
-  const ax = nrm(sub(e1, e0));
-  const out = nrm(sub(n, scl(ax, dot(n, ax))));
-  const lean = (e) => nrm(add(scl(e, 0.58), scl(out, 0.82)));
-  const a0 = n0 ? lean(n0) : n, a1 = n1 ? lean(n1) : n;
-  // corners in the order that faces the camera, so the card is lit by its
-  // own normals rather than as a back face
+  // corners in the order that faces the camera, so that a lit card is lit by
+  // its normals rather than as a back face
   const P = uAlong ? [sub(e0, s), sub(e1, s), add(e1, s), add(e0, s)]
                    : [add(e0, s), sub(e0, s), sub(e1, s), add(e1, s)];
-  const N = uAlong ? [a0, a1, a1, a0] : [a0, a0, a1, a1];
   const c = tint && opt.tint ? [col[0]*TINT[0], col[1]*TINT[1], col[2]*TINT[2]] : col;
-  b.quad(P, N, [c, c, c, c], t, false, t ? 4 : 1);
+  const at = (k) => shades ? c.map(q => q * shades[k]) : c;
+  const C = uAlong ? [at(0), at(1), at(1), at(0)] : [at(0), at(0), at(1), at(1)];
+  b.quad(P, [n, n, n, n], C, t, false, t ? 4 : 1);
 }
 
 // ---- three.js views: left and right, each a scene with lit, prelit and card meshes
@@ -412,7 +414,7 @@ function wolfPose(simplified) {
 function buildWolf(simplified) {
   const M = wolfPose(simplified);
   const cam = camTR();
-  const b = { lit: new Builder(), card: new Builder() };
+  const b = { lit: new Builder(), card: new Builder(), cardPre: new Builder() };
   const legCards = simplified && ui('cards').checked, tailCards = simplified && ui('tailCards').checked;
   const flat = ui('cardLook').value === 'flat';
   const earCards = simplified && ui('earCards').checked;
@@ -425,9 +427,12 @@ function buildWolf(simplified) {
     if (opt.cardsOnly && !W.cards[j]) continue;
     if (isCard(j)) {
       const c = W.cards[j];
-      const lit = ui('cardLight').value === 'ends';
-      card(apply(M[j], c.e0), apply(M[j], c.e1), c.w, cam, flat ? c.col.map(x => x / 255) : WHITE, flat ? 0 : c.t, false, b.card, true,
-           lit && c.n0 ? rv(M[j].R, c.n0) : null, lit && c.n1 ? rv(M[j].R, c.n1) : null);
+      // the game lights each end as the mean of its box's corners there
+      // (tools/diet.py CARD_LIGHT): here the mean of their light
+      const mean = (ns) => ns.reduce((a, q) => a + lambert(rv(M[j].R, q)), 0) / ns.length;
+      const shades = ui('cardLight').value === 'ends' && c.ns0.length && c.ns1.length ? [mean(c.ns0), mean(c.ns1)] : null;
+      card(apply(M[j], c.e0), apply(M[j], c.e1), c.w, cam, flat ? c.col.map(x => x / 255) : WHITE, flat ? 0 : c.t, true,
+           shades ? b.cardPre : b.card, true, shades);
       nCards++; sent++; faces++; verts += 2;
       continue;
     }
@@ -489,7 +494,7 @@ function buildBridge(simplified) {
         card(e0, e1, strand.r * 1.6, cam, [sh, sh, sh], seg.t, seg.u === 1, b.cardPre, true);
         st.ropeCards++; st.ropeSent++; st.ropeFaces++;
       });
-      st.cardPoints += strand.pts.length;
+      st.cardPoints += 2 * strand.seg.length;
     }
     const used = new Set();
     mesh.f.forEach((f, fi) => {
@@ -512,7 +517,7 @@ function buildBridge(simplified) {
   }
   const planks = (BR.planks.length * COST.plankItem + st.plankVerts * COST.plankVertex + st.plankFaces * COST.plankFace) / MHZ;
   const ropes = (8 * COST.staticMesh + st.ropeVerts * COST.staticVertex + (st.ropeFaces - st.ropeCards) * COST.face
-                 + st.cardPoints * COST.cardPoint + st.ropeCards * COST.card) / MHZ;
+                 + st.cardPoints * COST.staticVertex + st.ropeCards * COST.card) / MHZ;
   return { b, stats: Object.assign(st, { planks, ropes }) };
 }
 
@@ -654,7 +659,7 @@ function update() {
     views[0].set(L.b); views[1].set(R.b);
     ui('labelL').innerHTML = bridgeLabel('Original', L.stats);
     ui('labelR').innerHTML = bridgeLabel('Simplified', R.stats, L.stats);
-    ui('foot').textContent = 'Costs: master cycles per plank item, vertex and face measured at the ledge (calibrated Mednafen); card costs are estimates. Faces sent: facing this camera, before the frame clip.';
+    ui('foot').textContent = 'Costs: master cycles per plank item, vertex and face measured at the ledge (calibrated Mednafen); cards as faces.s draws them. Faces sent: facing this camera, before the frame clip.';
   }
   const d = camera.position.distanceTo(controls.target);
   ui('distInfo').textContent = `${(d / 1024).toFixed(1)} blocks (${Math.round(d)} units) from what the view turns around${sizeText}`;
