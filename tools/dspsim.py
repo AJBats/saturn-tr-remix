@@ -6,9 +6,10 @@ it two ways:
             longword; nothing waits on it but a jump on T0
   saturn    the prices dspbench measured on the Saturn: a DMA from work RAM
             29 + 1.0 SH-2 cycles a longword, to it 31 + 3.1 (page 1); a DMA
-            started while one runs waits for it; an instruction touching
-            the bank a DMA is using (its RAM or its CT) waits for the DMA to
-            end (page 4)
+            started while one runs waits for it; starting one holds the
+            program 12.7 SH-2 cycles of the transfer's time, and an
+            instruction touching the bank a DMA is using (its RAM or its CT)
+            waits for the DMA to end (page 4)
 
 DSP cycles are half the SH-2's. Used by dspbench/test_meshlight.py.
 """
@@ -20,6 +21,7 @@ from dspasm import assemble  # noqa: E402
 
 M32 = 0xFFFFFFFF
 M48 = 0xFFFFFFFFFFFF
+ISSUE = 12.7 / 2    # DSP cycles a DMA's start holds the program on the Saturn (page 4)
 
 
 def s32(v):
@@ -349,6 +351,9 @@ class DSP:
                 self.ra0 = addr >> 2
             cost = (29 + 1.0 * count) / 2 if self.timing == 'saturn' else count
         self.dma_until = self.cycles + cost
+        if self.timing == 'saturn':
+            self.stalls += ISSUE
+            self.cycles += ISSUE
         self.dma_bank = b
 
 
