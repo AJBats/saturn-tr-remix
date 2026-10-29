@@ -67,7 +67,13 @@ void verticesInit();
 // job.
 void vertexModel();
 
-// The rooms' vertices projected from their rotations, and the meshes' in
+// The rooms' rotations on the DSP (roomrot.dsp, lab/gen_roomrot.py), a job a
+// room; the master waiting for its end: the SH-2 cycles it took. Then its
+// rotations against vertexModel's: those that differ.
+uint32_t verticesRoomsDsp();
+int32_t verticesRoomsDspCheck();
+
+// The rooms' vertices projected from the DSP's rotations, and the meshes' in
 // place, into gVertices where the game put them.
 void verticesRooms();
 void verticesMeshes();

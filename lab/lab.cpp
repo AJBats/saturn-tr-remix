@@ -83,6 +83,8 @@ struct LabResults
     uint32_t newVertsMeshes;    // ... the draws' projection and shades
     int32_t newVertsSeldom;     // the meshes' vertices not the game's projected as though none lay
                                 // inside the frame, or each worked out at the near plane
+    uint32_t dspRooms;          // cycles the DSP took over the rooms' rotations
+    int32_t dspRoomsBad;        // its rotations not vertexModel's
 };
 
 extern "C" LabResults gLab;
@@ -247,6 +249,9 @@ static void stageTwo()
 static void stageTwoNew()
 {
     verticesInit();
+    vertexModel();
+    gLab.dspRooms = verticesRoomsDsp();
+    gLab.dspRoomsBad = verticesRoomsDspCheck();
     gLab.newVertsRooms = measure([] { gameVerticesPrepare(); vertexModel(); }, [] { verticesRooms(); });
     gLab.newVertsMeshes = measure([] { gameVerticesPrepare(); vertexModel(); }, [] { verticesMeshes(); });
     gameVerticesPrepare();
@@ -737,6 +742,7 @@ static void newPage()
     page.add("STAGE 2, VERTICES: THE NEW WAY");
     page.add("master, run alone     ms  cycles a");
     timeRow(page, "rooms: game's", gLab.vertsRooms, gLab.roomVertices, "vertex");
+    timeRow(page, "  DSP", gLab.dspRooms, gLab.roomVertices, "vertex");
     timeRow(page, "  projected", gLab.newVertsRooms, gLab.roomVertices, "vertex");
     timeRow(page, "meshes: game's", gLab.vertsMeshes, gLab.meshVertices, "vertex");
     timeRow(page, "  projected", gLab.newVertsMeshes, gLab.meshVertices, "vertex");
@@ -747,6 +753,11 @@ static void newPage()
     p = put(p, " off), seldom paths");
     p = putNumber(p, gLab.newVertsSeldom, 2);
     put(p, " off");
+    page.add(line);
+    p = put(line, "DSP rooms as modelled");
+    p = put(p, gLab.dspRoomsBad ? ": OFF (" : " (");
+    p = putNumber(p, gLab.dspRoomsBad, 0);
+    put(p, " off)");
     page.add(line);
     page.add("");
     page.add("STAGE 3, FACES TO COMMANDS: THE NEW WAY");

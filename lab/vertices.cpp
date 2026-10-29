@@ -1,6 +1,12 @@
 // Stage 2 the new way (vertices.h).
 #include "vertices.h"
+#include "platform.h"
 #include "scene.h"
+
+#include "dsp.h"
+#include "roomrot_dsp.h"
+
+#include <string.h>
 
 #define FIXED_SHIFT     14
 #define VIEW_DIST       (1024 * 20)
@@ -52,9 +58,24 @@ static uint32_t gDrawCount;
 static const uint32_t* gMeshes;
 static const uint8_t* gMeshGeometry;
 
-// The DSP's output for the frame's rooms, by vertex as gVertices has them;
-// the meshes' jobs, a shadow's vertices made in its job.
-static RoomRotated gRoomRotated[MAX_VERTICES];
+// A room's job for roomrot.dsp (lab/gen_roomrot.py).
+struct RoomDspJob
+{
+    uint32_t vertices;          // / 4
+    uint32_t out;               // / 4
+    int32_t groups;             // of 4 vertices: 0 ends the list
+    int32_t m[12];              // t m0 m1 m2 a row, m times 4
+};
+
+#define MAX_ROOMS   64
+
+// The rooms' rotations, the DSP's and vertexModel's, a room's at its own
+// place (whole groups of 4); the rooms' jobs; the meshes' jobs, a shadow's
+// vertices made in its job.
+static RoomRotated gRoomRotated[MAX_VERTICES + 3 * MAX_ROOMS];
+static RoomRotated gRoomModel[MAX_VERTICES + 3 * MAX_ROOMS];
+static int32_t gRotatedAt[MAX_ROOMS];
+static RoomDspJob gRoomJobs[MAX_ROOMS + 1];
 static MeshJob gJobs[MAX_DRAWS];
 static int32_t gJobCount;
 static MeshVertex gShadows[MAX_DRAWS][SHADOW_VERTICES];
@@ -69,6 +90,15 @@ void verticesInit()
     gXforms = sceneArray<const DrawXform>("XFRM");
     gMeshes = sceneArray<const uint32_t>("MESH");
     gMeshGeometry = sceneArray<const uint8_t>("MGEO");
+    if (gRoomCount > MAX_ROOMS) {
+        gRoomCount = MAX_ROOMS;
+    }
+    int32_t at = 0;
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        gRotatedAt[i] = at;
+        at += (gRooms[i].verticesCount + 3) & ~3;
+    }
 }
 
 static inline const RoomVertex* roomPoints(const RoomScene &room)
@@ -174,7 +204,7 @@ void vertexModel()
     {
         const RoomScene &room = gRooms[i];
         const RoomVertex* p = roomPoints(room);
-        RoomRotated* out = gRoomRotated + room.base;
+        RoomRotated* out = gRoomModel + gRotatedAt[i];
         for (int32_t k = 0; k < room.verticesCount; k++, p++, out++)
         {
             int32_t x = p->x * 4, y = p->y * 4, z = p->z * 4;
@@ -273,8 +303,56 @@ void vertexModel()
     }
 }
 
+uint32_t verticesRoomsDsp()
+{
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        const RoomScene &room = gRooms[i];
+        RoomDspJob &job = gRoomJobs[i];
+        job.vertices = dspAddress(roomPoints(room));
+        job.out = dspAddress(gRoomRotated + gRotatedAt[i]);
+        job.groups = (room.verticesCount + 3) >> 2;
+        const int32_t t[3] = { room.tx, room.ty, room.tz };
+        for (int32_t r = 0; r < 3; r++)
+        {
+            job.m[4 * r] = t[r];
+            for (int32_t k = 0; k < 3; k++) {
+                job.m[4 * r + 1 + k] = 4 * room.m[3 * r + k];
+            }
+        }
+    }
+    memset(gRoomJobs + gRoomCount, 0, sizeof(RoomDspJob));
+
+    const uint32_t jobs = dspAddress(gRoomJobs);
+    const uint32_t mask = 0xFF;
+    dspLoad(roomrot_dsp, ROOMROT_DSP_COUNT);
+    dspWrite(0, 16, &jobs, 1);
+    dspWrite(3, 12, &mask, 1);
+    uint32_t t0 = ticks();
+    dspStart(0);
+    while (dspBusy());
+    uint32_t cycles = ticksCycles(t0, ticks());
+    cachePurge();       // the DSP wrote behind the cache
+    return cycles;
+}
+
+int32_t verticesRoomsDspCheck()
+{
+    int32_t bad = 0;
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        const RoomRotated* a = gRoomRotated + gRotatedAt[i];
+        const RoomRotated* b = gRoomModel + gRotatedAt[i];
+        for (int32_t k = 0; k < gRooms[i].verticesCount; k++) {
+            bad += a[k].x != b[k].x || a[k].y != b[k].y || a[k].z != b[k].z;
+        }
+    }
+    return bad;
+}
+
 void verticesRooms()
 {
+    cachePurge();       // the DSP wrote behind the cache
     RoomProject rp;
     rp.divTable = gDivTable;
     rp.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
@@ -291,7 +369,7 @@ void verticesRooms()
         rp.phase = room.causticsFrame;
         rp.caustics = room.wet ? gCaustics[i] : nullptr;
         rp.count = room.verticesCount;
-        roomProjectAsm(gRoomRotated + room.base, room.verticesCount, gVertices + room.base, &rp);
+        roomProjectAsm(gRoomRotated + gRotatedAt[i], room.verticesCount, gVertices + room.base, &rp);
     }
 }
 

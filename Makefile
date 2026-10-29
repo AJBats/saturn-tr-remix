@@ -193,17 +193,27 @@ $(eval $(call DISC_RULE,$(BENCH),))
 LAB := build/lab
 LAB_SCENE ?= ledge
 LAB_SCENE_FILE := $(LAB)/$(shell echo $(LAB_SCENE) | tr a-z A-Z).SCN
-LAB_SRC := $(wildcard lab/*.cpp lab/*.s) saturn/font.cpp saturn/cd.cpp saturn/faces.s saturn/flush.s \
-	saturn/xform.s saturn/meshxform.s
+LAB_SRC := $(wildcard lab/*.cpp lab/*.s) saturn/font.cpp saturn/cd.cpp saturn/dsp.cpp saturn/faces.s \
+	saturn/flush.s saturn/xform.s saturn/meshxform.s
+# DSP programs lab/gen_NAME.py writes, assembled into NAME_dsp.h
+LAB_DSP := $(patsubst lab/gen_%.py,$(LAB)/gen/%_dsp.h,$(wildcard lab/gen_*.py))
 # -g: lines for profiles (tools/lab.py's trace), and the assembly's local
 # labels kept, for the places inside its macros; the code is the same without
-LAB_FLAGS := -m2 -mb -O2 -g -Wall -Ilab -Isaturn -ffunction-sections
+LAB_FLAGS := -m2 -mb -O2 -g -Wall -Ilab -Isaturn -I$(LAB)/gen -ffunction-sections
 LAB_CXXFLAGS := $(LAB_FLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
 	-fno-asynchronous-unwind-tables
 
-$(LAB)/obj/%.cpp.o: %.cpp $(wildcard lab/*.h) saturn/hw.h saturn/font.h saturn/cd.h | check-toolchain
+$(LAB)/obj/%.cpp.o: %.cpp $(wildcard lab/*.h) saturn/hw.h saturn/font.h saturn/cd.h saturn/dsp.h $(LAB_DSP) \
+		| check-toolchain
 	@mkdir -p $(@D)
 	$(CXX) $(LAB_CXXFLAGS) -c $< -o $@
+
+$(LAB)/gen/%.dsp: lab/gen_%.py
+	@mkdir -p $(@D)
+	$(PY) $< $@
+
+$(LAB)/gen/%_dsp.h: $(LAB)/gen/%.dsp tools/dspasm.py
+	$(PY) tools/dspasm.py $< $@ $*_dsp
 
 $(LAB)/obj/%.s.o: %.s | check-toolchain
 	@mkdir -p $(@D)
