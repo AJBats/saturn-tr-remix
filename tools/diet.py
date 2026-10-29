@@ -23,8 +23,6 @@ page.
 import math
 import struct
 
-from PIL import Image
-
 import trsat
 
 COLOUR_TYPES = (trsat.MESH_T_COLOR, trsat.MESH_R_COLOR)
@@ -445,6 +443,7 @@ def plank_parts(mesh, atlas, apart=None):
 
 
 def merge_tiles(mesh, fis, atlas):
+    from PIL import Image   # only here: packing a level without planks needs no Pillow
     faces = [mesh.faces[i] for i in fis]
     P = lambda i: mesh.vertices[i]
     a0 = P(faces[0][1][0])
@@ -468,6 +467,8 @@ def merge_tiles(mesh, fis, atlas):
     c0, r0 = min(c[0] for c in cells), min(c[1] for c in cells)
     cols = max(c[0] for c in cells) - c0 + 1
     rows = max(c[1] for c in cells) - r0 + 1
+    if len({c[:2] for c in cells}) != len(cells):
+        raise ValueError("tiles overlap")
     if cols * rows != len(cells):
         raise ValueError("tiles leave holes")
     t0 = atlas.lvl.object_textures[cells[0][2]]
@@ -614,6 +615,13 @@ def wolf_diet(lvl, model, meshes, atlas, states=WOLF_STATES):
         return {}, []
     parents, offsets = skeleton(lvl, model)
     frozen = sorted(j for k in WOLF_DIET_MERGES for j in WOLF_MERGES[k])
+    # a joint held still keeps its parent's matrix (draw.h drawNodes): a
+    # joint under it that moves would be drawn off it
+    for j in range(1, model["count"]):
+        if parents[j] in frozen and j not in frozen:
+            raise ValueError(f"wolf joint {j} moves but its parent {parents[j]} is held still")
+    if 0 in frozen:
+        raise ValueError("the wolf's root joint can't be held still")
     kept = lambda j: j if j not in frozen else kept(parents[j])
     start = model["start"]
     out = {}

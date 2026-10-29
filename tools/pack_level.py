@@ -285,6 +285,8 @@ class TextureTable:
         and 4-bit texels in a segment of their own, before the cache."""
         if any(k[0] == "item" for k in self.index):
             raise ValueError("custom textures go in before the inventory's")
+        if w % 8 or not 8 <= w <= 504 or not 1 <= h <= 255:
+            raise ValueError(f"a {w} x {h} texture: VDP1 takes widths of 8 .. 504 by 8 and heights to 255")
         seg = self.add_segment(struct.pack(">16H", *colors) + bytes(pixels))
         self.cache_off = (len(self.blob) + 31) & ~31
         if self.cache_off + len(self.lvl.item_tex_data) > 0x80000 - VRAM_TEX_BASE:
@@ -555,41 +557,21 @@ class Packer:
         return ((FACE_TYPE_FTA if transp else FACE_TYPE_FT) << FACE_TYPE_SHIFT) | index
 
     def write_mesh(self, out, index, mesh):
-        """Vertices are followed by their lighting: normals (as 8-bit vectors)
-        for meshes lit by the room's lights, or shades for pre-lit ones."""
-        quads = [f for f in mesh.faces if len(f[1]) == 4]
-        tris = [f for f in mesh.faces if len(f[1]) == 3]
-        intensity = sum(mesh.intensities) // len(mesh.intensities) if mesh.intensities else 0
-        if len(mesh.vertices) > 255:
-            raise ValueError(f"mesh {index}: {len(mesh.vertices)} vertices")
-        lighting = MESH_LIGHT_NORMALS if mesh.normals else MESH_LIGHT_SHADES if mesh.intensities else 0
-        # the radius is for collision, and often leaves vertices out
-        cx, cy, cz = mesh.center
-        bound = math.ceil(max((math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2)
-                               for x, y, z in mesh.vertices), default=0))
-        if bound > 0x7FFF:
-            raise ValueError(f"mesh {index}: bounding radius {bound}")
-        out.pack("4hH2B4h", *mesh.center, mesh.radius, intensity, len(mesh.vertices), lighting,
-                 len(quads), len(tris), bound, 0)
-        for v in mesh.vertices:
-            out.pack("3h", *v)
-        if mesh.normals:
-            for n in mesh.normals:  # 16384 long; 127 here
-                out.pack("4b", *(max(-127, min(127, c >> 7)) for c in n), 0)
-        elif mesh.intensities:
-            out.pack(f"{len(mesh.intensities)}B", *(max(0, min(255, i >> 5)) for i in mesh.intensities))
-            if len(mesh.intensities) & 1:
-                out.pack("B", 0)
-        for ftype, idx, flags in quads:
-            out.pack("H4B", self.mesh_face_flags(index, ftype, flags), *idx)
-        for ftype, idx, flags in tris:
+        quads = [(self.mesh_face_flags(index, ftype, flags), idx)
+                 for ftype, idx, flags in mesh.faces if len(idx) == 4]
+        tris = []
+        for ftype, idx, flags in mesh.faces:
+            if len(idx) != 3:
+                continue
             if ftype == trsat.MESH_T_COLOR:
                 arrangement = 0
             elif index in self.inventory_meshes:
                 arrangement = TRIANGLE_PLAIN    # item textures have no triangle variants
             else:
                 arrangement = TRIANGLE_ARRANGEMENT[flags >> 12]
-            out.pack("H4B", self.mesh_face_flags(index, ftype, flags), *idx, arrangement)
+            tris.append((self.mesh_face_flags(index, ftype, flags), idx, arrangement))
+        write_mesh_record(out, f"mesh {index}", mesh.center, mesh.radius, mesh.vertices,
+                          mesh.normals or None, mesh.intensities or None, quads, tris)
 
     # --- the diet (tools/diet.py) -----------------------------------------
 
@@ -618,6 +600,10 @@ class Packer:
                 if dm is None:
                     raise ValueError(f"static {st['id']} (diet.ROPE_STATICS) is not a rope static")
                 pairs.append((st["mesh"], dm))
+        # the game swaps each pair in the same order both ways (render.cpp
+        # renderDietSync): undone only when no mesh is in two
+        if len({index for index, _ in pairs}) != len(pairs):
+            raise ValueError("a mesh simplified twice")
         return pairs, nodes
 
     def diet_texture(self, texture):
@@ -632,6 +618,8 @@ class Packer:
                 _, w, h, texels, colors, transparent = texture
                 pixels = bytes((texels[i] << 4) | texels[i + 1] for i in range(0, len(texels), 2))
             index = self.textures.custom(pixels, colors, w, h, TEX_ATTR_AKILL if transparent else 0)
+            if index > FACE_TEXTURE_MAX:
+                raise ValueError("texture index does not fit the face flags")
             face_type = FACE_TYPE_FTA if transparent else FACE_TYPE_FT
             self.diet_textures[texture] = (face_type << FACE_TYPE_SHIFT) | index
         return self.diet_textures[texture]
@@ -672,37 +660,8 @@ class Packer:
             if not 0 < half <= diet.CARD_HALF_MAX:
                 raise ValueError(f"a card {half} units wide either side")
             cards.append((half, self.diet_texture(c["texture"])))
-        n = len(vertices)
-        if n > 255 or len(cards) > 255:
-            raise ValueError(f"a diet mesh of {n} vertices, {len(cards)} cards")
-        lighting = (MESH_LIGHT_NORMALS if normals is not None else
-                    MESH_LIGHT_SHADES if intensities is not None else 0)
-        intensity = sum(intensities) // len(intensities) if intensities else 0
-        cx, cy, cz = dm.center
-        reach = [math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) for x, y, z in vertices]
-        # a card's corners lie half its width from its ends, within the 4% of
-        # faces.s's length on the screen
-        for k, (half, _) in enumerate(cards):
-            end = n - 2 * len(cards) + 2 * k
-            reach += [reach[end] + 1.05 * half, reach[end + 1] + 1.05 * half]
-        bound = math.ceil(max(reach, default=0))
-        out.pack("4hH2B3h2B", cx, cy, cz, dm.radius, intensity, n, lighting, len(quads), len(tris), bound, 0,
-                 len(cards))
-        for v in vertices:
-            out.pack("3h", *v)
-        if lighting == MESH_LIGHT_NORMALS:
-            for q in normals:
-                out.pack("4b", *(max(-127, min(127, c >> 7)) for c in q), 0)
-        elif lighting == MESH_LIGHT_SHADES:
-            out.pack(f"{n}B", *(max(0, min(255, i >> 5)) for i in intensities))
-            if n & 1:
-                out.pack("B", 0)
-        for packed, idx in quads:
-            out.pack("H4B", packed, *idx)
-        for packed, idx, arrangement in tris:
-            out.pack("H4B", packed, *idx, arrangement)
-        for half, packed in cards:
-            out.pack("hH", half, packed)
+        write_mesh_record(out, "a diet mesh", dm.center, dm.radius, vertices, normals, intensities, quads, tris,
+                          cards)
         return bytes(out.b), polygon
 
     def diet_map(self, index, dm, polygon):
@@ -931,6 +890,46 @@ class Packer:
 MIP_DIFFUSION = 0.75    # how much of each texel's colour error its neighbours take
 
 
+def write_mesh_record(out, name, center, radius, vertices, normals, intensities, quads, tris, cards=()):
+    """A mesh as the game reads it (common.h Mesh): the header, vertices,
+    their lighting (normals as 8-bit vectors for meshes lit by the room's
+    lights, or shades for pre-lit ones, or neither), quads [(flags, idx)],
+    triangles [(flags, idx, arrangement)], and cards [(half, flags)]
+    (render.h MeshCard) whose ends are the last vertices, two a card."""
+    n = len(vertices)
+    if n > 255 or len(cards) > 255:
+        raise ValueError(f"{name}: {n} vertices, {len(cards)} cards")
+    lighting = MESH_LIGHT_NORMALS if normals else MESH_LIGHT_SHADES if intensities else 0
+    intensity = sum(intensities) // len(intensities) if intensities else 0
+    # bound: every vertex lies within it (the radius is for collision, and
+    # often leaves vertices out); a card's corners lie no farther from its
+    # ends in x or y than half its width (faces.s): within root 2 halves
+    cx, cy, cz = center
+    reach = [math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) for x, y, z in vertices]
+    for k, (half, _) in enumerate(cards):
+        end = n - 2 * len(cards) + 2 * k
+        reach += [reach[end] + 1.42 * half, reach[end + 1] + 1.42 * half]
+    bound = math.ceil(max(reach, default=0))
+    if bound > 0x7FFF:
+        raise ValueError(f"{name}: bounding radius {bound}")
+    out.pack("4hH2B3h2B", cx, cy, cz, radius, intensity, n, lighting, len(quads), len(tris), bound, 0, len(cards))
+    for v in vertices:
+        out.pack("3h", *v)
+    if lighting == MESH_LIGHT_NORMALS:
+        for q in normals:   # 16384 long; 127 here
+            out.pack("4b", *(max(-127, min(127, c >> 7)) for c in q), 0)
+    elif lighting == MESH_LIGHT_SHADES:
+        out.pack(f"{n}B", *(max(0, min(255, i >> 5)) for i in intensities))
+        if n & 1:
+            out.pack("B", 0)
+    for packed, idx in quads:
+        out.pack("H4B", packed, *idx)
+    for packed, idx, arrangement in tris:
+        out.pack("H4B", packed, *idx, arrangement)
+    for half, packed in cards:
+        out.pack("hH", half, packed)
+
+
 def hinted_faces(lvl, meshes):
     """The faces lvl's draw order hints name (saturn/depth_hints.txt), {mesh
     index: {face index (as mesh.faces has them): the hints naming it}}: the
@@ -940,18 +939,38 @@ def hinted_faces(lvl, meshes):
     for h in depth_hints.parse(os.path.join(ROOT, "saturn", "depth_hints.txt")):
         if h["level"] != level or h["node"] == depth_hints.WHOLE:
             continue
-        if h["kind"] == "item":
-            model = next(m for m in lvl.models if m["type"] == lvl.items[h["index"]]["type"])
-            mesh = model["start"] + h["node"]
-        else:
-            sid = lvl.rooms[h["owner"]].static_meshes[h["index"]]["mesh_id"]
-            mesh = next(st["mesh"] for st in lvl.static_meshes if st["id"] == sid)
-        triangle = bool(h["polygon"] & depth_hints.TRIANGLE)
-        polygons = [fi for fi, f in enumerate(meshes[mesh].faces) if (len(f[1]) == 3) == triangle]
-        fi = polygons[h["polygon"] & ~depth_hints.TRIANGLE]
+        found = hinted_face(lvl, meshes, h)
+        if found is None:
+            thing = f"item {h['index']}" if h["kind"] == "item" else f"static {h['owner']}:{h['index']}"
+            print(f"{lvl.name}: a draw order hint names no face of {thing} (m{h['node']}, polygon "
+                  f"{h['polygon']:#x}): the game ignores it", file=sys.stderr)
+            continue
+        mesh, fi = found
         hint = (h["kind"], h["owner"], h["index"], h["room"], h["bx"], h["bz"], h["behind_room"], tuple(h["behind"]))
         named.setdefault(mesh, {}).setdefault(fi, set()).add(hint)
     return {mesh: {fi: frozenset(hints) for fi, hints in faces.items()} for mesh, faces in named.items()}
+
+
+def hinted_face(lvl, meshes, h):
+    """The mesh and face (as mesh.faces) a draw order hint names, or None."""
+    if h["kind"] == "item":
+        if h["index"] >= len(lvl.items):
+            return None
+        model = next((m for m in lvl.models if m["type"] == lvl.items[h["index"]]["type"]), None)
+        if model is None or h["node"] >= model["count"]:
+            return None
+        mesh = model["start"] + h["node"]
+    else:
+        if h["owner"] >= len(lvl.rooms) or h["index"] >= len(lvl.rooms[h["owner"]].static_meshes):
+            return None
+        sid = lvl.rooms[h["owner"]].static_meshes[h["index"]]["mesh_id"]
+        mesh = next((st["mesh"] for st in lvl.static_meshes if st["id"] == sid), None)
+        if mesh is None or h["node"] != 0:
+            return None
+    triangle = bool(h["polygon"] & depth_hints.TRIANGLE)
+    polygons = [fi for fi, f in enumerate(meshes[mesh].faces) if (len(f[1]) == 3) == triangle]
+    index = h["polygon"] & ~depth_hints.TRIANGLE
+    return (mesh, polygons[index]) if index < len(polygons) else None
 
 
 def mip_texture(pixels, w, h, colors, transparent, factor):

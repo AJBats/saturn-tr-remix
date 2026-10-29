@@ -2185,8 +2185,19 @@ __attribute__((noinline)) static void renderMeshC(const Mesh* mesh)
             faceAddMeshTrianglesAsm(parts.triangles, mesh->tCount, &mf);
         }
     }
-    if (mesh->cCount > 0) {
+    if (mesh->cCount > 0)
+    {
+        Face* first = gFaceList.next;
         faceAddMeshCardsAsm(parts.cards, mesh->cCount, &mf, gVerticesBase + vCount - 2 * mesh->cCount);
+        // far ones flat, as the mesh's far faces: a card's corners A and C
+        // have its two ends' depths
+        for (Face* f = first; gFlatDist && f < gFaceList.next; f++)
+        {
+            int32 z = X_MIN(cornerVertex(f->indices[0], gVertices)->z, cornerVertex(f->indices[2], gVertices)->z);
+            if (faceFlat(f->flags, z, level.textures + (f->flags & FACE_TEXTURE))) {
+                f->flags = flatFlags(f->flags);
+            }
+        }
     }
 
     gVerticesBase += meshVertexCount(mesh);

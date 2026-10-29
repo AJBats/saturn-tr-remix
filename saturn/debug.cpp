@@ -178,6 +178,16 @@ enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_MULTIPLY, OPTION_GREY, 
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");
 
+// The menu's rows from MENU_ROW; a message on MESSAGE_ROW (above the frame
+// rows with HW_LOG), the stats rows up from it.
+#define MENU_ROW    1
+#ifdef HW_LOG
+#define MESSAGE_ROW (OVERLAY_ROWS - 3)
+#else
+#define MESSAGE_ROW (OVERLAY_ROWS - 1)
+#endif
+static_assert(MENU_ROW + OPTION_COUNT <= MESSAGE_ROW, "the menu's last option is above the message row");
+
 static uint16 gPad;
 static int32 gCursor;
 #ifndef HW_LOG
@@ -1079,15 +1089,11 @@ static void drawDebug()
             p = append(p, o.name);
             p = append(p, "  ");
             append(p, o.values[o.get()]);
-            overlayRow(2 + i, text);
+            overlayRow(MENU_ROW + i, text);
         }
     }
 
-#ifdef HW_LOG
-    int32 row = OVERLAY_ROWS - 3;   // above the frame rows
-#else
-    int32 row = OVERLAY_ROWS - 1;
-#endif
+    int32 row = MESSAGE_ROW;
 
     if (int32(gMessageEnd - gVblankCount) > 0)
     {

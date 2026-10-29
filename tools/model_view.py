@@ -115,32 +115,18 @@ def mesh_json(mesh, atlas):
 
 
 def model_json(lvl, meshes, atlas, type_, states=None):
+    """The model's skeleton, meshes and animations, read as tools/diet.py
+    reads them for the meshes the game draws."""
     model = next(m for m in lvl.models if m["type"] == type_)
-    starts = sorted({m["anim"] for m in lvl.models})
-    later = [a for a in starts if a > model["anim"]]
-    anims = range(model["anim"], min(later) if later else len(lvl.anims))
-    count = model["count"]
-    parents, offsets, stack, parent = [-1], [[0, 0, 0]], [], 0
-    for j in range(1, count):
-        flags, x, y, z = lvl.nodes[model["node"] + (j - 1) * 4: model["node"] + j * 4]
-        if flags & 1:
-            parent = stack.pop() if stack else 0
-        if flags & 2:
-            stack.append(parent)
-        parents.append(parent)
-        offsets.append([x, y, z])
-        parent = j
+    parents, offsets = diet.skeleton(lvl, model)
     out = {"parents": parents, "offsets": offsets, "anims": [],
-           "meshes": [mesh_json(meshes[model["start"] + j], atlas) for j in range(count)]}
-    for ai in anims:
+           "meshes": [mesh_json(meshes[model["start"] + j], atlas) for j in range(model["count"])]}
+    for ai in diet.model_anims(lvl, model):
         a = lvl.anims[ai]
-        n = (a["frame_end"] - a["frame_begin"]) // a["frame_rate"] + 1
-        size = 10 + 2 * count
         state = a["state"]
         name = states[state] if states and state < len(states) else str(state)
         out["anims"].append({"name": f"{ai - model['anim']}: {name}", "state": name, "rate": a["frame_rate"],
-                             "next": a["next_anim"] - model["anim"],
-                             "kf": [frame_at(lvl, a["frame_offset"] // 2 + k * size, count) for k in range(n)]})
+                             "next": a["next_anim"] - model["anim"], "kf": diet.keyframes(lvl, model, ai)})
     return out
 
 

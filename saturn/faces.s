@@ -369,17 +369,20 @@ _faceAddMeshTrianglesBody:
 ! so VDP1 draws a few long lines along it.
 !
 ! The line's length is taken within 4% (123/128 of the longer side and
-! 51/128 of the shorter), the width in sixteenths of a pixel until the
-! corners are rounded to whole ones: a rope far off is a pixel or two wide.
+! 51/128 of the shorter), in eighths of a pixel for a line of a few pixels,
+! and never shorter than its longer side: so a corner lies no farther from
+! its end in x or in y than half the card's width. The width is kept in
+! sixteenths of a pixel until the corners are rounded to whole ones: a rope
+! far off is a pixel or two wide. Seen exactly end on (both ends on one
+! pixel) a card has no line to stand across and draws as a point.
 !
 ! A card on the frame has no flags or clamps to work out, and moves x and y
 ! together in one longword: a card of a mesh wholly on the frame
 ! (MeshFaces.inside; tools/pack_level.py takes the cards into its bound), or
-! one whose ends are both farther inside the frame than M, a bound on how
-! far its corners lie from them in x or y. Otherwise a card with an end past
-! a plane isn't drawn, as a face with such a corner, nor one wholly beyond an
-! edge of the frame; its corners are flagged and clamped as the transform
-! does a vertex.
+! one whose ends are both farther inside the frame than its half width.
+! Otherwise a card with an end past a plane isn't drawn, as a face with such
+! a corner, nor one wholly beyond an edge of the frame; its corners are
+! flagged and clamped as the transform does a vertex.
 !
 ! faceAddMeshCardsBody: r4 the cards, r5 their count, r7 the first card's
 ! first end; r6, r8..r12 as ENTER sets, r8 kept.
@@ -439,31 +442,66 @@ _faceAddMeshTrianglesBody:
     bt      2f
     neg     r8, r8
 2:  cmp/hs  r8, r3
-    bt      3f
+    bt      4f
     mov     r3, r0
     mov     r8, r3
     mov     r0, r8
-3:  mov     #123, r0
-    mulu.w  r0, r3
-    mov     #51, r0
-    sts     macl, r3
-    mulu.w  r0, r8
-    sts     macl, r0
-    add     r0, r3
-    shll    r3
-    shlr8   r3                  ! (123 longer + 51 shorter) >> 7
-    tst     r3, r3
-    bf      4f
-    mov     #1, r3
-4:  mov     #5, r0
-    shll8   r0                  ! DIV_TABLE_SIZE - 1
+    ! a line longer than divTable reaches (an end clamped far off the
+    ! frame) halved, dx and dy with it: only their ratio to it counts
+4:  mov     #117, r0
+    shll2   r0
+    shll    r0                  ! 936: (123 * 936 + 51 * 936) >> 7 < DIV_TABLE_SIZE
     cmp/hi  r0, r3
     bf      5f
-    mov     r0, r3
-5:  mov.l   .LcardDivTable, r8
-    mov     r3, r0
+    shar    r13
+    shar    r14
+    shlr    r3
+    bra     4b
+    shlr    r8
+5:  mov     #51, r0
+    mulu.w  r0, r8
+    mov     #123, r0
+    sts     macl, r8
+    mulu.w  r0, r3
+    sts     macl, r0
+    add     r0, r8              ! 128 x the length
+    mov     #112, r0
+    cmp/hs  r0, r3
+    bt      7f
+    ! shorter than 112 pixels: in eighths of a pixel, rounded, at least 8 x
+    ! the longer side and 1
+    add     #8, r8
+    shlr2   r8
+    shlr2   r8
+    shll2   r3
+    shll    r3
+    cmp/hs  r3, r8
+    bt      6f
+    mov     r3, r8
+6:  tst     r8, r8
+    bf      8f
+    mov     #1, r8
+8:  mov.l   .LcardDivTable, r3
+    mov     r8, r0
     add     r0, r0
-    mov.w   @(r0, r8), r3
+    mov.w   @(r0, r3), r3
+    extu.w  r3, r3              ! 65536 / (8 x length)
+    mulu.w  r1, r3
+    sts     macl, r1
+    mulu.w  r2, r3
+    bra     9f
+    sts     macl, r2
+    ! longer: in pixels, rounded, at least the longer side
+7:  add     #64, r8
+    shll    r8
+    shlr8   r8
+    cmp/hs  r3, r8
+    bt      10f
+    mov     r3, r8
+10: mov.l   .LcardDivTable, r3
+    mov     r8, r0
+    add     r0, r0
+    mov.w   @(r0, r3), r3
     extu.w  r3, r3              ! 65536 / length
     mulu.w  r1, r3
     sts     macl, r1
@@ -473,6 +511,7 @@ _faceAddMeshTrianglesBody:
     sts     macl, r2
     shlr2   r2
     shlr    r2
+9:
     .endm
 
     .section .text.meshcards, "ax"
@@ -506,6 +545,9 @@ _faceAddMeshCardsBody:
     CARD_WIDTHS
     bra     .LcardOnFrame
     nop
+.LcardToFar:                    ! within a short branch of the tests below
+    bra     .LcardFar
+    nop
 
     ! not a mesh wholly on the frame: an end past a plane, not drawn; one off
     ! the frame, flagged and clamped
@@ -523,26 +565,23 @@ _faceAddMeshCardsBody:
     bt      3f
     bra     .LcardFar
     nop
-    ! M = max(r1, r2) * 17 / 256 + 2 whole pixels: no corner is farther from
-    ! its end in x or y (the half width's sixteenths, the 4% of the length,
-    ! the rounding). On the frame if each end is M or more inside each edge:
-    ! x - M within 0 .. 352 - 2M, y - M within 0 .. 224 - 2M
+    ! M = max(r1, r2) / 16 + 1 whole pixels: no corner is farther from its
+    ! end in x or y (half the width at most, rounded). On the frame if each
+    ! end is M or more inside each edge: x - M within 0 .. 352 - 2M, y - M
+    ! within 0 .. 224 - 2M
 3:  mov     r1, r3
     cmp/hi  r1, r2
     bf      4f
     mov     r2, r3
-4:  mov     r3, r0
-    shll2   r0
-    shll2   r0
-    add     r0, r3
-    shlr8   r3
-    add     #2, r3
+4:  shlr2   r3
+    shlr2   r3
+    add     #1, r3
     mov     #-32, r14
     extu.b  r14, r14            ! FRAME_HEIGHT
     sub     r3, r14
     sub     r3, r14
     cmp/pz  r14
-    bf      .LcardFar           ! wider than the frame is tall
+    bf      .LcardToFar         ! wider than the frame is tall
     mov     #88, r13
     shll2   r13                 ! FRAME_WIDTH
     sub     r3, r13
@@ -550,19 +589,19 @@ _faceAddMeshCardsBody:
     mov.w   @r7, r0
     sub     r3, r0
     cmp/hi  r13, r0
-    bt      .LcardFar
+    bt      .LcardToFar
     mov.w   @(8, r7), r0
     sub     r3, r0
     cmp/hi  r13, r0
-    bt      .LcardFar
+    bt      .LcardToFar
     mov.w   @(2, r7), r0
     sub     r3, r0
     cmp/hi  r14, r0
-    bt      .LcardFar
+    bt      .LcardToFar
     mov.w   @(10, r7), r0
     sub     r3, r0
     cmp/hi  r14, r0
-    bt      .LcardFar
+    bt      .LcardToFar
 
     ! on the frame: each end's offset (dx, dy) across, packed as a vertex's
     ! x and y, added for A and B, taken away for D and C
