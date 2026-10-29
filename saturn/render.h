@@ -405,42 +405,41 @@ struct MeshXform
 
 extern "C" void transformMeshAsm(const MeshVertex* src, int32 count, Vertex* dst, MeshXform* xf);
 
-// A card (tools/diet.py), after a mesh's triangles: a quad from e0 to e1
-// which the game turns about that line to face the camera (render.cpp
-// meshCards). p and q (127 long) and the line make a right-handed basis; hp
-// and hq are p and q half the card's width long. Each end is lit by a normal,
-// 127 long and leant out towards the camera as a box corner's is (none: by
-// the side facing the camera), or has a shade (light[0] as a uint8) when the
-// mesh has shades.
+// A card (tools/diet.py), after a mesh's triangles: a quad drawn on the
+// screen down the line between two of the mesh's vertices, half wide either
+// side of it at each end's depth, so that it always faces the camera. Its
+// texture runs across from corner A to B and along from A to D, v0 to v1.
+// The ends are vertices of the card's own, lit as any other: it moves them
+// to its corners A and D, and puts B and C in two vertices after the mesh's.
+// A card is long and thin, so VDP1 is best drawing its lines along it: at
+// level start its texture becomes a turned copy where there is one, as a
+// mesh's tall quads' do (render.cpp turnObjectQuads), and it is drawn D A B C.
 struct MeshCard
 {
-    vec3s e0;
-    vec3s e1;
-    vec3s hp;
-    vec3s hq;
-    uint16 flags;       // its face's: the texture
-    int8 p[4];          // and pad
-    int8 q[4];
-    int8 light0[4];     // e0's
-    int8 light1[4];     // e1's
-    uint16 pad;
+    uint8 v0;
+    uint8 v1;
+    int16 half;         // model units
+    uint16 flags;       // its face's
+    uint16 turned;      // its texture is a turned copy
 };
 
-// What a mesh draws, its cards counted as quads.
-X_INLINE int32 meshCardCount(const Mesh* mesh)
-{
-    return mesh->hasNormals >> MESH_CARDS_SHIFT;
-}
-
+// What a mesh draws: its vertices with two more for each card's corners,
+// and its faces with its cards.
 X_INLINE int32 meshVertexCount(const Mesh* mesh)
 {
-    return mesh->vCount + 4 * meshCardCount(mesh);
+    return mesh->vCount + 2 * mesh->cCount;
 }
 
 X_INLINE int32 meshFaceCount(const Mesh* mesh)
 {
-    return mesh->rCount + mesh->tCount + meshCardCount(mesh);
+    return mesh->rCount + mesh->tCount + mesh->cCount;
 }
+
+// Adds count cards to list, their mesh's vertices transformed at v, two
+// vertices for each card's corners B and C from extra on; flags as the
+// mesh's faces get (gMeshFaceFlags), corners as offsets from half.
+void faceAddMeshCards(const MeshCard* cards, int32 count, Vertex* v, Vertex* extra, FaceList &list, uint32 flags,
+                      const Vertex* half);
 
 // The simplified meshes the packer put beside the originals (tools/diet.py)
 // swapped in while the debug menu's Diet or the bench way Diet asks for them;

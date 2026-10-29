@@ -1691,10 +1691,9 @@ static void turnObjectQuads(uint32 budget)
         mesh->turned = 1;
 
         uint8* ptr = (uint8*)mesh + sizeof(Mesh) + mesh->vCount * sizeof(MeshVertex);
-        int32 lighting = mesh->hasNormals & MESH_LIGHT_MASK;
-        if (lighting == MESH_LIGHT_NORMALS) {
+        if (mesh->hasNormals == MESH_LIGHT_NORMALS) {
             ptr += mesh->vCount * 4;
-        } else if (lighting == MESH_LIGHT_SHADES) {
+        } else if (mesh->hasNormals == MESH_LIGHT_SHADES) {
             ptr += (mesh->vCount + 1) & ~1;
         }
         MeshQuad* quads = (MeshQuad*)ptr;
@@ -1711,6 +1710,18 @@ static void turnObjectQuads(uint32 budget)
             q.indices[2] = q.indices[1];
             q.indices[1] = q.indices[0];
             q.indices[0] = d;
+        }
+
+        MeshCard* cards = (MeshCard*)((MeshTriangle*)(quads + mesh->rCount) + mesh->tCount);
+        for (int32 j = 0; j < mesh->cCount; j++)
+        {
+            MeshCard &c = cards[j];
+            int32 turned = turnedIndex[c.flags & FACE_TEXTURE];
+            if (turned)
+            {
+                c.flags = (c.flags & ~FACE_TEXTURE) | turned;
+                c.turned = 1;
+            }
         }
     }
     level.texturesCount = gTurnedBase + gTurnedCount;
@@ -1998,6 +2009,7 @@ struct MeshParts
     const uint8* shades;    // or NULL
     const MeshQuad* quads;
     const MeshTriangle* triangles;
+    const MeshCard* cards;
 };
 
 static void meshParts(const Mesh* mesh, MeshParts &parts)
@@ -2010,13 +2022,12 @@ static void meshParts(const Mesh* mesh, MeshParts &parts)
 
     parts.normals = NULL;
     parts.shades = NULL;
-    int32 lighting = mesh->hasNormals & MESH_LIGHT_MASK;
-    if (lighting == MESH_LIGHT_NORMALS)
+    if (mesh->hasNormals == MESH_LIGHT_NORMALS)
     {
         parts.normals = (const int8*)ptr;
         ptr += vCount * 4;
     }
-    else if (lighting == MESH_LIGHT_SHADES)
+    else if (mesh->hasNormals == MESH_LIGHT_SHADES)
     {
         parts.shades = ptr;
         ptr += (vCount + 1) & ~1;
@@ -2026,6 +2037,9 @@ static void meshParts(const Mesh* mesh, MeshParts &parts)
     ptr += mesh->rCount * sizeof(MeshQuad);
 
     parts.triangles = (MeshTriangle*)ptr;
+    ptr += mesh->tCount * sizeof(MeshTriangle);
+
+    parts.cards = (MeshCard*)ptr;
 }
 
 int32 renderMeshPolygon(const Mesh* mesh, const Vertex* base, const Face* face, bool &triangle)
@@ -2060,7 +2074,8 @@ int32 renderMeshPolygon(const Mesh* mesh, const Vertex* base, const Face* face, 
 
 extern "C" void renderMeshAsm(const Mesh* mesh, Vertex** base, FaceList* list, uint32 flags);
 
-static_assert(sizeof(Mesh) == 20 && offsetof(Mesh, intensity) == 8 && offsetof(Mesh, vCount) == 10 &&
+static_assert(sizeof(Mesh) == 20 && offsetof(Mesh, cCount) == 19 && sizeof(MeshCard) == 8 &&
+              offsetof(Mesh, intensity) == 8 && offsetof(Mesh, vCount) == 10 &&
               offsetof(Mesh, hasNormals) == 11 && offsetof(Mesh, rCount) == 12 && offsetof(Mesh, tCount) == 14 &&
               offsetof(Mesh, bound) == 16 && MESH_LIGHT_NORMALS == 1 && MESH_LIGHT_SHADES == 2 &&
               MASTER_VERTICES == 2048 && offsetof(FaceList, end) == 4 && offsetof(Matrix, e03) == 12 &&
@@ -2133,10 +2148,22 @@ static void renderMeshHere(const Mesh* mesh)
 #ifdef HW_LOG
     gMeshesDrawn++;
 #endif
+    Vertex* base = gVerticesBase;
     if (!gFlatDist && gBenchMode != BENCH_C_MESHES) {
         renderMeshAsm(mesh, &gVerticesBase, &gFaceList, gMeshFaceFlags);
     } else {
         renderMeshC(mesh);
+    }
+
+    // its cards, if the mesh was drawn and their corners and faces fit
+    int32 cards = mesh->cCount;
+    if (cards && gVerticesBase != base && (gVerticesBase - gVertices) + 2 * cards <= MASTER_VERTICES &&
+        (gFaceList.next - gFaces) + cards <= MAX_FACES)
+    {
+        MeshParts parts;
+        meshParts(mesh, parts);
+        faceAddMeshCards(parts.cards, cards, base, gVerticesBase, gFaceList, gMeshFaceFlags, gVertices);
+        gVerticesBase += 2 * cards;
     }
 }
 
@@ -2250,129 +2277,8 @@ static void renderMeshHinted(const Mesh* mesh)
     }
 }
 
-// A mesh with cards, drawn as one built here for this CPU: its vertices,
-// lighting and faces, then each card's four corners and quad. The quad is
-// turned about the card's line to face the camera: with the camera at d from
-// the line's middle, in the mesh's space (-R^T t; the rotation has no scale),
-// and t its angle about the line from p towards q, the corners are the ends
-// moved by +-(hq cos t - hp sin t), which is half the width along line x d.
-#define CARD_MESH_BYTES 2048    // tools/pack_level.py checks the diet's fit
-static uint8 gCardMesh[2][CARD_MESH_BYTES] __attribute__((aligned(4)));
-static_assert(sizeof(MeshCard) == 44 && sizeof(MeshQuad) == 6 && sizeof(MeshTriangle) == 6, "tools/pack_level.py diet_mesh");
-
-static const Mesh* meshCards(const Mesh* mesh)
-{
-    int32 cards = meshCardCount(mesh);
-    MeshParts parts;
-    meshParts(mesh, parts);
-    const MeshCard* card = (const MeshCard*)(parts.triangles + mesh->tCount);
-
-    int32 lighting = mesh->hasNormals & MESH_LIGHT_MASK;
-    int32 vCount = mesh->vCount;
-    int32 total = vCount + 4 * cards;
-
-    Mesh* out = (Mesh*)gCardMesh[cpuState()->slave ? 1 : 0];
-    *out = *mesh;
-    out->vCount = total;
-    out->hasNormals = lighting;
-    out->rCount = mesh->rCount + cards;
-
-    uint8* ptr = (uint8*)out + sizeof(Mesh);
-    MeshVertex* v = (MeshVertex*)ptr;
-    memcpy(v, parts.vertices, vCount * sizeof(MeshVertex));
-    ptr += total * sizeof(MeshVertex);
-    int8* normals = NULL;
-    uint8* shades = NULL;
-    if (lighting == MESH_LIGHT_NORMALS)
-    {
-        normals = (int8*)ptr;
-        memcpy(normals, parts.normals, vCount * 4);
-        ptr += total * 4;
-    }
-    else if (lighting == MESH_LIGHT_SHADES)
-    {
-        shades = ptr;
-        memcpy(shades, parts.shades, vCount);
-        ptr += (total + 1) & ~1;
-    }
-    MeshQuad* quads = (MeshQuad*)ptr;
-    memcpy(quads, parts.quads, mesh->rCount * sizeof(MeshQuad));
-    memcpy(quads + out->rCount, parts.triangles, mesh->tCount * sizeof(MeshTriangle));
-
-    const Matrix &m = matrixGet();
-    int32 tx = sar<FIXED_SHIFT>(m.e03);
-    int32 ty = sar<FIXED_SHIFT>(m.e13);
-    int32 tz = sar<FIXED_SHIFT>(m.e23);
-    int32 cx = -sar<FIXED_SHIFT>(m.e00 * tx + m.e10 * ty + m.e20 * tz);
-    int32 cy = -sar<FIXED_SHIFT>(m.e01 * tx + m.e11 * ty + m.e21 * tz);
-    int32 cz = -sar<FIXED_SHIFT>(m.e02 * tx + m.e12 * ty + m.e22 * tz);
-
-    MeshVertex* c = v + vCount;
-    MeshQuad* q = quads + mesh->rCount;
-    for (int32 i = 0; i < cards; i++, card++, c += 4, q++)
-    {
-        int32 dx = cx - sar<1>(card->e0.x + card->e1.x);
-        int32 dy = cy - sar<1>(card->e0.y + card->e1.y);
-        int32 dz = cz - sar<1>(card->e0.z + card->e1.z);
-        int32 dp = dx * card->p[0] + dy * card->p[1] + dz * card->p[2];
-        int32 dq = dx * card->q[0] + dy * card->q[1] + dz * card->q[2];
-        int32 s, k;
-        sincos(phd_atan(sar<4>(dp), sar<4>(dq)), s, k);
-
-        int32 ox = sar<FIXED_SHIFT>(k * card->hq.x - s * card->hp.x);
-        int32 oy = sar<FIXED_SHIFT>(k * card->hq.y - s * card->hp.y);
-        int32 oz = sar<FIXED_SHIFT>(k * card->hq.z - s * card->hp.z);
-
-        c[0].x = card->e0.x + ox; c[0].y = card->e0.y + oy; c[0].z = card->e0.z + oz;
-        c[1].x = card->e0.x - ox; c[1].y = card->e0.y - oy; c[1].z = card->e0.z - oz;
-        c[2].x = card->e1.x - ox; c[2].y = card->e1.y - oy; c[2].z = card->e1.z - oz;
-        c[3].x = card->e1.x + ox; c[3].y = card->e1.y + oy; c[3].z = card->e1.z + oz;
-
-        if (normals)
-        {
-            // out: towards the camera across the line, 127 long
-            int32 outx = sar<FIXED_SHIFT>(k * card->p[0] + s * card->q[0]);
-            int32 outy = sar<FIXED_SHIFT>(k * card->p[1] + s * card->q[1]);
-            int32 outz = sar<FIXED_SHIFT>(k * card->p[2] + s * card->q[2]);
-            for (int32 e = 0; e < 2; e++)
-            {
-                const int8* l = e ? card->light1 : card->light0;
-                int32 nx = outx, ny = outy, nz = outz;
-                if (l[0] | l[1] | l[2])
-                {
-                    nx = sar<7>(l[0] * 74 + outx * 105);
-                    ny = sar<7>(l[1] * 74 + outy * 105);
-                    nz = sar<7>(l[2] * 74 + outz * 105);
-                }
-                int8* n = normals + (vCount + i * 4 + e * 2) * 4;
-                n[0] = n[4] = X_CLAMP(nx, -127, 127);
-                n[1] = n[5] = X_CLAMP(ny, -127, 127);
-                n[2] = n[6] = X_CLAMP(nz, -127, 127);
-                n[3] = n[7] = 0;
-            }
-        }
-        else if (shades)
-        {
-            uint8* s = shades + vCount + i * 4;
-            s[0] = s[1] = uint8(card->light0[0]);
-            s[2] = s[3] = uint8(card->light1[0]);
-        }
-
-        int32 base = vCount + i * 4;
-        q->flags = card->flags;
-        q->indices[0] = base;
-        q->indices[1] = base + 1;
-        q->indices[2] = base + 2;
-        q->indices[3] = base + 3;
-    }
-    return out;
-}
-
 void renderMesh(const Mesh* mesh)
 {
-    if (meshCardCount(mesh)) {
-        mesh = meshCards(mesh);
-    }
     if (cpuState()->slave)
     {
         roomsSlaveMesh(mesh);
@@ -2394,9 +2300,6 @@ void renderMesh(const Mesh* mesh)
 // (roomStaticsQueued), the master the rest.
 void renderStaticMesh(const Mesh* mesh)
 {
-    if (meshCardCount(mesh)) {
-        mesh = meshCards(mesh);
-    }
     if (cpuState()->slave)
     {
         roomsSlaveMesh(mesh);
@@ -2466,8 +2369,8 @@ void meshJobSetup(MeshJob &job, const Mesh* mesh)
     MeshParts parts;
     meshParts(mesh, parts);
     job.mesh = mesh;
-    job.vCount = mesh->vCount;
-    job.fCount = mesh->rCount + mesh->tCount;
+    job.vCount = meshVertexCount(mesh);
+    job.fCount = meshFaceCount(mesh);
     job.flags = gMeshFaceFlags;
     meshXformSetup(job.xf, mesh->intensity, parts.normals, parts.shades, &mesh->center, mesh->bound);
 }
@@ -2512,6 +2415,105 @@ void meshJobDraw(const MeshJob &job, Vertex* dst, FaceList &list)
     }
     if (mesh->tCount > 0) {
         faceAddMeshTrianglesAsm(parts.triangles, mesh->tCount, &mf);
+    }
+    if (mesh->cCount > 0) {
+        faceAddMeshCards(parts.cards, mesh->cCount, dst, dst + mesh->vCount, list, job.flags, half);
+    }
+}
+
+// A card's corner at (x, y) on the screen, with its end's depth and shade:
+// flagged and clamped off the frame as projectView does.
+X_INLINE void cardCorner(Vertex* out, int32 x, int32 y, const Vertex* end)
+{
+    uint32 clip = 0;
+    if (uint32(x) > FRAME_WIDTH || uint32(y) > FRAME_HEIGHT)
+    {
+        clip = CLIP_FRAME;
+        if (x < 0) clip |= CLIP_LEFT;
+        if (x > FRAME_WIDTH) clip |= CLIP_RIGHT;
+        if (y < 0) clip |= CLIP_TOP;
+        if (y > FRAME_HEIGHT) clip |= CLIP_BOTTOM;
+        x = X_CLAMP(x, VDP1_COORD_MIN, VDP1_COORD_MAX);
+        y = X_CLAMP(y, VDP1_COORD_MIN, VDP1_COORD_MAX);
+    }
+    out->x = x;
+    out->y = y;
+    out->z = end->z;
+    out->g = end->g;
+    out->clip = clip;
+}
+
+// Each card's ends are on the screen: its corners are the ends moved either
+// way across the line between them, by half its width at that end's depth
+// (half * 256 / z, as PERSPECTIVE projects), so the quad faces the camera
+// whatever the mesh's turn. The width is kept in sixteenths of a pixel until
+// the corners are rounded to whole ones (a rope far off is a pixel or two
+// wide), the line's length within 4% (the longer side and 2/5 of the shorter).
+void faceAddMeshCards(const MeshCard* cards, int32 count, Vertex* v, Vertex* extra, FaceList &list, uint32 flags,
+                      const Vertex* half)
+{
+    for (; count > 0; count--, cards++, extra += 2)
+    {
+        Vertex* a = v + cards->v0;
+        Vertex* d = v + cards->v1;
+        // past the near or far plane, as the mesh's faces with such corners
+        if ((a->clip | d->clip) & CLIP_PLANE)
+            continue;
+
+        int32 dx = d->x - a->x;
+        int32 dy = d->y - a->y;
+        uint32 ax = abs(dx);
+        uint32 ay = abs(dy);
+        uint32 len = (ax > ay ? ax * 123 + ay * 51 : ay * 123 + ax * 51) >> 7;
+        len = X_CLAMP(len, 1, DIV_TABLE_SIZE - 1);
+        uint32 inv = FixedInvU(len);
+
+        // (-dy, dx) * 65536 / len: across the line, 65536 long within 4%,
+        // each part at most about 68K; times half the width at each end in
+        // sixteenths of a pixel (at most 16320, from the near plane on) it
+        // fits 32 bits. The corners' offsets in pixels, rounded.
+        int32 nx = -dy * int32(inv);
+        int32 ny = dx * int32(inv);
+        int32 wa = (uint32(cards->half) * FixedInvU(uint32(a->z) >> PROJ_SHIFT)) >> (12 - PROJ_SHIFT);
+        int32 wd = (uint32(cards->half) * FixedInvU(uint32(d->z) >> PROJ_SHIFT)) >> (12 - PROJ_SHIFT);
+        int32 oax = sar<20>(nx * wa + (1 << 19));
+        int32 oay = sar<20>(ny * wa + (1 << 19));
+        int32 odx = sar<20>(nx * wd + (1 << 19));
+        int32 ody = sar<20>(ny * wd + (1 << 19));
+
+        Vertex* b = extra;
+        Vertex* c = extra + 1;
+        int32 x0 = a->x, y0 = a->y, x1 = d->x, y1 = d->y;
+        cardCorner(b, x0 - oax, y0 - oay, a);
+        cardCorner(c, x1 - odx, y1 - ody, d);
+        cardCorner(a, x0 + oax, y0 + oay, a);
+        cardCorner(d, x1 + odx, y1 + ody, d);
+
+        uint32 c0 = a->clip, c1 = b->clip, c2 = c->clip, c3 = d->clip;
+        if (cullFace(c0 & c1 & c2 & c3, c0 | c1 | c2 | c3))
+            continue;
+
+        uint32 f = cards->flags | flags;
+        if (faceFlat(f, X_MIN(a->z, d->z), level.textures + (f & FACE_TEXTURE))) {
+            f = flatFlags(f);
+        }
+
+        Face* face = faceAdd(list, uint32(a->z + d->z) >> (1 + OT_SHIFT));
+        face->flags = f;
+        if (cards->turned)
+        {
+            face->indices[0] = cornerOffset(d, half);
+            face->indices[1] = cornerOffset(a, half);
+            face->indices[2] = cornerOffset(b, half);
+            face->indices[3] = cornerOffset(c, half);
+        }
+        else
+        {
+            face->indices[0] = cornerOffset(a, half);
+            face->indices[1] = cornerOffset(b, half);
+            face->indices[2] = cornerOffset(c, half);
+            face->indices[3] = cornerOffset(d, half);
+        }
     }
 }
 

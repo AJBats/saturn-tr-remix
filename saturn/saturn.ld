@@ -46,6 +46,7 @@ SECTIONS
         *(.text.*meshJobDraw*)
         *(.text.shadeTableMiss)
         *(.text.meshwarm)
+        *(.text.*faceAddMeshCards*)
         __hot_end = .;
         *(.text .text.*)
         __text_end = .;

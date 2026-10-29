@@ -422,9 +422,7 @@ TRIANGLE_PLAIN = 0x80   # a textured triangle drawn without the parallelogram
 # Mesh.hasNormals: what follows a mesh's vertices
 MESH_LIGHT_NORMALS = 1  # an 8-bit normal (and a pad byte) per vertex
 MESH_LIGHT_SHADES = 2   # a shade per vertex (intensity >> 5), padded to even
-MESH_CARDS_SHIFT = 4    # the lighting byte's high nibble: the cards after the triangles
 MAX_MESHES = 512        # common.h
-CARD_MESH_BYTES = 2048  # render.cpp: a mesh with its cards turned into quads
 
 
 class Packer:
@@ -627,8 +625,9 @@ class Packer:
         return self.diet_textures[key]
 
     def diet_mesh(self, dm):
-        """A DietMesh as write_mesh lays a mesh out, its cards after the
-        triangles (render.h MeshCard)."""
+        """A DietMesh as write_mesh lays a mesh out, each card's ends two
+        vertices of its own after the mesh's, its card after the triangles
+        (render.h MeshCard)."""
         out = Out()
         quads, tris = [], []
         for f in dm.faces:
@@ -643,6 +642,9 @@ class Packer:
                 tris.append((packed, idx, 0))
             else:
                 tris.append((packed, idx, TRIANGLE_ARRANGEMENT[flags >> 12]))
+        vertices = [list(v) for v in dm.vertices]
+        normals = [list(n) for n in dm.normals] if dm.normals is not None else None
+        intensities = list(dm.intensities) if dm.intensities is not None else None
         cards = []
         for c in dm.cards:
             if c["texture"][0] == "image":
@@ -650,55 +652,44 @@ class Packer:
             else:
                 _, ftype, flags, src = c["texture"]
                 packed = self.mesh_face_flags(src, ftype, flags)
-            light = []
-            for end in (1, 2):
+            ends = []
+            for e, end in ((c["e0"], 1), (c["e1"], 2)):
+                ends.append(len(vertices))
+                vertices.append([round(q) for q in e])
                 if c["light"][0] == "normals":
-                    n = c["light"][end]
-                    light.append([round(127 * q) & 0xFF for q in n] + [0] if n else [0, 0, 0, 0])
+                    n = c["light"][end] or [0, 0, 0]
+                    normals.append([round(16384 * diet.CARD_LIGHT * q) for q in n])
                 else:
-                    light.append([max(0, min(255, int(c["light"][end]) >> 5)), 0, 0, 0])
-            # p, q: across the line, a right-handed basis with it
-            a = c["axis"]
-            helper = min(([1, 0, 0], [0, 1, 0], [0, 0, 1]), key=lambda h: abs(diet.dot(h, a)))
-            p = diet.unit(diet.cross(a, helper))
-            q = diet.cross(a, p)
-            cards.append(([round(v) for v in c["e0"]], [round(v) for v in c["e1"]], round(c["half"]),
-                          [round(c["half"] * v) for v in p], [round(c["half"] * v) for v in q], packed,
-                          [round(127 * v) & 0xFF for v in p], [round(127 * v) & 0xFF for v in q], light))
-        if len(cards) > 15 or len(dm.vertices) + 4 * len(cards) > 255:
-            raise ValueError("a diet mesh with too many cards")
-        n = len(dm.vertices)
-        lighting = (MESH_LIGHT_NORMALS if dm.normals is not None else
-                    MESH_LIGHT_SHADES if dm.intensities is not None else 0)
-        intensity = sum(dm.intensities) // len(dm.intensities) if dm.intensities else 0
+                    intensities.append(round(c["light"][end]))
+            cards.append((ends[0], ends[1], round(c["half"]), packed))
+        n = len(vertices)
+        if n > 255 or len(cards) > 255:
+            raise ValueError(f"a diet mesh of {n} vertices, {len(cards)} cards")
+        lighting = (MESH_LIGHT_NORMALS if normals is not None else
+                    MESH_LIGHT_SHADES if intensities is not None else 0)
+        intensity = sum(intensities) // len(intensities) if intensities else 0
         cx, cy, cz = dm.center
-        reach = [math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) for x, y, z in dm.vertices]
-        for e0, e1, half, *_ in cards:
-            for e in (e0, e1):
-                reach.append(math.sqrt((e[0] - cx) ** 2 + (e[1] - cy) ** 2 + (e[2] - cz) ** 2) + half)
+        reach = [math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) for x, y, z in vertices]
+        for v0, v1, half, _ in cards:
+            reach += [reach[v0] + half, reach[v1] + half]
         bound = math.ceil(max(reach, default=0))
-        out.pack("4hH2B4h", cx, cy, cz, dm.radius, intensity, n, lighting | (len(cards) << MESH_CARDS_SHIFT),
-                 len(quads), len(tris), bound, 0)
-        for v in dm.vertices:
+        out.pack("4hH2B3h2B", cx, cy, cz, dm.radius, intensity, n, lighting, len(quads), len(tris), bound, 0,
+                 len(cards))
+        for v in vertices:
             out.pack("3h", *v)
         if lighting == MESH_LIGHT_NORMALS:
-            for q in dm.normals:
+            for q in normals:
                 out.pack("4b", *(max(-127, min(127, c >> 7)) for c in q), 0)
         elif lighting == MESH_LIGHT_SHADES:
-            out.pack(f"{n}B", *(max(0, min(255, i >> 5)) for i in dm.intensities))
+            out.pack(f"{n}B", *(max(0, min(255, i >> 5)) for i in intensities))
             if n & 1:
                 out.pack("B", 0)
         for packed, idx in quads:
             out.pack("H4B", packed, *idx)
         for packed, idx, arrangement in tris:
             out.pack("H4B", packed, *idx, arrangement)
-        for e0, e1, half, hp, hq, packed, p, q, light in cards:
-            out.pack("12hH4B4B4B4BH", *e0, *e1, *hp, *hq, packed, *p, 0, *q, 0, *light[0], *light[1], 0)
-        # as meshCards builds it: the vertices and quads the cards add
-        expanded = (20 + (n + 4 * len(cards)) * (6 + (4 if lighting == MESH_LIGHT_NORMALS else 1) + 1)
-                    + (len(quads) + len(cards) + len(tris)) * 6)
-        if expanded > CARD_MESH_BYTES:
-            raise ValueError(f"a diet mesh needs {expanded} bytes with its cards")
+        for v0, v1, half, packed in cards:
+            out.pack("2BhHH", v0, v1, half, packed, 0)
         return bytes(out.b)
 
     # --- animation -------------------------------------------------------

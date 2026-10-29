@@ -5,8 +5,8 @@ side by side with them by the HD viewer (tools/model_view.py).
 The wolf: its ears merged into its head and the last two tail joints into the
 first, held in the standing pose; its lower legs and tail drawn as cards. A
 card is a quad from one end of a segment to the other that the game turns
-about that line to face the camera, textured with the segment seen from the
-side (render.cpp meshCards).
+on the screen to face the camera, textured with the segment seen from the
+side (render.h MeshCard, render.cpp faceAddMeshCards).
 
 The bridges: each plank's inside faces gone and the tiles of each of its
 faces drawn as one quad, their textures placed side by side; the rope
@@ -55,6 +55,10 @@ WOLF_DIET_MERGES = ["ears", "tail"]
 WOLF_DIET_CARDS = WOLF_LEG_CARDS + WOLF_TAIL_CARDS
 
 CARD_UNITS = 5      # model units a texel along a card, about the wolf's own textures
+# A card end's normal, as long as this: a box's corner normals lean out as
+# much as along the bone, so their lighting averaged round it is that of the
+# along-bone half alone, about 0.58 of a whole normal's.
+CARD_LIGHT = 0.58
 ROPE_CARD_WIDTH = 1.6   # a tube's card, in radii: between a three-sided tube's narrowest and widest
 
 
@@ -291,9 +295,11 @@ def card_of(mesh, atlas, axis=None, view=None):
 
 def bake_side(mesh, atlas, view, across, along, lo, hi):
     """The mesh's faces as seen from +view, orthographic: an RGBA image 8
-    texels across and a texel every CARD_UNITS along, row 0 at the low end."""
+    texels across and about a texel every CARD_UNITS along, row 0 at the low
+    end; at least twice as long as wide and a multiple of 8 long, as the game
+    can turn it (render.cpp turnable)."""
     w = 8
-    h = max(4, round((hi[along] - lo[along]) / CARD_UNITS))
+    h = max(16, -(-round((hi[along] - lo[along]) / CARD_UNITS) // 8) * 8)
     faces = []
     for ftype, idx, flags in mesh.faces:
         P = [mesh.vertices[i] for i in idx]
@@ -520,9 +526,9 @@ def rope_strands(mesh):
 # A simplified mesh for the packer: the source mesh's centre and radius (its
 # collision sphere stays), vertices with normals or intensities, faces as the
 # level has them (type, corners, flags and the mesh they came from) or merged
-# ("merged": corners and an RGBA image), and cards: e0, e1, half width, axis
-# (unit), texture ("image" RGBA with see-through texels, or "face" of the
-# source mesh), and each end's light (unit normals, or intensities).
+# ("merged": corners and an RGBA image), and cards: e0, e1, half width,
+# texture ("image" RGBA with see-through texels, or "face" of the source
+# mesh), and each end's light (unit normals along the bone, or intensities).
 
 class DietMesh:
     def __init__(self, source):
@@ -579,7 +585,7 @@ def wolf_diet(lvl, model, meshes, atlas, states=WOLF_STATES):
             if M:
                 n0 = rotate(M, n0) if n0 else None
                 n1 = rotate(M, n1) if n1 else None
-            out[k].cards.append({"e0": e0, "e1": e1, "half": c["half"], "axis": unit(sub(e1, e0)),
+            out[k].cards.append({"e0": e0, "e1": e1, "half": c["half"],
                                  "texture": ("image", c["image"]), "light": ("normals", n0, n1)})
         elif j != k:
             out[k].add_mesh(mesh, start + j, M)
@@ -627,6 +633,6 @@ def rope_diet(mesh, index):
                 return None     # every texture here runs v along its tube
             ftype, idx, flags = mesh.faces[seg["faces"][0]]
             e0, e1 = s["pts"][k], s["pts"][k + 1]
-            out.cards.append({"e0": e0, "e1": e1, "half": s["r"] * ROPE_CARD_WIDTH / 2, "axis": unit(sub(e1, e0)),
+            out.cards.append({"e0": e0, "e1": e1, "half": s["r"] * ROPE_CARD_WIDTH / 2,
                               "texture": ("face", ftype, flags, index), "light": ("intensities", shade, shade)})
     return out

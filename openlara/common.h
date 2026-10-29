@@ -1040,14 +1040,11 @@ struct Model {
 
 // What follows a mesh's vertices (tools/pack_level.py): nothing, a normal per
 // vertex (int8 x, y, z, pad; 127 long), or a shade per vertex (intensity >> 5,
-// padded to an even count). The lighting byte's high nibble counts the cards
-// that follow the triangles (render.h MeshCard).
+// padded to an even count).
 enum MeshLighting {
     MESH_LIGHT_FLAT,
     MESH_LIGHT_NORMALS,
-    MESH_LIGHT_SHADES,
-    MESH_LIGHT_MASK = 15,
-    MESH_CARDS_SHIFT = 4
+    MESH_LIGHT_SHADES
 };
 
 struct Mesh {
@@ -1060,7 +1057,8 @@ struct Mesh {
     int16 tCount;
 #ifdef __SATURN__
     int16 bound;    // radius about the centre that every vertex lies within
-    int16 turned;   // its quads with tall textures are turned (render.cpp turnObjectQuads)
+    uint8 turned;   // its quads with tall textures are turned (render.cpp turnObjectQuads)
+    uint8 cCount;   // cards after the triangles (render.h MeshCard)
 #else
     int16 crCount;
     int16 ctCount;
