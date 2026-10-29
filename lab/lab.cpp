@@ -58,7 +58,8 @@ struct LabResults
     int32_t newVisited;         // commands VDP1 follows in the new list
     int32_t newShaded;          // ... the same as the game's but for a shaded copy of a colour table
                                 // where the other has gouraud of its value, or the other way
-    int32_t newWaterBad;        // every draw under water: commands facesMeshAsm makes not as facesMeshC
+    int32_t newAsmBad;          // what the scene seldom gives the new way (every draw and room under
+                                // water, the rooms a frame on): commands its assembly makes not as its C
     uint32_t meshCommands;      // the master's draws' commands
     uint32_t roomCommands;      // the rooms'
     uint32_t vdp1New;           // cycles VDP1 drew the new list in
@@ -283,6 +284,9 @@ static FaceRoom gRooms[MAX_ROOMS];
 static uint32_t gRoomCount;
 static RoomTextures gRoomTextures;
 static RoomSplit gSplit;
+#define MAX_ROOM_TEXTURES   512
+static RoomMaterial gRoomMaterials[MAX_ROOM_TEXTURES];
+static bool gRoomTexturesShort;     // the rooms take more textures than that
 
 static void newPrepare()
 {
@@ -297,18 +301,29 @@ static void newPrepare()
     gSplit.bottom = sceneInfo().bottom;
 }
 
-// The rooms in the order the slave faced them, through facesRoomC.
+// The rooms in the order the slave faced them, through facesRoom or (c)
+// facesRoomC.
 static void newRooms(bool c)
 {
-    (void)c;
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
         const RoomScene &scene = gRoomScenes[i];
         if (scene.dsp) {
             cacheDrop(gRooms[i].vertices, scene.verticesCount * sizeof(Vertex));  // the DSP wrote some
         }
-        facesRoomC(gRooms[i], gRoomTextures, gSplit, gRoomList);
+        if (c) {
+            facesRoomC(gRooms[i], gRoomTextures, gSplit, gRoomList);
+        } else {
+            facesRoom(gRooms[i], gRoomTextures, gSplit, gRoomList);
+        }
     }
+}
+
+// The cache holds every texture the frame's faces drew with: one it misses,
+// the game failed to take into it.
+static int32_t roomTextureMiss(uint32_t, uint32_t, uint32_t)
+{
+    return -1;
 }
 
 // The rooms as facesRoom* takes them, and the cache as the frame found it.
@@ -360,6 +375,25 @@ static void newRoomsInit()
     t.pools[0] = info.detailVram;
     t.pools[1] = info.poolVram[1];
     t.pools[2] = info.poolVram[2];
+    t.miss = roomTextureMiss;
+
+    // the materials of the textures the rooms' faces take
+    uint32_t textures = 0;
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        const FaceRoom &room = gRooms[i];
+        for (int32_t k = 0; k < room.quadsCount; k++) {
+            uint32_t n = (room.quads[k].flags & 0x3FFF) + 1;
+            textures = n > textures ? n : textures;
+        }
+        for (int32_t k = 0; k < room.trianglesCount; k++) {
+            uint32_t n = (room.triangles[k].flags & 0x3FFF) + 1;
+            textures = n > textures ? n : textures;
+        }
+    }
+    gRoomTexturesShort = textures > MAX_ROOM_TEXTURES;
+    facesRoomMaterials(t, gRoomMaterials, gRoomTexturesShort ? MAX_ROOM_TEXTURES : textures);
+    t.materials = gRoomMaterials;
     gSplit.vertices = gVertices;
     gSplit.divTable = sceneArray<const uint16_t>("DIVT");
     gMeshFirst = 1 + info.slaveFaces;
@@ -417,23 +451,99 @@ static uint32_t commandHash(int32_t slot)
     return ((h << 5) | (h >> 27)) ^ gNewGrd[slot][0] ^ (gNewGrd[slot][1] << 1);
 }
 
-// Every draw under water, through facesMeshC and facesMeshAsm: the commands
-// that differ. A scene has few draws under water, if any, and fewer far off.
-static int32_t newWaterCheck()
+// The quads' flags, their kept turns and mip levels in the top byte, saved
+// (save) or put back.
+static void roomQuadFlags(bool save)
+{
+    static uint32_t flags[2048];
+    int32_t n = 0;
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        for (int32_t k = 0; k < gRooms[i].quadsCount && n < 2048; k++, n++)
+        {
+            if (save) {
+                flags[n] = gRooms[i].quads[k].flags;
+            } else {
+                gRooms[i].quads[k].flags = flags[n];
+            }
+        }
+    }
+}
+
+// The room texture cache as the frame found it, for the loader below.
+static uint8_t gKeys[DETAIL_VARIANTS][DETAIL_MAX_KEYS];
+
+// A loader taking a texture into the cache as the frame had it.
+static int32_t roomTextureReload(uint32_t key, uint32_t, uint32_t variant)
+{
+    gRoomTextures.keys[variant][key] = gKeys[variant][key];
+    return int32_t(gKeys[variant][key]) - 1;
+}
+
+// The new way in C, then in assembly, on what a scene seldom gives it: every
+// draw and room under water; the rooms a frame on, the quads that kept their
+// turn and mip level deciding them and the others keeping theirs; the cache
+// missing every other texture, its loader taking them. The commands that
+// differ.
+static int32_t newAsmCheck()
 {
     static uint32_t hashes[MAX_CMDS];
-    newPrepare();
-    newMeshes(true, true);
-    int32_t end = facesSlot(gMeshList.link);
-    for (int32_t i = gMeshFirst; i < end; i++) {
-        hashes[i] = commandHash(i);
+    roomQuadFlags(true);
+    memcpy(gKeys, gRoomTextures.keys, sizeof(gKeys));
+    int32_t bad = 0;
+    for (int32_t pass = 0; pass < 3; pass++)
+    {
+        bool wet = pass == 0;
+        for (uint32_t i = 0; i < gRoomCount; i++) {
+            gRooms[i].flags = wet || gRoomScenes[i].wet ? FACE_WATER : 0;
+        }
+        gRoomTextures.frame = sceneInfo().detailFrame + (pass == 1);
+        gRoomTextures.miss = pass == 2 ? roomTextureReload : roomTextureMiss;
+        int32_t rooms = 0, meshes = 0;
+        for (int32_t c = 1; c >= 0; c--)
+        {
+            roomQuadFlags(false);
+            if (pass == 2)
+            {
+                for (int32_t v = 0; v < DETAIL_VARIANTS; v++) {
+                    for (int32_t k = 1; k < DETAIL_MAX_KEYS; k += 2) {
+                        gRoomTextures.keys[v][k] = 0;
+                    }
+                }
+            }
+            newPrepare();
+            newRooms(c);
+            newMeshes(c, wet);
+            int32_t roomEnd = facesSlot(gRoomList.link), meshEnd = facesSlot(gMeshList.link);
+            if (c)
+            {
+                rooms = roomEnd;
+                meshes = meshEnd;
+            }
+            else
+            {
+                bad += (roomEnd != rooms) + (meshEnd != meshes);
+            }
+            for (int32_t i = 1; i < meshes; i++)
+            {
+                if (i == rooms) {
+                    i = gMeshFirst;
+                }
+                if (c) {
+                    hashes[i] = commandHash(i);
+                } else {
+                    bad += commandHash(i) != hashes[i];
+                }
+            }
+        }
     }
-    newPrepare();
-    newMeshes(false, true);
-    int32_t bad = facesSlot(gMeshList.link) != end;
-    for (int32_t i = gMeshFirst; i < end; i++) {
-        bad += commandHash(i) != hashes[i];
+    for (uint32_t i = 0; i < gRoomCount; i++) {
+        gRooms[i].flags = gRoomScenes[i].wet ? FACE_WATER : 0;
     }
+    gRoomTextures.frame = sceneInfo().detailFrame;
+    gRoomTextures.miss = roomTextureMiss;
+    memcpy(gRoomTextures.keys, gKeys, sizeof(gKeys));
+    roomQuadFlags(false);
     return bad;
 }
 
@@ -465,9 +575,9 @@ static void stageNew()
     gLab.roomCommands = facesSlot(gRoomList.link) - 1;
     gLab.newMeshes = measure([] { newPrepare(); }, [] { newMeshes(false); });
     gLab.meshCommands = facesSlot(gMeshList.link) - gMeshFirst;
-    gLab.newWaterBad = newWaterCheck();
+    gLab.newAsmBad = newAsmCheck();
     gLab.newJoin = measure([] { newPrepare(); newRooms(false); newMeshes(false); }, [] { newJoin(false); });
-    gLab.newBad = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded);
+    gLab.newBad = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded) + gRoomTexturesShort;
 }
 
 // A row: a name, ms, and SH-2 cycles a unit.
@@ -528,10 +638,10 @@ static void newPage()
     p = putNumber(p, gLab.newShaded, 4);
     put(p, " shaded another way");
     page.add(line);
-    p = put(line, "all draws under water: asm ");
-    p = put(p, gLab.newWaterBad ? "OFF" : "as C");
+    p = put(line, "wet, a frame on, misses: asm ");
+    p = put(p, gLab.newAsmBad ? "OFF" : "as C");
     p = put(p, " (");
-    p = putNumber(p, gLab.newWaterBad, 0);
+    p = putNumber(p, gLab.newAsmBad, 0);
     put(p, " off)");
     page.add(line);
     p = put(line, "VDP1 ms: game's list");

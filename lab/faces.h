@@ -117,11 +117,30 @@ void facesMeshC(const FaceSet* set, const Vertex* vertices, uint32_t mode, Comma
 // The shadows' faces: an octagon's three quads.
 const FaceSet* facesShadow();
 
+// A room texture as facesroom.s draws it (facesRoomMaterials): from the
+// cache, or without it. Room textures have no character but in the cache
+// (pack_level.py), so without it a face is a polygon in the texture's mean
+// colour, or left out for one with see-through texels.
+struct RoomMaterial
+{
+    uint32_t w0;                // +0  from the cache: the control word (a distorted sprite, the
+                                // texture's flip, a jump to CMDLINK) << 16
+    uint32_t w1;                // +4  ... draw mode << 16 | colour table
+    int16_t key;                // +8  in the cache, -1 none
+    uint16_t colour;            // +10 its mean
+    uint8_t mips;               // +12 the mip levels it takes: 0 .. 2
+    uint8_t skip;               // +13 see-through texels: left out without the cache
+    uint16_t lines[2];          // +14 4 x its texels along a face's lines, as it is and turned
+    uint16_t sizes[6];          // +18 CMDSIZE by variant: mip level * 2 + turned
+    uint16_t spare;
+};
+
 // The room texture cache as the frame finds it, and what room faces take
 // from the level besides their own data.
 struct RoomTextures
 {
     const Texture* textures;
+    const RoomMaterial* materials;  // by texture, for facesroom.s
     const uint16_t* palette;    // coloured faces' colours
     uint8_t (*keys)[DETAIL_MAX_KEYS];  // a texture's slot + 1 in its level's pool, by variant; 0 none
     DetailSlot* slots;          // each pool's in turn
@@ -130,7 +149,12 @@ struct RoomTextures
                                 // takes the next mip level; 0, full res only
     uint32_t pmod;              // textured faces' draw mode
     uint32_t pools[3];          // each level's pool in VDP1 VRAM: full res, half, quarter
+    int32_t (*miss)(uint32_t key, uint32_t size, uint32_t variant);  // a texture the cache
+                                // hasn't, into it: its slot, or -1 (detail.cpp detailSlotMiss)
 };
+
+// The room materials of textures 0 .. count - 1.
+void facesRoomMaterials(const RoomTextures &textures, RoomMaterial* materials, int32_t count);
 
 // A room as its faces take it.
 struct FaceRoom
@@ -161,8 +185,57 @@ struct RoomSplit
 };
 
 // A room's faces: its quads in their runs, then its triangles, as the game
-// adds them (faces.s, rooms.cpp roomFaces), each straight to its command.
+// adds them (faces.s, rooms.cpp roomFaces), each straight to its command,
+// through facesroom.s; facesRoomC does the same in C.
+void facesRoom(const FaceRoom &room, RoomTextures &textures, RoomSplit &split, CommandList &list);
 void facesRoomC(const FaceRoom &room, RoomTextures &textures, RoomSplit &split, CommandList &list);
+
+// A face's shading in facesroom.s.
+enum RoomShading { SHADING_WATER = -1, SHADING_NEAR, SHADING_FAR, SHADING_PLAIN };
+
+// A variant of a room texture in the cache (a mip level, turned or not) as
+// facesroom.s draws it.
+struct RoomVariant
+{
+    const uint8_t* keys;        // +0  the cache's slot + 1 by key
+    uint32_t* frames;           // +4  its pool's first slot's frame (DetailSlot.frame)
+    uint16_t pool;              // +8  the pool's place in VDP1 VRAM / 8
+    uint16_t step;              // +10 a slot's size / 8
+    uint8_t size;               // +12 the variant's CMDSIZE's offset in a RoomMaterial
+    uint8_t turned;             // +13 drawn A D C B, the texture transposed
+    int8_t shading;             // +14 RoomShading
+    uint8_t variant;            // +15 the cache's (DetailVariant), for its miss
+};
+
+// What facesroom.s takes for a room, from the room, the cache and the list
+// (facesRoom), at GBR as its faces go.
+struct RoomRun
+{
+    const Vertex* vertices;     // +0  the room's
+    const RoomMaterial* materials;  // +4
+    uint32_t frame;             // +8  RoomTextures'
+    int32_t lod;                // +12 ...
+    int32_t parity;             // +16 the run's, as facesRoomC's
+    uint32_t* end;              // +20 the list's
+    uint16_t* heads;            // +24 ...
+    uint16_t* tails;            // +28
+    const uint16_t* shadeGouraud;   // +32
+    ShadeCache* shade;          // +36
+    const uint8_t* shadeLevel;  // +40
+    CommandList* list;          // +44 its cursors, kept in registers but for calls
+    int32_t (*miss)(uint32_t key, uint32_t size, uint32_t variant);  // +48 RoomTextures'
+    void (*careful)(RoomRun* run, const RoomQuad* quad);    // +52 a quad a plane cuts, or near
+                                // the camera: split, filled or whole, in C
+    uint32_t facing;            // +56 the run's quads face the camera: no back face test
+    int32_t plain;              // +60 the shading of faces drawn without the cache
+    RoomVariant variants[6];    // +64 by mip level * 2 + turned
+    const FaceRoom* room;       // +160 for careful
+    RoomTextures* textures;     // +164
+    RoomSplit* split;           // +168
+};
+
+extern "C" void facesRoomQuadsAsm(RoomQuad* quads, int32_t count, RoomRun* run);
+extern "C" void facesRoomTrianglesAsm(const RoomQuad* triangles, int32_t count, RoomRun* run);
 
 // One face as the game made it (a sprite's, a portal's fill: render.cpp
 // faceCommand), into bucket depth.

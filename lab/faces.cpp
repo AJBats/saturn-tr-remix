@@ -4,6 +4,7 @@
 #include "faces.h"
 #include "hw.h"
 
+#include <stddef.h>
 #include <string.h>
 
 #define FRAME_WIDTH     352
@@ -454,17 +455,21 @@ static inline uint32_t detailPoolStart(uint32_t level)
 }
 
 // The texture's slot in its level's pool for the variant, marked drawn this
-// frame; -1 when not cached. The frame's cache already holds what its faces
-// took, and what it failed to take, a face draws without.
-static int32_t cachedSlot(RoomTextures &t, uint32_t key, uint32_t variant)
+// frame (taken into the cache if it hasn't it); -1 when not cached.
+static int32_t cachedSlot(RoomTextures &t, const Texture &tex, uint32_t variant)
 {
+    uint32_t key = tex.reserved - 1;
     if (key >= DETAIL_MAX_KEYS)
         return -1;
-    uint32_t cached = t.keys[variant][key];
-    if (!cached)
-        return -1;
-    t.slots[detailPoolStart(detailLevel(variant)) + cached - 1].frame = t.frame;
-    return cached - 1;
+    int32_t slot = int32_t(t.keys[variant][key]) - 1;
+    if (slot < 0)
+    {
+        slot = t.miss(key, tex.size, variant);
+        if (slot < 0)
+            return -1;
+    }
+    t.slots[detailPoolStart(detailLevel(variant)) + slot].frame = t.frame;
+    return slot;
 }
 
 // faces.s WHOLE: the face's texture whole from the cache, at mip level
@@ -475,7 +480,7 @@ static uint32_t wholeTexture(RoomTextures &t, uint32_t flags, uint32_t variant)
     static const uint8_t kVariants[6] = { DETAIL_WHOLE, DETAIL_TURNED, DETAIL_MIP1, DETAIL_MIP1_TURNED,
                                           DETAIL_MIP2, DETAIL_MIP2_TURNED };
     const Texture &tex = t.textures[flags & FACE_TEXTURE];
-    int32_t slot = tex.reserved ? cachedSlot(t, tex.reserved - 1, kVariants[variant]) : -1;
+    int32_t slot = tex.reserved ? cachedSlot(t, tex, kVariants[variant]) : -1;
     if (slot < 0)
         return flags;
     flags |= FACE_DETAIL | FACE_DETAIL_WHOLE | (uint32_t(slot) << FACE_DETAIL_SLOT_SHIFT);
@@ -622,7 +627,7 @@ static bool roomSplit(const FaceRoom &room, RoomTextures &t, RoomSplit &split, C
     if (split.top - 5 < split.bottom || list.cmd + 4 * 8 > list.end)
         return false;
     const Texture &tex = t.textures[q.flags & FACE_TEXTURE];
-    int32_t slot = cachedSlot(t, tex.reserved - 1, DETAIL_QUADS);
+    int32_t slot = cachedSlot(t, tex, DETAIL_QUADS);
     if (slot < 0)
         return false;
 
@@ -807,6 +812,106 @@ void facesRoomC(const FaceRoom &room, RoomTextures &t, RoomSplit &split, Command
         uint32_t variant = roomVariant(t, q->flags, a, b, c, c);
         uint32_t flags = q->flags | room.flags | FACE_TRIANGLE;
         roomCommand(list, t, wholeTexture(t, flags, variant), a, b, c, c, zMax(a, b, c, c) >> OT_SHIFT);
+    }
+}
+
+// --- rooms through facesroom.s ------------------------------------------
+
+static_assert(sizeof(RoomMaterial) == 32 && offsetof(RoomMaterial, key) == 8 &&
+              offsetof(RoomMaterial, mips) == 12 && offsetof(RoomMaterial, lines) == 14 &&
+              offsetof(RoomMaterial, sizes) == 18 && sizeof(RoomVariant) == 16 &&
+              offsetof(RoomVariant, shading) == 14 && offsetof(RoomRun, parity) == 16 &&
+              offsetof(RoomRun, list) == 44 && offsetof(RoomRun, facing) == 56 &&
+              offsetof(RoomRun, variants) == 64 && offsetof(RoomRun, room) == 160 &&
+              offsetof(DetailSlot, frame) == 4 && sizeof(DetailSlot) == 8, "facesroom.s's layouts");
+
+void facesRoomMaterials(const RoomTextures &t, RoomMaterial* materials, int32_t count)
+{
+    for (int32_t i = 0; i < count; i++)
+    {
+        const Texture &tex = t.textures[i];
+        RoomMaterial &m = materials[i];
+        uint32_t w[3];
+        const uint32_t cached = FACE_DETAIL | FACE_DETAIL_WHOLE;
+        roomMaterial(t, i | cached, w);
+        m.w0 = w[0];
+        m.w1 = w[1];
+        m.key = cacheable(t, i) ? tex.reserved - 1 : -1;
+        m.colour = tex.color;
+        m.mips = tex.size & 7 ? 0 : tex.size & 0x010F ? 1 : 2;
+        m.skip = (tex.attr & TEX_ATTR_AKILL) != 0;
+        m.lines[0] = (tex.size >> 8) << 6;
+        m.lines[1] = (tex.size & 0xFF) << 3;
+        for (uint32_t v = 0; v < 6; v++)
+        {
+            uint32_t level = v >> 1;
+            uint32_t flags = i | cached | (v & 1 ? FACE_DETAIL_TURNED : 0) |
+                             (level ? FACE_DETAIL_MIP : 0) | (level == 2 ? FACE_DETAIL_MIP2 : 0);
+            roomMaterial(t, flags, w);
+            m.sizes[v] = w[2] & 0xFFFF;
+        }
+        m.spare = 0;
+    }
+}
+
+static void roomCareful(RoomRun* run, const RoomQuad* q)
+{
+    roomQuadCareful(*run->room, *run->textures, *run->split, *run->list, *q);
+}
+
+void facesRoom(const FaceRoom &room, RoomTextures &t, RoomSplit &split, CommandList &list)
+{
+    static const uint8_t kVariants[6] = { DETAIL_WHOLE, DETAIL_TURNED, DETAIL_MIP1, DETAIL_MIP1_TURNED,
+                                          DETAIL_MIP2, DETAIL_MIP2_TURNED };
+    bool water = room.flags & FACE_WATER;
+    RoomRun run;
+    run.vertices = room.vertices;
+    run.materials = t.materials;
+    run.frame = t.frame;
+    run.lod = t.lod;
+    run.end = list.end;
+    run.heads = list.heads;
+    run.tails = list.tails;
+    run.shadeGouraud = list.shadeGouraud;
+    run.shade = list.shade;
+    run.shadeLevel = list.shadeLevel;
+    run.list = &list;
+    run.miss = t.miss;
+    run.careful = roomCareful;
+    run.plain = water ? SHADING_WATER : SHADING_PLAIN;
+    for (uint32_t v = 0; v < 6; v++)
+    {
+        RoomVariant &rv = run.variants[v];
+        uint32_t level = v >> 1;
+        rv.keys = t.keys[kVariants[v]];
+        rv.frames = &t.slots[detailPoolStart(level)].frame;
+        rv.pool = t.pools[level] >> 3;
+        rv.step = (DETAIL_SLOT_SIZE >> 2 * level) >> 3;
+        rv.size = offsetof(RoomMaterial, sizes) + 2 * v;
+        rv.turned = v & 1;
+        rv.shading = water ? SHADING_WATER : level ? SHADING_FAR : SHADING_NEAR;
+        rv.variant = kVariants[v];
+    }
+    run.room = &room;
+    run.textures = &t;
+    run.split = &split;
+
+    int32_t offset = 0;
+    for (int32_t r = 0; r <= 6; r++)
+    {
+        int32_t count = r < 6 ? room.facing[r] : room.quadsCount - offset;
+        int32_t first = 0;
+        int32_t n = r < 6 ? facingQuads(room, room.quads + offset, count, r, first) : count;
+        if (n > 0)
+        {
+            run.facing = r < 6;
+            run.parity = int32_t(t.frame & 1) ^ ((room.quadsCount ^ (offset + first + n)) & 1);
+            facesRoomQuadsAsm(room.quads + offset + first, n, &run);
+        }
+        offset += count;
+    }
+    if (room.trianglesCount) {
+        facesRoomTrianglesAsm(room.triangles, room.trianglesCount, &run);
     }
 }
 

@@ -37,7 +37,7 @@ LAB_RESULTS = struct.Struct('>7I4i4I5I5i3I')    # lab.cpp LabResults
 FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSlave', 'floor',
           'facesBad', 'flushBad', 'splitBad', 'floorBad', 'vdp1Game', 'vdp1Lab', 'meshFacesGiven',
           'roomFacesGiven', 'meshFlush', 'roomFlush', 'newMeshes', 'newRooms', 'newJoin', 'newBad', 'newBadC',
-          'newVisited', 'newShaded', 'newWaterBad', 'meshCommands', 'roomCommands', 'vdp1New')
+          'newVisited', 'newShaded', 'newAsmBad', 'meshCommands', 'roomCommands', 'vdp1New')
 TEXT_ROWS, TEXT_COLUMNS = 26, 42
 PAGE = struct.Struct(f'>{TEXT_ROWS * (TEXT_COLUMNS + 1)}s2xi')     # lab.h Page
 VRAM_FRAME_CMDS = 0x60
@@ -100,20 +100,26 @@ def same(a, ga, b, gb, keys):
 
 def follow(cmds, grds, ref_cmds, ref_grds, keys):
     """The list from slot 0 as VDP1 follows its jumps, against the game's
-    sequential one: the commands followed and those that differ."""
+    sequential one: the commands followed and those that differ. Of the
+    first that differs, where each list has the other's command."""
     count = len(ref_grds) // 8
-    slot, bad, other = 0, [], 0
+    slot, bad, other, seq, followed = 0, [], 0, [], 0
     for k in range(count + 1):
         if not 0 <= slot < len(cmds) // 32:
-            return k, bad + list(range(k, count + 1)), other
+            bad += list(range(k, count + 1))
+            break
         a = struct.unpack_from('>8I', cmds, 32 * slot)
+        followed = k + 1
         if k == count:
-            return k + 1, bad + ([] if a[0] >> 16 & CMD_END else [k]), other
+            bad += [] if a[0] >> 16 & CMD_END else [k]
+            break
         if a[0] >> 16 & CMD_END:
-            return k + 1, bad + list(range(k, count + 1)), other
+            bad += list(range(k, count + 1))
+            break
         b = struct.unpack_from('>8I', ref_cmds, 32 * k)
         ga = struct.unpack_from('>2I', grds, 8 * slot) if 8 * slot + 8 <= len(grds) else None
         gb = struct.unpack_from('>2I', ref_grds, 8 * k)
+        seq.append((a, ga))
         alike = same(a, ga, b, gb, keys)
         other += alike == SAME_PICTURE
         if alike == SAME_NOT:
@@ -123,7 +129,17 @@ def follow(cmds, grds, ref_cmds, ref_grds, keys):
             bad.append(k)
         jump = (a[0] >> 28) & 7
         slot = ((a[0] & 0xFFFF) - (VRAM_FRAME_CMDS >> 3)) // 4 if jump in (1, 5) else slot + 1
-    return count + 1, bad, other
+    if bad and bad[0] < len(seq):
+        first = bad[0]
+        b = struct.unpack_from('>8I', ref_cmds, 32 * first)
+        gb = struct.unpack_from('>2I', ref_grds, 8 * first)
+        mine = [j for j, (a, ga) in enumerate(seq) if same(a, ga, b, gb, keys) != SAME_NOT]
+        a, ga = seq[first]
+        theirs = [i for i in range(count) if same(a, ga, struct.unpack_from('>8I', ref_cmds, 32 * i),
+                                                  struct.unpack_from('>2I', ref_grds, 8 * i), keys) != SAME_NOT]
+        print(f"  the game's command {first} is the new list's {mine or 'none'}; "
+              f"the new list's is the game's {theirs or 'none'}")
+    return followed, bad, other
 
 
 def draw(vram, cmds, grds):
@@ -162,7 +178,8 @@ def trace(med, syms, folder):
 
 class Places:
     """Code addresses to names: a C function's, or in assembly the label the
-    instruction follows (a macro's own name inside one)."""
+    instruction follows (a macro's own name inside one, or the local label
+    inside it, the lab's assembly keeping them: make lab)."""
 
     def __init__(self, elf, syms):
         self.elf = elf
@@ -212,6 +229,8 @@ class Places:
                     if n > int(line):
                         break
                     label = mark
+                if name.startswith('.L'):
+                    label = name
                 text = self.text(path, int(line))
                 name = f'{os.path.basename(path)}:{line} {label or name}: {text}'
             out[pc] = name
@@ -347,7 +366,7 @@ def main():
           f'new {new_cycles * 1000 / VDP1_HZ:.2f} ms')
     if traces:
         profile(traces, elf, syms)
-    sys.exit(1 if bad or differ or any(results[k] for k in ('facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newWaterBad'))
+    sys.exit(1 if bad or differ or any(results[k] for k in ('facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newAsmBad'))
              else 0)
 
 
