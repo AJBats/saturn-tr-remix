@@ -309,5 +309,5 @@ def compose(name):
         return level
 
     title = ' + '.join(INGREDIENTS[p]['title'] for p in parts)
-    about = COMBOS.get(name, 'A combination: ' + '; '.join(INGREDIENTS[p]['about'] for p in parts))
+    about = COMBOS.get(name, 'A combination: ' + '; '.join(INGREDIENTS[p]['about'].rstrip('.') for p in parts) + '.')
     return title, about, 'combination', kw, change if levels else None

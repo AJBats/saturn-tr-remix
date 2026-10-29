@@ -37,6 +37,9 @@ input[type=range] { width: 260px; accent-color: var(--accent); }
 .panel .head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
 .panel .head select { max-width: 640px; }
 .panel .tag { font-weight: 700; width: 20px; color: var(--muted); }
+.panel .tag.flipped { color: var(--accent); }
+.flip { display: flex; gap: 5px; align-items: center; font-size: 12px; color: var(--muted); white-space: nowrap; cursor: pointer; }
+.key { border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-size: 11px; }
 .screen { background-repeat: no-repeat; image-rendering: pixelated; image-rendering: crisp-edges; background-color: #000; }
 .stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .stats b { color: var(--ink); font-weight: 600; }
@@ -79,7 +82,7 @@ svg text { fill: var(--muted); font-size: 11px; }
 <div class="panels" id="panels"></div>
 <section>
   <h2>All variants</h2>
-  <p class="note">Click a row to show it in panel B (shift-click: panel A). Click a heading to sort. Changes are against the game today.</p>
+  <p class="note">Click a row to show it in panel B (shift-click: panel A). Click a heading to sort. Changes are against the game today. Tick "Show A here" (or press F) to flip panel B between A and B in place.</p>
   <label class="note">Show <select id="group"><option value="">everything</option></select></label>
   <div class="tablewrap"><table id="table"></table></div>
   <h2>Per frame</h2>
@@ -99,7 +102,7 @@ const title = n => REFS[n] ? REFS[n][0] : RUN.results[n].title;
 const COLS = [
   ['vdp1_ms', 'VDP1 ms', 2], ['commands', 'Cmds', 0], ['texture_kb', 'Tex KB', 0], ['flicker', 'Flicker', 2],
   ['detail', 'Detail', 2], ['error', 'Error', 2], ['error_mul', 'Error ×', 2], ['corner', 'Corner px', 2], ['wobble', 'Wobble px', 2]];
-let frame = 0, playing = false, dir = 1, timer = null, sortKey = null, sortDir = 1;
+let frame = 0, playing = false, dir = 1, timer = null, sortKey = null, sortDir = 1, flipB = false;
 const best = ['ripmap+mippal+softthin+exact', 'ripmap+mippal', 'ripmap'].find(n => RUN.results[n]);
 let picks = ['game' in RUN.results ? 'game' : RUN.variants[0], best || RUN.variants[1] || 'ref', 'ref'];
 const $ = id => document.getElementById(id);
@@ -118,16 +121,24 @@ function buildPanels() {
   picks.forEach((p, i) => {
     const d = document.createElement('div'); d.className = 'panel';
     const opts = names.map(n => `<option value="${n}" ${n === p ? 'selected' : ''}>${title(n)}</option>`).join('');
-    d.innerHTML = `<div class="head"><span class="tag">${'ABC'[i]}</span><select data-i="${i}">${opts}</select></div>
+    const flip = i === 1 ? `<label class="flip" title="Show panel A's picture here, to flip between them in place"><input type="checkbox" id="flipB" ${flipB ? 'checked' : ''}> Show A here <span class="key">F</span></label>` : '';
+    d.innerHTML = `<div class="head"><span class="tag" id="tag${i}">${'ABC'[i]}</span><select data-i="${i}">${opts}</select>${flip}</div>
       <div class="screen" id="scr${i}"></div><div class="stats" id="st${i}"></div><div class="about" id="ab${i}"></div>`;
     box.appendChild(d);
   });
   box.querySelectorAll('select').forEach(s => s.onchange = e => { picks[+e.target.dataset.i] = e.target.value; refresh(); });
+  $('flipB').onchange = e => { flipB = e.target.checked; draw(); };
 }
+
+function setFlip(on) { flipB = on; $('flipB').checked = on; draw(); }
 
 function draw() {
   const z = +$('zoom').value, mode = $('mode').value;
-  picks.forEach((p, i) => {
+  picks.forEach((pick, i) => {
+    const p = i === 1 && flipB ? picks[0] : pick;
+    const tag = $('tag' + i);
+    tag.textContent = i === 1 && flipB ? 'A' : 'ABC'[i];
+    tag.classList.toggle('flipped', i === 1 && flipB);
     const el = $('scr' + i);
     const sheet = REFS[p] || mode === 'pic' ? p : `${p}.${mode}`;
     el.style.width = W * z + 'px'; el.style.height = H * z + 'px';
@@ -217,6 +228,7 @@ document.addEventListener('keydown', e => {
   if (e.key === ' ') { e.preventDefault(); setPlay(!playing); }
   if (e.key === 'ArrowRight') { frame = Math.min(N - 1, frame + 1); draw(); }
   if (e.key === 'ArrowLeft') { frame = Math.max(0, frame - 1); draw(); }
+  if (e.key === 'f' || e.key === 'F') setFlip(!flipB);
 });
 buildPanels(); refresh();
 </script>

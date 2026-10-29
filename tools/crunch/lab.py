@@ -138,7 +138,14 @@ def main():
     ap.add_argument('--variants', default=','.join(INGREDIENTS),
                     help='ingredients, or combinations of them joined by +')
     ap.add_argument('--fresh', action='store_true', help='drop the variants an earlier run left in the page')
+    ap.add_argument('--page', action='store_true', help='only rewrite the page from the results of the last run')
     args = ap.parse_args()
+
+    if args.page:
+        out = os.path.join(LAB, 'runs', f'{args.capture}-{args.path}')
+        with open(os.path.join(out, 'run.json')) as f:
+            write_page(out, json.load(f))
+        return
 
     cap = Capture(args.capture)
     base_level = Level('LEVEL1')
@@ -243,6 +250,10 @@ def main():
                 views=[view_key(v) for v in views])
     with open(os.path.join(out, 'run.json'), 'w') as f:
         json.dump(meta, f)
+    write_page(out, meta)
+
+
+def write_page(out, meta):
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'viewer.html'), encoding='utf-8') as f:
         page = f.read()
     with open(os.path.join(out, 'index.html'), 'w', encoding='utf-8') as f:
