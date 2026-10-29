@@ -14,6 +14,8 @@
 // Page 5, the game's meshes (page_meshes.cpp): a frame's worth of the master's
 // meshes at the ledge, on the SH-2 as the game does them and with the DSP
 // rotating and lighting them.
+// Page 6, the master's parts (page_meshes.cpp): each part of the master's work
+// in page 5's frames timed on its own, alone and beside the DSP.
 
 #include "bench.h"
 #include "dsp.h"
@@ -90,7 +92,7 @@ static void waitVblank()
     while (!(VDP2_TVSTAT & TVSTAT_VBLANK));
 }
 
-static Page gPages[5];
+static Page gPages[6];
 
 int main()
 {
@@ -103,6 +105,7 @@ int main()
     pageStream(gPages[2]);
     pageBanks(gPages[3]);
     pageMeshes(gPages[4]);
+    pageParts(gPages[5]);
 
     while (1)
     {

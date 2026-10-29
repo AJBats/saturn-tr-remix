@@ -9,6 +9,7 @@
 // (kernels.s kFaces), with the DSP's jobs written and taken as the game would,
 // the master projecting and facing the meshes the DSP has done while it works
 // on the next. The master's work and its waits for the DSP apart.
+// Page 6 times each part of the master's work in those frames on its own.
 
 #include "bench.h"
 #include "dsp.h"
@@ -651,4 +652,193 @@ void pageMeshes(Page& page)
     rowFrame(page, "  beside DSP v2", faces, nullptr);
     page.add("");
     page.add("(ok: the same vertices as the game's)");
+}
+
+// --- page 6: the master's parts --------------------------------------------
+
+// Each part of the master's work in page 5's frames, for every mesh in one
+// loop, its setups and jobs written to a list of their own (the DSP may be
+// running the frame's).
+static MeshLightJob gPartJobs[MESHES + 1];
+
+static uint32_t partSetups(bool jobs)
+{
+    static MeshXform xf;
+    uint32_t t0 = cycles();
+    for (int32_t i = 0; i < MESHES; i++) {
+        writeXform(jobs ? &gPartJobs[i].xf : &xf, &gMeshes[i].xf);
+    }
+    return cycles() - t0;
+}
+
+// queue2's stores but the setup's
+static uint32_t partJobs()
+{
+    uint32_t t0 = cycles();
+    for (int32_t i = 0; i < MESHES; i++)
+    {
+        const Mesh& mesh = gMeshes[i];
+        MeshLightJob& job = gPartJobs[i];
+        *mesh.last = SENTINEL;
+        job.normals = mesh.dspNormals;
+        job.src = mesh.dspSrc;
+        job.dst = mesh.dspDst;
+        gPartJobs[i + 1].size = 0;
+        asm volatile("" ::: "memory");
+        *(volatile uint32_t*)&job.size = mesh.count;
+    }
+    return cycles() - t0;
+}
+
+static uint32_t partChecks()
+{
+    uint32_t pending = 0;
+    uint32_t t0 = cycles();
+    for (const Mesh& mesh : gMeshes) {
+        pending += *mesh.last == SENTINEL;
+    }
+    uint32_t t = cycles() - t0;
+    asm volatile("" :: "r"(pending));
+    return t;
+}
+
+static uint32_t partDrops()
+{
+    uint32_t t0 = cycles();
+    for (const Mesh& mesh : gMeshes) {
+        dropLines(mesh.out, mesh.count * sizeof(Vertex));
+    }
+    return cycles() - t0;
+}
+
+static uint32_t partProjecting()
+{
+    uint32_t t0 = cycles();
+    for (Mesh& mesh : gMeshes) {
+        meshProjectAsm(mesh.out, mesh.count, divTable);
+    }
+    return cycles() - t0;
+}
+
+static uint32_t partFaces()
+{
+    uint32_t* faces = gFaceStores;
+    uint32_t t0 = cycles();
+    for (const Mesh& mesh : gMeshes)
+    {
+        kFaces(faces, mesh.faces);
+        faces += mesh.faces * 3;
+    }
+    return cycles() - t0;
+}
+
+static uint32_t partVertices()
+{
+    Vertex* ref = gRef;
+    uint32_t t0 = cycles();
+    for (Mesh& mesh : gMeshes)
+    {
+        transformMeshAsm(mesh.src, mesh.count, ref, &mesh.xf);
+        ref += mesh.count;
+    }
+    return cycles() - t0;
+}
+
+// the frames' own timer reads: one a mesh
+static uint32_t partTimer()
+{
+    uint32_t t0 = cycles();
+    for (int32_t i = 0; i < MESHES; i++) {
+        cycles();
+    }
+    return cycles() - t0;
+}
+
+// The DSP's output made again, so that each projection starts from it.
+static void remake()
+{
+    dspAlone2();
+}
+
+// A part timed beside meshlight2.dsp running every mesh's job.
+static uint32_t beside(uint32_t (*part)())
+{
+    for (int32_t i = 0; i < MESHES; i++) {
+        queue2(i);
+    }
+    start2(0);
+    uint32_t t = part();
+    dspWaitQuietly();
+    return t;
+}
+
+static uint32_t besideSetups() { return partSetups(true); }
+
+static void rowParts(Page& page, const char* name, uint32_t alone, int32_t besides)
+{
+    char line[64];
+    char* p = pad(line, put(line, name), 22);
+    p = putMs(p, alone, 8);
+    if (besides >= 0) {
+        putMs(p, besides, 8);
+    }
+    page.add(line);
+}
+
+void pageParts(Page& page)
+{
+    page.add("DSP BENCH  page 6: the master's parts");
+    page.add("(page 5's frames, each part of the");
+    page.add("master's work for the 80 meshes timed");
+    page.add("on its own: alone, and beside DSP v2)");
+    page.add("");
+
+    page.add("SH-2 frame, ms           alone");
+    uint32_t setups = partSetups(false);
+    uint32_t vertices = partVertices();
+    uint32_t faces = partFaces();
+    uint32_t timer = partTimer();
+    rowParts(page, "setups (MeshXform)", setups, -1);
+    rowParts(page, "vertices (the game's)", vertices, -1);
+    rowParts(page, "faces' stand-in", faces, -1);
+    rowParts(page, "timer reads", timer, -1);
+    rowParts(page, "the parts' sum", setups + vertices + faces + timer, -1);
+    rowParts(page, "the frame, measured", frameSh2(), -1);
+    page.add("");
+
+    page.add("DSP v2 frame, ms         alone  beside");
+    meshLight2Load(meshlight2_dsp, MESHLIGHT2_DSP_COUNT);
+    uint32_t a[6], b[6];
+    a[0] = partSetups(true);
+    b[0] = beside(besideSetups);
+    a[1] = partJobs();
+    b[1] = beside(partJobs);
+    remake();
+    a[2] = partChecks();
+    b[2] = beside(partChecks);
+    remake();
+    a[3] = partDrops();
+    a[4] = partProjecting();
+    remake();
+    b[3] = beside(partDrops);
+    remake();
+    b[4] = beside(partProjecting);
+    a[5] = partFaces();
+    b[5] = beside(partFaces);
+    static const char* const names[6] = {
+        "setups (MeshXform)", "the jobs' other stores", "checking each is done",
+        "dropping its lines", "projecting", "faces' stand-in"
+    };
+    uint32_t sumA = timer, sumB = timer;
+    for (int32_t i = 0; i < 6; i++)
+    {
+        rowParts(page, names[i], a[i], b[i]);
+        sumA += a[i];
+        sumB += b[i];
+    }
+    rowParts(page, "timer reads", timer, -1);
+    rowParts(page, "the parts' sum", sumA, sumB);
+    Frame f = frameDsp2(kFrameEnd, 1);
+    rowParts(page, "the frame ahead: work", f.cycles - f.waiting, -1);
+    rowParts(page, "                 wait", f.waiting, -1);
 }
