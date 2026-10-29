@@ -460,14 +460,67 @@ def para_texture(t):
     return out
 
 
+class ShadeCache:
+    """render.cpp's cache of shaded colour table copies (gShadeTables), to
+    count what it does: 256 slots, a pair for each table and shade; a miss
+    builds a copy (shadeTableMiss) in the pair's slot drawn longest ago,
+    unless both were drawn this frame or the last, when the face keeps its
+    gouraud. Tables are known by their colours: room textures' at their
+    address in the game, any other (a mip level's, a table of less contrast)
+    at the next free one. new_frame() before each frame's commands."""
+
+    SLOTS = 256
+
+    def __init__(self, level):
+        self.addr = {}
+        for t in level.textures:
+            self.addr.setdefault(tuple(t.colors), level.table.entries[t.index][1])
+        self.next = 0x7C000 >> 3
+        self.keys = [None] * self.SLOTS
+        self.frames = [0] * self.SLOTS
+        self.frame = 2
+        self.hits = self.built = self.failed = 0
+
+    def new_frame(self):
+        self.frame += 1
+        self.hits = self.built = self.failed = 0
+
+    def copy(self, colors, level):
+        """Whether a face whose corners all take level is drawn through a
+        shaded copy of colors (else with gouraud)."""
+        c = tuple(colors)
+        if c not in self.addr:
+            self.addr[c] = self.next
+            self.next += 4
+        table = self.addr[c]
+        key = (table, level)
+        slot = ((level << 3) ^ table) & 0xFF
+        for s in (slot, slot ^ 1):
+            if self.keys[s] == key:
+                self.frames[s] = self.frame
+                self.hits += 1
+                return True
+        a = slot & ~1
+        if min(self.frames[a], self.frames[a + 1]) + 2 > self.frame:
+            self.failed += 1
+            return False
+        i = a + 1 if self.frames[a + 1] < self.frames[a] else a
+        self.keys[i] = key
+        self.frames[i] = self.frame
+        self.built += 1
+        return True
+
+
 class TextureStore:
     """Texture variants (whole, transposed, mip levels, quadrants,
-    parallelograms) as 4-bit data, made once."""
+    parallelograms) as 4-bit data, made once. shades: a ShadeCache to draw
+    through (None: every copy a face wants exists)."""
 
     def __init__(self, level, opts):
         self.level = level
         self.opts = opts
         self.cache = {}
+        self.shades = None
 
     def texels(self, tex, level, turned, quadrant, para=False):
         """(texels as drawn, their 16 colours)."""
@@ -671,7 +724,8 @@ def face_command(level, f, arrays, opts, store, cl):
     else:
         if f.level and opts.far_shade is not None and max(levels) - min(levels) <= opts.far_shade:
             levels = [(sum(levels) + 2) >> 2] * 4
-        if opts.shade_tables and levels.count(levels[0]) == 4:
+        if (opts.shade_tables and levels.count(levels[0]) == 4
+                and (store.shades is None or store.shades.copy(colors, levels[0]))):
             colr = cl.colors(shaded_colors(colors, levels[0]))
             grda = 0
         else:
