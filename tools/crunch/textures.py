@@ -7,7 +7,8 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# after the lab's own folder: tools/lab.py (the render lab) must not hide ours
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from texart import WEIGHTS, block_mean, from_rgb, kmeans_colors, nearest_colors, to_rgb  # noqa: E402,F401
 

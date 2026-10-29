@@ -20,7 +20,6 @@ import mixer
 from lab import Lab, rgb, VDP1_HZ
 from rooms import Options, RoomDrawer, TextureStore, ShadeCache, build_commands, shade_level
 
-OUT = sys.argv[1]
 CONFIGS = [
     ('game', {}),
     ('own palette', {'reduced': 'own'}),
@@ -80,6 +79,7 @@ def seams(faces, verts, w=352, h=224):
 
 
 def main():
+    out = sys.argv[1]
     report = {}
     for path in ('dolly', 'pan', 'creep'):
         lab = Lab('ledge0', path, 60, f'ledge0-{path}-relief')
@@ -120,7 +120,7 @@ def main():
                         over = img.copy()
                         over[seam] = (255, 255, 255)
                         Image.fromarray(np.hstack([img, over, sm])).resize((352 * 3 * 2, 224 * 2), Image.NEAREST) \
-                            .save(os.path.join(OUT, f'seams_{label.replace(" ", "")}_{i}.png'))
+                            .save(os.path.join(out, f'seams_{label.replace(" ", "")}_{i}.png'))
                 rows.append(row)
             m = lambda k, rs=rows[1:]: float(np.mean([r[k] for r in rs]))
             summary = {k: m(k) for k in ('hits', 'built', 'failed', 'ideal', 'real', 'tables', 'keys')}
@@ -131,7 +131,7 @@ def main():
                 summary['seam_px'] = float(np.mean([r['seam_px'] for r in rows]))
             report[path][label] = summary
             print(path, label, json.dumps({k: round(v, 2) for k, v in summary.items()}), flush=True)
-    with open(os.path.join(OUT, 'costcheck.json'), 'w') as f:
+    with open(os.path.join(out, 'costcheck.json'), 'w') as f:
         json.dump(report, f, indent=1)
 
 

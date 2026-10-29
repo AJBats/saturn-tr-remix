@@ -9,11 +9,15 @@ import sys
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(ROOT, 'tools'))
+sys.path.append(os.path.join(ROOT, 'tools'))
 
 import pack_level  # noqa: E402
 import trsat  # noqa: E402
 from texart import pack_texels, texels_of  # noqa: E402,F401
+
+# pack_level puts tools/ first on the path: the lab's own folder goes back in
+# front of it (tools/lab.py, the render lab's, would hide lab.py here)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 DATA = os.path.join(ROOT, 'external_resources', 'disc', 'files', 'DATA')
 TEX_ATTR_AKILL = pack_level.TEX_ATTR_AKILL
