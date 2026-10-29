@@ -1,11 +1,11 @@
 ! Stage 3 the new way (faces.h): a room's faces straight to VDP1 commands.
 !
-! void facesRoomQuadsAsm(RoomQuad* quads, int32 count, RoomRun* run)
-! void facesRoomTrianglesAsm(const RoomQuad* triangles, int32 count, RoomRun* run)
+! void facesRoomAsm(const FaceRoom* room, RoomRun* run)
 !
-! A run of a room's quads, or its triangles, as faces.cpp facesRoomC adds
-! them: each face kept has its command and gouraud table written at once,
-! chained into its depth bucket. A quad decides its turned lines and mip
+! A room's faces as faces.cpp facesRoomC adds them: its quads in their runs
+! (of the runs square to an axis, those facing the camera, without a back
+! face test), then its triangles. Each face kept has its command and gouraud
+! table written at once, chained into its depth bucket. A quad decides its turned lines and mip
 ! level on frames of its parity and keeps them in its flags' top byte in
 ! between (faces.s REUSE); triangles decide every frame. A texture the cache
 ! holds is drawn from it, else in its mean colour. A quad cut by a plane or
@@ -13,7 +13,8 @@
 ! wholly past the far plane is a transparent fill behind everything. The run
 ! is at GBR as the faces go, the list's cursors in registers.
 !
-! RoomRun, RoomVariant, RoomMaterial: faces.h.
+! FaceRoom, RoomRun, RoomVariant, RoomMaterial: faces.h. A material keeps its
+! characters a frame's faces found in the cache for the frame's other faces.
 ! RoomQuad: uint32 flags; uint16 indices[4], byte offsets into the room's
 ! vertices. Vertex: int16 x, y; int16 z; uint8 g, clip.
 ! CommandList: +0 cmd, +4 end, +8 grd, +12 link, +16 grdLink.
@@ -23,7 +24,9 @@
 ! Through a face: r1, r2, r3, r7 its corners A B C D; r4 the face; r5 the
 ! faces left; r9 its command, r10 its gouraud table, r11 its link, r12 its
 ! last word; r0, r6, r8, r13, r14 as each step says. The stack: +0 the
-! corners' clip flags ored.
+! corners' clip flags ored, +4 a material's word 2's place while it is
+! looked up, +8 the room, +12 the run's first quad (its index), +16 the
+! run, +20 its quads.
 
     .equ    CLIP_FRAME,     0x01
     .equ    CLIP_DISCARD,   0x3E
@@ -43,9 +46,15 @@
     .equ    RUN_LIST,       44
     .equ    RUN_MISS,       48
     .equ    RUN_CAREFUL,    52
-    .equ    RUN_FACING,     56
-    .equ    RUN_PLAIN,      60
-    .equ    RUN_VARIANTS,   64
+    .equ    RUN_PLAIN,      56
+    .equ    RUN_VARIANTS,   60
+
+    .equ    ROOM_QUADS,     0
+    .equ    ROOM_TRIANGLES, 4
+    .equ    ROOM_POINTS,    8
+    .equ    ROOM_COUNTS,    16  ! quads, triangles (uint16)
+    .equ    ROOM_FACING,    20  ! uint16 [6]
+    .equ    ROOM_CAMERA,    32  ! int32 [3]
 
     .equ    SHADING_FAR,    1
     .equ    SHADING_PLAIN,  2
@@ -194,8 +203,7 @@
     shll2   r14
     shlr8   r14
     shlr2   r14
-    shlr2   r14
-    shlr    r14                 ! its texture * 32
+    shlr2   r14                 ! its texture * 64
     mov.l   @(RUN_MATERIALS, gbr), r0
     add     r0, r14
     .endm
@@ -357,8 +365,9 @@
     .endm
 
 ! A run of quads (tri 0: facing, the camera on their front side, so no back
-! face test) or the triangles (tri 1), labels ending in sfx.
-    .macro  FACES sfx, tri, facing
+! face test) or the triangles (tri 1), labels ending in sfx; when they're
+! done, on to 'done'.
+    .macro  FACES sfx, tri, facing, done
 
     ! culled: wholly past the far plane, filled; a quad cut by a plane, to C;
     ! a triangle cut by one, filled (back faces gone before)
@@ -402,7 +411,7 @@
     dt      r5
     bf/s    .Lface\sfx
     add     #12, r4
-    bra     .Ldone
+    bra     \done
     nop
 
 .Lface\sfx:
@@ -452,14 +461,55 @@
     mov     r13, r6
     .endif
 
-    ! the texture from the cache: the variant's slot for it, drawn this
-    ! frame; else its loader's
+    ! the texture from the cache as the frame's faces before found it, else
+    ! looked up
 .Lvariant\sfx:                  ! r6 the variant
-    stc     gbr, r13
+    mov.l   @(32, r14), r8      ! the frame the material's characters are of
+    mov.l   @(RUN_FRAME, gbr), r0
+    cmp/eq  r0, r8
+    bf      .Lfresh\sfx
+.Lmemo\sfx:
+    mov.l   @(RUN_VARIANTS, gbr), r0
+    mov     r6, r13
+    shll2   r13
+    shll2   r13
+    add     r0, r13             ! the variant's
     shll2   r6
-    shll2   r6
-    add     r6, r13
-    add     #RUN_VARIANTS, r13  ! the variant's
+    add     #36, r6             ! its word 2's place in the material
+    mov     r6, r0
+    mov.l   @(r0, r14), r8      ! this frame's, 0 not looked up yet
+    tst     r8, r8
+    bt      .Llookup\sfx
+.Lcached\sfx:
+    mov.l   r8, @(8, r9)        ! w2
+    mov.l   @(4, r14), r0
+    mov.l   r0, @(4, r9)        ! w1
+    mov.b   @(13, r13), r0
+    tst     r0, r0
+    bt/s    1f
+    mov.l   @r14, r8            ! w0
+    mov     r2, r0              ! turned: A D C B
+    mov     r7, r2
+    mov     r0, r7
+1:  mov.b   @(14, r13), r0
+    bra     .Ltail\sfx
+    mov     r0, r13             ! the shading
+
+.Lfresh\sfx:                    ! r0 the frame
+    mov.l   r0, @(32, r14)
+    mov     #0, r0
+    mov.l   r0, @(36, r14)
+    mov.l   r0, @(40, r14)
+    mov.l   r0, @(44, r14)
+    mov.l   r0, @(48, r14)
+    mov.l   r0, @(52, r14)
+    bra     .Lmemo\sfx
+    mov.l   r0, @(56, r14)
+
+    ! the variant's slot for the texture in the cache, drawn this frame;
+    ! else its loader's
+.Llookup\sfx:                   ! r6 the word's place, r13 the variant's
+    mov.l   r6, @(4, r15)
     mov.l   @r13, r6            ! the slots + 1 by key
     mov.w   @(8, r14), r0
     mov.b   @(r0, r6), r0
@@ -485,20 +535,10 @@
     mov.b   @(12, r13), r0
     mov.w   @(r0, r14), r0
     extu.w  r0, r0              ! the variant's size
-    or      r0, r8
-    mov.l   r8, @(8, r9)        ! w2
-    mov.l   @(4, r14), r0
-    mov.l   r0, @(4, r9)        ! w1
-    mov.b   @(13, r13), r0
-    tst     r0, r0
-    bt/s    1f
-    mov.l   @r14, r8            ! w0
-    mov     r2, r0              ! turned: A D C B
-    mov     r7, r2
-    mov     r0, r7
-1:  mov.b   @(14, r13), r0
-    bra     .Ltail\sfx
-    mov     r0, r13             ! the shading
+    or      r0, r8              ! w2
+    mov.l   @(4, r15), r0
+    bra     .Lcached\sfx
+    mov.l   r8, @(r0, r14)      ! for the frame's other faces
 
 .Lmiss\sfx:
     bsr     .Lmiss
@@ -605,9 +645,12 @@
     nop
     .endm
 
-! --- the entries ------------------------------------------------------------
+! --- the room -----------------------------------------------------------------
 
-    .macro  ENTER
+    .text
+    .align 2
+    .global _facesRoomAsm
+_facesRoomAsm:
     mov.l   r8, @-r15
     mov.l   r9, @-r15
     mov.l   r10, @-r15
@@ -617,8 +660,8 @@
     mov.l   r14, @-r15
     sts.l   pr, @-r15
     stc.l   gbr, @-r15
-    add     #-4, r15            ! the clip flags ored
-    ldc     r6, gbr
+    add     #-24, r15
+    ldc     r5, gbr
     mov.l   @(RUN_LIST, gbr), r0
     mov.l   @r0, r9
     mov.l   @(8, r0), r10
@@ -627,26 +670,135 @@
     mov.l   @(RUN_END, gbr), r0
     cmp/eq  r0, r9
     bt      .Ldone              ! no room left
-    tst     r5, r5
-    bt      .Ldone
-    .endm
+    mov.l   r4, @(8, r15)
+    mov     #0, r0
+    mov.l   r0, @(12, r15)
+    mov.l   r0, @(16, r15)
 
-    .text
-    .align 2
-    .global _facesRoomQuadsAsm
-_facesRoomQuadsAsm:
-    ENTER
-    mov.l   @(RUN_FACING, gbr), r0
-    tst     r0, r0
-    bt      1f
+    ! the runs square to an axis: of each, the quads the camera lies on the
+    ! front side of, the run sorted by its plane's coordinate (rooms.cpp
+    ! facingQuads): those above it for a run facing down its axis (odd),
+    ! below for the others; then the rest
+.Lrun:                          ! r1 the room, r2 the run, r3 its first quad
+    mov.l   @(8, r15), r1
+    mov.l   @(16, r15), r2
+    mov.l   @(12, r15), r3
+    mov.l   @(ROOM_QUADS, r1), r4
+    mov     r3, r0
+    add     r0, r0
+    add     r3, r0
+    shll2   r0
+    add     r0, r4              ! the run's quads
+    mov     #6, r0
+    cmp/eq  r0, r2
+    bf      1f
+    mov.w   @(ROOM_COUNTS, r1), r0
+    extu.w  r0, r5
+    sub     r3, r5              ! the rest
+    mov.l   r5, @(20, r15)
+    tst     r5, r5
+    bt      .LrunDone
+    mov.l   @(RUN_FRAME, gbr), r0
+    and     #1, r0
+    mov.l   r0, @(RUN_PARITY, gbr)
+    bra     .LfaceAny
+    nop
+1:  mov     r2, r0
+    add     r0, r0
+    add     #ROOM_FACING, r0
+    mov.w   @(r0, r1), r0
+    extu.w  r0, r5
+    mov.l   r5, @(20, r15)      ! the run's quads
+    tst     r5, r5
+    bt      .LrunDone
+    mov     r2, r7
+    shlr    r7                  ! its axis
+    mov     r7, r0
+    shll2   r0
+    add     #ROOM_CAMERA, r0
+    mov.l   @(r0, r1), r6       ! the camera's coordinate on it
+    mov     r2, r0
+    tst     #1, r0
+    bf      2f
+    add     #1, r6
+2:  mov.l   @(ROOM_POINTS, r1), r8
+    add     r7, r8              ! the points' coordinates on the axis
+    mov     #0, r13             ! the first quad not below the camera
+    mov     r5, r14             ! ... the search's end
+.Lsearch:
+    cmp/ge  r14, r13
+    bt      .Lfound
+    mov     r13, r3
+    add     r14, r3
+    shlr    r3                  ! the middle
+    mov     r3, r0
+    add     r0, r0
+    add     r3, r0
+    shll2   r0
+    add     #4, r0
+    mov.w   @(r0, r4), r0       ! its corner A: a byte offset in 8-byte vertices
+    extu.w  r0, r0
+    shlr    r0                  ! ... in the 4-byte points
+    mov.b   @(r0, r8), r0
+    extu.b  r0, r0
+    shll8   r0
+    cmp/ge  r6, r0
+    bf      5f
+    bra     .Lsearch
+    mov     r3, r14             ! at or past the camera: the end now
+5:  mov     r3, r13
+    bra     .Lsearch
+    add     #1, r13             ! short of it: past the middle
+.Lfound:                        ! r13 the first quad the camera lies below
+    mov.l   @(16, r15), r2
+    mov.l   @(12, r15), r3
+    mov     r2, r0
+    tst     #1, r0
+    bt      3f
+    mov     r13, r5             ! facing down the axis: those below it
+    bra     4f
+    add     r13, r3             ! the run's end, of all the room's quads
+3:  mov     r13, r0             ! the others: those from it
+    add     r0, r0
+    add     r13, r0
+    shll2   r0
+    add     r0, r4
+    sub     r13, r5
+    mov.l   @(20, r15), r0
+    add     r0, r3
+4:  tst     r5, r5
+    bt      .LrunDone
+    ! a quad's parity is its index's in the room, as one pass over them all
+    ! gave (from the room's end)
+    mov.l   @(8, r15), r1
+    mov.w   @(ROOM_COUNTS, r1), r0
+    xor     r3, r0
+    mov     r0, r3
+    mov.l   @(RUN_FRAME, gbr), r0
+    xor     r3, r0
+    and     #1, r0
+    mov.l   r0, @(RUN_PARITY, gbr)
     bra     .LfaceFacing
     nop
-1:  bra     .LfaceAny
-    nop
 
-    .global _facesRoomTrianglesAsm
-_facesRoomTrianglesAsm:
-    ENTER
+    ! the run done: on to the next, then the triangles
+.LrunDone:
+    mov.l   @(12, r15), r3
+    mov.l   @(20, r15), r0
+    add     r0, r3
+    mov.l   r3, @(12, r15)
+    mov.l   @(16, r15), r2
+    add     #1, r2
+    mov.l   r2, @(16, r15)
+    mov     #7, r0
+    cmp/eq  r0, r2
+    bf      .Lrun
+    mov.l   @(8, r15), r1
+    mov.w   @(ROOM_COUNTS + 2, r1), r0
+    extu.w  r0, r5
+    tst     r5, r5
+    bt      .Ldone
+    mov.l   @(ROOM_TRIANGLES, r1), r4
     bra     .LfaceTri
     nop
 
@@ -656,7 +808,7 @@ _facesRoomTrianglesAsm:
     mov.l   r10, @(8, r0)
     mov.l   r11, @(12, r0)
     mov.l   r12, @(16, r0)
-    add     #4, r15
+    add     #24, r15
     ldc.l   @r15+, gbr
     lds.l   @r15+, pr
     mov.l   @r15+, r14
@@ -997,8 +1149,8 @@ _facesRoomTrianglesAsm:
 ! --- the faces ------------------------------------------------------------------
 
     .align 2
-    FACES   Facing, 0, 1
+    FACES   Facing, 0, 1, .LrunDone
     .align 2
-    FACES   Any, 0, 0
+    FACES   Any, 0, 0, .LrunDone
     .align 2
-    FACES   Tri, 1, 0
+    FACES   Tri, 1, 0, .Ldone

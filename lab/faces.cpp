@@ -817,12 +817,15 @@ void facesRoomC(const FaceRoom &room, RoomTextures &t, RoomSplit &split, Command
 
 // --- rooms through facesroom.s ------------------------------------------
 
-static_assert(sizeof(RoomMaterial) == 32 && offsetof(RoomMaterial, key) == 8 &&
+static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomMaterial, mips) == 12 && offsetof(RoomMaterial, lines) == 14 &&
-              offsetof(RoomMaterial, sizes) == 18 && sizeof(RoomVariant) == 16 &&
+              offsetof(RoomMaterial, sizes) == 18 && offsetof(RoomMaterial, frame) == 32 &&
+              offsetof(RoomMaterial, w2) == 36 && sizeof(RoomVariant) == 16 &&
               offsetof(RoomVariant, shading) == 14 && offsetof(RoomRun, parity) == 16 &&
-              offsetof(RoomRun, list) == 44 && offsetof(RoomRun, facing) == 56 &&
-              offsetof(RoomRun, variants) == 64 && offsetof(RoomRun, room) == 160 &&
+              offsetof(RoomRun, list) == 44 && offsetof(RoomRun, plain) == 56 &&
+              offsetof(RoomRun, variants) == 60 && offsetof(RoomRun, room) == 64 &&
+              offsetof(FaceRoom, points) == 8 && offsetof(FaceRoom, quadsCount) == 16 &&
+              offsetof(FaceRoom, facing) == 20 && offsetof(FaceRoom, camera) == 32 &&
               offsetof(DetailSlot, frame) == 4 && sizeof(DetailSlot) == 8, "facesroom.s's layouts");
 
 void facesRoomMaterials(const RoomTextures &t, RoomMaterial* materials, int32_t count)
@@ -849,8 +852,11 @@ void facesRoomMaterials(const RoomTextures &t, RoomMaterial* materials, int32_t 
                              (level ? FACE_DETAIL_MIP : 0) | (level == 2 ? FACE_DETAIL_MIP2 : 0);
             roomMaterial(t, flags, w);
             m.sizes[v] = w[2] & 0xFFFF;
+            m.w2[v] = 0;
         }
         m.spare = 0;
+        m.frame = ~t.frame;
+        m.spare2 = 0;
     }
 }
 
@@ -859,13 +865,10 @@ static void roomCareful(RoomRun* run, const RoomQuad* q)
     roomQuadCareful(*run->room, *run->textures, *run->split, *run->list, *q);
 }
 
-void facesRoom(const FaceRoom &room, RoomTextures &t, RoomSplit &split, CommandList &list)
+void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandList &list)
 {
     static const uint8_t kVariants[6] = { DETAIL_WHOLE, DETAIL_TURNED, DETAIL_MIP1, DETAIL_MIP1_TURNED,
                                           DETAIL_MIP2, DETAIL_MIP2_TURNED };
-    bool water = room.flags & FACE_WATER;
-    RoomRun run;
-    run.vertices = room.vertices;
     run.materials = t.materials;
     run.frame = t.frame;
     run.lod = t.lod;
@@ -878,10 +881,9 @@ void facesRoom(const FaceRoom &room, RoomTextures &t, RoomSplit &split, CommandL
     run.list = &list;
     run.miss = t.miss;
     run.careful = roomCareful;
-    run.plain = water ? SHADING_WATER : SHADING_PLAIN;
     for (uint32_t v = 0; v < 6; v++)
     {
-        RoomVariant &rv = run.variants[v];
+        RoomVariant &rv = run.dry[v];
         uint32_t level = v >> 1;
         rv.keys = t.keys[kVariants[v]];
         rv.frames = &t.slots[detailPoolStart(level)].frame;
@@ -889,30 +891,23 @@ void facesRoom(const FaceRoom &room, RoomTextures &t, RoomSplit &split, CommandL
         rv.step = (DETAIL_SLOT_SIZE >> 2 * level) >> 3;
         rv.size = offsetof(RoomMaterial, sizes) + 2 * v;
         rv.turned = v & 1;
-        rv.shading = water ? SHADING_WATER : level ? SHADING_FAR : SHADING_NEAR;
+        rv.shading = level ? SHADING_FAR : SHADING_NEAR;
         rv.variant = kVariants[v];
+        run.wet[v] = rv;
+        run.wet[v].shading = SHADING_WATER;
     }
-    run.room = &room;
     run.textures = &t;
     run.split = &split;
+}
 
-    int32_t offset = 0;
-    for (int32_t r = 0; r <= 6; r++)
-    {
-        int32_t count = r < 6 ? room.facing[r] : room.quadsCount - offset;
-        int32_t first = 0;
-        int32_t n = r < 6 ? facingQuads(room, room.quads + offset, count, r, first) : count;
-        if (n > 0)
-        {
-            run.facing = r < 6;
-            run.parity = int32_t(t.frame & 1) ^ ((room.quadsCount ^ (offset + first + n)) & 1);
-            facesRoomQuadsAsm(room.quads + offset + first, n, &run);
-        }
-        offset += count;
-    }
-    if (room.trianglesCount) {
-        facesRoomTrianglesAsm(room.triangles, room.trianglesCount, &run);
-    }
+void facesRoom(const FaceRoom &room, RoomRun &run)
+{
+    bool water = room.flags & FACE_WATER;
+    run.vertices = room.vertices;
+    run.plain = water ? SHADING_WATER : SHADING_PLAIN;
+    run.variants = water ? run.wet : run.dry;
+    run.room = &room;
+    facesRoomAsm(&room, &run);
 }
 
 const FaceSet* facesShadow()

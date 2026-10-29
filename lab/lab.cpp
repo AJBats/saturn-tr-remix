@@ -313,6 +313,7 @@ static RoomTextures gRoomTextures;
 static RoomSplit gSplit;
 #define MAX_ROOM_TEXTURES   512
 static RoomMaterial gRoomMaterials[MAX_ROOM_TEXTURES];
+static RoomRun gRoomRun;
 static bool gRoomTexturesShort;     // the rooms take more textures than that
 
 static void newPrepare()
@@ -326,6 +327,11 @@ static void newPrepare()
                   gameShadeGouraud(), shadeLevel, gameShadeCache(0));
     gSplit.top = MAX_VERTICES;
     gSplit.bottom = sceneInfo().bottom;
+
+    // the materials' characters looked up afresh, as in a frame of its own
+    for (int32_t i = 0; i < MAX_ROOM_TEXTURES; i++) {
+        gRoomMaterials[i].frame = ~gRoomTextures.frame;
+    }
 }
 
 // The rooms in the order the slave faced them, through facesRoom or (c)
@@ -341,7 +347,10 @@ static void newRooms(bool c)
         if (c) {
             facesRoomC(gRooms[i], gRoomTextures, gSplit, gRoomList);
         } else {
-            facesRoom(gRooms[i], gRoomTextures, gSplit, gRoomList);
+            if (!i) {
+                facesRoomsBegin(gRoomRun, gRoomTextures, gSplit, gRoomList);
+            }
+            facesRoom(gRooms[i], gRoomRun);
         }
     }
 }
