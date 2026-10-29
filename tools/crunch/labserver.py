@@ -62,6 +62,10 @@ class Server:
         st = self.status.get((run, name))
         if st and st['state'] in ('queued', 'drawing', 'done'):
             return name
+        drawn = self.stored(run, name)
+        if drawn is not None and not drawn.get('flicker_pending'):
+            self.status[(run, name)] = dict(state='done', result=drawn)
+            return name
         self.status[(run, name)] = dict(state='queued')
         threading.Thread(target=self.draw, args=(run, name, title, kw, change, art, mix), daemon=True).start()
         return name
@@ -110,6 +114,14 @@ class Server:
         r.pop('flicker_pending', None)
         st['result'] = r
         self.store(run, lab, name, r, None)
+
+    def stored(self, run, name):
+        """A mix an earlier session drew into the run's page, or None."""
+        try:
+            with self.file_lock, open(os.path.join(RUNS, run, 'run.json')) as f:
+                return json.load(f)['results'].get(name)
+        except (OSError, KeyError, ValueError):
+            return None
 
     def store(self, run, lab, name, r, art):
         with self.file_lock:
