@@ -223,15 +223,17 @@ def relief(t):
     return tidy(ramp_fit(relief_rgb(rgb, solid), solid, t.transparent, t.colors[0]))
 
 
-def relief_mix(t, amount=1.0, light='upper left', colours='blurred'):
-    """Relief at any setting (the lab's mixer): its strength, its light
-    (upper left, or front: no direction, which needs twice the strength to
-    show as much), and its colours blurred (as relief) or kept (relief_lite)."""
+def relief_blurred(t, amount=1.0, light=UPPER_LEFT):
+    """relief at any strength and light (relief is amount 1, upper left)."""
     rgb, solid = image(t)
-    direction, k = (UPPER_LEFT, amount) if light == 'upper left' else (FRONT, 2.0 * amount)
-    if colours == 'blurred':
-        return tidy(ramp_fit(relief_rgb(rgb, solid, amount=k, light=direction), solid, t.transparent, t.colors[0]))
-    out = relief_lite_rgb(rgb, solid, light=direction, amount=0.7 * k)
+    return tidy(ramp_fit(relief_rgb(rgb, solid, amount=amount, light=light), solid, t.transparent, t.colors[0]))
+
+
+def relief_kept(t, amount=0.7, fine=0.35, light=UPPER_LEFT):
+    """relief_lite at any strength, finest band and light (relief_lite is
+    0.7, 0.35, upper left; relief_front 1.2, 0.35, front)."""
+    rgb, solid = image(t)
+    out = relief_lite_rgb(rgb, solid, light=light, amount=amount, fine=fine)
     return tidy(kmeans_fit(out, solid, t.transparent, t.colors[0]))
 
 

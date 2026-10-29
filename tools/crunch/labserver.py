@@ -37,6 +37,9 @@ class Server:
         self.levels = {}                    # (run, level key) -> level
         self.status = {}                    # (run, name) -> dict(state, result, error)
         self.ref_locks = {}                 # reference sheet -> lock (one drawing of each)
+        self.ref_cv = threading.Condition()
+        self.ref_queue = []                 # mixes waiting for their own art's reference
+        threading.Thread(target=self.ref_worker, daemon=True).start()
 
     def lab(self, run):
         if run not in self.labs:
@@ -63,8 +66,10 @@ class Server:
         if st and st['state'] in ('queued', 'drawing', 'done'):
             return name
         drawn = self.stored(run, name)
-        if drawn is not None and not drawn.get('flicker_pending'):
+        if drawn is not None:
             self.status[(run, name)] = dict(state='done', result=drawn)
+            if drawn.get('flicker_pending'):
+                threading.Thread(target=self.measure_later, args=(run, name, change, art, mix), daemon=True).start()
             return name
         self.status[(run, name)] = dict(state='queued')
         threading.Thread(target=self.draw, args=(run, name, title, kw, change, art, mix), daemon=True).start()
@@ -90,11 +95,37 @@ class Server:
                 st['result'] = r
                 st['state'] = 'done'
             if sheet and not ready:
-                self.fair_flicker(run, lab, name, level, sheet)
+                self.queue_ref(run, lab, name, level, sheet)
         except Exception as e:
             traceback.print_exc()
             st['state'] = 'error'
             st['error'] = f'{type(e).__name__}: {e}'
+
+    def measure_later(self, run, name, change, art, mix):
+        """A mix drawn in an earlier session whose flicker still waits for
+        its own art's reference."""
+        with self.draw_lock:
+            lab = self.lab(run)
+            level = self.level(run, lab, mix, change)
+        self.queue_ref(run, lab, name, level, 'ref.mix-' + mixer.digest(art))
+
+    def queue_ref(self, *job):
+        with self.ref_cv:
+            self.ref_queue.append(job)
+            self.ref_cv.notify()
+
+    def ref_worker(self):
+        """Draws the waiting references one at a time, the newest mix's
+        first: the one on screen."""
+        while True:
+            with self.ref_cv:
+                while not self.ref_queue:
+                    self.ref_cv.wait()
+                job = self.ref_queue.pop()
+            try:
+                self.fair_flicker(*job)
+            except Exception:
+                traceback.print_exc()
 
     def fair_flicker(self, run, lab, name, level, sheet):
         """The reference with the mix's own art, then the mix's flicker
@@ -176,7 +207,15 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif url.path == '/api/rows':
-            self.reply(mixer.rows_for_page())
+            presets = {}
+            try:
+                with open(os.path.join(RUNS, q.get('run', ''), 'run.json')) as f:
+                    for n in json.load(f)['variants']:
+                        if not n.startswith('live/') and mixer.preset(n) is not None:
+                            presets[n] = mixer.preset(n)
+            except (OSError, ValueError, KeyError):
+                pass
+            self.reply(dict(rows=mixer.rows_for_page(), presets=presets))
         elif url.path == '/api/status':
             st = SERVER.status.get((q['run'], q['name']))
             self.reply(st or dict(state='unknown'))

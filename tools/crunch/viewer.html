@@ -162,7 +162,7 @@ function buildPanels() {
   box.querySelectorAll('.panel > .head select').forEach(s => s.onchange = e => {
     const i = +e.target.dataset.i;
     picks[i] = e.target.value;
-    if (i === 1 && RUN.results[picks[1]] && RUN.results[picks[1]].mix) setMix(RUN.results[picks[1]].mix, false);
+    if (i === 1) followB();
     refresh();
   });
   $('flipB').onchange = e => { flipB = e.target.checked; draw(); tiles(); };
@@ -245,7 +245,7 @@ function table() {
   $('table').querySelectorAll('tr.pick').forEach(tr => tr.onclick = e => {
     const n = tr.dataset.n;
     picks[e.shiftKey ? 0 : 1] = n;
-    if (!e.shiftKey && RUN.results[n].mix) setMix(RUN.results[n].mix, false);
+    if (!e.shiftKey) followB();
     buildPanels(); refresh();
   });
   $('table').querySelectorAll('th').forEach(th => th.onclick = () => {
@@ -269,7 +269,7 @@ function refresh() { draw(); chart(); table(); tiles(); }
 
 // --- the live mixer (when labserver.py serves the page) ---------------------
 const LIVE = location.protocol.startsWith('http');
-let ROWS = [], mix = {}, wanted = null;
+let ROWS = [], PRESETS = {}, mix = {}, wanted = null;
 
 function mixFromHash() {
   const m = location.hash.match(/mix=([^&]*)/);
@@ -335,14 +335,34 @@ async function poll(name) {
     setTimeout(() => poll(name), 3000);
   } else if (name === wanted) mixState('');
 }
+// The mixer follows what panel B shows: a mix's settings, or a ready-made
+// variant's (they draw the same).
+function followB() {
+  if (!LIVE) return;
+  const r = RUN.results[picks[1]];
+  if (r && r.mix) setMix(r.mix, false);
+  else if (PRESETS[picks[1]]) setMix(PRESETS[picks[1]], false);
+}
+// New entries are added to the panels' lists in place: rebuilding them would
+// close a list the viewer has open.
+function addOption(n) {
+  document.querySelectorAll('.panel > .head select').forEach(s => {
+    if (![...s.options].some(o => o.value === n)) s.add(new Option(title(n), n));
+  });
+}
 function accept(name, r) {
+  const known = RUN.variants.includes(name);
   RUN.results[name] = r;
-  if (!RUN.variants.includes(name)) RUN.variants.push(name);
-  if (r.art && !REFS['ref.' + r.art] && !r.flicker_pending) { RUN.art_titles = RUN.art_titles || {}; addArtRef(r.art); }
+  if (!known) { RUN.variants.push(name); addOption(name); }
+  if (r.art && !REFS['ref.' + r.art] && !r.flicker_pending) { addArtRef(r.art); addOption('ref.' + r.art); }
   const g = $('group');
-  if (![...g.options].some(o => o.value === r.group)) g.innerHTML += `<option value="${r.group}">${r.group}</option>`;
-  if (name === wanted) picks[1] = name;
-  buildPanels(); refresh();
+  if (![...g.options].some(o => o.value === r.group)) g.add(new Option(r.group, r.group));
+  if (name === wanted && picks[1] !== name) {
+    picks[1] = name;
+    const s = document.querySelector('.panel > .head select[data-i="1"]');
+    if (s && document.activeElement !== s) s.value = name;
+  }
+  draw(); chart(); table(); tiles();
 }
 function runLinks() {
   if (!LIVE) return;
@@ -378,8 +398,9 @@ document.addEventListener('keydown', e => {
   if (e.key === 'f' || e.key === 'F') setFlip(!flipB);
 });
 if (LIVE) {
-  fetch('/api/rows').then(r => r.json()).then(rows => {
-    ROWS = rows;
+  fetch(`/api/rows?run=${encodeURIComponent(RUN.run)}`).then(r => r.json()).then(got => {
+    ROWS = got.rows;
+    PRESETS = got.presets || {};
     const m = mixFromHash();
     document.body.classList.add('live');
     document.body.appendChild(mixerPanel());

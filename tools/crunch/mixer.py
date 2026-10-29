@@ -60,16 +60,16 @@ ROWS = [
     ]),
     dict(id='relief', title='Baked relief', group='relief', options=[
         ('off', 'Off', {}),
-        ('gentle', 'Gentle', dict(stage=4, level=lambda lv, mix: relief_level(lv, mix, 0.5))),
-        ('medium', 'Medium (first try)', dict(stage=4, level=lambda lv, mix: relief_level(lv, mix, 1.0))),
-        ('strong', 'Strong', dict(stage=4, level=lambda lv, mix: relief_level(lv, mix, 1.6))),
+        ('gentle', 'Gentle', dict(stage=4, level=lambda lv, mix: relief_level(lv, mix, 'gentle'))),
+        ('medium', 'Medium', dict(stage=4, level=lambda lv, mix: relief_level(lv, mix, 'medium'))),
+        ('strong', 'Strong', dict(stage=4, level=lambda lv, mix: relief_level(lv, mix, 'strong'))),
     ]),
     dict(id='relief_light', title='Relief light', group='relief', options=[
         ('upper left', 'Upper left', {}),
         ('front', 'Front (no direction)', {}),
     ]),
     dict(id='relief_colours', title='Relief colours', group='relief', options=[
-        ('blurred', 'Blurred (first try)', {}),
+        ('blurred', 'Blurred', {}),
         ('kept', 'Kept', {}),
     ]),
     dict(id='shading', title='Shading', group='shading', options=[
@@ -99,9 +99,24 @@ ROWS = [
 BY_ID = {r['id']: r for r in ROWS}
 
 
-def relief_level(lv, mix, amount):
-    light, colours = mix.get('relief_light', 'upper left'), mix.get('relief_colours', 'blurred')
-    return with_textures(lv, lambda t: art.relief_mix(t, amount, light, colours))
+# Relief's strengths. Colours blurred: relief's lighting amount (Medium is
+# relief, the first try); light from the front, which shows less, at twice
+# it. Colours kept: (amount, finest band kept) as relief_soft, relief_lite and
+# relief_strong; from the front at 12/7 of the amount, so Medium from the
+# front is relief_front.
+RELIEF_BLURRED = {'gentle': 0.5, 'medium': 1.0, 'strong': 1.6}
+RELIEF_KEPT = {'gentle': (0.4, 0.5), 'medium': (0.7, 0.35), 'strong': (1.0, 0.2)}
+
+
+def relief_level(lv, mix, strength):
+    front = mix.get('relief_light', 'upper left') == 'front'
+    light = art.FRONT if front else art.UPPER_LEFT
+    if mix.get('relief_colours', 'blurred') == 'blurred':
+        amount = RELIEF_BLURRED[strength] * (2.0 if front else 1.0)
+        return with_textures(lv, lambda t: art.relief_blurred(t, amount, light))
+    amount, fine = RELIEF_KEPT[strength]
+    amount *= 12 / 7 if front else 1.0
+    return with_textures(lv, lambda t: art.relief_kept(t, amount, fine, light))
 
 
 def normal(mix):
@@ -169,9 +184,43 @@ def compile_mix(mix):
             level = fn(level, mix)
         return level
 
-    name = 'mix-' + digest(key_of(mix) or 'game')
+    # mixes whose recipe changed since they were first drawn take new names
+    recipe = '|kept2' if mix['relief'] != 'off' and mix['relief_colours'] == 'kept' else ''
+    name = 'mix-' + digest((key_of(mix) or 'game') + recipe)
     title = '; '.join(titles) or 'The game today'
     return name, title, kw, change if levels else None, key_of(mix, set(art_rows))
+
+
+# The page's ready-made variants as mixer settings (variants.INGREDIENTS),
+# drawn the same by either way.
+PRESETS = {
+    'game': {}, 'exact': dict(projection='exact'), 'fine': dict(projection='fine'),
+    'fullres': dict(reduce='none'), 'ripmap': dict(reduce='ripmap'),
+    'mipnear': dict(reduced='nearest'), 'mippal': dict(reduced='own'),
+    'repaint': dict(repaint='on'), 'despeckle': dict(speckle='despeckle'), 'softthin': dict(thin='soften'),
+    'clump': dict(grain='clump'), 'degrain': dict(grain='degrain'), 'bandpass': dict(grain='bandpass'),
+    'shapes': dict(grain='shapes'), 'half': dict(size='32'),
+    'remaster': dict(palette='remaster'), 'ramps': dict(palette='ramps'), 'flatter': dict(palette='flatter'),
+    'relief': dict(relief='medium'),
+    'relief_lite': dict(relief='medium', relief_colours='kept'),
+    'relief_soft': dict(relief='gentle', relief_colours='kept'),
+    'relief_strong': dict(relief='strong', relief_colours='kept'),
+    'relief_front': dict(relief='medium', relief_light='front', relief_colours='kept'),
+    'contrast': dict(shading='contrast'), 'multiply': dict(shading='multiply'), 'lightnear': dict(light='30'),
+    'tess': dict(tess='on'), 'para': dict(para='para'), 'texturn': dict(turn='texture'),
+}
+
+
+def preset(name):
+    """A ready-made variant (ingredients joined by +) as mixer settings, or
+    None when two of its ingredients take the same row."""
+    out = {}
+    for part in name.split('+'):
+        p = PRESETS.get(part)
+        if p is None or any(k in out and out[k] != v for k, v in p.items()):
+            return None
+        out.update(p)
+    return out
 
 
 def rows_for_page():
