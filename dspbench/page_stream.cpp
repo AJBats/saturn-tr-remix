@@ -64,10 +64,11 @@ static Run dspRun(uint32_t entry, uint32_t repeats, bool load)
     dspWrite(0, 0, md0, 3);
     Run run = { 0, 0 };
     uint32_t lines = 0, readCycles = 0, offset = 0;
-    uint32_t t0 = ticks();
+    uint32_t t0 = cycles();
     dspStart(entry);
     while (dspBusy())
     {
+        cycles();
         if (!load)
         {
             kRegisters(64);
@@ -79,7 +80,7 @@ static Run dspRun(uint32_t entry, uint32_t repeats, bool load)
         lines += CHUNK / 16;
         offset = (offset + CHUNK) & 0xFFFF;
     }
-    run.cycles = ((ticks() - t0) & 0xFFFF) * TICK_CYCLES;
+    run.cycles = cycles() - t0;
     run.masterTenths = lines ? readCycles * 10 / lines : 0;
     return run;
 }

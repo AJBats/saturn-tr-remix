@@ -48,6 +48,17 @@ uint32_t ticks()
     return (hi << 8) | lo;
 }
 
+uint32_t cycles()
+{
+    static uint32_t high, last;
+    uint32_t now = ticks();
+    if (now < last) {
+        high += 0x10000;
+    }
+    last = now;
+    return (high + now) * TICK_CYCLES;
+}
+
 // Must run from the cache-through mirror: the cache is off part of the time.
 static void __attribute__((noinline)) cachePurgeBody()
 {

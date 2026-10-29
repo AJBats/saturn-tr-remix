@@ -13,6 +13,10 @@ void platformInit();
 #define TICK_CYCLES 8
 uint32_t ticks();
 
+// The master's cycles over 32 bits: the timer with its wraps counted, so it
+// must be read at least every 500K cycles (18 ms).
+uint32_t cycles();
+
 // The same memory through the cache-through mirror.
 template <typename T>
 inline T* uncached(T* p)

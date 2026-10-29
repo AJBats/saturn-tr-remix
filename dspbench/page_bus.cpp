@@ -93,10 +93,10 @@ static void dspStream(uint32_t entry, uint32_t transfers, uint32_t longs)
 // Cycles the DSP takes for transfers of longs, the master waiting off the bus.
 static uint32_t dspTime(uint32_t entry, uint32_t transfers, uint32_t longs)
 {
-    uint32_t t0 = ticks();
+    uint32_t t0 = cycles();
     dspStream(entry, transfers, longs);
     dspWaitQuietly();
-    return ((ticks() - t0) & 0xFFFF) * TICK_CYCLES;
+    return cycles() - t0;
 }
 
 // --- the tests ----------------------------------------------------------------
@@ -195,7 +195,7 @@ static uint32_t dspUnderLoad(int32_t kernel, int32_t slave)
     if (slave >= 0) {
         slaveLoadStart(slave);
     }
-    uint32_t t0 = ticks();
+    uint32_t t0 = ::cycles();
     dspStream(DMA_DSP_READ, transfers, 64);
     uint32_t offset = 0;
     while (dspBusy())
@@ -209,8 +209,9 @@ static uint32_t dspUnderLoad(int32_t kernel, int32_t slave)
         {
             kRegisters(64);
         }
+        ::cycles();
     }
-    uint32_t cycles = ((ticks() - t0) & 0xFFFF) * TICK_CYCLES;
+    uint32_t cycles = ::cycles() - t0;
     if (slave >= 0) {
         slaveLoadStop();
     }

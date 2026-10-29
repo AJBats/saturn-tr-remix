@@ -9,6 +9,8 @@
 // costs, by the way it is written, against the SH-2's.
 // Page 3, streaming (page_stream.cpp): points through the DSP from memory and
 // back, its transfers waited for or overlapped, and what they cost the CPUs.
+// Page 4, the DSP's banks (page_banks.cpp): whether its program waits on a
+// bank its DMA is using.
 
 #include "bench.h"
 #include "dsp.h"
@@ -72,8 +74,10 @@ char* pad(char* line, char* p, int32_t column)
 
 void dspWaitQuietly()
 {
-    while (dspBusy()) {
+    while (dspBusy())
+    {
         kRegisters(64);
+        cycles();
     }
 }
 
@@ -83,7 +87,7 @@ static void waitVblank()
     while (!(VDP2_TVSTAT & TVSTAT_VBLANK));
 }
 
-static Page gPages[3];
+static Page gPages[4];
 
 int main()
 {
@@ -94,6 +98,7 @@ int main()
     pageBus(gPages[0]);
     pageArithmetic(gPages[1]);
     pageStream(gPages[2]);
+    pageBanks(gPages[3]);
 
     while (1)
     {
