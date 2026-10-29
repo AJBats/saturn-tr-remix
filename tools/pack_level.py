@@ -42,6 +42,8 @@ on the walkable floor nearest its centre; LARA_START=<room>:<x>:<z> on that
 sector; LARA_START=<room>:<x>:<z>:<degrees> also turns her to that heading,
 to the nearest quarter turn (items keep only that); LARA_START=<room>@<x>:<y>:<z>
 puts her at that world position exactly (make's START_YAW turns her exactly).
+ITEMS_ACTIVE=<item>,<item>... starts those items active, as TR1 starts an item
+whose flags hold every trigger bit (enemies awake, without their trigger).
 """
 import math
 import os
@@ -925,6 +927,8 @@ def main():
         if len(start) == 4:
             lara = next(it for it in lvl.items if it["type"] == ITEM["LARA"])
             lara["rotation"] = (round(start[3] / 90) * 0x4000) & 0xFFFF
+    for index in filter(None, os.environ.get("ITEMS_ACTIVE", "").split(",")):
+        lvl.items[int(index)]["flags"] |= 0x3E00
     sounds = sfx.Sfx(lvl, load_ps1(sys.argv[4] if len(sys.argv) > 4 else None, name))
     report_sounds(name, lvl, sounds)
     packer = Packer(lvl, sounds)
