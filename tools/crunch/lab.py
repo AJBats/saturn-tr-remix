@@ -54,6 +54,7 @@ from medclient import LAB
 from ref import Reference
 from rooms import Options, RoomDrawer, RoomJob, TextureStore, View, build_commands
 from variants import INGREDIENTS, compose
+import art
 import texstudy
 import textures
 from vdp1 import Vdp1, rgb
@@ -323,6 +324,7 @@ class Lab:
         r.update({'tex_' + k: v for k, v in tstats.items()})
         Image.fromarray(strip).save(base + '.tiles.png')
         r['art'] = ref_sheet[4:] if ref_sheet else ''
+        r['art_version'] = art.ART_VERSION
         m = lambda k: float(np.mean([v for v in r[k] if v is not None]))
         print(f'{name:28s} {time.time() - t1:5.1f} s  vdp1 {m("vdp1_ms"):5.2f} ms  cmds {m("commands"):5.0f}  '
               f'tex {m("texture_kb"):4.0f} KB  flicker {m("flicker"):5.2f}  error {m("error"):5.2f} '
@@ -337,7 +339,20 @@ class Lab:
                     variants=[n for n in order if n in results], results=results,
                     views=[view_key(v) for v in self.views])
 
-    def save(self, results, order):
+    def save(self, results, order, keep=True):
+        """Writes the page: these results over whatever the run's page holds
+        now (labserver.py may have added mixes while this ran), unless not
+        keep."""
+        try:
+            if not keep:
+                raise OSError
+            with open(os.path.join(self.out, 'run.json')) as f:
+                now = json.load(f)
+            if now['views'] == [view_key(v) for v in self.views]:
+                results = dict(now['results'], **results)
+                order = list(now['variants']) + [n for n in order if n not in now['variants']]
+        except (OSError, KeyError, ValueError):
+            pass
         meta = self.meta(results, order)
         with open(os.path.join(self.out, 'run.json'), 'w') as f:
             json.dump(meta, f)
@@ -372,11 +387,14 @@ def main():
         title, about, group, kw, change = compose(name)
         level = change(lab.base) if change else lab.base
         key = art_key(name)
-        results[name] = lab.draw(name, title, about, group, kw, level, 'ref.' + key if key else None)
+        # the reference sheet's name carries the art recipe's version, so a
+        # reference drawn before a recipe changed is never taken for it
+        sheet = f'ref.{key}.a{art.ART_VERSION}' if key else None
+        results[name] = lab.draw(name, title, about, group, kw, level, sheet)
     for k, v in old.items():
         if k not in results and os.path.exists(os.path.join(lab.out, k + '.png')):
             results[k] = v
-    lab.save(results, list(old) + [n for n in names if n not in old])
+    lab.save(results, list(old) + [n for n in names if n not in old], keep=not args.fresh)
 
 
 def write_page(out, meta):

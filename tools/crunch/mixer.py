@@ -140,6 +140,24 @@ def key_of(mix, rows=None):
     return ','.join(parts)
 
 
+def uses_art_filters(mix):
+    """Whether a mix draws through art.py's filters (whose recipe has a
+    version, art.ART_VERSION)."""
+    return (mix.get('relief', 'off') != 'off' or mix.get('grain') in ('bandpass', 'shapes')
+            or mix.get('repaint') == 'on' or mix.get('palette') == 'ramps')
+
+
+def recipe(mix):
+    """What a mix's name (and its own art's reference) adds for recipes that
+    changed since mixes were first drawn: a changed mix gets a new name, and
+    its pictures and references are drawn again, never mistaken for the old."""
+    mix = normal(mix)
+    out = '|kept2' if mix['relief'] != 'off' and mix['relief_colours'] == 'kept' else ''
+    if uses_art_filters(mix) and art.ART_VERSION > 1:
+        out += f'|art{art.ART_VERSION}'
+    return out
+
+
 def describe(key):
     """A key_of string in words: 'Baked relief: Medium (first try); ...'."""
     out = []
@@ -184,9 +202,7 @@ def compile_mix(mix):
             level = fn(level, mix)
         return level
 
-    # mixes whose recipe changed since they were first drawn take new names
-    recipe = '|kept2' if mix['relief'] != 'off' and mix['relief_colours'] == 'kept' else ''
-    name = 'mix-' + digest((key_of(mix) or 'game') + recipe)
+    name = 'mix-' + digest((key_of(mix) or 'game') + recipe(mix))
     title = '; '.join(titles) or 'The game today'
     return name, title, kw, change if levels else None, key_of(mix, set(art_rows))
 

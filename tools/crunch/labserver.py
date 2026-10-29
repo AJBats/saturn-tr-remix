@@ -82,7 +82,7 @@ class Server:
                 st['state'] = 'drawing'
                 lab = self.lab(run)
                 level = self.level(run, lab, mix, change)
-                sheet = 'ref.mix-' + mixer.digest(art) if art else None
+                sheet = 'ref.mix-' + mixer.digest(art + mixer.recipe(mix)) if art else None
                 ready = sheet and (sheet in lab.art_refs or os.path.exists(os.path.join(lab.out, sheet + '.png')))
                 about = 'A mix: ' + (title if title != 'The game today' else 'nothing changed')
                 r = lab.draw(name, 'Mix: ' + title, about, 'mix', kw, level, sheet if ready else None)
@@ -107,7 +107,7 @@ class Server:
         with self.draw_lock:
             lab = self.lab(run)
             level = self.level(run, lab, mix, change)
-        self.queue_ref(run, lab, name, level, 'ref.mix-' + mixer.digest(art))
+        self.queue_ref(run, lab, name, level, 'ref.mix-' + mixer.digest(art + mixer.recipe(mix)))
 
     def queue_ref(self, *job):
         with self.ref_cv:
@@ -210,9 +210,14 @@ class Handler(SimpleHTTPRequestHandler):
             presets = {}
             try:
                 with open(os.path.join(RUNS, q.get('run', ''), 'run.json')) as f:
-                    for n in json.load(f)['variants']:
-                        if not n.startswith('live/') and mixer.preset(n) is not None:
-                            presets[n] = mixer.preset(n)
+                    meta = json.load(f)
+                for n in meta['variants']:
+                    p = mixer.preset(n)
+                    # only variants drawn as the mixer would draw them now
+                    current = (not mixer.uses_art_filters(p or {})
+                               or meta['results'][n].get('art_version') == mixer.art.ART_VERSION)
+                    if not n.startswith('live/') and p is not None and current:
+                        presets[n] = p
             except (OSError, ValueError, KeyError):
                 pass
             self.reply(dict(rows=mixer.rows_for_page(), presets=presets))

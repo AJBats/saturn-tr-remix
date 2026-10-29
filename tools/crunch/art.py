@@ -33,11 +33,26 @@ def image(t):
     return rgb, solid
 
 
+# Filters see past a texture's edge as its mirror image, not as its other
+# side: most of TR's textures don't tile seamlessly, and wrapping turned
+# each seam into a ridge of light along every tile's edge (a grid over the
+# floors). Bump ART_VERSION when what these functions draw changes.
+ART_VERSION = 2
+
+
 def gauss(a, sigma):
-    """Gaussian blur, wrapping (room textures tile)."""
+    """Gaussian blur, mirrored at the edges."""
     if a.ndim == 3:
-        return np.stack([ndimage.gaussian_filter(a[..., c], sigma, mode='wrap') for c in range(a.shape[2])], -1)
-    return ndimage.gaussian_filter(a, sigma, mode='wrap')
+        return np.stack([ndimage.gaussian_filter(a[..., c], sigma, mode='reflect') for c in range(a.shape[2])], -1)
+    return ndimage.gaussian_filter(a, sigma, mode='reflect')
+
+
+def shifted(a, dy, dx):
+    """a moved by (dy, dx), mirrored at the edges (np.roll without the wrap)."""
+    h, w = a.shape[:2]
+    pad = ((abs(dy), abs(dy)), (abs(dx), abs(dx))) + ((0, 0),) * (a.ndim - 2)
+    p = np.pad(a, pad, mode='reflect')
+    return p[abs(dy) - dy:abs(dy) - dy + h, abs(dx) - dx:abs(dx) - dx + w]
 
 
 def lum(rgb):
@@ -128,7 +143,7 @@ def tidy(fit, passes=2):
     idx, colors = fit
     for _ in range(passes):
         t = idx.astype(np.int16)
-        p = np.pad(t, 1, mode='wrap')
+        p = np.pad(t, 1, mode='edge')
         n = np.stack([p[:-2, 1:-1], p[2:, 1:-1], p[1:-1, :-2], p[1:-1, 2:]])
         lonely = np.all(n != t, axis=0)
         out = idx.copy()
@@ -158,7 +173,7 @@ def kuwahara(rgb, r=2, passes=2):
         for sy in (0, -r):
             for sx in (0, -r):
                 shifts = [(sy + dy, sx + dx) for dy in range(r + 1) for dx in range(r + 1)]
-                stack = np.stack([np.roll(rgb, (-y, -x), axis=(0, 1)) for y, x in shifts])
+                stack = np.stack([shifted(rgb, -y, -x) for y, x in shifts])
                 lstack = stack @ LUM
                 v = lstack.var(axis=0)
                 m = stack.mean(axis=0)
@@ -171,8 +186,8 @@ def kuwahara(rgb, r=2, passes=2):
 
 def shade(height, light=(-0.55, -0.75, 0.65), slope=1.0):
     """Lambert shading of a height field (texel units), centred on 0."""
-    gx = (np.roll(height, -1, 1) - np.roll(height, 1, 1)) / 2 * slope
-    gy = (np.roll(height, -1, 0) - np.roll(height, 1, 0)) / 2 * slope
+    gx = (shifted(height, 0, -1) - shifted(height, 0, 1)) / 2 * slope
+    gy = (shifted(height, -1, 0) - shifted(height, 1, 0)) / 2 * slope
     n = np.stack([-gx, -gy, np.ones_like(gx)], -1)
     n /= np.linalg.norm(n, axis=-1, keepdims=True)
     l = np.array(light) / np.linalg.norm(light)
