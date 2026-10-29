@@ -201,10 +201,17 @@ def ramps(t):
     return ramp_fit(rgb, solid, t.transparent, t.colors[0])
 
 
-def relief_rgb(rgb, solid, sigma=1.6, keep_detail=0.2, amount=1.0):
+UPPER_LEFT = (-0.55, -0.75, 0.65)
+FRONT = (0.0, 0.0, 1.0)
+
+
+def relief_rgb(rgb, solid, sigma=1.6, keep_detail=0.2, amount=1.0, light=UPPER_LEFT):
+    """The colours blurred; the slope of the brightness (blurred by sigma)
+    lit by 'light' added on top; keep_detail of the finest detail back; the
+    texture's contrast restored."""
     lu = lum(rgb)
     height = gauss(lu, sigma)
-    s = shade(height, slope=1.2)
+    s = shade(height, light, slope=1.2)
     albedo = gauss(rgb, sigma * 1.4)
     detail = rgb - gauss(rgb, 0.8)
     out = albedo + amount * 6.0 * s[..., None] + keep_detail * detail
@@ -214,6 +221,18 @@ def relief_rgb(rgb, solid, sigma=1.6, keep_detail=0.2, amount=1.0):
 def relief(t):
     rgb, solid = image(t)
     return tidy(ramp_fit(relief_rgb(rgb, solid), solid, t.transparent, t.colors[0]))
+
+
+def relief_mix(t, amount=1.0, light='upper left', colours='blurred'):
+    """Relief at any setting (the lab's mixer): its strength, its light
+    (upper left, or front: no direction, which needs twice the strength to
+    show as much), and its colours blurred (as relief) or kept (relief_lite)."""
+    rgb, solid = image(t)
+    direction, k = (UPPER_LEFT, amount) if light == 'upper left' else (FRONT, 2.0 * amount)
+    if colours == 'blurred':
+        return tidy(ramp_fit(relief_rgb(rgb, solid, amount=k, light=direction), solid, t.transparent, t.colors[0]))
+    out = relief_lite_rgb(rgb, solid, light=direction, amount=0.7 * k)
+    return tidy(kmeans_fit(out, solid, t.transparent, t.colors[0]))
 
 
 # --- the relief family --------------------------------------------------

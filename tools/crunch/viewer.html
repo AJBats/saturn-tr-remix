@@ -35,7 +35,7 @@ input[type=range] { width: 260px; accent-color: var(--accent); }
 .panels { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px 20px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .panel .head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
-.panel .head select { max-width: 640px; }
+.panel .head select { flex: 1; min-width: 0; }
 .panel .tag { font-weight: 700; width: 20px; color: var(--muted); }
 .panel .tag.flipped { color: var(--accent); }
 .flip { display: flex; gap: 5px; align-items: center; font-size: 12px; color: var(--muted); white-space: nowrap; cursor: pointer; }
@@ -68,12 +68,30 @@ tr.ref td { background: var(--chip); }
 svg text { fill: var(--muted); font-size: 11px; }
 .note { color: var(--muted); font-size: 12px; max-width: 1100px; }
 .note b { color: var(--ink); font-weight: 600; }
+body.live { padding-right: 372px; }
+.dock { position: fixed; top: 0; right: 0; bottom: 0; width: 360px; overflow-y: auto; z-index: 3;
+        background: var(--panel); border-left: 1px solid var(--line); padding: 14px 14px 20px; }
+.dock .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.mixer .head { justify-content: space-between; }
+.mixer .state { font-size: 12px; color: var(--muted); }
+.mixer .state.busy { color: var(--accent); }
+.mgroup { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 0 2px; }
+.mrow { display: flex; gap: 8px; align-items: flex-start; margin: 3px 0; }
+.mrow.off { opacity: .4; }
+.mrow .mt { width: 120px; flex: none; font-size: 12px; padding-top: 3px; }
+.seg { display: flex; flex-wrap: wrap; gap: 3px; }
+.seg button { font-size: 12px; padding: 2px 8px; border-radius: 12px; }
+.seg button.on { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+.mixbtns { display: flex; gap: 8px; margin-top: 12px; }
+.runs a { color: var(--accent2); margin-right: 10px; font-size: 13px; }
+.runs a.cur { color: var(--ink); font-weight: 600; text-decoration: none; }
 </style>
 </head>
 <body>
 <header>
   <h1>Crunch Lab</h1>
   <div class="sub" id="sub"></div>
+  <div class="runs" id="runs"></div>
 </header>
 <div class="bar">
   <button id="play">Play</button>
@@ -105,8 +123,13 @@ const RUN = /*RUN_JSON*/null;
 const W = RUN.width, H = RUN.height, N = RUN.frames;
 const REFS = { ref: ['Reference, additive light (as the Saturn)', 'Each quad as two triangles, perspective-correct, trilinear-filtered textures, 4x4 samples a pixel, a depth buffer; each corner\'s light added, as VDP1 does.'],
                ref_mul: ['Reference, multiplied light (as the PS1)', 'The same reference with each texel multiplied by its light, as the PS1 shades: what the shading ideas reach for.'] };
-for (const k of RUN.art_refs || []) REFS['ref.' + k] = [`Reference with the ${k.split('+').map(p => (RUN.results[p] || {}).title || p).join(' + ')} art`, 'The same reference drawn with this variant\'s textures: the ideal of that art, the picture its flicker is measured against.'];
-const names = ['ref', 'ref_mul', ...Object.keys(REFS).filter(k => k.startsWith('ref.')), ...RUN.variants];
+function addArtRef(k) {
+  const words = (RUN.art_titles || {})[k] || k.split('+').map(p => (RUN.results[p] || {}).title || p).join(' + ');
+  REFS['ref.' + k] = [`Reference with the art of: ${words}`, 'The same reference drawn with this variant\'s textures: the ideal of that art, the picture its flicker is measured against.'];
+}
+(RUN.art_refs || []).forEach(addArtRef);
+const allNames = () => ['ref', 'ref_mul', ...Object.keys(REFS).filter(k => k.startsWith('ref.')), ...RUN.variants];
+const ver = n => RUN.results[n] && RUN.results[n].version ? `?v=${RUN.results[n].version}` : '';
 const title = n => REFS[n] ? REFS[n][0] : RUN.results[n].title;
 const TEXCOLS = [['tex_grain', 'Grain', 2], ['tex_lonely', 'Lonely', 2], ['tex_run', 'Run', 2]];
 const COLS = [
@@ -130,13 +153,18 @@ function buildPanels() {
   const box = $('panels'); box.innerHTML = '';
   picks.forEach((p, i) => {
     const d = document.createElement('div'); d.className = 'panel';
-    const opts = names.map(n => `<option value="${n}" ${n === p ? 'selected' : ''}>${title(n)}</option>`).join('');
+    const opts = allNames().map(n => `<option value="${n}" ${n === p ? 'selected' : ''}>${title(n)}</option>`).join('');
     const flip = i === 1 ? `<label class="flip" title="Show panel A's picture here, to flip between them in place"><input type="checkbox" id="flipB" ${flipB ? 'checked' : ''}> Show A here <span class="key">F</span></label>` : '';
     d.innerHTML = `<div class="head"><span class="tag" id="tag${i}">${'ABC'[i]}</span><select data-i="${i}">${opts}</select>${flip}</div>
       <div class="screen" id="scr${i}"></div><div class="stats" id="st${i}"></div><div class="about" id="ab${i}"></div>`;
     box.appendChild(d);
   });
-  box.querySelectorAll('select').forEach(s => s.onchange = e => { picks[+e.target.dataset.i] = e.target.value; refresh(); });
+  box.querySelectorAll('.panel > .head select').forEach(s => s.onchange = e => {
+    const i = +e.target.dataset.i;
+    picks[i] = e.target.value;
+    if (i === 1 && RUN.results[picks[1]] && RUN.results[picks[1]].mix) setMix(RUN.results[picks[1]].mix, false);
+    refresh();
+  });
   $('flipB').onchange = e => { flipB = e.target.checked; draw(); tiles(); };
 }
 
@@ -152,10 +180,11 @@ function draw() {
     const el = $('scr' + i);
     const sheet = REFS[p] || mode === 'pic' ? p : `${p}.${mode}`;
     el.style.width = W * z + 'px'; el.style.height = H * z + 'px';
-    el.style.backgroundImage = `url("${sheet}.png")`;
+    el.style.backgroundImage = `url("${sheet}.png${ver(p)}")`;
     el.style.backgroundSize = `${W * z}px ${H * N * z}px`;
     el.style.backgroundPosition = `0 ${-frame * H * z}px`;
     el.parentNode.querySelector('.about').style.maxWidth = W * z + 'px';
+    el.parentNode.querySelector('.head').style.width = W * z + 'px';
     const st = $('st' + i), ab = $('ab' + i);
     if (REFS[p]) { st.innerHTML = ''; ab.textContent = REFS[p][1]; return; }
     const r = RUN.results[p], v = (k, d) => r[k][frame] === null ? '–' : r[k][frame].toFixed(d);
@@ -213,7 +242,12 @@ function table() {
     s += '</tr>';
   });
   $('table').innerHTML = s;
-  $('table').querySelectorAll('tr.pick').forEach(tr => tr.onclick = e => { picks[e.shiftKey ? 0 : 1] = tr.dataset.n; buildPanels(); refresh(); });
+  $('table').querySelectorAll('tr.pick').forEach(tr => tr.onclick = e => {
+    const n = tr.dataset.n;
+    picks[e.shiftKey ? 0 : 1] = n;
+    if (!e.shiftKey && RUN.results[n].mix) setMix(RUN.results[n].mix, false);
+    buildPanels(); refresh();
+  });
   $('table').querySelectorAll('th').forEach(th => th.onclick = () => {
     const k = th.dataset.k || null;
     if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = 1; }
@@ -225,13 +259,100 @@ function tiles() {
   const show = n => REFS[n] ? null : n;
   const a = show(picks[0]), b = show(flipB ? picks[0] : picks[1]);
   let s = '';
-  if (a) s += `<div class="row"><span><b>A</b> ${title(a)}</span><img src="${a}.tiles.png"></div>`;
-  if (b) s += `<div class="row"><span><b>${flipB ? 'A' : 'B'}</b> ${title(b)}</span><img src="${b}.tiles.png"></div>`;
+  if (a) s += `<div class="row"><span><b>A</b> ${title(a)}</span><img src="${a}.tiles.png${ver(a)}"></div>`;
+  if (b) s += `<div class="row"><span><b>${flipB ? 'A' : 'B'}</b> ${title(b)}</span><img src="${b}.tiles.png${ver(b)}"></div>`;
   s += `<div class="row"><span><b>Sonic R</b> its race frame's most drawn</span><img src="sonicr.tiles.png"></div>`;
   $('tiles').innerHTML = s;
 }
 
 function refresh() { draw(); chart(); table(); tiles(); }
+
+// --- the live mixer (when labserver.py serves the page) ---------------------
+const LIVE = location.protocol.startsWith('http');
+let ROWS = [], mix = {}, wanted = null;
+
+function mixFromHash() {
+  const m = location.hash.match(/mix=([^&]*)/);
+  const out = {};
+  if (m) decodeURIComponent(m[1]).split(';').forEach(kv => { const [k, v] = kv.split(':'); if (k && v) out[k] = v; });
+  return out;
+}
+function mixToHash() {
+  const parts = ROWS.filter(r => mix[r.id] && mix[r.id] !== r.options[0][0]).map(r => `${r.id}:${mix[r.id]}`);
+  history.replaceState(null, '', parts.length ? '#mix=' + encodeURIComponent(parts.join(';')) : '#');
+  runLinks();
+}
+function setMix(m, draw) {
+  mix = {};
+  ROWS.forEach(r => mix[r.id] = (m && m[r.id]) || r.options[0][0]);
+  mixToHash();
+  paintMixer();
+  if (draw) requestMix();
+}
+function mixerPanel() {
+  const d = document.createElement('div');
+  d.className = 'dock';
+  let s = `<div class="head"><b>Mix for B</b><span class="state" id="mixstate"></span></div>`;
+  let group = '';
+  ROWS.forEach(r => {
+    if (r.group !== group) { group = r.group; s += `<div class="mgroup">${group}</div>`; }
+    s += `<div class="mrow" id="mrow-${r.id.replace(' ', '_')}"><span class="mt">${r.title}</span><div class="seg">` +
+      r.options.map(([id, label]) => `<button data-row="${r.id}" data-opt="${id}">${label}</button>`).join('') + '</div></div>';
+  });
+  s += `<div class="mixbtns"><button id="mixToA" title="Panel A shows what B shows now">Copy B to A</button><button id="mixGame">Back to the game</button></div>`;
+  d.innerHTML = s;
+  d.querySelectorAll('.seg button').forEach(b => b.onclick = () => { mix[b.dataset.row] = b.dataset.opt; mixToHash(); paintMixer(); requestMix(); });
+  d.querySelector('#mixToA').onclick = () => { picks[0] = picks[1]; buildPanels(); refresh(); };
+  d.querySelector('#mixGame').onclick = () => setMix({}, true);
+  setTimeout(paintMixer, 0);
+  return d;
+}
+function paintMixer() {
+  document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', mix[b.dataset.row] === b.dataset.opt));
+  const reliefOff = mix.relief === 'off';
+  ['relief_light', 'relief_colours'].forEach(id => { const el = $('mrow-' + id); if (el) el.classList.toggle('off', reliefOff); });
+}
+function mixState(text, busy) { const el = $('mixstate'); if (el) { el.textContent = text; el.classList.toggle('busy', !!busy); } }
+async function requestMix() {
+  mixState('Drawing...', true);
+  const res = await fetch('/api/mix', { method: 'POST', body: JSON.stringify({ run: RUN.run, mix }) });
+  const st = await res.json();
+  wanted = st.name;
+  poll(st.name);
+}
+async function poll(name) {
+  const st = await (await fetch(`/api/status?run=${encodeURIComponent(RUN.run)}&name=${encodeURIComponent(name)}`)).json();
+  if (st.state === 'queued' || st.state === 'drawing') {
+    if (name === wanted) mixState(st.state === 'queued' ? 'Waiting for the last mix...' : 'Drawing...', true);
+    setTimeout(() => poll(name), 400);
+    return;
+  }
+  if (st.state === 'error') { mixState('Failed: ' + st.error, true); return; }
+  if (st.state !== 'done') { mixState(''); return; }
+  accept(name, st.result);
+  if (st.result.flicker_pending) {
+    if (name === wanted) mixState('Measuring flicker against its own art...', false);
+    setTimeout(() => poll(name), 3000);
+  } else if (name === wanted) mixState('');
+}
+function accept(name, r) {
+  RUN.results[name] = r;
+  if (!RUN.variants.includes(name)) RUN.variants.push(name);
+  if (r.art && !REFS['ref.' + r.art] && !r.flicker_pending) { RUN.art_titles = RUN.art_titles || {}; addArtRef(r.art); }
+  const g = $('group');
+  if (![...g.options].some(o => o.value === r.group)) g.innerHTML += `<option value="${r.group}">${r.group}</option>`;
+  if (name === wanted) picks[1] = name;
+  buildPanels(); refresh();
+}
+function runLinks() {
+  if (!LIVE) return;
+  const m = RUN.run.match(/^(.*?)-(dolly|pan|creep|strafe|still)(-.*)?$/);
+  if (!m) return;
+  $('runs').innerHTML = 'Camera move: ' + ['dolly', 'pan', 'creep'].map(p => {
+    const run = `${m[1]}-${p}${m[3] || ''}`;
+    return `<a class="${run === RUN.run ? 'cur' : ''}" href="/${run}/${location.hash}">${p}</a>`;
+  }).join('');
+}
 
 function tick() {
   frame += dir;
@@ -256,7 +377,18 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft') { frame = Math.max(0, frame - 1); draw(); }
   if (e.key === 'f' || e.key === 'F') setFlip(!flipB);
 });
-buildPanels(); refresh();
+if (LIVE) {
+  fetch('/api/rows').then(r => r.json()).then(rows => {
+    ROWS = rows;
+    const m = mixFromHash();
+    document.body.classList.add('live');
+    document.body.appendChild(mixerPanel());
+    buildPanels(); refresh();
+    setMix(m, Object.keys(m).length > 0);
+  });
+} else {
+  buildPanels(); refresh();
+}
 </script>
 </body>
 </html>
