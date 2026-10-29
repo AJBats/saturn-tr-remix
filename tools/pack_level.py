@@ -42,8 +42,9 @@ on the walkable floor nearest its centre; LARA_START=<room>:<x>:<z> on that
 sector; LARA_START=<room>:<x>:<z>:<degrees> also turns her to that heading,
 to the nearest quarter turn (items keep only that); LARA_START=<room>@<x>:<y>:<z>
 puts her at that world position exactly (make's START_YAW turns her exactly).
-ITEMS_ACTIVE=<item>,<item>... starts those items active, as TR1 starts an item
-whose flags hold every trigger bit (enemies awake, without their trigger).
+START_TRIGGER=<item>,<item>... puts a trigger under Lara's start that
+activates those items, as the level's own triggers do (enemies awake around
+her from the start); her sector must have no floor data of its own.
 """
 import math
 import os
@@ -885,6 +886,21 @@ def move_lara(lvl, room_index, sector=None):
     lara.update(room=room_index, x=room.x + sx * 1024 + 512, y=floor * 256, z=room.z + sz * 1024 + 512)
 
 
+def start_trigger(lvl, items):
+    """A trigger on Lara's sector activating items, every mask bit set, as
+    the level's floor triggers have it."""
+    lara = next(it for it in lvl.items if it["type"] == ITEM["LARA"])
+    room = lvl.rooms[lara["room"]]
+    index = (lara["x"] - room.x) // 1024 * room.z_sectors + (lara["z"] - room.z) // 1024
+    sector = room.sectors[index]
+    if sector[0]:
+        raise ValueError(f"START_TRIGGER: Lara's sector already has floor data at {sector[0]}")
+    words = [0x8004, 0x3E00] + [i & 0x3FF for i in items]     # trigger (ACTIVATE), its mask
+    words[-1] |= 0x8000
+    room.sectors[index] = (len(lvl.floors),) + sector[1:]
+    lvl.floors += words
+
+
 def load_ps1(psx_dir, name):
     """The PlayStation level, if there is one with sound samples."""
     if psx_dir is None or not os.path.exists(os.path.join(psx_dir, name + ".PSX")):
@@ -927,8 +943,9 @@ def main():
         if len(start) == 4:
             lara = next(it for it in lvl.items if it["type"] == ITEM["LARA"])
             lara["rotation"] = (round(start[3] / 90) * 0x4000) & 0xFFFF
-    for index in filter(None, os.environ.get("ITEMS_ACTIVE", "").split(",")):
-        lvl.items[int(index)]["flags"] |= 0x3E00
+    triggered = [int(i) for i in filter(None, os.environ.get("START_TRIGGER", "").split(","))]
+    if triggered:
+        start_trigger(lvl, triggered)
     sounds = sfx.Sfx(lvl, load_ps1(sys.argv[4] if len(sys.argv) > 4 else None, name))
     report_sounds(name, lvl, sounds)
     packer = Packer(lvl, sounds)
