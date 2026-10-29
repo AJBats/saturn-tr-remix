@@ -92,7 +92,7 @@ DSP_HEADERS := $(patsubst saturn/%.dsp,$(BUILD)/gen/%_dsp.h,$(wildcard saturn/*.
 # draw order hints (tools/depth_hints.py): saturn/depth_hints.txt
 HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h) $(DSP_HEADERS) $(BUILD)/gen/depth_hints.h $(FLAGS_FILE)
 
-.PHONY: all disc dspbench extract ghidra check-toolchain
+.PHONY: all disc dspbench lab extract ghidra check-toolchain
 
 # keep intermediate files (0MAIN.BIN) produced through pattern rules
 .SECONDARY:
@@ -186,6 +186,35 @@ $(BENCH)/0MAIN.elf: $(patsubst %,$(BENCH)/obj/%.o,$(BENCH_SRC)) saturn/saturn.ld
 
 dspbench: $(BENCH)/disc/tomb.cue
 $(eval $(call DISC_RULE,$(BENCH),))
+
+# The clean-room renderer's lab (lab/lab.cpp): a program of its own, on a disc
+# of its own with a captured frame (tools/capture.py) packed as its scene:
+# make lab [LAB_SCENE=name of build/captures/name]
+LAB := build/lab
+LAB_SCENE ?= ledge
+LAB_SCENE_FILE := $(LAB)/$(shell echo $(LAB_SCENE) | tr a-z A-Z).SCN
+LAB_SRC := $(wildcard lab/*.cpp lab/*.s) saturn/font.cpp saturn/cd.cpp saturn/faces.s saturn/flush.s
+LAB_FLAGS := -m2 -mb -O2 -Wall -Ilab -Isaturn -ffunction-sections
+LAB_CXXFLAGS := $(LAB_FLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
+	-fno-asynchronous-unwind-tables
+
+$(LAB)/obj/%.cpp.o: %.cpp $(wildcard lab/*.h) saturn/hw.h saturn/font.h saturn/cd.h | check-toolchain
+	@mkdir -p $(@D)
+	$(CXX) $(LAB_CXXFLAGS) -c $< -o $@
+
+$(LAB)/obj/%.s.o: %.s | check-toolchain
+	@mkdir -p $(@D)
+	$(CC) $(LAB_FLAGS) -c $< -o $@
+
+$(LAB)/0MAIN.elf: $(patsubst %,$(LAB)/obj/%.o,$(LAB_SRC)) saturn/saturn.ld
+	$(CXX) $(LAB_CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
+
+$(LAB_SCENE_FILE): tools/labscene.py tools/capture.py $(wildcard build/captures/$(LAB_SCENE)/*)
+	@mkdir -p $(@D)
+	$(PY) tools/labscene.py $(LAB_SCENE) $@
+
+lab: $(LAB)/disc/tomb.cue
+$(eval $(call DISC_RULE,$(LAB),SCENE.SCN=$(LAB_SCENE_FILE)))
 
 extract: $(DISC)/filelist.txt
 

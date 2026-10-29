@@ -1,0 +1,399 @@
+"""Packs a captured frame (tools/capture.py, build/captures/NAME) into a scene
+for the clean-room renderer's lab (lab/scene.h): what the game drew that
+frame with and what it made of it, from the dumps, as the lab reads it.
+
+    labscene.py NAME OUT.SCN
+
+The capture's own program (its 0MAIN.elf) names what the dumps hold. Faces
+become indices into their pool; mesh and room data are copied as the game
+keeps them in memory; the game's command list and gouraud tables come along
+as the reference the lab checks against. The capture must use the look the
+lab builds (the game's defaults): anything else is refused.
+"""
+import json
+import os
+import struct
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import capture as cap   # noqa: E402
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+SCENE_MAGIC = 0x53434E31        # "SCN1"
+MAX_VERTICES = 5 * 1024
+MASTER_VERTICES = 2048
+MAX_FACES = 1920
+OT_SIZE, OT_GROUPS = cap.OT_SIZE, cap.OT_GROUPS
+OT_SHIFT = 4
+VDP1_BYTES = 0x80000
+VRAM_FRAME_CMDS = 0x60          # saturn/vram.h
+VRAM_GOURAUD_BASE = VRAM_FRAME_CMDS + 1792 * 32
+DIV_TABLE_SIZE = 1281
+DETAIL_KEYS_BYTES = 7 * 1088
+DETAIL_SLOTS_BYTES = 256 * 8
+SHADE_CACHE_BYTES = 2064
+PALETTE_COLOURS = 256
+TEXTURE_BYTES = 16
+SPRITE_BYTES = 16
+MESH_HEADER = 20                # Mesh (common.h)
+MESH_LIGHT_NORMALS, MESH_LIGHT_SHADES = 1, 2
+VIEW_DIST = 20480
+
+# Level (common.h): fields read
+LEVEL_TEXTURES_COUNT, LEVEL_SPRITES_COUNT = 20, 22
+LEVEL_PALETTE, LEVEL_TEXTURES, LEVEL_SPRITES = 32, 92, 96
+# Room and RoomInfo (common.h), RoomJob and RoomWork (rooms.cpp)
+ROOM_INFO, ROOM_DATA = 4, 12
+INFO_COUNTS, INFO_FACING = 8, 24
+JOB_BYTES, WORK_BYTES = 72, 12
+
+# the look the lab builds: the game's defaults (render.cpp, debug menu)
+DEFAULTS = {'_gBenchMode': 0, '_gDarkFaces': 0, '_gShadeTables': 1, '_gFlatDist': 0, '_gNearSplit': 0,
+            '_gShadowMode': 2, '_gTexelView': 0, '_gTurnLines': 1, '_gTextureLod': 4}
+
+DRAW_MESH, DRAW_SHADOW, DRAW_COPY = 1, 2, 3
+WHERE_HIGH, WHERE_LOW, WHERE_VDP1 = 0, 1, 2
+
+INFO = struct.Struct('>9I3I4I3i2I16s')      # SceneInfo
+ROOM = struct.Struct('>9hh3i4i3iiBBBBi4H6H3I')  # RoomScene
+DRAW = struct.Struct('>BBHIiiii')           # DrawScene
+FLOOR = struct.Struct('>3I4HI')             # FloorFace
+MOVE = struct.Struct('>HH')
+
+FLOOR_EXACT = 1
+
+
+def u32(mem, address):
+    return mem.unpack('>I', address)[0]
+
+
+def chain_faces(mem, chains, pool):
+    """The chains' faces as indices into the pool at 'pool', bucket by bucket."""
+    out = []
+    for chain in chains:
+        idx = []
+        for face in chain:
+            i, rest = divmod((face & 0x0FFFFFFF) - pool, 16)
+            if rest or not 0 <= i < MAX_FACES:
+                sys.exit(f'face {face:#x} is not in the pool at {pool:#x}')
+            idx.append(i)
+        out.append(idx)
+    return out
+
+
+def pool_bytes(mem, pool, count, index_of):
+    """count faces of the pool, their next pointers as index + 1 (0: none)."""
+    out = bytearray()
+    for i in range(count):
+        flags, nxt, a, b, c, d = mem.unpack('>II4h', pool + 16 * i)
+        n = index_of(nxt) if nxt else 0
+        out += struct.pack('>II4h', flags, n, a, b, c, d)
+    return bytes(out)
+
+
+def mesh_size(mem, address):
+    """The bytes of a mesh and the arrays after it (render.cpp meshParts)."""
+    vcount = mem.unpack('>B', address + 10)[0]
+    lighting = mem.unpack('>B', address + 11)[0]
+    quads, triangles = mem.unpack('>hh', address + 12)
+    size = MESH_HEADER + 6 * vcount
+    if lighting == MESH_LIGHT_NORMALS:
+        size += 4 * vcount
+    elif lighting == MESH_LIGHT_SHADES:
+        size += (vcount + 1) & ~1
+    return size + 6 * (quads + triangles)
+
+
+def sar(v, n):
+    return v >> n       # Python's >> is arithmetic
+
+
+def mesh_inside(mem, r):
+    """meshxform.s renderMeshAsm's test: the bounding sphere wholly in the
+    frame and between the planes."""
+    m = r['matrix']
+    rows = [cap.s16(m[k]) for k in (0, 1, 2, 4, 5, 6, 8, 9, 10)]
+    cx0, cy0, cz0 = mem.unpack('>3h', r['ref'])
+    bound = mem.unpack('>h', r['ref'] + 16)[0]
+    cx = sar(cap.s32(m[3] + rows[0] * cx0 + rows[1] * cy0 + rows[2] * cz0), 14)
+    cy = sar(cap.s32(m[7] + rows[3] * cx0 + rows[4] * cy0 + rows[5] * cz0), 14)
+    cz = sar(cap.s32(m[11] + rows[6] * cx0 + rows[7] * cy0 + rows[8] * cz0), 14)
+    near = cz - bound
+    return (near > 64 and cz + bound < VIEW_DIST and
+            cap.s32((abs(cx) + bound) << 8) < 172 * near and cap.s32((abs(cy) + bound) << 8) < 108 * near)
+
+
+def main():
+    if len(sys.argv) != 3:
+        sys.exit(__doc__)
+    folder = os.path.join(ROOT, 'build/captures', sys.argv[1])
+    out_path = sys.argv[2]
+    syms = cap.symbols(os.path.join(folder, '0MAIN.elf'))
+
+    def sym(name, size=None):
+        found = [a for a, s in syms.get(name, []) if size is None or s == size]
+        if len(found) != 1:
+            sys.exit(f'{name}: {len(found)} symbols')
+        return found[0]
+
+    def read(name):
+        with open(os.path.join(folder, name), 'rb') as f:
+            return f.read()
+
+    mem = cap.Memory(read('lwram.bin'), read('hwram.bin'))
+    vram = read('vdp1.bin')
+    with open(os.path.join(folder, 'frame.json')) as f:
+        frame = json.load(f)
+    header, recs = frame['header'], frame['records']
+    if 'order' not in header:
+        sys.exit('the capture has no ordering tables: capture it again')
+
+    for name, want in DEFAULTS.items():
+        got = cap.s32(u32(mem, sym(name)))
+        if got != want:
+            sys.exit(f'{name} is {got}: the lab builds the defaults ({want})')
+
+    master_pool = sym('__ZL6gFaces')
+    slave_pool = sym('__ZL11gSlaveFaces')
+    vertices = sym('_gVertices')
+    room_ot, mesh_ot = cap.order_tables(mem, header)
+    room_ot = chain_faces(mem, room_ot, slave_pool)
+    mesh_ot = chain_faces(mem, mesh_ot, master_pool)
+    order = mem.unpack(cap.ORDER.format, header['order'])
+    room_groups = order[2 * OT_SIZE:2 * OT_SIZE + OT_GROUPS]
+    mesh_groups = order[2 * OT_SIZE + OT_GROUPS:2 * OT_SIZE + 2 * OT_GROUPS]
+
+    def bucket_of(table):
+        where = {}
+        for b, chain in enumerate(table):
+            for i in chain:
+                if i in where:
+                    sys.exit(f'face {i} twice in the ordering tables')
+                where[i] = b
+        return where
+
+    room_bucket, mesh_bucket = bucket_of(room_ot), bucket_of(mesh_ot)
+    slave_faces = max(room_bucket) + 1 if room_bucket else 0
+    master_faces = max(mesh_bucket) + 1 if mesh_bucket else 0
+    if len(room_bucket) != slave_faces or len(mesh_bucket) != master_faces:
+        sys.exit('a pool holds faces the ordering tables leave out')
+
+    def indexer(pool):
+        def index_of(address):
+            return ((address & 0x0FFFFFFF) - pool) // 16 + 1
+        return index_of
+
+    chunks = {}
+    chunks['VRAM'] = vram[:VDP1_BYTES]
+    chunks['VERT'] = mem.bytes(vertices, MAX_VERTICES * 8)
+    chunks['MPOL'] = pool_bytes(mem, master_pool, master_faces, indexer(master_pool))
+    chunks['SPOL'] = pool_bytes(mem, slave_pool, slave_faces, indexer(slave_pool))
+    heads = [chain[0] + 1 if chain else 0 for chain in room_ot] + [chain[0] + 1 if chain else 0 for chain in mesh_ot]
+    chunks['ORDR'] = struct.pack(f'>{2 * OT_SIZE}H{2 * OT_GROUPS}H', *heads, *room_groups, *mesh_groups)
+
+    commands = header['faces']
+    cmds = mem.bytes(sym('__ZL5gCmds', 0xE000), (commands + 1) * 32)
+    grds = mem.bytes(sym('__ZL8gGouraud'), commands * 8)
+    if (vram[VRAM_FRAME_CMDS:VRAM_FRAME_CMDS + len(cmds)] != cmds or
+            vram[VRAM_GOURAUD_BASE:VRAM_GOURAUD_BASE + len(grds)] != grds):
+        sys.exit('VDP1 VRAM does not hold the list as built: capture it again')
+    chunks['CMDS'] = cmds
+    chunks['GRDS'] = grds
+
+    level = sym('_level')
+    textures = mem.unpack('>H', level + LEVEL_TEXTURES_COUNT)[0]
+    sprites = mem.unpack('>H', level + LEVEL_SPRITES_COUNT)[0]
+    chunks['TEXS'] = mem.bytes(u32(mem, level + LEVEL_TEXTURES), textures * TEXTURE_BYTES)
+    chunks['PALT'] = mem.bytes(u32(mem, level + LEVEL_PALETTE), PALETTE_COLOURS * 2)
+    chunks['SPRS'] = mem.bytes(u32(mem, level + LEVEL_SPRITES), sprites * SPRITE_BYTES)
+    chunks['SHAD'] = (mem.bytes(sym('__ZL11gShadeLevel'), 32) + mem.bytes(sym('__ZL10gHalfLevel'), 96) +
+                      mem.bytes(sym('__ZL13gShadeGouraud'), 64))
+    chunks['SHCA'] = mem.bytes(sym('__ZL12gShadeCaches'), 2 * SHADE_CACHE_BYTES)
+    chunks['DKEY'] = mem.bytes(sym('_gDetailKeys'), DETAIL_KEYS_BYTES)
+    chunks['DSLT'] = mem.bytes(sym('_gDetailSlots'), DETAIL_SLOTS_BYTES)
+    chunks['DIVT'] = mem.bytes(sym('_divTable'), DIV_TABLE_SIZE * 2)
+
+    # the rooms, in the order the slave added their faces: a face is the
+    # room's whose vertices hold one of its corners (a split quad's quarters
+    # each keep one of the quad's); rooms that added none go last
+    jobs, work = sym('__ZL5gJobs'), sym('__ZL5gWork', 0x300)
+    placed = u32(mem, sym('__ZL7gPlaced'))
+    spans = []
+    for j in range(placed):
+        room = u32(mem, jobs + JOB_BYTES * j)
+        info = u32(mem, room + ROOM_INFO)
+        count = mem.unpack('>H', info + INFO_COUNTS + 4)[0]
+        base = mem.unpack('>i', work + WORK_BYTES * j)[0]
+        spans.append((base, count))
+    faced = []
+    for i in range(slave_faces):
+        corners = mem.unpack('>4h', slave_pool + 16 * i + 8)
+        owner = None
+        for c in corners:
+            v = c // 8 + MASTER_VERTICES
+            for j, (base, count) in enumerate(spans):
+                if base >= 0 and base <= v < base + count:
+                    owner = j
+        if owner is None:
+            sys.exit(f'slave face {i} has no room')
+        if owner not in faced:
+            faced.append(owner)
+    faced += [j for j in range(placed) if j not in faced and spans[j][0] >= 0]
+
+    room_recs = bytearray()
+    geometry = bytearray()
+    for j in faced:
+        at = jobs + JOB_BYTES * j
+        room = u32(mem, at)
+        m = mem.unpack('>9h', at + 4)
+        t = mem.unpack('>3i', at + 24)
+        clip = mem.unpack('>4i', at + 36)
+        caustics = mem.unpack('>i', at + 52)[0]
+        camera = mem.unpack('>3i', at + 56)
+        wet, ripple = mem.unpack('>BB', at + 68)
+        dsp = mem.unpack('>B', work + WORK_BYTES * j + 8)[0]
+        info = u32(mem, room + ROOM_INFO)
+        quads, triangles, count = mem.unpack('>3H', info + INFO_COUNTS)
+        facing = mem.unpack('>6H', info + INFO_FACING)
+        data_quads, data_triangles, data_vertices = mem.unpack('>3I', room + ROOM_DATA)
+        offsets = []
+        for address, size in ((data_quads, 12 * quads), (data_triangles, 12 * triangles), (data_vertices, 4 * count)):
+            offsets.append(len(geometry))
+            geometry += mem.bytes(address, size)
+            geometry += bytes(-len(geometry) % 4)
+        room_recs += ROOM.pack(*m, 0, *t, *clip, *camera, caustics, wet, ripple, dsp, 0, spans[j][0],
+                               quads, triangles, count, 0, *facing, *offsets)
+    chunks['ROOM'] = bytes(room_recs)
+    chunks['RGEO'] = bytes(geometry)
+
+    # the master's draws in order, the faces they added; before the first,
+    # the portals' fills past the draw distance (renderVoid). Sprites' and
+    # fills' faces are copied as made, into the buckets they went in.
+    mesh_index, mesh_offsets, mesh_data = {}, [], bytearray()
+    draws = bytearray()
+    draw_count = 0
+    natural = {}
+    copied = 0
+
+    def copy_face(i):
+        nonlocal draws, draw_count, copied
+        draws += DRAW.pack(DRAW_COPY, 0, 0, 0, 0, i, 1, mesh_bucket[i])
+        draw_count += 1
+        natural[i] = mesh_bucket[i]
+        copied += 1
+
+    def zsum_bucket(i):
+        corners = mem.unpack('>4h', master_pool + 16 * i + 8)
+        z = sum(mem.unpack('>h', vertices + c + 4)[0] for c in corners)
+        return (z & 0xFFFFFFFF) >> (2 + OT_SHIFT)
+
+    draw_recs = [r for r in recs if r['type'] in ('mesh', 'static', 'shadow', 'sprite')]
+    firsts = [(r['first'] - master_pool) // 16 for r in draw_recs] + [master_faces]
+    for i in range(firsts[0]):
+        copy_face(i)
+    hinted = set()
+    owner = None
+    k = 0
+    for r in recs:
+        if r['type'] == 'object':
+            owner = r
+            continue
+        if r['type'] not in ('mesh', 'static', 'shadow', 'sprite'):
+            continue
+        first, end = firsts[k], firsts[k + 1]
+        k += 1
+        base = (r['base'] - vertices) // 8
+        if r['type'] == 'sprite':
+            for i in range(first, end):
+                copy_face(i)
+            continue
+        for i in range(first, end):
+            natural[i] = zsum_bucket(i)
+            if natural[i] != mesh_bucket[i] and owner:
+                hinted.add((owner['kind'], owner['owner'], owner['index']))
+        if r['type'] == 'shadow':
+            draws += DRAW.pack(DRAW_SHADOW, 0, 0, r['flags'], base, first, end - first, 0)
+        else:
+            address = r['ref'] & 0x0FFFFFFF
+            if address not in mesh_index:
+                mesh_index[address] = len(mesh_offsets)
+                mesh_offsets.append(len(mesh_data))
+                mesh_data += mem.bytes(address, mesh_size(mem, address))
+                mesh_data += bytes(-len(mesh_data) % 4)
+            draws += DRAW.pack(DRAW_MESH, int(mesh_inside(mem, r)), mesh_index[address], r['flags'], base,
+                               first, end - first, 0)
+        draw_count += 1
+    chunks['DRAW'] = bytes(draws)
+    chunks['MESH'] = struct.pack(f'>{len(mesh_offsets)}I', *mesh_offsets)
+    chunks['MGEO'] = bytes(mesh_data)
+    moved = [(i, natural[i]) for i in range(master_faces) if natural[i] != mesh_bucket[i]]
+    chunks['MOVE'] = b''.join(MOVE.pack(*m) for m in moved)
+
+    # the floor: each command's face, in the order flush made them, with the
+    # command's first three words and the corners whose positions its four
+    # corner words hold (a corner left as the first when none does)
+    flush_order = []
+    for b in range(OT_SIZE - 1, -1, -1):
+        flush_order += [(True, i) for i in room_ot[b]] + [(False, i) for i in mesh_ot[b]]
+    shade_gouraud = struct.unpack('>32H', mem.bytes(sym('__ZL13gShadeGouraud'), 64))
+    floor = bytearray()
+    exact = 0
+    for n, (room, i) in enumerate(flush_order):
+        slot = n + 1
+        w = struct.unpack('>8I', cmds[32 * slot:32 * slot + 32])
+        g = struct.unpack('>2I', grds[8 * slot:8 * slot + 8])
+        pool = slave_pool if room else master_pool
+        corners = [c + (MASTER_VERTICES * 8 if room else 0) for c in mem.unpack('>4h', pool + 16 * i + 8)]
+        chosen, found = [], True
+        for word in w[3:7]:
+            match = [c for c in corners if u32(mem, vertices + c) == word]
+            found = found and bool(match)
+            chosen.append(match[0] if match else corners[0])
+        shades = [mem.unpack('>B', vertices + c + 6)[0] for c in chosen]
+        gouraud = (shade_gouraud[shades[0]] << 16 | shade_gouraud[shades[1]],
+                   shade_gouraud[shades[2]] << 16 | shade_gouraud[shades[3]])
+        ok = found and (not (w[1] >> 16) & 4 or gouraud == g)
+        exact += ok
+        floor += FLOOR.pack(w[0], w[1], w[2], *chosen, FLOOR_EXACT if ok else 0)
+    chunks['FLOR'] = bytes(floor)
+
+    pool_count = mem.unpack('>3i', sym('__ZL10gPoolCount'))
+    chunks['INFO'] = INFO.pack(commands, master_faces, slave_faces, len(faced), draw_count, len(mesh_offsets),
+                               len(moved), len(flush_order), exact,
+                               *mem.unpack('>3I', sym('_gDetailPoolVram')),
+                               header['shadeFrame'], header['detailFrame'], u32(mem, sym('_gDetailVramStart')),
+                               u32(mem, sym('_gTexturePmod')),
+                               cap.s32(u32(mem, sym('_gTextureLod'))) if pool_count[1] else 0,
+                               cap.s32(u32(mem, sym('__ZL7gBottom'))), header['farShare'], textures, sprites,
+                               sys.argv[1].upper().encode()[:15])
+
+    # where each lives in the lab, as in the game: high work RAM, but for the
+    # level's palette and sprites in low; and VDP1 VRAM
+    order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
+                 'DIVT', 'ROOM', 'RGEO', 'DRAW', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'PALT', 'SPRS', 'VRAM']
+    where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1}
+    table = 8 + 16 * len(order_ids)
+    offset = (table + 15) & ~15
+    body = bytearray()
+    entries = []
+    for cid in order_ids:
+        data = chunks[cid]
+        entries.append(struct.pack('>4sIII', cid.encode(), offset + len(body), len(data),
+                                   where.get(cid, WHERE_HIGH)))
+        body += data
+        body += bytes(-len(body) % 16)
+    out = struct.pack('>II', SCENE_MAGIC, len(order_ids)) + b''.join(entries)
+    out += bytes(offset - len(out)) + body
+    with open(out_path, 'wb') as f:
+        f.write(out)
+
+    print(f'{sys.argv[1]}: {commands} commands; faces {master_faces} master, {slave_faces} slave; '
+          f'{len(faced)} rooms, {draw_count} draws ({len(mesh_offsets)} meshes, {copied} faces copied); '
+          f'{len(moved)} faces moved by draw order hints'
+          + (f' (things {sorted(hinted)})' if hinted else '')
+          + f'; floor exact on {exact} of {len(flush_order)}; {len(out) // 1024} KB')
+
+
+if __name__ == '__main__':
+    main()
