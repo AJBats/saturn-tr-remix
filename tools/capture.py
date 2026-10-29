@@ -9,15 +9,18 @@ a capture (gCaptureRequest) and advances until that frame is recorded and
 held. Into build/captures/NAME:
     lwram.bin, hwram.bin    both work RAMs with the frame held: the records,
                             and the vertices, faces and commands as drawn
-    vdp1.bin                VDP1 VRAM (textures, colour tables, the list)
+    vdp1.bin                VDP1 VRAM once the frame is on screen (textures,
+                            colour tables, the list)
     frame.png               the held frame on screen
     frame.json              the header and records, their pointers resolved:
                             meshes as level.meshes indices, sprites as
                             level.sprites indices
+    0MAIN.elf               the program, whose symbols name what the dumps hold
 The game is then let go, and must draw on. Last, checks the records against
-the held frame: each mesh, static mesh and
-shadow transformed and shaded again (meshxform.s's arithmetic) with the
-record's matrix and light must give the vertices drawn at its base.
+the held frame: each mesh, static mesh and shadow transformed and shaded
+again (meshxform.s's arithmetic) with the record's matrix and light must give
+the vertices drawn at its base; and the ordering tables flush was given must
+hold as many faces as it made commands.
 
 The ELF beside CUE (0MAIN.elf) names the game's variables; build/0MAIN.elf
 otherwise.
@@ -44,6 +47,9 @@ CAPTURE_ARM, CAPTURE_RELEASE = 1, 2
 FRAMES_OFFSET = 24                              # FrameStats.frames (system.h)
 HEADER = struct.Struct('>4I3i9h2BH2x2Ii')      # CaptureHeader, 64 bytes
 RECORD = struct.Struct('>BBHI12i2i3iIII4i')     # CaptureRecord, 104 bytes
+OT_SIZE = 1281
+OT_GROUPS = 41
+ORDER = struct.Struct(f'>{OT_SIZE}I{OT_SIZE}I{OT_GROUPS}H{OT_GROUPS}HiII')    # CaptureOrder, 10424 bytes
 TYPES = {1: 'room', 2: 'object', 3: 'mesh', 4: 'static', 5: 'shadow', 6: 'sprite'}
 MESH = struct.Struct('>3hhHBBhhhh')             # Mesh (common.h), 20 bytes
 SPRITE_BYTES = 16                               # Sprite (common.h)
@@ -82,9 +88,10 @@ def symbol(syms, name, array=False):
 
 
 class Mednafen:
-    """A Mednafen of our own, driven through its automation files."""
+    """A Mednafen of our own, driven through its automation files in
+    build/NAME_ipc, its settings in build/NAME_home."""
 
-    def __init__(self, cue):
+    def __init__(self, cue, name='capture'):
         exe = None
         for rel in ('mednafen_debug.exe', 'src/mednafen.exe', 'mednafen_gcc494.exe'):
             path = os.path.join(ROOT, 'tools/mednafen', rel)
@@ -92,8 +99,8 @@ class Mednafen:
                 exe = path
         if not exe:
             sys.exit('no Mednafen in tools/mednafen')
-        self.ipc = os.path.join(ROOT, 'build/capture_ipc')
-        home = os.path.join(ROOT, 'build/capture_home')
+        self.ipc = os.path.join(ROOT, f'build/{name}_ipc')
+        home = os.path.join(ROOT, f'build/{name}_home')
         os.makedirs(self.ipc, exist_ok=True)
         if not os.path.exists(os.path.join(home, 'mednafen.cfg')):
             # trace.py's home holds the calibrated settings and the firmware
@@ -221,12 +228,14 @@ def capture(cue, elf, frame, keys, folder):
         at = int(med.send('status', 'status', 10).split('frame=')[1].split()[0])
         print(f'frame recorded at vblank {at}, held')
         os.makedirs(folder, exist_ok=True)
-        for name, base, size in (('lwram', LWRAM, RAM_BYTES), ('hwram', HWRAM, RAM_BYTES),
-                                 ('vdp1', VDP1_VRAM, VDP1_BYTES)):
+        for name, base, size in (('lwram', LWRAM, RAM_BYTES), ('hwram', HWRAM, RAM_BYTES)):
             with open(os.path.join(folder, name + '.bin'), 'wb') as f:
                 f.write(med.read(base, size))
-        # the held frame's list is drawn and shown a few vblanks on
+        # the held frame's list is uploaded, with the textures it brought into
+        # the cache, drawn and shown a few vblanks on
         med.send('frame_advance 6', 'done frame_advance', 30)
+        with open(os.path.join(folder, 'vdp1.bin'), 'wb') as f:
+            f.write(med.read(VDP1_VRAM, VDP1_BYTES))
         shot = os.path.join(folder, 'frame.png')
         if os.path.exists(shot):
             os.remove(shot)
@@ -255,6 +264,10 @@ def records(mem, syms):
     header = {'faces': faces, 'camera': [cx, cy, cz], 'rotation': rotation, 'cameraWater': water,
               'overflow': overflow, 'causticsFrame': caustics, 'meshesCount': meshes_count,
               'meshes': meshes, 'sprites': sprites, 'records': count, 'at': at}
+    order = mem.unpack(ORDER.format, at + HEADER.size)
+    header['order'] = at + HEADER.size
+    header['farShare'], header['shadeFrame'], header['detailFrame'] = order[-3:]
+    at += ORDER.size
     mesh_index = {mem.unpack('>I', meshes + 4 * i)[0] & 0x0FFFFFFF: i for i in range(meshes_count)}
     out = []
     for i in range(count):
@@ -286,6 +299,23 @@ def records(mem, syms):
     header['faceList'] = symbol(syms, '__ZL6gFaces')
     header['commands'] = symbol(syms, '__ZL5gCmds', array=True)
     return header, out
+
+
+def order_tables(mem, header):
+    """The ordering tables flush was given (CaptureOrder): the slave's and the
+    master's, each a list of OT_SIZE chains of face addresses."""
+    order = mem.unpack(ORDER.format, header['order'])
+    tables = []
+    for heads in (order[:OT_SIZE], order[OT_SIZE:2 * OT_SIZE]):
+        chains = []
+        for head in heads:
+            chain = []
+            while head:
+                chain.append(head)
+                head = mem.unpack('>I', head + 4)[0]
+            chains.append(chain)
+        tables.append(chains)
+    return tables
 
 
 def s16(v):
@@ -412,6 +442,7 @@ def main():
     print(f'symbols: {os.path.normpath(elf)}')
     folder = os.path.join(ROOT, 'build/captures', args.out)
     syms = capture(cue, elf, args.frame, args.keys, folder)
+    shutil.copy(elf, os.path.join(folder, '0MAIN.elf'))
 
     with open(os.path.join(folder, 'lwram.bin'), 'rb') as f:
         lwram = f.read()
@@ -432,6 +463,11 @@ def main():
         print(line)
     print(f'{checked} draws, {vertices} vertices checked against the frame: '
           + ('all match' if not bad else f'{len(bad)} MISMATCHES'))
+    rooms, meshes = (sum(len(c) for c in t) for t in order_tables(mem, header))
+    ordered = rooms + meshes == header['faces'] - 1     # the commands but the clear
+    print(f'ordering tables: {rooms} room faces, {meshes} others, '
+          + ('one command each' if ordered else f'BUT {header["faces"] - 1} COMMANDS'))
+    bad += [] if ordered else ['ordering tables']
     print(f'-> {os.path.normpath(folder)}')
     sys.exit(1 if bad else 0)
 

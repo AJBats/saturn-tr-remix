@@ -6,7 +6,8 @@
 //
 // What is recorded is what the renderer is given: each room queued with its
 // matrix and window, each object begun, each mesh, static mesh, shadow and
-// sprite drawn with the matrix and light it was drawn with; then the camera.
+// sprite drawn with the matrix and light it was drawn with; then the ordering
+// tables flush is given, and the camera.
 // While recording, every object is the master's (as for the polygon hunt), so
 // the records come in the order the master draws them.
 #ifndef CAPTURE_H
@@ -53,7 +54,22 @@ struct CaptureHeader
 
 #define CAPTURE_MAGIC 0x43415031    // "CAP1"
 
-static_assert(sizeof(CaptureRecord) == 104 && sizeof(CaptureHeader) == 64, "layouts read by tools/capture.py");
+// The ordering tables as flush took them (it empties them as it goes), the
+// faces the draw order hints held back placed: the lab's flush starts from
+// these. It follows the header; the records follow it.
+struct CaptureOrder
+{
+    Face* roomOT[OT_SIZE];          // the slave's
+    Face* meshOT[OT_SIZE];          // the master's
+    uint16 roomGroups[OT_GROUPS];   // their faces by groups of buckets
+    uint16 meshGroups[OT_GROUPS];
+    int32 farShare;                 // the slave's share of the commands, percent
+    uint32 shadeFrame;              // the frame's, for the shaded colour tables
+    uint32 detailFrame;             // ... for the room texture cache
+};
+
+static_assert(sizeof(CaptureRecord) == 104 && sizeof(CaptureHeader) == 64 && sizeof(CaptureOrder) == 10424,
+              "layouts read by tools/capture.py");
 
 extern volatile uint32 gCaptureRequest;     // a debugger's CaptureRequest
 extern CaptureHeader* gCapture;             // where the records are, while there are some
@@ -72,6 +88,8 @@ void captureObject(int32 kind, int32 owner, int32 index);
 void captureRoom(const Room* room);
 void captureDraw(CaptureType type, const void* ref, const Vertex* base, const Face* first,
                  int32 e0, int32 e1, int32 e2, int32 e3);
+void captureOrdered(Face* const* roomOT, const uint16* roomGroups, Face* const* meshOT, const uint16* meshGroups,
+                    int32 farShare, uint32 shadeFrame);
 void captureFlushed(int32 faces);
 
 #endif

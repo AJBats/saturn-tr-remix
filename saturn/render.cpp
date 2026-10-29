@@ -1455,6 +1455,9 @@ void flush_c()
     if (gHuntRecording) {
         huntOrder(roomOT, gOT, OT_SIZE);
     }
+    if (gCaptureRecording) {
+        captureOrdered(roomOT, roomGroups, gOT, gFaceList.groups, gFarShare, gShadeFrame);
+    }
     int32 count = flushFaces(roomOT, roomGroups, 1); // gCmds[0] clears the frame (clearCommand)
     memset(gFaceList.groups, 0, sizeof(gFaceList.groups));
     clearCommand(!roomOT || gSceneClear || gBenchMode == BENCH_CLEAR ||

@@ -1,6 +1,7 @@
 // Frame capture (capture.h).
 
 #include "capture.h"
+#include "detail.h"
 #include "hunt.h"
 #include "slave.h"
 #include "trace.h"
@@ -28,13 +29,13 @@ void captureTick()
     traceStop();
     uint32 size;
     uint8* ram = osLowRamFree(size);
-    if (size < sizeof(CaptureHeader) + 64 * sizeof(CaptureRecord))
+    if (size < sizeof(CaptureHeader) + sizeof(CaptureOrder) + 64 * sizeof(CaptureRecord))
     {
         traceResume();
         return;
     }
     gCapture = (CaptureHeader*)(uint32(ram + 15) & ~15);
-    gRecords = (CaptureRecord*)(gCapture + 1);
+    gRecords = (CaptureRecord*)((CaptureOrder*)(gCapture + 1) + 1);
     gCapacity = (size - (uint32((uint8*)gRecords - ram))) / sizeof(CaptureRecord);
     gCapture->magic = CAPTURE_MAGIC;
     gCapture->ready = 0;
@@ -128,6 +129,25 @@ void captureDraw(CaptureType type, const void* ref, const Vertex* base, const Fa
     r->extra[1] = e1;
     r->extra[2] = e2;
     r->extra[3] = e3;
+}
+
+void captureOrdered(Face* const* roomOT, const uint16* roomGroups, Face* const* meshOT, const uint16* meshGroups,
+                    int32 farShare, uint32 shadeFrame)
+{
+    CaptureOrder &o = *(CaptureOrder*)(gCapture + 1);
+    for (int32 i = 0; i < OT_SIZE; i++)
+    {
+        o.roomOT[i] = roomOT ? roomOT[i] : NULL;
+        o.meshOT[i] = meshOT[i];
+    }
+    for (int32 i = 0; i < OT_GROUPS; i++)
+    {
+        o.roomGroups[i] = roomOT ? roomGroups[i] : 0;
+        o.meshGroups[i] = meshGroups[i];
+    }
+    o.farShare = farShare;
+    o.shadeFrame = shadeFrame;
+    o.detailFrame = gDetailFrame;
 }
 
 void captureFlushed(int32 faces)
