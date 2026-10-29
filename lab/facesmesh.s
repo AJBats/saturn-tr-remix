@@ -128,24 +128,25 @@
     .endm
 
 ! unless inside: culled wholly beyond a frame edge or with a corner behind the
-! near plane, to 'skip'; r5 the corners' clip flags ored (0 inside); r0, r6
+! near plane, to 'skip'; r5's low byte the corners' clip flags ored (0
+! inside): each corner's last longword (z, shade, clip flags) anded and ored,
+! loaded ahead of its use; r0, r6, r14
     .macro  CULL skip
     mov.l   @(4, r15), r0
     tst     #MESH_INSIDE, r0
     bf/s    1f
     mov     #0, r5
-    mov.b   @(7, r1), r0
-    mov     r0, r6
-    mov     r0, r5
-    mov.b   @(7, r2), r0
+    mov.l   @(4, r1), r6
+    mov.l   @(4, r2), r0
+    mov     r6, r5
     and     r0, r6
     or      r0, r5
-    mov.b   @(7, r3), r0
+    mov.l   @(4, r3), r0
+    mov.l   @(4, r7), r14
     and     r0, r6
     or      r0, r5
-    mov.b   @(7, r7), r0
-    and     r0, r6
-    or      r0, r5
+    and     r14, r6
+    or      r14, r5
     mov     r6, r0
     tst     #CLIP_DISCARD, r0
     bf      \skip

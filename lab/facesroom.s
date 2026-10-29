@@ -104,21 +104,24 @@
     .endm
 
 ! culled wholly beyond a frame edge or with a corner behind the near plane:
-! to 'culled', r6 the corners' clip flags anded; else r13 them ored; r0
+! to 'culled', r6's low byte the corners' clip flags anded; else r13's them
+! ored: each corner's last longword (z, shade, clip flags) anded and ored,
+! loaded ahead of its use; r0, r8
     .macro  CULL tri, culled
-    mov.b   @(7, r1), r0
-    mov     r0, r6
-    mov     r0, r13
-    mov.b   @(7, r2), r0
+    mov.l   @(4, r1), r6
+    mov.l   @(4, r2), r0
+    mov     r6, r13
     and     r0, r6
     or      r0, r13
-    mov.b   @(7, r3), r0
+    mov.l   @(4, r3), r0
+    .ifeq \tri
+    mov.l   @(4, r7), r8
+    .endif
     and     r0, r6
     or      r0, r13
     .ifeq \tri
-    mov.b   @(7, r7), r0
-    and     r0, r6
-    or      r0, r13
+    and     r8, r6
+    or      r8, r13
     .endif
     mov     r6, r0
     tst     #CLIP_DISCARD, r0
