@@ -4,10 +4,13 @@ filtered reference, and writes a page to compare them.
 
     lab.py [--capture ledge0] [--path dolly|creep|pan|strafe|still]
            [--frames 60] [--variants game,exact,ripmap+exact,...] [--fresh]
-           [--tag NAME] [--page]
+           [--tag NAME] [--bridges] [--page]
 
 Variants are ingredients (variants.INGREDIENTS) or combinations of them
-joined by '+'. A run adds its variants to the page's earlier ones (same
+joined by '+'. With --bridges the ledge's bridge planks and static meshes
+(meshes.py) are drawn too, in the frames and the references; the art
+changes and measures stay the rooms' (the meshes keep their textures).
+ A run adds its variants to the page's earlier ones (same
 camera move) unless --fresh. labserver.py draws any mix of the techniques
 on demand (mixer.py) into the same page.
 
@@ -21,7 +24,7 @@ Setting up (once, or after the game's renderer changes):
     check_rooms.py NAME       rooms.py builds the game's room commands
 
 Measures, per variant and frame:
-  vdp1_ms   VDP1's drawing time (calibrated costs, the rooms alone)
+  vdp1_ms   VDP1's drawing time (calibrated costs, the rooms and any meshes)
   flicker   mean |change of the frame - change of the reference| (0..255
             luminance): what moves on screen that the scene doesn't. A
             variant that changes the art is held to the reference drawn with
@@ -51,6 +54,7 @@ from capdecode import Capture
 from check_rooms import view_of
 from gamedata import Level
 from medclient import LAB
+from meshes import Bridge
 from ref import Reference
 from rooms import Options, RoomDrawer, RoomJob, TextureStore, View, build_commands
 from variants import INGREDIENTS, compose
@@ -202,8 +206,9 @@ class Lab:
     """One camera move through a capture's rooms: its views, references and
     the game's texture shares. draw() draws and measures a variant."""
 
-    def __init__(self, capture, path, frames, run):
+    def __init__(self, capture, path, frames, run, bridges=False):
         self.capture, self.path = capture, path
+        self.bridge = Bridge() if bridges else None
         self.cap = Capture(capture)
         self.base = Level('LEVEL1')
         view0, _ = view_of(self.cap)
@@ -256,7 +261,8 @@ class Lab:
             if img.shape[0] == 224 * len(self.views):
                 return [img[i * 224:(i + 1) * 224] for i in range(len(self.views))]
         ref = Reference(level)
-        frames = [ref.render(self.jobs_for(level, v), shading) for v in self.views]
+        frames = [ref.render(self.jobs_for(level, v), shading, self.bridge.reference_faces(v) if self.bridge else ())
+                  for v in self.views]
         save_sheet(path, frames)
         return frames
 
@@ -286,6 +292,8 @@ class Lab:
             jobs = self.jobs_for(level, view)
             faces, verts = drawer.faces(jobs)
             errs = vertex_errors(drawer, jobs, verts)
+            if self.bridge:
+                self.bridge.add(view, faces, verts)
             r['corner'].append(float(np.percentile([np.hypot(*e) for e in errs.values()], 99)))
             both = [k for k in errs if last_err and k in last_err]
             r['wobble'].append(float(np.percentile([np.hypot(errs[k][0] - last_err[k][0],
@@ -335,7 +343,7 @@ class Lab:
     def meta(self, results, order):
         art_keys = sorted({r['art'] for r in results.values() if r.get('art')})
         return dict(run=self.run, capture=self.capture, path=self.path, path_title=self.path_title,
-                    frames=len(self.views), art_refs=art_keys, sonic_r=self.sonic_stats, width=352, height=224,
+                    frames=len(self.views), bridges=self.bridge is not None, art_refs=art_keys, sonic_r=self.sonic_stats, width=352, height=224,
                     variants=[n for n in order if n in results], results=results,
                     views=[view_key(v) for v in self.views])
 
@@ -369,6 +377,7 @@ def main():
                     help='ingredients, or combinations of them joined by +')
     ap.add_argument('--fresh', action='store_true', help='drop the variants an earlier run left in the page')
     ap.add_argument('--tag', default='', help='a separate page: runs/<capture>-<path>-<tag>')
+    ap.add_argument('--bridges', action='store_true', help='the bridge planks and static meshes too (meshes.py)')
     ap.add_argument('--page', action='store_true', help='only rewrite the page from the results of the last run')
     args = ap.parse_args()
     run = f'{args.capture}-{args.path}' + (f'-{args.tag}' if args.tag else '')
@@ -379,7 +388,7 @@ def main():
             write_page(out, json.load(f))
         return
 
-    lab = Lab(args.capture, args.path, args.frames, run)
+    lab = Lab(args.capture, args.path, args.frames, run, args.bridges)
     old = {} if args.fresh or lab.prev is None else lab.prev['results']
     names = args.variants.split(',')
     results = {}
