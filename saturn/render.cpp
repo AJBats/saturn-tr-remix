@@ -14,6 +14,7 @@
 #include "system.h"
 #include "trace.h"
 #include "vram.h"
+#include "capture.h"
 #include "hunt.h"
 
 static_assert(FRAME_WIDTH == SCREEN_WIDTH && FRAME_HEIGHT == SCREEN_HEIGHT,
@@ -1464,6 +1465,9 @@ void flush_c()
     if (gHuntRecording) {
         huntFlushed(gCmds[0].w);
     }
+    if (gCaptureRecording) {
+        captureFlushed(count);
+    }
     gRenderFaceCount = count;
     gStats.faces = count;
     benchCommands(count);
@@ -1913,7 +1917,8 @@ void depthHintsBegin(Room* const* visible)
 bool depthHintKept(int32 kind, int32 owner, int32 index)
 {
     (void)owner;    // the mask has a bit per index: some others are kept too
-    return *uncached(&gHuntRecording) || (uncached(gHintMask)[kind] & (1u << (index & 31)));
+    return *uncached(&gHuntRecording) || *uncached(&gCaptureRecording) ||
+           (uncached(gHintMask)[kind] & (1u << (index & 31)));
 }
 
 void depthHintsEnd()
@@ -1923,13 +1928,16 @@ void depthHintsEnd()
 }
 
 // The slave draws no thing a hint may move (depthHintKept), so hints and the
-// hunt's records are the master's alone.
+// hunt's and capture's records are the master's alone.
 void depthHintObject(int32 kind, int32 owner, int32 index)
 {
     if (cpuState()->slave)
         return;
     if (gHuntRecording) {
         huntObject(kind, owner, index);
+    }
+    if (gCaptureRecording) {
+        captureObject(kind, owner, index);
     }
     gHinted = false;
     gHintBuckets = 0;
@@ -1954,6 +1962,9 @@ void depthHintObject(int32 kind, int32 owner, int32 index)
 
 void renderRoom(Room* room)
 {
+    if (gCaptureRecording) {
+        captureRoom(room);
+    }
     roomsQueue(room);
 }
 
@@ -2232,6 +2243,9 @@ void renderMesh(const Mesh* mesh)
     if (gHuntRecording) {
         huntMesh(mesh, gFaceList.next, gVerticesBase);
     }
+    if (gCaptureRecording) {
+        captureDraw(CAP_MESH, mesh, gVerticesBase, gFaceList.next, 0, 0, 0, 0);
+    }
     if (gHinted)
     {
         renderMeshHinted(mesh);
@@ -2252,6 +2266,9 @@ void renderStaticMesh(const Mesh* mesh)
     }
     if (gHuntRecording) {
         huntMesh(mesh, gFaceList.next, gVerticesBase);
+    }
+    if (gCaptureRecording) {
+        captureDraw(CAP_STATIC, mesh, gVerticesBase, gFaceList.next, 0, 0, 0, 0);
     }
     if (gHinted)
     {
@@ -2299,6 +2316,9 @@ void renderShadow(int32 x, int32 z, int32 sx, int32 sz)
     {
         ASSERT(false);
         return;
+    }
+    if (gCaptureRecording) {
+        captureDraw(CAP_SHADOW, NULL, gVerticesBase, gFaceList.next, x, z, sx, sz);
     }
 
     MeshVertex v[SHADOW_VERTICES];
@@ -2378,6 +2398,9 @@ void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index)
     {
         ASSERT(false);
         return;
+    }
+    if (gCaptureRecording) {
+        captureDraw(CAP_SPRITE, level.sprites + index, gVerticesBase, gFaceList.next, vx, vy, vz, vg);
     }
 
     const Matrix &m = matrixGet();

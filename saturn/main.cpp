@@ -1,6 +1,7 @@
 // Saturn platform entry: hardware setup, then OpenLara's game loop.
 
 #include "game.h"
+#include "capture.h"
 #include "cd.h"
 #include "crash.h"
 #include "debug.h"
@@ -106,6 +107,14 @@ int main()
             huntUpdate(gPad);
             continue;
         }
+        if (captureFrozen())
+        {
+            // and while a capture holds it, until the debugger lets it go
+            lastTick = tick;
+            captureHold();
+            continue;
+        }
+        captureTick();
 
         int32 delta = X_MIN(int32(tick - lastTick), MAX_UPDATE_FRAMES);
         lastTick = tick;

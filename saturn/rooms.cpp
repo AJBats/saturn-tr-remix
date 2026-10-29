@@ -11,6 +11,7 @@
 #include "render.h"
 #include "detail.h"
 #include "dsp.h"
+#include "capture.h"
 #include "hunt.h"
 #include "slave.h"
 #include "system.h"
@@ -815,8 +816,8 @@ static uint32 gStaticNext;
 
 static int32 claimStatics(uint32 queued)
 {
-    if (*uncached(&gHuntRecording))
-        return -1;  // the master draws them all, where the hunt sees them
+    if (*uncached(&gHuntRecording) || *uncached(&gCaptureRecording))
+        return -1;  // the master draws them all, where the hunt and capture see them
     for (; gStaticNext < queued; gStaticNext++)
     {
         if (!uncached(gJobs + gStaticNext)->statics)
