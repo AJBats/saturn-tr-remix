@@ -221,7 +221,7 @@ def run_v3(meshes, timing):
             mem.write(rec + i * 4, w)
         data += groups * 24 * 4
         rec += 18 * 4
-    mem.write(rec, DSPDATA >> 2)
+    mem.write(rec, DSPDATA >> 2)     # the list's end: readable, as the DSP fetches past it
     mem.write(rec + 4, M32)
     dsp = DSP(prog, mem, timing)
     for i, v in {16: 65536, 17: 0xFFFF, 18: 0x1F00, 20: (JOBS3 >> 2) + 18, 21: 20,

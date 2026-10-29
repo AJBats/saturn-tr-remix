@@ -239,6 +239,11 @@ static void build()
         add(p, out, dsp3, out3, seed, kPlank, 1, m);
         gObjectEnds[o++] = m;
     }
+    // the list's end names vertices too: meshlight3.dsp fetches a group past
+    // a job's last before it knows the list has ended
+    for (MeshJob3& job : gJobs3) {
+        job.src = gMeshes[0].dsp3;
+    }
 }
 
 // The setup's stores: a MeshXform written whole, as the game's setup does.

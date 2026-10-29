@@ -317,6 +317,13 @@ class DSP:
             self.top = (self.pc - 1) & 0xFF
             self.pc = imm & 0xFF
 
+    def reachable(self, addr, count):
+        """The DSP's DMA reaches high work RAM (and the A and B buses), not
+        the boot ROM or low work RAM: Mednafen reads those as zeros, the
+        Saturn's transfer never ends."""
+        if not (0x06000000 <= addr and addr + count * 4 <= 0x06100000):
+            raise RuntimeError(f'DMA of {count} longwords at {addr:08X}, outside high work RAM')
+
     def dma(self, w):
         hold = bool(w >> 14 & 1)
         fmt = bool(w >> 13 & 1)
@@ -334,6 +341,7 @@ class DSP:
         b = ram & 3
         if direction:
             addr = (self.wa0 << 2) & 0x07FFFFFF
+            self.reachable(addr, count)
             for _ in range(count):
                 self.mem.write(addr, self.ram[b][self.ct[b]])
                 self.ct[b] = (self.ct[b] + 1) & 0x3F
@@ -343,6 +351,7 @@ class DSP:
             cost = (31 + 3.1 * count) / 2 if self.timing == 'saturn' else count
         else:
             addr = (self.ra0 << 2) & 0x07FFFFFF
+            self.reachable(addr, count)
             for _ in range(count):
                 self.ram[b][self.ct[b]] = self.mem.read(addr)
                 self.ct[b] = (self.ct[b] + 1) & 0x3F

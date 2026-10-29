@@ -27,8 +27,11 @@ with t = ambient - ((n . l) * range >> 14). What changed:
 The list (page_meshes.cpp MeshJob3), each job 18 longwords:
     0 its vertices' address / 4   1 its groups - 1 (-1 ends the list)
     2..17 its coefficients, as MD0 0..15 hold them
-The outputs follow each other from where the SH-2 sets MD0 23, whole
-groups of 4 vertices whatever the mesh's count.
+The list's end must still name vertices in high work RAM: the DSP fetches a
+group past a job's last before it knows the list has ended (from address 0
+the Saturn's transfer never ends; Mednafen reads zeros). The outputs follow
+each other from where the SH-2 sets MD0 23, whole groups of 4 vertices
+whatever the mesh's count.
 
 Data RAM (* set by the SH-2: page_meshes.cpp meshLight3Load, start3):
   MD0  0..15  the job's coefficients, a row each in the order read:
@@ -201,6 +204,7 @@ newjob: mov #21,ct0
         mvi 15,lop
         lps
         mov mc3,mc0                     ; its coefficients
+        mvi 4095,lop                    ; for the BTMs to TOP
         mov #20,ct0
         mov m0,ra0 | mov m0,a
         mov #18,pl
@@ -211,7 +215,7 @@ newjob: mov #21,ct0
         mov m0,a | mov #0,pl
         or | mov #22,ct0
         jmp onegroup,z                  ; one group: the next is the job after's
-        mvi 4095,lop
+        nop
 njw:    jmp njw,t0
         nop
         mov m0,ra0                      ; its second group, after the record
