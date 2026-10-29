@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(ROOT, 'tools'))
 
 import pack_level  # noqa: E402
 import trsat  # noqa: E402
+from texart import pack_texels, texels_of  # noqa: E402,F401
 
 DATA = os.path.join(ROOT, 'external_resources', 'disc', 'files', 'DATA')
 TEX_ATTR_AKILL = pack_level.TEX_ATTR_AKILL
@@ -61,16 +62,7 @@ class Texture:
 
     def texels(self):
         """h x w array of colour indices."""
-        b = np.frombuffer(self.pixels, dtype=np.uint8).reshape(self.h, self.w // 2)
-        out = np.empty((self.h, self.w), dtype=np.uint8)
-        out[:, 0::2] = b >> 4
-        out[:, 1::2] = b & 15
-        return out
-
-
-def pack_texels(t):
-    """h x w colour indices back to 4-bit rows."""
-    return (((t[:, 0::2] & 15) << 4) | (t[:, 1::2] & 15)).astype(np.uint8).tobytes()
+        return texels_of(self.pixels, self.w, self.h)
 
 
 class Room:

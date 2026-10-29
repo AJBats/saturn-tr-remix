@@ -21,61 +21,22 @@ import numpy as np
 from scipy import ndimage
 
 import textures
-
-LUM = np.array([0.299, 0.587, 0.114])
+import texart
+from texart import (BAND_SIGMAS, LUM, bands, gauss, kmeans_fit, lum, match_contrast,  # noqa: F401
+                    reweight, shifted, tidy)
 
 
 def image(t):
     """A texture's RGB (0..31 floats) and which texels are solid."""
-    texels = t.texels()
-    rgb = textures.to_rgb(t.colors)[texels]
-    solid = np.ones(texels.shape, bool) if not t.transparent else texels != 0
-    return rgb, solid
+    return texart.image(t.texels(), t.colors, t.transparent)
 
 
-# Filters see past a texture's edge as its mirror image, not as its other
-# side: most of TR's textures don't tile seamlessly, and wrapping turned
-# each seam into a ridge of light along every tile's edge (a grid over the
-# floors). Bump ART_VERSION when what these functions draw changes.
+# Filters (here and texart's) see past a texture's edge as its mirror image,
+# not as its other side: most of TR's textures don't tile seamlessly, and
+# wrapping turned each seam into a ridge of light along every tile's edge (a
+# grid over the floors). Bump ART_VERSION when what these functions draw
+# changes.
 ART_VERSION = 2
-
-
-def gauss(a, sigma):
-    """Gaussian blur, mirrored at the edges."""
-    if a.ndim == 3:
-        return np.stack([ndimage.gaussian_filter(a[..., c], sigma, mode='reflect') for c in range(a.shape[2])], -1)
-    return ndimage.gaussian_filter(a, sigma, mode='reflect')
-
-
-def shifted(a, dy, dx):
-    """a moved by (dy, dx), mirrored at the edges (np.roll without the wrap)."""
-    h, w = a.shape[:2]
-    pad = ((abs(dy), abs(dy)), (abs(dx), abs(dx))) + ((0, 0),) * (a.ndim - 2)
-    p = np.pad(a, pad, mode='reflect')
-    return p[abs(dy) - dy:abs(dy) - dy + h, abs(dx) - dx:abs(dx) - dx + w]
-
-
-def lum(rgb):
-    return rgb @ LUM
-
-
-def match_contrast(out, ref, solid, k=1.0):
-    """out's deviation from its mean scaled so its luminance spread is k of ref's."""
-    s0, s1 = lum(ref[solid]).std(), lum(out[solid]).std()
-    m = out[solid].mean(axis=0)
-    return np.clip(m + (out - m) * (k * s0 / max(s1, 1e-3)), 0, 31)
-
-
-def kmeans_fit(rgb, solid, transparent, color0):
-    """Indices and a 16-colour table fitted to rgb (k-means); colour 0
-    stays see-through for transparent textures."""
-    first = 1 if transparent else 0
-    fit = textures.kmeans_colors(rgb[solid], 16 - first)
-    colors = ([color0] if first else []) + [textures.from_rgb(c) for c in fit]
-    idx = textures.nearest_colors(rgb, colors, list(range(first, 16)))
-    if transparent:
-        idx[~solid] = 0
-    return idx, colors
 
 
 def ramp_fit(rgb, solid, transparent, color0, hues=2):
@@ -134,24 +95,6 @@ def ramp_fit(rgb, solid, transparent, color0, hues=2):
         idx[m] = start + np.argmin(np.abs(lu[m][:, None] - levels[None]), axis=1)
     if transparent:
         idx[~solid] = 0
-    return idx, colors
-
-
-def tidy(fit, passes=2):
-    """A pixel artist's clean-up of a fitted (texels, colours): texels unlike
-    all four neighbours take the colour three or four of them share."""
-    idx, colors = fit
-    for _ in range(passes):
-        t = idx.astype(np.int16)
-        p = np.pad(t, 1, mode='edge')
-        n = np.stack([p[:-2, 1:-1], p[2:, 1:-1], p[1:-1, :-2], p[1:-1, 2:]])
-        lonely = np.all(n != t, axis=0)
-        out = idx.copy()
-        for y, x in zip(*np.nonzero(lonely)):
-            vals, counts = np.unique(n[:, y, x], return_counts=True)
-            if counts.max() >= 3 and not (colors[0] & 0x8000 == 0 and (vals[counts.argmax()] == 0) != (t[y, x] == 0)):
-                out[y, x] = vals[counts.argmax()]
-        idx = out
     return idx, colors
 
 
@@ -262,24 +205,9 @@ def relief_kept(t, amount=0.7, fine=0.35, light=UPPER_LEFT):
 # the blurred brightness, lit from one side) and keeps only some of the
 # finest. These variants take its parts one at a time.
 
-BAND_SIGMAS = (0.7, 1.4, 2.8, 5.6)
-
-
-def bands(a, sigmas=BAND_SIGMAS):
-    """a (h x w, or h x w x 3) as octave bands, finest first, then what is
-    left below the last."""
-    levels = [a] + [gauss(a, s) for s in sigmas]
-    return [levels[i] - levels[i + 1] for i in range(len(sigmas))] + [levels[-1]]
-
-
 def band_energy(rgb, solid):
     """Each band's luminance spread over the solid texels."""
     return [float(b[solid].std()) for b in bands(lum(rgb))]
-
-
-def reweight(rgb, gains):
-    """The texture with each band scaled by its gain (finest first)."""
-    return sum(g * b for g, b in zip(gains, bands(rgb)))
 
 
 def relief_lite_rgb(rgb, solid, light=(-0.55, -0.75, 0.65), amount=0.7, fine=0.35, sigma=1.2):
@@ -310,10 +238,9 @@ def relief_front(t):
 
 def bandpass(t):
     """No light at all: the finest band cut to 35%, the two middle bands
-    lifted by a quarter, then the texture's contrast restored."""
-    rgb, solid = image(t)
-    out = match_contrast(reweight(rgb, (0.35, 1.25, 1.25, 1, 1)), rgb, solid)
-    return tidy(kmeans_fit(out, solid, t.transparent, t.colors[0]))
+    lifted by a quarter, then the texture's contrast restored (the game's
+    texart.bands_reweighted)."""
+    return texart.bands_reweighted(t.texels(), t.colors, t.transparent)
 
 
 # --- repaint samples ----------------------------------------------------

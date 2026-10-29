@@ -8,6 +8,7 @@ import numpy as np
 
 import gamedata  # noqa: F401 (puts tools/ on the path for pack_level)
 import art
+import texart
 import pack_level
 import textures
 from gamedata import Room, Texture, pack_texels
@@ -26,16 +27,9 @@ def mip_nearest(t, factor):
 
 def own_palette(t, fx, fy):
     """t reduced fx x fy with its own 16 colours fitted to the reduced
-    picture, so it reaches its tones without dither."""
-    clear = clear_index(t)
-    rgb, empty = textures.block_mean(t.texels(), t.colors, clear, fx, fy)
-    first = 1 if clear is not None else 0
-    fit = textures.kmeans_colors(rgb[~empty], 16 - first)
-    colors = ([t.colors[0]] if first else []) + [textures.from_rgb(c) for c in fit]
-    out = textures.nearest_colors(rgb, colors, list(range(first, 16)))
-    if clear is not None:
-        out[empty] = 0
-    return out, colors
+    picture, so it reaches its tones without dither (the game's
+    texart.own_palette)."""
+    return texart.own_palette(t.texels(), t.colors, t.transparent, fx, fy)
 
 
 def mip_own_palette(t, factor):
