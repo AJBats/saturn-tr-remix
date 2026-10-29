@@ -12,13 +12,14 @@
 ;     ambient << 16 + 0xFFFF - (n . l) * range * 4, which is
 ;     ambient - ((n . l) * range >> 14) exactly
 ;
-; The list (page_meshes.cpp MeshLightJob2): each job 22 longwords,
-;   0 vertices (0 ends the list)  1 the normals' address / 4
-;   2 the vertices' address / 4   3 the output's address / 4
+; The list (page_meshes.cpp MeshLightJob): each job 22 longwords,
+;   0 vertices (0 ends the list)  2 the vertices' address / 4
 ;   4..21 the MeshXform meshxform.s's setup writes (render.h)
-; Each vertex comes out as meshlight.dsp's: x >> 14 << 16 | y >> 14 & 0xFFFF,
-; z >> 14 << 16 | shade << 8; a batch's output is 16 longwords whatever its
-; vertices (the output has room for whole batches).
+; and the normals at the MeshXform's normals. So that the SH-2 writes no more
+; than it must for each, the outputs follow each other from where the SH-2
+; sets MD0 50 at the start. Each vertex comes out as meshlight.dsp's:
+; x >> 14 << 16 | y >> 14 & 0xFFFF, z >> 14 << 16 | shade << 8; a batch's
+; output is 16 longwords whatever its vertices (room for whole batches).
 ;
 ; Data RAM. MD0, the constants (* set once by the SH-2, page_meshes.cpp):
 ;   0..4   4 m0, 4 m1, 4 m2, 4 tx, *0xFFFF0000      the x row
@@ -30,8 +31,9 @@
 ;   37 *65536  38 *256  39 *0xFF000000  40 *0xFFFF  41 *0x8000  42 *4
 ;   46 the next job / 4 (the SH-2 sets it to start)  47 the job's vertices
 ;   left  48 the next batch's records / 4  49 its normals / 4  50 this
-;   batch's output / 4  51 *a scratch output / 4, where the start sends the
-;   output it hasn't got  52 this batch's vertices - 1
+;   batch's output / 4 (the SH-2 sets it to start)  51 *a scratch output / 4,
+;   where the start sends the output it hasn't got  52 this batch's
+;   vertices - 1
 ; MD1: 1..25 the batch's x y z a vertex (1 the pipeline's), 26..49 its
 ;   normals' x y z a vertex, each byte at the top of a longword
 ; MD2: 0..11 the batch's MeshVertex records, 12..19 its normals
@@ -58,13 +60,14 @@ sw0:    jmp sw0,t0
         dma d0,mc2,12
         mov m3,a | mov #12,pl
         add | mov all,mc0               ; the next batch's records
-        mov #17,ct3
+        mov #34,ct3                     ; the MeshXform's normals
 sw1:    jmp sw1,t0
         nop
-        mov #12,ct2
-        mov m3,ra0
+        mov m3,a | mov #12,ct2
+        sr | mov alu,a
+        sr | mov alu,a | mov all,ra0    ; / 4
         dma d0,mc2,8
-        mov m3,a | mov #8,pl
+        mov #8,pl
         add | mov all,mc0               ; the next batch's normals
 sw2:    jmp sw2,t0
         nop
@@ -75,11 +78,9 @@ newjob: mov #16,ct3
         or | mov #47,ct0
         jmp finish,z                    ; the list's end
         mov mc3,mc0                     ; the vertices left
-        mov #19,ct3
-        mov #50,ct0
-        mov mc3,mc0                     ; the output
 
         ; the rows, each half sign extended and times 4, into MD1 0..9
+        mov #20,ct3
         mov #42,ct0
         mov m0,y | mov #40,ct0          ; 4
         mov #0,ct1
@@ -214,8 +215,10 @@ lw:     jmp lw,t0
         dma d0,mc2,12
         mov m3,a | mov #12,pl
         add | mov all,mc0
-        mov #17,ct3
-        mov m3,mc0                      ; its normals, fetched after the light
+        mov #34,ct3
+        mov m3,a
+        sr | mov alu,a
+        sr | mov all,mc0                ; its normals / 4, fetched after the light
 
         ; the shades << 8 into the output's odd longwords
 light:  mov #52,ct0

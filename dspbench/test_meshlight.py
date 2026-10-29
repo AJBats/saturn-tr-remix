@@ -175,7 +175,7 @@ def run_v2(meshes, timing):
     store(mem, meshes)
     addr = JOBS
     for mesh in meshes:
-        words = [mesh['count'], mesh['normals'] >> 2, mesh['src'] >> 2, mesh['out_v2'] >> 2]
+        words = [mesh['count'], 0, mesh['src'] >> 2, 0]
         words += xform_words(mesh['xf'], mesh['normals'])
         for k, w in enumerate(words):
             mem.write(addr + k * 4, w)
@@ -186,6 +186,7 @@ def run_v2(meshes, timing):
         dsp.ram[0][i] = v
     dsp.ram[0][46] = JOBS >> 2
     dsp.ram[0][51] = SCRATCH >> 2
+    dsp.ram[0][50] = OUT_V2 >> 2      # the outputs follow each other from here
     dsp.run(0)
     return dsp, mem, 'out_v2'
 

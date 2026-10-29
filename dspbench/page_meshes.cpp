@@ -89,9 +89,9 @@ struct Mesh
     int32_t count, faces;
     MeshVertex* src;
     int8_t* normals;
-    Vertex* out;                    // whole batches, on cache lines
+    Vertex* out;                    // whole batches, on cache lines, mesh after mesh
     MeshXform xf;
-    uint32_t dspNormals, dspSrc, dspDst;
+    uint32_t dspSrc;
     volatile uint32_t* last;        // meshlight2.dsp's sentinel: its last vertex's zg, uncached
 };
 
@@ -99,6 +99,7 @@ static Mesh gMeshes[MESHES];
 static int32_t gVertexCount;
 static MeshLightJob gJobs[MESHES + 1];
 static uint8_t gData[48 * 1024] __attribute__((aligned(16)));
+static Vertex gOut[174 * 8] __attribute__((aligned(16)));  // the outputs, whole batches
 static Vertex gRef[1280];               // transformMeshAsm's, mesh after mesh
 static uint32_t gFaceStores[1280 * 3];  // kFaces'
 static uint32_t gScratch[16] __attribute__((aligned(16)));  // meshlight2.dsp's first output, of nothing
@@ -120,7 +121,7 @@ static void* take(uint8_t*& p, uint32_t bytes)
     return at;
 }
 
-static void add(uint8_t*& p, uint32_t& seed, const uint8_t (*list)[2], int32_t n, int32_t& m)
+static void add(uint8_t*& p, Vertex*& out, uint32_t& seed, const uint8_t (*list)[2], int32_t n, int32_t& m)
 {
     static const int16_t rows[4][9] = {
         { 14189, 0, -8192, 4096, 15851, 7094, 7094, -4096, 12288 },
@@ -136,7 +137,8 @@ static void add(uint8_t*& p, uint32_t& seed, const uint8_t (*list)[2], int32_t n
         uint32_t whole = batches(mesh.count) * 8;
         mesh.src = (MeshVertex*)take(p, whole * sizeof(MeshVertex));
         mesh.normals = (int8_t*)take(p, whole * 4);
-        mesh.out = (Vertex*)take(p, whole * sizeof(Vertex));
+        mesh.out = out;
+        out += whole;
         for (uint32_t v = 0; v < whole; v++)
         {
             int16_t* c = &mesh.src[v].x;
@@ -170,9 +172,7 @@ static void add(uint8_t*& p, uint32_t& seed, const uint8_t (*list)[2], int32_t n
         x.shades = nullptr;
         x.g = 0;
         x.inside = 1;
-        mesh.dspNormals = dspAddress(mesh.normals);
         mesh.dspSrc = dspAddress(mesh.src);
-        mesh.dspDst = dspAddress(mesh.out);
         mesh.last = uncached(&mesh.out[mesh.count - 1].zg);
         gVertexCount += mesh.count;
         gMeshEnds[m] = m + 1;
@@ -186,19 +186,20 @@ static void build()
     }
     divTable[0] = 0xFFFF;
     uint8_t* p = gData;
+    Vertex* out = gOut;
     uint32_t seed = 0x2B7E1516;
     int32_t m = 0, o = 0;
-    add(p, seed, kLara, 15, m);
+    add(p, out, seed, kLara, 15, m);
     gObjectEnds[o++] = m;
-    add(p, seed, kDoor, 1, m);
+    add(p, out, seed, kDoor, 1, m);
     gObjectEnds[o++] = m;
-    add(p, seed, kWolf, 26, m);
+    add(p, out, seed, kWolf, 26, m);
     gObjectEnds[o++] = m;
-    add(p, seed, kWolf, 26, m);
+    add(p, out, seed, kWolf, 26, m);
     gObjectEnds[o++] = m;
     for (int32_t i = 0; i < 12; i++)
     {
-        add(p, seed, kPlank, 1, m);
+        add(p, out, seed, kPlank, 1, m);
         gObjectEnds[o++] = m;
     }
 }
@@ -429,20 +430,22 @@ static void meshLight2Load(const uint32_t* program, int32_t count)
 static void start2(int32_t i)
 {
     const uint32_t job = dspAddress(gJobs + i);
+    const uint32_t out = dspAddress(gMeshes[i].out);
     dspWrite(0, 46, &job, 1);
+    dspWrite(0, 50, &out, 1);
     dspStart(MESHLIGHT2_DSP_START);
 }
 
-// Job i written for mesh i, the slot after it ending the list, published.
+// Job i written for mesh i, the slot after it ending the list, published:
+// its setup, its vertices' address, its size (meshlight2.dsp takes the
+// normals from the setup and puts the outputs one after another).
 static void queue2(int32_t i)
 {
     const Mesh& mesh = gMeshes[i];
     MeshLightJob& job = gJobs[i];
     *mesh.last = SENTINEL;
     writeXform(&job.xf, &mesh.xf);
-    job.normals = mesh.dspNormals;
     job.src = mesh.dspSrc;
-    job.dst = mesh.dspDst;
     gJobs[i + 1].size = 0;
     asm volatile("" ::: "memory");
     *(volatile uint32_t*)&job.size = mesh.count;
@@ -462,6 +465,27 @@ static void keepRunning(int32_t first, int32_t queued)
     }
 }
 
+// Whether mesh m is done, reading as few sentinels as can be: the DSP does
+// its jobs in order, so a mesh a few on done means every mesh before it is.
+// done: every mesh before it is known done.
+static bool done2(int32_t m, int32_t queued, int32_t& done)
+{
+    if (m < done)
+        return true;
+    int32_t far = m + 8 < queued ? m + 8 : queued - 1;
+    if (far > m && *gMeshes[far].last != SENTINEL)
+    {
+        done = far + 1;
+        return true;
+    }
+    if (*gMeshes[m].last != SENTINEL)
+    {
+        done = m + 1;
+        return true;
+    }
+    return false;
+}
+
 // Every mesh's job, then the DSP's run with the master off the bus.
 static uint32_t dspAlone2()
 {
@@ -477,12 +501,15 @@ static uint32_t dspAlone2()
 // A frame's meshes with meshlight2.dsp, fed a group of jobs at a time (each
 // group ends before ends[g]): the next group written and published, the DSP
 // kept running from the group's first job on, then this group's meshes
-// projected and faced as the DSP finishes them.
-static Frame frameDsp2(const int32_t* ends, int32_t groups)
+// projected and faced as the DSP finishes them. The DSP's output reaches the
+// master through its cache: either each mesh's lines dropped before it is
+// read, or the whole cache purged once before the first is (none is read
+// before the DSP has done it, nor twice).
+static Frame frameDsp2(const int32_t* ends, int32_t groups, bool dropEach)
 {
     Frame f = { 0, 0 };
     uint32_t* faces = gFaceStores;
-    int32_t queued = 0, m = 0;
+    int32_t queued = 0, m = 0, done = 0;
     gJobs[0].size = 0;
     uint32_t t0 = cycles();
     for (int32_t g = -1; g < groups; g++)
@@ -499,20 +526,25 @@ static Frame frameDsp2(const int32_t* ends, int32_t groups)
                 keepRunning(m, queued);
             }
         }
+        if (g == 0 && !dropEach) {
+            cachePurge();
+        }
         for (; g >= 0 && m < ends[g]; m++)
         {
             Mesh& mesh = gMeshes[m];
-            if (*mesh.last == SENTINEL)
+            if (!done2(m, queued, done))
             {
                 uint32_t w0 = cycles();
-                while (*mesh.last == SENTINEL)
+                while (!done2(m, queued, done))
                 {
                     keepRunning(m, queued);
                     kRegisters(16);
                 }
                 f.waiting += cycles() - w0;
             }
-            dropLines(mesh.out, mesh.count * sizeof(Vertex));
+            if (dropEach) {
+                dropLines(mesh.out, mesh.count * sizeof(Vertex));
+            }
             meshProjectAsm(mesh.out, mesh.count, divTable);
             kFaces(faces, mesh.faces);
             faces += mesh.faces * 3;
@@ -640,12 +672,14 @@ void pageMeshes(Page& page)
     Frame f = frameDsp();
     rowFrame(page, "v1, a mesh ahead", f, yes(allExact()));
     meshLight2Load(meshlight2_dsp, MESHLIGHT2_DSP_COUNT);
-    f = frameDsp2(gMeshEnds, MESHES);
+    f = frameDsp2(gMeshEnds, MESHES, false);
     rowFrame(page, "v2, a mesh ahead", f, yes(allExact()));
-    f = frameDsp2(gObjectEnds, OBJECTS);
+    f = frameDsp2(gObjectEnds, OBJECTS, false);
     rowFrame(page, "v2, an object ahead", f, yes(allExact()));
-    f = frameDsp2(kFrameEnd, 1);
+    f = frameDsp2(kFrameEnd, 1, false);
     rowFrame(page, "v2, the frame ahead", f, yes(allExact()));
+    f = frameDsp2(kFrameEnd, 1, true);
+    rowFrame(page, "  lines dropped each", f, yes(allExact()));
     Frame faces = { facesOnly(false), 0 };
     rowFrame(page, "faces' stand-in alone", faces, nullptr);
     faces.cycles = facesOnly(true);
@@ -680,9 +714,7 @@ static uint32_t partJobs()
         const Mesh& mesh = gMeshes[i];
         MeshLightJob& job = gPartJobs[i];
         *mesh.last = SENTINEL;
-        job.normals = mesh.dspNormals;
         job.src = mesh.dspSrc;
-        job.dst = mesh.dspDst;
         gPartJobs[i + 1].size = 0;
         asm volatile("" ::: "memory");
         *(volatile uint32_t*)&job.size = mesh.count;
@@ -693,21 +725,20 @@ static uint32_t partJobs()
 static uint32_t partChecks()
 {
     uint32_t pending = 0;
+    int32_t done = 0;
     uint32_t t0 = cycles();
-    for (const Mesh& mesh : gMeshes) {
-        pending += *mesh.last == SENTINEL;
+    for (int32_t m = 0; m < MESHES; m++) {
+        pending += !done2(m, MESHES, done);
     }
     uint32_t t = cycles() - t0;
     asm volatile("" :: "r"(pending));
     return t;
 }
 
-static uint32_t partDrops()
+static uint32_t partPurge()
 {
     uint32_t t0 = cycles();
-    for (const Mesh& mesh : gMeshes) {
-        dropLines(mesh.out, mesh.count * sizeof(Vertex));
-    }
+    cachePurge();
     return cycles() - t0;
 }
 
@@ -774,6 +805,22 @@ static uint32_t beside(uint32_t (*part)())
 
 static uint32_t besideSetups() { return partSetups(true); }
 
+// The checks beside the DSP as a frame meets them, its meshes done: their
+// sentinels cleared (the DSP writes them again the same).
+static uint32_t besideChecks()
+{
+    for (int32_t i = 0; i < MESHES; i++) {
+        queue2(i);
+    }
+    for (const Mesh& mesh : gMeshes) {
+        *mesh.last = 0;
+    }
+    start2(0);
+    uint32_t t = partChecks();
+    dspWaitQuietly();
+    return t;
+}
+
 static void rowParts(Page& page, const char* name, uint32_t alone, int32_t besides)
 {
     char line[64];
@@ -815,19 +862,19 @@ void pageParts(Page& page)
     b[1] = beside(partJobs);
     remake();
     a[2] = partChecks();
-    b[2] = beside(partChecks);
+    b[2] = besideChecks();
     remake();
-    a[3] = partDrops();
+    a[3] = partPurge();
     a[4] = partProjecting();
     remake();
-    b[3] = beside(partDrops);
+    b[3] = beside(partPurge);
     remake();
     b[4] = beside(partProjecting);
     a[5] = partFaces();
     b[5] = beside(partFaces);
     static const char* const names[6] = {
         "setups (MeshXform)", "the jobs' other stores", "checking each is done",
-        "dropping its lines", "projecting", "faces' stand-in"
+        "purging the cache", "projecting", "faces' stand-in"
     };
     uint32_t sumA = timer, sumB = timer;
     for (int32_t i = 0; i < 6; i++)
@@ -838,7 +885,7 @@ void pageParts(Page& page)
     }
     rowParts(page, "timer reads", timer, -1);
     rowParts(page, "the parts' sum", sumA, sumB);
-    Frame f = frameDsp2(kFrameEnd, 1);
+    Frame f = frameDsp2(kFrameEnd, 1, false);
     rowParts(page, "the frame ahead: work", f.cycles - f.waiting, -1);
     rowParts(page, "                 wait", f.waiting, -1);
 }
