@@ -6,6 +6,7 @@ them as Mednafen and as the Saturn would.
 usage: test_meshlight.py [v1|v2 ...]
 """
 import os
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -31,6 +32,9 @@ JOBS = 0x06070000       # the job list
 OUT_V1 = 0x06080000
 OUT_V2 = 0x060A0000
 SCRATCH = 0x060C0000  # meshlight2.dsp's first output, of nothing
+DSPDATA = 0x06050000  # meshlight3.dsp's vertices, groups of 4
+JOBS3 = 0x06078000
+OUT_V3 = 0x060B0000
 
 
 class Seed:
@@ -77,11 +81,11 @@ def build():
                 'tx': (((x >> 8) % 601) - 300) << 14,
                 'ty': (((x >> 18) % 401) - 200) << 14,
                 'tz': (2500 + ((x >> 4) % 6500)) << 14,
-                'ambient': 3000 + ((x >> 12) % 5000),
+                'ambient': 5000 + ((x >> 12) % 800),
                 'lx': ((x >> 20) % 147) - 73,
                 'ly': ((x >> 12) % 147) - 73,
                 'lz': ((x >> 4) % 147) - 73,
-                'range': 5000 + ((x >> 2) % 11000),
+                'range': 1250 + ((x >> 2) % 200),
             }
             mesh.update(verts=verts, norms=norms, xf=xf, faces=faces)
             for k, base in out.items():
@@ -191,6 +195,43 @@ def run_v2(meshes, timing):
     return dsp, mem, 'out_v2'
 
 
+def run_v3(meshes, timing):
+    src = os.path.join(HERE, '..', 'build', 'dspbench', 'gen', 'meshlight3.dsp')
+    os.makedirs(os.path.dirname(src), exist_ok=True)
+    subprocess.check_call([sys.executable, os.path.join(HERE, 'gen_meshlight3.py'), src])
+    prog, labels = load(src)
+    mem = Memory()
+    data, out, rec = DSPDATA, OUT_V3, JOBS3
+    for mesh in meshes:
+        groups = (mesh['count'] + 3) // 4
+        mesh['out_v3'] = out
+        out += groups * 32
+        for v in range(groups * 4):
+            vert = mesh['verts'][v] if v < mesh['count'] else [0, 0, 0]
+            norm = mesh['norms'][v][:3] if v < mesh['count'] else [0, 0, 0]
+            for k, c in enumerate(vert + norm):
+                mem.write(data + (v * 6 + k) * 4, c)
+        xf = mesh['xf']
+        r = xf['rows']
+        k = []
+        for row, t in ((0, 'tx'), (1, 'ty'), (2, 'tz')):
+            k += [4 * xf[t]] + [4 * r[row * 3 + c] for c in range(3)]
+        k += [(xf['ambient'] << 16) | 0xFFFF] + [xf[a] * xf['range'] * -4 for a in ('lx', 'ly', 'lz')]
+        for i, w in enumerate([data >> 2, groups - 1] + k):
+            mem.write(rec + i * 4, w)
+        data += groups * 24 * 4
+        rec += 18 * 4
+    mem.write(rec, DSPDATA >> 2)
+    mem.write(rec + 4, M32)
+    dsp = DSP(prog, mem, timing)
+    for i, v in {16: 65536, 17: 0xFFFF, 18: 0x1F00, 20: (JOBS3 >> 2) + 18, 21: 20,
+                 23: OUT_V3 >> 2, 24: JOBS3 >> 2}.items():
+        dsp.ram[0][i] = v
+    dsp.ram[3][16] = 1
+    dsp.run(labels['start'])
+    return dsp, mem, 'out_v3'
+
+
 def check(meshes, mem, key):
     bad = 0
     for m, mesh in enumerate(meshes):
@@ -208,7 +249,7 @@ def main():
     meshes = build()
     nv = sum(m['count'] for m in meshes)
     print(f'{len(meshes)} meshes, {nv} vertices')
-    runs = {'v1': run_v1, 'v2': run_v2}
+    runs = {'v1': run_v1, 'v2': run_v2, 'v3': run_v3}
     for name in which:
         for timing in ('mednafen', 'saturn'):
             dsp, mem, key = runs[name](meshes, timing)
