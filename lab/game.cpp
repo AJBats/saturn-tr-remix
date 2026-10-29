@@ -3,6 +3,7 @@
 // with the scene standing in for the game's level and caches.
 
 #include "game.h"
+#include "faces.h"
 #include "platform.h"
 #include "scene.h"
 #include "hw.h"
@@ -86,17 +87,6 @@ struct DetailSlot
     uint32_t frame;
 };
 
-struct ShadeCache
-{
-    uint32_t frame;
-    uint32_t validFrom;
-    uint32_t vram;
-    uint32_t (*miss)(ShadeCache* cache, uint32_t key, uint32_t index);
-    uint32_t keys[256];
-    uint32_t frames[256];
-};
-
-#define SHADE_TABLE_SIZE 32
 
 struct RoomFaces
 {
@@ -830,10 +820,7 @@ static inline int32_t offFrame(const Vertex* v)
     return X_MAX(0, -x) + X_MAX(0, x - FRAME_WIDTH) + X_MAX(0, -y) + X_MAX(0, y - FRAME_HEIGHT);
 }
 
-// A copy of a colour table shaded by a gouraud value, in the pair of slots
-// holding index whose copy was drawn longest ago, unless both are drawn this
-// frame or the last: its table address / 8, or 0.
-static uint32_t shadeTableMiss(ShadeCache* cache, uint32_t key, uint32_t index)
+uint32_t shadeTableMiss(ShadeCache* cache, uint32_t key, uint32_t index)
 {
     uint32_t a = index & ~1;
     uint32_t drawnA = cache->frames[a] >= cache->validFrom ? cache->frames[a] : 0;
@@ -1100,12 +1087,22 @@ static void flushXformInit(FlushXform &xf, int32_t first, int32_t count, int32_t
     xf.mipVram[1] = gInfo->poolVram[2];
 }
 
-void gameFlushPrepare()
+ShadeCache* gameShadeCache(int32_t cpu)
+{
+    return gShadeCaches + cpu;
+}
+
+const uint16_t* gameShadeGouraud()
+{
+    return gShadeGouraud;
+}
+
+void gameFlushPrepare(bool rooms)
 {
     memcpy(gVertices, gSceneVertices, sizeof(gVertices));
     for (int32_t b = 0; b < OT_SIZE; b++)
     {
-        gRefRoomOT[b] = gOrder[b] ? gRefSlaveFaces + gOrder[b] - 1 : nullptr;
+        gRefRoomOT[b] = gOrder[b] && rooms ? gRefSlaveFaces + gOrder[b] - 1 : nullptr;
         gRefMeshOT[b] = gOrder[OT_SIZE + b] ? gRefFaces + gOrder[OT_SIZE + b] - 1 : nullptr;
     }
 }
@@ -1179,6 +1176,108 @@ int32_t gameFlush(bool split, uint32_t* slaveCycles)
     gCmds[0] = gRefCmds[0];     // the game's clear
     gCmds[end].w[0] = CMD_END << 16;
     return end;
+}
+
+void gameRoomCommands(CommandList &list)
+{
+    int32_t slot = 1;   // the game's list: the clear, then far to near
+    for (int32_t b = OT_SIZE - 1; b >= 0; b--)
+    {
+        int32_t n = 0;
+        for (const Face* f = gRefRoomOT[b]; f; f = f->next) {
+            n++;
+        }
+        // VDP1 draws a bucket's chain from its last added
+        for (int32_t k = n - 1; k >= 0; k--) {
+            facesCopy(list, gRefCmds[slot + k].w, gRefGrd[slot + k], b);
+        }
+        slot += n;
+        for (const Face* f = gRefMeshOT[b]; f; f = f->next) {
+            slot++;
+        }
+    }
+}
+
+enum { SAME_NOT, SAME, SAME_PICTURE };
+
+// The key of the shaded copy a colour table address / 8 is, or 0.
+static uint32_t copyKey(uint32_t colr)
+{
+    uint32_t address = colr << 3;
+    for (int32_t i = 0; i < 2; i++)
+    {
+        const ShadeCache &cache = gShadeCaches[i];
+        if (cache.vram && address >= cache.vram && address < cache.vram + 256 * SHADE_TABLE_SIZE)
+            return cache.keys[(address - cache.vram) / SHADE_TABLE_SIZE];
+    }
+    return 0;
+}
+
+// A command drawn through a shaded copy of a colour table (pmod p, its key)
+// and one drawn with gouraud of one value at every corner, from that table:
+// the same picture.
+static bool shadedAlike(uint32_t copyW1, const uint32_t* w1, const uint32_t* grd)
+{
+    uint32_t key = copyKey(copyW1 & 0xFFFF);
+    uint32_t g = grd[0] >> 16;
+    const uint32_t calc = PMOD_GOURAUD_HALF << 16;     // the colour calculation's bits
+    return key && (w1[0] & calc) == (PMOD_GOURAUD << 16) && (copyW1 & 0xFFFF0000) == (w1[0] & 0xFFFF0000 & ~calc) &&
+           grd[0] == ((g << 16) | g) && grd[1] == grd[0] && key == (((w1[0] & 0xFFFF) << 15) | g);
+}
+
+static int32_t sameCommand(const uint32_t* a, const uint32_t* ga, const uint32_t* b, const uint32_t* gb)
+{
+    uint32_t ca = a[0] >> 16, cb = b[0] >> 16;
+    const uint32_t jumps = 0x7000;
+    if ((ca & ~jumps) != (cb & ~jumps) || (ca & CMD_SKIP) != (cb & CMD_SKIP))
+        return SAME_NOT;
+    if (cb & CMD_SKIP)
+        return SAME;    // VDP1 reads no more of it
+    uint32_t kind = cb & 15;
+    bool scaled = kind == CMD_SCALED_SPRITE;   // corners A and C alone
+    bool texture = kind < CMD_POLYGON;          // a polygon or line has no character
+    if ((texture && a[2] != b[2]) || a[3] != b[3] || a[5] != b[5] || (!scaled && (a[4] != b[4] || a[6] != b[6])))
+        return SAME_NOT;
+    if (a[1] != b[1])
+    {
+        // a shaded copy of a table as good as another of the same, or as
+        // gouraud of the copy's value at every corner
+        uint32_t key = copyKey(a[1] & 0xFFFF);
+        if ((a[1] >> 16) == (b[1] >> 16) && key && key == copyKey(b[1] & 0xFFFF))
+            return SAME;
+        if (shadedAlike(a[1], b + 1, gb) || shadedAlike(b[1], a + 1, ga))
+            return SAME_PICTURE;
+        return SAME_NOT;
+    }
+    return !((b[1] >> 16) & PMOD_GOURAUD) || (ga[0] == gb[0] && ga[1] == gb[1]) ? SAME : SAME_NOT;
+}
+
+int32_t gameListCheck(const Command* cmds, const uint32_t (*grd)[2], int32_t &visited, int32_t &shadedOther)
+{
+    int32_t bad = 0;
+    int32_t slot = 0;
+    int32_t count = gInfo->commands;
+    visited = 0;
+    shadedOther = 0;
+    for (int32_t k = 0; k <= count; k++)
+    {
+        if (slot < 0 || slot >= MAX_CMDS)
+            return bad + count + 1 - k;
+        const uint32_t* a = cmds[slot].w;
+        uint32_t ctrl = a[0] >> 16;
+        visited++;
+        if (k == count) {
+            return bad + !(ctrl & CMD_END);
+        }
+        if (ctrl & CMD_END)
+            return bad + count + 1 - k;
+        int32_t same = sameCommand(a, grd[slot], gRefCmds[k].w, gRefGrd[k]);
+        bad += same == SAME_NOT;
+        shadedOther += same == SAME_PICTURE;
+        uint32_t jump = (ctrl >> 12) & 7;
+        slot = jump == 1 || jump == 5 ? facesSlot(a[0] & 0xFFFF) : slot + 1;
+    }
+    return bad;
 }
 
 bool gameCommandMatches(const Command &cmd, const uint32_t* grd, int32_t slot)

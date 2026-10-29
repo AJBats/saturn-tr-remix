@@ -210,7 +210,7 @@ $(LAB)/obj/%.s.o: %.s | check-toolchain
 $(LAB)/0MAIN.elf: $(patsubst %,$(LAB)/obj/%.o,$(LAB_SRC)) saturn/saturn.ld
 	$(CXX) $(LAB_CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
 
-$(LAB_SCENE_FILE): tools/labscene.py tools/capture.py $(wildcard build/captures/$(LAB_SCENE)/*)
+$(LAB_SCENE_FILE): tools/labscene.py tools/capture.py tools/facepack.py $(wildcard build/captures/$(LAB_SCENE)/*)
 	@mkdir -p $(@D)
 	$(PY) tools/labscene.py $(LAB_SCENE) $@
 

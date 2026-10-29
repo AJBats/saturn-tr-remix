@@ -4,12 +4,12 @@ reads back what it measured.
     lab.py [--cue build/lab/disc/tomb.cue] [--scene ledge] [--shots] [--profile]
 
 Boots the lab, waits for its measurements (gLab), and prints its results
-page as the Saturn shows it. Then checks the lab's command list against the
-game's own (the scene's CMDS and GRDS) word by word as VDP1 reads them, and
-draws both with the Mednafen fork's VDP1 code (tools/crunch/vdp1lib) over
-the scene's VDP1 VRAM: the pixels that differ, and VDP1's time for each.
-With --shots, the two frame pages as the emulator shows them, into
-build/lab/shots. With --profile, each measurement's first run traced
+pages as the Saturn shows them. Then follows the new way's command list as
+VDP1 does, checking it command by command against the game's own (the
+scene's CMDS and GRDS) as VDP1 reads them, and draws both with the Mednafen
+fork's VDP1 code (tools/crunch/vdp1lib) over the scene's VDP1 VRAM: the
+pixels that differ, and VDP1's time for each. With --shots, the two frame
+pages as the emulator shows them, into build/lab/shots. With --profile, each measurement's first run traced
 instruction by instruction (lab.cpp labTraceBegin to labTraceEnd) and its
 cycles shared out by function and, in assembly, by the label they follow:
 proportions, since tracing slows Mednafen's CPU. Mednafen's times are
@@ -30,17 +30,23 @@ import capture as cap   # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LAB_MAGIC = 0x4C414231
-LAB_RESULTS = struct.Struct('>7I4i4I')      # lab.cpp LabResults
+MAX_CMDS = 1792
+SHADE_CACHE = struct.Struct('>4I256I256I')      # game.h ShadeCache
+SHADE_TABLE_SIZE = 32
+LAB_RESULTS = struct.Struct('>7I4i4I3I4i3I')    # lab.cpp LabResults
 FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSlave', 'floor',
           'facesBad', 'flushBad', 'splitBad', 'floorBad', 'vdp1Game', 'vdp1Lab', 'meshFacesGiven',
-          'roomFacesGiven')
+          'roomFacesGiven', 'meshFlush', 'newMeshes', 'newJoin', 'newBad', 'newBadC', 'newVisited',
+          'newShaded', 'meshCommands', 'newWater', 'vdp1New')
 TEXT_ROWS, TEXT_COLUMNS = 26, 42
 PAGE = struct.Struct(f'>{TEXT_ROWS * (TEXT_COLUMNS + 1)}s2xi')     # lab.h Page
 VRAM_FRAME_CMDS = 0x60
 VRAM_GOURAUD_BASE = VRAM_FRAME_CMDS + 1792 * 32
 VDP1_HZ = 28636364
-CMD_SKIP, CMD_SCALED_SPRITE, CMD_POLYGON, PMOD_GOURAUD = 0x4000, 0x0001, 0x0004, 0x0004
-SEGMENTS = ('mesh faces', 'room faces', 'flush split', 'flush alone', 'floor')     # lab.cpp's measure()s
+CMD_SKIP, CMD_SCALED_SPRITE, CMD_POLYGON, CMD_END, PMOD_GOURAUD = 0x4000, 0x0001, 0x0004, 0x8000, 0x0004
+JUMPS = 0x7000
+SEGMENTS = ('mesh faces', 'room faces', 'flush split', 'flush alone', 'floor', 'flush of the master\'s faces',
+            'new: the master\'s draws', 'new: join')       # lab.cpp's measure()s
 MARK_BREAK = 4      # lab.cpp labTraceBegin, labTraceEnd: their third instruction
 ADDR2LINE = os.path.join(ROOT, 'toolchain/gcc-14.2.0/sh2eb-elf/bin/sh2eb-elf-addr2line')
 
@@ -56,18 +62,68 @@ def chunks(path):
     return out
 
 
-def matches(a, ga, b, gb):
-    """lab/game.cpp gameCommandMatches: a command as VDP1 reads it."""
-    if a[0] != b[0]:
-        return False
-    ctrl = b[0] >> 16
-    if ctrl & CMD_SKIP:
-        return True
-    kind = ctrl & 15
-    words = [1, 3, 5, 7] + ([2] if kind < CMD_POLYGON else []) + ([4, 6] if kind != CMD_SCALED_SPRITE else [])
+SAME_NOT, SAME, SAME_PICTURE = 0, 1, 2
+
+
+def shaded_alike(copy_w1, w1, grd, keys):
+    """lab/game.cpp shadedAlike: drawn through a shaded copy of a colour
+    table, and with gouraud of the copy's one value at every corner."""
+    key = keys(copy_w1 & 0xFFFF)
+    g = grd[0] >> 16
+    calc = 0x0006 << 16
+    return bool(key) and w1 & calc == PMOD_GOURAUD << 16 and copy_w1 & 0xFFFF0000 == w1 & 0xFFFF0000 & ~calc \
+        and grd[0] == (g << 16 | g) and grd[1] == grd[0] and key == ((w1 & 0xFFFF) << 15 | g)
+
+
+def same(a, ga, b, gb, keys):
+    """lab/game.cpp sameCommand: a command as VDP1 reads it, jumps aside, a
+    shaded copy of a colour table as good as another of the same (SAME), or
+    as gouraud of its value at every corner (SAME_PICTURE)."""
+    ca, cb = a[0] >> 16, b[0] >> 16
+    if ca & ~JUMPS != cb & ~JUMPS or ca & CMD_SKIP != cb & CMD_SKIP:
+        return SAME_NOT
+    if cb & CMD_SKIP:
+        return SAME
+    kind = cb & 15
+    words = [3, 5] + ([2] if kind < CMD_POLYGON else []) + ([4, 6] if kind != CMD_SCALED_SPRITE else [])
     if any(a[k] != b[k] for k in words):
-        return False
-    return not (b[1] >> 16) & PMOD_GOURAUD or ga == gb
+        return SAME_NOT
+    if a[1] != b[1]:
+        key = keys(a[1] & 0xFFFF)
+        if a[1] >> 16 == b[1] >> 16 and key and key == keys(b[1] & 0xFFFF):
+            return SAME
+        if shaded_alike(a[1], b[1], gb, keys) or (ga and shaded_alike(b[1], a[1], ga, keys)):
+            return SAME_PICTURE
+        return SAME_NOT
+    return SAME if not (b[1] >> 16) & PMOD_GOURAUD or ga == gb else SAME_NOT
+
+
+def follow(cmds, grds, ref_cmds, ref_grds, keys):
+    """The list from slot 0 as VDP1 follows its jumps, against the game's
+    sequential one: the commands followed and those that differ."""
+    count = len(ref_grds) // 8
+    slot, bad, other = 0, [], 0
+    for k in range(count + 1):
+        if not 0 <= slot < len(cmds) // 32:
+            return k, bad + list(range(k, count + 1)), other
+        a = struct.unpack_from('>8I', cmds, 32 * slot)
+        if k == count:
+            return k + 1, bad + ([] if a[0] >> 16 & CMD_END else [k]), other
+        if a[0] >> 16 & CMD_END:
+            return k + 1, bad + list(range(k, count + 1)), other
+        b = struct.unpack_from('>8I', ref_cmds, 32 * k)
+        ga = struct.unpack_from('>2I', grds, 8 * slot) if 8 * slot + 8 <= len(grds) else None
+        gb = struct.unpack_from('>2I', ref_grds, 8 * k)
+        alike = same(a, ga, b, gb, keys)
+        other += alike == SAME_PICTURE
+        if alike == SAME_NOT:
+            if not bad:
+                print(f'command {k} (slot {slot}): new {[hex(w) for w in a]} {ga and [hex(g) for g in ga]}')
+                print(f'               game {[hex(w) for w in b]} {[hex(g) for g in gb]}')
+            bad.append(k)
+        jump = (a[0] >> 28) & 7
+        slot = ((a[0] & 0xFFFF) - (VRAM_FRAME_CMDS >> 3)) // 4 if jump in (1, 5) else slot + 1
+    return count + 1, bad, other
 
 
 def draw(vram, cmds, grds):
@@ -212,10 +268,11 @@ def main():
     elf = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(args.cue))), '0MAIN.elf')
     syms = cap.symbols(elf)
     lab = cap.symbol(syms, '_gLab')
-    page = cap.symbol(syms, '__ZL8gResults')
-    commands = cap.symbol(syms, '_gCmds')
-    gouraud = cap.symbol(syms, '_gGouraud')
-    end_at = cap.symbol(syms, '__ZL7gLabEnd')
+    pages = [cap.symbol(syms, '__ZL8gResults'), cap.symbol(syms, '__ZL11gNewResults')]
+    commands = cap.symbol(syms, '__ZL8gNewCmds')
+    gouraud = cap.symbol(syms, '__ZL7gNewGrd')
+    end_at = cap.symbol(syms, '__ZL7gNewEnd')
+    caches_at = cap.symbol(syms, '__ZL12gShadeCaches')
 
     med = cap.Mednafen(os.path.abspath(args.cue), 'lab')
     try:
@@ -233,21 +290,27 @@ def main():
         frame = int(med.send('status', 'status', 10).split('frame=')[1].split()[0])
         print(f'measured by vblank {frame} ({time.time() - start:.0f} s); off: faces {results["facesBad"]}, '
               f'flush {results["flushBad"]}, split {results["splitBad"]}, floor {results["floorBad"]}')
-        text, count = PAGE.unpack(med.read(page, PAGE.size))
-        for r in range(count):
-            row = text[r * (TEXT_COLUMNS + 1):(r + 1) * (TEXT_COLUMNS + 1)]
-            print('  ' + row.split(b'\0')[0].decode('ascii', 'replace'))
+        for page in pages:
+            text, count = PAGE.unpack(med.read(page, PAGE.size))
+            for r in range(count):
+                row = text[r * (TEXT_COLUMNS + 1):(r + 1) * (TEXT_COLUMNS + 1)]
+                print('  ' + row.split(b'\0')[0].decode('ascii', 'replace'))
+            print()
         end = struct.unpack('>i', med.read(end_at, 4))[0]
-        lab_cmds = med.read(commands, (end + 1) * 32)
-        lab_grds = med.read(gouraud, end * 8)
+        new_cmds = med.read(commands, MAX_CMDS * 32)
+        new_grds = med.read(gouraud, MAX_CMDS * 8)
+        caches = med.read(struct.unpack('>I', med.read(caches_at, 4))[0], 2 * SHADE_CACHE.size)
+        vram = med.read(cap.VDP1_VRAM, cap.VDP1_BYTES)
         if args.shots:
             shots = os.path.join(ROOT, 'build/lab/shots')
             os.makedirs(shots, exist_ok=True)
-            for name in ('game', 'lab'):
+            for name in ('', 'game', 'new'):
                 med.send('input R', 'ok input', 10)
                 med.send('frame_advance 10', 'done frame_advance', 30)
                 med.send('input_release R', 'ok input_release', 10)
                 med.send('frame_advance 20', 'done frame_advance', 30)
+                if not name:
+                    continue    # the new way's results page
                 shot = os.path.join(shots, f'{name}.png')
                 if os.path.exists(shot):
                     os.remove(shot)
@@ -257,33 +320,35 @@ def main():
     finally:
         med.quit()
 
-    # the lab's list against the game's
+    # the new list as VDP1 follows it against the game's
     import numpy as np
     scene = chunks(os.path.join(ROOT, 'build/lab', args.scene.upper() + '.SCN'))
     ref_cmds, ref_grds = scene['CMDS'], scene['GRDS']
-    want = len(ref_grds) // 8
-    bad = []
-    for i in range(1, min(end, want)):
-        a = struct.unpack('>8I', lab_cmds[32 * i:32 * i + 32])
-        b = struct.unpack('>8I', ref_cmds[32 * i:32 * i + 32])
-        ga = struct.unpack('>2I', lab_grds[8 * i:8 * i + 8])
-        gb = struct.unpack('>2I', ref_grds[8 * i:8 * i + 8])
-        if not matches(a, ga, b, gb):
-            if not bad:
-                print(f'command {i}: lab {[hex(w) for w in a]} {[hex(g) for g in ga]}')
-                print(f'       game {[hex(w) for w in b]} {[hex(g) for g in gb]}')
-            bad.append(i)
-    print(f'lab list: {end} commands (game {want}); {len(bad)} differ from the game\'s'
-          + (f': {bad[:10]}' if bad else ''))
+    cache = [SHADE_CACHE.unpack_from(caches, i * SHADE_CACHE.size) for i in range(2)]
 
-    game_frame, game_cycles = draw(scene['VRAM'], ref_cmds, ref_grds)
-    lab_frame, lab_cycles = draw(scene['VRAM'], lab_cmds, lab_grds)
-    differ = int(np.any(game_frame != lab_frame, axis=2).sum())
+    def keys(colr):
+        address = colr << 3
+        for c in cache:
+            vram = c[2]
+            if vram and vram <= address < vram + 256 * SHADE_TABLE_SIZE:
+                return c[4 + (address - vram) // SHADE_TABLE_SIZE]
+        return 0
+
+    followed, bad, other = follow(new_cmds, new_grds, ref_cmds, ref_grds, keys)
+    print(f'new list: {followed} commands followed (the game\'s {len(ref_grds) // 8 + 1}); '
+          f'{len(bad)} differ from the game\'s' + (f': {bad[:10]}' if bad else '')
+          + f'; {other} shaded another way (a shaded copy of a colour table for gouraud of one value)')
+
+    # drawn over VDP1 VRAM as the lab left it: the shaded copies it made too
+    game_frame, game_cycles = draw(vram, ref_cmds, ref_grds)
+    new_frame, new_cycles = draw(vram, new_cmds[:(end + 1) * 32], new_grds[:end * 8])
+    differ = int(np.any(game_frame != new_frame, axis=2).sum())
     print(f'drawn (Mednafen VDP1): {differ} pixels differ; VDP1 game {game_cycles * 1000 / VDP1_HZ:.2f} ms, '
-          f'lab {lab_cycles * 1000 / VDP1_HZ:.2f} ms')
+          f'new {new_cycles * 1000 / VDP1_HZ:.2f} ms')
     if traces:
         profile(traces, elf, syms)
-    sys.exit(1 if bad or differ or results['facesBad'] or results['flushBad'] or results['splitBad'] else 0)
+    sys.exit(1 if bad or differ or any(results[k] for k in ('facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC'))
+             else 0)
 
 
 if __name__ == '__main__':

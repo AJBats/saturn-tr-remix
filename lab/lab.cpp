@@ -11,10 +11,16 @@
 // as the game splits it. The floor (floor.s): the same commands from words
 // made ready and their corners, nothing decided.
 //
-// Pages, L and R: the results, the frame from the game's own list, the frame
-// from the lab's.
+// Stage 3 the new way (faces.h): the master's draws' faces straight to
+// commands in one pass (facesmesh.s), chained by depth bucket, the rooms'
+// commands as the game made them (until the new room faces), the buckets
+// joined; the list VDP1 follows checked against the game's as VDP1 draws it.
+//
+// Pages, L and R: the game's way, the new way, the frame from the game's own
+// list, the frame from the new.
 
 #include "lab.h"
+#include "faces.h"
 #include "game.h"
 #include "hw.h"
 
@@ -42,6 +48,17 @@ struct LabResults
     uint32_t vdp1Lab;           // ... the lab's
     uint32_t meshFacesGiven;    // mesh quads and triangles the master's draws gave faces.s
     uint32_t roomFacesGiven;    // ... the rooms'
+    uint32_t meshFlush;         // cycles: the game's flush of the master's faces alone
+    uint32_t newMeshes;         // ... the new way's master's draws
+    uint32_t newJoin;           // ... its join
+    int32_t newBad;             // commands of the new list VDP1 draws not as the game's (facesMeshAsm)
+    int32_t newBadC;            // ... with facesMeshC
+    int32_t newVisited;         // commands VDP1 follows in the new list
+    int32_t newShaded;          // ... the same as the game's but for a shaded copy of a colour table
+                                // where the other has gouraud of its value, or the other way
+    uint32_t meshCommands;      // the master's draws' commands
+    uint32_t newWater;          // draws under water, which the new way doesn't do yet
+    uint32_t vdp1New;           // cycles VDP1 drew the new list in
 };
 
 extern "C" LabResults gLab;
@@ -236,6 +253,108 @@ static void stageFloor()
     }
 }
 
+// The new way: a command list of the rooms' (the game's made) and one of the
+// master's draws, in the commands after the rooms'.
+static ALIGN16 Command gNewCmds[MAX_CMDS];
+static ALIGN16 uint32_t gNewGrd[MAX_CMDS][2];
+static uint16_t gHeads[2][OT_SIZE + 1] __attribute__((aligned(4)));
+static uint16_t gTails[2][OT_SIZE];
+static CommandList gRoomList, gMeshList;
+static CommandList* const gLists[2] = { &gRoomList, &gMeshList };
+static int32_t gNewEnd;     // the new list's end
+
+static void newPrepare()
+{
+    gameFlushPrepare();
+    const Material* materials = sceneArray<const Material>("NMAT");
+    facesListInit(gRoomList, gNewCmds, gNewGrd, 1, MAX_CMDS - 1, gHeads[0], gTails[0], materials,
+                  gameShadeGouraud(), gameShadeCache(1));
+    gameRoomCommands(gRoomList);
+    facesListInit(gMeshList, gNewCmds, gNewGrd, facesSlot(gRoomList.link), MAX_CMDS - 1, gHeads[1], gTails[1],
+                  materials, gameShadeGouraud(), gameShadeCache(0));
+}
+
+#define FACE_WATER  (1u << 30)
+
+// The scene's draws and what they draw, for the new way.
+static const DrawScene* gDraws;
+static uint32_t gDrawCount;
+static const uint8_t* gFaceSets;
+static const Face* gGameFaces;
+static const Sprite* gSprites;
+
+// The master's draws in order, their faces through facesMeshAsm or (c)
+// facesMeshC.
+static void newMeshes(bool c)
+{
+    const DrawScene* draws = gDraws;
+    const uint8_t* sets = gFaceSets;
+    for (uint32_t i = 0; i < gDrawCount; i++)
+    {
+        const DrawScene &d = draws[i];
+        const Vertex* vertices = gVertices + d.base;
+        if (d.type == DRAW_COPY)
+        {
+            facesOther(gGameFaces[d.first], gVertices, gSprites, d.bucket, gMeshList);
+            continue;
+        }
+        const FaceSet* set = d.type == DRAW_SHADOW ? facesShadow()
+                                                   : (const FaceSet*)(sets + ((const uint32_t*)sets)[d.mesh]);
+        if (c) {
+            facesMeshC(set, vertices, d.inside, gMeshList);
+        } else {
+            facesMeshAsm(set, vertices, d.inside, &gMeshList);
+        }
+    }
+}
+
+// The buckets joined (facesJoinAsm, or facesJoin), after the game's clear;
+// the end after the last command.
+static Command gClear;
+
+static void newJoin(bool c)
+{
+    gNewEnd = facesSlot(gMeshList.link);
+    gNewCmds[0] = gClear;
+    gNewCmds[gNewEnd].w[0] = CMD_END << 16;
+    if (c) {
+        facesJoin(gLists, 2, gNewCmds, 0, gNewEnd);
+    } else {
+        facesJoinRoomsMeshes(gRoomList, gMeshList, gNewCmds, 0, gNewEnd);
+    }
+}
+
+static void stageNew()
+{
+    const SceneInfo &info = sceneInfo();
+    gDraws = sceneArray<const DrawScene>("DRAW");
+    gDrawCount = info.draws;
+    gFaceSets = sceneArray<const uint8_t>("NMSH");
+    gGameFaces = sceneArray<const Face>("MPOL");
+    gSprites = sceneArray<const Sprite>("SPRS");
+    gClear = sceneArray<const Command>("CMDS")[0];
+    gClear.w[0] |= 0x1000 << 16;    // jumping to the first bucket's
+    gLab.newWater = 0;
+    for (uint32_t i = 0; i < gDrawCount; i++) {
+        gLab.newWater += gDraws[i].type != DRAW_COPY && (gDraws[i].flags & FACE_WATER);
+    }
+
+    // the game's way for the master's faces: adding them, then flush's work
+    // on them alone
+    gLab.meshFlush = measure([] { gameFlushPrepare(false); }, [] { gameFlush(false); });
+
+    // in C, then in assembly (which finds the cache of shaded tables warm, as
+    // a frame does after the one before)
+    newPrepare();
+    newMeshes(true);
+    newJoin(true);
+    gLab.newBadC = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded);
+    gLab.newMeshes = measure([] { newPrepare(); }, [] { newMeshes(false); });
+    gLab.meshCommands = facesSlot(gMeshList.link) - facesSlot(gRoomList.link);
+    gLab.newJoin = measure([] { newPrepare(); newMeshes(false); }, [] { newJoin(false); });
+    gLab.newBad = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded);
+}
+
 // A row: a name, ms, and SH-2 cycles a unit.
 static void timeRow(Page &page, const char* name, uint32_t cycles, uint32_t units, const char* unit)
 {
@@ -252,7 +371,63 @@ static void timeRow(Page &page, const char* name, uint32_t cycles, uint32_t unit
     page.add(line);
 }
 
-static Page gResults;
+static Page gResults, gNewResults;
+
+static void newPage()
+{
+    const SceneInfo &info = sceneInfo();
+    Page &page = gNewResults;
+    char line[TEXT_COLUMNS + 1];
+    char* p;
+
+    page.count = 0;
+    p = put(line, "RENDER LAB  ");
+    p = put(p, info.name);
+    put(p, ": the master's draws,");
+    page.add(line);
+    p = putNumber(line, gLab.meshFacesGiven, 0);
+    p = put(p, " faces given,");
+    p = putNumber(p, gLab.meshCommands, 5);
+    put(p, " commands");
+    page.add(line);
+    page.add("");
+    page.add("STAGE 3, FACES TO COMMANDS: THE NEW WAY");
+    page.add("master, run alone     ms  cycles a");
+    timeRow(page, "game's: faces", gLab.facesMeshes, gLab.meshCommands, "command");
+    timeRow(page, "  their flush", gLab.meshFlush, gLab.meshCommands, "command");
+    timeRow(page, "  both", gLab.facesMeshes + gLab.meshFlush, gLab.meshCommands, "command");
+    timeRow(page, "new: one pass", gLab.newMeshes, gLab.meshCommands, "command");
+    timeRow(page, "join, all", gLab.newJoin, info.commands - 1, "command");
+    timeRow(page, "floor's rate", gLab.floor / (info.commands - 1) * gLab.meshCommands, gLab.meshCommands,
+            "command");
+    page.add("");
+    p = put(line, "new list ");
+    p = put(p, gLab.newBad || gLab.newBadC ? "OFF" : "exact");
+    p = put(p, " (C ");
+    p = putNumber(p, gLab.newBadC, 0);
+    p = put(p, ", asm ");
+    p = putNumber(p, gLab.newBad, 0);
+    put(p, " off),");
+    page.add(line);
+    p = putNumber(line, gLab.newVisited, 0);
+    p = put(p, " followed,");
+    p = putNumber(p, gLab.newShaded, 4);
+    put(p, " shaded another way");
+    page.add(line);
+    if (gLab.newWater)
+    {
+        p = putNumber(line, gLab.newWater, 0);
+        put(p, " draws under water: not done yet");
+        page.add(line);
+    }
+    p = put(line, "VDP1 ms: game's list");
+    p = putFixed(p, cyclesToHundredths(gLab.vdp1Game), 2, 7);
+    p = put(p, ", new");
+    putFixed(p, cyclesToHundredths(gLab.vdp1New), 2, 7);
+    page.add(line);
+    page.add("");
+    page.add("R, L: the other pages");
+}
 
 static void resultsPage()
 {
@@ -313,20 +488,19 @@ static void resultsPage()
     putFixed(p, cyclesToHundredths(gLab.vdp1Lab), 2, 7);
     page.add(line);
     page.add("");
-    page.add("R, L: the frames from the lists");
+    page.add("R, L: the other pages");
 }
 
-enum { PAGE_RESULTS, PAGE_GAME, PAGE_LAB, PAGES };
-
-static int32_t gLabEnd;     // the lab's list's end
+enum { PAGE_GAME_WAY, PAGE_NEW_WAY, PAGE_GAME, PAGE_NEW, PAGES };
 
 static void show(int32_t page)
 {
-    if (page == PAGE_RESULTS)
+    if (page == PAGE_GAME_WAY || page == PAGE_NEW_WAY)
     {
+        const Page &text = page == PAGE_GAME_WAY ? gResults : gNewResults;
         textPage();
-        for (int32_t r = 0; r < gResults.count; r++) {
-            textRow(r, gResults.rows[r]);
+        for (int32_t r = 0; r < text.count; r++) {
+            textRow(r, text.rows[r]);
         }
         return;
     }
@@ -339,8 +513,8 @@ static void show(int32_t page)
     }
     else
     {
-        upload(gCmds, gGouraud, gLabEnd);
-        textRow(0, "THE LAB'S LIST");
+        upload(gNewCmds, gNewGrd, gNewEnd);
+        textRow(0, "THE NEW LIST");
     }
     vdp1Show();
 }
@@ -361,20 +535,24 @@ int main()
 
     stageThree();
     stageFloor();
+    stageNew();
 
-    // the lists drawn, the game's then the lab's (the split flush's, as the
-    // game's is)
+    // the lists drawn: the game's, the lab's of the game's way (the split
+    // flush's, as the game's is), the new
     const SceneInfo &info = sceneInfo();
     upload(sceneArray<const Command>("CMDS"), (const uint32_t (*)[2])sceneChunk("GRDS"), info.commands);
     gLab.vdp1Game = vdp1Show();
     gameFlushPrepare();
-    gLabEnd = gameFlush(true);
-    upload(gCmds, gGouraud, gLabEnd);
+    int32_t end = gameFlush(true);
+    upload(gCmds, gGouraud, end);
     gLab.vdp1Lab = vdp1Show();
+    upload(gNewCmds, gNewGrd, gNewEnd);
+    gLab.vdp1New = vdp1Show();
     gLab.magic = LAB_MAGIC;
 
     resultsPage();
-    int32_t page = PAGE_RESULTS;
+    newPage();
+    int32_t page = PAGE_GAME_WAY;
     show(page);
     uint32_t last = 0;
     while (1)

@@ -82,6 +82,27 @@ struct Sprite
     int16_t l, t, r, b;
 };
 
+// The CPUs' caches of shaded copies of colour tables (render.cpp): a copy of
+// a face's table with a gouraud value added to its colours draws as gouraud
+// would, all corners taking that value, without its cost. Two-way set
+// associative by table and value, in VDP1 VRAM.
+struct ShadeCache
+{
+    uint32_t frame;         // the frame being built
+    uint32_t validFrom;     // copies drawn before this frame are stale
+    uint32_t vram;          // the copies' VDP1 VRAM offset; 0: none
+    uint32_t (*miss)(ShadeCache* cache, uint32_t key, uint32_t index);
+    uint32_t keys[256];     // table address / 8 << 15 | gouraud value
+    uint32_t frames[256];   // last drawn
+};
+
+#define SHADE_TABLE_SIZE 32
+
+// A copy for the key, in the pair of slots holding index whose copy was drawn
+// longest ago, unless both are drawn this frame or the last: its table
+// address / 8, or 0.
+uint32_t shadeTableMiss(ShadeCache* cache, uint32_t key, uint32_t index);
+
 // Command words: ctrl|link, pmod|colr, srca|size, A, B, C, D, grda|0.
 union Command
 {
@@ -111,14 +132,35 @@ int32_t gameFacesCheck();
 int32_t gameMasterFaces();
 int32_t gameSlaveFaces();
 
-// The vertices and the ordering tables as flush was given them.
-void gameFlushPrepare();
+// The scene's: the master's cache (0) and the slave's (1), and shade 0 .. 31
+// to its gouraud colour.
+ShadeCache* gameShadeCache(int32_t cpu);
+const uint16_t* gameShadeGouraud();
+
+// The vertices and the ordering tables as flush was given them (rooms
+// false: the master's alone).
+void gameFlushPrepare(bool rooms = true);
 
 // flush: their commands into gCmds from gCmds[1], with the game's clear first
 // and the end after, the buckets shared out as the game shares them: the far
 // ones run on the slave (split; slaveCycles then its time), or on the master
 // before the near ones. Returns the end's slot.
 int32_t gameFlush(bool split, uint32_t* slaveCycles = nullptr);
+
+struct CommandList;
+
+// The rooms' commands as the game made them, into list, each bucket's in the
+// order the game draws them (until the new stage makes them).
+void gameRoomCommands(CommandList &list);
+
+// A list VDP1 follows from slot 0 against the game's as it draws it, command
+// by command (their jumps and gouraud tables' places aside, a shaded copy of
+// a colour table as good as another of the same): those that differ; in
+// visited the commands it followed, in shadedOther those the same but for
+// one drawn through a shaded copy of its colour table where the other has
+// gouraud of that one value at every corner (each CPU's cache of copies had
+// room for different ones).
+int32_t gameListCheck(const Command* cmds, const uint32_t (*grd)[2], int32_t &visited, int32_t &shadedOther);
 
 // A command and its gouraud table as VDP1 reads them against the game's in
 // that slot; and the commands from 1 up to count: those that differ.

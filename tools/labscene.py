@@ -7,7 +7,8 @@ frame with and what it made of it, from the dumps, as the lab reads it.
 The capture's own program (its 0MAIN.elf) names what the dumps hold. Faces
 become indices into their pool; mesh and room data are copied as the game
 keeps them in memory; the game's command list and gouraud tables come along
-as the reference the lab checks against. The capture must use the look the
+as the reference the lab checks against. The new stages' data is packed
+from the same level data by their packers (tools/facepack.py). The capture must use the look the
 lab builds (the game's defaults): anything else is refused.
 """
 import json
@@ -17,6 +18,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import capture as cap   # noqa: E402
+import facepack         # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -327,6 +329,19 @@ def main():
     chunks['DRAW'] = bytes(draws)
     chunks['MESH'] = struct.pack(f'>{len(mesh_offsets)}I', *mesh_offsets)
     chunks['MGEO'] = bytes(mesh_data)
+
+    # the new face stage's: the materials, and each mesh's faces (MESH's
+    # order) after a table of their offsets
+    texture_entries = [struct.unpack_from('>5H', chunks['TEXS'], 16 * i) for i in range(textures)]
+    materials = facepack.Materials(texture_entries, struct.unpack('>256H', chunks['PALT']),
+                                   u32(mem, sym('_gTexturePmod')))
+    sets = [facepack.mesh_faces(mesh_data[at:], materials) for at in mesh_offsets]
+    offsets, at = [], 4 * len(sets)
+    for face_set in sets:
+        offsets.append(at)
+        at += len(face_set)
+    chunks['NMSH'] = struct.pack(f'>{len(sets)}I', *offsets) + b''.join(sets)
+    chunks['NMAT'] = materials.bytes()
     moved = [(i, natural[i]) for i in range(master_faces) if natural[i] != mesh_bucket[i]]
     chunks['MOVE'] = b''.join(MOVE.pack(*m) for m in moved)
 
@@ -371,7 +386,8 @@ def main():
     # where each lives in the lab, as in the game: high work RAM, but for the
     # level's palette and sprites in low; and VDP1 VRAM
     order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
-                 'DIVT', 'ROOM', 'RGEO', 'DRAW', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'PALT', 'SPRS', 'VRAM']
+                 'DIVT', 'ROOM', 'RGEO', 'DRAW', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT', 'PALT', 'SPRS',
+                 'VRAM']
     where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1}
     table = 8 + 16 * len(order_ids)
     offset = (table + 15) & ~15
@@ -392,7 +408,8 @@ def main():
           f'{len(faced)} rooms, {draw_count} draws ({len(mesh_offsets)} meshes, {copied} faces copied); '
           f'{len(moved)} faces moved by draw order hints'
           + (f' (things {sorted(hinted)})' if hinted else '')
-          + f'; floor exact on {exact} of {len(flush_order)}; {len(out) // 1024} KB')
+          + f'; floor exact on {exact} of {len(flush_order)}; {len(materials.data) // facepack.MATERIAL.size} '
+          f'materials; {len(out) // 1024} KB')
 
 
 if __name__ == '__main__':
