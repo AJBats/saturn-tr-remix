@@ -217,6 +217,12 @@ $(LAB_SCENE_FILE): tools/labscene.py tools/capture.py tools/facepack.py $(wildca
 lab: $(LAB)/disc/tomb.cue
 $(eval $(call DISC_RULE,$(LAB),SCENE.SCN=$(LAB_SCENE_FILE)))
 
+# the scene chosen, in a file rewritten when it changes: the disc is remade
+# for another scene older than it
+LAB_SCENE_CHOICE := $(LAB)/scene.txt
+$(shell mkdir -p $(LAB) && echo '$(LAB_SCENE)' | cmp -s - $(LAB_SCENE_CHOICE) || echo '$(LAB_SCENE)' > $(LAB_SCENE_CHOICE))
+$(LAB)/disc/tomb.cue: $(LAB_SCENE_CHOICE)
+
 extract: $(DISC)/filelist.txt
 
 $(DISC)/filelist.txt:

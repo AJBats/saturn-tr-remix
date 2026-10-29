@@ -33,11 +33,11 @@ LAB_MAGIC = 0x4C414231
 MAX_CMDS = 1792
 SHADE_CACHE = struct.Struct('>4I256I256I')      # game.h ShadeCache
 SHADE_TABLE_SIZE = 32
-LAB_RESULTS = struct.Struct('>7I4i4I3I4i3I')    # lab.cpp LabResults
+LAB_RESULTS = struct.Struct('>7I4i4I5I4i3I')    # lab.cpp LabResults
 FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSlave', 'floor',
           'facesBad', 'flushBad', 'splitBad', 'floorBad', 'vdp1Game', 'vdp1Lab', 'meshFacesGiven',
-          'roomFacesGiven', 'meshFlush', 'newMeshes', 'newJoin', 'newBad', 'newBadC', 'newVisited',
-          'newShaded', 'meshCommands', 'newWater', 'vdp1New')
+          'roomFacesGiven', 'meshFlush', 'roomFlush', 'newMeshes', 'newRooms', 'newJoin', 'newBad', 'newBadC',
+          'newVisited', 'newShaded', 'meshCommands', 'roomCommands', 'vdp1New')
 TEXT_ROWS, TEXT_COLUMNS = 26, 42
 PAGE = struct.Struct(f'>{TEXT_ROWS * (TEXT_COLUMNS + 1)}s2xi')     # lab.h Page
 VRAM_FRAME_CMDS = 0x60
@@ -45,8 +45,8 @@ VRAM_GOURAUD_BASE = VRAM_FRAME_CMDS + 1792 * 32
 VDP1_HZ = 28636364
 CMD_SKIP, CMD_SCALED_SPRITE, CMD_POLYGON, CMD_END, PMOD_GOURAUD = 0x4000, 0x0001, 0x0004, 0x8000, 0x0004
 JUMPS = 0x7000
-SEGMENTS = ('mesh faces', 'room faces', 'flush split', 'flush alone', 'floor', 'flush of the master\'s faces',
-            'new: the master\'s draws', 'new: join')       # lab.cpp's measure()s
+SEGMENTS = ('mesh faces', 'room faces', 'flush split', 'flush alone', 'floor', "flush of the master's faces",
+            "flush of the rooms' faces", 'new: rooms', "new: the master's draws", 'new: join')  # lab.cpp's measure()s
 MARK_BREAK = 4      # lab.cpp labTraceBegin, labTraceEnd: their third instruction
 ADDR2LINE = os.path.join(ROOT, 'toolchain/gcc-14.2.0/sh2eb-elf/bin/sh2eb-elf-addr2line')
 

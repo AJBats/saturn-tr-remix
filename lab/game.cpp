@@ -73,19 +73,6 @@ enum ClipFlags {
 #define DETAIL_DIST     4096    // render.h: room quads crossing the near plane nearer split
 #define NEAR_SPLIT_DIST 2048    // rooms.cpp: quads whose corner A is nearer go to C
 
-// the room texture cache (saturn/detail.h)
-#define DETAIL_MAX_KEYS     1088
-#define DETAIL_SLOT_SIZE    2048
-#define DETAIL_FULL_SLOTS   128
-#define DETAIL_MIP_SLOTS    64
-enum DetailVariant { DETAIL_WHOLE, DETAIL_QUADS, DETAIL_TURNED, DETAIL_MIP1, DETAIL_MIP1_TURNED, DETAIL_MIP2,
-                     DETAIL_MIP2_TURNED, DETAIL_VARIANTS };
-
-struct DetailSlot
-{
-    uint16_t key;
-    uint32_t frame;
-};
 
 
 struct RoomFaces
@@ -574,13 +561,6 @@ static int32_t facingQuads(const RoomQuad* quads, int32_t count, int32_t run, co
     }
     first = lo;
     return count - lo;
-}
-
-static inline void cacheDrop(const void* p, uint32_t size)
-{
-    for (uintptr_t a = uintptr_t(p) & ~15u; a < uintptr_t(p) + size; a += 16) {
-        *(volatile uint32_t*)(a | 0x40000000) = 0;  // the cache's associative purge
-    }
 }
 
 static void roomFaces(const RoomScene &room)
@@ -1097,13 +1077,14 @@ const uint16_t* gameShadeGouraud()
     return gShadeGouraud;
 }
 
-void gameFlushPrepare(bool rooms)
+void gameFlushPrepare(FlushFaces faces)
 {
     memcpy(gVertices, gSceneVertices, sizeof(gVertices));
     for (int32_t b = 0; b < OT_SIZE; b++)
     {
-        gRefRoomOT[b] = gOrder[b] && rooms ? gRefSlaveFaces + gOrder[b] - 1 : nullptr;
-        gRefMeshOT[b] = gOrder[OT_SIZE + b] ? gRefFaces + gOrder[OT_SIZE + b] - 1 : nullptr;
+        gRefRoomOT[b] = gOrder[b] && faces != FLUSH_MESHES ? gRefSlaveFaces + gOrder[b] - 1 : nullptr;
+        gRefMeshOT[b] = gOrder[OT_SIZE + b] && faces != FLUSH_ROOMS ? gRefFaces + gOrder[OT_SIZE + b] - 1
+                                                                    : nullptr;
     }
 }
 
@@ -1176,26 +1157,6 @@ int32_t gameFlush(bool split, uint32_t* slaveCycles)
     gCmds[0] = gRefCmds[0];     // the game's clear
     gCmds[end].w[0] = CMD_END << 16;
     return end;
-}
-
-void gameRoomCommands(CommandList &list)
-{
-    int32_t slot = 1;   // the game's list: the clear, then far to near
-    for (int32_t b = OT_SIZE - 1; b >= 0; b--)
-    {
-        int32_t n = 0;
-        for (const Face* f = gRefRoomOT[b]; f; f = f->next) {
-            n++;
-        }
-        // VDP1 draws a bucket's chain from its last added
-        for (int32_t k = n - 1; k >= 0; k--) {
-            facesCopy(list, gRefCmds[slot + k].w, gRefGrd[slot + k], b);
-        }
-        slot += n;
-        for (const Face* f = gRefMeshOT[b]; f; f = f->next) {
-            slot++;
-        }
-    }
 }
 
 enum { SAME_NOT, SAME, SAME_PICTURE };

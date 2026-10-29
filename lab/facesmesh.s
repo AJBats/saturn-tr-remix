@@ -1,6 +1,6 @@
 ! Stage 3 the new way (faces.h): a mesh's faces straight to VDP1 commands.
 !
-! void facesMeshAsm(const FaceSet* set, const Vertex* vertices, int32 inside, CommandList* list)
+! void facesMeshAsm(const FaceSet* set, const Vertex* vertices, uint32 mode, CommandList* list)
 !
 ! Each face facing the camera and not culled has its command and gouraud
 ! table written at once into the list, chained into its depth bucket: its
@@ -21,12 +21,15 @@
 ! Through a face: r1, r2, r3, r7 its corners A B C D; r4 the face; r8 the
 ! vertices; r9 its command, r10 its gouraud table, r11 its link, r12 its
 ! last word; r13 the list; r14 its material. The stack: +0 the quads' or
-! triangles' end, +4 inside, +8 the triangles, +12 a triangle's flags.
+! triangles' end, +4 the mode (MESH_*), +8 the triangles, +12 a triangle's
+! flags.
 
     .equ    CLIP_FRAME,     0x01
     .equ    CLIP_DISCARD,   0x3E
     .equ    CLIP_PLANE,     0x20
     .equ    MAT_SHADEABLE,  1
+    .equ    MESH_INSIDE,    1
+    .equ    MESH_WATER,     2
     .equ    TRI_PARALLELOGRAM, 1
     .equ    TRI_V0_AT_D,    2
     .equ    TRI_SWAP,       4
@@ -126,7 +129,7 @@
 ! near plane, to 'skip'; r5 the corners' clip flags ored (0 inside); r0, r6
     .macro  CULL skip
     mov.l   @(4, r15), r0
-    tst     r0, r0
+    tst     #MESH_INSIDE, r0
     bf/s    1f
     mov     #0, r5
     mov.b   @(7, r1), r0
@@ -296,7 +299,7 @@ _facesMeshAsm:
     mov.l   r14, @-r15
     sts.l   pr, @-r15
     add     #-16, r15
-    mov.l   r6, @(4, r15)       ! inside
+    mov.l   r6, @(4, r15)       ! mode
     mov     r5, r8
     mov     r7, r13
     mov.l   @r13, r9

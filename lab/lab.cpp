@@ -13,8 +13,8 @@
 //
 // Stage 3 the new way (faces.h): the master's draws' faces straight to
 // commands in one pass (facesmesh.s), chained by depth bucket, the rooms'
-// commands as the game made them (until the new room faces), the buckets
-// joined; the list VDP1 follows checked against the game's as VDP1 draws it.
+// the same way, the buckets joined; the list VDP1 follows checked against the
+// game's as VDP1 draws it.
 //
 // Pages, L and R: the game's way, the new way, the frame from the game's own
 // list, the frame from the new.
@@ -49,15 +49,17 @@ struct LabResults
     uint32_t meshFacesGiven;    // mesh quads and triangles the master's draws gave faces.s
     uint32_t roomFacesGiven;    // ... the rooms'
     uint32_t meshFlush;         // cycles: the game's flush of the master's faces alone
+    uint32_t roomFlush;         // ... of the rooms'
     uint32_t newMeshes;         // ... the new way's master's draws
+    uint32_t newRooms;          // ... its rooms
     uint32_t newJoin;           // ... its join
-    int32_t newBad;             // commands of the new list VDP1 draws not as the game's (facesMeshAsm)
-    int32_t newBadC;            // ... with facesMeshC
+    int32_t newBad;             // commands of the new list VDP1 draws not as the game's
+    int32_t newBadC;            // ... with the faces in C
     int32_t newVisited;         // commands VDP1 follows in the new list
     int32_t newShaded;          // ... the same as the game's but for a shaded copy of a colour table
                                 // where the other has gouraud of its value, or the other way
     uint32_t meshCommands;      // the master's draws' commands
-    uint32_t newWater;          // draws under water, which the new way doesn't do yet
+    uint32_t roomCommands;      // the rooms'
     uint32_t vdp1New;           // cycles VDP1 drew the new list in
 };
 
@@ -253,35 +255,114 @@ static void stageFloor()
     }
 }
 
-// The new way: a command list of the rooms' (the game's made) and one of the
-// master's draws, in the commands after the rooms'.
+// The new way: a command list of the rooms' (the slave's, with its cache of
+// shaded tables) and one of the master's draws, in the commands after as many
+// as the game's rooms took.
 static ALIGN16 Command gNewCmds[MAX_CMDS];
 static ALIGN16 uint32_t gNewGrd[MAX_CMDS][2];
 static uint16_t gHeads[2][OT_SIZE + 1] __attribute__((aligned(4)));
 static uint16_t gTails[2][OT_SIZE];
 static CommandList gRoomList, gMeshList;
 static CommandList* const gLists[2] = { &gRoomList, &gMeshList };
+static int32_t gMeshFirst;  // the master's first command
 static int32_t gNewEnd;     // the new list's end
 
-static void newPrepare()
-{
-    gameFlushPrepare();
-    const Material* materials = sceneArray<const Material>("NMAT");
-    facesListInit(gRoomList, gNewCmds, gNewGrd, 1, MAX_CMDS - 1, gHeads[0], gTails[0], materials,
-                  gameShadeGouraud(), gameShadeCache(1));
-    gameRoomCommands(gRoomList);
-    facesListInit(gMeshList, gNewCmds, gNewGrd, facesSlot(gRoomList.link), MAX_CMDS - 1, gHeads[1], gTails[1],
-                  materials, gameShadeGouraud(), gameShadeCache(0));
-}
-
 #define FACE_WATER  (1u << 30)
+#define MAX_ROOMS   64
 
-// The scene's draws and what they draw, for the new way.
+// The scene's draws and what they draw, its rooms and the room texture cache,
+// for the new way.
 static const DrawScene* gDraws;
 static uint32_t gDrawCount;
 static const uint8_t* gFaceSets;
 static const Face* gGameFaces;
 static const Sprite* gSprites;
+static const RoomScene* gRoomScenes;
+static FaceRoom gRooms[MAX_ROOMS];
+static uint32_t gRoomCount;
+static RoomTextures gRoomTextures;
+static RoomSplit gSplit;
+
+static void newPrepare()
+{
+    gameFlushPrepare();
+    const Material* materials = sceneArray<const Material>("NMAT");
+    const uint8_t* shadeLevel = sceneArray<const uint8_t>("SHAD");
+    facesListInit(gRoomList, gNewCmds, gNewGrd, 1, gMeshFirst, gHeads[0], gTails[0], materials,
+                  gameShadeGouraud(), shadeLevel, gameShadeCache(1));
+    facesListInit(gMeshList, gNewCmds, gNewGrd, gMeshFirst, MAX_CMDS - 1, gHeads[1], gTails[1], materials,
+                  gameShadeGouraud(), shadeLevel, gameShadeCache(0));
+    gSplit.top = MAX_VERTICES;
+    gSplit.bottom = sceneInfo().bottom;
+}
+
+// The rooms in the order the slave faced them, through facesRoomC.
+static void newRooms(bool c)
+{
+    (void)c;
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        const RoomScene &scene = gRoomScenes[i];
+        if (scene.dsp) {
+            cacheDrop(gRooms[i].vertices, scene.verticesCount * sizeof(Vertex));  // the DSP wrote some
+        }
+        facesRoomC(gRooms[i], gRoomTextures, gSplit, gRoomList);
+    }
+}
+
+// The rooms as facesRoom* takes them, and the cache as the frame found it.
+static void newRoomsInit()
+{
+    const SceneInfo &info = sceneInfo();
+    gRoomScenes = sceneArray<const RoomScene>("ROOM");
+    uint8_t* geometry = (uint8_t*)sceneChunk("RGEO");
+    gRoomCount = info.rooms < MAX_ROOMS ? info.rooms : MAX_ROOMS;
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        const RoomScene &scene = gRoomScenes[i];
+        FaceRoom &room = gRooms[i];
+        room.quads = (RoomQuad*)(geometry + scene.quads);
+        room.triangles = (const RoomQuad*)(geometry + scene.triangles);
+        room.points = (const RoomVertex*)(geometry + scene.vertices);
+        room.vertices = gVertices + scene.base;
+        room.quadsCount = scene.quadsCount;
+        room.trianglesCount = scene.trianglesCount;
+        for (int32_t k = 0; k < 6; k++) {
+            room.facing[k] = scene.facing[k];
+        }
+        for (int32_t k = 0; k < 3; k++)
+        {
+            room.camera[k] = scene.camera[k];
+            room.m[k * 3] = scene.m[k * 3];
+            room.m[k * 3 + 1] = scene.m[k * 3 + 1];
+            room.m[k * 3 + 2] = scene.m[k * 3 + 2];
+        }
+        room.t[0] = scene.tx;
+        room.t[1] = scene.ty;
+        room.t[2] = scene.tz;
+        for (int32_t k = 0; k < 4; k++) {
+            room.clip[k] = scene.clip[k];
+        }
+        room.flags = scene.wet ? FACE_WATER : 0;
+        room.ripple = scene.ripple;
+        room.phase = scene.causticsFrame;
+    }
+
+    RoomTextures &t = gRoomTextures;
+    t.textures = sceneArray<const Texture>("TEXS");
+    t.palette = sceneArray<const uint16_t>("PALT");
+    t.keys = (uint8_t (*)[DETAIL_MAX_KEYS])sceneChunk("DKEY");
+    t.slots = (DetailSlot*)sceneChunk("DSLT");
+    t.frame = info.detailFrame;
+    t.lod = info.lod;
+    t.pmod = info.texturePmod;
+    t.pools[0] = info.detailVram;
+    t.pools[1] = info.poolVram[1];
+    t.pools[2] = info.poolVram[2];
+    gSplit.vertices = gVertices;
+    gSplit.divTable = sceneArray<const uint16_t>("DIVT");
+    gMeshFirst = 1 + info.slaveFaces;
+}
 
 // The master's draws in order, their faces through facesMeshAsm or (c)
 // facesMeshC.
@@ -300,10 +381,11 @@ static void newMeshes(bool c)
         }
         const FaceSet* set = d.type == DRAW_SHADOW ? facesShadow()
                                                    : (const FaceSet*)(sets + ((const uint32_t*)sets)[d.mesh]);
+        uint32_t mode = (d.inside ? MESH_INSIDE : 0) | (d.flags & FACE_WATER ? MESH_WATER : 0);
         if (c) {
-            facesMeshC(set, vertices, d.inside, gMeshList);
+            facesMeshC(set, vertices, mode, gMeshList);
         } else {
-            facesMeshAsm(set, vertices, d.inside, &gMeshList);
+            facesMeshAsm(set, vertices, mode, &gMeshList);
         }
     }
 }
@@ -334,24 +416,25 @@ static void stageNew()
     gSprites = sceneArray<const Sprite>("SPRS");
     gClear = sceneArray<const Command>("CMDS")[0];
     gClear.w[0] |= 0x1000 << 16;    // jumping to the first bucket's
-    gLab.newWater = 0;
-    for (uint32_t i = 0; i < gDrawCount; i++) {
-        gLab.newWater += gDraws[i].type != DRAW_COPY && (gDraws[i].flags & FACE_WATER);
-    }
+    newRoomsInit();
 
-    // the game's way for the master's faces: adding them, then flush's work
-    // on them alone
-    gLab.meshFlush = measure([] { gameFlushPrepare(false); }, [] { gameFlush(false); });
+    // the game's way: adding the faces, then flush's work on the master's
+    // alone, and on the rooms'
+    gLab.meshFlush = measure([] { gameFlushPrepare(FLUSH_MESHES); }, [] { gameFlush(false); });
+    gLab.roomFlush = measure([] { gameFlushPrepare(FLUSH_ROOMS); }, [] { gameFlush(false); });
 
-    // in C, then in assembly (which finds the cache of shaded tables warm, as
+    // in C, then in assembly (which finds the caches of shaded tables warm, as
     // a frame does after the one before)
     newPrepare();
+    newRooms(true);
     newMeshes(true);
     newJoin(true);
     gLab.newBadC = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded);
+    gLab.newRooms = measure([] { newPrepare(); }, [] { newRooms(false); });
+    gLab.roomCommands = facesSlot(gRoomList.link) - 1;
     gLab.newMeshes = measure([] { newPrepare(); }, [] { newMeshes(false); });
-    gLab.meshCommands = facesSlot(gMeshList.link) - facesSlot(gRoomList.link);
-    gLab.newJoin = measure([] { newPrepare(); newMeshes(false); }, [] { newJoin(false); });
+    gLab.meshCommands = facesSlot(gMeshList.link) - gMeshFirst;
+    gLab.newJoin = measure([] { newPrepare(); newRooms(false); newMeshes(false); }, [] { newJoin(false); });
     gLab.newBad = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded);
 }
 
@@ -383,23 +466,22 @@ static void newPage()
     page.count = 0;
     p = put(line, "RENDER LAB  ");
     p = put(p, info.name);
-    put(p, ": the master's draws,");
+    put(p, ": commands");
     page.add(line);
-    p = putNumber(line, gLab.meshFacesGiven, 0);
-    p = put(p, " faces given,");
+    p = put(line, "draws':");
     p = putNumber(p, gLab.meshCommands, 5);
-    put(p, " commands");
+    p = put(p, ", rooms':");
+    putNumber(p, gLab.roomCommands, 5);
     page.add(line);
     page.add("");
     page.add("STAGE 3, FACES TO COMMANDS: THE NEW WAY");
     page.add("master, run alone     ms  cycles a");
-    timeRow(page, "game's: faces", gLab.facesMeshes, gLab.meshCommands, "command");
-    timeRow(page, "  their flush", gLab.meshFlush, gLab.meshCommands, "command");
-    timeRow(page, "  both", gLab.facesMeshes + gLab.meshFlush, gLab.meshCommands, "command");
-    timeRow(page, "new: one pass", gLab.newMeshes, gLab.meshCommands, "command");
+    timeRow(page, "draws: game's", gLab.facesMeshes + gLab.meshFlush, gLab.meshCommands, "command");
+    timeRow(page, "  new", gLab.newMeshes, gLab.meshCommands, "command");
+    timeRow(page, "rooms: game's", gLab.facesRooms + gLab.roomFlush, gLab.roomCommands, "command");
+    timeRow(page, "  new", gLab.newRooms, gLab.roomCommands, "command");
     timeRow(page, "join, all", gLab.newJoin, info.commands - 1, "command");
-    timeRow(page, "floor's rate", gLab.floor / (info.commands - 1) * gLab.meshCommands, gLab.meshCommands,
-            "command");
+    timeRow(page, "floor's rate", gLab.floor, info.commands - 1, "command");
     page.add("");
     p = put(line, "new list ");
     p = put(p, gLab.newBad || gLab.newBadC ? "OFF" : "exact");
@@ -414,12 +496,6 @@ static void newPage()
     p = putNumber(p, gLab.newShaded, 4);
     put(p, " shaded another way");
     page.add(line);
-    if (gLab.newWater)
-    {
-        p = putNumber(line, gLab.newWater, 0);
-        put(p, " draws under water: not done yet");
-        page.add(line);
-    }
     p = put(line, "VDP1 ms: game's list");
     p = putFixed(p, cyclesToHundredths(gLab.vdp1Game), 2, 7);
     p = put(p, ", new");

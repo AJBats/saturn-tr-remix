@@ -83,6 +83,7 @@ struct CommandList
     const Material* materials;      // +28
     const uint16_t* shadeGouraud;   // +32 shade 0 .. 31 to its gouraud colour
     ShadeCache* shade;      // +36 the CPU's shaded colour tables, or none
+    const uint8_t* shadeLevel;      // +40 shade 0 .. 31 to its gouraud level, for water
 };
 
 // A command's place, as VDP1 links to it.
@@ -101,25 +102,71 @@ inline int32_t facesSlot(uint32_t link)
 // tails of OT_SIZE.
 void facesListInit(CommandList &list, Command* cmds, uint32_t (*grd)[2], int32_t first, int32_t end,
                    uint16_t* heads, uint16_t* tails, const Material* materials, const uint16_t* shadeGouraud,
-                   ShadeCache* shade);
+                   const uint8_t* shadeLevel, ShadeCache* shade);
 
-// A mesh's faces, with its vertices; inside: none of them is off the frame or
-// past a plane, so no face is culled for that.
-extern "C" void facesMeshAsm(const FaceSet* set, const Vertex* vertices, int32_t inside, CommandList* list);
+// A mesh's faces, with its vertices; mode MESH_INSIDE: none of them is off
+// the frame or past a plane, so no face is culled for that; MESH_WATER: under
+// water, its shades fading to teal with distance.
+#define MESH_INSIDE     1
+#define MESH_WATER      2
+extern "C" void facesMeshAsm(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList* list);
 
 // The same in C: what facesMeshAsm does, to check it against.
-void facesMeshC(const FaceSet* set, const Vertex* vertices, int32_t inside, CommandList &list);
+void facesMeshC(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList &list);
 
 // The shadows' faces: an octagon's three quads.
 const FaceSet* facesShadow();
 
+// The room texture cache as the frame finds it, and what room faces take
+// from the level besides their own data.
+struct RoomTextures
+{
+    const Texture* textures;
+    const uint16_t* palette;    // coloured faces' colours
+    uint8_t (*keys)[DETAIL_MAX_KEYS];  // a texture's slot + 1 in its level's pool, by variant; 0 none
+    DetailSlot* slots;          // each pool's in turn
+    uint32_t frame;             // the frame's: a slot drawn is marked with it
+    int32_t lod;                // 4 x the texels a pixel along a face's lines past which it
+                                // takes the next mip level; 0, full res only
+    uint32_t pmod;              // textured faces' draw mode
+    uint32_t pools[3];          // each level's pool in VDP1 VRAM: full res, half, quarter
+};
+
+// A room as its faces take it.
+struct FaceRoom
+{
+    RoomQuad* quads;            // the runs square to an axis, then the rest; a quad keeps its
+                                // turn and mip level in its flags' top byte
+    const RoomQuad* triangles;
+    const RoomVertex* points;   // its vertices in room space
+    const Vertex* vertices;     // ... as drawn
+    uint16_t quadsCount, trianglesCount;
+    uint16_t facing[6];         // the runs square to an axis, facing +x, -x, +y, -y, +z, -z
+    int32_t camera[3];          // the camera from the room's origin
+    int16_t m[9];               // its matrix's rows (room vertex units times 4)
+    int32_t t[3];               // ... and translation
+    int32_t clip[4];            // its portal window: x0 y0 x1 y1
+    uint32_t flags;             // FACE_WATER for a wet room
+    int32_t ripple;             // across the water's surface from the camera: its corners wibble
+    int32_t phase;              // ... by this phase
+};
+
+// Where quads split near the camera put their new corners: the vertices
+// from top down to bottom.
+struct RoomSplit
+{
+    Vertex* vertices;
+    int32_t top, bottom;
+    const uint16_t* divTable;
+};
+
+// A room's faces: its quads in their runs, then its triangles, as the game
+// adds them (faces.s, rooms.cpp roomFaces), each straight to its command.
+void facesRoomC(const FaceRoom &room, RoomTextures &textures, RoomSplit &split, CommandList &list);
+
 // One face as the game made it (a sprite's, a portal's fill: render.cpp
 // faceCommand), into bucket depth.
 void facesOther(const Face &face, const Vertex* half, const Sprite* sprites, int32_t depth, CommandList &list);
-
-// A command made elsewhere (w: its words but the link and gouraud table's;
-// grd: its gouraud table) into bucket depth.
-void facesCopy(CommandList &list, const uint32_t* w, const uint32_t* grd, int32_t depth);
 
 // The lists' buckets far to near, in each the lists' chains in turn, from the
 // command in slot first of cmds (whose link it sets) to the one in slot end;

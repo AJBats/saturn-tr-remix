@@ -82,6 +82,22 @@ struct Sprite
     int16_t l, t, r, b;
 };
 
+// The room texture cache (saturn/detail.h): slots in VDP1 VRAM holding the
+// room textures in use, whole, in quadrants for a split quad, transposed, or
+// at half or a quarter of their size; a texture's key is Texture.reserved - 1.
+#define DETAIL_MAX_KEYS     1088
+#define DETAIL_SLOT_SIZE    2048
+#define DETAIL_FULL_SLOTS   128
+#define DETAIL_MIP_SLOTS    64
+enum DetailVariant { DETAIL_WHOLE, DETAIL_QUADS, DETAIL_TURNED, DETAIL_MIP1, DETAIL_MIP1_TURNED, DETAIL_MIP2,
+                     DETAIL_MIP2_TURNED, DETAIL_VARIANTS };
+
+struct DetailSlot
+{
+    uint16_t key;           // the texture's key, its variant << 12
+    uint32_t frame;         // last drawn
+};
+
 // The CPUs' caches of shaded copies of colour tables (render.cpp): a copy of
 // a face's table with a gouraud value added to its colours draws as gouraud
 // would, all corners taking that value, without its cost. Two-way set
@@ -137,21 +153,16 @@ int32_t gameSlaveFaces();
 ShadeCache* gameShadeCache(int32_t cpu);
 const uint16_t* gameShadeGouraud();
 
-// The vertices and the ordering tables as flush was given them (rooms
-// false: the master's alone).
-void gameFlushPrepare(bool rooms = true);
+// The vertices and the ordering tables as flush was given them: both CPUs'
+// faces, the master's alone, or the slave's (the rooms').
+enum FlushFaces { FLUSH_ALL, FLUSH_MESHES, FLUSH_ROOMS };
+void gameFlushPrepare(FlushFaces faces = FLUSH_ALL);
 
 // flush: their commands into gCmds from gCmds[1], with the game's clear first
 // and the end after, the buckets shared out as the game shares them: the far
 // ones run on the slave (split; slaveCycles then its time), or on the master
 // before the near ones. Returns the end's slot.
 int32_t gameFlush(bool split, uint32_t* slaveCycles = nullptr);
-
-struct CommandList;
-
-// The rooms' commands as the game made them, into list, each bucket's in the
-// order the game draws them (until the new stage makes them).
-void gameRoomCommands(CommandList &list);
 
 // A list VDP1 follows from slot 0 against the game's as it draws it, command
 // by command (their jumps and gouraud tables' places aside, a shaded copy of

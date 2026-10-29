@@ -27,8 +27,15 @@ inline T* uncached(T* p)
     return (T*)(uintptr_t(p) | 0x20000000);
 }
 
-// Drops this CPU's cached copies of memory.
+// Drops this CPU's cached copies of memory: all of it, or of size bytes from p.
 void cachePurge();
+
+inline void cacheDrop(const void* p, uint32_t size)
+{
+    for (uintptr_t a = uintptr_t(p) & ~15u; a < uintptr_t(p) + size; a += 16) {
+        *(volatile uint32_t*)(a | 0x40000000) = 0;  // the cache's associative purge
+    }
+}
 
 // The text layer: TEXT_ROWS rows of TEXT_COLUMNS characters, inside the TV's
 // overscan, white on black. As a page it covers the frame; textFrame clears
