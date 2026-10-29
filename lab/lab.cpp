@@ -116,6 +116,19 @@ char* pad(char* line, char* p, int32_t column)
     return p;
 }
 
+// tools/lab.py --profile traces each measurement's first run, from a call of
+// the first to a call of the second: it breaks at their third instruction,
+// which a fetch running on from the code before them can't reach.
+extern "C" void __attribute__((noinline)) labTraceBegin()
+{
+    asm volatile("nop\n\tnop\n\tnop");
+}
+
+extern "C" void __attribute__((noinline)) labTraceEnd()
+{
+    asm volatile("nop\n\tnop\n\tnop");
+}
+
 // The mean of RUNS runs of work, each after prepare and an empty cache.
 template <typename Prepare, typename Work>
 static uint32_t measure(Prepare prepare, Work work)
@@ -125,9 +138,15 @@ static uint32_t measure(Prepare prepare, Work work)
     {
         prepare();
         cachePurge();
+        if (r == 0) {
+            labTraceBegin();
+        }
         uint32_t t0 = ticks();
         work();
         total += ticksCycles(t0, ticks());
+        if (r == 0) {
+            labTraceEnd();
+        }
     }
     return total / RUNS;
 }

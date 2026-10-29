@@ -194,7 +194,8 @@ LAB := build/lab
 LAB_SCENE ?= ledge
 LAB_SCENE_FILE := $(LAB)/$(shell echo $(LAB_SCENE) | tr a-z A-Z).SCN
 LAB_SRC := $(wildcard lab/*.cpp lab/*.s) saturn/font.cpp saturn/cd.cpp saturn/faces.s saturn/flush.s
-LAB_FLAGS := -m2 -mb -O2 -Wall -Ilab -Isaturn -ffunction-sections
+# -g: lines for profiles (tools/lab.py's trace); the code is the same without
+LAB_FLAGS := -m2 -mb -O2 -g -Wall -Ilab -Isaturn -ffunction-sections
 LAB_CXXFLAGS := $(LAB_FLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
 	-fno-asynchronous-unwind-tables
 
@@ -204,7 +205,7 @@ $(LAB)/obj/%.cpp.o: %.cpp $(wildcard lab/*.h) saturn/hw.h saturn/font.h saturn/c
 
 $(LAB)/obj/%.s.o: %.s | check-toolchain
 	@mkdir -p $(@D)
-	$(CC) $(LAB_FLAGS) -c $< -o $@
+	$(CC) $(LAB_FLAGS) -Wa,--gdwarf-2 -c $< -o $@
 
 $(LAB)/0MAIN.elf: $(patsubst %,$(LAB)/obj/%.o,$(LAB_SRC)) saturn/saturn.ld
 	$(CXX) $(LAB_CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
