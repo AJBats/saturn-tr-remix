@@ -98,19 +98,20 @@ svg text { fill: var(--muted); font-size: 11px; }
     <label class="note">Measure <select id="metric"></select></label>
     <svg id="chart" width="100%" height="220" viewBox="0 0 1080 220" preserveAspectRatio="none"></svg>
   </div>
-  <p class="note"><b>Flicker</b>: mean change of a frame from the last, less the reference's change, in luminance (0 to 255): what moves on screen that the scene doesn't. Lower-contrast pictures flicker less for that reason alone, so read the shading variants' flicker with their detail. <b>Detail</b>: the frame's fine detail (mean Laplacian) over the reference's: above 1 crunchier than the ideal, below 1 softer. <b>Error</b>: mean difference from the reference (additive light, as the Saturn); <b>error &times;</b> from the reference lit as the PS1 multiplies. <b>Corner</b>: how far room corners on screen land from an exact projection, 99th percentile (whole pixels alone allow 1.41). <b>Wobble</b>: how much that distance changes frame to frame, 95th percentile. <b>VDP1 ms</b>: the rooms' drawing time at the calibrated Saturn costs (a 30 fps frame is 33.4 ms; rooms alone, no Lara or objects). <b>Cmds</b>: VDP1 commands (each a face, so CPU work too). <b>Tex KB</b>: the frame's textures, as drawn (VRAM). <b>Grain</b>, <b>lonely</b>, <b>run</b>: the room textures themselves, weighted by the screen they cover here: grain is the texel-to-texel luminance step over the texture's contrast (how much of its contrast is noise rather than shapes), lonely the share of texels unlike all four neighbours, run the mean length of same-colour runs. Sonic R's row gives its values.</p>
+  <p class="note"><b>Flicker</b>: mean change of a frame from the last, less the reference's change, in luminance (0 to 255): what moves on screen that the scene doesn't. Variants that change the art are held to the reference drawn with their own art. Lower-contrast pictures flicker less for that reason alone, so read the shading variants' flicker with their detail. <b>Fine</b>: the frame's finest detail (mean Laplacian, pixel to pixel) over the reference's: above 1 crunchier than the ideal, below 1 softer. <b>Form</b>: its middle-sized detail (difference of 1 and 3 pixel blurs: cracks, edges, lumps) over the reference's: below 1 blobby or washed out. <b>Error</b>: mean difference from the reference (additive light, as the Saturn); <b>error &times;</b> from the reference lit as the PS1 multiplies. <b>Corner</b>: how far room corners on screen land from an exact projection, 99th percentile (whole pixels alone allow 1.41). <b>Wobble</b>: how much that distance changes frame to frame, 95th percentile. <b>VDP1 ms</b>: the rooms' drawing time at the calibrated Saturn costs (a 30 fps frame is 33.4 ms; rooms alone, no Lara or objects). <b>Cmds</b>: VDP1 commands (each a face, so CPU work too). <b>Tex KB</b>: the frame's textures, as drawn (VRAM). <b>Grain</b>, <b>lonely</b>, <b>run</b>: the room textures themselves, weighted by the screen they cover here: grain is the texel-to-texel luminance step over the texture's contrast (how much of its contrast is noise rather than shapes), lonely the share of texels unlike all four neighbours, run the mean length of same-colour runs. Sonic R's row gives its values.</p>
 </section>
 <script>
 const RUN = /*RUN_JSON*/null;
 const W = RUN.width, H = RUN.height, N = RUN.frames;
 const REFS = { ref: ['Reference, additive light (as the Saturn)', 'Each quad as two triangles, perspective-correct, trilinear-filtered textures, 4x4 samples a pixel, a depth buffer; each corner\'s light added, as VDP1 does.'],
                ref_mul: ['Reference, multiplied light (as the PS1)', 'The same reference with each texel multiplied by its light, as the PS1 shades: what the shading ideas reach for.'] };
-const names = ['ref', 'ref_mul', ...RUN.variants];
+for (const k of RUN.art_refs || []) REFS['ref.' + k] = [`Reference with the ${k.split('+').map(p => (RUN.results[p] || {}).title || p).join(' + ')} art`, 'The same reference drawn with this variant\'s textures: the ideal of that art, the picture its flicker is measured against.'];
+const names = ['ref', 'ref_mul', ...Object.keys(REFS).filter(k => k.startsWith('ref.')), ...RUN.variants];
 const title = n => REFS[n] ? REFS[n][0] : RUN.results[n].title;
 const TEXCOLS = [['tex_grain', 'Grain', 2], ['tex_lonely', 'Lonely', 2], ['tex_run', 'Run', 2]];
 const COLS = [
   ['vdp1_ms', 'VDP1 ms', 2], ['commands', 'Cmds', 0], ['texture_kb', 'Tex KB', 0], ['flicker', 'Flicker', 2],
-  ['detail', 'Detail', 2], ['error', 'Error', 2], ['error_mul', 'Error ×', 2], ['corner', 'Corner px', 2], ['wobble', 'Wobble px', 2]];
+  ['detail', 'Fine', 2], ['form', 'Form', 2], ['error', 'Error', 2], ['error_mul', 'Error ×', 2], ['corner', 'Corner px', 2], ['wobble', 'Wobble px', 2]];
 let frame = 0, playing = false, dir = 1, timer = null, sortKey = null, sortDir = 1, flipB = false;
 const best = ['repaint+ripmap+exact', 'ripmap+mippal+softthin+exact', 'ripmap+mippal', 'ripmap'].find(n => RUN.results[n]);
 let picks = ['game' in RUN.results ? 'game' : RUN.variants[0], best || RUN.variants[1] || 'ref', 'ref'];
@@ -158,7 +159,7 @@ function draw() {
     const st = $('st' + i), ab = $('ab' + i);
     if (REFS[p]) { st.innerHTML = ''; ab.textContent = REFS[p][1]; return; }
     const r = RUN.results[p], v = (k, d) => r[k][frame] === null ? '–' : r[k][frame].toFixed(d);
-    st.innerHTML = `<span>VDP1 <b>${v('vdp1_ms', 2)}</b> ms</span><span><b>${v('commands', 0)}</b> cmds</span><span>flicker <b>${v('flicker', 2)}</b></span><span>detail <b>${v('detail', 2)}</b></span><span>error <b>${v('error', 2)}</b></span><span>corner <b>${v('corner', 2)}</b> px</span>`;
+    st.innerHTML = `<span>VDP1 <b>${v('vdp1_ms', 2)}</b> ms</span><span><b>${v('commands', 0)}</b> cmds</span><span>flicker <b>${v('flicker', 2)}</b></span><span>fine <b>${v('detail', 2)}</b></span><span>form <b>${v('form', 2)}</b></span><span>error <b>${v('error', 2)}</b></span><span>corner <b>${v('corner', 2)}</b> px</span>`;
     ab.textContent = r.about;
   });
   $('frame').value = frame;

@@ -6,6 +6,7 @@ import copy
 
 import numpy as np
 
+import gamedata  # noqa: F401 (puts tools/ on the path for pack_level)
 import art
 import pack_level
 import textures
@@ -291,6 +292,27 @@ INGREDIENTS.update({
                     about='The 12 textures covering 88% of the rooms at the ledge repainted by recipe (ground as soft '
                           'sand, snow as drifts, rock flattened and relit, cut stone as domed blocks), 32 x 32 with '
                           'ramps; the rest as they are.'),
+})
+
+INGREDIENTS.update({
+    'relief_lite': dict(title='Relief, light', group='relief', stage=0,
+                        level=lambda lv: with_textures(lv, art.relief_lite),
+                        about='Relief without its blur: the texture\'s own colours, its finest (texel-to-texel) band '
+                              'cut to 35%, the slope of its brightness lit from the upper left added, its own table.'),
+    'relief_soft': dict(title='Relief, light, gentler', group='relief', stage=0,
+                        level=lambda lv: with_textures(lv, lambda t: art.relief_lite(t, 0.4, 0.5)),
+                        about='Relief, light at a gentler setting: finest band to 50%, the lighting at 4/7.'),
+    'relief_strong': dict(title='Relief, light, stronger', group='relief', stage=0,
+                          level=lambda lv: with_textures(lv, lambda t: art.relief_lite(t, 1.0, 0.2)),
+                          about='Relief, light at a stronger setting: finest band to 20%, the lighting at 10/7.'),
+    'relief_front': dict(title='Relief, lit from the front', group='relief', stage=0,
+                         level=lambda lv: with_textures(lv, art.relief_front),
+                         about='Relief, light lit from straight in front: slopes darken whichever way they face, so '
+                               'the baked light has no direction to disagree with the room or a turned neighbour.'),
+    'bandpass': dict(title='Bands reweighted, no light', group='relief', stage=0,
+                     level=lambda lv: with_textures(lv, art.bandpass),
+                     about='No lighting: the finest band cut to 35%, the 2-6 texel bands lifted a quarter, the '
+                           'contrast restored: what relief does to the detail sizes, without its shading.'),
 })
 
 COMBOS = {

@@ -216,6 +216,70 @@ def relief(t):
     return tidy(ramp_fit(relief_rgb(rgb, solid), solid, t.transparent, t.colors[0]))
 
 
+# --- the relief family --------------------------------------------------
+#
+# Relief works on the texture's detail by size. Split a texture into octave
+# bands (bands): the finest is texel-to-texel change, what VDP1's skipped
+# rows and columns turn into sparkle; the next two (2-3 and 3-6 texels) are
+# the cracks, edges and lumps that read as the surface; the rest is broad
+# shading. Relief turns the middle bands into light and shadow (the slope of
+# the blurred brightness, lit from one side) and keeps only some of the
+# finest. These variants take its parts one at a time.
+
+BAND_SIGMAS = (0.7, 1.4, 2.8, 5.6)
+
+
+def bands(a, sigmas=BAND_SIGMAS):
+    """a (h x w, or h x w x 3) as octave bands, finest first, then what is
+    left below the last."""
+    levels = [a] + [gauss(a, s) for s in sigmas]
+    return [levels[i] - levels[i + 1] for i in range(len(sigmas))] + [levels[-1]]
+
+
+def band_energy(rgb, solid):
+    """Each band's luminance spread over the solid texels."""
+    return [float(b[solid].std()) for b in bands(lum(rgb))]
+
+
+def reweight(rgb, gains):
+    """The texture with each band scaled by its gain (finest first)."""
+    return sum(g * b for g, b in zip(gains, bands(rgb)))
+
+
+def relief_lite_rgb(rgb, solid, light=(-0.55, -0.75, 0.65), amount=0.7, fine=0.35, sigma=1.2):
+    """The texture's own colours kept; its finest band cut to 'fine'; the
+    slope of its brightness (blurred by sigma) lit by 'light' added on top."""
+    out = reweight(rgb, (fine, 1, 1, 1, 1))
+    s = shade(gauss(lum(rgb), sigma), light, slope=1.2)
+    out = out + amount * 6.0 * s[..., None]
+    return match_contrast(out, rgb, solid)
+
+
+def relief_lite(t, amount=0.7, fine=0.35):
+    """Relief without its blur: colours kept, finest band to 35%, lit from
+    the upper left, its own table."""
+    rgb, solid = image(t)
+    out = relief_lite_rgb(rgb, solid, amount=amount, fine=fine)
+    return tidy(kmeans_fit(out, solid, t.transparent, t.colors[0]))
+
+
+def relief_front(t):
+    """As relief_lite, lit from straight in front: slopes darken whichever
+    way they face, so the light has no direction to disagree with the room's
+    or with a neighbouring face whose texture is turned."""
+    rgb, solid = image(t)
+    out = relief_lite_rgb(rgb, solid, light=(0, 0, 1), amount=1.2)
+    return tidy(kmeans_fit(out, solid, t.transparent, t.colors[0]))
+
+
+def bandpass(t):
+    """No light at all: the finest band cut to 35%, the two middle bands
+    lifted by a quarter, then the texture's contrast restored."""
+    rgb, solid = image(t)
+    out = match_contrast(reweight(rgb, (0.35, 1.25, 1.25, 1, 1)), rgb, solid)
+    return tidy(kmeans_fit(out, solid, t.transparent, t.colors[0]))
+
+
 # --- repaint samples ----------------------------------------------------
 #
 # The ledge's textures by screen share (ledge0): 18 ground 35%, 14 snow 10%,

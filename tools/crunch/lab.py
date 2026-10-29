@@ -21,7 +21,9 @@ Setting up (once, or after the game's renderer changes):
 Measures, per variant and frame:
   vdp1_ms   VDP1's drawing time (calibrated costs, the rooms alone)
   flicker   mean |change of the frame - change of the reference| (0..255
-            luminance): what moves on screen that the scene doesn't
+            luminance): what moves on screen that the scene doesn't. A
+            variant that changes the art is held to the reference drawn with
+            its own art (the ideal of that art), not the original's
   error     mean |frame - reference|: everything that differs, still or not
   corner    99th percentile of the on-screen room corners' distance (px)
             from where an exact projection puts them (whole pixels alone:
@@ -109,6 +111,13 @@ def vertex_errors(drawer, jobs, verts):
     return out
 
 
+def form(lum):
+    """Mean |difference of Gaussians (1 and 3 px)|: the frame's middle-sized
+    detail (cracks, edges, lumps: what reads as the surface)."""
+    from scipy import ndimage
+    return float(np.abs(ndimage.gaussian_filter(lum, 1.0) - ndimage.gaussian_filter(lum, 3.0)).mean())
+
+
 def laplacian(lum):
     """Mean |4-neighbour Laplacian|: how much fine detail (or noise) a frame has."""
     return float(np.abs(4 * lum[1:-1, 1:-1] - lum[:-2, 1:-1] - lum[2:, 1:-1] - lum[1:-1, :-2] - lum[1:-1, 2:]).mean())
@@ -130,6 +139,12 @@ def reference_frames(out, key, views, render):
     except (OSError, KeyError, ValueError):
         pass
     return [render(v) for v in views]
+
+
+def art_key(name):
+    """The ingredients of a variant that change the art (what its ideal
+    picture shows), joined; '' for none."""
+    return '+'.join(p for p in name.split('+') if 'level' in INGREDIENTS[p] and INGREDIENTS[p]['group'] != 'geometry')
 
 
 def texture_pixels(level, jobs):
@@ -196,6 +211,7 @@ def main():
     ap.add_argument('--variants', default=','.join(INGREDIENTS),
                     help='ingredients, or combinations of them joined by +')
     ap.add_argument('--fresh', action='store_true', help='drop the variants an earlier run left in the page')
+    ap.add_argument('--tag', default='', help='a separate page: runs/<capture>-<path>-<tag>')
     ap.add_argument('--page', action='store_true', help='only rewrite the page from the results of the last run')
     args = ap.parse_args()
 
@@ -213,7 +229,7 @@ def main():
     views = [path_fn(view0, i) for i in range(args.frames)]
     names = args.variants.split(',')
 
-    run = f'{args.capture}-{args.path}'
+    run = f'{args.capture}-{args.path}' + (f'-{args.tag}' if args.tag else '')
     out = os.path.join(LAB, 'runs', run)
     os.makedirs(out, exist_ok=True)
 
@@ -229,6 +245,7 @@ def main():
     ref_l = [luminance(r) for r in refs]
     ref_mul_l = [luminance(r) for r in refs_mul]
     ref_detail = float(np.mean([laplacian(lum) for lum in ref_l]))
+    ref_form = float(np.mean([form(lum) for lum in ref_l]))
 
     old = {}
     if not args.fresh:
@@ -249,14 +266,24 @@ def main():
     vdp1 = Vdp1()
     results = {}
     sheets = {'ref': refs, 'ref_mul': refs_mul}
+    art_refs = {}       # art key -> (frames, luminances)
     for name in names:
         title, about, group, kw, change = compose(name)
         level = change(base_level) if change else base_level
+        key = art_key(name)
+        if key and key not in art_refs:
+            t2 = time.time()
+            frames_ref = reference_frames(out, 'ref.' + key, views,
+                                          lambda v: Reference(level).render(jobs_for(level, v)))
+            art_refs[key] = (frames_ref, [luminance(f) for f in frames_ref])
+            sheets['ref.' + key] = frames_ref
+            print(f'reference for {key}: {time.time() - t2:.1f} s', flush=True)
+        own_l = art_refs[key][1] if key else ref_l
         opts = Options(**kw)
         drawer = RoomDrawer(level, opts)
         store = TextureStore(level, opts)
         r = dict(title=title, about=about, group=group, vdp1_ms=[], flicker=[], error=[], error_mul=[],
-                 wobble=[], corner=[], detail=[], commands=[], texture_kb=[])
+                 wobble=[], corner=[], detail=[], form=[], commands=[], texture_kb=[])
         frames, flick_imgs, err_imgs = [], [], []
         last_err = None
         t1 = time.time()
@@ -284,12 +311,13 @@ def main():
             r['error'].append(float(e.mean()))
             r['error_mul'].append(float(np.abs(lum - ref_mul_l[i]).mean()))
             r['detail'].append(laplacian(lum) / ref_detail)
+            r['form'].append(form(lum) / ref_form)
             err_imgs.append(heat(e, 96))
             if i == 0:
                 f = np.zeros_like(lum)
                 r['flicker'].append(None)
             else:
-                f = np.abs((lum - luminance(frames[i - 1])) - (ref_l[i] - ref_l[i - 1]))
+                f = np.abs((lum - luminance(frames[i - 1])) - (own_l[i] - own_l[i - 1]))
                 r['flicker'].append(float(f.mean()))
             flick_imgs.append(heat(f, 64))
         sheets[name] = frames
@@ -298,11 +326,12 @@ def main():
         tstats, strip = texture_measures(level, share, top)
         r.update({'tex_' + k: v for k, v in tstats.items()})
         Image.fromarray(strip).save(os.path.join(out, name + '.tiles.png'))
+        r['art'] = key
         results[name] = r
         m = lambda k: float(np.mean([v for v in r[k] if v is not None]))
         print(f'{name:28s} {time.time() - t1:5.1f} s  vdp1 {m("vdp1_ms"):5.2f} ms  cmds {m("commands"):5.0f}  '
               f'tex {m("texture_kb"):4.0f} KB  flicker {m("flicker"):5.2f}  error {m("error"):5.2f} '
-              f'(x {m("error_mul"):5.2f})  detail {m("detail"):4.2f}  corner {m("corner"):4.2f}  '
+              f'(x {m("error_mul"):5.2f})  detail {m("detail"):4.2f}  form {m("form"):4.2f}  corner {m("corner"):4.2f}  '
               f'wobble {m("wobble"):4.2f}', flush=True)
 
     for key, frames in sheets.items():
@@ -316,7 +345,9 @@ def main():
         meta_sonic = sonic[0]
     else:
         meta_sonic = None
+    art_keys = sorted({r.get('art') for r in results.values() if r.get('art')})
     meta = dict(run=run, capture=args.capture, path=args.path, path_title=path_title, frames=args.frames,
+                art_refs=art_keys,
                 sonic_r=meta_sonic,
                 width=352, height=224, variants=[n for n in order if n in results], results=results,
                 views=[view_key(v) for v in views])
