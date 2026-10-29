@@ -36,7 +36,7 @@ def image(t):
 # wrapping turned each seam into a ridge of light along every tile's edge (a
 # grid over the floors). Bump ART_VERSION when what these functions draw
 # changes.
-ART_VERSION = 2
+ART_VERSION = 3
 
 
 def ramp_fit(rgb, solid, transparent, color0, hues=2):

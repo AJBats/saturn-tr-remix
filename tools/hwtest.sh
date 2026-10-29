@@ -7,6 +7,9 @@
 #               the user stood her for the first Saturn benchmark)
 #   vilcabamba  LEVEL2, room 15, among the stone houses
 #
+# OBJECT_ART=1 in the environment reworks the meshes' textures too
+# (tools/pack_level.py), in every level.
+#
 # usage: tools/hwtest.sh [SPOT]    (ledge if none; the disc lands in
 #                                   build/disc; restore a normal level with
 #                                   make disc after touching
@@ -19,10 +22,12 @@ case "${1:-ledge}" in
     vilcabamba) level=LEVEL2 id=LVL_TR1_2 start=15@66372:0:26074 yaw=0x1ADC ;;
     *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba]" >&2; exit 1 ;;
 esac
+art=${OBJECT_ART:-0}
 
-LARA_START=$start python -I tools/pack_level.py \
+make levels OBJECT_ART=$art     # every level in that art, before the start's
+LARA_START=$start OBJECT_ART=$art python -I tools/pack_level.py \
     external_resources/disc/files/DATA $level build/data/$level.PKD \
     external_resources/ps1/files/files/PSXDATA
 sleep 1     # make compares seconds
 touch build/data/$level.PKD
-make disc START_LEVEL=$id START_YAW=$yaw HW_LOG=1
+make disc START_LEVEL=$id START_YAW=$yaw HW_LOG=1 OBJECT_ART=$art

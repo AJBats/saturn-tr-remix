@@ -53,6 +53,9 @@ puts her at that world position exactly (make's START_YAW turns her exactly).
 START_TRIGGER=<item>,<item>... puts a trigger under Lara's start that
 activates those items, as the level's own triggers do (enemies awake around
 her from the start); her sector must have no floor data of its own.
+OBJECT_ART=1 draws the meshes' textures (Lara, enemies, bridges, statics)
+with the room textures' grain rework too, each in place in its own colour
+table (TextureTable.object_art); they have no mip levels.
 """
 import math
 import os
@@ -343,6 +346,38 @@ class TextureTable:
                         if mip is not None:
                             self.mip_uses.append((mip, colr + level * TABLE_BYTES, attr))
 
+    def object_art(self):
+        """The meshes' textures as the remaster draws them: each block of
+        texels faces draw (an object texture, or a triangle's parallelogram
+        variant, with end codes past the triangle) reworked in place by
+        bands_reweighted, in its colour table. A block must overlap no other
+        nor any table but its own. Call after the meshes are packed (faces
+        pick the variants) and before pack."""
+        blocks = {}     # (texel offset, w, h, table offset) -> entries
+        for key, i in self.index.items():
+            if key[0] == "obj" and self.sources[i][0] is not None:
+                e = self.entries[i]
+                pix = (e[0] << 3) - VRAM_TEX_BASE
+                blocks.setdefault((pix, (e[2] >> 8) * 8, e[2] & 0xFF, self.sources[i][2]), []).append(i)
+        spans = sorted([(p, p + w * h // 2) for p, w, h, _ in blocks] +
+                       [(lut, lut + TABLE_BYTES) for _, _, _, lut in blocks])
+        for (_, end), (start, _) in zip(spans, spans[1:]):
+            if start < end:
+                raise ValueError(f"object textures overlap at {start:#x}")
+        for (pix, w, h, lut), members in blocks.items():
+            # colour 0 and 15 stay wherever any face draws them see-through
+            # or as end codes
+            transparent = any(self.entries[i][3] & TEX_ATTR_AKILL for i in members)
+            end_codes = any(self.sources[i][3] for i in members)
+            texels = texart.texels_of(bytes(self.blob[pix:pix + w * h // 2]), w, h)
+            colors = struct.unpack_from(">16H", self.blob, lut)
+            texels, colors = texart.bands_reweighted(texels, colors, transparent, end_codes)
+            pixels = texart.pack_texels(texels)
+            self.blob[pix:pix + len(pixels)] = pixels
+            struct.pack_into(">16H", self.blob, lut, *colors)
+            for i in members:
+                self.sources[i] = (pixels, tuple(colors), lut, self.sources[i][3])
+
     def pack(self):
         """Each entry: srca, colr, size, attr, mean colour, full-res key, mean
         colour under the remastered colour tables, and 0 for the game to fill
@@ -475,9 +510,10 @@ MESH_LIGHT_SHADES = 2   # a shade per vertex (intensity >> 5), padded to even
 
 
 class Packer:
-    def __init__(self, lvl, sounds):
+    def __init__(self, lvl, sounds, object_art=False):
         self.lvl = lvl
         self.sounds = sounds
+        self.object_art = object_art
         self.meshes = trsat.meshes(lvl)
         self.palette = []           # RGB555 colours of coloured faces
         self.textures = TextureTable(lvl)
@@ -731,6 +767,8 @@ class Packer:
 
         textures = out.align4()
         self.textures.room_art()
+        if self.object_art:
+            self.textures.object_art()
         out.raw(self.textures.pack())
         textures_count = len(self.textures.entries)
 
@@ -1005,7 +1043,7 @@ def main():
         start_trigger(lvl, triggered)
     sounds = sfx.Sfx(lvl, load_ps1(sys.argv[4] if len(sys.argv) > 4 else None, name))
     report_sounds(name, lvl, sounds)
-    packer = Packer(lvl, sounds)
+    packer = Packer(lvl, sounds, os.environ.get("OBJECT_ART") == "1")
     data = packer.pack()
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with open(out_path, "wb") as f:
