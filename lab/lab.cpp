@@ -5,6 +5,10 @@
 // master's, in SH-2 cycles at 28.6 MHz: the mean of RUNS runs, the cache
 // emptied before each (a frame's data never stays in a 4 KB cache).
 //
+// Stage 2, vertices, the game's way (game.h): the rooms' (xform.s) and the
+// master's draws' (meshxform.s), each set up as the game sets it up, checked
+// against the vertices the game drew with.
+//
 // Stage 3, faces to VDP1 commands, the game's way (game.h): the master's
 // draws' faces (faces.s), the rooms' (faces.s and the C it calls), then flush
 // (flush.s and the C it calls), on the master alone and split with the slave
@@ -64,6 +68,11 @@ struct LabResults
     uint32_t meshCommands;      // the master's draws' commands
     uint32_t roomCommands;      // the rooms'
     uint32_t vdp1New;           // cycles VDP1 drew the new list in
+    uint32_t vertsRooms;        // cycles: stage 2 the game's way, the rooms' vertices
+    uint32_t vertsMeshes;       // ... the master's draws'
+    int32_t vertsBad;           // vertices not the game's
+    int32_t roomVertices;       // the rooms' vertices
+    int32_t meshVertices;       // the draws'
 };
 
 extern "C" LabResults gLab;
@@ -212,6 +221,17 @@ static void upload(const Command* cmds, const uint32_t (*grd)[2], int32_t count)
     for (int32_t i = 0; i < count * 2; i++) {
         dst[i] = src[i];
     }
+}
+
+static void stageTwo()
+{
+    gameVerticesInit();
+    gLab.vertsRooms = measure([] { gameVerticesPrepare(); }, [] { gameVerticesRooms(); });
+    gLab.vertsMeshes = measure([] { gameVerticesPrepare(); }, [] { gameVerticesMeshes(); });
+    gameVerticesPrepare();
+    gameVerticesRooms();
+    gameVerticesMeshes();
+    gLab.vertsBad = gameVerticesCheck(gLab.roomVertices, gLab.meshVertices);
 }
 
 static void stageThree()
@@ -758,15 +778,30 @@ static void resultsPage()
     put(p, " kept");
     page.add(line);
     page.add("");
-    page.add("STAGE 3, FACES TO COMMANDS: THE GAME'S");
+    page.add("STAGE 2, VERTICES: THE GAME'S");
     page.add("master, run alone     ms  cycles a");
+    timeRow(page, "rooms", gLab.vertsRooms, gLab.roomVertices, "vertex");
+    timeRow(page, "meshes", gLab.vertsMeshes, gLab.meshVertices, "vertex");
+    p = put(line, "vertices ");
+    if (gLab.vertsBad)
+    {
+        p = put(p, "OFF (");
+        p = putNumber(p, gLab.vertsBad, 0);
+        put(p, ")");
+    }
+    else
+    {
+        put(p, "exact");
+    }
+    page.add(line);
+    page.add("");
+    page.add("STAGE 3, FACES TO COMMANDS: THE GAME'S");
     uint32_t commands = info.commands - 1;
     timeRow(page, "faces: meshes", gLab.facesMeshes, gLab.meshFacesGiven, "face given");
     timeRow(page, "faces: rooms", gLab.facesRooms, gLab.roomFacesGiven, "face given");
     timeRow(page, "flush", gLab.flush, commands, "command");
     timeRow(page, "all three", gLab.facesMeshes + gLab.facesRooms + gLab.flush, commands, "command");
     timeRow(page, "floor", gLab.floor, commands, "command");
-    page.add("");
     page.add("flush split as the game splits it:");
     timeRow(page, "  master", gLab.splitMaster, 0, nullptr);
     timeRow(page, "  slave", gLab.splitSlave, 0, nullptr);
@@ -787,7 +822,6 @@ static void resultsPage()
     p = put(p, ", lab's");
     putFixed(p, cyclesToHundredths(gLab.vdp1Lab), 2, 7);
     page.add(line);
-    page.add("");
     page.add("R, L: the other pages");
 }
 
@@ -835,20 +869,21 @@ int main()
     textRow(1, "measuring...");
     gameInit();
 
+    stageTwo();
     stageThree();
     stageFloor();
-    stageNew();
 
-    // the lists drawn: the game's, the lab's of the game's way (the split
-    // flush's, as the game's is), the new
+    // the lists drawn: the game's and the lab's of the game's way (the split
+    // flush's, as the game's is), before the new way's frames make shaded
+    // copies of their own; then the new
     const SceneInfo &info = sceneInfo();
-    shadeTables(gGameTables, false);
     upload(sceneArray<const Command>("CMDS"), (const uint32_t (*)[2])sceneChunk("GRDS"), info.commands);
     gLab.vdp1Game = vdp1Show();
     gameFlushPrepare();
     int32_t end = gameFlush(true);
     upload(gCmds, gGouraud, end);
     gLab.vdp1Lab = vdp1Show();
+    stageNew();
     shadeTables(gNewTables, false);
     upload(gNewCmds, gNewGrd, gNewEnd);
     gLab.vdp1New = vdp1Show();

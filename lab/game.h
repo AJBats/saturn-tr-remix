@@ -135,6 +135,16 @@ extern uint32_t gGouraud[MAX_CMDS][2];
 // From the scene: the tables and caches the game's stage reads.
 void gameInit();
 
+// Stage 2 the game's way (gamevertices.cpp): the rooms' vertices (xform.s)
+// and the master's draws' (meshxform.s), each set up as the game sets it up,
+// into gVertices where the game put them; Prepare empties gVertices, Check
+// counts the vertices not the game's, and those of the rooms and the draws.
+void gameVerticesInit();
+void gameVerticesPrepare();
+void gameVerticesRooms();
+void gameVerticesMeshes();
+int32_t gameVerticesCheck(int32_t &roomVertices, int32_t &meshVertices);
+
 // The vertices as drawn and both lists empty, then the master's draws' faces
 // into its list, as the game adds them, and the rooms' into the slave's; then
 // the check of both against the game's: the faces that differ, 0 when every

@@ -60,6 +60,7 @@ WHERE_HIGH, WHERE_LOW, WHERE_VDP1 = 0, 1, 2
 INFO = struct.Struct('>9I3I4I3i2I16s')      # SceneInfo
 ROOM = struct.Struct('>9hh3i4i3iiBBBBi4H6H3I')  # RoomScene
 DRAW = struct.Struct('>BBHIiiii')           # DrawScene
+XFORM = struct.Struct('>12i2i3h4hh')        # DrawXform
 FLOOR = struct.Struct('>3I4HI')             # FloorFace
 MOVE = struct.Struct('>HH')
 
@@ -243,8 +244,13 @@ def main():
             faced.append(owner)
     faced += [j for j in range(placed) if j not in faced and spans[j][0] >= 0]
 
+    # caustics under water: each vertex's shade moves along the wave from its
+    # own random start (rooms.cpp roomBegin)
+    wave = mem.unpack('>32i', sym('_gCaustics'))
+    starts = mem.unpack('>32i', sym('_gRandTable'))
     room_recs = bytearray()
     geometry = bytearray()
+    caustics_tables = bytearray()
     for j in faced:
         at = jobs + JOB_BYTES * j
         room = u32(mem, at)
@@ -266,14 +272,27 @@ def main():
             geometry += bytes(-len(geometry) % 4)
         room_recs += ROOM.pack(*m, 0, *t, *clip, *camera, caustics, wet, ripple, dsp, 0, spans[j][0],
                                quads, triangles, count, 0, *facing, *offsets)
+        caustics_tables += struct.pack('>32h', *(cap.s16(wave[(starts[i] + caustics) & 31]) for i in range(32)))
     chunks['ROOM'] = bytes(room_recs)
     chunks['RGEO'] = bytes(geometry)
+    chunks['CAUS'] = bytes(caustics_tables)
 
     # the master's draws in order, the faces they added; before the first,
     # the portals' fills past the draw distance (renderVoid). Sprites' and
     # fills' faces are copied as made, into the buckets they went in.
     mesh_index, mesh_offsets, mesh_data = {}, [], bytearray()
     draws = bytearray()
+    xforms = bytearray()
+
+    def xform(r=None):
+        """A draw's transform as its record has it (zeros for a copied face)."""
+        if r is None:
+            return bytes(XFORM.size)
+        m = r['matrix']
+        rows = [cap.s16(m[k]) if k % 4 != 3 else cap.s32(m[k]) for k in range(12)]
+        light = [cap.s16(v) for v in r['light']]
+        return XFORM.pack(*rows, cap.s32(r['ambient']), cap.s32(r['range']), *light,
+                          *(r.get('shadow') or (0, 0, 0, 0)), 0)
     draw_count = 0
     natural = {}
     copied = 0
@@ -281,6 +300,7 @@ def main():
     def copy_face(i):
         nonlocal draws, draw_count, copied
         draws += DRAW.pack(DRAW_COPY, 0, 0, 0, 0, i, 1, mesh_bucket[i])
+        xforms.extend(xform())
         draw_count += 1
         natural[i] = mesh_bucket[i]
         copied += 1
@@ -314,6 +334,7 @@ def main():
             natural[i] = zsum_bucket(i)
             if natural[i] != mesh_bucket[i] and owner:
                 hinted.add((owner['kind'], owner['owner'], owner['index']))
+        xforms.extend(xform(r))
         if r['type'] == 'shadow':
             draws += DRAW.pack(DRAW_SHADOW, 0, 0, r['flags'], base, first, end - first, 0)
         else:
@@ -327,6 +348,7 @@ def main():
                                first, end - first, 0)
         draw_count += 1
     chunks['DRAW'] = bytes(draws)
+    chunks['XFRM'] = bytes(xforms)
     chunks['MESH'] = struct.pack(f'>{len(mesh_offsets)}I', *mesh_offsets)
     chunks['MGEO'] = bytes(mesh_data)
 
@@ -386,8 +408,8 @@ def main():
     # where each lives in the lab, as in the game: high work RAM, but for the
     # level's palette and sprites in low; and VDP1 VRAM
     order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
-                 'DIVT', 'ROOM', 'RGEO', 'DRAW', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT', 'PALT', 'SPRS',
-                 'VRAM']
+                 'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT',
+                 'PALT', 'SPRS', 'VRAM']
     where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1}
     table = 8 + 16 * len(order_ids)
     offset = (table + 15) & ~15

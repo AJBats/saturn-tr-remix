@@ -25,9 +25,12 @@
 //       (DetailSlot, 256)
 // DIVT  the projection's divide table (1281 uint16)
 // ROOM  the rooms, in the order the slave added their faces (RoomScene);
-//       RGEO their quads, triangles and vertices as the game keeps them
-// DRAW  the master's draws in order (DrawScene); MESH their meshes' offsets
-//       in MGEO, the meshes as the game keeps them (Mesh and its arrays)
+//       RGEO their quads, triangles and vertices as the game keeps them;
+//       CAUS each one's caustics (32 int16: a vertex's shade offset under
+//       water, by its index)
+// DRAW  the master's draws in order (DrawScene), XFRM each one's transform
+//       (DrawXform); MESH their meshes' offsets in MGEO, the meshes as the
+//       game keeps them (Mesh and its arrays)
 // MOVE  the master's faces the draw order hints moved (MoveScene)
 // FLOR  the floor's faces, a command each in flush's order (FloorFace)
 #ifndef SCENE_H
@@ -95,6 +98,16 @@ struct DrawScene
     int32_t base;           // its first vertex
     int32_t first, count;   // its faces in MPOL
     int32_t bucket;         // DRAW_COPY's
+};
+
+// A draw's transform as the game set it up (the capture's record).
+struct DrawXform
+{
+    int32_t m[12];          // the matrix's rows: m00 m01 m02 tx, m10 m11 m12 ty, m20 m21 m22 tz
+    int32_t ambient, range; // the light: gLightAmbient, gLightRange
+    int16_t light[3];       // ... gLightView
+    int16_t shadow[4];      // a shadow's x, z, half sizes x, z (render.cpp shadowVertices)
+    int16_t pad;
 };
 
 // A command as the floor builds it: three words as the game's, the corners

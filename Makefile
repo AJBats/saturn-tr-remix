@@ -193,7 +193,8 @@ $(eval $(call DISC_RULE,$(BENCH),))
 LAB := build/lab
 LAB_SCENE ?= ledge
 LAB_SCENE_FILE := $(LAB)/$(shell echo $(LAB_SCENE) | tr a-z A-Z).SCN
-LAB_SRC := $(wildcard lab/*.cpp lab/*.s) saturn/font.cpp saturn/cd.cpp saturn/faces.s saturn/flush.s
+LAB_SRC := $(wildcard lab/*.cpp lab/*.s) saturn/font.cpp saturn/cd.cpp saturn/faces.s saturn/flush.s \
+	saturn/xform.s saturn/meshxform.s
 # -g: lines for profiles (tools/lab.py's trace), and the assembly's local
 # labels kept, for the places inside its macros; the code is the same without
 LAB_FLAGS := -m2 -mb -O2 -g -Wall -Ilab -Isaturn -ffunction-sections
