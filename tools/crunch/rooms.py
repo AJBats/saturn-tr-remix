@@ -77,6 +77,7 @@ class Options:
         self.para_triangles = False     # room triangles as parallelograms, the far half end codes
         self.contrast = False       # each face's colour table at less contrast by its room light (offline)
         self.flat_multiply = False  # each face one colour table: its colours times its light (VDP2 palettes)
+        self.light_scale = 1.0      # each corner's light pulled toward neutral (16) to this share of its distance
         for k, v in kw.items():
             if not hasattr(self, k):
                 raise AttributeError(k)
@@ -659,6 +660,8 @@ def face_command(level, f, arrays, opts, store, cl):
             colors = contrast_colors(colors, t.mean, max(4, round(lit / 2)) / 8.0)
 
     levels = [shade_level(v) for v in shades]
+    if opts.light_scale != 1.0:
+        levels = [int(round(16 + (lv - 16) * opts.light_scale)) for lv in levels]
     pmod = (PMOD_HSS if opts.hss else 0) | PMOD_LUT16 | (0 if para else PMOD_ECD_OFF)
     if not f.transparent:
         pmod |= PMOD_SPD_OFF

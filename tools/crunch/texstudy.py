@@ -176,6 +176,30 @@ def sheet(rows, path, count=48, scale=2):
     return len(by_key)
 
 
+def sonic_r_tiles(count=12):
+    """Sonic R's race frame: its textures' measures (as texture_measures
+    weighs TR's, by screen pixels) and its top textures as RGB images, or
+    None without the dumps."""
+    try:
+        with open(os.path.join(LAB, 'sonicr', 'race_vram.bin'), 'rb') as f:
+            vram = f.read()
+        cram = np.frombuffer(open(os.path.join(LAB, 'sonicr', 'race_cram.bin'), 'rb').read(), '>u2')
+    except OSError:
+        return None
+    rows = study('Sonic R', vram, cram)
+    total = sum(r['pixels'] for r in rows)
+    stats = {k: sum(r[k] * r['pixels'] for r in rows) / total for k in ('grain', 'lonely', 'run', 'contrast', 'step')}
+    by_key = {}
+    for r in rows:
+        e = by_key.setdefault(r['key'], [r, 0])
+        e[1] += r['pixels']
+    images = []
+    for r, _ in sorted(by_key.values(), key=lambda e: -e[1])[:count]:
+        s = r['sprite']
+        images.append((s['rgb'][s['texels']] * 255 / 31).astype(np.uint8))
+    return stats, images
+
+
 def main():
     out_dir = os.path.join(LAB, 'texstudy')
     os.makedirs(out_dir, exist_ok=True)

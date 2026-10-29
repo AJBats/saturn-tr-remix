@@ -6,6 +6,7 @@ import copy
 
 import numpy as np
 
+import art
 import pack_level
 import textures
 from gamedata import Room, Texture, pack_texels
@@ -142,13 +143,15 @@ def degrain(t, keep=0.3):
 
 
 def with_textures(level, fn):
-    """A copy of level whose textures fn(Texture) -> (texels, colors) made."""
+    """A copy of level whose textures fn(Texture) -> (texels, colors) made (at
+    any size: a face draws its texture whole, whatever its size)."""
     new = copy.copy(level)
     new.textures = []
     for t in level.textures:
         texels, colors = fn(t)
         data = pack_texels(texels)
-        new.textures.append(Texture(t.index, data, t.w, t.h, list(colors), t.transparent,
+        h, w = texels.shape
+        new.textures.append(Texture(t.index, data, w, h, list(colors), t.transparent,
                                     pack_level.texture_average(data, colors, t.transparent), t.end_codes))
     return new
 
@@ -267,6 +270,28 @@ INGREDIENTS = {
                     about='Lines run along the texture\'s strong edges (they draw straight; edges across lines '
                           'step), unless that takes 1.5 x the lines.'),
 }
+
+INGREDIENTS.update({
+    'half': dict(title='32 x 32 rebake', group='sonic r', stage=1, level=lambda lv: with_textures(lv, art.half),
+                 about='Every room texture filtered down to half size with a table fitted to it, drawn as large: '
+                       'the texture size of Sonic R, texels twice as big on screen, half the memory.'),
+    'shapes': dict(title='Shapes, not noise', group='sonic r', stage=0, level=lambda lv: with_textures(lv, art.shapes),
+                   about='Edge-preserving smoothing (Kuwahara): the grain inside each region flattened, the edges '
+                         'between regions kept, a table fitted to the result.'),
+    'ramps': dict(title='Colour ramps', group='sonic r', stage=2, level=lambda lv: with_textures(lv, art.ramps),
+                  about='Each table refitted as one or two shade ramps of a hue, so neighbouring texels differ in '
+                        'shade rather than colour.'),
+    'relief': dict(title='Baked relief', group='sonic r', stage=0, level=lambda lv: with_textures(lv, art.relief),
+                   about='Brightness as a height field, smoothed and lit from the upper left: broad highlights and '
+                         'shadows (the rock of Sonic R), the colours laid on at low detail, then ramps.'),
+    'lightnear': dict(title='Light nearer neutral', group='sonic r', set=dict(light_scale=0.7),
+                      about='Additive light kept, every corner pulled 30% of the way to neutral: Sonic R lights '
+                            '3.5 levels from neutral on average, the ledge 5.2.'),
+    'repaint': dict(title='Repaint samples', group='sonic r', stage=0, level=lambda lv: with_textures(lv, art.repaint),
+                    about='The 12 textures covering 88% of the rooms at the ledge repainted by recipe (ground as soft '
+                          'sand, snow as drifts, rock flattened and relit, cut stone as domed blocks), 32 x 32 with '
+                          'ramps; the rest as they are.'),
+})
 
 COMBOS = {
     # name: what the combination tests

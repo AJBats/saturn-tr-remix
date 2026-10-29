@@ -47,6 +47,8 @@ from medclient import LAB
 from ref import Reference
 from rooms import Options, RoomDrawer, RoomJob, TextureStore, View, build_commands
 from variants import INGREDIENTS, compose
+import texstudy
+import textures
 from vdp1 import Vdp1, rgb
 
 VDP1_HZ = 28636364      # the 352-wide display's clock, VDP1's cycle counter's
@@ -130,6 +132,62 @@ def reference_frames(out, key, views, render):
     return [render(v) for v in views]
 
 
+def texture_pixels(level, jobs):
+    """Pixels each room texture draws in the game's frame for jobs."""
+    opts = Options()
+    faces, verts = RoomDrawer(level, opts).faces(jobs)
+    cl = build_commands(level, faces, verts, opts, TextureStore(level, opts))
+    v = Vdp1()
+    v.load_vram(cl.finish())
+    v.fb[:] = 0
+    _, log = v.plot(log_max=8192)
+    order = []
+    buckets = {}
+    for f in faces:
+        buckets.setdefault(f.bucket, []).append(f)
+    for b in sorted(buckets, reverse=True):
+        order += list(reversed(buckets[b]))
+    px = {}
+    for c in log:
+        i = c.addr // 4 - 3     # the three clip and coordinate commands first
+        if 0 <= i < len(order) and order[i].tex is not None:
+            px[order[i].tex] = px.get(order[i].tex, 0) + c.pixels
+    return px
+
+
+def tile_strip(images, size=128):
+    """Textures side by side, each scaled by whole steps to about size."""
+    tiles = []
+    for img in images:
+        k = max(1, size // max(img.shape[:2]))
+        t = np.kron(img, np.ones((k, k, 1), np.uint8))
+        canvas = np.full((size, size, 3), 24, np.uint8)
+        canvas[:min(size, t.shape[0]), :min(size, t.shape[1])] = t[:size, :size]
+        tiles.append(np.pad(canvas, ((0, 0), (0, 4), (0, 0)), constant_values=255))
+    return np.concatenate(tiles, axis=1)
+
+
+def texture_measures(level, share, top):
+    """The textures' grain, lonely texels and runs (texstudy), weighted by
+    their screen share, and a strip of the top ones."""
+    acc = {}
+    total = 0
+    for tex, n in share.items():
+        t = level.textures[tex]
+        st = texstudy.texture_stats(t.texels(), textures.to_rgb(t.colors), t.transparent)
+        if st is None:
+            continue
+        for k in ('grain', 'lonely', 'run', 'contrast', 'step'):
+            acc[k] = acc.get(k, 0.0) + st[k] * n
+        total += n
+    stats = {k: v / total for k, v in acc.items()}
+    imgs = []
+    for tex in top:
+        t = level.textures[tex]
+        imgs.append((textures.to_rgb(t.colors)[t.texels()] * 255 / 31).astype(np.uint8))
+    return stats, tile_strip(imgs)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--capture', default='ledge0')
@@ -182,6 +240,12 @@ def main():
         except (OSError, KeyError, ValueError):
             pass
 
+    share = texture_pixels(base_level, jobs_for(base_level, views[0]))
+    top = sorted(share, key=lambda k: -share[k])[:12]
+    sonic = texstudy.sonic_r_tiles()
+    if sonic is not None:
+        Image.fromarray(tile_strip(sonic[1])).save(os.path.join(out, 'sonicr.tiles.png'))
+
     vdp1 = Vdp1()
     results = {}
     sheets = {'ref': refs, 'ref_mul': refs_mul}
@@ -231,6 +295,9 @@ def main():
         sheets[name] = frames
         sheets[name + '.flicker'] = flick_imgs
         sheets[name + '.error'] = err_imgs
+        tstats, strip = texture_measures(level, share, top)
+        r.update({'tex_' + k: v for k, v in tstats.items()})
+        Image.fromarray(strip).save(os.path.join(out, name + '.tiles.png'))
         results[name] = r
         m = lambda k: float(np.mean([v for v in r[k] if v is not None]))
         print(f'{name:28s} {time.time() - t1:5.1f} s  vdp1 {m("vdp1_ms"):5.2f} ms  cmds {m("commands"):5.0f}  '
@@ -245,7 +312,12 @@ def main():
         if k not in results and os.path.exists(os.path.join(out, k + '.png')):
             results[k] = v
     order = list(old) + [n for n in names if n not in old]
+    if sonic is not None:
+        meta_sonic = sonic[0]
+    else:
+        meta_sonic = None
     meta = dict(run=run, capture=args.capture, path=args.path, path_title=path_title, frames=args.frames,
+                sonic_r=meta_sonic,
                 width=352, height=224, variants=[n for n in order if n in results], results=results,
                 views=[view_key(v) for v in views])
     with open(os.path.join(out, 'run.json'), 'w') as f:
