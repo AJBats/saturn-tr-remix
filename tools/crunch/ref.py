@@ -4,8 +4,9 @@ modern renderer would, to show what the Saturn's picture approximates.
 Each room quad is two triangles (A B C, A C D) mapped with perspective-correct
 texture coordinates, its texture filtered (trilinear from a box-filtered mip
 chain, at SS x SS samples a pixel, box-filtered down) and depth-buffered.
-Shading is the Saturn's: each corner's gouraud level added to every channel,
-interpolated with perspective. Triangles of the rooms are their texture's
+Shading is the Saturn's, each corner's gouraud level added to every channel
+('add'), or the PS1's, each channel times the level / 16 ('multiply'), the
+level interpolated with perspective either way. Triangles of the rooms are their texture's
 rectangle with its bottom edge pinched to the third corner, as VDP1 draws
 them; here that corner takes the bottom edge's middle.
 """
@@ -74,21 +75,22 @@ class Reference:
             self.pyramids[tex] = TexturePyramid(t.texels(), t.colors, t.transparent)
         return self.pyramids[tex]
 
-    def render(self, jobs, textures=None):
-        """jobs as rooms.RoomDrawer.faces takes them; textures(tex) may give
-        another Texture for a texture index. RGB 0..255, FRAME_H x FRAME_W."""
+    def render(self, jobs, shading='add'):
+        """jobs as rooms.RoomDrawer.faces takes them. RGB 0..255, FRAME_H x
+        FRAME_W."""
+        self.shading = shading
         W, H = FRAME_W * SS, FRAME_H * SS
         self.color = np.zeros((H, W, 3), np.float32)
         self.depth = np.zeros((H, W), np.float32)     # 1 / z, 0 = nothing
         for job in jobs:
             room = job.room
-            v4 = room.vertices.astype(np.float64) * 4
+            v4 = room.points.astype(np.float64)
             view = (v4 @ job.R.T.astype(np.float64) + job.T.astype(np.float64)) / 256.0
             fog = np.maximum(0.0, view[:, 2] - FOG_MIN)
             g = np.minimum(room.shades * 256.0 + fog, 8191.0) / 256.0
             light = np.array([shade_level(int(min(31, x))) for x in np.floor(g)], np.float64) - 16
             cam = np.array(job.camera, np.float64)
-            pts = room.vertices.astype(np.float64) * 256
+            pts = room.points.astype(np.float64) * 64
             for (q0, q1, q2, q3, tex, transp) in room.quads:
                 if self._back(pts, q0, q1, q2, cam):
                     continue
@@ -164,7 +166,11 @@ class Reference:
             return
         c = self.pyramid(tex).sample(u[nearer], v[nearer], lod[nearer])
         opaque = c[:, 3] >= 0.5
-        rgb = np.clip(c[:, :3] / np.maximum(c[:, 3:], 1e-6) + lt[nearer][:, None], 0, 31)
+        texel = c[:, :3] / np.maximum(c[:, 3:], 1e-6)
+        if self.shading == 'multiply':
+            rgb = np.clip(texel * (16 + lt[nearer][:, None]) / 16.0, 0, 31)
+        else:
+            rgb = np.clip(texel + lt[nearer][:, None], 0, 31)
         ys, xs = np.nonzero(nearer)
         ys, xs = ys[opaque], xs[opaque]
         self.color[y0 + ys, x0 + xs] = rgb[opaque]

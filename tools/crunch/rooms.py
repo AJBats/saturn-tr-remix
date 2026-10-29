@@ -18,6 +18,7 @@ import numpy as np
 
 from gamedata import DIV_TABLE, sincos, pack_texels
 import pack_level  # noqa: E402 (gamedata puts tools/ on the path)
+import textures
 
 FRAME_W, FRAME_H = 352, 224
 VIEW_MIN, VIEW_MAX = 64, 20480
@@ -48,22 +49,34 @@ PMOD_HSS = 0x1000
 # The lab's VDP1 VRAM: commands, gouraud tables, colour tables, textures
 VRAM_CMDS, VRAM_GOURAUD, VRAM_CLUTS, VRAM_TEXTURES, VRAM_END = 0x00000, 0x20000, 0x28000, 0x30000, 0x80000
 
+# Finer divide tables, still 16-bit values for muls.w: below FINE_DIST by
+# z >> 2, 2^18 / i (divTable's scale, 2^20 / z, from a quarter of the steps);
+# beyond it by z >> 4 as divTable, 2^20 / i (16 times divTable's, products
+# shifted 4 more)
+FINE_DIST = 4096
+FINE_TABLE = np.array([0] + [min(0x7FFF, (1 << 18) // i) for i in range(1, FINE_DIST >> 2)], dtype=np.int64)
+FAR_TABLE = np.array([0] + [min(0x7FFF, (1 << 20) // i) for i in range(1, 1281)], dtype=np.int64)
+
 
 class Options:
     """What the lab changes; the defaults draw as the game does."""
 
     def __init__(self, **kw):
-        self.exact_divide = False   # project with a full-precision divide instead of divTable
+        self.divide = 'table'       # 'table': divTable[z >> 4]; 'fine': FINE_TABLE near; 'exact': a full divide
         self.turn = True            # gTurnLines
+        self.turn_by_texture = False    # lines along the texture's strong edges where that costs < 1.5x lines
         self.lod = 4                # gTextureLod: 4 x texels a pixel along a line for the next mip level; 0 none
         self.far_shade = 2          # far (mip) faces take one shade when their corners are this close
         self.shade_tables = True    # evenly shaded faces through shaded colour tables
         self.hss = True             # high-speed shrink
         self.mip = None             # mip builder (texture, factor) -> (h x w colour indices, colours); None: the game's
         self.ripmap = False         # reduce along and across the lines apart (levels (fx, fy))
+        self.rip = None             # ripmap builder (texture, fx, fy) -> (texels, colours)
         self.reuse = True           # quads keep their turn and mip level for a frame (faces.s REUSE)
         self.near_split = True      # quads the near plane cuts split 2x2 (else filled)
-        self.rip = None             # ripmap builder (texture, fx, fy) -> (texels, colours)
+        self.para_triangles = False     # room triangles as parallelograms, the far half end codes
+        self.contrast = False       # each face's colour table at less contrast by its room light (offline)
+        self.flat_multiply = False  # each face one colour table: its colours times its light (VDP2 palettes)
         for k, v in kw.items():
             if not hasattr(self, k):
                 raise AttributeError(k)
@@ -91,15 +104,15 @@ class View:
     """A camera as the game's: position (world units) and pitch, yaw (16-bit
     angles), and the viewport (RectMinMax)."""
 
-    def __init__(self, pos, angle_x, angle_y, viewport=(0, 0, FRAME_W - 1, FRAME_H - 1)):
+    def __init__(self, pos, angle_x, angle_y, viewport=(0, 0, FRAME_W, FRAME_H)):
         self.pos = tuple(int(p) for p in pos)
         self.angle_x, self.angle_y = angle_x, angle_y
         self.rot = view_rotation(angle_x, angle_y)
         self.viewport = viewport
 
     def room_matrix(self, origin):
-        """roomsQueue's RoomMatrix for a room whose packed vertices start at
-        origin: the rotation, and the origin's view position << 8."""
+        """roomsQueue's RoomMatrix for a room whose points start at origin:
+        the rotation, and the origin's view position << 8."""
         d = [origin[i] - self.pos[i] for i in range(3)]
         t = [asr(wrap32(sum(int(self.rot[r][c]) * d[c] for c in range(3))), 14 - 8) for r in range(3)]
         return self.rot.copy(), np.array(t, dtype=np.int64)
@@ -107,26 +120,27 @@ class View:
 
 class Vertices:
     """The frame's projected vertices (render.h Vertex): screen x, y, view z,
-    shade g, clip flags; rooms' and split faces' added as they come."""
+    shade g, clip flags, and the lab's own: the room's shade without fog;
+    rooms' and split faces' added as they come."""
 
     def __init__(self):
         self.parts = []
         self.count = 0
 
-    def add(self, x, y, z, g, clip):
+    def add(self, x, y, z, g, clip, s):
         base = self.count
-        self.parts.append((x, y, z, g, clip))
+        self.parts.append((x, y, z, g, clip, s))
         self.count += len(x)
         return base
 
     def arrays(self):
         if not self.parts:
-            return [np.zeros(0, np.int64)] * 5
-        return [np.concatenate([p[i] for p in self.parts]) for i in range(5)]
+            return [np.zeros(0, np.int64)] * 6
+        return [np.concatenate([p[i] for p in self.parts]) for i in range(6)]
 
 
 def project(R, T, v4, shade, viewport, opts):
-    """xform.s: room-space points (vertex units times 4) to Vertex fields."""
+    """xform.s: room-space points (64-unit steps) to Vertex fields."""
     z = T[2] + v4 @ R[2]
     clip = np.zeros(len(z), np.int64)
     near = z <= (VIEW_MIN << 8)
@@ -136,7 +150,7 @@ def project(R, T, v4, shade, viewport, opts):
     x = np.clip(T[0] + v4 @ R[0], -0x7FFF00, 0x7FFF00)
     y = np.clip(T[1] + v4 @ R[1], -0x7FFF00, 0x7FFF00)
     zw = z >> 8
-    if opts.exact_divide:
+    if opts.divide == 'exact':
         # what the SH-2's divider could give: every bit of x, y and z, rounded
         # down as the table's products are
         px = np.clip(np.floor(256.0 * x / z), -2047, 2047).astype(np.int64)
@@ -145,6 +159,14 @@ def project(R, T, v4, shade, viewport, opts):
         d = DIV_TABLE[zw >> 4].astype(np.int64)
         px = np.clip((x >> 8) * d, -0x7FF000, 0x7FF000) >> 12
         py = np.clip((y >> 8) * d, -0x7FF000, 0x7FF000) >> 12
+        if opts.divide == 'fine':
+            close = zw < FINE_DIST
+            df = FINE_TABLE[np.minimum(zw >> 2, (FINE_DIST >> 2) - 1)]
+            dfar = FAR_TABLE[zw >> 4]
+            px = np.where(close, np.clip((x >> 8) * df, -0x7FF000, 0x7FF000) >> 12,
+                          np.clip((x >> 8) * dfar, -0x7FF0000, 0x7FF0000) >> 16)
+            py = np.where(close, np.clip((y >> 8) * df, -0x7FF000, 0x7FF000) >> 12,
+                          np.clip((y >> 8) * dfar, -0x7FF0000, 0x7FF0000) >> 16)
     sx = px + FRAME_W // 2
     sy = py + FRAME_H // 2
     off = (sx < 0) | (sx > FRAME_W) | (sy < 0) | (sy > FRAME_H)
@@ -162,7 +184,7 @@ class Face:
     __slots__ = ('kind', 'corners', 'tex', 'level', 'turned', 'quadrant', 'bucket', 'transparent')
 
     def __init__(self, kind, corners, bucket, tex=None, level=0, turned=False, quadrant=None, transparent=False):
-        self.kind = kind            # 'tex' or 'void'
+        self.kind = kind            # 'tex', 'para' (a triangle as a parallelogram: corners v0 v1 v2) or 'void'
         self.corners = corners      # vertex indices A, B, C, D as added (before turning)
         self.bucket = bucket
         self.tex = tex
@@ -176,6 +198,16 @@ def span(x, y, a, b):
     return max(abs(int(x[a]) - int(x[b])), abs(int(y[a]) - int(y[b])))
 
 
+def span_xy(p, q):
+    return max(abs(p[0] - q[0]), abs(p[1] - q[1]))
+
+
+def para_corner(x, y, a, b, c):
+    """The parallelogram's fourth corner, v1 + v2 - v0 (clamped as flush.s)."""
+    return (min(1023, max(-1024, int(x[b]) + int(x[c]) - int(x[a]))),
+            min(1023, max(-1024, int(y[b]) + int(y[c]) - int(y[a]))))
+
+
 class RoomDrawer:
     """Builds a frame's faces and VDP1 commands for a list of rooms."""
 
@@ -185,14 +217,15 @@ class RoomDrawer:
         self.kept = {}          # (room, quad) -> (level, turned): REUSE's decisions
         self.frame_index = 0
         self.facing = {}        # room -> per quad (run, plane) or None
-        self.room_vertices = {} # room -> its vertices' first index in the frame's
+        self.prefs = {}         # texture -> 'rows', 'cols' or None (turn_by_texture)
+        self.room_vertices = {}     # room -> its vertices' first index in the frame's
 
     # --- faces ------------------------------------------------------------
 
     def quad_runs(self, room):
         if room.index not in self.facing:
-            packed = [tuple(int(c) for c in v) for v in room.vertices]
-            self.facing[room.index] = [pack_level.room_quad_facing(packed, q) for q in room.quads]
+            pts = [tuple(int(c) for c in v) for v in room.points]
+            self.facing[room.index] = [pack_level.room_quad_facing(pts, q) for q in room.quads]
         return self.facing[room.index]
 
     def lod_level(self, tex, turned, across, lines):
@@ -233,20 +266,40 @@ class RoomDrawer:
             fy = factor(t.h, lines, 1)
         return 0 if fx == fy == 1 else (fx, fy)
 
-    def turn_decision(self, x, y, a, b, c, d):
+    def texture_pref(self, tex):
+        """Which way a texture's strong edges run: VDP1 draws edges along its
+        lines straight and steps edges across them a pixel line to line, so
+        'rows' (draw unturned) when its vertical edges are the weaker by a
+        quarter, 'cols' (turned) when its horizontal ones are."""
+        if tex not in self.prefs:
+            t = self.level.textures[tex]
+            across_cols, across_rows = textures.edge_energy(t.texels(), t.colors)
+            self.prefs[tex] = 'rows' if across_cols * 1.25 < across_rows else \
+                'cols' if across_rows * 1.25 < across_cols else None
+        return self.prefs[tex]
+
+    def turn_decision(self, x, y, a, b, c, d, tex=None):
         """faces.s TURN: (turned, the lines' length, their count)."""
         as_is = max(span(x, y, a, d), span(x, y, b, c))
         turned = max(span(x, y, a, b), span(x, y, d, c))
-        if self.opts.turn and as_is > turned:
-            return True, as_is, turned
-        return False, turned, as_is
+        turn = self.opts.turn and as_is > turned
+        if tex is not None and self.level.textures[tex].h % 8:
+            return False, turned, as_is     # its transposed copy couldn't be drawn
+        if self.opts.turn and self.opts.turn_by_texture and tex is not None:
+            pref = self.texture_pref(tex)
+            if pref == 'rows' and as_is <= 1.5 * turned:
+                turn = False
+            elif pref == 'cols' and turned <= 1.5 * as_is:
+                turn = True
+        return (True, as_is, turned) if turn else (False, turned, as_is)
 
     def add_room(self, room, R, T, viewport, camera, faces, verts):
         opts = self.opts
-        v4 = room.vertices.astype(np.int64) * 4
-        base = verts.add(*project(R, T, v4, room.shades.astype(np.int64), viewport, opts))
+        v4 = room.points.astype(np.int64)
+        shades = room.shades.astype(np.int64)
+        base = verts.add(*project(R, T, v4, shades, viewport, opts), shades)
         self.room_vertices[room.index] = base
-        x, y, z, g, clip = verts.arrays()
+        x, y, z, g, clip, s = verts.arrays()
         runs = self.quad_runs(room)
         parity = self.frame_index & 1
 
@@ -258,7 +311,7 @@ class RoomDrawer:
             run = runs[qi]
             if run is not None:
                 axis = run[0] >> 1
-                plane = run[1] << 8
+                plane = run[1] << 6
                 facing = plane < camera[axis] if run[0] & 1 else plane > camera[axis]
                 if not facing:
                     continue
@@ -274,12 +327,12 @@ class RoomDrawer:
                         faces.append(Face('void', (a, b, c, d), OT_SIZE - 1))
                     continue
                 self.near_quad(room, qi, (a, b, c, d), R, T, viewport, faces, verts)
-                x, y, z, g, clip = verts.arrays()
+                x, y, z, g, clip, s = verts.arrays()
                 continue
             if z[a] < NEAR_SPLIT_DIST:
                 if backface(a, b, c):
                     continue
-                turned = opts.turn and self.turn_decision(x, y, a, b, c, d)[0]
+                turned = self.turn_decision(x, y, a, b, c, d, tex)[0]
                 bucket = max(z[a], z[b], z[c], z[d]) >> OT_SHIFT
                 faces.append(Face('tex', (a, b, c, d), bucket, tex, 0, turned, transparent=transp))
                 continue
@@ -287,7 +340,7 @@ class RoomDrawer:
             if opts.reuse and ((qi ^ len(room.quads)) & 1) != parity and key in self.kept:
                 level, turned = self.kept[key]
             else:
-                turned, across, lines = self.turn_decision(x, y, a, b, c, d)
+                turned, across, lines = self.turn_decision(x, y, a, b, c, d, tex)
                 level = self.lod_level(tex, turned, across, lines)
                 self.kept[key] = (level, turned)
             bucket = max(z[a], z[b], z[c], z[d]) >> OT_SHIFT
@@ -307,15 +360,23 @@ class RoomDrawer:
                 continue
             if backface(a, b, c):
                 continue
-            turned, across, lines = self.turn_decision(x, y, a, b, c, c)
-            level = self.lod_level(tex, turned, across, lines)
             bucket = max(z[a], z[b], z[c]) >> OT_SHIFT
+            if opts.para_triangles:
+                p = para_corner(x, y, a, b, c)
+                pa, pb, pd = (int(x[a]), int(y[a])), (int(x[b]), int(y[b])), (int(x[c]), int(y[c]))
+                lines = max(span_xy(pa, pd), span_xy(pb, p))
+                across = max(span_xy(pa, pb), span_xy(pd, p))
+                level = self.lod_level(tex, False, across, lines)
+                faces.append(Face('para', (a, b, c), bucket, tex, level))
+                continue
+            turned, across, lines = self.turn_decision(x, y, a, b, c, c, tex)
+            level = self.lod_level(tex, turned, across, lines)
             faces.append(Face('tex', (a, b, c, c), bucket, tex, level, turned))
 
     def near_quad(self, room, qi, corners, R, T, viewport, faces, verts):
         """rooms.cpp faceAddRoomQuads for a quad a plane cuts: split 2x2 if it
         is near enough and the option is on, else filled."""
-        x, y, z, g, clip = verts.arrays()
+        x, y, z, g, clip, s = verts.arrays()
         a, b, c, d = corners
         q = room.quads[qi]
         tex = q[4]
@@ -328,18 +389,19 @@ class RoomDrawer:
         if not (self.opts.near_split and zmin < DETAIL_DIST):
             faces.append(Face('void', corners, OT_SIZE - 1))
             return
-        r = room.vertices.astype(np.int64)
+        r = room.points.astype(np.int64)
         r0, r1, r2, r3 = (r[i] for i in q[:4])
-        pts = np.array([(r0 + r1) * 2, (r1 + r2) * 2, (r2 + r3) * 2, (r3 + r0) * 2, r0 + r1 + r2 + r3])
-        sh = room.shades.astype(np.int64)
-        mid = verts.add(*project(R, T, pts, np.zeros(5, np.int64), viewport, self.opts))
+        pts = np.array([(r0 + r1) // 2, (r1 + r2) // 2, (r2 + r3) // 2, (r3 + r0) // 2, (r0 + r1 + r2 + r3) // 4])
         # the midpoints' shades: their corners' (Vertex.g) means
-        parts = verts.parts[-1]
         ga, gb, gc, gd = g[a], g[b], g[c], g[d]
-        parts[3][:] = [(ga + gb) >> 1, (gb + gc) >> 1, (gc + gd) >> 1, (gd + ga) >> 1, (ga + gb + gc + gd) >> 2]
+        sa, sb, sc, sd = s[a], s[b], s[c], s[d]
+        mids = list(project(R, T, pts, np.zeros(5, np.int64), viewport, self.opts))
+        mids[3] = np.array([(ga + gb) >> 1, (gb + gc) >> 1, (gc + gd) >> 1, (gd + ga) >> 1, (ga + gb + gc + gd) >> 2])
+        mid = verts.add(*mids, np.array([(sa + sb) >> 1, (sb + sc) >> 1, (sc + sd) >> 1, (sd + sa) >> 1,
+                                          (sa + sb + sc + sd) >> 2]))
         m01, m12, m23, m30, mc = range(mid, mid + 5)
+        x, y, z, g, clip, s = verts.arrays()
         for quad, cs in enumerate(((a, m01, mc, m30), (m01, b, m12, mc), (mc, m12, c, m23), (m30, mc, m23, d))):
-            x, y, z, g, clip = verts.arrays()
             cand = clip[cs[0]] & clip[cs[1]] & clip[cs[2]] & clip[cs[3]]
             cor = clip[cs[0]] | clip[cs[1]] | clip[cs[2]] | clip[cs[3]]
             if (cand & CLIP_DISCARD) or (cor & CLIP_PLANE):
@@ -377,22 +439,49 @@ class RoomJob:
         return cls(room, R, T, camera, viewport or view.viewport)
 
 
+def para_texture(t):
+    """A room triangle's texture for drawing it as a parallelogram v0 v1
+    (v1 + v2 - v0) v2: the triangle in the half s + t <= 1, sampled from the
+    texture as VDP1 maps it onto the triangle drawn with v2 twice (row t
+    squeezed to (1 - t) of its width), the far half end codes. Colour 15
+    becomes the end code, so texels of colour 15 take the nearest other."""
+    src = t.texels().copy()
+    if (src == 15).any():
+        src[src == 15] = textures.nearest_colors(textures.to_rgb(t.colors)[15:16], t.colors,
+                                                  [i for i in range(15) if not (t.transparent and i == 0)])[0]
+    h, w = src.shape
+    tt = (np.arange(h) + 0.5) / h
+    ss = (np.arange(w) + 0.5) / w
+    S, TT = np.meshgrid(ss, tt)
+    inside = S + TT <= 1.0
+    sx = np.clip((S / np.maximum(1.0 - TT, 1e-6) * w).astype(int), 0, w - 1)
+    out = np.where(inside, src[np.arange(h)[:, None], sx], 15).astype(np.uint8)
+    return out
+
+
 class TextureStore:
-    """Texture variants (whole, transposed, mip levels, quadrants) as 4-bit
-    data, made once."""
+    """Texture variants (whole, transposed, mip levels, quadrants,
+    parallelograms) as 4-bit data, made once."""
 
     def __init__(self, level, opts):
         self.level = level
         self.opts = opts
         self.cache = {}
 
-    def texels(self, tex, level, turned, quadrant):
+    def texels(self, tex, level, turned, quadrant, para=False):
         """(texels as drawn, their 16 colours)."""
-        key = (tex, level, turned, quadrant)
+        key = (tex, level, turned, quadrant, para)
         if key not in self.cache:
             t = self.level.textures[tex]
             colors = t.colors
-            if quadrant is not None:
+            if para:
+                full = para_texture(t)
+                if level == 0:
+                    data = full
+                else:
+                    fx, fy = level if isinstance(level, tuple) else (1 << level, 1 << level)
+                    data = textures.reduce(full, colors, 15, fx, fy)
+            elif quadrant is not None:
                 full = t.texels()
                 hw, hh = t.w // 2, t.h // 2
                 oy, ox = ((0, 0), (0, hw), (hh, hw), (hh, 0))[quadrant]
@@ -427,6 +516,7 @@ class CommandList:
         self.tex = VRAM_TEXTURES
         self.cluts = {}
         self.textures = {}
+        self.texture_bytes = 0
 
     def add(self, words):
         self.cmds.append(words)
@@ -452,10 +542,14 @@ class CommandList:
         if key not in self.textures:
             data = pack_texels(texels)
             addr = self.tex
+            self.texture_bytes += len(data)
+            if addr + len(data) > VRAM_END:
+                # the lab doesn't stop at VRAM's size: textures past it share
+                # the region's start (the picture is then wrong; texture_bytes
+                # tells how much the frame wanted)
+                addr = VRAM_TEXTURES
             self.vram[addr:addr + len(data)] = data
             self.tex = (addr + len(data) + 7) & ~7
-            if self.tex > VRAM_END:
-                raise MemoryError('the frame\'s textures need more than VDP1 VRAM')
             self.textures[key] = addr >> 3
         return self.textures[key]
 
@@ -485,6 +579,19 @@ def shaded_colors(colors, level):
     return out
 
 
+def contrast_colors(colors, mean, k):
+    """Colours drawn k of their distance from the texture's mean colour."""
+    m = textures.to_rgb([mean])[0]
+    rgb = textures.to_rgb(colors)
+    return [textures.from_rgb(m + (c - m) * k, colors[i] & 0x8000) for i, c in enumerate(rgb)]
+
+
+def multiplied_colors(colors, level):
+    """Colours times level / 16, as the PS1 shades (texel x light / 128)."""
+    rgb = textures.to_rgb(colors) * (level / 16.0)
+    return [textures.from_rgb(np.minimum(c, 31), colors[i] & 0x8000) for i, c in enumerate(rgb)]
+
+
 def off_frame(x, y):
     return max(0, -x) + max(0, x - FRAME_W) + max(0, -y) + max(0, y - FRAME_H)
 
@@ -496,17 +603,18 @@ def build_commands(level, faces, verts, opts, store, cl=None):
     cl.add([CMD_SYSTEM_CLIP] + [0] * 9 + [FRAME_W - 1, FRAME_H - 1] + [0] * 4)
     cl.add([CMD_USER_CLIP] + [0] * 9 + [FRAME_W - 1, FRAME_H - 1] + [0] * 4)
     cl.add([CMD_LOCAL_COORD] + [0] * 15)
-    x, y, z, g, clip = verts.arrays()
+    arrays = verts.arrays()
     buckets = {}
     for f in faces:
         buckets.setdefault(f.bucket, []).append(f)
     for bucket in sorted(buckets, reverse=True):
         for f in reversed(buckets[bucket]):
-            cl.add(face_command(level, f, x, y, g, clip, opts, store, cl))
+            cl.add(face_command(level, f, arrays, opts, store, cl))
     return cl
 
 
-def face_command(level, f, x, y, g, clip, opts, store, cl):
+def face_command(level, f, arrays, opts, store, cl):
+    x, y, z, g, clip, s = arrays
     w = [0] * 16
     if f.kind == 'void':
         xs = [int(x[i]) for i in f.corners]
@@ -519,38 +627,61 @@ def face_command(level, f, x, y, g, clip, opts, store, cl):
                    y1 & 0xFFFF]
         return w
 
-    a, b, c, d = f.corners
-    if f.turned:
-        b, d = d, b
+    t = level.textures[f.tex]
+    if f.kind == 'para':
+        a, b, c = f.corners
+        pts = [(int(x[a]), int(y[a])), (int(x[b]), int(y[b])), para_corner(x, y, a, b, c), (int(x[c]), int(y[c]))]
+        shades = [int(g[a]), int(g[b]), int(g[c]), int(g[c])]
+        statics = [int(s[a]), int(s[b]), int(s[c]), int(s[c])]
+        offf = bool((clip[a] | clip[b] | clip[c]) & CLIP_FRAME)
+    else:
+        a, b, c, d = f.corners
+        if f.turned:
+            b, d = d, b
+        pts = [(int(x[i]), int(y[i])) for i in (a, b, c, d)]
+        shades = [int(g[i]) for i in (a, b, c, d)]
+        statics = [int(s[i]) for i in (a, b, c, d)]
+        offf = bool((clip[a] | clip[b] | clip[c] | clip[d]) & CLIP_FRAME)
     ctrl = CMD_DISTORTED_SPRITE
-    if (clip[a] | clip[b] | clip[c] | clip[d]) & CLIP_FRAME and \
-            off_frame(x[a], y[a]) + off_frame(x[d], y[d]) > off_frame(x[b], y[b]) + off_frame(x[c], y[c]):
-        a, b, c, d = b, a, d, c
+    if offf and off_frame(*pts[0]) + off_frame(*pts[3]) > off_frame(*pts[1]) + off_frame(*pts[2]):
+        pts = [pts[1], pts[0], pts[3], pts[2]]
+        shades = [shades[1], shades[0], shades[3], shades[2]]
+        statics = [statics[1], statics[0], statics[3], statics[2]]
         ctrl ^= CMD_FLIP_H
-    texels, colors = store.texels(f.tex, f.level, f.turned, f.quadrant)
+    para = f.kind == 'para'
+    texels, colors = store.texels(f.tex, f.level, f.turned, f.quadrant, para)
     th, tw = texels.shape
-    srca = cl.texture((f.tex, f.level, f.turned, f.quadrant), texels)
+    srca = cl.texture((f.tex, f.level, f.turned, f.quadrant, para), texels)
 
-    levels = [shade_level(int(g[i])) for i in (a, b, c, d)]
-    if f.level and opts.far_shade is not None and max(levels) - min(levels) <= opts.far_shade:
-        levels = [(sum(levels) + 2) >> 2] * 4
-    pmod = (PMOD_HSS if opts.hss else 0) | PMOD_LUT16 | PMOD_ECD_OFF
+    if opts.contrast:
+        lit = sum(shade_level(v) for v in statics) / 4.0
+        if lit < 16:
+            colors = contrast_colors(colors, t.mean, max(4, round(lit / 2)) / 8.0)
+
+    levels = [shade_level(v) for v in shades]
+    pmod = (PMOD_HSS if opts.hss else 0) | PMOD_LUT16 | (0 if para else PMOD_ECD_OFF)
     if not f.transparent:
         pmod |= PMOD_SPD_OFF
-    if opts.shade_tables and levels.count(levels[0]) == 4:
-        colr = cl.colors(shaded_colors(colors, levels[0]))
+    if opts.flat_multiply:
+        colr = cl.colors(multiplied_colors(colors, round(sum(levels) / 4.0)))
         grda = 0
     else:
-        pmod |= PMOD_GOURAUD
-        colr = cl.colors(colors)
-        grda = cl.gouraud([lv * 0x421 for lv in levels])
+        if f.level and opts.far_shade is not None and max(levels) - min(levels) <= opts.far_shade:
+            levels = [(sum(levels) + 2) >> 2] * 4
+        if opts.shade_tables and levels.count(levels[0]) == 4:
+            colr = cl.colors(shaded_colors(colors, levels[0]))
+            grda = 0
+        else:
+            pmod |= PMOD_GOURAUD
+            colr = cl.colors(colors)
+            grda = cl.gouraud([lv * 0x421 for lv in levels])
     w[0] = ctrl
     w[2] = pmod
     w[3] = colr
     w[4] = srca
     w[5] = ((tw // 8) << 8) | th
-    for k, i in enumerate((a, b, c, d)):
-        w[6 + 2 * k] = int(x[i]) & 0xFFFF
-        w[7 + 2 * k] = int(y[i]) & 0xFFFF
+    for k, (px, py) in enumerate(pts):
+        w[6 + 2 * k] = px & 0xFFFF
+        w[7 + 2 * k] = py & 0xFFFF
     w[14] = grda
     return w

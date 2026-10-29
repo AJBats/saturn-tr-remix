@@ -7,17 +7,17 @@
 <style>
 :root {
   --bg: #f4f3ef; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a65; --line: #dddbd3;
-  --accent: #b4462a; --accent2: #2a6db4; --faint: #c9c6bb; --chip: #ecebe6;
+  --accent: #b4462a; --accent2: #2a6db4; --faint: #c9c6bb; --chip: #ecebe6; --good: #2f7d45; --bad: #b4462a;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #161614; --panel: #201f1c; --ink: #ecebe6; --muted: #9a988f; --line: #34332e;
-    --accent: #e0714f; --accent2: #6aa5e8; --faint: #4a4943; --chip: #2a2925;
+    --accent: #e0714f; --accent2: #6aa5e8; --faint: #4a4943; --chip: #2a2925; --good: #6cc285; --bad: #e0714f;
   }
 }
 :root[data-theme="dark"] {
   --bg: #161614; --panel: #201f1c; --ink: #ecebe6; --muted: #9a988f; --line: #34332e;
-  --accent: #e0714f; --accent2: #6aa5e8; --faint: #4a4943; --chip: #2a2925;
+  --accent: #e0714f; --accent2: #6aa5e8; --faint: #4a4943; --chip: #2a2925; --good: #6cc285; --bad: #e0714f;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -28,29 +28,38 @@ h1 { font-size: 20px; margin: 0 0 2px; font-weight: 650; }
        position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--line); z-index: 2; }
 .bar label { color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; }
 button, select { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line);
-                 border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+                 border-radius: 6px; padding: 4px 10px; cursor: pointer; max-width: 100%; }
 button.on { border-color: var(--accent); color: var(--accent); }
 input[type=range] { width: 260px; accent-color: var(--accent); }
 .frameno { font-variant-numeric: tabular-nums; min-width: 64px; }
 .panels { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px 20px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .panel .head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.panel .head select { max-width: 640px; }
 .panel .tag { font-weight: 700; width: 20px; color: var(--muted); }
 .screen { background-repeat: no-repeat; image-rendering: pixelated; image-rendering: crisp-edges; background-color: #000; }
-.stats { display: flex; gap: 14px; margin-top: 8px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .stats b { color: var(--ink); font-weight: 600; }
-.about { margin-top: 4px; font-size: 12px; color: var(--muted); max-width: 704px; }
+.about { margin-top: 4px; font-size: 12px; color: var(--muted); }
 section { padding: 4px 20px 20px; }
 h2 { font-size: 15px; margin: 14px 0 8px; }
-table { border-collapse: collapse; width: 100%; max-width: 1100px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { font-size: 12px; color: var(--muted); font-weight: 600; }
+.tablewrap { overflow-x: auto; max-width: 1300px; }
+table { border-collapse: collapse; width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+th, td { text-align: left; padding: 6px 9px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; cursor: pointer; white-space: nowrap; user-select: none; }
+th.sorted { color: var(--ink); }
 td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td .desc { color: var(--muted); font-size: 12px; margin-top: 2px; max-width: 520px; }
+.chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--chip); color: var(--muted); margin-left: 6px; }
+.up { color: var(--bad); } .down { color: var(--good); }
 tr.pick { cursor: pointer; }
 tr.pick:hover td { background: var(--chip); }
-.chartbox { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; max-width: 1100px; }
+tr.a td:first-child { box-shadow: inset 3px 0 var(--accent); }
+tr.b td:first-child { box-shadow: inset 3px 0 var(--accent2); }
+.chartbox { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; max-width: 1300px; }
 svg text { fill: var(--muted); font-size: 11px; }
 .note { color: var(--muted); font-size: 12px; max-width: 1100px; }
+.note b { color: var(--ink); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -69,27 +78,40 @@ svg text { fill: var(--muted); font-size: 11px; }
 </div>
 <div class="panels" id="panels"></div>
 <section>
+  <h2>All variants</h2>
+  <p class="note">Click a row to show it in panel B (shift-click: panel A). Click a heading to sort. Changes are against the game today.</p>
+  <label class="note">Show <select id="group"><option value="">everything</option></select></label>
+  <div class="tablewrap"><table id="table"></table></div>
   <h2>Per frame</h2>
   <div class="chartbox">
-    <label class="note">Measure <select id="metric"><option value="flicker">Flicker</option><option value="corner">Corner error, 99th percentile (px)</option><option value="wobble">Vertex wobble, 95th percentile (px)</option><option value="vdp1_ms">VDP1 ms</option><option value="error">Error</option></select></label>
+    <label class="note">Measure <select id="metric"></select></label>
     <svg id="chart" width="100%" height="220" viewBox="0 0 1080 220" preserveAspectRatio="none"></svg>
   </div>
-  <h2>All variants</h2>
-  <table id="table"></table>
-  <p class="note">Flicker: mean change of a frame from the last, less the reference's change, in luminance (0 to 255): what moves on screen that the scene doesn't. Error: mean difference from the reference, still or not. Corner error: how far the room corners on screen land from where an exact projection puts them, the 99th percentile (whole pixels alone allow up to 1.41). Vertex wobble: how much a room corner's offset from its exact position changes from one frame to the next, in pixels, the 95th percentile of the corners on screen (whole-pixel corners alone reach about 1 px). VDP1 ms: the rooms' drawing time with the calibrated Saturn costs (a 30 fps frame is 33.4 ms; the rooms alone, without Lara or objects). Click a row to show it in panel B.</p>
+  <p class="note"><b>Flicker</b>: mean change of a frame from the last, less the reference's change, in luminance (0 to 255): what moves on screen that the scene doesn't. Lower-contrast pictures flicker less for that reason alone, so read the shading variants' flicker with their detail. <b>Detail</b>: the frame's fine detail (mean Laplacian) over the reference's: above 1 crunchier than the ideal, below 1 softer. <b>Error</b>: mean difference from the reference (additive light, as the Saturn); <b>error &times;</b> from the reference lit as the PS1 multiplies. <b>Corner</b>: how far room corners on screen land from an exact projection, 99th percentile (whole pixels alone allow 1.41). <b>Wobble</b>: how much that distance changes frame to frame, 95th percentile. <b>VDP1 ms</b>: the rooms' drawing time at the calibrated Saturn costs (a 30 fps frame is 33.4 ms; rooms alone, no Lara or objects). <b>Cmds</b>: VDP1 commands (each a face, so CPU work too). <b>Tex KB</b>: the frame's textures, as drawn (VRAM).</p>
 </section>
 <script>
 const RUN = /*RUN_JSON*/null;
 const W = RUN.width, H = RUN.height, N = RUN.frames;
-const names = ['ref', ...RUN.variants];
-const title = n => n === 'ref' ? 'Reference (filtered, perspective-correct)' : RUN.results[n].title;
-let frame = 0, playing = false, dir = 1, timer = null;
-let picks = [RUN.variants[0], RUN.variants[1] || 'ref', 'ref'];
+const REFS = { ref: ['Reference, additive light (as the Saturn)', 'Each quad as two triangles, perspective-correct, trilinear-filtered textures, 4x4 samples a pixel, a depth buffer; each corner\'s light added, as VDP1 does.'],
+               ref_mul: ['Reference, multiplied light (as the PS1)', 'The same reference with each texel multiplied by its light, as the PS1 shades: what the shading ideas reach for.'] };
+const names = ['ref', 'ref_mul', ...RUN.variants];
+const title = n => REFS[n] ? REFS[n][0] : RUN.results[n].title;
+const COLS = [
+  ['vdp1_ms', 'VDP1 ms', 2], ['commands', 'Cmds', 0], ['texture_kb', 'Tex KB', 0], ['flicker', 'Flicker', 2],
+  ['detail', 'Detail', 2], ['error', 'Error', 2], ['error_mul', 'Error ×', 2], ['corner', 'Corner px', 2], ['wobble', 'Wobble px', 2]];
+let frame = 0, playing = false, dir = 1, timer = null, sortKey = null, sortDir = 1;
+const best = ['ripmap+mippal+softthin+exact', 'ripmap+mippal', 'ripmap'].find(n => RUN.results[n]);
+let picks = ['game' in RUN.results ? 'game' : RUN.variants[0], best || RUN.variants[1] || 'ref', 'ref'];
 const $ = id => document.getElementById(id);
 $('sub').textContent = `${RUN.capture}: ${RUN.path_title}, ${N} frames. Rooms only, drawn with Mednafen's VDP1 code.`;
 $('frame').max = N - 1;
+$('metric').innerHTML = COLS.map(c => `<option value="${c[0]}">${c[1]}</option>`).join('');
+$('metric').value = 'flicker';
+const groups = [...new Set(RUN.variants.map(n => RUN.results[n].group))];
+$('group').innerHTML += groups.map(g => `<option value="${g}">${g}</option>`).join('');
 
 function mean(a) { const v = a.filter(x => x !== null); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : 0; }
+const stat = (n, k) => mean(RUN.results[n][k]);
 
 function buildPanels() {
   const box = $('panels'); box.innerHTML = '';
@@ -100,24 +122,23 @@ function buildPanels() {
       <div class="screen" id="scr${i}"></div><div class="stats" id="st${i}"></div><div class="about" id="ab${i}"></div>`;
     box.appendChild(d);
   });
-  box.querySelectorAll('select').forEach(s => s.onchange = e => { picks[+e.target.dataset.i] = e.target.value; draw(); chart(); });
+  box.querySelectorAll('select').forEach(s => s.onchange = e => { picks[+e.target.dataset.i] = e.target.value; refresh(); });
 }
 
 function draw() {
   const z = +$('zoom').value, mode = $('mode').value;
   picks.forEach((p, i) => {
     const el = $('scr' + i);
-    const sheet = p === 'ref' || mode === 'pic' ? p : `${p}.${mode}`;
+    const sheet = REFS[p] || mode === 'pic' ? p : `${p}.${mode}`;
     el.style.width = W * z + 'px'; el.style.height = H * z + 'px';
     el.style.backgroundImage = `url("${sheet}.png")`;
     el.style.backgroundSize = `${W * z}px ${H * N * z}px`;
     el.style.backgroundPosition = `0 ${-frame * H * z}px`;
+    el.parentNode.querySelector('.about').style.maxWidth = W * z + 'px';
     const st = $('st' + i), ab = $('ab' + i);
-    if (p === 'ref') { st.innerHTML = ''; ab.textContent = 'Each quad as two triangles, perspective-correct, trilinear-filtered textures, 4x4 samples a pixel, a depth buffer; the same additive lighting.'; return; }
-    const r = RUN.results[p];
-    const f = r.flicker[frame];
-    st.innerHTML = `<span>VDP1 <b>${r.vdp1_ms[frame].toFixed(2)}</b> ms</span><span>flicker <b>${f === null ? '–' : f.toFixed(2)}</b></span><span>corner <b>${r.corner[frame].toFixed(2)}</b> px</span><span>wobble <b>${r.wobble[frame] === null ? '–' : r.wobble[frame].toFixed(2)}</b> px</span><span>error <b>${r.error[frame].toFixed(2)}</b></span>
-      <span>mean: ${mean(r.vdp1_ms).toFixed(2)} ms, flicker ${mean(r.flicker).toFixed(2)}</span>`;
+    if (REFS[p]) { st.innerHTML = ''; ab.textContent = REFS[p][1]; return; }
+    const r = RUN.results[p], v = (k, d) => r[k][frame] === null ? '–' : r[k][frame].toFixed(d);
+    st.innerHTML = `<span>VDP1 <b>${v('vdp1_ms', 2)}</b> ms</span><span><b>${v('commands', 0)}</b> cmds</span><span>flicker <b>${v('flicker', 2)}</b></span><span>detail <b>${v('detail', 2)}</b></span><span>error <b>${v('error', 2)}</b></span><span>corner <b>${v('corner', 2)}</b> px</span>`;
     ab.textContent = r.about;
   });
   $('frame').value = frame;
@@ -129,28 +150,51 @@ function draw() {
 function chart() {
   const m = $('metric').value, svg = $('chart');
   const all = RUN.variants.flatMap(n => RUN.results[n][m].filter(x => x !== null));
-  const hi = Math.max(...all, 1e-6) * 1.08, lo = Math.min(0, ...all);
-  const X = i => 40 + i * (1030 / Math.max(1, N - 1)), Y = v => 200 - (v - lo) / (hi - lo) * 185;
+  const hi = Math.max(...all, 1e-6) * 1.05, lo = Math.min(...all) * 0.95;
+  const X = i => 40 + i * (1030 / Math.max(1, N - 1)), Y = v => 200 - (v - lo) / (hi - lo || 1) * 185;
   let s = `<line x1="40" y1="200" x2="1070" y2="200" stroke="var(--line)"/>`;
-  for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; s += `<text x="2" y="${Y(v) + 4}">${v.toFixed(v < 10 ? 1 : 0)}</text><line x1="40" x2="1070" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)" stroke-dasharray="2 4"/>`; }
-  RUN.variants.forEach(n => {
+  for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; s += `<text x="2" y="${Y(v) + 4}">${v.toFixed(v < 10 ? 2 : 0)}</text><line x1="40" x2="1070" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)" stroke-dasharray="2 4"/>`; }
+  const order = RUN.variants.filter(n => !picks.slice(0, 2).includes(n)).concat(picks.slice(0, 2).filter(n => RUN.results[n]));
+  order.forEach(n => {
     const d = RUN.results[n][m].map((v, i) => v === null ? null : `${X(i)},${Y(v)}`).filter(Boolean).join(' ');
     const k = picks.indexOf(n), col = k === 0 ? 'var(--accent)' : k === 1 ? 'var(--accent2)' : 'var(--faint)';
-    s += `<polyline points="${d}" fill="none" stroke="${col}" stroke-width="${k >= 0 && k < 2 ? 2.2 : 1}"><title>${title(n)}</title></polyline>`;
+    s += `<polyline points="${d}" fill="none" stroke="${col}" stroke-width="${k >= 0 && k < 2 ? 2.4 : 1}"><title>${title(n)}</title></polyline>`;
   });
   s += `<line id="cursor" x1="${X(frame)}" x2="${X(frame)}" y1="10" y2="200" stroke="var(--muted)"/>`;
   svg.innerHTML = s;
 }
 
 function table() {
-  let s = '<tr><th>Variant</th><th>What it changes</th><th class="n">VDP1 ms (mean / max)</th><th class="n">Flicker</th><th class="n">Corner (px)</th><th class="n">Wobble (px)</th><th class="n">Error</th></tr>';
-  RUN.variants.forEach(n => {
+  const g = $('group').value;
+  let rows = RUN.variants.filter(n => !g || RUN.results[n].group === g);
+  if (sortKey) rows.sort((a, b) => sortDir * (stat(a, sortKey) - stat(b, sortKey)));
+  const base = RUN.results.game ? 'game' : null;
+  let s = '<tr><th data-k="">Variant</th>' + COLS.map(c => `<th data-k="${c[0]}" class="${sortKey === c[0] ? 'sorted' : ''}" style="text-align:right">${c[1]}${sortKey === c[0] ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('') + '</tr>';
+  rows.forEach(n => {
     const r = RUN.results[n];
-    s += `<tr class="pick" data-n="${n}"><td><b>${r.title}</b></td><td>${r.about}</td><td class="n">${mean(r.vdp1_ms).toFixed(2)} / ${Math.max(...r.vdp1_ms).toFixed(2)}</td><td class="n">${mean(r.flicker).toFixed(2)}</td><td class="n">${mean(r.corner).toFixed(2)}</td><td class="n">${mean(r.wobble).toFixed(3)}</td><td class="n">${mean(r.error).toFixed(2)}</td></tr>`;
+    const cls = n === picks[0] ? 'a' : n === picks[1] ? 'b' : '';
+    s += `<tr class="pick ${cls}" data-n="${n}"><td><b>${r.title}</b><span class="chip">${r.group}</span><div class="desc">${r.about}</div></td>`;
+    COLS.forEach(([k, , d]) => {
+      const v = stat(n, k);
+      let delta = '';
+      if (base && n !== base && ['vdp1_ms', 'commands', 'flicker', 'error', 'error_mul', 'corner', 'texture_kb'].includes(k)) {
+        const b = stat(base, k), pct = b ? (v - b) / b * 100 : 0;
+        if (Math.abs(pct) >= 0.5) delta = `<div class="${pct > 0 ? 'up' : 'down'}" style="font-size:11px">${pct > 0 ? '+' : ''}${pct.toFixed(0)}%</div>`;
+      }
+      s += `<td class="n">${v.toFixed(d)}${delta}</td>`;
+    });
+    s += '</tr>';
   });
   $('table').innerHTML = s;
-  $('table').querySelectorAll('tr.pick').forEach(tr => tr.onclick = () => { picks[1] = tr.dataset.n; buildPanels(); draw(); chart(); });
+  $('table').querySelectorAll('tr.pick').forEach(tr => tr.onclick = e => { picks[e.shiftKey ? 0 : 1] = tr.dataset.n; buildPanels(); refresh(); });
+  $('table').querySelectorAll('th').forEach(th => th.onclick = () => {
+    const k = th.dataset.k || null;
+    if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = 1; }
+    table();
+  });
 }
+
+function refresh() { draw(); chart(); table(); }
 
 function tick() {
   frame += dir;
@@ -167,13 +211,14 @@ $('speed').onchange = () => setPlay(playing);
 $('frame').oninput = e => { frame = +e.target.value; draw(); };
 ['zoom', 'mode'].forEach(id => $(id).onchange = draw);
 $('metric').onchange = chart;
+$('group').onchange = table;
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'SELECT') return;
   if (e.key === ' ') { e.preventDefault(); setPlay(!playing); }
   if (e.key === 'ArrowRight') { frame = Math.min(N - 1, frame + 1); draw(); }
   if (e.key === 'ArrowLeft') { frame = Math.max(0, frame - 1); draw(); }
 });
-buildPanels(); table(); chart(); draw();
+buildPanels(); refresh();
 </script>
 </body>
 </html>

@@ -3,7 +3,11 @@
 filtered reference, and writes a page to compare them.
 
     lab.py [--capture ledge0] [--path dolly|creep|pan|strafe|still]
-           [--frames 60] [--variants game,exact,...]
+           [--frames 60] [--variants game,exact,ripmap+exact,...] [--fresh]
+
+Variants are ingredients (variants.INGREDIENTS) or combinations of them
+joined by '+'. A run adds its variants to the page's earlier ones (same
+camera move) unless --fresh.
 
 Output: build/crunch/runs/<capture>-<path>/index.html (open it in a browser),
 with each variant's frames, flicker and error pictures as sprite sheets.
@@ -22,6 +26,9 @@ Measures, per variant and frame:
   corner    99th percentile of the on-screen room corners' distance (px)
             from where an exact projection puts them (whole pixels alone:
             up to 1.41)
+  detail    the frame's fine detail (mean |Laplacian|) over the
+            reference's: above 1 crunchier, below 1 softer than ideal
+  error_mul mean |frame - the reference shaded as the PS1 multiplies|
   wobble    95th percentile of the frame-to-frame change (px) of that
             distance: corners hopping (whole pixels alone: about 1 px)
 """
@@ -39,7 +46,7 @@ from gamedata import Level
 from medclient import LAB
 from ref import Reference
 from rooms import Options, RoomDrawer, RoomJob, TextureStore, View, build_commands
-from variants import VARIANTS
+from variants import INGREDIENTS, compose
 from vdp1 import Vdp1, rgb
 
 VDP1_HZ = 28636364      # the 352-wide display's clock, VDP1's cycle counter's
@@ -83,13 +90,13 @@ def heat(values, scale):
 def vertex_errors(drawer, jobs, verts):
     """(room, vertex) -> (dx, dy): each on-frame room vertex's screen
     position less its exact projection (pixel x covers x .. x + 1)."""
-    x, y, z, g, clip = verts.arrays()
+    x, y, z, g, clip, s = verts.arrays()
     out = {}
     for job in jobs:
         base = drawer.room_vertices.get(job.room.index)
         if base is None:
             continue
-        v4 = job.room.vertices.astype(np.float64) * 4
+        v4 = job.room.points.astype(np.float64)
         view = v4 @ job.R.T.astype(np.float64) + job.T.astype(np.float64)
         n = len(v4)
         ex = 176 + 256.0 * view[:, 0] / view[:, 2]
@@ -100,12 +107,37 @@ def vertex_errors(drawer, jobs, verts):
     return out
 
 
+def laplacian(lum):
+    """Mean |4-neighbour Laplacian|: how much fine detail (or noise) a frame has."""
+    return float(np.abs(4 * lum[1:-1, 1:-1] - lum[:-2, 1:-1] - lum[2:, 1:-1] - lum[1:-1, :-2] - lum[1:-1, 2:]).mean())
+
+
+def view_key(v):
+    return dict(pos=list(map(int, v.pos)), ax=v.angle_x, ay=v.angle_y)
+
+
+def reference_frames(out, key, views, render):
+    """The run's reference frames for one shading, from its sheet when the
+    last run drew the same views, else rendered."""
+    try:
+        with open(os.path.join(out, 'run.json')) as f:
+            same = json.load(f)['views'] == [view_key(v) for v in views]
+        if same:
+            sheet = np.array(Image.open(os.path.join(out, key + '.png')))
+            return [sheet[i * 224:(i + 1) * 224] for i in range(len(views))]
+    except (OSError, KeyError, ValueError):
+        pass
+    return [render(v) for v in views]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--capture', default='ledge0')
     ap.add_argument('--path', default='dolly', choices=sorted(PATHS))
     ap.add_argument('--frames', type=int, default=60)
-    ap.add_argument('--variants', default=','.join(VARIANTS))
+    ap.add_argument('--variants', default=','.join(INGREDIENTS),
+                    help='ingredients, or combinations of them joined by +')
+    ap.add_argument('--fresh', action='store_true', help='drop the variants an earlier run left in the page')
     args = ap.parse_args()
 
     cap = Capture(args.capture)
@@ -124,76 +156,91 @@ def main():
         return [RoomJob.from_view(view, level.rooms[r], FULL) for r in room_order]
 
     t0 = time.time()
-    view_list = [dict(pos=list(map(int, v.pos)), ax=v.angle_x, ay=v.angle_y) for v in views]
-    refs = None
-    try:
-        with open(os.path.join(out, 'run.json')) as f:
-            if json.load(f)['views'] == view_list:
-                sheet = np.array(Image.open(os.path.join(out, 'ref.png')))
-                refs = [sheet[i * 224:(i + 1) * 224] for i in range(len(views))]
-    except (OSError, KeyError, ValueError):
-        pass
-    if refs is None:
-        reference = Reference(base_level)
-        refs = [reference.render(jobs_for(base_level, v)) for v in views]
-    print(f'reference: {time.time() - t0:.1f} s')
+    reference = Reference(base_level)
+    refs = reference_frames(out, 'ref', views, lambda v: reference.render(jobs_for(base_level, v)))
+    refs_mul = reference_frames(out, 'ref_mul', views,
+                                lambda v: reference.render(jobs_for(base_level, v), 'multiply'))
+    print(f'references: {time.time() - t0:.1f} s')
     ref_l = [luminance(r) for r in refs]
+    ref_mul_l = [luminance(r) for r in refs_mul]
+    ref_detail = float(np.mean([laplacian(lum) for lum in ref_l]))
+
+    old = {}
+    if not args.fresh:
+        try:
+            with open(os.path.join(out, 'run.json')) as f:
+                prev = json.load(f)
+            if prev['views'] == [view_key(v) for v in views]:
+                old = prev['results']
+        except (OSError, KeyError, ValueError):
+            pass
 
     vdp1 = Vdp1()
     results = {}
-    sheets = {'ref': refs}
+    sheets = {'ref': refs, 'ref_mul': refs_mul}
     for name in names:
-        title, about, kw, change = VARIANTS[name]
+        title, about, group, kw, change = compose(name)
         level = change(base_level) if change else base_level
         opts = Options(**kw)
         drawer = RoomDrawer(level, opts)
         store = TextureStore(level, opts)
-        frames, ms, flicker, error, wobble, corner = [], [], [], [], [], []
+        r = dict(title=title, about=about, group=group, vdp1_ms=[], flicker=[], error=[], error_mul=[],
+                 wobble=[], corner=[], detail=[], commands=[], texture_kb=[])
+        frames, flick_imgs, err_imgs = [], [], []
         last_err = None
-        flick_imgs, err_imgs = [], []
         t1 = time.time()
         for i, view in enumerate(views):
             jobs = jobs_for(level, view)
             faces, verts = drawer.faces(jobs)
             errs = vertex_errors(drawer, jobs, verts)
-            corner.append(float(np.percentile([np.hypot(*e) for e in errs.values()], 99)))
+            r['corner'].append(float(np.percentile([np.hypot(*e) for e in errs.values()], 99)))
             both = [k for k in errs if last_err and k in last_err]
-            wobble.append(float(np.percentile([np.hypot(errs[k][0] - last_err[k][0], errs[k][1] - last_err[k][1])
-                                               for k in both], 95)) if both else None)
+            r['wobble'].append(float(np.percentile([np.hypot(errs[k][0] - last_err[k][0],
+                                                             errs[k][1] - last_err[k][1]) for k in both], 95))
+                               if both else None)
             last_err = errs
-            vram = build_commands(level, faces, verts, opts, store).finish()
-            vdp1.load_vram(vram)
+            cl = build_commands(level, faces, verts, opts, store)
+            vdp1.load_vram(cl.finish())
             vdp1.fb[:] = 0
             totals, _ = vdp1.plot()
             img = rgb(vdp1.fb).copy()
             frames.append(img)
-            ms.append(totals.cycles * 1000.0 / VDP1_HZ)
+            r['vdp1_ms'].append(totals.cycles * 1000.0 / VDP1_HZ)
+            r['commands'].append(len(cl.cmds))
+            r['texture_kb'].append(cl.texture_bytes / 1024.0)
             lum = luminance(img)
             e = np.abs(lum - ref_l[i])
-            error.append(float(e.mean()))
+            r['error'].append(float(e.mean()))
+            r['error_mul'].append(float(np.abs(lum - ref_mul_l[i]).mean()))
+            r['detail'].append(laplacian(lum) / ref_detail)
             err_imgs.append(heat(e, 96))
             if i == 0:
                 f = np.zeros_like(lum)
-                flicker.append(None)
+                r['flicker'].append(None)
             else:
                 f = np.abs((lum - luminance(frames[i - 1])) - (ref_l[i] - ref_l[i - 1]))
-                flicker.append(float(f.mean()))
+                r['flicker'].append(float(f.mean()))
             flick_imgs.append(heat(f, 64))
         sheets[name] = frames
         sheets[name + '.flicker'] = flick_imgs
         sheets[name + '.error'] = err_imgs
-        results[name] = dict(title=title, about=about, vdp1_ms=ms, flicker=flicker, error=error, wobble=wobble, corner=corner)
-        fl = [x for x in flicker if x is not None]
-        wb = [x for x in wobble if x is not None]
-        print(f'{name:10s} {time.time() - t1:5.1f} s  vdp1 {np.mean(ms):5.2f} ms (max {max(ms):5.2f})  '
-              f'flicker {np.mean(fl) if fl else 0:5.2f}  error {np.mean(error):5.2f}  corner {np.mean(corner):4.2f} px  wobble {np.mean(wb) if wb else 0:5.3f} px')
+        results[name] = r
+        m = lambda k: float(np.mean([v for v in r[k] if v is not None]))
+        print(f'{name:28s} {time.time() - t1:5.1f} s  vdp1 {m("vdp1_ms"):5.2f} ms  cmds {m("commands"):5.0f}  '
+              f'tex {m("texture_kb"):4.0f} KB  flicker {m("flicker"):5.2f}  error {m("error"):5.2f} '
+              f'(x {m("error_mul"):5.2f})  detail {m("detail"):4.2f}  corner {m("corner"):4.2f}  '
+              f'wobble {m("wobble"):4.2f}', flush=True)
 
     for key, frames in sheets.items():
         Image.fromarray(np.concatenate(frames, axis=0)).save(os.path.join(out, f'{key}.png'), optimize=True)
 
+    for k, v in old.items():
+        if k not in results and os.path.exists(os.path.join(out, k + '.png')):
+            results[k] = v
+    order = list(old) + [n for n in names if n not in old]
     meta = dict(run=run, capture=args.capture, path=args.path, path_title=path_title, frames=args.frames,
-                width=352, height=224, variants=names, results=results,
-                views=view_list)
+                width=352, height=224, variants=[n for n in order if n in results], results=results,
+                views=[view_key(v) for v in views])
     with open(os.path.join(out, 'run.json'), 'w') as f:
         json.dump(meta, f)
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'viewer.html'), encoding='utf-8') as f:

@@ -50,8 +50,9 @@ class Texture:
     """A room texture whole: w x h 4-bit texels (a row of bytes per line, the
     left texel high), its 16 colours, see-through colour 0 or not."""
 
-    def __init__(self, index, pixels, w, h, colors, transparent, mean):
+    def __init__(self, index, pixels, w, h, colors, transparent, mean, end_codes=False):
         self.index = index
+        self.end_codes = end_codes  # colour 15 is VDP1's end code (a triangle's parallelogram)
         self.pixels = pixels
         self.w, self.h = w, h
         self.colors = colors
@@ -73,10 +74,11 @@ def pack_texels(t):
 
 
 class Room:
-    def __init__(self, index, origin, vertices, shades, quads, triangles, water):
+    def __init__(self, index, origin, points, shades, quads, triangles, water):
         self.index = index
-        self.origin = origin        # world x, y (its top), z of the packed vertices' 0
-        self.vertices = vertices    # n x 3 int: x, y, z in 256-unit steps from the origin
+        self.origin = origin        # world x, y (its top), z of the points' 0
+        self.points = points        # n x 3 int: x, y, z in 64-unit steps from the origin (xform.s's
+                                    # packed vertex times 4), so a split's midpoints stay whole
         self.shades = shades        # n: 0 (lit) .. 31 (dark)
         self.quads = quads          # (v0, v1, v2, v3, texture, see-through), packed order
         self.triangles = triangles  # (v0, v1, v2, texture)
@@ -108,7 +110,7 @@ class Level:
             packed = [(x >> 8, (y - y_top) >> 8, z >> 8) for x, y, z, _ in room.vertices]
             quads, _ = pack_level.sort_room_quads(packed, room.quads)
             self.rooms.append(Room(room.index, (room.x, y_top, room.z),
-                                   np.array(packed, dtype=np.int32).reshape(-1, 3),
+                                   np.array(packed, dtype=np.int32).reshape(-1, 3) * 4,
                                    np.array([pack_level.shade_from_color16(v[3]) for v in room.vertices],
                                             dtype=np.int32),
                                    quads, list(room.triangles), bool(room.flags & 1)))

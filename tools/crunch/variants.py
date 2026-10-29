@@ -1,107 +1,144 @@
-"""The ideas the crunch lab tries, each a change to one step of the room
-drawing (rooms.Options) or to the textures the game packs."""
+"""The ideas the crunch lab tries. Each is an ingredient: a change to one
+step of the room drawing (rooms.Options) and/or to the level's textures or
+geometry before drawing. Ingredients combine: 'ripmap+exact' draws with
+both (compose)."""
 import copy
 
 import numpy as np
 
 import pack_level
-from gamedata import Texture, pack_texels
+import textures
+from gamedata import Room, Texture, pack_texels
+
+
+def clear_index(t):
+    return 0 if t.transparent else None
 
 
 # --- texture reductions -------------------------------------------------
 
-def block_mean(texels, colors, transparent, fx, fy):
-    """Each fx x fy block's mean RGB (0..31) and whether it is see-through
-    (most of it see-through, as the game's mips decide)."""
-    pal = np.array([[(c >> s) & 31 for s in (0, 5, 10)] for c in colors], np.float64)
-    h, w = texels.shape
-    rgb = pal[texels]
-    opaque = np.ones((h, w), bool) if not transparent else texels != 0
-    rgb = (rgb * opaque[..., None]).reshape(h // fy, fy, w // fx, fx, 3).sum(axis=(1, 3))
-    n = opaque.reshape(h // fy, fy, w // fx, fx).sum(axis=(1, 3))
-    clear = n * 2 < fx * fy
-    rgb = rgb / np.maximum(n, 1)[..., None]
-    return rgb, clear
-
-
-def nearest_colors(rgb, colors, clear, transparent):
-    """Each RGB to the nearest of colors (the game's weights, colour 0 kept
-    for see-through when transparent)."""
-    pal = np.array([[(c >> s) & 31 for s in (0, 5, 10)] for c in colors], np.float64)
-    first = 1 if transparent else 0
-    wgt = np.array([3.0, 4.0, 2.0])
-    d = (((rgb[..., None, :] - pal[None, None, first:, :]) ** 2) * wgt).sum(axis=-1)
-    out = (np.argmin(d, axis=-1) + first).astype(np.uint8)
-    out[clear] = 0
-    return out
-
-
 def mip_nearest(t, factor):
     """A mip level without dither: each block's mean, the nearest colour."""
-    rgb, clear = block_mean(t.texels(), t.colors, t.transparent, factor, factor)
-    return nearest_colors(rgb, t.colors, clear, t.transparent), t.colors
+    return textures.reduce(t.texels(), t.colors, clear_index(t), factor, factor), t.colors
 
 
-def kmeans_colors(rgb, k, first, iters=12, seed_colors=None):
-    """k colours (15-bit) fitted to the RGB samples, with colour 0 left for
-    see-through when first is 1."""
-    pts = rgb.reshape(-1, 3)
-    if len(pts) == 0:
-        return [0x8000] * 16
-    uniq = np.unique(np.round(pts), axis=0)
-    n = min(k - first, len(uniq))
-    if seed_colors is not None and len(seed_colors) >= n:
-        centres = np.array(seed_colors[:n], np.float64)
-    else:
-        idx = np.linspace(0, len(uniq) - 1, n).astype(int)
-        centres = uniq[np.argsort(uniq.sum(axis=1))][idx].astype(np.float64)
-    wgt = np.array([3.0, 4.0, 2.0])
-    for _ in range(iters):
-        d = (((pts[:, None, :] - centres[None, :, :]) ** 2) * wgt).sum(axis=-1)
-        lab = np.argmin(d, axis=1)
-        for j in range(n):
-            m = lab == j
-            if m.any():
-                centres[j] = pts[m].mean(axis=0)
-    out = [0x8000] * first
-    for c in np.clip(np.round(centres), 0, 31).astype(int):
-        out.append(0x8000 | (c[2] << 10) | (c[1] << 5) | c[0])
-    while len(out) < 16:
-        out.append(out[-1])
-    return out
+def own_palette(t, fx, fy):
+    """t reduced fx x fy with its own 16 colours fitted to the reduced
+    picture, so it reaches its tones without dither."""
+    clear = clear_index(t)
+    rgb, empty = textures.block_mean(t.texels(), t.colors, clear, fx, fy)
+    first = 1 if clear is not None else 0
+    fit = textures.kmeans_colors(rgb[~empty], 16 - first)
+    colors = ([t.colors[0]] if first else []) + [textures.from_rgb(c) for c in fit]
+    out = textures.nearest_colors(rgb, colors, list(range(first, 16)))
+    if clear is not None:
+        out[empty] = 0
+    return out, colors
 
 
 def mip_own_palette(t, factor):
-    """A mip level with its own 16 colours fitted to the reduced picture, so
-    it reaches its tones without dither."""
-    rgb, clear = block_mean(t.texels(), t.colors, t.transparent, factor, factor)
-    first = 1 if t.transparent else 0
-    colors = kmeans_colors(rgb[~clear], 16, first)
-    return nearest_colors(rgb, colors, clear, t.transparent), colors
+    return own_palette(t, factor, factor)
 
 
 def reduce_xy(t, fx, fy):
     """A ripmap level: fx across, fy down, means and nearest colours."""
-    rgb, clear = block_mean(t.texels(), t.colors, t.transparent, fx, fy)
-    return nearest_colors(rgb, t.colors, clear, t.transparent), t.colors
+    return textures.reduce(t.texels(), t.colors, clear_index(t), fx, fy), t.colors
 
 
-# --- texture art changes ------------------------------------------------
+# --- art changes: texels, colour tables ---------------------------------
 
-def despeckle(texels, transparent):
+def despeckle(t):
     """Texels unlike all four neighbours, whose neighbours mostly agree,
-    take the neighbours' colour: the 1-texel features shrinking drops."""
-    t = texels.astype(np.int16)
-    p = np.pad(t, 1, mode='edge')
+    take the neighbours' colour: the 1-texel spots shrinking drops."""
+    texels = t.texels()
+    v = texels.astype(np.int16)
+    p = np.pad(v, 1, mode='edge')
     n = np.stack([p[:-2, 1:-1], p[2:, 1:-1], p[1:-1, :-2], p[1:-1, 2:]])
-    lonely = np.all(n != t, axis=0)
     out = texels.copy()
-    ys, xs = np.nonzero(lonely)
-    for y, x in zip(ys, xs):
+    for y, x in zip(*np.nonzero(np.all(n != v, axis=0))):
         vals, counts = np.unique(n[:, y, x], return_counts=True)
-        if counts.max() >= 3 and not (transparent and (vals[counts.argmax()] == 0) != (t[y, x] == 0)):
-            out[y, x] = vals[counts.argmax()]
-    return out
+        best = vals[counts.argmax()]
+        if counts.max() >= 3 and not (t.transparent and (best == 0) != (v[y, x] == 0)):
+            out[y, x] = best
+    return out, t.colors
+
+
+def soften_thin(t):
+    """1-texel lines (a texel standing out from two neighbours on opposite
+    sides that are alike) drawn halfway to those neighbours: kept, at half
+    their contrast, so they blink less when rows or columns are skipped."""
+    texels = t.texels()
+    rgb = textures.to_rgb(t.colors)[texels]
+    lum = rgb @ np.array([0.299, 0.587, 0.114])
+    p = np.pad(lum, 1, mode='edge')
+    pr = np.pad(rgb, ((1, 1), (1, 1), (0, 0)), mode='edge')
+    out_rgb = rgb.copy()
+    for (a, b) in (((1, 0), (1, 2)), ((0, 1), (2, 1))):     # left/right, then up/down
+        la = p[a[0]:a[0] + lum.shape[0], a[1]:a[1] + lum.shape[1]]
+        lb = p[b[0]:b[0] + lum.shape[0], b[1]:b[1] + lum.shape[1]]
+        stand = np.abs(lum - (la + lb) / 2)
+        thin = (stand > 2.0) & (np.abs(la - lb) < stand * 0.5) & (np.sign(lum - la) == np.sign(lum - lb))
+        ra = pr[a[0]:a[0] + lum.shape[0], a[1]:a[1] + lum.shape[1]]
+        rb = pr[b[0]:b[0] + lum.shape[0], b[1]:b[1] + lum.shape[1]]
+        out_rgb[thin] = (rgb[thin] + (ra[thin] + rb[thin]) / 2) / 2
+    choices = [i for i in range(16) if not (t.transparent and i == 0)]
+    out = textures.nearest_colors(out_rgb, t.colors, choices)
+    if t.transparent:
+        out[texels == 0] = 0
+    return out, t.colors
+
+
+def clump_noise(t):
+    """The texture's fine detail (it less its 3 x 3 blur) gathered into 2 x 2
+    clumps: the same grain up close, half the frequency to alias."""
+    texels = t.texels()
+    rgb = textures.to_rgb(t.colors)[texels]
+    p = np.pad(rgb, ((1, 1), (1, 1), (0, 0)), mode='wrap')
+    h, w = texels.shape
+    low = sum(p[dy:dy + h, dx:dx + w] for dy in range(3) for dx in range(3)) / 9.0
+    detail = rgb - low
+    if h % 2 == 0 and w % 2 == 0:
+        detail = detail.reshape(h // 2, 2, w // 2, 2, 3).mean(axis=(1, 3)).repeat(2, axis=0).repeat(2, axis=1)
+    choices = [i for i in range(16) if not (t.transparent and i == 0)]
+    out = textures.nearest_colors(low + detail * 1.3, t.colors, choices)
+    if t.transparent:
+        out[texels == 0] = 0
+    return out, t.colors
+
+
+def flatter(t):
+    """The colour table at 3/4 of its contrast about the texture's mean."""
+    m = textures.to_rgb([t.mean])[0]
+    return t.texels(), [textures.from_rgb(m + (c - m) * 0.75, t.colors[i] & 0x8000)
+                        for i, c in enumerate(textures.to_rgb(t.colors))]
+
+
+def degrain(t, keep=0.3):
+    """Sonic R's kind of texture from TR's: the texel-to-texel detail (above
+    a 3 x 3 blur) cut to 'keep' of itself, the broad shapes stretched back to
+    the texture's contrast, then a 16-colour table fitted to the result (the
+    old table's in-between tones are missing, and nearest picks from it would
+    put the grain back)."""
+    texels = t.texels()
+    rgb = textures.to_rgb(t.colors)[texels]
+    solid = np.ones(texels.shape, bool) if not t.transparent else texels != 0
+    p = np.pad(rgb, ((1, 1), (1, 1), (0, 0)), mode='wrap')
+    h, w = texels.shape
+    low = sum(p[dy:dy + h, dx:dx + w] for dy in range(3) for dx in range(3)) / 9.0
+    mean = rgb[solid].mean(axis=0)
+    out = low + keep * (rgb - low)
+    lum = lambda a: a @ np.array([0.299, 0.587, 0.114])
+    s0, s1 = lum(rgb[solid]).std(), lum(out[solid]).std()
+    if s1 > 0.1:
+        out = mean + (out - mean) * (s0 / s1)
+    out = np.clip(out, 0, 31)
+    first = 1 if t.transparent else 0
+    fit = textures.kmeans_colors(out[solid], 16 - first)
+    colors = ([t.colors[0]] if first else []) + [textures.from_rgb(c) for c in fit]
+    idx = textures.nearest_colors(out, colors, list(range(first, 16)))
+    if t.transparent:
+        idx[~solid] = 0
+    return idx, colors
 
 
 def with_textures(level, fn):
@@ -110,13 +147,10 @@ def with_textures(level, fn):
     new.textures = []
     for t in level.textures:
         texels, colors = fn(t)
-        new.textures.append(Texture(t.index, pack_texels(texels), t.w, t.h, list(colors), t.transparent,
-                                    pack_level.texture_average(pack_texels(texels), colors, t.transparent)))
+        data = pack_texels(texels)
+        new.textures.append(Texture(t.index, data, t.w, t.h, list(colors), t.transparent,
+                                    pack_level.texture_average(data, colors, t.transparent), t.end_codes))
     return new
-
-
-def level_despeckled(level):
-    return with_textures(level, lambda t: (despeckle(t.texels(), t.transparent), t.colors))
 
 
 def level_remastered(level):
@@ -126,20 +160,154 @@ def level_remastered(level):
     return with_textures(level, lambda t: (t.texels(), new.get(table.sources[t.index][2], t.colors)))
 
 
-VARIANTS = {
-    # name: (title, what it shows, Options keywords, level change)
-    'game': ('The game today', 'Room drawing exactly as the game does it (checked against Mednafen).', {}, None),
-    'exact': ('Exact divide', 'Projection with a full-precision divide (the SH-2 divider) instead of divTable[z >> 4].',
-              dict(exact_divide=True), None),
-    'fullres': ('No mips', 'Every face at full resolution: what the mip levels already do.', dict(lod=0), None),
-    'mipnear': ('Mips, no dither', 'Mip levels made without Floyd-Steinberg dither: each block\'s mean, the nearest colour.',
-                dict(mip=mip_nearest), None),
-    'mippal': ('Mips, own palette', 'Mip levels each with their own 16 colours, so no dither is needed.',
-               dict(mip=mip_own_palette), None),
-    'ripmap': ('Ripmaps', 'Texture reduced separately along and across VDP1\'s lines, so skipped rows are filtered too.',
-               dict(ripmap=True, rip=reduce_xy), None),
-    'despeckle': ('Despeckled art', 'Lonely single texels in every room texture replaced by their neighbours\' colour.',
-                  {}, level_despeckled),
-    'remaster': ('Remastered palettes', 'The game\'s own lifted, desaturated colour tables (debug menu option).',
-                 {}, level_remastered),
+# --- geometry -----------------------------------------------------------
+
+def level_tessellated(level, min_edge=1024):
+    """Every room quad with an edge of min_edge world units or more split
+    2 x 2, once, offline: each quarter drawn with its quadrant of the texture
+    (as the game's near split), midpoints shared by neighbouring quads, their
+    shades their corners' means."""
+    new = copy.copy(level)
+    new.textures = list(level.textures)
+    quadrant_index = {}
+
+    def quadrant(tex, q):
+        if (tex, q) not in quadrant_index:
+            t = level.textures[tex]
+            hw, hh = t.w // 2, t.h // 2
+            oy, ox = ((0, 0), (0, hw), (hh, hw), (hh, 0))[q]
+            data = pack_texels(t.texels()[oy:oy + hh, ox:ox + hw])
+            quadrant_index[(tex, q)] = len(new.textures)
+            new.textures.append(Texture(len(new.textures), data, hw, hh, t.colors, t.transparent,
+                                        pack_level.texture_average(data, t.colors, t.transparent)))
+        return quadrant_index[(tex, q)]
+
+    new.rooms = []
+    for room in level.rooms:
+        pts = [tuple(int(c) for c in p) for p in room.points]
+        shades = [int(v) for v in room.shades]
+        at = {p: i for i, p in enumerate(pts)}
+
+        def vertex(p, shade):
+            if p not in at:
+                at[p] = len(pts)
+                pts.append(p)
+                shades.append(shade)
+            return at[p]
+
+        quads = []
+        for q in room.quads:
+            a, b, c, d, tex, transp = q
+            t = level.textures[tex]
+            P = [np.array(pts[i]) for i in (a, b, c, d)]
+            longest = max(np.abs(P[i] - P[(i + 1) % 4]).max() for i in range(4)) * 64
+            if longest < min_edge or (t.w // 2) % 8:
+                quads.append(q)
+                continue
+            sh = [shades[i] for i in (a, b, c, d)]
+            mid = lambda i, j: vertex(tuple((P[i] + P[j]) // 2), (sh[i] + sh[j]) >> 1)
+            m01, m12, m23, m30 = mid(0, 1), mid(1, 2), mid(2, 3), mid(3, 0)
+            mc = vertex(tuple(sum(P) // 4), sum(sh) >> 2)
+            quads += [(a, m01, mc, m30, quadrant(tex, 0), transp), (m01, b, m12, mc, quadrant(tex, 1), transp),
+                      (mc, m12, c, m23, quadrant(tex, 2), transp), (m30, mc, m23, d, quadrant(tex, 3), transp)]
+        quads, _ = pack_level.sort_room_quads(pts, quads)
+        new.rooms.append(Room(room.index, room.origin, np.array(pts, dtype=np.int32), np.array(shades, dtype=np.int32),
+                              quads, room.triangles, room.water))
+    return new
+
+
+# --- the ingredients ----------------------------------------------------
+#
+# stage orders the level changes when ingredients combine: art first, then
+# colour tables, then geometry (whose quadrant textures are cut from the art).
+
+INGREDIENTS = {
+    'game': dict(title='The game today', group='baseline',
+                 about='Room drawing exactly as the game does it (checked against Mednafen).'),
+    'exact': dict(title='Exact divide', group='projection', set=dict(divide='exact'),
+                  about='Projection with a full divide (the SH-2 divider, as the 1996 game) instead of divTable[z >> 4].'),
+    'fine': dict(title='Finer divide table', group='projection', set=dict(divide='fine'),
+                 about='Two 16-bit tables, no divider: z under 4096 by z >> 2, beyond it 16 times the '
+                       'precision of divTable (products shifted 4 more). 4.5 KB more.'),
+    'fullres': dict(title='No mips', group='textures', set=dict(lod=0),
+                    about='Every face at full resolution: what the mip levels already do.'),
+    'mipnear': dict(title='Mips, no dither', group='textures', set=dict(mip=mip_nearest),
+                    about='Mip levels without Floyd-Steinberg dither: each block\'s mean, the nearest colour.'),
+    'mippal': dict(title='Own palettes', group='textures', set=dict(mip=mip_own_palette, rip=own_palette),
+                   about='Each reduced level (mip or ripmap) with its own 16 colours, so no dither is needed.'),
+    'ripmap': dict(title='Ripmaps', group='textures', set=dict(ripmap=True), default=dict(rip=reduce_xy),
+                   about='Texture reduced separately along and across VDP1\'s lines, so skipped rows are filtered too.'),
+    'despeckle': dict(title='Despeckled art', group='art', stage=0, level=lambda lv: with_textures(lv, despeckle),
+                      about='Lonely single texels in every room texture take their neighbours\' colour.'),
+    'softthin': dict(title='Softened thin lines', group='art', stage=0, level=lambda lv: with_textures(lv, soften_thin),
+                     about='1-texel lines and spots drawn halfway to their surroundings: kept, at half contrast.'),
+    'clump': dict(title='Clumped noise', group='art', stage=0, level=lambda lv: with_textures(lv, clump_noise),
+                  about='Each texture\'s fine grain regathered in 2 x 2 clumps (detail above a 3 x 3 blur).'),
+    'degrain': dict(title='Degrained art (Sonic R grain)', group='art', stage=0,
+                    level=lambda lv: with_textures(lv, degrain),
+                    about='Texel-to-texel detail cut to 30%, the broad shapes stretched back to the same contrast, '
+                          'a new 16-colour table fitted: Sonic R\'s textures have TR\'s contrast but half its grain.'),
+    'flatter': dict(title='Flatter art', group='art', stage=1, level=lambda lv: with_textures(lv, flatter),
+                    about='Every colour table at 3/4 of its contrast about the texture\'s mean.'),
+    'remaster': dict(title='Remastered palettes', group='shading', stage=1, level=level_remastered,
+                     about='The game\'s own lifted, desaturated colour tables (debug menu option).'),
+    'contrast': dict(title='Contrast by room light', group='shading', set=dict(contrast=True),
+                     about='Each face\'s table at less contrast as its (static) room light falls, 8/8 to 4/8, '
+                           'chosen offline: the multiply\'s look in the dark at no CPU cost.'),
+    'multiply': dict(title='Multiply per face', group='shading', set=dict(flat_multiply=True),
+                     about='Each face one table of its colours times its light, no gouraud: what VDP2 colour '
+                           'banks could do (the exact multiply, but flat across the face).'),
+    'tess': dict(title='Fixed tessellation', group='geometry', stage=2, level=level_tessellated,
+                 about='Every quad with a 1024-unit edge split 2 x 2 once, offline, each quarter its own quadrant '
+                       'texture: smaller warps, never popping.'),
+    'para': dict(title='Triangles as parallelograms', group='geometry', set=dict(para_triangles=True),
+                 about='Room triangles drawn v0 v1 (v1+v2-v0) v2 with the far half end codes, as the game\'s mesh '
+                       'triangles, instead of a quad pinched to a point.'),
+    'texturn': dict(title='Lines by texture', group='geometry', set=dict(turn_by_texture=True),
+                    about='Lines run along the texture\'s strong edges (they draw straight; edges across lines '
+                          'step), unless that takes 1.5 x the lines.'),
 }
+
+COMBOS = {
+    # name: what the combination tests
+    'ripmap+mippal': 'Ripmaps whose levels each have their own palette.',
+    'ripmap+exact': 'The two biggest single ideas for texture and geometry.',
+    'ripmap+tess': 'Ripmaps on tessellated rooms: each quarter its own level.',
+    'ripmap+texturn': 'Ripmaps with lines along the texture\'s edges.',
+    'tess+exact': 'Smaller warps with exact corners.',
+}
+
+
+def compose(name):
+    """A variant from ingredients joined by '+': (title, about, group,
+    Options keywords, level change or None)."""
+    parts = name.split('+')
+    for p in parts:
+        if p not in INGREDIENTS:
+            raise KeyError(f'no ingredient {p}')
+    if len(parts) == 1:
+        ing = INGREDIENTS[name]
+        kw = dict(ing.get('default', {}), **ing.get('set', {}))
+        return ing['title'], ing['about'], ing['group'], kw, ing.get('level')
+    kw, defaults, levels = {}, {}, []
+    for p in parts:
+        ing = INGREDIENTS[p]
+        for k, v in ing.get('set', {}).items():
+            if k in kw and kw[k] is not v:
+                raise ValueError(f'{name}: two ingredients set {k}')
+            kw[k] = v
+        defaults.update(ing.get('default', {}))
+        if 'level' in ing:
+            levels.append((ing.get('stage', 0), ing['level']))
+    for k, v in defaults.items():
+        kw.setdefault(k, v)
+    levels.sort(key=lambda e: e[0])
+
+    def change(level):
+        for _, fn in levels:
+            level = fn(level)
+        return level
+
+    title = ' + '.join(INGREDIENTS[p]['title'] for p in parts)
+    about = COMBOS.get(name, 'A combination: ' + '; '.join(INGREDIENTS[p]['about'] for p in parts))
+    return title, about, 'combination', kw, change if levels else None
