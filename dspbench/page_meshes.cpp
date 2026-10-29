@@ -3,17 +3,20 @@
 // meshes, 1210 vertices, in the order the master drew them in a Mednafen
 // trace of main at a90e0f1), made up to those sizes and wholly on the frame.
 // The game's own transform (saturn/meshxform.s transformMeshAsm, its shaded
-// fast path) against meshlight.dsp rotating and lighting them and the master
-// projecting what comes out (meshproject.s); then as a frame's work: each
-// mesh's setup, its vertices and a stand-in for its faces (kernels.s kFaces),
-// with the DSP's jobs written and taken as the game would, the master
-// projecting and facing one mesh while the DSP works on the next.
+// fast path) against meshlight.dsp and meshlight2.dsp rotating and lighting
+// them and the master projecting what comes out (meshproject.s); then as a
+// frame's work: each mesh's setup, its vertices and a stand-in for its faces
+// (kernels.s kFaces), with the DSP's jobs written and taken as the game would,
+// the master projecting and facing the meshes the DSP has done while it works
+// on the next. The master's work and its waits for the DSP apart.
 
 #include "bench.h"
 #include "dsp.h"
 #include "meshlight_dsp.h"
+#include "meshlight2_dsp.h"
+#include "meshlight2nodma_dsp.h"
 
-// saturn/render.h's, as meshxform.s and meshlight.dsp read them
+// saturn/render.h's, as meshxform.s and the DSP programs read them
 struct MeshVertex
 {
     int16_t x, y, z;
@@ -40,12 +43,12 @@ struct MeshXform
     int32_t inside;
 };
 
-// meshlight.dsp's job: batches of 8 vertices (0 ends the list, and is
-// written last), DSP addresses, the setup
+// A job of the DSP's list: meshlight.dsp's size is batches of 8 vertices,
+// meshlight2.dsp's vertices; 0 ends the list, and is written last
 struct MeshLightJob
 {
-    uint32_t batches;
-    uint32_t normals, src, dst;
+    uint32_t size;
+    uint32_t normals, src, dst;     // DSP addresses
     MeshXform xf;
 };
 
@@ -72,11 +75,12 @@ static const uint8_t kDoor[][2] = { {38, 24} };
 static const uint8_t kWolf[][2] = {
     {11, 16}, {16, 19}, {10, 9}, {27, 35}, {6, 5}, {6, 5}, {8, 6}, {14, 15}, {8, 6},
     {8, 6}, {8, 6}, {14, 15}, {8, 6}, {8, 6}, {8, 6}, {12, 14}, {8, 6}, {12, 10},
-    {8, 6}, {12, 14}, {8, 6}, {12, 10}, {8, 6}, {8, 6}, {8, 6}, {8, 6}
+    {8, 6}, {12, 10}, {8, 6}, {12, 10}, {8, 6}, {8, 6}, {8, 6}, {8, 6}
 };
 static const uint8_t kPlank[][2] = { {26, 16} };
 
 #define MESHES      80
+#define OBJECTS     16
 #define SENTINEL    0xFFFFFFFF  // in a job's last output longword until the DSP's write (clip byte 0)
 
 struct Mesh
@@ -84,8 +88,10 @@ struct Mesh
     int32_t count, faces;
     MeshVertex* src;
     int8_t* normals;
-    Vertex* out;            // whole batches, on cache lines
+    Vertex* out;                    // whole batches, on cache lines
     MeshXform xf;
+    uint32_t dspNormals, dspSrc, dspDst;
+    volatile uint32_t* last;        // meshlight2.dsp's sentinel: its last vertex's zg, uncached
 };
 
 static Mesh gMeshes[MESHES];
@@ -94,6 +100,12 @@ static MeshLightJob gJobs[MESHES + 1];
 static uint8_t gData[48 * 1024] __attribute__((aligned(16)));
 static Vertex gRef[1280];               // transformMeshAsm's, mesh after mesh
 static uint32_t gFaceStores[1280 * 3];  // kFaces'
+static uint32_t gScratch[16] __attribute__((aligned(16)));  // meshlight2.dsp's first output, of nothing
+
+// The groups the DSP is fed in: each ends before the index given.
+static int32_t gMeshEnds[MESHES];
+static int32_t gObjectEnds[OBJECTS];
+static const int32_t kFrameEnd[1] = { MESHES };
 
 static uint32_t batches(int32_t count)
 {
@@ -157,7 +169,12 @@ static void add(uint8_t*& p, uint32_t& seed, const uint8_t (*list)[2], int32_t n
         x.shades = nullptr;
         x.g = 0;
         x.inside = 1;
+        mesh.dspNormals = dspAddress(mesh.normals);
+        mesh.dspSrc = dspAddress(mesh.src);
+        mesh.dspDst = dspAddress(mesh.out);
+        mesh.last = uncached(&mesh.out[mesh.count - 1].zg);
         gVertexCount += mesh.count;
+        gMeshEnds[m] = m + 1;
     }
 }
 
@@ -169,13 +186,19 @@ static void build()
     divTable[0] = 0xFFFF;
     uint8_t* p = gData;
     uint32_t seed = 0x2B7E1516;
-    int32_t m = 0;
+    int32_t m = 0, o = 0;
     add(p, seed, kLara, 15, m);
+    gObjectEnds[o++] = m;
     add(p, seed, kDoor, 1, m);
+    gObjectEnds[o++] = m;
     add(p, seed, kWolf, 26, m);
+    gObjectEnds[o++] = m;
     add(p, seed, kWolf, 26, m);
-    for (int32_t i = 0; i < 12; i++) {
+    gObjectEnds[o++] = m;
+    for (int32_t i = 0; i < 12; i++)
+    {
         add(p, seed, kPlank, 1, m);
+        gObjectEnds[o++] = m;
     }
 }
 
@@ -197,43 +220,7 @@ static void dropLines(const void* p, uint32_t bytes)
     }
 }
 
-static void meshLightLoad()
-{
-    static const uint32_t md0[8] = { 4, 0, 0x1FFF, 0x1F00, 0x1FFF, 0xFFFF, 0x8000, 0xFF000000 };
-    static const uint32_t md1[3] = { 0xFFFF, 0x8000, 256 };
-    static const uint32_t md3[4] = { 0xFFFF0000, 0xFFFF, 0, 4 };
-    dspLoad(meshlight_dsp, MESHLIGHT_DSP_COUNT);
-    dspWrite(0, 16, md0, 8);
-    dspWrite(1, 48, md1, 3);
-    dspWrite(3, 10, md3, 4);
-}
-
-static void startAt(const MeshLightJob* job)
-{
-    const uint32_t next = dspAddress(job);
-    dspWrite(3, 40, &next, 1);
-    dspStart(0);
-}
-
-static volatile uint32_t* sentinel(const Mesh& mesh)
-{
-    return uncached(&mesh.out[batches(mesh.count) * 8 - 1].zg);
-}
-
-// Job i written for mesh i, the slot after it ending the list, published.
-static void queue(int32_t i)
-{
-    const Mesh& mesh = gMeshes[i];
-    MeshLightJob& job = gJobs[i];
-    *sentinel(mesh) = SENTINEL;
-    writeXform(&job.xf, &mesh.xf);
-    job.normals = dspAddress(mesh.normals);
-    job.src = dspAddress(mesh.src);
-    job.dst = dspAddress(mesh.out);
-    gJobs[i + 1].batches = 0;
-    *(volatile uint32_t*)&job.batches = batches(mesh.count);
-}
-
+// The same vertices as the game's: each mesh's output, once projected.
 static bool exact(const Mesh& mesh, const Vertex* ref)
 {
     for (int32_t v = 0; v < mesh.count; v++)
@@ -270,18 +257,6 @@ static uint32_t sh2Vertices()
     return cycles() - t0;
 }
 
-// Every mesh's job, then the DSP's run with the master off the bus.
-static uint32_t dspAlone()
-{
-    for (int32_t i = 0; i < MESHES; i++) {
-        queue(i);
-    }
-    uint32_t t0 = cycles();
-    startAt(gJobs);
-    dspWaitQuietly();
-    return cycles() - t0;
-}
-
 // The DSP's output projected by the master.
 static uint32_t projectAlone()
 {
@@ -314,6 +289,64 @@ static uint32_t frameSh2()
     return cycles() - t0;
 }
 
+// The master's frame with the DSP: its time, and of it the time it waited
+// for the DSP's output.
+struct Frame
+{
+    uint32_t cycles, waiting;
+};
+
+// --- meshlight.dsp ------------------------------------------------------
+
+static void meshLightLoad()
+{
+    static const uint32_t md0[8] = { 4, 0, 0x1FFF, 0x1F00, 0x1FFF, 0xFFFF, 0x8000, 0xFF000000 };
+    static const uint32_t md1[3] = { 0xFFFF, 0x8000, 256 };
+    static const uint32_t md3[4] = { 0xFFFF0000, 0xFFFF, 0, 4 };
+    dspLoad(meshlight_dsp, MESHLIGHT_DSP_COUNT);
+    dspWrite(0, 16, md0, 8);
+    dspWrite(1, 48, md1, 3);
+    dspWrite(3, 10, md3, 4);
+}
+
+static void startAt(const MeshLightJob* job)
+{
+    const uint32_t next = dspAddress(job);
+    dspWrite(3, 40, &next, 1);
+    dspStart(0);
+}
+
+static volatile uint32_t* sentinel(const Mesh& mesh)
+{
+    return uncached(&mesh.out[batches(mesh.count) * 8 - 1].zg);
+}
+
+// Job i written for mesh i, the slot after it ending the list, published.
+static void queue(int32_t i)
+{
+    const Mesh& mesh = gMeshes[i];
+    MeshLightJob& job = gJobs[i];
+    *sentinel(mesh) = SENTINEL;
+    writeXform(&job.xf, &mesh.xf);
+    job.normals = dspAddress(mesh.normals);
+    job.src = dspAddress(mesh.src);
+    job.dst = dspAddress(mesh.out);
+    gJobs[i + 1].size = 0;
+    *(volatile uint32_t*)&job.size = batches(mesh.count);
+}
+
+// Every mesh's job, then the DSP's run with the master off the bus.
+static uint32_t dspAlone()
+{
+    for (int32_t i = 0; i < MESHES; i++) {
+        queue(i);
+    }
+    uint32_t t0 = cycles();
+    startAt(gJobs);
+    dspWaitQuietly();
+    return cycles() - t0;
+}
+
 // The next job the DSP hasn't finished, from first on (published up to end).
 static int32_t unfinished(int32_t first, int32_t end)
 {
@@ -323,20 +356,15 @@ static int32_t unfinished(int32_t first, int32_t end)
     return first;
 }
 
-struct Frame
-{
-    uint32_t cycles, waiting;
-};
-
-// A frame's meshes with the DSP: each mesh's job written and published, the
-// DSP started again if it had stopped, then the mesh before projected and
-// faced once the DSP is past it.
+// A frame's meshes with meshlight.dsp: each mesh's job written and
+// published, the DSP started again if it had stopped, then the mesh before
+// projected and faced once the DSP is past it.
 static Frame frameDsp()
 {
     Frame f = { 0, 0 };
     uint32_t* faces = gFaceStores;
     int32_t done = 0;      // the DSP is past every job before
-    gJobs[0].batches = 0;
+    gJobs[0].size = 0;
     uint32_t t0 = cycles();
     for (int32_t i = 0; i <= MESHES; i++)
     {
@@ -380,15 +408,131 @@ static Frame frameDsp()
     return f;
 }
 
-// The faces' stand-in for every mesh, the DSP running every job meanwhile or not.
+// --- meshlight2.dsp ------------------------------------------------------
+
+static void meshLight2Load(const uint32_t* program, int32_t count)
+{
+    static const uint32_t constants[][2] = {
+        { 4, 0xFFFF0000 }, { 9, 0xFFFF }, { 14, 0xFFFF0000 }, { 19, 0xFFFFFFFC },
+        { 21, 0xFFFFE000 }, { 22, 0x1F00 }, { 37, 65536 }, { 38, 256 },
+        { 39, 0xFF000000 }, { 40, 0xFFFF }, { 41, 0x8000 }, { 42, 4 }
+    };
+    dspLoad(program, count);
+    for (const auto& c : constants) {
+        dspWrite(0, c[0], &c[1], 1);
+    }
+    const uint32_t scratch = dspAddress(gScratch);
+    dspWrite(0, 51, &scratch, 1);
+}
+
+static void start2(int32_t i)
+{
+    const uint32_t job = dspAddress(gJobs + i);
+    dspWrite(0, 46, &job, 1);
+    dspStart(MESHLIGHT2_DSP_START);
+}
+
+// Job i written for mesh i, the slot after it ending the list, published.
+static void queue2(int32_t i)
+{
+    const Mesh& mesh = gMeshes[i];
+    MeshLightJob& job = gJobs[i];
+    *mesh.last = SENTINEL;
+    writeXform(&job.xf, &mesh.xf);
+    job.normals = mesh.dspNormals;
+    job.src = mesh.dspSrc;
+    job.dst = mesh.dspDst;
+    gJobs[i + 1].size = 0;
+    asm volatile("" ::: "memory");
+    *(volatile uint32_t*)&job.size = mesh.count;
+}
+
+// The DSP started again at the first job it hasn't done, if it has stopped
+// short of the jobs published (it ends at the first job of 0 it reads).
+static void keepRunning(int32_t first, int32_t queued)
+{
+    if (dspBusy())
+        return;
+    while (first < queued && *gMeshes[first].last != SENTINEL) {
+        first++;
+    }
+    if (first < queued) {
+        start2(first);
+    }
+}
+
+// Every mesh's job, then the DSP's run with the master off the bus.
+static uint32_t dspAlone2()
+{
+    for (int32_t i = 0; i < MESHES; i++) {
+        queue2(i);
+    }
+    uint32_t t0 = cycles();
+    start2(0);
+    dspWaitQuietly();
+    return cycles() - t0;
+}
+
+// A frame's meshes with meshlight2.dsp, fed a group of jobs at a time (each
+// group ends before ends[g]): the next group written and published, the DSP
+// kept running from the group's first job on, then this group's meshes
+// projected and faced as the DSP finishes them.
+static Frame frameDsp2(const int32_t* ends, int32_t groups)
+{
+    Frame f = { 0, 0 };
+    uint32_t* faces = gFaceStores;
+    int32_t queued = 0, m = 0;
+    gJobs[0].size = 0;
+    uint32_t t0 = cycles();
+    for (int32_t g = -1; g < groups; g++)
+    {
+        if (g + 1 < groups)
+        {
+            queue2(queued++);
+            keepRunning(m, queued);
+            if (queued < ends[g + 1])
+            {
+                while (queued < ends[g + 1]) {
+                    queue2(queued++);
+                }
+                keepRunning(m, queued);
+            }
+        }
+        for (; g >= 0 && m < ends[g]; m++)
+        {
+            Mesh& mesh = gMeshes[m];
+            if (*mesh.last == SENTINEL)
+            {
+                uint32_t w0 = cycles();
+                while (*mesh.last == SENTINEL)
+                {
+                    keepRunning(m, queued);
+                    kRegisters(16);
+                }
+                f.waiting += cycles() - w0;
+            }
+            dropLines(mesh.out, mesh.count * sizeof(Vertex));
+            meshProjectAsm(mesh.out, mesh.count, divTable);
+            kFaces(faces, mesh.faces);
+            faces += mesh.faces * 3;
+            cycles();
+        }
+    }
+    f.cycles = cycles() - t0;
+    dspWaitQuietly();
+    return f;
+}
+
+// The faces' stand-in for every mesh, meshlight2.dsp running every job
+// meanwhile or not.
 static uint32_t facesOnly(bool dsp)
 {
     if (dsp)
     {
         for (int32_t i = 0; i < MESHES; i++) {
-            queue(i);
+            queue2(i);
         }
-        startAt(gJobs);
+        start2(0);
     }
     uint32_t* faces = gFaceStores;
     uint32_t t0 = cycles();
@@ -402,6 +546,8 @@ static uint32_t facesOnly(bool dsp)
     dspWaitQuietly();
     return t;
 }
+
+// --- the page ------------------------------------------------------------
 
 static char* putMs(char* p, uint32_t cycles, int32_t width)
 {
@@ -427,19 +573,39 @@ static char* putMs(char* p, uint32_t cycles, int32_t width)
     return p;
 }
 
-static void row(Page& page, const char* name, uint32_t cycles, int32_t perVertex, const char* note)
+static void note(Page& page, char* line, char* p, const char* text)
 {
-    char line[64];
-    char* p = put(line, name);
-    p = pad(line, p, 22);
-    p = putMs(p, cycles, 6);
-    p = perVertex >= 0 ? putTenths(p, perVertex, 9) : pad(line, p, 37);
-    if (note)
+    if (text)
     {
         p = put(p, " ");
-        put(p, note);
+        put(p, text);
     }
     page.add(line);
+}
+
+// name, ms, SH-2 cycles a vertex
+static void row(Page& page, const char* name, uint32_t cycles, const char* ok)
+{
+    char line[64];
+    char* p = pad(line, put(line, name), 22);
+    p = putMs(p, cycles, 6);
+    p = putTenths(p, cycles * 10 / gVertexCount, 9);
+    note(page, line, p, ok);
+}
+
+// name, the master's work ms, its waits ms
+static void rowFrame(Page& page, const char* name, const Frame& f, const char* ok)
+{
+    char line[64];
+    char* p = pad(line, put(line, name), 22);
+    p = putMs(p, f.cycles - f.waiting, 6);
+    p = putMs(p, f.waiting, 8);
+    note(page, line, p, ok);
+}
+
+static const char* yes(bool ok)
+{
+    return ok ? "yes" : "NO";
 }
 
 void pageMeshes(Page& page)
@@ -450,25 +616,39 @@ void pageMeshes(Page& page)
     page.add("up to those sizes, wholly on the frame)");
     page.add("");
     build();
-    meshLightLoad();
 
-    page.add("                          ms a vertex ok");
-    uint32_t sh2 = sh2Vertices();
-    row(page, "SH-2 vertices (game's)", sh2, sh2 * 10 / gVertexCount, nullptr);
-    uint32_t dsp = dspAlone();
-    row(page, "DSP rotate+light alone", dsp, dsp * 10 / gVertexCount, nullptr);
+    page.add("vertices alone            ms a vertex ok");
+    row(page, "SH-2 (the game's)", sh2Vertices(), nullptr);
+    meshLightLoad();
+    uint32_t v1 = dspAlone();
+    projectAlone();
+    row(page, "DSP v1 rotate+light", v1, yes(allExact()));
+    meshLight2Load(meshlight2_dsp, MESHLIGHT2_DSP_COUNT);
+    uint32_t v2 = dspAlone2();
     uint32_t project = projectAlone();
-    row(page, "master projecting it", project, project * 10 / gVertexCount, allExact() ? "yes" : "NO");
+    row(page, "DSP v2 rotate+light", v2, yes(allExact()));
+    row(page, "master projecting it", project, nullptr);
+    meshLight2Load(meshlight2nodma_dsp, MESHLIGHT2NODMA_DSP_COUNT);
+    row(page, "v2, transfers skipped", dspAlone2(), nullptr);
 
     page.add("");
-    page.add("A frame's meshes: setup, vertices, faces");
-    uint32_t frame = frameSh2();
-    row(page, "  SH-2 alone", frame, -1, nullptr);
-    Frame withDsp = frameDsp();
-    row(page, "  with the DSP", withDsp.cycles, -1, allExact() ? "yes" : "NO");
-    row(page, "  of which waiting", withDsp.waiting, -1, nullptr);
-    row(page, "faces' stand-in alone", facesOnly(false), -1, nullptr);
-    row(page, "  beside the DSP", facesOnly(true), -1, nullptr);
+    page.add("a frame's meshes, ms    work    wait ok");
+    Frame sh2 = { frameSh2(), 0 };
+    rowFrame(page, "SH-2 alone", sh2, nullptr);
+    meshLightLoad();
+    Frame f = frameDsp();
+    rowFrame(page, "v1, a mesh ahead", f, yes(allExact()));
+    meshLight2Load(meshlight2_dsp, MESHLIGHT2_DSP_COUNT);
+    f = frameDsp2(gMeshEnds, MESHES);
+    rowFrame(page, "v2, a mesh ahead", f, yes(allExact()));
+    f = frameDsp2(gObjectEnds, OBJECTS);
+    rowFrame(page, "v2, an object ahead", f, yes(allExact()));
+    f = frameDsp2(kFrameEnd, 1);
+    rowFrame(page, "v2, the frame ahead", f, yes(allExact()));
+    Frame faces = { facesOnly(false), 0 };
+    rowFrame(page, "faces' stand-in alone", faces, nullptr);
+    faces.cycles = facesOnly(true);
+    rowFrame(page, "  beside DSP v2", faces, nullptr);
     page.add("");
     page.add("(ok: the same vertices as the game's)");
 }

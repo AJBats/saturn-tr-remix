@@ -176,6 +176,8 @@ $(BENCH)/gen/%.dsp: dspbench/gen_%.py dspbench/dspsched.py
 	@mkdir -p $(@D)
 	$(PY) $< $@
 
+$(BENCH)/gen/meshlight2nodma.dsp: dspbench/meshlight2.dsp
+
 $(BENCH)/gen/%_dsp.h: $(BENCH)/gen/%.dsp tools/dspasm.py
 	$(PY) tools/dspasm.py $< $@ $*_dsp
 
