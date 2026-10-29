@@ -25,6 +25,7 @@ void pageBus(Page& page);
 void pageArithmetic(Page& page);
 void pageStream(Page& page);
 void pageBanks(Page& page);
+void pageMeshes(Page& page);
 
 // The CPUs' loads (kernels.s).
 extern "C" void kReadLines(const void* p, uint32_t n);

@@ -152,7 +152,7 @@ $(eval $(call DISC_RULE,$(BUILD),$(GAME_DISC)))
 # The SCU DSP benchmark (dspbench/bench.cpp): a program of its own, on a disc
 # of its own: make dspbench
 BENCH := build/dspbench
-BENCH_SRC := $(wildcard dspbench/*.cpp dspbench/*.s) saturn/font.cpp saturn/dsp.cpp
+BENCH_SRC := $(wildcard dspbench/*.cpp dspbench/*.s) saturn/font.cpp saturn/dsp.cpp saturn/meshxform.s
 BENCH_DSP := $(patsubst dspbench/%.dsp,$(BENCH)/gen/%_dsp.h,$(wildcard dspbench/*.dsp))
 # and those dspbench/gen_NAME.py writes
 BENCH_DSP += $(patsubst dspbench/gen_%.py,$(BENCH)/gen/%_dsp.h,$(wildcard dspbench/gen_*.py))

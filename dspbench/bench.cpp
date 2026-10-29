@@ -11,6 +11,9 @@
 // back, its transfers waited for or overlapped, and what they cost the CPUs.
 // Page 4, the DSP's banks (page_banks.cpp): whether its program waits on a
 // bank its DMA is using.
+// Page 5, the game's meshes (page_meshes.cpp): a frame's worth of the master's
+// meshes at the ledge, on the SH-2 as the game does them and with the DSP
+// rotating and lighting them.
 
 #include "bench.h"
 #include "dsp.h"
@@ -87,7 +90,7 @@ static void waitVblank()
     while (!(VDP2_TVSTAT & TVSTAT_VBLANK));
 }
 
-static Page gPages[4];
+static Page gPages[5];
 
 int main()
 {
@@ -99,6 +102,7 @@ int main()
     pageArithmetic(gPages[1]);
     pageStream(gPages[2]);
     pageBanks(gPages[3]);
+    pageMeshes(gPages[4]);
 
     while (1)
     {
