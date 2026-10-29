@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crunch Lab</title>
+<style>
+:root {
+  --bg: #f4f3ef; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a65; --line: #dddbd3;
+  --accent: #b4462a; --accent2: #2a6db4; --faint: #c9c6bb; --chip: #ecebe6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161614; --panel: #201f1c; --ink: #ecebe6; --muted: #9a988f; --line: #34332e;
+    --accent: #e0714f; --accent2: #6aa5e8; --faint: #4a4943; --chip: #2a2925;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161614; --panel: #201f1c; --ink: #ecebe6; --muted: #9a988f; --line: #34332e;
+  --accent: #e0714f; --accent2: #6aa5e8; --faint: #4a4943; --chip: #2a2925;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { padding: 18px 20px 6px; }
+h1 { font-size: 20px; margin: 0 0 2px; font-weight: 650; }
+.sub { color: var(--muted); }
+.bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 10px 20px;
+       position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--line); z-index: 2; }
+.bar label { color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+button, select { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+                 border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button.on { border-color: var(--accent); color: var(--accent); }
+input[type=range] { width: 260px; accent-color: var(--accent); }
+.frameno { font-variant-numeric: tabular-nums; min-width: 64px; }
+.panels { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px 20px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.panel .head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.panel .tag { font-weight: 700; width: 20px; color: var(--muted); }
+.screen { background-repeat: no-repeat; image-rendering: pixelated; image-rendering: crisp-edges; background-color: #000; }
+.stats { display: flex; gap: 14px; margin-top: 8px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.stats b { color: var(--ink); font-weight: 600; }
+.about { margin-top: 4px; font-size: 12px; color: var(--muted); max-width: 704px; }
+section { padding: 4px 20px 20px; }
+h2 { font-size: 15px; margin: 14px 0 8px; }
+table { border-collapse: collapse; width: 100%; max-width: 1100px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; }
+td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.pick { cursor: pointer; }
+tr.pick:hover td { background: var(--chip); }
+.chartbox { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; max-width: 1100px; }
+svg text { fill: var(--muted); font-size: 11px; }
+.note { color: var(--muted); font-size: 12px; max-width: 1100px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Crunch Lab</h1>
+  <div class="sub" id="sub"></div>
+</header>
+<div class="bar">
+  <button id="play">Play</button>
+  <input type="range" id="frame" min="0" value="0">
+  <span class="frameno" id="frameno"></span>
+  <label>Speed <select id="speed"><option value="30">30 fps</option><option value="15">15 fps</option><option value="5">5 fps</option><option value="1">1 fps</option></select></label>
+  <label>Zoom <select id="zoom"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></label>
+  <label>Show <select id="mode"><option value="pic">Picture</option><option value="flicker">Flicker against the reference</option><option value="error">Error against the reference</option></select></label>
+  <label><input type="checkbox" id="bounce"> Back and forth</label>
+</div>
+<div class="panels" id="panels"></div>
+<section>
+  <h2>Per frame</h2>
+  <div class="chartbox">
+    <label class="note">Measure <select id="metric"><option value="flicker">Flicker</option><option value="corner">Corner error, 99th percentile (px)</option><option value="wobble">Vertex wobble, 95th percentile (px)</option><option value="vdp1_ms">VDP1 ms</option><option value="error">Error</option></select></label>
+    <svg id="chart" width="100%" height="220" viewBox="0 0 1080 220" preserveAspectRatio="none"></svg>
+  </div>
+  <h2>All variants</h2>
+  <table id="table"></table>
+  <p class="note">Flicker: mean change of a frame from the last, less the reference's change, in luminance (0 to 255): what moves on screen that the scene doesn't. Error: mean difference from the reference, still or not. Corner error: how far the room corners on screen land from where an exact projection puts them, the 99th percentile (whole pixels alone allow up to 1.41). Vertex wobble: how much a room corner's offset from its exact position changes from one frame to the next, in pixels, the 95th percentile of the corners on screen (whole-pixel corners alone reach about 1 px). VDP1 ms: the rooms' drawing time with the calibrated Saturn costs (a 30 fps frame is 33.4 ms; the rooms alone, without Lara or objects). Click a row to show it in panel B.</p>
+</section>
+<script>
+const RUN = /*RUN_JSON*/null;
+const W = RUN.width, H = RUN.height, N = RUN.frames;
+const names = ['ref', ...RUN.variants];
+const title = n => n === 'ref' ? 'Reference (filtered, perspective-correct)' : RUN.results[n].title;
+let frame = 0, playing = false, dir = 1, timer = null;
+let picks = [RUN.variants[0], RUN.variants[1] || 'ref', 'ref'];
+const $ = id => document.getElementById(id);
+$('sub').textContent = `${RUN.capture}: ${RUN.path_title}, ${N} frames. Rooms only, drawn with Mednafen's VDP1 code.`;
+$('frame').max = N - 1;
+
+function mean(a) { const v = a.filter(x => x !== null); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : 0; }
+
+function buildPanels() {
+  const box = $('panels'); box.innerHTML = '';
+  picks.forEach((p, i) => {
+    const d = document.createElement('div'); d.className = 'panel';
+    const opts = names.map(n => `<option value="${n}" ${n === p ? 'selected' : ''}>${title(n)}</option>`).join('');
+    d.innerHTML = `<div class="head"><span class="tag">${'ABC'[i]}</span><select data-i="${i}">${opts}</select></div>
+      <div class="screen" id="scr${i}"></div><div class="stats" id="st${i}"></div><div class="about" id="ab${i}"></div>`;
+    box.appendChild(d);
+  });
+  box.querySelectorAll('select').forEach(s => s.onchange = e => { picks[+e.target.dataset.i] = e.target.value; draw(); chart(); });
+}
+
+function draw() {
+  const z = +$('zoom').value, mode = $('mode').value;
+  picks.forEach((p, i) => {
+    const el = $('scr' + i);
+    const sheet = p === 'ref' || mode === 'pic' ? p : `${p}.${mode}`;
+    el.style.width = W * z + 'px'; el.style.height = H * z + 'px';
+    el.style.backgroundImage = `url("${sheet}.png")`;
+    el.style.backgroundSize = `${W * z}px ${H * N * z}px`;
+    el.style.backgroundPosition = `0 ${-frame * H * z}px`;
+    const st = $('st' + i), ab = $('ab' + i);
+    if (p === 'ref') { st.innerHTML = ''; ab.textContent = 'Each quad as two triangles, perspective-correct, trilinear-filtered textures, 4x4 samples a pixel, a depth buffer; the same additive lighting.'; return; }
+    const r = RUN.results[p];
+    const f = r.flicker[frame];
+    st.innerHTML = `<span>VDP1 <b>${r.vdp1_ms[frame].toFixed(2)}</b> ms</span><span>flicker <b>${f === null ? '–' : f.toFixed(2)}</b></span><span>corner <b>${r.corner[frame].toFixed(2)}</b> px</span><span>wobble <b>${r.wobble[frame] === null ? '–' : r.wobble[frame].toFixed(2)}</b> px</span><span>error <b>${r.error[frame].toFixed(2)}</b></span>
+      <span>mean: ${mean(r.vdp1_ms).toFixed(2)} ms, flicker ${mean(r.flicker).toFixed(2)}</span>`;
+    ab.textContent = r.about;
+  });
+  $('frame').value = frame;
+  $('frameno').textContent = `${frame + 1} / ${N}`;
+  const cur = document.getElementById('cursor');
+  if (cur) { const x = 40 + frame * (1030 / Math.max(1, N - 1)); cur.setAttribute('x1', x); cur.setAttribute('x2', x); }
+}
+
+function chart() {
+  const m = $('metric').value, svg = $('chart');
+  const all = RUN.variants.flatMap(n => RUN.results[n][m].filter(x => x !== null));
+  const hi = Math.max(...all, 1e-6) * 1.08, lo = Math.min(0, ...all);
+  const X = i => 40 + i * (1030 / Math.max(1, N - 1)), Y = v => 200 - (v - lo) / (hi - lo) * 185;
+  let s = `<line x1="40" y1="200" x2="1070" y2="200" stroke="var(--line)"/>`;
+  for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; s += `<text x="2" y="${Y(v) + 4}">${v.toFixed(v < 10 ? 1 : 0)}</text><line x1="40" x2="1070" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)" stroke-dasharray="2 4"/>`; }
+  RUN.variants.forEach(n => {
+    const d = RUN.results[n][m].map((v, i) => v === null ? null : `${X(i)},${Y(v)}`).filter(Boolean).join(' ');
+    const k = picks.indexOf(n), col = k === 0 ? 'var(--accent)' : k === 1 ? 'var(--accent2)' : 'var(--faint)';
+    s += `<polyline points="${d}" fill="none" stroke="${col}" stroke-width="${k >= 0 && k < 2 ? 2.2 : 1}"><title>${title(n)}</title></polyline>`;
+  });
+  s += `<line id="cursor" x1="${X(frame)}" x2="${X(frame)}" y1="10" y2="200" stroke="var(--muted)"/>`;
+  svg.innerHTML = s;
+}
+
+function table() {
+  let s = '<tr><th>Variant</th><th>What it changes</th><th class="n">VDP1 ms (mean / max)</th><th class="n">Flicker</th><th class="n">Corner (px)</th><th class="n">Wobble (px)</th><th class="n">Error</th></tr>';
+  RUN.variants.forEach(n => {
+    const r = RUN.results[n];
+    s += `<tr class="pick" data-n="${n}"><td><b>${r.title}</b></td><td>${r.about}</td><td class="n">${mean(r.vdp1_ms).toFixed(2)} / ${Math.max(...r.vdp1_ms).toFixed(2)}</td><td class="n">${mean(r.flicker).toFixed(2)}</td><td class="n">${mean(r.corner).toFixed(2)}</td><td class="n">${mean(r.wobble).toFixed(3)}</td><td class="n">${mean(r.error).toFixed(2)}</td></tr>`;
+  });
+  $('table').innerHTML = s;
+  $('table').querySelectorAll('tr.pick').forEach(tr => tr.onclick = () => { picks[1] = tr.dataset.n; buildPanels(); draw(); chart(); });
+}
+
+function tick() {
+  frame += dir;
+  if (frame >= N) { if ($('bounce').checked) { dir = -1; frame = N - 2; } else frame = 0; }
+  if (frame < 0) { dir = 1; frame = 1; }
+  draw();
+}
+function setPlay(on) {
+  playing = on; $('play').textContent = on ? 'Pause' : 'Play'; $('play').classList.toggle('on', on);
+  clearInterval(timer); if (on) timer = setInterval(tick, 1000 / +$('speed').value);
+}
+$('play').onclick = () => setPlay(!playing);
+$('speed').onchange = () => setPlay(playing);
+$('frame').oninput = e => { frame = +e.target.value; draw(); };
+['zoom', 'mode'].forEach(id => $(id).onchange = draw);
+$('metric').onchange = chart;
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT') return;
+  if (e.key === ' ') { e.preventDefault(); setPlay(!playing); }
+  if (e.key === 'ArrowRight') { frame = Math.min(N - 1, frame + 1); draw(); }
+  if (e.key === 'ArrowLeft') { frame = Math.max(0, frame - 1); draw(); }
+});
+buildPanels(); table(); chart(); draw();
+</script>
+</body>
+</html>
