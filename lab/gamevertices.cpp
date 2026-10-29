@@ -33,11 +33,6 @@ struct RoomXform
     int32_t count;
 };
 
-struct MeshVertex
-{
-    int16_t x, y, z;
-};
-
 struct MeshXform
 {
     int16_t rows[9];

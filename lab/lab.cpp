@@ -9,6 +9,10 @@
 // master's draws' (meshxform.s), each set up as the game sets it up, checked
 // against the vertices the game drew with.
 //
+// Stage 2 the new way (vertices.h): the CPU's projection of the vertices
+// the DSP rotated (vertexModel standing in for it), checked against the
+// game's.
+//
 // Stage 3, faces to VDP1 commands, the game's way (game.h): the master's
 // draws' faces (faces.s), the rooms' (faces.s and the C it calls), then flush
 // (flush.s and the C it calls), on the master alone and split with the slave
@@ -26,6 +30,7 @@
 #include "lab.h"
 #include "faces.h"
 #include "game.h"
+#include "vertices.h"
 #include "hw.h"
 
 #include <string.h>
@@ -73,6 +78,11 @@ struct LabResults
     int32_t vertsBad;           // vertices not the game's
     int32_t roomVertices;       // the rooms' vertices
     int32_t meshVertices;       // the draws'
+    uint32_t newVertsRooms;     // cycles: stage 2 the new way, the rooms' projection
+    int32_t newVertsBad;        // vertices not the game's
+    uint32_t newVertsMeshes;    // ... the draws' projection and shades
+    int32_t newVertsSeldom;     // the meshes' vertices not the game's projected as though none lay
+                                // inside the frame, or each worked out at the near plane
 };
 
 extern "C" LabResults gLab;
@@ -232,6 +242,22 @@ static void stageTwo()
     gameVerticesRooms();
     gameVerticesMeshes();
     gLab.vertsBad = gameVerticesCheck(gLab.roomVertices, gLab.meshVertices);
+}
+
+static void stageTwoNew()
+{
+    verticesInit();
+    gLab.newVertsRooms = measure([] { gameVerticesPrepare(); vertexModel(); }, [] { verticesRooms(); });
+    gLab.newVertsMeshes = measure([] { gameVerticesPrepare(); vertexModel(); }, [] { verticesMeshes(); });
+    gameVerticesPrepare();
+    vertexModel();
+    verticesRooms();
+    verticesMeshes();
+    int32_t rooms, meshes;
+    gLab.newVertsBad = gameVerticesCheck(rooms, meshes);
+    gameVerticesPrepare();
+    vertexModel();
+    gLab.newVertsSeldom = verticesFallbacksCheck(sceneArray<const Vertex>("VERT"));
 }
 
 static void stageThree()
@@ -708,8 +734,22 @@ static void newPage()
     putNumber(p, gLab.roomCommands, 5);
     page.add(line);
     page.add("");
-    page.add("STAGE 3, FACES TO COMMANDS: THE NEW WAY");
+    page.add("STAGE 2, VERTICES: THE NEW WAY");
     page.add("master, run alone     ms  cycles a");
+    timeRow(page, "rooms: game's", gLab.vertsRooms, gLab.roomVertices, "vertex");
+    timeRow(page, "  projected", gLab.newVertsRooms, gLab.roomVertices, "vertex");
+    timeRow(page, "meshes: game's", gLab.vertsMeshes, gLab.meshVertices, "vertex");
+    timeRow(page, "  projected", gLab.newVertsMeshes, gLab.meshVertices, "vertex");
+    p = put(line, "vertices ");
+    p = put(p, gLab.newVertsBad ? "OFF" : "exact");
+    p = put(p, " (");
+    p = putNumber(p, gLab.newVertsBad, 0);
+    p = put(p, " off), seldom paths");
+    p = putNumber(p, gLab.newVertsSeldom, 2);
+    put(p, " off");
+    page.add(line);
+    page.add("");
+    page.add("STAGE 3, FACES TO COMMANDS: THE NEW WAY");
     timeRow(page, "draws: game's", gLab.facesMeshes + gLab.meshFlush, gLab.meshCommands, "command");
     timeRow(page, "  new", gLab.newMeshes, gLab.meshCommands, "command");
     timeRow(page, "rooms: game's", gLab.facesRooms + gLab.roomFlush, gLab.roomCommands, "command");
@@ -870,6 +910,7 @@ int main()
     gameInit();
 
     stageTwo();
+    stageTwoNew();
     stageThree();
     stageFloor();
 

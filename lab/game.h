@@ -65,6 +65,11 @@ struct RoomVertex
     uint8_t x, y, z, g;
 };
 
+struct MeshVertex
+{
+    int16_t x, y, z;
+};
+
 struct MeshQuad
 {
     uint16_t flags;
