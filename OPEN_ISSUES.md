@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-233 | Rendering: the new renderer's open work |
+| 219-234 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3517,6 +3517,8 @@ to win (estimated) · Fix: medium*
 
 - Each drawn node's 48 bytes are copied to its draw's slot, and a node that
   pushes copies 48 bytes onto the stack.
+- Worth more on the Saturn: the new pose runs ×1.38 its Mednafen time there
+  (1.65 ms), the new light, which writes little, ×1.17.
 - **Fix:** at the whole-frame step, write the matrices straight into the mesh
   jobs the feed builds for the DSP (`lab/meshfeed.s`), which removes the copy.
   Failing that, build each node from its parent in its own slot, with a stack
@@ -3565,6 +3567,10 @@ built · Fix: medium*
 - The DSP turns the rooms and then the meshes: 2.29 + 0.06 + ~4.7 ms, longer
   than either CPU's work. Meshes packed as the level keeps them cost +31% DSP
   time against the bench's v3 layout, which would have grown RAM.
+- On the Saturn (19bcbaf) the CPUs' traffic slows the DSP more than Mednafen
+  shows: alone rooms 2.32 + meshes 4.47 ms; with both CPUs at work 2.78 +
+  0.07 + 5.45, 8.30 of stage 2's 8.50 (meshes +22%, Mednafen ~+10%). In the
+  whole frame the CPUs are the longer lane (~19 ms).
 - **Levers:** load the mesh program without the CPU's hand-off; start the DSP
   earlier, overlapping pose or the previous frame's end.
 
@@ -3583,15 +3589,6 @@ built · Fix: medium*
 Fix: small*
 
 - `lab/faces.cpp` facesOther. The rest of the stage is assembly.
-
-### 228. Stage 2, stages 2+3 together and pose have no Saturn numbers yet
-*Kind: coverage · Fix: small*
-
-- Only stage 3 has been timed on the Saturn (31.2 → 21.0 ms, one CPU). The lab
-  on the card has stage 2, stages 2+3 together and both ways of pose; photos of
-  its pages give the hardware figures.
-- Mednafen slows the DSP while both CPUs work (meshes 4.27 ms alone, ~4.7
-  together). The Saturn may differ.
 
 ### 229. Vertices near the camera jitter from the divide table
 *Kind: look · Size: corner error p99 1.93 → 1.31 px with an exact divide
@@ -3643,6 +3640,20 @@ Fix: small*
   the room chunks are, their faces into its own list of buckets, kept in the
   game's order by the join.
 
+### 234. On the Saturn the slave idles 1.32 ms of the frame
+*Kind: speed · Size: up to ~0.7 ms at the ledge on the Saturn (measured
+19bcbaf; Mednafen shows 0.19) · Fix: small once found*
+
+- The frame (stages 1-3 together) on the Saturn: master 20.83 ms work + 0.27
+  waits, slave 19.35 + 1.32. Mednafen, same build: master 16.11 + 0.35, slave
+  16.00 + 0.19.
+- Where the slave waits on the hardware isn't known yet: for the DSP's first
+  room (the DSP runs slower on the Saturn with both CPUs busy, issue 225) or
+  at the end. The frame's plan prices pose, light and the DSP in Mednafen's
+  cycles, and the new pose costs ×1.38 on the Saturn.
+- **Fix:** find the wait (the frame trace on the Saturn), then price the plan
+  from the Saturn's figures.
+
 ---
 
 ## Decisions needed before fixing
@@ -3665,5 +3676,19 @@ Fix: small*
 
 ## Closed
 
-(None yet. Move an issue here when it's fixed, with its commit.)
+### 228. Stage 2, stages 2+3 together and pose have no Saturn numbers yet
+*Closed 2026-10-30: measured on the Saturn, 19bcbaf on the card (ledge)*
+
+- Every check exact on the hardware: pose, light, statics and shadows (made-up
+  passes too), stage 2's vertices, the new list, stages 2+3 together, the
+  frame's transforms. Both lists draw the same frame on the TV.
+- The game's way, one CPU: pose 2.56 ms, light 1.25, statics and shadows
+  0.44, rooms seen 0.66; stage 2 21.64; stage 3 31.11; stages 1-3 57.00
+  (Mednafen 50.31).
+- The new way: pose 1.65, light 0.75, statics and shadows 0.23; stage 2
+  together 8.50 (Mednafen 7.21); stages 2+3 together 19.28 (15.62); the frame
+  so far 21.10 (16.46).
+- Saturn ÷ Mednafen: the game's code ×1.09-1.27, the new code ×1.17-1.5
+  (writes cost more on the hardware), the frame ×1.28. Findings filed under
+  225, 220 and 234.
 
