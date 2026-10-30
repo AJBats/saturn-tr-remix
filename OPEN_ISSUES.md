@@ -1531,6 +1531,26 @@ AI-17*
 
 - **Ours:** `openlara/enemy.h:1581` sets 40.
 - **Effect:** pumas in Khamoon and the Obelisk die one magnum shot early.
+- **Checked:** the puma is the only difference. The hit points the Saturn's
+  object setup (`0602cf08`) writes at OBJECT_INFO +0x26 match ours for every
+  other creature:
+
+  | Creature | HP | Creature | HP |
+  |---|---|---|---|
+  | wolf | 6 | bear | 20 |
+  | bat | 1 | crocodile, alligator | 20 |
+  | lion | 30 | lioness | 25 |
+  | gorilla | 22 | rat, water rat | 5 |
+  | T-rex | 100 | raptor | 20 |
+  | mutant | 50 | centaur | 120 |
+  | mummy | 18 | Larson | 50 |
+  | Pierre | 70 | skater | 125 |
+  | cowboy | 150 | Kold | 200 |
+  | Natla | 400 | torso | 500 |
+  | doppelganger | 1000 | | |
+
+- **Damage:** the retail weapon table at `0x06062814` gives 1 (pistols), 2
+  (magnums), 1 (Uzis) and 4 per shotgun pellet. These match ours too.
 
 ### 93. The bear never eats Lara's body
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-21*
