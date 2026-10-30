@@ -961,3 +961,463 @@ _poseAsm:
     .align  2
 .Lzero_:    .long   .Lzero
 .Lzero:     .long   0, 0        ! ZERO_POS
+
+! --- the items' light ------------------------------------------------------
+!
+! void poseLightAsm(const PoseItem* items, int32 count, PoseContext* ctx)
+!
+! Each item's as draw.h drawModel sets it before its nodes, to ctx->lit by
+! item. Its depth for the fog: the view's third row times its place from the
+! camera (matrixTranslateAbs). Lit by its own intensity (calcLightingStatic),
+! or by its room's brightest light at its first frame's box centre turned as
+! the item (calcLightingDynamic at getRelative: an identity turned by .Lrot).
+! The divides on the SH-2's divider, but for a divisor of 0 or -1 (it
+! overflows on x / 0 and on -2^31 / -1): those by libgcc's __sdivsi3, as the
+! game divides. An arithmetic
+! shift right by n is the high longword of the value times 2^(32 - n)
+! (DMULS.L), exact for any longword as C's.
+!
+! PoseLight (scene.h): +0 roomX, +2 roomZ, +4 intensity, +5 ambient, +6
+! lights, +8 first; 12 bytes. Light: int16 x y z, radius, intensity; 8.
+! PoseLit (pose.h): +0 ambient, +4 range, +8 view (int16 x y z); 16.
+!
+! Registers: GBR the context, r14 the light's scratch (L_*), r13 the sines
+! (a temporary in the light loop), r12 lights left, r11 the next PoseLit,
+! r10 the item, r9 its PoseLight, r8 the next light.
+
+    .equ    C_LIGHT,        112
+    .equ    C_ROOMS,        176
+    .equ    C_LIGHTS,       180
+    .equ    C_LIT,          184
+    .equ    L_VIEW,         0       ! the light's direction in the view, kept from item to item
+    .equ    L_PX,           8       ! the point lit
+    .equ    L_DX,           20      ! the brightest light from it
+    .equ    L_RX,           32      ! the room's place << 8
+    .equ    L_RZ,           36
+    .equ    L_AMBIENT,      40      ! 8191 - the room's ambient << 5
+    .equ    L_MAX,          44      ! the brightest yet
+    .equ    L_FOG,          48      ! the item's depth
+    .equ    P_INTENSITY,    4
+    .equ    P_AMBIENT,      5
+    .equ    P_LIGHTS,       6
+    .equ    P_FIRST,        8
+    .equ    POSE_LIGHT,     12
+    .equ    LIT,            16
+
+! v >> n, arithmetic: k = 2^(32 - n)
+    .macro  SAR v, k
+    dmuls.l \v, \k
+    sts     mach, \v
+    .endm
+
+! dividend / divisor (C's int division, toward 0) into the dividend's
+! register; r0 r6, and where libgcc divides r1 r2 r3 kept
+    .macro  DIVIDE dividend, divisor
+    mov     \divisor, r0
+    tst     r0, r0
+    bt      1f
+    cmp/eq  #-1, r0
+    bt      1f
+    mov     #-1, r6
+    shll8   r6                  ! DVSR at 0xFFFFFF00, DVDNT at +4
+    mov.l   \divisor, @r6
+    mov.l   \dividend, @(4,r6)
+    bra     2f
+    mov.l   @(4,r6), \dividend
+1:  mov.l   r1, @-r15
+    mov.l   r2, @-r15
+    mov.l   r3, @-r15
+    mov.l   r4, @-r15
+    mov.l   r5, @-r15
+    mov     \dividend, r4
+    mov     r0, r5
+    mov.l   .Lsdiv_\@, r0
+    jsr     @r0
+    nop
+    mov     r0, r6
+    mov.l   @r15+, r5
+    mov.l   @r15+, r4
+    mov.l   @r15+, r3
+    mov.l   @r15+, r2
+    mov.l   @r15+, r1
+    bra     2f
+    mov     r6, \dividend
+    .align  2
+.Lsdiv_\@:  .long   ___sdivsi3
+2:
+    .endm
+
+    .global _poseLightAsm
+_poseLightAsm:
+    mov.l   r8, @-r15
+    mov.l   r9, @-r15
+    mov.l   r10, @-r15
+    mov.l   r11, @-r15
+    mov.l   r12, @-r15
+    mov.l   r13, @-r15
+    mov.l   r14, @-r15
+    sts.l   pr, @-r15
+    stc.l   gbr, @-r15
+    ldc     r6, gbr
+    mov     r4, r10
+    mov.l   @(C_ROOMS,gbr), r0
+    mov     r0, r9
+    mov.l   @(C_LIT,gbr), r0
+    mov     r0, r11
+    mov     r5, r0
+    tst     r0, r0
+    bf/s    .Llitem
+    mov.l   r0, @(C_LEFT,gbr)
+    bra     .Llitdone
+    nop
+
+.Llitem:
+    stc     gbr, r14
+    add     #C_LIGHT, r14
+    ! the depth: the view's third row times the place from the camera, >> 14
+    mov.l   @(C_STACK,gbr), r0
+    mov     r0, r1
+    mov.l   @(I_POS,r10), r2
+    mov.l   @(C_CAMERA,gbr), r0
+    sub     r0, r2
+    mov.l   @(I_POS+4,r10), r3
+    mov.l   @(C_CAMERA+4,gbr), r0
+    sub     r0, r3
+    mov.l   @(I_POS+8,r10), r4
+    mov.l   @(C_CAMERA+8,gbr), r0
+    sub     r0, r4
+    mov.l   @(32,r1), r5
+    mul.l   r5, r2
+    mov.l   @(36,r1), r5
+    sts     macl, r6
+    mul.l   r5, r3
+    mov.l   @(40,r1), r5
+    sts     macl, r7
+    mul.l   r5, r4
+    add     r7, r6
+    sts     macl, r7
+    add     r7, r6
+    mov.l   .L2p18, r7
+    SAR     r6, r7
+    mov.l   r6, @(L_FOG,r14)
+    ! lit by its own intensity
+    mov.b   @(P_INTENSITY,r9), r0
+    extu.b  r0, r4
+    shll2   r4
+    shll2   r4
+    shll    r4
+    tst     r4, r4
+    bt      .Ldynamic
+    mov.l   .L4096, r1
+    sub     r1, r4
+    mov     #0, r5
+    mov.l   .L8191, r6
+    bra     .Lfog
+    nop
+
+.Ldynamic:
+    ! getRelative: an identity turned by the item's angles
+    mov.l   @(C_STACK,gbr), r0
+    add     #MATRIX, r0
+    mov     #64, r2
+    shll8   r2
+    mov     #0, r3
+    mov.l   r2, @(0,r0)
+    mov.l   r3, @(4,r0)
+    mov.l   r3, @(8,r0)
+    mov.l   r3, @(16,r0)
+    mov.l   r2, @(20,r0)
+    mov.l   r3, @(24,r0)
+    mov.l   r3, @(32,r0)
+    mov.l   r3, @(36,r0)
+    mov.l   r2, @(40,r0)
+    mov     r14, r8
+    mov     r0, r14
+    mov.l   @(0,gbr), r0
+    mov     r0, r13
+    mov     r10, r7
+    add     #I_ANGLE, r7
+    mov.w   @r7, r5
+    ANGLE   r5
+    mov.w   @(2,r7), r0
+    mov     r0, r4
+    ANGLE   r4
+    mov.w   @(4,r7), r0
+    mov     r0, r6
+    ANGLE   r6
+    bsr     .Lrot
+    nop
+    mov     r14, r1
+    mov     r8, r14
+    ! its first frame's box centre
+    mov.l   @(C_FRAMES,gbr), r0
+    mov.l   @(I_FRAME_A,r10), r2
+    add     r0, r2
+    mov.w   @r2+, r3
+    mov.w   @r2+, r4
+    add     r3, r4
+    shar    r4
+    mov.w   @r2+, r3
+    mov.w   @r2+, r5
+    add     r3, r5
+    shar    r5
+    mov.w   @r2+, r3
+    mov.w   @r2+, r6
+    add     r3, r6
+    shar    r6
+    ! the point lit: the place plus the turned centre >> 14
+    mov.l   .L2p18, r7
+    .irp    k, 0, 4, 8
+    mov.l   @(\k*4,r1), r0
+    mul.l   r0, r4
+    mov.l   @(\k*4+4,r1), r0
+    sts     macl, r2
+    mul.l   r0, r5
+    mov.l   @(\k*4+8,r1), r0
+    sts     macl, r3
+    mul.l   r0, r6
+    add     r3, r2
+    sts     macl, r3
+    add     r3, r2
+    SAR     r2, r7
+    mov.l   @(I_POS+\k,r10), r3
+    add     r3, r2
+    mov.l   r2, @(L_PX+\k,r14)
+    .endr
+
+    ! the room's ambient, and its brightest light
+    mov.b   @(P_AMBIENT,r9), r0
+    extu.b  r0, r4
+    shll2   r4
+    shll2   r4
+    shll    r4
+    mov.b   @(P_LIGHTS,r9), r0
+    extu.b  r0, r12
+    mov.l   .L8191, r6
+    tst     r12, r12
+    bf/s    1f
+    mov     #0, r5
+    bra     .Lfog
+    nop
+1:  sub     r4, r6
+    mov.l   r6, @(L_AMBIENT,r14)
+    mov     #0, r0
+    mov.l   r0, @(L_MAX,r14)
+    mov.l   r0, @(L_DX,r14)
+    mov.l   r0, @(L_DX+4,r14)
+    mov.l   r0, @(L_DX+8,r14)
+    mov.w   @r9, r0
+    shll8   r0
+    mov.l   r0, @(L_RX,r14)
+    mov.w   @(2,r9), r0
+    shll8   r0
+    mov.l   r0, @(L_RZ,r14)
+    mov.l   @(P_FIRST,r9), r8
+    shll2   r8
+    shll    r8
+    mov.l   @(C_LIGHTS,gbr), r0
+    add     r0, r8
+    mov.l   .L2p20, r7
+.Llight:
+    mov.w   @r8+, r1
+    mov.w   @r8+, r2
+    mov.w   @r8+, r3
+    mov.b   @r8+, r4
+    mov.b   @r8+, r5
+    extu.b  r4, r4
+    extu.b  r5, r5
+    mov.l   @(L_RX,r14), r0
+    add     r0, r1
+    mov.l   @(L_RZ,r14), r0
+    add     r0, r3
+    shll8   r4                  ! radius << 8
+    shll2   r5
+    shll2   r5
+    shll    r5                  ! intensity << 5
+    ! dist = |point - light|^2 >> 12, att = (radius << 8)^2 >> 12
+    mov.l   @(L_PX,r14), r6
+    sub     r1, r6
+    mul.l   r6, r6
+    mov.l   @(L_PX+4,r14), r6
+    sub     r2, r6
+    sts     macl, r0
+    mul.l   r6, r6
+    mov.l   @(L_PX+8,r14), r6
+    sub     r3, r6
+    sts     macl, r13
+    mul.l   r6, r6
+    add     r13, r0
+    sts     macl, r13
+    add     r13, r0
+    SAR     r0, r7
+    mul.l   r4, r4
+    sts     macl, r4
+    SAR     r4, r7
+    ! lum = intensity att / (dist + att) + 8191 - ambient
+    mul.l   r4, r5
+    add     r0, r4
+    sts     macl, r5
+    DIVIDE  r5, r4
+    mov.l   @(L_AMBIENT,r14), r0
+    add     r0, r5
+    mov.l   @(L_MAX,r14), r0
+    cmp/gt  r0, r5
+    bf      3f
+    mov.l   r5, @(L_MAX,r14)
+    mov.l   @(L_PX,r14), r0
+    sub     r0, r1
+    mov.l   r1, @(L_DX,r14)
+    mov.l   @(L_PX+4,r14), r0
+    sub     r0, r2
+    mov.l   r2, @(L_DX+4,r14)
+    mov.l   @(L_PX+8,r14), r0
+    sub     r0, r3
+    mov.l   r3, @(L_DX+8,r14)
+3:  dt      r12
+    bt      4f
+    bra     .Llight
+    nop
+4:
+    ! halfway between the brightest and the ambient
+    mov.l   @(L_MAX,r14), r1
+    mov.l   @(L_AMBIENT,r14), r2
+    mov     r1, r3
+    add     r2, r3
+    shar    r3
+    mov.l   .L8191, r4
+    sub     r3, r4              ! ambient
+    mov     r1, r5
+    sub     r3, r5              ! range
+    cmp/pl  r5
+    bt      5f
+    bra     .Lcap
+    nop
+    ! the light's direction >> 4, its length (phd_sqrt), turned into the view
+5:  mov.l   r4, @(L_AMBIENT,r14)
+    mov.l   r5, @(L_MAX,r14)
+    mov.l   @(L_DX,r14), r1
+    mov.l   @(L_DX+4,r14), r2
+    mov.l   @(L_DX+8,r14), r3
+    .irp    r, r1, r2, r3
+    shar    \r
+    shar    \r
+    shar    \r
+    shar    \r
+    .endr
+    mul.l   r1, r1
+    sts     macl, r0
+    mul.l   r2, r2
+    sts     macl, r4
+    mul.l   r3, r3
+    add     r4, r0
+    sts     macl, r4
+    add     r4, r0
+    ! floor(sqrt(r0)), a bit pair at a time: m r6, y r7, z r4
+    mov     #1, r6
+    rotr    r6
+    shlr    r6
+    mov     #0, r7
+    mov     #0, r4
+6:  add     r6, r7
+    cmp/hi  r0, r7
+    bf      7f
+    bra     8f
+    mov     r4, r7
+7:  sub     r7, r0
+    mov     r4, r7
+    add     r6, r7
+8:  mov     r7, r4
+    shlr    r4
+    shlr2   r6
+    tst     r6, r6
+    bf      6b
+    mov.l   @(L_AMBIENT,r14), r4
+    tst     r7, r7
+    bf/s    9f
+    mov.l   @(L_MAX,r14), r5
+    bra     .Lcap
+    mov     #0, r5
+9:  ! u = (d << 14) / len, then the view's rows times u >> 14
+    .irp    r, r1, r2, r3
+    shll8   \r
+    shll2   \r
+    shll2   \r
+    shll2   \r
+    mov     #-1, r6
+    shll8   r6
+    mov.l   r7, @r6
+    mov.l   \r, @(4,r6)
+    mov.l   @(4,r6), \r
+    .endr
+    mov.l   @(C_STACK,gbr), r0
+    mov     r0, r6
+    mov.l   .L2p18, r7
+    .irp    k, 0, 1, 2
+    mov.l   @(\k*16,r6), r0
+    mul.l   r0, r1
+    mov.l   @(\k*16+4,r6), r0
+    sts     macl, r4
+    mul.l   r0, r2
+    mov.l   @(\k*16+8,r6), r0
+    sts     macl, r5
+    mul.l   r0, r3
+    add     r5, r4
+    sts     macl, r5
+    add     r5, r4
+    SAR     r4, r7
+    mov     r4, r0
+    mov.w   r0, @(L_VIEW+\k*2,r14)
+    .endr
+    mov.l   @(L_AMBIENT,r14), r4
+    mov.l   @(L_MAX,r14), r5
+.Lcap:
+    mov.l   .L8191, r6
+    add     r5, r6
+
+    ! the fog: ambient + depth - FOG_MIN past FOG_MIN, up to the cap
+.Lfog:
+    mov.l   @(L_FOG,r14), r0
+    mov.l   .Lfogmin, r1
+    cmp/gt  r1, r0
+    bf      1f
+    sub     r1, r0
+    add     r0, r4
+    cmp/gt  r6, r4
+    bf      1f
+    mov     r6, r4
+1:  mov.l   r4, @(0,r11)
+    mov.l   r5, @(4,r11)
+    mov.w   @(L_VIEW,r14), r0
+    mov.w   r0, @(8,r11)
+    mov.w   @(L_VIEW+2,r14), r0
+    mov.w   r0, @(10,r11)
+    mov.w   @(L_VIEW+4,r14), r0
+    mov.w   r0, @(12,r11)
+    add     #LIT, r11
+    add     #ITEM, r10
+    add     #POSE_LIGHT, r9
+    mov.l   @(C_LEFT,gbr), r0
+    dt      r0
+    bt/s    .Llitdone
+    mov.l   r0, @(C_LEFT,gbr)
+    bra     .Llitem
+    nop
+
+.Llitdone:
+    ldc.l   @r15+, gbr
+    lds.l   @r15+, pr
+    mov.l   @r15+, r14
+    mov.l   @r15+, r13
+    mov.l   @r15+, r12
+    mov.l   @r15+, r11
+    mov.l   @r15+, r10
+    mov.l   @r15+, r9
+    rts
+    mov.l   @r15+, r8
+
+    .align  2
+.L2p18:     .long   1 << 18
+.L2p20:     .long   1 << 20
+.L4096:     .long   4096
+.L8191:     .long   8191
+.Lfogmin:   .long   1024 * 12   ! FOG_MIN

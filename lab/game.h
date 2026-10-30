@@ -169,6 +169,13 @@ void gameLight();
 const GameLight* gameLights();
 int32_t gameLightCheck();
 
+// The game's light on other items, rooms (PLIT's layout), lights (LGHT's)
+// and frames, by item to out.
+struct PoseItem;
+struct PoseLight;
+void gameLightRun(const PoseItem* items, const PoseLight* rooms, const void* lights, uint32_t count,
+                  const uint8_t* frames, GameLight* out);
+
 // The game's way on other items, nodes and frames (PNOD's and PFRM's
 // layouts), the matrices (12 int32 each) to out by draw.
 struct PoseItem;

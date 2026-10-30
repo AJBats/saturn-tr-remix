@@ -120,6 +120,9 @@ struct LabResults
     int32_t poseSeldom;         // ... on made-up inputs, against the game's way on them (and paths not taken)
     uint32_t light;             // cycles: stage 1 the game's way, the items' light
     int32_t lightBad;           // draws lit not as the game's
+    uint32_t lightNew;          // cycles: the new way's
+    int32_t lightNewBad;
+    int32_t lightSeldom;        // ... on made-up inputs, against the game's way on them (and paths not taken)
     uint32_t arenaUsed;         // bytes of high work RAM the scene and the stages took (sceneUsed)
     uint32_t arenaSize;
 };
@@ -288,6 +291,10 @@ static void stagePose()
     pose();
     gLab.poseNewBad = poseCheck();
     gLab.poseSeldom = poseSeldomCheck();
+    gLab.lightNew = measure([] {}, [] { poseLight(); });
+    poseLight();
+    gLab.lightNewBad = poseLightCheck();
+    gLab.lightSeldom = poseLightSeldomCheck();
 }
 
 static void stageTwo()
@@ -1015,15 +1022,17 @@ static void posePage()
     page.add("STAGE 1, POSE: THE NEW WAY");
     page.add("master, run alone     ms  cycles a");
     timeRow(page, "items' nodes", gLab.poseNew, gLab.poseMatrices, "matrix");
-    p = put(line, "matrices ");
-    p = put(p, gLab.poseNewBad ? "OFF (" : "exact (");
-    p = putNumber(p, gLab.poseNewBad, 0);
-    put(p, " off)");
+    timeRow(page, "items' light", gLab.lightNew, gLab.poseItems, "item");
+    p = put(line, gLab.poseNewBad || gLab.lightNewBad ? "OFF: matrices" : "exact: matrices");
+    p = putNumber(p, gLab.poseNewBad, 2);
+    p = put(p, " off, light");
+    p = putNumber(p, gLab.lightNewBad, 2);
+    put(p, " off");
     page.add(line);
-    p = put(line, "seldom paths ");
-    p = put(p, gLab.poseSeldom ? "OFF (" : "as the game's (");
-    p = putNumber(p, gLab.poseSeldom, 0);
-    put(p, " off)");
+    p = put(line, gLab.poseSeldom || gLab.lightSeldom ? "seldom OFF: matrices" : "seldom as game's: matrices");
+    p = putNumber(p, gLab.poseSeldom, 2);
+    p = put(p, ", light");
+    putNumber(p, gLab.lightSeldom, 2);
     page.add(line);
     page.add("");
     page.add("R, L: the other pages");

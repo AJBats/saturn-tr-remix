@@ -30,8 +30,10 @@ struct Light
 
 static const PoseItem* gItems;
 static uint32_t gCount;
+static const uint8_t* gSceneFrames;
 static const uint8_t* gFrames;
 static const PoseLight* gRooms;
+static const Light* gSceneLights;
 static const Light* gLights;
 static const int16_t* gViewRotation;
 static const DrawXform* gXforms;
@@ -170,14 +172,33 @@ void drawModelLight(const PoseItem* item, const PoseLight* room)
     matrixPop();
 }
 
+void gameLightRun(const PoseItem* items, const PoseLight* rooms, const void* lights, uint32_t count,
+                  const uint8_t* frames, GameLight* out)
+{
+    gFrames = frames;
+    gLights = (const Light*)lights;
+    gMatrixPtr = gMatrixStack;
+    for (uint32_t i = 0; i < count; i++)
+    {
+        drawModelLight(items + i, rooms + i);
+        out[i].ambient = gLightAmbient;
+        out[i].range = gLightRange;
+        out[i].view[0] = gLightView[0];
+        out[i].view[1] = gLightView[1];
+        out[i].view[2] = gLightView[2];
+    }
+}
+
 int32_t gameLightInit()
 {
     uint32_t bytes;
     gItems = (const PoseItem*)sceneChunk("POSE", &bytes);
     gCount = bytes / sizeof(PoseItem);
-    gFrames = sceneArray<const uint8_t>("PFRM");
+    gSceneFrames = sceneArray<const uint8_t>("PFRM");
+    gFrames = gSceneFrames;
     gRooms = sceneArray<const PoseLight>("PLIT");
-    gLights = sceneArray<const Light>("LGHT");
+    gSceneLights = sceneArray<const Light>("LGHT");
+    gLights = gSceneLights;
     gViewRotation = sceneArray<const PoseCamera>("CAMR")->rotation;
     gXforms = sceneArray<const DrawXform>("XFRM");
     gOut = (GameLight*)sceneAlloc(gCount * sizeof(GameLight));
@@ -186,17 +207,7 @@ int32_t gameLightInit()
 
 void gameLight()
 {
-    gMatrixPtr = gMatrixStack;
-    for (uint32_t i = 0; i < gCount; i++)
-    {
-        drawModelLight(gItems + i, gRooms + i);
-        GameLight &out = gOut[i];
-        out.ambient = gLightAmbient;
-        out.range = gLightRange;
-        out.view[0] = gLightView[0];
-        out.view[1] = gLightView[1];
-        out.view[2] = gLightView[2];
-    }
+    gameLightRun(gItems, gRooms, gSceneLights, gCount, gSceneFrames, gOut);
 }
 
 const GameLight* gameLights()

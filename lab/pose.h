@@ -41,11 +41,26 @@ struct PoseContext
     const uint32_t* armB[2];    // +88
     int32_t armLerp[2];         // +96
     int16_t posLerp[4];         // +104
+    int32_t light[16];          // +112 the light's scratch
+    const PoseLight* rooms;     // +176 what lights each item (PLIT)
+    const void* lights;         // +180 LGHT
+    struct PoseLit* lit;        // +184 the items' light, by item
+    int32_t pad;
+};
+
+// An item's light as drawModel leaves it for its meshes (DrawXform's ambient,
+// range, light).
+struct PoseLit
+{
+    int32_t ambient, range;
+    int16_t view[3];
+    int16_t pad;
 };
 
 enum { POSE_STILL, POSE_HALF, POSE_QUARTER, POSE_THREE, POSE_SLOW };
 
 extern "C" void poseAsm(const PoseItem* items, int32_t count, PoseContext* ctx);
+extern "C" void poseLightAsm(const PoseItem* items, int32_t count, PoseContext* ctx);
 
 // The scene's items for the new way: its context and where the matrices go.
 void poseInit();
@@ -59,5 +74,13 @@ int32_t poseCheck();
 // without their own frames, turned by her basis or not, the shotgun's
 // torso), against the game's way on the same: the matrices that differ.
 int32_t poseSeldomCheck();
+
+// The items' light (pose.s poseLightAsm); against the game's (XFRM): the
+// draws that differ. Made up: items, rooms and lights the scene seldom gives
+// (divisors of 0 and -1, a light on the point lit, own intensities, rooms
+// without lights, overflowing radii) against the game's way on the same.
+void poseLight();
+int32_t poseLightCheck();
+int32_t poseLightSeldomCheck();
 
 #endif

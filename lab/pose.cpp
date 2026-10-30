@@ -11,6 +11,9 @@ static_assert(offsetof(PoseContext, camera) == 16 && offsetof(PoseContext, op) =
               offsetof(PoseContext, torso) == 68 && offsetof(PoseContext, armA) == 80 &&
               offsetof(PoseContext, armB) == 88 && offsetof(PoseContext, armLerp) == 96 &&
               offsetof(PoseContext, posLerp) == 104, "pose.s's PoseContext");
+static_assert(offsetof(PoseContext, light) == 112 && offsetof(PoseContext, rooms) == 176 &&
+              offsetof(PoseContext, lit) == 184 && sizeof(PoseLit) == 16 && sizeof(PoseLight) == 12,
+              "pose.s's light");
 static_assert(sizeof(PoseItem) == 104 && offsetof(PoseItem, extraCount) == 46 && offsetof(PoseItem, torso) == 56 &&
               offsetof(PoseItem, weapon) == 68 && offsetof(PoseItem, arms) == 72 && sizeof(PoseArm) == 16,
               "pose.s's PoseItem");
@@ -47,6 +50,9 @@ void poseInit()
     }
     gCtx.out = (PoseMatrix*)sceneAlloc(sceneInfo().draws * sizeof(PoseMatrix));
     gCtx.stack = gStack;
+    gCtx.rooms = sceneArray<const PoseLight>("PLIT");
+    gCtx.lights = sceneChunk("LGHT");
+    gCtx.lit = (PoseLit*)sceneAlloc(gCount * sizeof(PoseLit));
     PoseMatrix &view = gStack[0];
     for (int32_t r = 0; r < 3; r++)
     {
@@ -292,6 +298,188 @@ int32_t poseSeldomCheck()
         }
     }
     for (int32_t c = 0; c < COVER_MAX; c++) {
+        bad += !cover[c];
+    }
+    return bad;
+}
+
+// --- the light ---------------------------------------------------------------
+
+void poseLight()
+{
+    poseLightAsm(gItems, gCount, &gCtx);
+}
+
+// Whether a draw's light differs from the game's: ambient, range, and the
+// light's direction where the range is above 0 (the game leaves it as it was
+// otherwise).
+static int32_t litOff(const PoseLit &a, int32_t ambient, int32_t range, const int16_t* view)
+{
+    return a.ambient != ambient || a.range != range || (range > 0 && memcmp(a.view, view, sizeof(a.view)));
+}
+
+int32_t poseLightCheck()
+{
+    int32_t bad = 0;
+    for (uint32_t i = 0; i < gCount; i++)
+    {
+        const PoseItem &item = gItems[i];
+        int32_t drawn = drawnOf(item);
+        for (int32_t k = 0; k < drawn; k++)
+        {
+            const DrawXform &x = gXforms[item.firstDraw + k];
+            bad += litOff(gCtx.lit[i], x.ambient, x.range, x.light);
+        }
+    }
+    return bad;
+}
+
+struct MadeLight
+{
+    int16_t x, y, z;
+    uint8_t radius, intensity;
+};
+
+// A made-up room takes up to 8 lights.
+#define MADE_LIGHTS     8
+#define LIGHT_PASSES    48
+
+enum { LIT_STILL, LIT_DARK, LIT_ROOM, LIT_RANGE, LIT_ON_POINT, LIT_DIV0, LIT_DIV1, LIT_FOG, LIT_MAX };
+
+// A light at the point plus (dx, dy, dz), placed through its room's place.
+static void lightAt(MadeLight &light, PoseLight &room, const int32_t* point, int32_t dx, int32_t dy, int32_t dz)
+{
+    room.roomX = int16_t((point[0] + dx) >> 8);
+    room.roomZ = int16_t((point[2] + dz) >> 8);
+    light.x = int16_t(point[0] + dx - (room.roomX << 8));
+    light.y = int16_t(point[1] + dy);
+    light.z = int16_t(point[2] + dz - (room.roomZ << 8));
+}
+
+int32_t poseLightSeldomCheck()
+{
+    static PoseItem* items;
+    static PoseLight* rooms;
+    static MadeLight* lights;
+    static uint8_t* frames;
+    static PoseLit* outGame;
+    static PoseLit* outNew;
+    uint32_t frameBytes = 0;
+    for (uint32_t i = 0; i < gCount; i++) {
+        frameBytes += 20 + 4 * gItems[i].count;
+    }
+    if (!items)
+    {
+        items = (PoseItem*)sceneAllocLow(gCount * sizeof(PoseItem));
+        rooms = (PoseLight*)sceneAllocLow(gCount * sizeof(PoseLight));
+        lights = (MadeLight*)sceneAllocLow(gCount * MADE_LIGHTS * sizeof(MadeLight));
+        frames = (uint8_t*)sceneAllocLow(frameBytes);
+        outGame = (PoseLit*)sceneAllocLow(gCount * sizeof(PoseLit));
+        outNew = (PoseLit*)sceneAllocLow(gCount * sizeof(PoseLit));
+        if (!items || !rooms || !lights || !frames || !outGame || !outNew)
+            return -1;
+    }
+
+    int32_t bad = 0, cover[LIT_MAX] = {};
+    PoseContext ctx = gCtx;
+    ctx.frames = frames;
+    ctx.rooms = rooms;
+    ctx.lights = lights;
+    ctx.lit = outNew;
+    for (int32_t pass = 0; pass < LIGHT_PASSES; pass++)
+    {
+        uint32_t at = 0;
+        for (uint32_t i = 0; i < gCount; i++)
+        {
+            PoseItem &item = items[i];
+            item = gItems[i];
+            int32_t still = pass & 1;
+            for (int32_t k = 0; k < 3; k++)
+            {
+                item.pos[k] = gCtx.camera[k] + int32_t(rnd() >> 17) - 16384;
+                item.angle[k] = still ? 0 : rndAngle();
+            }
+            // its first frame: a made-up box (a big one now and then)
+            int16_t* box = (int16_t*)(frames + at);
+            memcpy(box, gFrames + item.frameA, 20 + 4 * item.count);
+            int32_t size = (rnd() >> 28) == 0 ? 32767 : 2048;
+            for (int32_t k = 0; k < 6; k++) {
+                box[k] = int16_t(int32_t(rnd() >> 16) % size);
+            }
+            item.frameA = at;
+            at += 20 + 4 * item.count;
+
+            PoseLight &room = rooms[i];
+            room.intensity = (rnd() >> 30) == 0 ? uint8_t(1 + (rnd() >> 24) % 255) : 0;
+            room.ambient = uint8_t(rnd() >> 24);
+            room.lights = uint8_t(rnd() >> 29);
+            room.first = i * MADE_LIGHTS;
+            room.roomX = int16_t(int32_t(rnd() >> 25) - 64);
+            room.roomZ = int16_t(int32_t(rnd() >> 25) - 64);
+            for (int32_t l = 0; l < MADE_LIGHTS; l++)
+            {
+                MadeLight &light = lights[room.first + l];
+                light.x = int16_t(item.pos[0] - (room.roomX << 8) + int32_t(rnd() >> 18) - 8192);
+                light.y = int16_t(item.pos[1] + int32_t(rnd() >> 18) - 8192);
+                light.z = int16_t(item.pos[2] - (room.roomZ << 8) + int32_t(rnd() >> 18) - 8192);
+                static const uint8_t RADII[] = { 255, 200, 182, 181, 100, 40, 1, 0 };
+                light.radius = (rnd() >> 30) == 0 ? RADII[rnd() >> 29] : uint8_t(rnd() >> 24);
+                light.intensity = uint8_t(rnd() >> 24);
+            }
+            // the cases the divides and the length turn on, the item unturned so
+            // its point is its place plus its box centre
+            int32_t forced = (pass >> 1) % 4;
+            if (still && !room.intensity && forced)
+            {
+                int32_t point[3];
+                for (int32_t k = 0; k < 3; k++) {
+                    point[k] = item.pos[k] + ((box[2 * k + 1] + box[2 * k]) >> 1);
+                }
+                MadeLight &light = lights[room.first];
+                if (forced == 1)
+                {
+                    // dist + att = 0: att -8176, dist 8176
+                    lightAt(light, room, point, 5787, 0, 0);
+                    light.radius = 255;
+                    cover[LIT_DIV0]++;
+                }
+                else if (forced == 2)
+                {
+                    // dist + att = -1
+                    lightAt(light, room, point, 5786, 84, 0);
+                    light.radius = 255;
+                    cover[LIT_DIV1]++;
+                }
+                else
+                {
+                    // the only light, on the point: no direction
+                    lightAt(light, room, point, 0, 0, 0);
+                    light.radius = 100;
+                    light.intensity = 255;
+                    room.lights = 1;
+                    cover[LIT_ON_POINT]++;
+                }
+                if (!room.lights) {
+                    room.lights = 1;
+                }
+            }
+            const int32_t* view = gStack[0].m;
+            int32_t depth = (view[8] * (item.pos[0] - gCtx.camera[0]) + view[9] * (item.pos[1] - gCtx.camera[1]) +
+                             view[10] * (item.pos[2] - gCtx.camera[2])) >> 14;
+            cover[LIT_FOG] += depth > 1024 * 12;
+            cover[LIT_STILL] += room.intensity != 0;
+            cover[LIT_DARK] += !room.intensity && !room.lights;
+            cover[LIT_ROOM] += !room.intensity && room.lights;
+        }
+        gameLightRun(items, rooms, lights, gCount, frames, (GameLight*)outGame);
+        poseLightAsm(items, gCount, &ctx);
+        for (uint32_t i = 0; i < gCount; i++)
+        {
+            bad += litOff(outNew[i], outGame[i].ambient, outGame[i].range, outGame[i].view);
+            cover[LIT_RANGE] += outGame[i].range > 0;
+        }
+    }
+    for (int32_t c = 0; c < LIT_MAX; c++) {
         bad += !cover[c];
     }
     return bad;
