@@ -1,93 +1,37 @@
-// Stage 1 the new way, the rooms seen (rooms.h): the scene's view through
-// rooms.s, the rooms' jobs, and their checks against the game's.
-#include "rooms.h"
+// The walk from the scene, and its checks against the game's way
+// (labrender.h).
+#include "labrender.h"
 #include "game.h"
+#include "rooms.h"
 
 #include <stddef.h>
 #include <string.h>
 
-static_assert(offsetof(RoomsContext, camera) == 12 && offsetof(RoomsContext, view) == 24 &&
-              offsetof(RoomsContext, seen) == 44 && offsetof(RoomsContext, viewport) == 48 &&
-              offsetof(RoomsContext, cameraRoom) == 64 && offsetof(RoomsContext, listEnd) == 72 &&
-              offsetof(RoomsContext, viewMax) == 84 && offsetof(RoomsContext, geometry) == 88 &&
-              offsetof(RoomsContext, jobs) == 100 && offsetof(RoomsContext, table) == 112 &&
-              offsetof(RoomsContext, fills) == 116,
-              "rooms.s's RoomsContext");
-static_assert(sizeof(RoomLevel) == 16 && offsetof(RoomLevel, first) == 12 && sizeof(RoomSeen) == 68,
-              "rooms.s's RoomLevel, RoomSeen");
-static_assert(sizeof(FaceRoom) == 112 && offsetof(FaceRoom, quadsCount) == 16 && offsetof(FaceRoom, camera) == 32 &&
-              offsetof(FaceRoom, m) == 44 && offsetof(FaceRoom, t) == 64 && offsetof(FaceRoom, clip) == 76 &&
-              offsetof(FaceRoom, flags) == 92 && offsetof(FaceRoom, verticesCount) == 104 &&
-              offsetof(FaceRoom, room) == 106 && offsetof(FaceRoom, caustics) == 108 &&
-              sizeof(RoomGeometry) == 32 && offsetof(RoomGeometry, quadsCount) == 12 &&
-              offsetof(RoomCaustics, starts) == 68, "rooms.s's FaceRoom, RoomGeometry, RoomCaustics");
-
-#define FRAME_WIDTH     352
-#define FRAME_HEIGHT    224
-
-static RoomsContext gCtx;
-static int32_t gView[12];
+static RoomsContext &gCtx = roomsContext();
 static uint32_t gRoomCount;
-static int16_t gCausticsTable[32];
 
-void roomsInit()
+void roomsLabInit()
 {
-    gCtx.level = sceneArray<const RoomLevel>("RLVL", &gRoomCount);
-    gCtx.portals = sceneChunk("RPRT");
-    gCtx.divTable = divTable;
+    RoomsLevel level;
+    level.level = sceneArray<const RoomLevel>("RLVL", &gRoomCount);
+    level.count = gRoomCount;
+    level.portals = sceneChunk("RPRT");
+    level.geometry = sceneArray<const RoomGeometry>("RLGE");
+    level.rgeo = sceneArray<uint8_t>("RGEO");
+    level.caustics = sceneArray<const RoomCaustics>("CAUW");
+    level.vertices = gVertices;
+    roomsInit(level);
     const PoseCamera* camera = sceneArray<const PoseCamera>("CAMR");
     const RoomView* view = sceneArray<const RoomView>("RVIS");
+    int32_t m[12];
     for (int32_t r = 0; r < 3; r++)
     {
-        gCtx.camera[r] = camera->pos[r];
         for (int32_t c = 0; c < 3; c++) {
-            gView[r * 4 + c] = camera->rotation[r * 3 + c];
+            m[r * 4 + c] = camera->rotation[r * 3 + c];
         }
-        gView[r * 4 + 3] = 0;
+        m[r * 4 + 3] = 0;
     }
-    gCtx.view = gView;
-    gCtx.clip = (int32_t (*)[4])sceneAlloc(gRoomCount * sizeof(*gCtx.clip));
-    gCtx.visible = (uint8_t*)sceneAlloc(gRoomCount);
-    gCtx.list = (uint16_t*)sceneAlloc((ROOMS_LISTED + 1) * sizeof(uint16_t));
-    gCtx.seen = (RoomSeen*)sceneAlloc(ROOMS_LISTED * sizeof(RoomSeen));
-    for (uint32_t i = 0; i < gRoomCount; i++)
-    {
-        gCtx.clip[i][0] = FRAME_WIDTH;
-        gCtx.clip[i][1] = FRAME_HEIGHT;
-        gCtx.clip[i][2] = 0;
-        gCtx.clip[i][3] = 0;
-        gCtx.visible[i] = 0;
-    }
-    memcpy(gCtx.viewport, view->viewport, sizeof(gCtx.viewport));
-    gCtx.cameraRoom = view->camera;
-    gCtx.k18 = 1 << 18;
-    gCtx.k20 = 1 << 20;
-    gCtx.viewMax = (1024 * 20) << 14;
-    gCtx.geometry = sceneArray<const RoomGeometry>("RLGE");
-    gCtx.rgeo = sceneArray<uint8_t>("RGEO");
-    gCtx.vertices = gVertices;
-    gCtx.jobs = (FaceRoom*)sceneAlloc(ROOM_JOBS * sizeof(FaceRoom));
-    gCtx.caustics = sceneArray<const RoomCaustics>("CAUW");
-    gCtx.table = gCausticsTable;
-    gCtx.fills = (int32_t (*)[4])sceneAlloc(ROOM_FILLS * sizeof(*gCtx.fills));
-}
-
-void roomsSeen()
-{
-    roomsSeenAsm(&gCtx);
-    roomsJobsAsm(&gCtx);
-}
-
-FaceRoom* roomsJobs(uint32_t &count)
-{
-    count = gCtx.jobCount;
-    return gCtx.jobs;
-}
-
-const int32_t (*roomsFills(int32_t &count))[4]
-{
-    count = gCtx.voids < ROOM_FILLS ? gCtx.voids : ROOM_FILLS;
-    return gCtx.fills;
+    roomsView(camera->pos, m, view->viewport, view->camera);
 }
 
 // The fills the capture's master drew before its first draw (renderVoid's

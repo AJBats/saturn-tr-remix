@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "hints.h"
+#include "rooms.h"
 #include "scene.h"
 #include "textures.h"
 
@@ -32,5 +33,23 @@ int32_t texturesVramOff(const TextureQueue &queue);
 // hinted calls.
 void hintsLabInit();
 int32_t hintsSceneDraws(const DrawThing* things, uint32_t count, HintedDraw* out, int32_t room);
+
+// The walk from the scene (labrooms.cpp): its level's rooms (RLVL, RPRT,
+// RLGE, RGEO, CAUW) and its view (CAMR, RVIS); against the capture's (RVIS,
+// ROOM, the fills drawn first): the rooms that differ (or a list of another
+// length).
+void roomsLabInit();
+int32_t roomsSeenCheck();
+
+// What the walk makes (the rooms listed, their jobs) overwritten with what it
+// never makes, so a check after a frame that skipped it fails.
+void roomsPoison();
+
+// What the scene seldom gives the walk: made-up places and turns of the
+// camera (portals past the draw distance, cut by the near plane, facing
+// away), and the jobs made-up lists of rooms give (rooms without vertices,
+// past the jobs' limit or the vertices' room, wet, dry, rippling), against
+// the game's way on them: those that differ (and paths not taken).
+int32_t roomsSeldomCheck();
 
 #endif

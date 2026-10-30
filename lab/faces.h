@@ -190,28 +190,6 @@ struct RoomTextures
 // The room materials of textures 0 .. count - 1.
 void facesRoomMaterials(const RoomTextures &textures, RoomMaterial* materials, int32_t count);
 
-// A room as its faces take it.
-struct FaceRoom
-{
-    RoomQuad* quads;            // the runs square to an axis, then the rest; a quad keeps its
-                                // turn and mip level in its flags' top byte
-    const RoomQuad* triangles;
-    const RoomVertex* points;   // its vertices in room space
-    const Vertex* vertices;     // ... as drawn
-    uint16_t quadsCount, trianglesCount;
-    uint16_t facing[6];         // the runs square to an axis, facing +x, -x, +y, -y, +z, -z
-    int32_t camera[3];          // the camera from the room's origin
-    int16_t m[9];               // its matrix's rows (room vertex units times 4)
-    int32_t t[3];               // ... and translation
-    int32_t clip[4];            // its portal window: x0 y0 x1 y1
-    uint32_t flags;             // FACE_WATER for a wet room
-    int32_t ripple;             // across the water's surface from the camera: its corners wibble
-    int32_t phase;              // ... by this phase
-    uint16_t verticesCount;
-    uint16_t room;              // its index in the level
-    const int16_t* caustics;    // a wet room's: each vertex's shade offset, by its index (32); else none
-};
-
 // Where quads split near the camera put their new corners: the vertices
 // from top down to bottom.
 struct RoomSplit

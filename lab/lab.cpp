@@ -367,7 +367,7 @@ static void stagePose()
     poseShadows();
     gLab.staticsNewBad = poseStaticsCheck();
     gLab.staticsSeldom = poseStaticsSeldomCheck();
-    roomsInit();
+    roomsLabInit();
     gLab.roomsNew = measure([] {}, [] { roomsSeen(); });
     roomsSeen();
     gLab.roomsNewBad = roomsSeenCheck();

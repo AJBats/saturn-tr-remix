@@ -65,7 +65,6 @@ extern "C" void meshShadesAsm(Vertex* v, int32_t count, const uint8_t* shades, i
 // The scene's rooms (the walk's jobs) and draws for the new way: the meshes
 // laid out for the DSP, each draw's job and where its vertices go. NULL, or
 // what went wrong.
-struct FaceRoom;
 const char* verticesInit(const FaceRoom* rooms, uint32_t roomCount);
 
 // A frame's rooms (the walk's jobs): where the DSP's rotations of each go,

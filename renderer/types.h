@@ -9,6 +9,9 @@
 
 #define ALIGN16 __attribute__((aligned(16)))
 
+// The game's divide table (common.cpp): the projection's and the pose's.
+extern uint16_t divTable[];
+
 namespace render {
 
 struct Vertex
@@ -363,6 +366,29 @@ struct RoomLights
     uint8_t ambient, lights;
     uint16_t pad;
     uint32_t first;         // in LGHT
+};
+
+// A room as its faces take it: a job of the walk's, for the vertices and
+// the faces.
+struct FaceRoom
+{
+    RoomQuad* quads;            // the runs square to an axis, then the rest; a quad keeps its
+                                // turn and mip level in its flags' top byte
+    const RoomQuad* triangles;
+    const RoomVertex* points;   // its vertices in room space
+    const Vertex* vertices;     // ... as drawn
+    uint16_t quadsCount, trianglesCount;
+    uint16_t facing[6];         // the runs square to an axis, facing +x, -x, +y, -y, +z, -z
+    int32_t camera[3];          // the camera from the room's origin
+    int16_t m[9];               // its matrix's rows (room vertex units times 4)
+    int32_t t[3];               // ... and translation
+    int32_t clip[4];            // its portal window: x0 y0 x1 y1
+    uint32_t flags;             // FACE_WATER for a wet room
+    int32_t ripple;             // across the water's surface from the camera: its corners wibble
+    int32_t phase;              // ... by this phase
+    uint16_t verticesCount;
+    uint16_t room;              // its index in the level
+    const int16_t* caustics;    // a wet room's: each vertex's shade offset, by its index (32); else none
 };
 
 // The frame's draw list: the draws in order (meshes', shadows', and sprites'
