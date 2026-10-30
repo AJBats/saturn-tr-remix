@@ -17,6 +17,11 @@
 #define FRAME_WIDTH     352
 #define FRAME_HEIGHT    224
 #define P_MAX           0x007FF000  // projected 2047 << 12
+#define XY_MAX          0x007FFF00  // view x, y whose >> 8 fits in 16 bits
+#define COORD_MAX       1023        // VDP1_COORD_MAX
+#define FOG_MIN         12288
+#define SHADE_MAX       8191        // shade << 8 at its darkest
+#define SELDOM_VERTICES 512
 #define CLIP_FRAME      0x01
 #define CLIP_LEFT       0x02
 #define CLIP_RIGHT      0x04
@@ -123,6 +128,13 @@ static MeshDspJob3 gDspJobs3[MAX_DRAWS + 1];
 static int32_t gJobCount;
 static Vertex gMeshOut[4 + MAX_MESH_VERTICES];
 static Vertex* const gMeshVertices = gMeshOut + 4;
+
+// The rooms' seldom paths' check: made-up rotations and shades, both loops'
+// projections and the model's (in the scene's arena).
+static RoomRotated* gSeldomRotated;
+static RoomVertex* gSeldomPoints;
+static Vertex* gSeldomAsm;
+static Vertex* gSeldomModel;
 
 static inline const RoomVertex* roomPoints(const RoomScene &room)
 {
@@ -255,7 +267,11 @@ const char* verticesInit()
     }
     gMeshPacked = (uint32_t*)sceneAlloc(packedLongwords * 4);
     gMeshReady = (int32_t*)sceneAlloc(readyGroups * 24 * 4);
-    if (!gMeshPacked || !gMeshReady)
+    gSeldomRotated = (RoomRotated*)sceneAlloc(SELDOM_VERTICES * sizeof(RoomRotated));
+    gSeldomPoints = (RoomVertex*)sceneAlloc(SELDOM_VERTICES * sizeof(RoomVertex));
+    gSeldomAsm = (Vertex*)sceneAlloc(SELDOM_VERTICES * sizeof(Vertex));
+    gSeldomModel = (Vertex*)sceneAlloc(SELDOM_VERTICES * sizeof(Vertex));
+    if (!gMeshPacked || !gMeshReady || !gSeldomModel)
         return "no room for the meshes' layouts";
     memset(gMeshPacked, 0, packedLongwords * 4);
     uint32_t* packed = gMeshPacked;
@@ -374,6 +390,188 @@ int32_t verticesRoomsDspCheck()
         {
             RoomRotated b = roomModel(gRooms[i], k);
             bad += a[k].x != b.x || a[k].y != b.y || a[k].z != b.z;
+        }
+    }
+    return bad;
+}
+
+// roomproject.s's arithmetic (xform.s's from its multiplies on) in C: the
+// model both its loops answer to where the scene seldom takes them.
+// paths[]: the vertices each path took (SeldomPath).
+enum SeldomPath { PATH_NEAR, PATH_FAR, PATH_BOUND, PATH_PRODUCT, PATH_FRAME, PATH_LEFT, PATH_RIGHT, PATH_TOP,
+                  PATH_BOTTOM, PATH_FOG, PATH_FOG_MAX, PATH_CAUSTICS_MIN, PATH_CAUSTICS_MAX, PATH_RIPPLE, PATHS };
+
+static void roomProjectModel(const RoomRotated* src, int32_t count, Vertex* dst, const RoomProject &rp,
+                             int32_t* paths)
+{
+    for (int32_t k = 0; k < count; k++)
+    {
+        int32_t x = clamp(src[k].x, -XY_MAX, XY_MAX);
+        int32_t y = clamp(src[k].y, -XY_MAX, XY_MAX);
+        paths[PATH_BOUND] += x != src[k].x || y != src[k].y;
+        int32_t z = src[k].z;
+        int32_t shade = rp.points[k].g << 8;
+        uint32_t clip = 0;
+        if (!(z > rp.zMin))
+        {
+            z = rp.zMin;
+            clip = CLIP_PLANE;
+            paths[PATH_NEAR]++;
+        }
+        else if (z >= rp.zMax)
+        {
+            z = rp.zMax;
+            clip = CLIP_PLANE;
+            paths[PATH_FAR]++;
+        }
+        int32_t zz = uint32_t(z) >> 8;
+        int32_t d = rp.divTable[zz >> 4];
+        int32_t px = clamp(int16_t(uint32_t(x) >> 8) * d, -P_MAX, P_MAX);
+        int32_t py = clamp(int16_t(uint32_t(y) >> 8) * d, -P_MAX, P_MAX);
+        paths[PATH_PRODUCT] += px != int16_t(uint32_t(x) >> 8) * d || py != int16_t(uint32_t(y) >> 8) * d;
+        int32_t sx = int16_t(uint32_t(px) >> 12) + (FRAME_WIDTH >> 1);
+        int32_t sy = int16_t(uint32_t(py) >> 12) + (FRAME_HEIGHT >> 1);
+        if (uint32_t(sx) > FRAME_WIDTH || uint32_t(sy) > FRAME_HEIGHT)
+        {
+            clip += CLIP_FRAME;
+            paths[PATH_FRAME]++;
+            sx = clamp(sx, -COORD_MAX - 1, COORD_MAX);
+            sy = clamp(sy, -COORD_MAX - 1, COORD_MAX);
+        }
+        clip += (sx < rp.x0 ? CLIP_LEFT : 0) + (sx > rp.x1 ? CLIP_RIGHT : 0) +
+                (sy < rp.y0 ? CLIP_TOP : 0) + (sy > rp.y1 ? CLIP_BOTTOM : 0);
+        paths[PATH_LEFT] += sx < rp.x0;
+        paths[PATH_RIGHT] += sx > rp.x1;
+        paths[PATH_TOP] += sy < rp.y0;
+        paths[PATH_BOTTOM] += sy > rp.y1;
+        if (rp.caustics)
+        {
+            int32_t s = shade + rp.caustics[(rp.count - count + k) & 31];
+            paths[PATH_CAUSTICS_MIN] += s < 0;
+            paths[PATH_CAUSTICS_MAX] += s > SHADE_MAX;
+            shade = clamp(s, 0, SHADE_MAX);
+        }
+        if (rp.wibble && !(clip & CLIP_FRAME))
+        {
+            paths[PATH_RIPPLE]++;
+            sx += rp.wibble[(rp.phase + sx) & 31];
+            sy += rp.wibble[(rp.phase + sy) & 31];
+        }
+        if (zz - FOG_MIN > 0)
+        {
+            paths[PATH_FOG]++;
+            paths[PATH_FOG_MAX] += shade + zz - FOG_MIN > SHADE_MAX;
+            shade = clamp(shade + zz - FOG_MIN, 0, SHADE_MAX);
+        }
+        uint32_t* out = (uint32_t*)(dst + k);
+        out[0] = uint32_t(sx) << 16 | (sy & 0xFFFF);
+        out[1] = uint32_t(zz) << 16 | (shade >> 8) << 8 | clip;
+    }
+}
+
+int32_t verticesRoomsSeldomCheck()
+{
+    // made-up rotations through every path: behind and past the planes,
+    // beyond the view bound, products beyond what is projected, each side of
+    // the frame and of the window, fogged and not, shades past 31; dry rooms
+    // (the second loop) with the whole frame and with a window, then a wet
+    // one rippling (the first)
+    static const int16_t kCaustics[32] = {
+        -9000, 9000, -300, 300, 0, 4000, -4000, 120, -120, 8000, -8000, 50, -50, 2000, -2000, 0,
+        700, -700, 0, 0, 6000, -6000, 1, -1, 3000, -3000, 0, 9000, -9000, 15, -15, 0
+    };
+    const int32_t windows[3][4] = { { 0, 0, 352, 224 }, { 100, 60, 220, 150 }, { 40, 30, 300, 200 } };
+    uint32_t seed = 0x2B7E1516;
+    auto next = [&seed] { seed = seed * 1664525 + 1013904223; return seed; };
+    int32_t bad = 0;
+    int32_t dry[PATHS] = {}, wet[PATHS] = {};
+    for (int32_t w = 0; w < 3; w++)
+    {
+        RoomProject rp;
+        rp.points = gSeldomPoints;
+        rp.x0 = windows[w][0];
+        rp.y0 = windows[w][1];
+        rp.x1 = windows[w][2];
+        rp.y1 = windows[w][3];
+        rp.divTable = gDivTable;
+        rp.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
+        rp.zMax = VIEW_MAX_F >> (FIXED_SHIFT - 8);
+        rp.wibble = w == 2 ? kWibble : nullptr;
+        rp.phase = 7;
+        rp.caustics = w == 2 ? kCaustics : nullptr;
+        rp.count = SELDOM_VERTICES;
+        // first each edge exactly: at z 256 << 8 the divide is 4096, a pixel
+        // a view unit; the frame's, the window's, VDP1's, the projected
+        // bound's, on x and y (a pixel's fraction made up); the view bound;
+        // the planes; the fog's start and its shade a step either side of 31
+        int32_t n = 0;
+        auto put = [&](int32_t x, int32_t y, int32_t z, int32_t g)
+        {
+            if (n < SELDOM_VERTICES)
+            {
+                gSeldomRotated[n] = { x, y, z };
+                gSeldomPoints[n++].g = g;
+            }
+        };
+        auto frac = [&next] { return int32_t(next() >> 24); };
+        auto near = [&next](int32_t c) { return (int32_t(next() % 160) - 80 + c) * 256; };
+        const int32_t zd = 256 << 8;
+        const int32_t xs[] = { -1, 0, 1, 351, 352, 353, rp.x0 - 1, rp.x0, rp.x0 + 1, rp.x1 - 1, rp.x1, rp.x1 + 1,
+                               -1025, -1024, -1023, 1022, 1023, 1024, 176 + 2047, 176 + 2048, 176 - 2047, 176 - 2048 };
+        const int32_t ys[] = { -1, 0, 1, 223, 224, 225, rp.y0 - 1, rp.y0, rp.y0 + 1, rp.y1 - 1, rp.y1, rp.y1 + 1,
+                               -1025, -1024, -1023, 1022, 1023, 1024, 112 + 2047, 112 + 2048, 112 - 2047, 112 - 2048 };
+        for (int32_t i = 0; i < int32_t(sizeof(xs) / sizeof(xs[0])); i++)
+        {
+            put((xs[i] - 176) * 256 | frac(), near(0), zd, next() >> 24);
+            put(near(0), (ys[i] - 112) * 256 | frac(), zd, next() >> 24);
+            put((xs[i] - 176) * 256 | frac(), (ys[i] - 112) * 256 | frac(), zd, next() >> 24);
+        }
+        const int32_t bounds[] = { XY_MAX, XY_MAX + 1, -XY_MAX, -XY_MAX - 1, 0x7FFFFF, -0x800000 };
+        for (int32_t b : bounds)
+        {
+            put(b, near(0), rp.zMin + int32_t(next() % uint32_t(rp.zMax - rp.zMin)), next() >> 24);
+            put(near(0), b, rp.zMin + int32_t(next() % uint32_t(rp.zMax - rp.zMin)), next() >> 24);
+        }
+        const int32_t planes[] = { rp.zMin - 1, rp.zMin, rp.zMin + 1, rp.zMax - 1, rp.zMax, rp.zMax + 1 };
+        for (int32_t z : planes) {
+            put(near(0), near(0), z, next() >> 24);
+        }
+        const int32_t fogs[] = { FOG_MIN - 1, FOG_MIN, FOG_MIN + 1, FOG_MIN + 255, FOG_MIN + 256, FOG_MIN + 257 };
+        const int32_t shades[] = { 30, 31, 32, 255 };
+        for (int32_t f : fogs)
+        {
+            for (int32_t g : shades) {
+                put(near(0), near(0), f << 8 | frac(), g);
+            }
+        }
+
+        // then made up at random
+        for (int32_t k = n; k < SELDOM_VERTICES; k++)
+        {
+            RoomRotated &r = gSeldomRotated[k];
+            uint32_t kind = next() >> 29;
+            r.z = kind == 0 ? -int32_t(next() >> 12) + (rp.zMin + 256)
+                : kind == 1 ? rp.zMax - 256 + int32_t(next() >> 12)
+                : kind == 2 ? rp.zMin + int32_t(next() >> 20)
+                : rp.zMin + int32_t(next() % uint32_t(rp.zMax - rp.zMin));
+            int32_t spread = (next() >> 30) == 0 ? 0x4000000 : (r.z > 0 ? r.z : 4096) >> (next() >> 30);
+            r.x = int32_t(next() % uint32_t(2 * spread + 1)) - spread;
+            r.y = int32_t(next() % uint32_t(2 * spread + 1)) - spread;
+            gSeldomPoints[k].g = next() >> 24;
+        }
+        roomProjectAsm(gSeldomRotated, SELDOM_VERTICES, gSeldomAsm, &rp);
+        roomProjectModel(gSeldomRotated, SELDOM_VERTICES, gSeldomModel, rp, w == 2 ? wet : dry);
+        for (int32_t k = 0; k < SELDOM_VERTICES; k++) {
+            bad += memcmp(gSeldomAsm + k, gSeldomModel + k, sizeof(Vertex)) != 0;
+        }
+    }
+
+    // a path never taken counts as every vertex off
+    for (int32_t p = 0; p < PATHS; p++)
+    {
+        bool wetOnly = p == PATH_CAUSTICS_MIN || p == PATH_CAUSTICS_MAX || p == PATH_RIPPLE;
+        if ((!wetOnly && !dry[p]) || !wet[p]) {
+            bad += SELDOM_VERTICES;
         }
     }
     return bad;

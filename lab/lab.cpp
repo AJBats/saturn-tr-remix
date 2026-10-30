@@ -82,7 +82,8 @@ struct LabResults
     int32_t newVertsBad;        // vertices not the game's
     uint32_t newVertsMeshes;    // ... the draws' projection and shades
     int32_t newVertsSeldom;     // the meshes' vertices not the game's projected as though none lay
-                                // inside the frame, or each worked out at the near plane
+                                // inside the frame, or each worked out at the near plane; the
+                                // rooms' made up through every path not as the model's
     uint32_t dspRooms;          // cycles the DSP took over the rooms' rotations
     int32_t dspRoomsBad;        // its rotations not xform.s's arithmetic
     uint32_t newVertsFeed;      // cycles: the meshes fed to the DSP
@@ -274,7 +275,7 @@ static void stageTwoNew()
     verticesMeshes();
     int32_t rooms, meshes;
     gLab.newVertsBad = verticesRoomsCheck(rooms) + verticesMeshesCheck(meshes);
-    gLab.newVertsSeldom = verticesFallbacksCheck();
+    gLab.newVertsSeldom = verticesFallbacksCheck() + verticesRoomsSeldomCheck();
 }
 
 static void stageThree()
