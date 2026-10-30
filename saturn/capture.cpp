@@ -29,13 +29,20 @@ void captureTick()
     traceStop();
     uint32 size;
     uint8* ram = osLowRamFree(size);
-    if (size < sizeof(CaptureHeader) + sizeof(CaptureOrder) + 64 * sizeof(CaptureRecord))
+    if (size < sizeof(CaptureHeader) + sizeof(CaptureOrder) + sizeof(CaptureCache) + 64 * sizeof(CaptureRecord))
     {
         traceResume();
         return;
     }
     gCapture = (CaptureHeader*)(uint32(ram + 15) & ~15);
-    gRecords = (CaptureRecord*)((CaptureOrder*)(gCapture + 1) + 1);
+    CaptureCache* cache = (CaptureCache*)((CaptureOrder*)(gCapture + 1) + 1);
+    gRecords = (CaptureRecord*)(cache + 1);
+
+    // the room texture cache before the frame's faces take from it
+    memcpy(cache->keys, gDetailKeys, sizeof(cache->keys));
+    memcpy(cache->slots, gDetailSlots, sizeof(cache->slots));
+    cache->frame = gDetailFrame;
+    cache->uploads = 0;
     gCapacity = (size - (uint32((uint8*)gRecords - ram))) / sizeof(CaptureRecord);
     gCapture->magic = CAPTURE_MAGIC;
     gCapture->ready = 0;
@@ -214,6 +221,11 @@ void captureOrdered(Face* const* roomOT, const uint16* roomGroups, Face* const* 
 
 void captureFlushed(int32 faces)
 {
+    CaptureCache &cache = *(CaptureCache*)((CaptureOrder*)(gCapture + 1) + 1);
+    int32_t queued;
+    const void* uploads = detailQueued(queued);
+    cache.uploads = queued;
+    memcpy(cache.upload, uploads, queued * sizeof(cache.upload[0]));
     gCapture->faces = faces;
     gCapture->camera = gCameraViewPos;
     for (int32 i = 0; i < 9; i++) {

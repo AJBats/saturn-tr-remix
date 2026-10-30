@@ -18,6 +18,7 @@
 #define CAPTURE_H
 
 #include "render.h"
+#include "detail.h"
 
 enum CaptureRequest { CAPTURE_NONE, CAPTURE_ARM, CAPTURE_RELEASE };
 enum CaptureType { CAP_ROOM = 1, CAP_OBJECT, CAP_MESH, CAP_STATIC, CAP_SHADOW, CAP_SPRITE,
@@ -62,7 +63,7 @@ struct CaptureHeader
     int32 causticsFrame;
 };
 
-#define CAPTURE_MAGIC 0x43415031    // "CAP1"
+#define CAPTURE_MAGIC 0x43415032    // "CAP2": a CaptureCache between the order and the records
 
 // The ordering tables as flush took them (it empties them as it goes), the
 // faces the draw order hints held back placed: the lab's flush starts from
@@ -78,8 +79,20 @@ struct CaptureOrder
     uint32 detailFrame;             // ... for the room texture cache
 };
 
-static_assert(sizeof(CaptureRecord) == 104 && sizeof(CaptureHeader) == 64 && sizeof(CaptureOrder) == 10424,
-              "layouts read by tools/capture.py");
+// The room texture cache as the frame found it, and the uploads its faces
+// queued: the lab replays the frame's misses from these. It follows the
+// order; the records follow it.
+struct CaptureCache
+{
+    uint8 keys[DETAIL_VARIANTS][DETAIL_MAX_KEYS];   // gDetailKeys
+    DetailSlot slots[DETAIL_SLOTS];                 // gDetailSlots
+    uint32 frame;                                   // gDetailFrame
+    int32 uploads;                                  // queued (detailQueued)
+    uint32 upload[DETAIL_MAX_UPLOADS][3];           // src, dst | variant << 24, w << 16 | h
+};
+
+static_assert(sizeof(CaptureRecord) == 104 && sizeof(CaptureHeader) == 64 && sizeof(CaptureOrder) == 10424 &&
+              sizeof(CaptureCache) == 7616 + 2048 + 8 + 384, "layouts read by tools/capture.py");
 
 extern volatile uint32 gCaptureRequest;     // a debugger's CaptureRequest
 extern CaptureHeader* gCapture;             // where the records are, while there are some

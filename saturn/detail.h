@@ -119,6 +119,12 @@ void detailTranspose(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h);
 // next frame starts queueing its own. The last frame's must be uploaded.
 void detailFrameEnd();
 
+// The uploads the frame's faces have queued so far (for the frame capture):
+// each the texture's source, its slot's VDP1 VRAM offset with the variant in
+// the top byte, its width and height (uint16 each) at its level; how many.
+#define DETAIL_MAX_UPLOADS  32
+const void* detailQueued(int32_t &count);
+
 // Uploads the textures the last ended frame queued. VDP1 must have drawn the
 // list before that frame's: slots replaced may hold textures it drew.
 void detailUpload();

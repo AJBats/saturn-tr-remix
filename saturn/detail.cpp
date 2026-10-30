@@ -7,7 +7,7 @@
 #include "crash.h"
 
 #define MAX_KEYS        DETAIL_MAX_KEYS
-#define MAX_UPLOADS     32      // per frame, 2 KB at most each
+#define MAX_UPLOADS     DETAIL_MAX_UPLOADS  // per frame, 2 KB at most each
 #define NO_KEY          0xFFFF
 #define IN_USE          0xFFFFFFFF  // DetailSlot.frame of a slot under the item textures
 #define VARIANT_SHIFT   12      // DetailSlot.key
@@ -297,6 +297,12 @@ void detailTranspose(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h)
             }
         }
     }
+}
+
+const void* detailQueued(int32_t &count)
+{
+    count = gUploadCount[gUploadList];
+    return gUploads[gUploadList];
 }
 
 void detailFrameEnd()

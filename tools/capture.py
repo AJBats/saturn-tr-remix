@@ -44,7 +44,7 @@ RAM_BYTES = 0x100000
 VDP1_VRAM = 0x05C00000
 VDP1_BYTES = 0x80000
 
-CAPTURE_MAGIC = 0x43415031
+CAPTURE_MAGICS = {0x43415031: False, 0x43415032: True}    # CAP1, CAP2: with a CaptureCache
 CAPTURE_ARM, CAPTURE_RELEASE = 1, 2
 FRAMES_OFFSET = 24                              # FrameStats.frames (system.h)
 HEADER = struct.Struct('>4I3i9h2BH2x2Ii')      # CaptureHeader, 64 bytes
@@ -52,6 +52,10 @@ RECORD = struct.Struct('>BBHI12i2i3iIII4i')     # CaptureRecord, 104 bytes
 OT_SIZE = 1281
 OT_GROUPS = 41
 ORDER = struct.Struct(f'>{OT_SIZE}I{OT_SIZE}I{OT_GROUPS}H{OT_GROUPS}HiII')    # CaptureOrder, 10424 bytes
+DETAIL_VARIANTS, DETAIL_MAX_KEYS, DETAIL_SLOTS, DETAIL_MAX_UPLOADS = 7, 1088, 256, 32
+CACHE_KEYS = DETAIL_VARIANTS * DETAIL_MAX_KEYS
+CACHE_SLOTS = DETAIL_SLOTS * 8
+CACHE_BYTES = CACHE_KEYS + CACHE_SLOTS + 8 + DETAIL_MAX_UPLOADS * 12    # CaptureCache, 10056 bytes
 TYPES = {1: 'room', 2: 'object', 3: 'mesh', 4: 'static', 5: 'shadow', 6: 'sprite',
          7: 'viewport', 8: 'model', 9: 'static call', 10: 'shadow call', 11: 'rect'}
 MESH = struct.Struct('>3hhHBBhhhh')             # Mesh (common.h), 20 bytes
@@ -203,7 +207,7 @@ class Memory:
         return struct.unpack(fmt, self.bytes(address, struct.calcsize(fmt)))
 
 
-def capture(cue, elf, frame, keys, trace, folder):
+def capture(cue, elf, frame, keys, trace, folder, wait=30):
     syms = symbols(elf)
     request = symbol(syms, '_gCaptureRequest')
     pointer = symbol(syms, '_gCapture')
@@ -223,7 +227,7 @@ def capture(cue, elf, frame, keys, trace, folder):
         med.send(f'run_to_frame {frame}', 'done run_to_frame')
         med.send(f'poke {request:08X} 00 00 00 {CAPTURE_ARM:02X}', 'ok poke', 10)
         header = 0
-        for _ in range(30):
+        for _ in range(wait):
             med.send('frame_advance 1', 'done frame_advance', 30)
             header = header or med.word(pointer)
             if header and med.word(header + 4):
@@ -264,7 +268,7 @@ def records(mem, syms):
     at = mem.unpack('>I', pointer)[0]
     (magic, ready, count, faces, cx, cy, cz, *rest) = mem.unpack(HEADER.format, at)
     rotation, (water, overflow, meshes_count, meshes, sprites, caustics) = rest[:9], rest[9:]
-    if magic != CAPTURE_MAGIC or not ready:
+    if magic not in CAPTURE_MAGICS or not ready:
         sys.exit(f'no capture recorded at {at:#x}')
     header = {'faces': faces, 'camera': [cx, cy, cz], 'rotation': rotation, 'cameraWater': water,
               'overflow': overflow, 'causticsFrame': caustics, 'meshesCount': meshes_count,
@@ -273,6 +277,10 @@ def records(mem, syms):
     header['order'] = at + HEADER.size
     header['farShare'], header['shadeFrame'], header['detailFrame'] = order[-3:]
     at += ORDER.size
+    if CAPTURE_MAGICS[magic]:
+        header['cache'] = at + HEADER.size
+        header['uploads'] = cache_uploads(mem, header)
+        at += CACHE_BYTES
     mesh_index = {mem.unpack('>I', meshes + 4 * i)[0] & 0x0FFFFFFF: i for i in range(meshes_count)}
     out = []
     for i in range(count):
@@ -314,6 +322,18 @@ def records(mem, syms):
     header['faceList'] = symbol(syms, '__ZL6gFaces')
     header['commands'] = symbol(syms, '__ZL5gCmds', array=True)
     return header, out
+
+
+def cache_uploads(mem, header):
+    """The uploads the frame's faces queued (CaptureCache): each the source,
+    the slot's VDP1 VRAM offset, the variant, the width and height."""
+    at = header['cache'] + CACHE_KEYS + CACHE_SLOTS
+    frame, count = mem.unpack('>Ii', at)
+    out = []
+    for i in range(count):
+        src, dst, size = mem.unpack('>3I', at + 8 + 12 * i)
+        out.append({'src': src, 'dst': dst & 0xFFFFFF, 'variant': dst >> 24, 'w': size >> 16, 'h': size & 0xFFFF})
+    return out
 
 
 def order_tables(mem, header):
@@ -449,6 +469,9 @@ def main():
     ap.add_argument('--keys', default=DEFAULT_KEYS)
     ap.add_argument('--trace')
     ap.add_argument('--out', default='ledge')
+    ap.add_argument('--wait', type=int, default=30,
+                    help='vblanks to wait for the frame after asking (more: ask while the level loads, '
+                         'for its first frame)')
     args = ap.parse_args()
 
     cue = os.path.abspath(args.cue)
@@ -457,7 +480,7 @@ def main():
         elf = os.path.join(ROOT, 'build/0MAIN.elf')
     print(f'symbols: {os.path.normpath(elf)}')
     folder = os.path.join(ROOT, 'build/captures', args.out)
-    syms = capture(cue, elf, args.frame, args.keys, args.trace, folder)
+    syms = capture(cue, elf, args.frame, args.keys, args.trace, folder, args.wait)
     shutil.copy(elf, os.path.join(folder, '0MAIN.elf'))
 
     with open(os.path.join(folder, 'lwram.bin'), 'rb') as f:
@@ -473,6 +496,8 @@ def main():
         kinds[r['type']] = kinds.get(r['type'], 0) + 1
     print(f'{len(recs)} records ({", ".join(f"{n} {k}" for k, n in kinds.items())}), '
           f'{header["faces"]} commands' + (', SOME LEFT OUT' if header['overflow'] else ''))
+    if 'uploads' in header:
+        print(f'room texture cache: {len(header["uploads"])} textures queued for upload')
 
     checked, vertices, bad = check(mem, syms, recs)
     for line in bad[:20]:
