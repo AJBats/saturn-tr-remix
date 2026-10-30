@@ -3653,26 +3653,13 @@ Fix: small*
   cycles, and the new pose costs ×1.38 on the Saturn.
 - **Fix:** find the wait (the frame trace on the Saturn), then price the plan
   from the Saturn's figures.
-
-### 235. The frame's rooms walk holds up the DSP's start
-*Kind: speed · Size: ledge frame 16.41 → 16.86 ms for a 0.42 ms walk
-(measured, 966a05c); the slave waits 0.85 ms · Fix: small*
-
-- The master walks the rooms and makes their jobs before the DSP can start
-  on them; the slave poses its share meanwhile, then waits. The plan doesn't
-  price the walk, so the master's share comes out too big.
-- **Fix:** price the walk in the plan; or let the slave walk while the
-  master poses (the DSP still starts after the walk, but the master's path
-  loses it).
-
-### 236. The frame's plan runs between frames, untimed
-*Kind: coverage · Size: unmeasured, small (a pass over the items and the
-rooms' chunks) · Fix: small*
-
-- `framePlan` (lab.cpp) shares the pose and the rooms' chunks between the
-  CPUs before each measured frame, from the rooms the frame before walked.
-  A frame of the game would plan after its own walk, inside the frame.
-- **Fix:** run it in the frame after the walk, timed.
+- Since the frame makes its own draw list (Mednafen, ledge): the slave walks
+  the rooms and starts the DSP while the master makes the draw list, the
+  meshes' jobs and the plan (1.5 ms together), then waits for the plan:
+  slave 16.62 ms work + 1.05 waits, master 17.56 + 0.23. Using that wait
+  means giving the slave part of the master's work before the plan: the
+  pose claimed item by item (as the rooms' chunks are) instead of planned,
+  or the rooms' first chunks taken before the plan.
 
 ### 237. No captured scene has a fill past the draw distance
 *Kind: coverage · Fix: small*
@@ -3697,6 +3684,12 @@ rooms' chunks) · Fix: small*
 - **Levers:** a leaner draw (8 bytes: type, mesh, flags, first vertex) where
   the stages after need no more; a byte table of each mesh's vertex count
   instead of its header's; the items' fields read in one pass of lines.
+- In the frame (Mednafen, ledge, the master's path before the pose): the
+  draw list 29.3k cycles (1.02 ms), the meshes' jobs from it 8.2k (0.29 ms;
+  `verticesDrawsSet` reads every draw back from memory to find the meshes),
+  the plan 5.3k (0.18 ms), the share and the claims 0.8k. The jobs' pass is
+  a lever of its own: `drawsAsm` could write each mesh's job (out, parts,
+  transform) as it writes the draw, with the draw's lines still in hand.
 
 ### 239. The new renderer's RAM in TRS isn't budgeted yet
 *Kind: coverage · Size: TRS's high work RAM has ~31 KB free at the ledge
@@ -3735,6 +3728,24 @@ rooms' chunks) · Fix: small*
 | **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
 
 ## Closed
+
+### 235. The frame's rooms walk holds up the DSP's start
+*Closed 2026-10-30: the slave walks, while the master makes the draw list*
+
+- The frame's slave walks the rooms, makes their jobs and starts the DSP on
+  them in walk order while the master makes the draw list; the master's path
+  no longer has the walk on it. Mednafen, ledge: the master waits 0.004 ms
+  for the walk.
+
+### 236. The frame's plan runs between frames, untimed
+*Closed 2026-10-30: the frame plans after its walk, timed*
+
+- `stagesTogether` (lab.cpp) makes the draw list, the meshes' jobs and the
+  plan (the slave's items, the master's rooms' chunks) inside the measured
+  frame, after the slave's walk. The DSP's room order stays the walk's (the
+  slave has started it before the plan). Mednafen, ledge: the plan 0.18 ms,
+  its predictions now kept by the jobs and rooms as they are set (each
+  mesh's price once, at load).
 
 ### 228. Stage 2, stages 2+3 together and pose have no Saturn numbers yet
 *Closed 2026-10-30: measured on the Saturn, 19bcbaf on the card (ledge)*
