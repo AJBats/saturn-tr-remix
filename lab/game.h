@@ -152,6 +152,11 @@ int32_t gamePoseInit();
 void gamePose();
 int32_t gamePoseCheck(int32_t &matrices);
 
+// The game's way on other items and frames (PFRM's layout), the matrices
+// (12 int32 each) to out by draw.
+struct PoseItem;
+void gamePoseRun(const PoseItem* items, uint32_t count, const uint8_t* frames, void* out);
+
 // Stage 2 the game's way (gamevertices.cpp): the rooms' vertices (xform.s)
 // and the master's draws' (meshxform.s), each set up as the game sets it up,
 // into gVertices where the game put them; Prepare empties gVertices, Check

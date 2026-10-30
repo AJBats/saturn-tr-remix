@@ -33,6 +33,7 @@
 #include "lab.h"
 #include "faces.h"
 #include "game.h"
+#include "pose.h"
 #include "vertices.h"
 #include "hw.h"
 
@@ -114,6 +115,11 @@ struct LabResults
     int32_t poseBad;            // matrices not the game's
     int32_t poseMatrices;       // the matrices made, a drawn mesh each
     int32_t poseItems;          // the items posed
+    uint32_t poseNew;           // cycles: stage 1 the new way
+    int32_t poseNewBad;         // its matrices not the game's
+    int32_t poseSeldom;         // ... on made-up inputs, against the game's way on them (and paths not taken)
+    uint32_t arenaUsed;         // bytes of high work RAM the scene and the stages took (sceneUsed)
+    uint32_t arenaSize;
 };
 
 extern "C" LabResults gLab;
@@ -227,8 +233,8 @@ static uint32_t measure(Prepare prepare, Work work)
 // has them, and the new way's once its frames have run; each list drawn
 // with its own.
 #define SHADE_TABLES    (256 * SHADE_TABLE_SIZE)
-static uint32_t gGameTables[2][SHADE_TABLES / 4];
-static uint32_t gNewTables[2][SHADE_TABLES / 4];
+static uint32_t (*gGameTables)[SHADE_TABLES / 4];  // in low work RAM
+static uint32_t (*gNewTables)[SHADE_TABLES / 4];
 
 static void shadeTables(uint32_t (*tables)[SHADE_TABLES / 4], bool save)
 {
@@ -270,6 +276,12 @@ static void stagePose()
     gLab.pose = measure([] {}, [] { gamePose(); });
     gamePose();
     gLab.poseBad = gamePoseCheck(gLab.poseMatrices);
+
+    poseInit();
+    gLab.poseNew = measure([] {}, [] { pose(); });
+    pose();
+    gLab.poseNewBad = poseCheck();
+    gLab.poseSeldom = poseSeldomCheck();
 }
 
 static void stageTwo()
@@ -992,6 +1004,20 @@ static void posePage()
     put(p, " off)");
     page.add(line);
     page.add("");
+    page.add("STAGE 1, POSE: THE NEW WAY");
+    page.add("master, run alone     ms  cycles a");
+    timeRow(page, "items' nodes", gLab.poseNew, gLab.poseMatrices, "matrix");
+    p = put(line, "matrices ");
+    p = put(p, gLab.poseNewBad ? "OFF (" : "exact (");
+    p = putNumber(p, gLab.poseNewBad, 0);
+    put(p, " off)");
+    page.add(line);
+    p = put(line, "seldom paths ");
+    p = put(p, gLab.poseSeldom ? "OFF (" : "as the game's (");
+    p = putNumber(p, gLab.poseSeldom, 0);
+    put(p, " off)");
+    page.add(line);
+    page.add("");
     page.add("R, L: the other pages");
 }
 
@@ -1252,6 +1278,8 @@ int main()
     }
     textRow(1, "measuring...");
     gameInit();
+    gGameTables = (uint32_t (*)[SHADE_TABLES / 4])sceneAllocLow(2 * SHADE_TABLES);
+    gNewTables = (uint32_t (*)[SHADE_TABLES / 4])sceneAllocLow(2 * SHADE_TABLES);
 
     stagePose();
     stageTwo();
@@ -1274,6 +1302,7 @@ int main()
     shadeTables(gNewTables, false);
     upload(gNewCmds, gNewGrd, gNewEnd);
     gLab.vdp1New = vdp1Show();
+    gLab.arenaUsed = sceneUsed(&gLab.arenaSize);
     gLab.magic = LAB_MAGIC;
 
     resultsPage();

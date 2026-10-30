@@ -24,6 +24,7 @@ static const Chunk* gChunks;
 static uint32_t gCount;
 static uint8_t* gData[MAX_CHUNKS];
 static uint32_t gUsed;
+static uint8_t* gLow;       // low work RAM past the file
 
 const char* sceneLoad(const char* path)
 {
@@ -69,7 +70,17 @@ const char* sceneLoad(const char* path)
         }
     }
     gUsed = used;
+    gLow = file + ((size + 15) & ~15);
     return nullptr;
+}
+
+void* sceneAllocLow(uint32_t bytes)
+{
+    if (gLow + bytes > (uint8_t*)(LOW_RAM + LOW_RAM_SIZE))
+        return nullptr;
+    void* p = gLow;
+    gLow += (bytes + 15) & ~15;
+    return p;
 }
 
 void* sceneAlloc(uint32_t bytes)
@@ -79,6 +90,14 @@ void* sceneAlloc(uint32_t bytes)
     void* p = gArena + gUsed;
     gUsed = (gUsed + bytes + 15) & ~15;
     return p;
+}
+
+uint32_t sceneUsed(uint32_t* size)
+{
+    if (size) {
+        *size = ARENA_SIZE;
+    }
+    return gUsed;
 }
 
 const void* sceneChunk(const char* id, uint32_t* bytes)

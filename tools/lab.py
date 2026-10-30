@@ -33,7 +33,7 @@ LAB_MAGIC = 0x4C414231
 MAX_CMDS = 1792
 SHADE_CACHE = struct.Struct('>4I256I256I')      # game.h ShadeCache
 SHADE_TABLE_SIZE = 32
-LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIiIii5Ii3I5IiI3i')    # lab.cpp LabResults
+LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIiIii5Ii3I5IiI3iI2i2I')    # lab.cpp LabResults
 FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSlave', 'floor',
           'facesBad', 'flushBad', 'splitBad', 'floorBad', 'vdp1Game', 'vdp1Lab', 'meshFacesGiven',
           'roomFacesGiven', 'meshFlush', 'roomFlush', 'newMeshes', 'newRooms', 'newJoin', 'newBad', 'newBadC',
@@ -44,7 +44,8 @@ FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSl
           'together', 'togetherMaster', 'togetherMasterWait', 'togetherSlave', 'togetherSlaveWait',
           'togetherBad', 'togetherDspRooms', 'togetherDspGap', 'togetherDspMeshes',
           'stages', 'stagesMaster', 'stagesMasterWait', 'stagesSlave', 'stagesSlaveWait', 'stagesBad',
-          'pose', 'poseBad', 'poseMatrices', 'poseItems')
+          'pose', 'poseBad', 'poseMatrices', 'poseItems', 'poseNew', 'poseNewBad', 'poseSeldom',
+          'arenaUsed', 'arenaSize')
 TEXT_ROWS, TEXT_COLUMNS = 26, 42
 PAGE = struct.Struct(f'>{TEXT_ROWS * (TEXT_COLUMNS + 1)}s2xi')     # lab.h Page
 VRAM_FRAME_CMDS = 0x60
@@ -52,7 +53,7 @@ VRAM_GOURAUD_BASE = VRAM_FRAME_CMDS + 1792 * 32
 VDP1_HZ = 28636364
 CMD_SKIP, CMD_SCALED_SPRITE, CMD_POLYGON, CMD_END, PMOD_GOURAUD = 0x4000, 0x0001, 0x0004, 0x8000, 0x0004
 JUMPS = 0x7000
-SEGMENTS = ('pose', 'room vertices', 'mesh vertices', 'new: room vertices', 'new: feeding', 'new: mesh vertices', 'mesh faces', 'room faces', 'flush split', 'flush alone', 'floor', "flush of the master's faces",
+SEGMENTS = ('pose', 'new: pose', 'room vertices', 'mesh vertices', 'new: room vertices', 'new: feeding', 'new: mesh vertices', 'mesh faces', 'room faces', 'flush split', 'flush alone', 'floor', "flush of the master's faces",
             "flush of the rooms' faces", 'new: rooms', "new: the master's draws", 'new: join')  # lab.cpp's measure()s
 MARK_BREAK = 4      # lab.cpp labTraceBegin, labTraceEnd: their third instruction
 ADDR2LINE = os.path.join(ROOT, 'toolchain/gcc-14.2.0/sh2eb-elf/bin/sh2eb-elf-addr2line')
@@ -342,7 +343,8 @@ def main():
             sys.exit('the lab never finished measuring')
         frame = int(med.send('status', 'status', 10).split('frame=')[1].split()[0])
         print(f'measured by vblank {frame} ({time.time() - start:.0f} s); off: faces {results["facesBad"]}, '
-              f'flush {results["flushBad"]}, split {results["splitBad"]}, floor {results["floorBad"]}')
+              f'flush {results["flushBad"]}, split {results["splitBad"]}, floor {results["floorBad"]}; '
+              f'high work RAM arena {results["arenaUsed"] / 1024:.1f} of {results["arenaSize"] / 1024:.0f} KB')
         for page in pages:
             text, count = PAGE.unpack(med.read(page, PAGE.size))
             for r in range(count):
@@ -394,7 +396,7 @@ def main():
           f'new {new_cycles * 1000 / VDP1_HZ:.2f} ms')
     if traces:
         profile(traces, elf, syms)
-    sys.exit(1 if bad or differ or any(results[k] for k in ('poseBad', 'vertsBad', 'newVertsBad', 'newVertsSeldom', 'dspRoomsBad', 'dspMeshesBad', 'dspMeshes3Bad', 'feedBad', 'togetherBad', 'stagesBad', 'facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newAsmBad'))
+    sys.exit(1 if bad or differ or any(results[k] for k in ('poseBad', 'poseNewBad', 'poseSeldom', 'vertsBad', 'newVertsBad', 'newVertsSeldom', 'dspRoomsBad', 'dspMeshesBad', 'dspMeshes3Bad', 'feedBad', 'togetherBad', 'stagesBad', 'facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newAsmBad'))
              else 0)
 
 

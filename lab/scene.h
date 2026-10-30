@@ -179,6 +179,14 @@ const void* sceneChunk(const char* id, uint32_t* bytes = nullptr);
 // them (16-byte aligned), or NULL.
 void* sceneAlloc(uint32_t bytes);
 
+// Room in low work RAM past the scene file, for what isn't timed (16-byte
+// aligned), or NULL.
+void* sceneAllocLow(uint32_t bytes);
+
+// The bytes of the high room the scene's chunks and sceneAlloc have taken,
+// and its size.
+uint32_t sceneUsed(uint32_t* size = nullptr);
+
 template <typename T>
 inline T* sceneArray(const char* id, uint32_t* count = nullptr)
 {
