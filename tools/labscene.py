@@ -21,6 +21,7 @@ import capture as cap   # noqa: E402
 import facepack         # noqa: E402
 import posepack         # noqa: E402
 import roompack         # noqa: E402
+import drawpack         # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -386,7 +387,9 @@ def main():
     # a shadow's item: its place in POSE, items in the order first drawn
     order = sorted(first_draws, key=first_draws.get)
     shadows = [(d, order.index(i), r) for d, i, r in shadows if i in first_draws]
-    chunks.update(posepack.pack(mem, sym, recs, first_draws, header, statics, shadows))
+    maps = {}
+    chunks.update(posepack.pack(mem, sym, recs, first_draws, header, statics, shadows, maps))
+    chunks.update(drawpack.pack(mem, sym, recs, mesh_index, maps))
     chunks.update(roompack.pack(mem, sym, recs, header))
     # each level room's geometry in RGEO: the rooms this frame drew, the
     # others none
@@ -456,7 +459,8 @@ def main():
     order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
                  'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT',
                  'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PLIT', 'LGHT', 'STAT', 'SHDW', 'RLVL', 'RPRT',
-                 'RVIS', 'RLGE', 'CAUW', 'PALT', 'SPRS', 'VRAM']
+                 'RVIS', 'RLGE', 'CAUW', 'CALL', 'OITM', 'ANIM', 'AFRM', 'MODL', 'MIDX', 'MNOD', 'SMSH', 'RLIT',
+                 'PALT', 'SPRS', 'VRAM']
     where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1, 'CMDS': WHERE_LOW, 'GRDS': WHERE_LOW}
     table = 8 + 16 * len(order_ids)
     offset = (table + 15) & ~15

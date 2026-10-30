@@ -146,6 +146,9 @@ struct LabResults
     int32_t frameBad;           // commands VDP1 follows not as the game's, vertices not the game's, draws whose
                                 // transform the pose made not as the game's
     int32_t orderOff;           // the game's list with its rooms in the walk's order: commands not the capture's
+    uint32_t draws;             // cycles: the draw list the game's way (the renderer's side of the calls)
+    int32_t drawsBad;           // ... its draws, items, statics, shadows and faces not the capture's
+    uint32_t drawCalls;         // the calls it took
     uint32_t arenaUsed;         // bytes of high work RAM the scene and the stages took (sceneUsed)
     uint32_t arenaSize;
 };
@@ -339,6 +342,14 @@ static void stagePose()
     roomsSeen();
     gLab.roomsNewBad = roomsSeenCheck();
     gLab.roomsSeldom = roomsSeldomCheck();
+
+    // the draw list: after the walk's fills, from the frame's calls
+    int32_t fills;
+    roomsFills(fills);
+    gLab.drawCalls = gameDrawsInit();
+    gLab.draws = measure([] {}, [fills] { gameDraws(fills); });
+    gameDraws(fills);
+    gLab.drawsBad = gameDrawsCheck(gameDrawList(), fills);
 }
 
 static void stageTwo()
@@ -1284,10 +1295,15 @@ static void posePage()
     timeRow(page, "items' light", gLab.light, gLab.poseItems, "item");
     timeRow(page, "statics, shadows", gLab.statics, gLab.staticCount + gLab.shadowCount, "each");
     timeRow(page, "rooms seen", gLab.rooms, gLab.roomsSeen, "room");
+    timeRow(page, "draw list", gLab.draws, gLab.drawCalls, "call");
     p = put(line, gLab.roomsBad ? "OFF: rooms seen" : "exact: rooms seen");
     p = putNumber(p, gLab.roomsBad, 2);
     p = put(p, " off, voids");
     putNumber(p, gLab.roomsVoids, 2);
+    page.add(line);
+    p = put(line, gLab.drawsBad ? "OFF: draw list" : "exact: draw list");
+    p = putNumber(p, gLab.drawsBad, 2);
+    put(p, " off");
     page.add(line);
     p = put(line, gLab.poseBad || gLab.lightBad ? "OFF: matrices" : "exact: matrices");
     p = putNumber(p, gLab.poseBad, 2);

@@ -8,8 +8,12 @@ place, ambient and lights). Beside the items, the frame's static meshes
 (PoseStatic: their place, quarter turn and intensity, as drawRoomStatic takes
 them) and the items' shadows (PoseShadow: the item, the floor under it).
 
-    pack(mem, sym, recs, first_draws, header, statics, shadows)
+    pack(mem, sym, recs, first_draws, header, statics, shadows, maps=None)
         -> chunks POSE, PNOD, PFRM, SINC, PLIT, LGHT, STAT, SHDW
+
+maps, if given, gets where PNOD holds each model's nodes ('nodes', by the
+level's node index) and where LGHT holds each room's lights ('lights', by
+the room's index).
 
 recs: the capture's records; first_draws: each drawn item's first mesh's
 draw (DRAW's index), by item index; header: the capture's; statics: each
@@ -67,7 +71,7 @@ POSE_SHADOW = struct.Struct('>HHi')
 NONE = 0xFFFFFFFF
 
 
-def pack(mem, sym, recs, first_draws, header, statics, shadows):
+def pack(mem, sym, recs, first_draws, header, statics, shadows, maps=None):
     L = layout(LAYOUT)
     u32 = lambda a: mem.unpack('>I', a)[0]
     u16 = lambda a: mem.unpack('>H', a)[0]
@@ -202,6 +206,9 @@ def pack(mem, sym, recs, first_draws, header, statics, shadows):
         else:
             raise SystemExit(f'shadow at draw {draw}: no floor gives its matrix')
         shadow_data += POSE_SHADOW.pack(draw, item, guess + cam[1])
+    if maps is not None:
+        maps['nodes'] = dict(node_at)
+        maps['lights'] = {(room - sym('_rooms')) // L['rooms']: at for room, at in light_at.items()}
     return {'POSE': bytes(poses), 'PNOD': bytes(node_data), 'PFRM': bytes(frame_data),
             'SINC': mem.bytes(sym('_gSinCosTable'), 4096 * 4), 'PLIT': bytes(pose_lights), 'LGHT': bytes(lights),
             'STAT': bytes(static_data), 'SHDW': bytes(shadow_data)}

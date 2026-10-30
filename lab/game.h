@@ -208,6 +208,40 @@ void gameRoomsRun(uint32_t room, const int32_t* camera, const int32_t* view, Roo
 // the game's (ROOM, by room): those that differ, or a list of another length.
 int32_t gameRoomJobsCheck(const FaceRoom* jobs, int32_t count);
 
+// Stage 1 the game's way, the draw list (gamedraws.cpp): the renderer's side
+// of the frame's calls after the walk (CALL), as draw.h and render.cpp take
+// them: the draws in order (DrawScene: the meshes' and shadows' with their
+// mesh, faces' flags and first vertex; sprites' and rectangles' faces, made,
+// in faces with two vertices each), each item posed with its frames (as
+// pointers), extras and light (PoseItem, PoseLight), each static's place
+// (PoseStatic), each shadow's floor (PoseShadow). Init: the calls; gameDraws
+// after fills of the walk's (their vertices first); the check against the
+// scene's (DRAW past its fills, POSE, PLIT, STAT, SHDW): those that differ.
+struct DrawScene;
+struct PoseItem;
+struct PoseLight;
+struct PoseStatic;
+struct PoseShadow;
+struct DrawList
+{
+    DrawScene* draws;
+    uint32_t drawCount;
+    PoseItem* items;
+    PoseLight* lights;
+    uint32_t itemCount;
+    PoseStatic* statics;
+    uint32_t staticCount;
+    PoseShadow* shadows;
+    uint32_t shadowCount;
+    Face* faces;
+    Vertex* vertices;
+    uint32_t faceCount;
+};
+int32_t gameDrawsInit();
+void gameDraws(int32_t fills);
+const DrawList& gameDrawList();
+int32_t gameDrawsCheck(const DrawList &list, int32_t fills);
+
 // The game's jobs for a list of rooms, with another level, camera room and
 // camera: the jobs made.
 struct RoomLevel;

@@ -230,6 +230,119 @@ struct PoseCamera
     int16_t pad;
 };
 
+// The draw list's inputs (tools/drawpack.py):
+// CALL  the frame's calls into the renderer after the walk, in order
+//       (CallRecord); OITM the items their models are drawn for (ItemRecord);
+//       ANIM each item's animation (GameAnim, its own copy) and AFRM their
+//       frames: an animation's frame offset counts from AFRM_BASE uint16s
+//       before AFRM, so its frame (and the next, where getFrames reads it)
+//       lies there; MODL the level's models (GameModel), MIDX each level
+//       mesh's index in MESH (0xFFFF: not in the scene), MNOD each model's
+//       nodes in PNOD, SMSH the level's static meshes (GameStaticMesh), RLIT
+//       each room's ambient and lights (RoomLights).
+enum CallKind { CALL_VIEWPORT = 1, CALL_MODEL, CALL_STATIC, CALL_SHADOW, CALL_SPRITE, CALL_RECT };
+
+struct CallRecord
+{
+    uint8_t kind, pad;
+    uint16_t index;         // a model's or shadow's ItemRecord, a static's room, a sprite's, a rectangle's type
+    uint32_t flags;         // the faces' at the call (FACE_WATER)
+    int32_t args[6];        // a viewport's x0 y0 x1 y1; a static's RoomMesh (xy, zf), place from the camera
+                            // and index in its room; a shadow's floor; a sprite's x y z and shade; a
+                            // rectangle's x y width height, colour and bucket
+};
+
+#define AFRM_BASE   0x10000
+
+// The game's own layouts, as the renderer reads them.
+struct GameItem             // ItemObj
+{
+    uint32_t vtable;
+    uint32_t room;          // +4 (the lab's none: its room is its record's)
+    int32_t pos[3];         // +8
+    int16_t angle[3];       // +20
+    uint16_t flags;         // +26
+    uint8_t pad0[4];
+    uint16_t animIndex;     // +32
+    uint16_t frameIndex;    // +34
+    uint8_t pad1[16];
+    uint8_t type;           // +52
+    uint8_t intensity;      // +53
+    uint8_t pad2[6];
+    uint32_t visibleMask;   // +60
+    const uint8_t* extra;   // +64 (the lab's: its record's)
+    uint32_t nextItem;      // +68
+    uint8_t pad3[4];
+};
+
+struct GameArm              // ExtraInfoLara::Arm
+{
+    int16_t angle[3];
+    uint8_t pad0[6];
+    uint16_t animIndex;     // +12
+    uint16_t frameIndex;    // +14
+    int16_t flash;          // +16 (its timer)
+    uint8_t pad1[11];
+    uint8_t useBasis;       // +29
+    uint8_t pad2[2];
+};
+
+struct GameLara            // ExtraInfoLara, its first bytes
+{
+    uint8_t pad0[10];
+    uint8_t weapon;         // +10
+    uint8_t pad1;
+    int16_t head[3];        // +12
+    int16_t torso[3];       // +18
+    GameArm arms[2];        // +24: right, left
+    uint8_t pad2[108];
+    uint16_t meshes[15];    // +196: each joint's mesh (level.meshes), in the order drawn
+    uint16_t pad3;
+};
+
+struct ItemRecord
+{
+    GameItem item;
+    uint16_t room, pad;     // its room's index
+    uint8_t extra[228];     // its extra's first bytes: GameLara, or an enemy's angles
+};
+
+struct GameAnim             // Anim
+{
+    uint32_t frameOffset;   // bytes
+    uint8_t frameRate;      // +4
+    uint8_t frameSize;
+    uint8_t pad0[10];
+    uint16_t frameBegin;    // +16
+    uint16_t frameEnd;      // +18
+    uint8_t pad1[12];
+};
+
+struct GameModel            // Model
+{
+    uint8_t type;
+    int8_t count;           // its nodes, a mesh each
+    uint16_t start;         // its first mesh in level.meshes
+    uint16_t nodeIndex;
+    uint16_t animIndex;
+};
+
+struct GameStaticMesh       // StaticMesh
+{
+    uint16_t id;
+    uint16_t meshIndex;     // +2
+    uint32_t flags;         // +4: STATIC_MESH_FLAG_VISIBLE
+    int32_t vsXY, vsZR;     // +8: its visible sphere, x y, z r (int16 each)
+    uint8_t boxes[24];
+};
+
+struct RoomLights
+{
+    uint8_t ambient, lights;
+    uint16_t pad;
+    uint32_t first;         // in LGHT
+};
+
 // A command as the floor builds it: three words as the game's, the corners
 // whose positions the game's corner words hold (byte offsets in the
 // vertices). FLOOR_EXACT: the floor gives the game's command.
