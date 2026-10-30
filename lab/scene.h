@@ -118,7 +118,8 @@ struct DrawXform
 //       game's sines and cosines (gSinCosTable, 4096 longwords); CAMR the
 //       camera (PoseCamera); PLIT what lights each item (PoseLight, POSE's
 //       order), LGHT its room's lights (Light: int16 x y z from the room,
-//       radius, intensity).
+//       radius, intensity); STAT the static meshes drawn (PoseStatic), SHDW
+//       the items' shadows (PoseShadow).
 struct PoseArm
 {
     uint32_t frame;         // in PFRM, or ~0: the arm moves with the body
@@ -152,6 +153,21 @@ struct PoseLight
     uint8_t ambient;        // its room's
     uint8_t lights, pad;    // its room's lights, from first in LGHT
     uint32_t first;
+};
+
+struct PoseStatic
+{
+    uint16_t draw;          // DRAW's
+    uint8_t quadrant, pad;  // its quarter turn (STATIC_MESH_QUADRANT)
+    int32_t intensity;      // STATIC_MESH_INTENSITY
+    int32_t x, y, z;        // its place in the world
+};
+
+struct PoseShadow
+{
+    uint16_t draw;          // DRAW's
+    uint16_t item;          // POSE's
+    int32_t floor;          // the floor's height under the item
 };
 
 struct PoseCamera

@@ -42,6 +42,8 @@ void matrixSetBasis_c(Matrix &dst, const Matrix &src);
 void matrixLerp_c(const Matrix &n, int32_t pmul, int32_t pdiv);
 void matrixTranslateRel_c(int32_t x, int32_t y, int32_t z);
 void matrixTranslateAbs_c(int32_t x, int32_t y, int32_t z);
+void matrixTranslateSet_c(int32_t x, int32_t y, int32_t z);
+void matrixRotateYQ_c(int32_t quadrant);
 void matrixRotateX_c(int32_t angle);
 void matrixRotateY_c(int32_t angle);
 void matrixRotateZ_c(int32_t angle);
@@ -56,6 +58,8 @@ void matrixFrameLerp(const void* pos, const void* anglesA, const void* anglesB, 
 #define matrixLerp          matrixLerp_c
 #define matrixTranslateRel  matrixTranslateRel_c
 #define matrixTranslateAbs  matrixTranslateAbs_c
+#define matrixTranslateSet  matrixTranslateSet_c
+#define matrixRotateYQ      matrixRotateYQ_c
 #define matrixRotateX       matrixRotateX_c
 #define matrixRotateY       matrixRotateY_c
 #define matrixRotateZ       matrixRotateZ_c

@@ -46,6 +46,8 @@ struct PoseContext
     const void* lights;         // +180 LGHT
     struct PoseLit* lit;        // +184 the items' light, by item
     const struct PoseLit* litNow;   // +188 pose.s's own
+    const PoseItem* items;      // +192 the shadows' items
+    int32_t pad[3];
 };
 
 // An item's light as drawModel leaves it for its meshes (DrawXform's ambient,
@@ -61,6 +63,8 @@ enum { POSE_STILL, POSE_HALF, POSE_QUARTER, POSE_THREE, POSE_SLOW };
 
 extern "C" void poseAsm(const PoseItem* items, int32_t count, PoseContext* ctx);
 extern "C" void poseLightAsm(const PoseItem* items, int32_t count, PoseContext* ctx);
+extern "C" void poseStaticsAsm(const PoseStatic* statics, int32_t count, PoseContext* ctx);
+extern "C" void poseShadowsAsm(const PoseShadow* shadows, int32_t count, PoseContext* ctx);
 
 // The scene's items for the new way: its context, and the draws' transforms
 // it writes, the scene's (XFRM) for the draws not an item's mesh.
@@ -77,7 +81,8 @@ void pose();
 int32_t poseCheck();
 
 // For a frame shared between the CPUs: items first .. first + count - 1 lit
-// and posed on a CPU (0 the master, 1 the slave, each with its own context);
+// and posed on a CPU (0 the master, 1 the slave, each with its own context),
+// and their shadows placed;
 // the items; an item's price in cycles, the plan's (its light, its drawn
 // matrices); its first draw, and its draws (none if no mesh shows); the
 // master's cached copies of those items' transforms dropped (the slave made
@@ -107,5 +112,14 @@ int32_t poseSeldomCheck();
 void poseLight();
 int32_t poseLightCheck();
 int32_t poseLightSeldomCheck();
+
+// The static meshes' and the shadows' transforms (pose.s), into poseXforms
+// by draw (the shadows' items lit); against the game's (XFRM): those that
+// differ. Made up: quarter turns, intensities, places, the fog, lerped boxes,
+// floors and yaws the scene seldom gives, against the game's way on them.
+void poseStatics();
+void poseShadows();
+int32_t poseStaticsCheck();
+int32_t poseStaticsSeldomCheck();
 
 #endif

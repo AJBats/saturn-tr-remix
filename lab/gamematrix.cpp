@@ -170,6 +170,55 @@ void matrixRotateZ_c(int32_t angle)
     MATRIX_ROTXY(m.e21, m.e20, s, c);
 }
 
+void matrixTranslateSet_c(int32_t x, int32_t y, int32_t z)
+{
+    MATRIX_TRANS(x, y, z);
+    m.e03 = tx;
+    m.e13 = ty;
+    m.e23 = tz;
+}
+
+void matrixRotateYQ_c(int32_t quadrant)
+{
+    if (quadrant == 2)
+        return;
+
+    Matrix &m = matrixGet();
+
+    if (quadrant == 0) {
+        m.e00 = -m.e00;
+        m.e10 = -m.e10;
+        m.e20 = -m.e20;
+        m.e02 = -m.e02;
+        m.e12 = -m.e12;
+        m.e22 = -m.e22;
+    } else if (quadrant == 1) {
+        int32_t e0 = m.e02;
+        int32_t e1 = m.e12;
+        int32_t e2 = m.e22;
+
+        m.e02 = -m.e00;
+        m.e12 = -m.e10;
+        m.e22 = -m.e20;
+
+        m.e00 = e0;
+        m.e10 = e1;
+        m.e20 = e2;
+    } else {
+        int32_t e0 = m.e02;
+        int32_t e1 = m.e12;
+        int32_t e2 = m.e22;
+
+        m.e02 = m.e00;
+        m.e12 = m.e10;
+        m.e22 = m.e20;
+
+        m.e00 = -e0;
+        m.e10 = -e1;
+        m.e20 = -e2;
+    }
+}
+
 void matrixRotateYXZ_c(int32_t angleX, int32_t angleY, int32_t angleZ)
 {
     if (angleY) matrixRotateY(angleY);

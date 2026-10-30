@@ -320,6 +320,7 @@ def main():
     hinted = set()
     owner = None
     first_draws = {}    # a drawn item's first mesh's draw, by item index
+    statics, shadows = [], []   # (draw, object record); (draw, item index, record)
     k = 0
     for r in recs:
         if r['type'] == 'object':
@@ -359,12 +360,19 @@ def main():
                                first, end - first, 0)
             if owner and owner['kind'] == 0 and r['type'] == 'mesh':
                 first_draws.setdefault(owner['index'], draw_count)
+            if owner and owner['kind'] == 1 and r['type'] == 'static':
+                statics.append((draw_count, owner))
+        if owner and owner['kind'] == 0 and r['type'] == 'shadow':
+            shadows.append((draw_count, owner['index'], r))
         draw_count += 1
         for i in hud:
             copy_face(i)
     chunks['DRAW'] = bytes(draws)
     chunks['XFRM'] = bytes(xforms)
-    chunks.update(posepack.pack(mem, sym, recs, first_draws))
+    # a shadow's item: its place in POSE, items in the order first drawn
+    order = sorted(first_draws, key=first_draws.get)
+    shadows = [(d, order.index(i), r) for d, i, r in shadows if i in first_draws]
+    chunks.update(posepack.pack(mem, sym, recs, first_draws, header, statics, shadows))
     chunks['CAMR'] = struct.pack('>3i9h2x', *header['camera'], *header['rotation'])
     chunks['MESH'] = struct.pack(f'>{len(mesh_offsets)}I', *mesh_offsets)
     chunks['MGEO'] = bytes(mesh_data)
@@ -426,7 +434,8 @@ def main():
     # level's palette and sprites in low; and VDP1 VRAM
     order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
                  'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT',
-                 'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PLIT', 'LGHT', 'PALT', 'SPRS', 'VRAM']
+                 'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PLIT', 'LGHT', 'STAT', 'SHDW', 'PALT', 'SPRS',
+                 'VRAM']
     where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1}
     table = 8 + 16 * len(order_ids)
     offset = (table + 15) & ~15

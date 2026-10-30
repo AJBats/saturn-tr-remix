@@ -1,5 +1,6 @@
 // Stage 1 the game's way, the light (game.h): each item's as openlara/draw.h
-// drawModel sets it before its nodes. An item without an intensity of its
+// drawModel sets it before its nodes; and the static meshes' and the items'
+// shadows' transforms, as drawRoomStatic and drawShadow set them up. An item without an intensity of its
 // own takes its room's brightest light at its first frame's box centre,
 // turned as the item (calcLightingDynamic at ItemObj::getRelative); one with
 // takes that (calcLightingStatic). Either way the fog darkens it by the
@@ -233,5 +234,127 @@ int32_t gameLightCheck()
                    (light.range > 0 && memcmp(x.light, light.view, sizeof(light.view)));
         }
     }
+    return bad;
+}
+
+// --- the static meshes and the shadows ------------------------------------------
+
+static const PoseStatic* gStatics;
+static uint32_t gStaticCount;
+static const PoseShadow* gShadows;
+static uint32_t gShadowCount;
+static const int32_t* gCamera;
+static DrawXform* gStaticOut;
+
+static void storeXform(DrawXform &out)
+{
+    memcpy(out.m, &matrixGet(), sizeof(out.m));
+    out.ambient = gLightAmbient;
+    out.range = gLightRange;
+    memcpy(out.light, gLightView, sizeof(out.light));
+}
+
+// draw.h drawRoomStatic's: the view placed at the static, its quarter turn,
+// its intensity's light (its visibility test aside)
+void drawRoomStaticXform(const PoseStatic* mesh, DrawXform &out)
+{
+    matrixPush();
+    matrixTranslateSet(mesh->x - gCamera[0], mesh->y - gCamera[1], mesh->z - gCamera[2]);
+    matrixRotateYQ(mesh->quadrant);
+
+    calcLightingStatic(mesh->intensity);
+    storeXform(out);
+
+    matrixPop();
+}
+
+// draw.h drawShadow's: the item's box as getBoundingBox(true) lerps it, the
+// view placed at the item over the floor (the floor's lookup aside) and
+// turned as it; the item's light, as drawModel left it
+void drawShadowXform(const PoseItem* item, const PoseShadow* shadow, const GameLight &light, DrawXform &out)
+{
+    const int16_t* boxA = (const int16_t*)(gFrames + item->frameA);
+    const int16_t* boxB = (const int16_t*)(gFrames + item->frameB);
+    int16_t box[6];
+    if (!item->frameDelta) {
+        memcpy(box, boxA, sizeof(box));
+    } else {
+        int32_t d = divTable[item->frameRate] * item->frameDelta;
+        for (int32_t k = 0; k < 6; k++) {
+            box[k] = boxA[k] + ((boxB[k] - boxA[k]) * d >> 16);
+        }
+    }
+    int32_t x = (box[1] + box[0]) >> 1;
+    int32_t z = (box[5] + box[4]) >> 1;
+    int32_t sx = (box[1] - box[0]) * 160 >> 10;
+    int32_t sz = (box[5] - box[4]) * 160 >> 10;
+
+    matrixPush();
+    matrixTranslateAbs(item->pos[0], shadow->floor, item->pos[2]);
+    matrixRotateY(item->angle[1]);
+
+    memcpy(out.m, &matrixGet(), sizeof(out.m));
+    out.ambient = light.ambient;
+    out.range = light.range;
+    memcpy(out.light, light.view, sizeof(out.light));
+    out.shadow[0] = x;
+    out.shadow[1] = z;
+    out.shadow[2] = sx;
+    out.shadow[3] = sz;
+
+    matrixPop();
+}
+
+void gameStaticsInit()
+{
+    gStatics = sceneArray<const PoseStatic>("STAT", &gStaticCount);
+    gShadows = sceneArray<const PoseShadow>("SHDW", &gShadowCount);
+    gCamera = sceneArray<const PoseCamera>("CAMR")->pos;
+    gStaticOut = (DrawXform*)sceneAlloc(sceneInfo().draws * sizeof(DrawXform));
+}
+
+void gameStaticsRun(const PoseStatic* statics, uint32_t statCount, const PoseShadow* shadows, uint32_t shadowCount,
+                    const PoseItem* items, const GameLight* lights, const uint8_t* frames, DrawXform* out)
+{
+    gFrames = frames;
+    gMatrixPtr = gMatrixStack;
+    for (uint32_t i = 0; i < statCount; i++) {
+        drawRoomStaticXform(statics + i, out[statics[i].draw]);
+    }
+    for (uint32_t i = 0; i < shadowCount; i++)
+    {
+        const PoseShadow &s = shadows[i];
+        drawShadowXform(items + s.item, &s, lights[s.item], out[s.draw]);
+    }
+}
+
+void gameStatics()
+{
+    gameStaticsRun(gStatics, gStaticCount, gShadows, gShadowCount, gItems, gOut, gSceneFrames, gStaticOut);
+}
+
+// Whether a transform differs: the matrix, the light (its direction where the
+// range is above 0), and a shadow's place and size.
+int32_t xformOff(const DrawXform &a, const DrawXform &b, bool shadow)
+{
+    return memcmp(a.m, b.m, sizeof(a.m)) || a.ambient != b.ambient || a.range != b.range ||
+           (b.range > 0 && memcmp(a.light, b.light, sizeof(a.light))) ||
+           (shadow && memcmp(a.shadow, b.shadow, sizeof(a.shadow)));
+}
+
+int32_t gameStaticsCheck(const DrawXform* made, int32_t &statics, int32_t &shadows)
+{
+    if (!made) {
+        made = gStaticOut;
+    }
+    int32_t bad = 0;
+    for (uint32_t i = 0; i < gStaticCount; i++) {
+        bad += xformOff(made[gStatics[i].draw], gXforms[gStatics[i].draw], false);
+    }
+    for (uint32_t i = 0; i < gShadowCount; i++) {
+        bad += xformOff(made[gShadows[i].draw], gXforms[gShadows[i].draw], true);
+    }
+    statics = gStaticCount;
+    shadows = gShadowCount;
     return bad;
 }

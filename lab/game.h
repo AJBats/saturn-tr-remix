@@ -169,6 +169,22 @@ void gameLight();
 const GameLight* gameLights();
 int32_t gameLightCheck();
 
+// Stage 1 the game's way, the static meshes' and the shadows' transforms
+// (gamelight.cpp: drawRoomStatic's, drawShadow's; their visibility tests and
+// the floor's lookup aside), by draw; against the capture's (XFRM): those
+// that differ (statics, shadows: how many), made: the new way's, or none for
+// the game's way's. Run on others: the shadows' items' light by item.
+struct DrawXform;
+struct PoseItem;
+struct PoseStatic;
+struct PoseShadow;
+void gameStaticsInit();
+void gameStatics();
+int32_t gameStaticsCheck(const DrawXform* made, int32_t &statics, int32_t &shadows);
+int32_t xformOff(const DrawXform &a, const DrawXform &b, bool shadow);
+void gameStaticsRun(const PoseStatic* statics, uint32_t statCount, const PoseShadow* shadows, uint32_t shadowCount,
+                    const PoseItem* items, const GameLight* lights, const uint8_t* frames, DrawXform* out);
+
 // The game's light on other items, rooms (PLIT's layout), lights (LGHT's)
 // and frames, by item to out.
 struct PoseItem;

@@ -4,13 +4,23 @@ openlara/draw.h drawModel took it (its place and turn, its frames as
 ItemObj::getFrames picks them, its extra angles; Lara's torso, head and
 arms), and the level data its arithmetic reads (the nodes, the frames, the
 sine table); and what lights each item (PoseLight: its intensity, its room's
-place, ambient and lights).
+place, ambient and lights). Beside the items, the frame's static meshes
+(PoseStatic: their place, quarter turn and intensity, as drawRoomStatic takes
+them) and the items' shadows (PoseShadow: the item, the floor under it).
 
-    pack(mem, sym, recs, first_draws) -> chunks POSE, PNOD, PFRM, SINC, PLIT, LGHT
+    pack(mem, sym, recs, first_draws, header, statics, shadows)
+        -> chunks POSE, PNOD, PFRM, SINC, PLIT, LGHT, STAT, SHDW
 
 recs: the capture's records; first_draws: each drawn item's first mesh's
-draw (DRAW's index), by item index. The structures' layouts come from the
-game's compiler (tools/gamelayout.py).
+draw (DRAW's index), by item index; header: the capture's; statics: each
+static mesh's draw and its object record, in draw order; shadows: each
+shadow's draw and its owner's item index. The structures' layouts come from
+the game's compiler (tools/gamelayout.py).
+
+The floor under a shadow is the sector data's (game logic); the capture has
+the shadow's matrix, the view moved to the item's x and z at the floor's
+height (matrixTranslateAbs: plain products of the view's rows), from which
+the floor comes exactly: one unknown, three rows to solve and check it.
 """
 import struct
 
@@ -39,6 +49,7 @@ LAYOUT = {
     'room': 'sizeof(Room)', 'r.info': 'offsetof(Room, info)', 'r.lights': 'offsetof(Room, data.lights)',
     'ri.x': 'offsetof(RoomInfo, x)', 'ri.z': 'offsetof(RoomInfo, z)', 'ri.lights': 'offsetof(RoomInfo, lightsCount)',
     'ri.ambient': 'offsetof(RoomInfo, ambient)', 'light': 'sizeof(Light)',
+    'r.meshes': 'offsetof(Room, data.meshes)', 'roomMesh': 'sizeof(RoomMesh)', 'rooms': 'sizeof(Room)',
 }
 
 # PoseItem (lab/scene.h): lara, count, firstDraw, nodes, frameA, frameB, frameDelta, frameRate,
@@ -49,10 +60,14 @@ POSE_ARM = struct.Struct('>Ii3hBx')
 # PoseLight (lab/scene.h): the room's x and z, the item's intensity, the room's ambient and lights
 # (count, first in LGHT); LGHT: Light (int16 x y z, radius, intensity)
 POSE_LIGHT = struct.Struct('>2h3BxI')
+# PoseStatic (lab/scene.h): its draw, quarter turn, intensity (STATIC_MESH_INTENSITY), place in the
+# world; PoseShadow: its draw, its item (POSE's), the floor under it
+POSE_STATIC = struct.Struct('>HBxi3i')
+POSE_SHADOW = struct.Struct('>HHi')
 NONE = 0xFFFFFFFF
 
 
-def pack(mem, sym, recs, first_draws):
+def pack(mem, sym, recs, first_draws, header, statics, shadows):
     L = layout(LAYOUT)
     u32 = lambda a: mem.unpack('>I', a)[0]
     u16 = lambda a: mem.unpack('>H', a)[0]
@@ -159,5 +174,42 @@ def pack(mem, sym, recs, first_draws):
         pose_lights += POSE_LIGHT.pack(*mem.unpack('>h', info + L['ri.x']), *mem.unpack('>h', info + L['ri.z']),
                                        mem.unpack('>B', it + L['i.intensity'])[0],
                                        mem.unpack('>B', info + L['ri.ambient'])[0], count_lights, light_at[room])
+    # the static meshes: drawRoomStatic's place, quarter turn and intensity
+    rooms = sym('_rooms')
+    static_data = bytearray()
+    for draw, owner in statics:
+        room = rooms + owner['owner'] * L['rooms']
+        info = u32(room + L['r.info'])
+        xy, zf = mem.unpack('>2I', u32(room + L['r.meshes']) + owner['index'] * L['roomMesh'])
+        x = (mem.unpack('>h', info + L['ri.x'])[0] << 8) + s32(xy) // 65536
+        y = s16(xy)
+        z = (mem.unpack('>h', info + L['ri.z'])[0] << 8) + s32(zf) // 65536
+        static_data += POSE_STATIC.pack(draw, (zf >> 6) & 3, ((zf >> 8) & 0xFF) << 5, x, y, z)
+    # the shadows: their floors, from their matrices
+    shadow_data = bytearray()
+    cam = header['camera']
+    view = [s16(v) for v in header['rotation']]
+    for draw, item, r in shadows:
+        px, py, pz = struct.unpack_from('>3i', poses, item * (POSE_ITEM.size + 2 * POSE_ARM.size) + 28)
+        dx, dz = px - cam[0], pz - cam[2]
+        t = [s32(r['matrix'][k]) for k in (3, 7, 11)]
+        row = max(range(3), key=lambda k: abs(view[3 * k + 1]))
+        rest = view[3 * row] * dx + view[3 * row + 2] * dz
+        dy = (t[row] - rest) // view[3 * row + 1]
+        for guess in (dy, dy + 1, dy - 1):
+            if all(s32(view[3 * k] * dx + view[3 * k + 1] * guess + view[3 * k + 2] * dz) == t[k] for k in range(3)):
+                break
+        else:
+            raise SystemExit(f'shadow at draw {draw}: no floor gives its matrix')
+        shadow_data += POSE_SHADOW.pack(draw, item, guess + cam[1])
     return {'POSE': bytes(poses), 'PNOD': bytes(node_data), 'PFRM': bytes(frame_data),
-            'SINC': mem.bytes(sym('_gSinCosTable'), 4096 * 4), 'PLIT': bytes(pose_lights), 'LGHT': bytes(lights)}
+            'SINC': mem.bytes(sym('_gSinCosTable'), 4096 * 4), 'PLIT': bytes(pose_lights), 'LGHT': bytes(lights),
+            'STAT': bytes(static_data), 'SHDW': bytes(shadow_data)}
+
+
+def s16(v):
+    return (v & 0xFFFF) - ((v & 0x8000) << 1)
+
+
+def s32(v):
+    return (v & 0xFFFFFFFF) - ((v & 0x80000000) << 1)

@@ -1449,3 +1449,387 @@ _poseLightAsm:
 .L4096:     .long   4096
 .L8191:     .long   8191
 .Lfogmin:   .long   1024 * 12   ! FOG_MIN
+
+! --- the static meshes' and the shadows' transforms --------------------------
+!
+! void poseStaticsAsm(const PoseStatic* statics, int32 count, PoseContext* ctx)
+! void poseShadowsAsm(const PoseShadow* shadows, int32 count, PoseContext* ctx)
+!
+! Each to its draw's DrawXform in ctx->out, as draw.h sets them up. A static
+! mesh (drawRoomStatic): the view placed at it (matrixTranslateSet: plain
+! products of the view's rows and its place from the camera), its columns
+! turned by its quarter (matrixRotateYQ), lit by its intensity and the fog
+! (calcLightingStatic; no direction). A shadow (drawShadow): its item's box
+! as getBoundingBox(true) lerps it, the view placed at the item over the
+! floor (matrixTranslateAbs) and turned by its yaw (matrixRotateY, .Lrot),
+! the item's light from ctx->lit, the box's centre and half sizes.
+!
+! PoseStatic (scene.h): +0 draw, +2 quadrant, +4 intensity, +8 x y z; 20.
+! PoseShadow: +0 draw, +2 item, +4 floor; 8.
+
+    .equ    C_ITEMS,        192     ! the items, for the shadows
+    .equ    S_DRAW,         0
+    .equ    S_QUADRANT,     2
+    .equ    S_INTENSITY,    4
+    .equ    S_X,            8
+    .equ    STATIC,         20
+    .equ    H_DRAW,         0
+    .equ    H_ITEM,         2
+    .equ    H_FLOOR,        4
+    .equ    SHADOW,         8
+    .equ    X_SHADOW,       62
+
+! r1 = r1 * 72: a draw's DrawXform from out; r0
+    .macro  XFORM_AT
+    mov     r1, r0
+    shll8   r0
+    shlr2   r0
+    shll2   r1
+    shll    r1
+    add     r0, r1
+    mov.l   @(C_OUT,gbr), r0
+    add     r0, r1
+    .endm
+
+! a row's columns a (r5) and c (r7) turned by the quarter in r14
+! (matrixRotateYQ: 0 both negated, 1 c and -a, 2 as they are, 3 -c and a); r0
+    .macro  QUARTER
+    mov     r14, r0
+    cmp/eq  #2, r0
+    bt      3f
+    cmp/eq  #0, r0
+    bf      1f
+    neg     r5, r5
+    bra     3f
+    neg     r7, r7
+1:  cmp/eq  #1, r0
+    bf      2f
+    mov     r7, r0
+    neg     r5, r7
+    bra     3f
+    mov     r0, r5
+2:  mov     r5, r0
+    neg     r7, r5
+    mov     r0, r7
+3:
+    .endm
+
+    .global _poseStaticsAsm
+_poseStaticsAsm:
+    mov.l   r8, @-r15
+    mov.l   r9, @-r15
+    mov.l   r10, @-r15
+    mov.l   r11, @-r15
+    mov.l   r12, @-r15
+    mov.l   r13, @-r15
+    mov.l   r14, @-r15
+    stc.l   gbr, @-r15
+    ldc     r6, gbr
+    mov     r4, r10
+    mov     r5, r12
+    tst     r12, r12
+    bf      1f
+    bra     .Lstaticsdone
+    nop
+1:  mov.l   @(C_STACK,gbr), r0
+    mov     r0, r9                  ! the view
+    mov.l   .Ls2p18, r13
+.Lstatic:
+    mov.w   @(S_DRAW,r10), r0
+    extu.w  r0, r1
+    XFORM_AT
+    mov     r1, r11
+    ! the place from the camera
+    mov.l   @(S_X,r10), r2
+    mov.l   @(C_CAMERA,gbr), r0
+    sub     r0, r2
+    mov.l   @(S_X+4,r10), r3
+    mov.l   @(C_CAMERA+4,gbr), r0
+    sub     r0, r3
+    mov.l   @(S_X+8,r10), r4
+    mov.l   @(C_CAMERA+8,gbr), r0
+    sub     r0, r4
+    mov.b   @(S_QUADRANT,r10), r0
+    extu.b  r0, r14
+    ! each row: its translation, its columns turned
+    .irp    ro, 0, 16, 32
+    mov.l   @(\ro,r9), r5
+    mov.l   @(\ro+4,r9), r6
+    mul.l   r5, r2
+    mov.l   @(\ro+8,r9), r7
+    sts     macl, r8
+    mul.l   r6, r3
+    sts     macl, r0
+    mul.l   r7, r4
+    add     r0, r8
+    sts     macl, r0
+    add     r0, r8
+    mov.l   r8, @(\ro+12,r11)
+    QUARTER
+    mov.l   r5, @(\ro,r11)
+    mov.l   r6, @(\ro+4,r11)
+    mov.l   r7, @(\ro+8,r11)
+    .endr
+    ! its light: its intensity - 4096, the fog past FOG_MIN, up to 8191
+    mov.l   @(S_INTENSITY,r10), r1
+    mov.l   .Ls4096, r0
+    sub     r0, r1
+    mov.l   @(44,r11), r2
+    dmuls.l r2, r13
+    sts     mach, r2
+    mov.l   .Lsfogmin, r0
+    cmp/gt  r0, r2
+    bf      1f
+    sub     r0, r2
+    add     r2, r1
+    mov.l   .Ls8191, r0
+    cmp/gt  r0, r1
+    bf      1f
+    mov     r0, r1
+1:  mov.l   r1, @(X_AMBIENT,r11)
+    mov     #0, r0
+    mov.l   r0, @(X_RANGE,r11)
+    mov.l   r0, @(X_LIGHT,r11)
+    mov     r11, r1
+    add     #X_LIGHT+4, r1
+    mov.w   r0, @r1
+    add     #STATIC, r10
+    dt      r12
+    bt      .Lstaticsdone
+    bra     .Lstatic
+    nop
+.Lstaticsdone:
+    ldc.l   @r15+, gbr
+    mov.l   @r15+, r14
+    mov.l   @r15+, r13
+    mov.l   @r15+, r12
+    mov.l   @r15+, r11
+    mov.l   @r15+, r10
+    mov.l   @r15+, r9
+    rts
+    mov.l   @r15+, r8
+
+    .align  2
+.Ls2p18:    .long   1 << 18
+.Ls2p22:    .long   1 << 22
+.Ls4096:    .long   4096
+.Ls8191:    .long   8191
+.Lsfogmin:  .long   1024 * 12
+
+! A box's extent along an axis, lerped from frame A's (r4) and B's (r5) by
+! d (r6), getBoundingBox's int16; or frame A's when still (T): r2 min, r3
+! max; r0 r1
+    .macro  EXTENT k
+    mov.w   @(\k,r4), r0
+    mov     r0, r2
+    mov.w   @(\k+2,r4), r0
+    mov     r0, r3
+    bt      1f
+    mov.w   @(\k,r5), r0
+    sub     r2, r0
+    mul.l   r6, r0
+    sts     macl, r0
+    swap.w  r0, r0
+    exts.w  r0, r0
+    add     r0, r2
+    exts.w  r2, r2
+    mov.w   @(\k+2,r5), r0
+    sub     r3, r0
+    mul.l   r6, r0
+    sts     macl, r0
+    swap.w  r0, r0
+    exts.w  r0, r0
+    add     r0, r3
+    exts.w  r3, r3
+1:
+    .endm
+
+    .global _poseShadowsAsm
+_poseShadowsAsm:
+    mov.l   r8, @-r15
+    mov.l   r9, @-r15
+    mov.l   r10, @-r15
+    mov.l   r11, @-r15
+    mov.l   r12, @-r15
+    mov.l   r13, @-r15
+    mov.l   r14, @-r15
+    sts.l   pr, @-r15
+    stc.l   gbr, @-r15
+    ldc     r6, gbr
+    mov     r4, r10
+    mov     r5, r12
+    tst     r12, r12
+    bf      1f
+    bra     .Lshadowsdone
+    nop
+1:  mov.l   @(0,gbr), r0
+    mov     r0, r13                 ! the sines
+    mov.l   @(C_STACK,gbr), r0
+    mov     r0, r14
+    add     #MATRIX, r14            ! the matrix made, above the view
+.Lshadow:
+    ! the item (104 bytes each) and its light (16)
+    mov.w   @(H_ITEM,r10), r0
+    extu.w  r0, r1
+    mov     r1, r2
+    shll2   r2
+    shll2   r2
+    mov.l   @(C_LIT,gbr), r0
+    add     r0, r2
+    mov     r2, r8                  ! its PoseLit
+    mov     r1, r2
+    shll2   r2
+    shll    r2
+    mov     r1, r3
+    shll2   r3
+    shll2   r3
+    shll    r3
+    shll2   r1
+    shll2   r1
+    shll2   r1
+    add     r2, r1
+    add     r3, r1
+    mov.l   @(C_ITEMS,gbr), r0
+    add     r0, r1
+    mov     r1, r9                  ! its PoseItem
+    ! its box, lerped: x and z extents
+    mov.l   @(C_FRAMES,gbr), r0
+    mov.l   @(I_FRAME_A,r9), r4
+    add     r0, r4
+    mov.l   @(I_FRAME_B,r9), r5
+    add     r0, r5
+    mov.l   @(I_DELTA,r9), r1
+    tst     r1, r1
+    bt      2f
+    mov.l   @(C_DIV,gbr), r0
+    mov     r0, r3
+    mov.l   @(I_RATE,r9), r0
+    shll    r0
+    mov.w   @(r0,r3), r6
+    extu.w  r6, r6
+    mul.l   r1, r6
+    sts     macl, r6                ! divTable[rate] * delta
+    tst     r1, r1
+2:  EXTENT  0
+    mov     r2, r11                 ! minX
+    mov     r3, r7                  ! maxX
+    mov.l   @(I_DELTA,r9), r1
+    tst     r1, r1
+    EXTENT  8
+    ! the centre and the half sizes: (max + min) >> 1, (max - min) 160 >> 10
+    mov.l   .Lh2p22, r1
+    mov     r7, r0
+    add     r11, r0
+    shar    r0
+    mov.w   r0, @-r15               ! x
+    mov     r3, r0
+    add     r2, r0
+    shar    r0
+    mov.w   r0, @-r15               ! z
+    mov     #-96, r6
+    extu.b  r6, r6                  ! 160
+    sub     r11, r7
+    mul.l   r6, r7
+    sts     macl, r7
+    dmuls.l r7, r1
+    sts     mach, r7
+    mov     r7, r0
+    mov.w   r0, @-r15               ! sx
+    sub     r2, r3
+    mul.l   r6, r3
+    sts     macl, r3
+    dmuls.l r3, r1
+    sts     mach, r3
+    mov     r3, r0
+    mov.w   r0, @-r15               ! sz
+    ! the view placed at the item over the floor
+    mov.l   @(C_STACK,gbr), r0
+    mov     r0, r1
+    mov.l   @(I_POS,r9), r2
+    mov.l   @(C_CAMERA,gbr), r0
+    sub     r0, r2
+    mov.l   @(H_FLOOR,r10), r3
+    mov.l   @(C_CAMERA+4,gbr), r0
+    sub     r0, r3
+    mov.l   @(I_POS+8,r9), r4
+    mov.l   @(C_CAMERA+8,gbr), r0
+    sub     r0, r4
+    .irp    ro, 0, 16, 32
+    mov.l   @(\ro,r1), r5
+    mul.l   r5, r2
+    mov.l   r5, @(\ro,r14)
+    mov.l   @(\ro+4,r1), r5
+    sts     macl, r6
+    mul.l   r5, r3
+    mov.l   r5, @(\ro+4,r14)
+    mov.l   @(\ro+8,r1), r5
+    sts     macl, r7
+    mul.l   r5, r4
+    add     r7, r6
+    mov.l   r5, @(\ro+8,r14)
+    sts     macl, r7
+    add     r7, r6
+    mov.l   r6, @(\ro+12,r14)
+    .endr
+    ! turned by its yaw
+    mov     r9, r7
+    add     #I_ANGLE, r7
+    mov.w   @(2,r7), r0
+    mov     r0, r4
+    ANGLE   r4
+    mov     #0, r5
+    bsr     .Lrot
+    mov     #0, r6
+    ! to its draw's DrawXform: the matrix, the item's light, the box's place
+    mov.w   @(H_DRAW,r10), r0
+    extu.w  r0, r1
+    XFORM_AT
+    mov     r1, r11
+    .irp    k, 0, 16, 32
+    mov.l   @(\k,r14), r0
+    mov.l   @(\k+4,r14), r1
+    mov.l   @(\k+8,r14), r2
+    mov.l   @(\k+12,r14), r3
+    mov.l   r0, @(\k,r11)
+    mov.l   r1, @(\k+4,r11)
+    mov.l   r2, @(\k+8,r11)
+    mov.l   r3, @(\k+12,r11)
+    .endr
+    mov.l   @(0,r8), r1
+    mov.l   @(4,r8), r2
+    mov.l   @(8,r8), r3
+    mov.w   @(12,r8), r0
+    mov.l   r1, @(X_AMBIENT,r11)
+    mov.l   r2, @(X_RANGE,r11)
+    mov.l   r3, @(X_LIGHT,r11)
+    mov     r11, r1
+    add     #X_LIGHT+4, r1
+    mov.w   r0, @r1
+    add     #X_SHADOW-X_LIGHT-4, r1
+    mov.w   @r15+, r0
+    mov.w   r0, @(6,r1)             ! sz
+    mov.w   @r15+, r0
+    mov.w   r0, @(4,r1)             ! sx
+    mov.w   @r15+, r0
+    mov.w   r0, @(2,r1)             ! z
+    mov.w   @r15+, r0
+    mov.w   r0, @(0,r1)             ! x
+    add     #SHADOW, r10
+    dt      r12
+    bt      .Lshadowsdone
+    bra     .Lshadow
+    nop
+.Lshadowsdone:
+    ldc.l   @r15+, gbr
+    lds.l   @r15+, pr
+    mov.l   @r15+, r14
+    mov.l   @r15+, r13
+    mov.l   @r15+, r12
+    mov.l   @r15+, r11
+    mov.l   @r15+, r10
+    mov.l   @r15+, r9
+    rts
+    mov.l   @r15+, r8
+
+    .align  2
+.Lh2p22:    .long   1 << 22

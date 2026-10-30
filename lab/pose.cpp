@@ -15,6 +15,9 @@ static_assert(offsetof(PoseContext, camera) == 16 && offsetof(PoseContext, op) =
 static_assert(offsetof(PoseContext, light) == 112 && offsetof(PoseContext, rooms) == 176 &&
               offsetof(PoseContext, lit) == 184 && sizeof(PoseLit) == 16 && sizeof(PoseLight) == 12,
               "pose.s's light");
+static_assert(offsetof(PoseContext, items) == 192 && sizeof(PoseStatic) == 20 && offsetof(PoseStatic, x) == 8 &&
+              sizeof(PoseShadow) == 8 && sizeof(DrawXform) == 72 && offsetof(DrawXform, shadow) == 62,
+              "pose.s's statics and shadows");
 static_assert(sizeof(PoseItem) == 104 && offsetof(PoseItem, extraCount) == 46 && offsetof(PoseItem, torso) == 56 &&
               offsetof(PoseItem, weapon) == 68 && offsetof(PoseItem, arms) == 72 && sizeof(PoseArm) == 16,
               "pose.s's PoseItem");
@@ -27,6 +30,10 @@ static PoseContext gSlaveCtx __attribute__((aligned(16)));
 static PoseMatrix gStack[POSE_STACK] __attribute__((aligned(16)));
 static PoseLit* gLit;
 static const PoseLight* gRooms;
+static const PoseStatic* gStatics;
+static uint32_t gStaticCount;
+static const PoseShadow* gShadows;
+static uint32_t gShadowCount;
 
 // The plan's prices, cycles at the ledge (Mednafen): an item's light, a drawn
 // matrix.
@@ -48,6 +55,20 @@ static int32_t drawnOf(const PoseItem &item)
         drawn += item.lara || (item.visibleMask >> k & 1);
     }
     return drawn;
+}
+
+// The shadows of items first .. end - 1: their run in SHDW (in draw order,
+// as their items are).
+static void shadowsOf(uint32_t first, uint32_t end, uint32_t &from, uint32_t &to)
+{
+    from = 0;
+    while (from < gShadowCount && gShadows[from].item < first) {
+        from++;
+    }
+    to = from;
+    while (to < gShadowCount && gShadows[to].item < end) {
+        to++;
+    }
 }
 
 void poseInit()
@@ -75,6 +96,9 @@ void poseInit()
     gCtx.lights = sceneChunk("LGHT");
     gCtx.lit = (PoseLit*)sceneAlloc(gCount * sizeof(PoseLit));
     gLit = gCtx.lit;
+    gCtx.items = gItems;
+    gStatics = sceneArray<const PoseStatic>("STAT", &gStaticCount);
+    gShadows = sceneArray<const PoseShadow>("SHDW", &gShadowCount);
     PoseMatrix &view = gStack[0];
     for (int32_t r = 0; r < 3; r++)
     {
@@ -110,6 +134,11 @@ void poseItems(int32_t cpu, uint32_t first, uint32_t count)
     poseAsm(gItems + first, count, ctx);
     ctx->lit = gLit;
     ctx->rooms = gRooms;
+    uint32_t from, to;
+    shadowsOf(first, first + count, from, to);
+    if (from < to) {
+        poseShadowsAsm(gShadows + from, to - from, ctx);
+    }
 }
 
 void poseShare(int32_t cpu, const uint8_t* slave)
@@ -157,8 +186,15 @@ int32_t poseDraws(uint32_t item)
 
 void poseDrop(uint32_t first, uint32_t count)
 {
-    for (uint32_t i = first; i < first + count; i++) {
+    for (uint32_t i = first; i < first + count; i++)
+    {
         cacheDrop(gCtx.out + gItems[i].firstDraw, drawnOf(gItems[i]) * sizeof(DrawXform));
+        cacheDrop(gLit + i, sizeof(PoseLit));
+    }
+    uint32_t from, to;
+    shadowsOf(first, first + count, from, to);
+    for (uint32_t s = from; s < to; s++) {
+        cacheDrop(gCtx.out + gShadows[s].draw, sizeof(DrawXform));
     }
 }
 
@@ -169,6 +205,28 @@ void posePoison()
         const PoseItem &item = gItems[i];
         memset(gCtx.out + item.firstDraw, 0xA5, drawnOf(item) * sizeof(DrawXform));
     }
+    for (uint32_t i = 0; i < gStaticCount; i++) {
+        memset(gCtx.out + gStatics[i].draw, 0xA5, sizeof(DrawXform));
+    }
+    for (uint32_t i = 0; i < gShadowCount; i++) {
+        memset(gCtx.out + gShadows[i].draw, 0xA5, sizeof(DrawXform));
+    }
+}
+
+void poseStatics()
+{
+    poseStaticsAsm(gStatics, gStaticCount, &gCtx);
+}
+
+void poseShadows()
+{
+    poseShadowsAsm(gShadows, gShadowCount, &gCtx);
+}
+
+int32_t poseStaticsCheck()
+{
+    int32_t statics, shadows;
+    return gameStaticsCheck(gCtx.out, statics, shadows);
 }
 
 int32_t poseCheck()
@@ -579,6 +637,108 @@ int32_t poseLightSeldomCheck()
         }
     }
     for (int32_t c = 0; c < LIT_MAX; c++) {
+        bad += !cover[c];
+    }
+    return bad;
+}
+
+// --- the static meshes and the shadows: made up --------------------------------
+
+#define STATIC_PASSES   32
+
+enum { SH_Q0, SH_Q1, SH_Q2, SH_Q3, SH_FOG, SH_STILL, SH_LERP, SH_MAX };
+
+int32_t poseStaticsSeldomCheck()
+{
+    // a static mesh and a shadow for every draw slot an item's first mesh
+    // has, reusing the scene's items and their light
+    static PoseStatic* statics;
+    static PoseShadow* shadows;
+    static PoseItem* items;
+    static uint8_t* frames;
+    static DrawXform* outGame;
+    static DrawXform* outNew;
+    uint32_t frameBytes = 0;
+    for (uint32_t i = 0; i < gCount; i++) {
+        frameBytes += 2 * (20 + 4 * gItems[i].count);
+    }
+    uint32_t draws = 2 * gCount;
+    if (!statics)
+    {
+        statics = (PoseStatic*)sceneAllocLow(gCount * sizeof(PoseStatic));
+        shadows = (PoseShadow*)sceneAllocLow(gCount * sizeof(PoseShadow));
+        items = (PoseItem*)sceneAllocLow(gCount * sizeof(PoseItem));
+        frames = (uint8_t*)sceneAllocLow(frameBytes);
+        outGame = (DrawXform*)sceneAllocLow(draws * sizeof(DrawXform));
+        outNew = (DrawXform*)sceneAllocLow(draws * sizeof(DrawXform));
+        if (!statics || !shadows || !items || !frames || !outGame || !outNew)
+            return -1;
+    }
+    int32_t bad = 0, cover[SH_MAX] = {};
+    PoseContext ctx = gCtx;
+    ctx.frames = frames;
+    ctx.out = outNew;
+    ctx.items = items;
+    const int32_t* view = gStack[0].m;
+    for (int32_t pass = 0; pass < STATIC_PASSES; pass++)
+    {
+        uint32_t at = 0;
+        for (uint32_t i = 0; i < gCount; i++)
+        {
+            PoseStatic &st = statics[i];
+            st.draw = 2 * i;
+            st.quadrant = (pass + i) & 3;
+            st.intensity = int32_t(rnd() >> 19);
+            for (int32_t k = 0; k < 3; k++) {
+                (&st.x)[k] = gCtx.camera[k] + int32_t(rnd() >> 17) - 16384;
+            }
+            cover[st.quadrant]++;
+            int32_t depth = (view[8] * (st.x - gCtx.camera[0]) + view[9] * (st.y - gCtx.camera[1]) +
+                             view[10] * (st.z - gCtx.camera[2])) >> 14;
+            cover[SH_FOG] += depth > 1024 * 12;
+
+            // the item with made-up frames and lerp
+            PoseItem &item = items[i];
+            item = gItems[i];
+            uint32_t size = 20 + 4 * item.count;
+            for (int32_t f = 0; f < 2; f++)
+            {
+                rndFrame(frames + at + f * size, gFrames + item.frameA, item.count);
+                int16_t* box = (int16_t*)(frames + at + f * size);
+                for (int32_t k = 0; k < 6; k++) {
+                    box[k] = int16_t(int32_t(rnd() >> 16) % 4096);
+                }
+            }
+            item.frameA = at;
+            item.frameB = at + size;
+            at += 2 * size;
+            static const int16_t LERP[][2] = { { 0, 1 }, { 1, 2 }, { 1, 4 }, { 3, 4 }, { 2, 5 }, { 6, 7 } };
+            const int16_t* lerp = LERP[(pass + i) % 6];
+            item.frameDelta = lerp[0];
+            item.frameRate = lerp[1];
+            cover[lerp[0] ? SH_LERP : SH_STILL]++;
+            for (int32_t k = 0; k < 3; k++)
+            {
+                item.pos[k] = gCtx.camera[k] + int32_t(rnd() >> 17) - 16384;
+                item.angle[k] = rndAngle();
+            }
+            PoseShadow &sh = shadows[i];
+            sh.draw = 2 * i + 1;
+            sh.item = i;
+            sh.floor = item.pos[1] + int32_t(rnd() >> 20);
+        }
+        memset(outGame, 0x55, draws * sizeof(DrawXform));
+        memset(outNew, 0xAA, draws * sizeof(DrawXform));
+        gameStaticsRun(statics, gCount, shadows, gCount, items, (const GameLight*)gLit, frames, outGame);
+        poseStaticsAsm(statics, gCount, &ctx);
+        poseShadowsAsm(shadows, gCount, &ctx);
+        for (uint32_t i = 0; i < gCount; i++)
+        {
+            bad += xformOff(outNew[2 * i], outGame[2 * i], false);
+            bad += xformOff(outNew[2 * i + 1], outGame[2 * i + 1], true);
+        }
+    }
+    for (int32_t c = 0; c < SH_MAX; c++) {
         bad += !cover[c];
     }
     return bad;

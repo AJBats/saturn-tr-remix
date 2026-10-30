@@ -123,6 +123,12 @@ struct LabResults
     uint32_t lightNew;          // cycles: the new way's
     int32_t lightNewBad;
     int32_t lightSeldom;        // ... on made-up inputs, against the game's way on them (and paths not taken)
+    uint32_t statics;           // cycles: stage 1 the game's way, the static meshes' and shadows' transforms
+    int32_t staticsBad;         // those not the game's
+    int32_t staticCount, shadowCount;
+    uint32_t staticsNew;        // cycles: the new way's
+    int32_t staticsNewBad;
+    int32_t staticsSeldom;      // ... on made-up inputs, against the game's way on them (and paths not taken)
     uint32_t frame;             // cycles: stages 1, 2 and 3 the new way together (the frame so far), start to the
                                 // list joined: the items' light and pose on the master before its feed
     uint32_t frameMaster;       // ... the master at work
@@ -138,8 +144,10 @@ struct LabResults
 extern "C" LabResults gLab;
 LabResults gLab;
 
-static ALIGN16 Command gFloorCmds[MAX_CMDS];
-static ALIGN16 uint32_t gFloorGrd[MAX_CMDS][2];
+// The new way's command list (its gouraud tables beside), and before the new
+// way runs the floor's.
+static ALIGN16 Command gNewCmds[MAX_CMDS];
+static ALIGN16 uint32_t gNewGrd[MAX_CMDS][2];
 
 void Page::add(const char* text)
 {
@@ -293,6 +301,10 @@ static void stagePose()
     gLab.light = measure([] {}, [] { gameLight(); });
     gameLight();
     gLab.lightBad = gameLightCheck();
+    gameStaticsInit();
+    gLab.statics = measure([] {}, [] { gameStatics(); });
+    gameStatics();
+    gLab.staticsBad = gameStaticsCheck(nullptr, gLab.staticCount, gLab.shadowCount);
 
     poseInit();
     gLab.lightNew = measure([] {}, [] { poseLight(); });
@@ -304,6 +316,11 @@ static void stagePose()
     pose();
     gLab.poseNewBad = poseCheck();
     gLab.poseSeldom = poseSeldomCheck();
+    gLab.staticsNew = measure([] {}, [] { poseStatics(); poseShadows(); });
+    poseStatics();
+    poseShadows();
+    gLab.staticsNewBad = poseStaticsCheck();
+    gLab.staticsSeldom = poseStaticsSeldomCheck();
 }
 
 static void stageTwo()
@@ -427,8 +444,8 @@ static void stageFloor()
     static FloorXform xf;
     gLab.floor = measure([] {}, [faces, &info] {
         xf.vertices = gVertices;
-        xf.cmd = gFloorCmds[1].w;
-        xf.grd = gFloorGrd[1];
+        xf.cmd = gNewCmds[1].w;
+        xf.grd = gNewGrd[1];
         xf.grdLink = ((VRAM_GOURAUD_BASE >> 3) + 1) << 16;
         xf.shadeGouraud = (const uint16_t*)(sceneArray<const uint8_t>("SHAD") + 128);
         floorAsm(faces, info.floorFaces, &xf);
@@ -436,16 +453,14 @@ static void stageFloor()
     gLab.floorBad = 0;
     for (uint32_t i = 0; i < info.floorFaces; i++) {
         if (faces[i].flags & FLOOR_EXACT) {
-            gLab.floorBad += !gameCommandMatches(gFloorCmds[i + 1], gFloorGrd[i + 1], i + 1);
+            gLab.floorBad += !gameCommandMatches(gNewCmds[i + 1], gNewGrd[i + 1], i + 1);
         }
     }
 }
 
 // The new way: a command list of the rooms' (the slave's, with its cache of
 // shaded tables) and one of the master's draws, in the commands after as many
-// as the game's rooms took.
-static ALIGN16 Command gNewCmds[MAX_CMDS];
-static ALIGN16 uint32_t gNewGrd[MAX_CMDS][2];
+// as the game's rooms took (gNewCmds).
 static uint16_t gHeads[2][OT_SIZE + 1] __attribute__((aligned(4)));
 static uint16_t gTails[2][OT_SIZE];
 static CommandList gRoomList, gMeshList;
@@ -728,8 +743,10 @@ static Stages stagesTogether(bool posed)
     verticesRoomsBegin();
     verticesClaimMasters();
     slaveRun(slaveRooms, nullptr);
-    if (posed) {
+    if (posed)
+    {
         poseShare(0, gPoseSlave);
+        poseStatics();
     }
     verticesMeshesFeed(0, part);
     if (slaveItems)
@@ -1127,17 +1144,17 @@ static void framePage()
     page.add(line);
     page.add("");
     page.add("THE GAME'S WAY, ONE CPU          ms");
-    uint32_t pose = gLab.pose + gLab.light;
+    uint32_t pose = gLab.pose + gLab.light + gLab.statics;
     uint32_t vertices = gLab.vertsRooms + gLab.vertsMeshes;
     uint32_t faces = gLab.facesMeshes + gLab.facesRooms + gLab.flush;
-    timeRow(page, "1 pose and light", pose, 0, nullptr);
+    timeRow(page, "1 pose, light...", pose, 0, nullptr);
     timeRow(page, "2 vertices", vertices, 0, nullptr);
     timeRow(page, "3 faces, commands", faces, 0, nullptr);
     timeRow(page, "  all three", pose + vertices + faces, 0, nullptr);
     page.add("");
     page.add("THE NEW WAY, ONE CPU");
-    uint32_t newPose = gLab.lightNew + gLab.poseNew;
-    timeRow(page, "1 pose and light", newPose, 0, nullptr);
+    uint32_t newPose = gLab.lightNew + gLab.poseNew + gLab.staticsNew;
+    timeRow(page, "1 pose, light...", newPose, 0, nullptr);
     page.add("");
     page.add("THE NEW WAY TOGETHER, ms   work  waits");
     page.add("2+3, master, slave, DSP:");
@@ -1179,10 +1196,15 @@ static void posePage()
     page.add("master, run alone     ms  cycles a");
     timeRow(page, "items' nodes", gLab.pose, gLab.poseMatrices, "matrix");
     timeRow(page, "items' light", gLab.light, gLab.poseItems, "item");
+    timeRow(page, "statics, shadows", gLab.statics, gLab.staticCount + gLab.shadowCount, "each");
     p = put(line, gLab.poseBad || gLab.lightBad ? "OFF: matrices" : "exact: matrices");
     p = putNumber(p, gLab.poseBad, 2);
     p = put(p, " off, light");
     p = putNumber(p, gLab.lightBad, 2);
+    put(p, " off");
+    page.add(line);
+    p = put(line, gLab.staticsBad ? "OFF: statics, shadows" : "exact: statics, shadows");
+    p = putNumber(p, gLab.staticsBad, 2);
     put(p, " off");
     page.add(line);
     page.add("");
@@ -1190,6 +1212,7 @@ static void posePage()
     page.add("master, run alone     ms  cycles a");
     timeRow(page, "items' nodes", gLab.poseNew, gLab.poseMatrices, "matrix");
     timeRow(page, "items' light", gLab.lightNew, gLab.poseItems, "item");
+    timeRow(page, "statics, shadows", gLab.staticsNew, gLab.staticCount + gLab.shadowCount, "each");
     p = put(line, gLab.poseNewBad || gLab.lightNewBad ? "OFF: matrices" : "exact: matrices");
     p = putNumber(p, gLab.poseNewBad, 2);
     p = put(p, " off, light");
@@ -1200,6 +1223,11 @@ static void posePage()
     p = putNumber(p, gLab.poseSeldom, 2);
     p = put(p, ", light");
     putNumber(p, gLab.lightSeldom, 2);
+    page.add(line);
+    p = put(line, gLab.staticsNewBad ? "OFF: statics, shadows" : "exact: statics, shadows");
+    p = putNumber(p, gLab.staticsNewBad, 2);
+    p = put(p, " off, seldom");
+    putNumber(p, gLab.staticsSeldom, 2);
     page.add(line);
     page.add("");
     page.add("R, L: the other pages");
