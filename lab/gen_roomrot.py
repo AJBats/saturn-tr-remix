@@ -19,10 +19,12 @@ The jobs (vertices.cpp RoomDspJob), a room each, 15 longwords:
     0 its vertices' address / 4   1 its output's / 4   2 its groups (0 ends
     the list)   3..14 its coefficients, t m0 m1 m2 a row, as MD0 3..14 hold
 A room's last group reads and writes up to 3 vertices past its end: its
-output has room for whole groups.
+output has room for whole groups. Each room done, once its output has gone,
+the rooms done so far go to a longword the SH-2 names, for a CPU to follow.
 
 Data RAM (* set by the SH-2):
-  MD0  0..14  the job   16 *the next job / 4
+  MD0  0..14  the job   16 *the next job / 4   17 *the rooms done's longword / 4
+       18 *the rooms done (0)
   MD1, MD2  0..3 a group's input, 4..15 its output
   MD3  0..11 a group's x y z, a vertex after another   12 *0xFF
 """
@@ -165,10 +167,16 @@ fw:     jmp fw,t0
         jmp half1
         nop
 
-        ; a job's last group done: its output sent, the next job
+        ; a job's last group done: its output sent, the rooms done counted
+        ; and sent, the next job
 jobend:
 ow:     jmp ow,t0
-        nop
+        mov #18,ct0
+        mov m0,a | mov #1,pl
+        add | mov all,mc0
+        mov #17,ct0
+        mov mc0,wa0
+        dma mc0,d0,1
         jmp job
         nop
 done:   end

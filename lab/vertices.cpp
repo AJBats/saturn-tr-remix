@@ -133,7 +133,7 @@ static const Vertex* gSceneVertices;
 
 // The rooms' rotations, the DSP's, a room's at its own place (whole groups
 // of 4), and their jobs.
-static RoomRotated gRoomRotated[MAX_ROOM_VERTICES];
+static RoomRotated gRoomRotated[MAX_ROOM_VERTICES] __attribute__((aligned(16)));
 static int32_t gRotatedAt[MAX_ROOMS];
 static RoomDspJob gRoomJobs[MAX_ROOMS + 1];
 
@@ -151,7 +151,7 @@ static MeshJob gJobs[MAX_DRAWS];
 static MeshDspJob gDspJobs[MAX_DRAWS + 1];
 static MeshDspJob3 gDspJobs3[MAX_DRAWS + 1];
 static int32_t gJobCount;
-static Vertex gMeshOut[4 + MAX_MESH_VERTICES];
+static Vertex gMeshOut[4 + MAX_MESH_VERTICES] __attribute__((aligned(16)));
 static Vertex* const gMeshVertices = gMeshOut + 4;
 
 // The rooms' seldom paths' check: made-up rotations and shades, both loops'
@@ -384,7 +384,20 @@ static RoomRotated roomModel(const RoomScene &room, int32_t k)
              row16(room.m + 6, room.tz, x, y, z) };
 }
 
-uint32_t verticesRoomsDsp()
+// The rooms the DSP has turned so far, which roomrot.dsp sends after each
+// room's output (a cache line of its own); what the slave's part of stage 2
+// together measured.
+struct RoomsDone
+{
+    uint32_t rooms;
+    uint32_t work, wait;
+    uint32_t pad;
+} __attribute__((aligned(16)));
+static RoomsDone gRoomsDone;
+
+// The rooms' jobs, roomrot.dsp loaded and started on them: the tick it
+// started at.
+static uint32_t roomsDspStart()
 {
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
@@ -404,13 +417,20 @@ uint32_t verticesRoomsDsp()
     }
     memset(gRoomJobs + gRoomCount, 0, sizeof(RoomDspJob));
 
-    const uint32_t jobs = dspAddress(gRoomJobs);
+    const uint32_t md0[3] = { dspAddress(gRoomJobs), dspAddress(&gRoomsDone.rooms), 0 };
     const uint32_t mask = 0xFF;
+    *uncached(&gRoomsDone.rooms) = 0;
     dspLoad(roomrot_dsp, ROOMROT_DSP_COUNT);
-    dspWrite(0, 16, &jobs, 1);
+    dspWrite(0, 16, md0, 3);
     dspWrite(3, 12, &mask, 1);
     uint32_t t0 = ticks();
     dspStart(0);
+    return t0;
+}
+
+uint32_t verticesRoomsDsp()
+{
+    uint32_t t0 = roomsDspStart();
     while (dspBusy());
     uint32_t cycles = ticksCycles(t0, ticks());
     cachePurge();       // the DSP wrote behind the cache
@@ -614,26 +634,31 @@ int32_t verticesRoomsSeldomCheck()
     return bad;
 }
 
-void verticesRooms()
+// Room i's vertices projected from the DSP's rotations.
+static void roomProject(uint32_t i)
 {
-    cachePurge();       // the DSP wrote behind the cache
+    const RoomScene &room = gRooms[i];
     RoomProject rp;
     rp.divTable = gDivTable;
     rp.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
     rp.zMax = VIEW_MAX_F >> (FIXED_SHIFT - 8);
-    for (uint32_t i = 0; i < gRoomCount; i++)
-    {
-        const RoomScene &room = gRooms[i];
-        rp.points = roomPoints(room);
-        rp.x0 = room.clip[0];
-        rp.y0 = room.clip[1];
-        rp.x1 = room.clip[2];
-        rp.y1 = room.clip[3];
-        rp.wibble = room.ripple ? kWibble : nullptr;
-        rp.phase = room.causticsFrame;
-        rp.caustics = room.wet ? gCaustics[i] : nullptr;
-        rp.count = room.verticesCount;
-        roomProjectAsm(gRoomRotated + gRotatedAt[i], room.verticesCount, gVertices + room.base, &rp);
+    rp.points = roomPoints(room);
+    rp.x0 = room.clip[0];
+    rp.y0 = room.clip[1];
+    rp.x1 = room.clip[2];
+    rp.y1 = room.clip[3];
+    rp.wibble = room.ripple ? kWibble : nullptr;
+    rp.phase = room.causticsFrame;
+    rp.caustics = room.wet ? gCaustics[i] : nullptr;
+    rp.count = room.verticesCount;
+    roomProjectAsm(gRoomRotated + gRotatedAt[i], room.verticesCount, gVertices + room.base, &rp);
+}
+
+void verticesRooms()
+{
+    cachePurge();       // the DSP wrote behind the cache
+    for (uint32_t i = 0; i < gRoomCount; i++) {
+        roomProject(i);
     }
 }
 
@@ -834,19 +859,28 @@ int32_t verticesFeedCheck()
     // the scene's transforms; then made up, each pass a kind for every job:
     // far either way, behind the camera, off to each side, at the near plane,
     // lights the DSP can't take (range past the ambient, the light too
-    // strong), meshes lit by none, and the transforms at random
+    // strong), meshes lit by none, the transforms at random; then the scene's
+    // with every mesh lit by its vertices' shades, then by one for all
     int32_t bad = feedCompare();
     const DrawXform* scene[MAX_DRAWS];
-    for (int32_t i = 0; i < gJobCount; i++) {
+    int32_t normals[MAX_DRAWS];
+    const uint8_t* shades[MAX_DRAWS];
+    for (int32_t i = 0; i < gJobCount; i++)
+    {
         scene[i] = gJobs[i].xform;
+        normals[i] = gJobs[i].normals;
+        shades[i] = gJobs[i].shades;
     }
     uint32_t seed = 0x3243F6A8;
     auto next = [&seed] { seed = seed * 1664525 + 1013904223; return seed; };
     int32_t inside = 0, outside = 0, far = 0, shading[3] = {};
-    for (int32_t pass = 0; pass < 10; pass++)
+    for (int32_t pass = 0; pass < 12; pass++)
     {
         for (int32_t i = 0; i < gJobCount; i++)
         {
+            MeshJob &job = gJobs[i];
+            job.normals = pass < 10 ? normals[i] : 0;
+            job.shades = pass < 10 ? shades[i] : pass == 10 ? (const uint8_t*)job.packed : nullptr;
             DrawXform &x = gFeedXforms[i];
             x = *scene[i];
             int32_t* t = x.m;
@@ -861,6 +895,7 @@ int32_t verticesFeedCheck()
             case 6: x.range = x.ambient + int32_t(next() % 100) + 1; break;
             case 7: x.light[0] = x.light[1] = x.light[2] = 32767; break;
             case 8: x.range = 0; x.ambient = int32_t(next() >> 16) - 0x4000; break;
+            case 10: case 11: break;
             default:
                 for (int32_t k = 0; k < 12; k++) {
                     x.m[k] = int32_t(next());
@@ -886,8 +921,11 @@ int32_t verticesFeedCheck()
             shading[job.shading]++;
         }
     }
-    for (int32_t i = 0; i < gJobCount; i++) {
+    for (int32_t i = 0; i < gJobCount; i++)
+    {
         gJobs[i].xform = scene[i];
+        gJobs[i].normals = normals[i];
+        gJobs[i].shades = shades[i];
     }
     verticesFeed();
 
@@ -898,7 +936,8 @@ int32_t verticesFeedCheck()
     return bad;
 }
 
-uint32_t verticesMeshesDsp()
+// meshrot.dsp loaded and started on the jobs fed: the tick it started at.
+static uint32_t meshesDspStart()
 {
     static const uint32_t md1[4] = { 65536, 0xFFFF, 0x1F00, 0xFF };
     static const uint32_t one = 1;
@@ -909,6 +948,12 @@ uint32_t verticesMeshesDsp()
     dspWrite(3, 20, md3, 2);
     uint32_t t0 = ticks();
     dspStart(MESHROT_DSP_START);
+    return t0;
+}
+
+uint32_t verticesMeshesDsp()
+{
+    uint32_t t0 = meshesDspStart();
     while (dspBusy());
     uint32_t cycles = ticksCycles(t0, ticks());
     cachePurge();       // the DSP wrote behind the cache
@@ -1006,32 +1051,139 @@ static void meshNormals(const MeshJob &job)
     }
 }
 
+// Job i's vertices projected in place and shaded (mp's divide table and
+// exact set).
+static inline __attribute__((always_inline)) void meshProject(MeshProject &mp, int32_t i)
+{
+    const MeshJob &job = gJobs[i];
+    mp.inside = job.inside;
+    mp.job = &job;
+    if (job.far)
+    {
+        for (int32_t k = 0; k < job.count; k++) {
+            meshExact(&mp, k, job.out + k);
+        }
+    }
+    else
+    {
+        meshProjectAsm(job.out, job.count, &mp);
+    }
+    if (job.shading == MESH_SHADES) {
+        meshShadesAsm(job.out, job.count, job.shades, job.xform->ambient);
+    } else if (job.shading == MESH_NORMALS) {
+        meshNormals(job);
+    }
+}
+
 void verticesMeshes()
 {
     MeshProject mp;
     mp.divTable = gDivTable;
     mp.exact = meshExact;
-    for (int32_t i = 0; i < gJobCount; i++)
-    {
-        const MeshJob &job = gJobs[i];
-        mp.inside = job.inside;
-        mp.job = &job;
-        if (job.far)
-        {
-            for (int32_t k = 0; k < job.count; k++) {
-                meshExact(&mp, k, job.out + k);
-            }
-        }
-        else
-        {
-            meshProjectAsm(job.out, job.count, &mp);
-        }
-        if (job.shading == MESH_SHADES) {
-            meshShadesAsm(job.out, job.count, job.shades, job.xform->ambient);
-        } else if (job.shading == MESH_NORMALS) {
-            meshNormals(job);
-        }
+    for (int32_t i = 0; i < gJobCount; i++) {
+        meshProject(mp, i);
     }
+}
+
+// --- together ------------------------------------------------------------
+
+// A job's last output longword (its last vertex's z, shade and clip flags),
+// marked before the DSP runs with what its output never holds: a clip byte
+// the DSP leaves 0. The mark gone, the job's output is all there.
+#define DSP_UNWRITTEN   0xFF
+
+static volatile uint32_t* jobLast(const MeshJob &job)
+{
+    Vertex* last = job.out + ((job.count + 3) & ~3) - 1;
+    return uncached((volatile uint32_t*)last + 1);
+}
+
+// Between polls of what the DSP writes: off the bus a while, so as not to
+// hold up the DSP's transfers.
+static inline void pause()
+{
+    for (volatile int32_t i = 0; i < 16; i++);
+}
+
+// Which CPU has each mesh job (tasClaim): the master takes them from the
+// first, the slave its rooms done from the last, until they meet.
+static uint8_t gClaims[MAX_DRAWS] __attribute__((aligned(16)));
+
+// Mesh job i projected once the DSP has made it, if this CPU claims it
+// first: whether it did; the cycles waiting for the DSP.
+static inline bool meshAsMade(MeshProject &mp, int32_t i, uint32_t &wait)
+{
+    if (!tasClaim(uncached(gClaims + i)))
+        return false;
+    volatile uint32_t* last = jobLast(gJobs[i]);
+    uint32_t w0 = ticks();
+    while ((*last & 0xFF) == DSP_UNWRITTEN) {
+        pause();
+    }
+    wait += ticksCycles(w0, ticks());
+    meshProject(mp, i);
+    return true;
+}
+
+// The slave's part: each room projected once the DSP has turned it, then
+// mesh jobs from the last.
+static void roomsAsTurned(void*)
+{
+    uint32_t t0 = ticks(), wait = 0;
+    volatile uint32_t* done = uncached(&gRoomsDone.rooms);
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        uint32_t w0 = ticks();
+        while (*done <= i) {
+            pause();
+        }
+        wait += ticksCycles(w0, ticks());
+        roomProject(i);
+    }
+    MeshProject mp;
+    mp.divTable = gDivTable;
+    mp.exact = meshExact;
+    for (int32_t i = gJobCount - 1; i >= 0 && meshAsMade(mp, i, wait); i--);
+    *uncached(&gRoomsDone.work) = ticksCycles(t0, ticks()) - wait;
+    *uncached(&gRoomsDone.wait) = wait;
+}
+
+Together verticesTogether()
+{
+    Together r = {};
+    for (int32_t i = 0; i < gJobCount; i++) {
+        *uncached(gClaims + i) = 0;
+    }
+    uint32_t t0 = ticks();
+    uint32_t roomsAt = roomsDspStart();
+    slaveRun(roomsAsTurned, nullptr);
+    verticesFeed();
+    for (int32_t i = 0; i < gJobCount; i++) {
+        *jobLast(gJobs[i]) = DSP_UNWRITTEN;
+    }
+    uint32_t w0 = ticks();
+    while (dspBusy());
+    uint32_t roomsEnd = ticks();
+    r.masterWait = ticksCycles(w0, roomsEnd);
+    uint32_t meshesAt = meshesDspStart();
+    MeshProject mp;
+    mp.divTable = gDivTable;
+    mp.exact = meshExact;
+    for (int32_t i = 0; i < gJobCount && meshAsMade(mp, i, r.masterWait); i++);
+    w0 = ticks();
+    while (dspBusy());
+    uint32_t meshesEnd = ticks();
+    slaveWait();
+    uint32_t t1 = ticks();
+    r.masterWait += ticksCycles(w0, t1);
+    r.wall = ticksCycles(t0, t1);
+    r.masterWork = r.wall - r.masterWait;
+    r.slaveWork = *uncached(&gRoomsDone.work);
+    r.slaveWait = *uncached(&gRoomsDone.wait);
+    r.dspRooms = ticksCycles(roomsAt, roomsEnd);
+    r.dspGap = ticksCycles(roomsEnd, meshesAt);
+    r.dspMeshes = ticksCycles(meshesAt, meshesEnd);
+    return r;
 }
 
 int32_t verticesMeshesCheck(int32_t &vertices)

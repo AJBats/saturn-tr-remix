@@ -92,6 +92,15 @@ struct LabResults
     uint32_t dspMeshes3;        // ... meshlight3.dsp (the bench's v3) took, from data laid out for it
     int32_t dspMeshes3Bad;
     int32_t feedBad;            // the jobs the feeding's assembly makes not as its C
+    uint32_t together;          // cycles: stage 2 the new way on both CPUs and the DSP, start to end
+    uint32_t togetherMaster;    // ... the master at work
+    uint32_t togetherMasterWait;
+    uint32_t togetherSlave;     // ... the slave at work
+    uint32_t togetherSlaveWait;
+    int32_t togetherBad;        // vertices not the game's
+    uint32_t togetherDspRooms;  // ... the DSP's rooms, the gap to its meshes, its meshes
+    uint32_t togetherDspGap;
+    uint32_t togetherDspMeshes;
 };
 
 extern "C" LabResults gLab;
@@ -278,6 +287,32 @@ static void stageTwoNew()
     int32_t rooms, meshes;
     gLab.newVertsBad = verticesRoomsCheck(rooms) + verticesMeshesCheck(meshes);
     gLab.newVertsSeldom = verticesFallbacksCheck() + verticesRoomsSeldomCheck();
+
+    Together sum = {};
+    for (int32_t r = 0; r < RUNS; r++)
+    {
+        gameVerticesPrepare();
+        cachePurge();
+        Together t = verticesTogether();
+        sum.wall += t.wall;
+        sum.masterWork += t.masterWork;
+        sum.masterWait += t.masterWait;
+        sum.slaveWork += t.slaveWork;
+        sum.slaveWait += t.slaveWait;
+        sum.dspRooms += t.dspRooms;
+        sum.dspGap += t.dspGap;
+        sum.dspMeshes += t.dspMeshes;
+    }
+    gLab.togetherDspRooms = sum.dspRooms / RUNS;
+    gLab.togetherDspGap = sum.dspGap / RUNS;
+    gLab.togetherDspMeshes = sum.dspMeshes / RUNS;
+    gLab.together = sum.wall / RUNS;
+    gLab.togetherMaster = sum.masterWork / RUNS;
+    gLab.togetherMasterWait = sum.masterWait / RUNS;
+    gLab.togetherSlave = sum.slaveWork / RUNS;
+    gLab.togetherSlaveWait = sum.slaveWait / RUNS;
+    cachePurge();
+    gLab.togetherBad = verticesRoomsCheck(rooms) + verticesMeshesCheck(meshes);
 }
 
 static void stageThree()
@@ -734,6 +769,17 @@ static void timeRow(Page &page, const char* name, uint32_t cycles, uint32_t unit
     page.add(line);
 }
 
+// A CPU's work and its waits, ms.
+static void workRow(Page &page, const char* name, uint32_t work, uint32_t waits)
+{
+    char line[TEXT_COLUMNS + 1];
+    char* p = put(line, name);
+    p = pad(line, p, 17);
+    p = putFixed(p, cyclesToHundredths(work), 2, 6);
+    putFixed(p, cyclesToHundredths(waits), 2, 7);
+    page.add(line);
+}
+
 static Page gResults, gVerticesPage, gNewResults;
 
 static void verticesPage()
@@ -785,6 +831,22 @@ static void verticesPage()
     p = put(line, "feeding's asm as its C:");
     p = putNumber(p, gLab.feedBad, 2);
     put(p, " off");
+    page.add(line);
+    page.add("TOGETHER, ms       work  waits");
+    timeRow(page, "  start to end", gLab.together, 0, nullptr);
+    workRow(page, "  master", gLab.togetherMaster, gLab.togetherMasterWait);
+    workRow(page, "  slave", gLab.togetherSlave, gLab.togetherSlaveWait);
+    p = put(line, "  DSP rooms");
+    p = putFixed(p, cyclesToHundredths(gLab.togetherDspRooms), 2, 6);
+    p = put(p, ", gap");
+    p = putFixed(p, cyclesToHundredths(gLab.togetherDspGap), 2, 5);
+    p = put(p, ", meshes");
+    putFixed(p, cyclesToHundredths(gLab.togetherDspMeshes), 2, 6);
+    page.add(line);
+    p = put(line, "  vertices ");
+    p = put(p, gLab.togetherBad ? "OFF (" : "exact (");
+    p = putNumber(p, gLab.togetherBad, 0);
+    put(p, " off)");
     page.add(line);
     page.add("");
     page.add("R, L: the other pages");

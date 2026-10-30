@@ -67,4 +67,13 @@ uint32_t padVblank();
 void slaveRun(void (*task)(void*), void* arg);
 void slaveWait();
 
+// Claims *p (uncached) for this CPU: true if neither had (TAS.B, atomic
+// between the two on the Saturn: saturn/synctest.cpp).
+inline bool tasClaim(volatile uint8_t* p)
+{
+    uint32_t t;
+    asm volatile("tas.b @%1\n\tmovt %0" : "=r"(t) : "r"(p) : "t", "memory");
+    return t;
+}
+
 #endif

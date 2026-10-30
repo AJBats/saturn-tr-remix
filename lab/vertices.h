@@ -101,6 +101,24 @@ int32_t verticesMeshesDspCheck();
 void verticesMeshes();
 int32_t verticesMeshesCheck(int32_t &vertices);
 
+// Stage 2 the new way as a frame would run it: the DSP turns the rooms then
+// the meshes; the slave projects each room as soon as the DSP has turned it;
+// the master feeds the meshes meanwhile, then projects each as soon as the
+// DSP has made it, from the first, the slave joining from the last once its
+// rooms are done. The SH-2 cycles from the start to both CPUs done, and
+// each CPU's at work and waiting (polling the DSP, or the master the
+// slave); the DSP's rooms (to their end as the master saw it), the gap to
+// its meshes' start, and its meshes (to their end as the master saw it,
+// its own jobs done).
+struct Together
+{
+    uint32_t wall;
+    uint32_t masterWork, masterWait;
+    uint32_t slaveWork, slaveWait;
+    uint32_t dspRooms, dspGap, dspMeshes;
+};
+Together verticesTogether();
+
 // What the scene seldom takes: the meshes' vertices projected as though none
 // lay inside the frame, then as though each lay at the near plane (its z >>
 // 14 64, so meshproject.s has it worked out from its mesh), each from the

@@ -20,6 +20,7 @@ ROOM = struct.Struct('>9hh3i4i3iiBBBBi4H6H3I')  # lab/scene.h RoomScene
 GEOMETRY = 0x06040000   # the rooms' vertices
 JOBS = 0x06070000
 OUT = 0x06080000
+DONE = 0x0606FFF0    # the rooms done
 
 
 def chunks(path):
@@ -70,9 +71,12 @@ def main():
                 mem.write(JOBS + 60 * j + 4 * k, v)
         dsp = DSP(prog, mem, timing)
         dsp.ram[0][16] = JOBS >> 2
+        dsp.ram[0][17] = DONE >> 2
+        dsp.ram[0][18] = 0
         dsp.ram[3][12] = 0xFF
         dsp.run(0)
         bad = sum(1 for addr, v in want.items() if mem.read(addr) != v)
+        bad += mem.read(DONE) != len(rooms)
         sh2 = dsp.cycles * 2
         print(f'{timing}: {total} vertices in {len(rooms)} rooms, {bad} sums wrong; {sh2:.0f} SH-2 cycles '
               f'({sh2 / total:.1f} a vertex, {sh2 / 28636:.2f} ms), waiting on DMA {dsp.stalls * 2:.0f}; '
