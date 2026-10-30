@@ -119,6 +119,43 @@ struct Together
 };
 Together verticesTogether();
 
+// What the stages write overwritten with what they never make (the rooms'
+// rotations, the meshes' outputs, the rooms' vertices), so a check after a
+// run sees every value made in it.
+void verticesPoison();
+
+// Stage 2 in pieces, for a frame's stages run together. The rooms are
+// projected in chunks of vertices, each claimed by the CPU that takes it
+// (tasClaim); the plan gives the master chunks from the last room back while
+// that evens the work the counts predict for the two CPUs (the slave adds
+// every room's faces; the master feeds, projects and adds the draws'), bias
+// cycles added to the master's (what the frames before found it short of
+// what it takes).
+// - the plan made (a frame);
+// - the rooms' DSP run started (the rooms' jobs built, roomrot.dsp loaded),
+//   no chunk claimed yet; then the master's chunks claimed, before the
+//   slave starts;
+// - the master's chunks projected, each once the DSP has turned its room
+//   (the cycles waiting added to wait), the meshes' DSP run started as soon
+//   as the rooms' has ended (meshes: whether it has been);
+// - room i's chunks for the slave: those it claims projected, the master's
+//   waited for (their lines dropped from its cache);
+// - the meshes fed and their jobs marked; the meshes' DSP run started if the
+//   rooms' has ended (whether it did), or once it has;
+// - draw i's mesh job (a mesh or a shadow) waited for and projected: its
+//   vertices;
+// - the DSP's run waited for.
+void verticesPlan(int32_t bias);
+void verticesRoomsBegin();
+void verticesClaimMasters();
+void verticesMasterRooms(uint32_t &wait, bool &meshes);
+void verticesRoom(uint32_t i, uint32_t &wait);
+void verticesMeshesFeed();
+bool verticesMeshesTryStart();
+void verticesMeshesStart(uint32_t &wait);
+const Vertex* verticesDraw(uint32_t draw, uint32_t &wait);
+void verticesEnd();
+
 // What the scene seldom takes: the meshes' vertices projected as though none
 // lay inside the frame, then as though each lay at the near plane (its z >>
 // 14 64, so meshproject.s has it worked out from its mesh), each from the

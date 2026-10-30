@@ -1,13 +1,17 @@
 ! Stage 3 the new way (faces.h): the two CPUs' lists' buckets joined far to
-! near, in each the rooms' chain before the meshes' (faces.cpp facesJoin).
+! near, in each the rooms' chain before the meshes' (faces.cpp facesJoin):
+! a range of the buckets, so that each CPU can take a part.
 !
-! void facesJoinAsm(CommandList* rooms, CommandList* meshes, uint8* linkBase, uint32 links)
+! uint16* facesJoinPairs(CommandList* rooms, CommandList* meshes, uint8* linkBase,
+!                        uint16* field, uint32 pairs)
 !
 ! linkBase: where the link of the command VDP1 links to as 0 would lie (a
-! command's link field is at linkBase + its link * 8); links: the first
-! command's link << 16 | the end's. Each list's heads hold OT_SIZE + 1
-! buckets (the last always empty), so that they go two to a longword; the
-! join empties them for the next frame.
+! command's link field is at linkBase + its link * 8); field: the link field
+! the range's first chain goes into; pairs: the range's nearest pair of
+! buckets << 16 | its farthest. Each list's heads hold OT_SIZE + 1 buckets
+! (the last always empty), so that they go two to a longword; the join
+! empties the range's for the next frame. Returns the link field the next
+! chain goes into: the range's last command's.
 !
 ! CommandList: +20 heads (uint16, 0 for none), +24 tails (uint16).
 
@@ -32,8 +36,8 @@
 
     .text
     .align 2
-    .global _facesJoinAsm
-_facesJoinAsm:
+    .global _facesJoinPairs
+_facesJoinPairs:
     mov.l   r8, @-r15
     mov.l   r9, @-r15
     mov.l   r10, @-r15
@@ -46,13 +50,14 @@ _facesJoinAsm:
     mov.l   @(20, r5), r10      ! the meshes' heads
     mov.l   @(24, r5), r11      ! ... tails
     mov     r6, r12
-    extu.w  r7, r14             ! the end's link
-    shlr16  r7
-    shll2   r7
-    shll    r7
-    add     r12, r7
-    mov     r7, r13             ! the first command's link field
-    mov.w   .LlastPair, r0      ! (OT_SIZE + 1) / 2 - 1 pairs on: their offset
+    mov     r7, r13             ! the link field the first chain goes into
+    mov.l   @(28, r15), r0      ! the pairs
+    extu.w  r0, r14
+    shlr16  r0
+    shll2   r0
+    mov     r0, r7              ! the nearest pair's offset
+    shll2   r14
+    mov     r14, r0             ! the farthest's
 
 .Lpair:
     mov.l   @(r0, r8), r1       ! the rooms' buckets 2p (high), 2p + 1 (low)
@@ -63,10 +68,10 @@ _facesJoinAsm:
     bf      .Lfull
 .Lnext:
     add     #-4, r0
-    cmp/pz  r0
+    cmp/ge  r7, r0
     bt      .Lpair
 
-    mov.w   r14, @r13           ! the last on to the end
+    mov     r13, r0             ! the next chain's link field
     mov.l   @r15+, r14
     mov.l   @r15+, r13
     mov.l   @r15+, r12
@@ -99,5 +104,3 @@ _facesJoinAsm:
     bra     .Lnext
     mov.l   r3, @(r0, r10)
 
-    .align 2
-.LlastPair:     .short  ((OT_SIZE + 1) / 2 - 1) * 4

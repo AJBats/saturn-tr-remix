@@ -101,6 +101,12 @@ struct LabResults
     uint32_t togetherDspRooms;  // ... the DSP's rooms, the gap to its meshes, its meshes
     uint32_t togetherDspGap;
     uint32_t togetherDspMeshes;
+    uint32_t stages;            // cycles: stages 2 and 3 the new way together, start to the list joined
+    uint32_t stagesMaster;      // ... the master at work
+    uint32_t stagesMasterWait;
+    uint32_t stagesSlave;       // ... the slave at work
+    uint32_t stagesSlaveWait;
+    int32_t stagesBad;          // commands VDP1 follows not as the game's, and vertices not the game's
 };
 
 extern "C" LabResults gLab;
@@ -292,6 +298,7 @@ static void stageTwoNew()
     for (int32_t r = 0; r < RUNS; r++)
     {
         gameVerticesPrepare();
+        verticesPoison();
         cachePurge();
         Together t = verticesTogether();
         sum.wall += t.wall;
@@ -576,6 +583,167 @@ static void newJoin(bool c)
     } else {
         facesJoinRoomsMeshes(gRoomList, gMeshList, gNewCmds, 0, gNewEnd);
     }
+}
+
+// Stages 2 and 3 the new way together, as a frame would run them: the DSP
+// turns the rooms, then the meshes; the slave takes each room in order as
+// soon as the DSP has turned it, projects it and adds its faces (the room
+// list); the master feeds the meshes meanwhile and projects the chunks of
+// rooms the plan gives it (verticesPlan), then takes the draws in order,
+// each mesh job projected once the DSP has made it and its faces added (the
+// mesh list); then, both done, each joins half the lists' buckets (the
+// slave the near half, from a field of its own the master then links the
+// far half's last command to). Each CPU's work and waits.
+// Room faces stay on the slave: they share the room texture cache and the
+// materials' memo, and keep the game's order in the room list.
+struct Stages
+{
+    uint32_t wall, masterWork, masterWait, slaveWork, slaveWait;
+    int32_t late;       // cycles the master's draws ended after the slave's rooms (or before: < 0)
+};
+
+// Between the CPUs (each read and written uncached, and volatile, so that
+// a wait on it stays a wait): the slave's rooms done, the master's draws
+// done; the near half's first chain (its head, for the far half's last
+// command to link to) and the link field its last goes into; the slave's
+// work and waits.
+#define JOIN_SPLIT  (JOIN_PAIRS / 2)    // the far half's nearest pair
+
+struct SlaveStages
+{
+    volatile uint32_t roomsDone, drawsDone;
+    uint16_t* volatile nearLast;
+    volatile uint16_t nearHead;
+    uint16_t pad;
+    volatile uint32_t work, wait;
+} __attribute__((aligned(16)));
+static SlaveStages gSlaveStages;
+
+static void slaveRooms(void*)
+{
+    uint32_t t0 = ticks(), wait = 0;
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        verticesRoom(i, wait);
+        if (!i) {
+            facesRoomsBegin(gRoomRun, gRoomTextures, gSplit, gRoomList);
+        }
+        facesRoom(gRooms[i], gRoomRun);
+    }
+    *uncached(&gSlaveStages.roomsDone) = 1;
+    uint32_t w0 = ticks();
+    while (!*uncached(&gSlaveStages.drawsDone));
+    wait += ticksCycles(w0, ticks());
+    cachePurge();       // the master's mesh list
+    SlaveStages* shared = uncached(&gSlaveStages);
+    shared->nearLast = facesJoinPairs(&gRoomList, &gMeshList, facesLinkBase(gNewCmds),
+                                      (uint16_t*)&shared->nearHead, JOIN_SPLIT - 1);
+    shared->work = ticksCycles(t0, ticks()) - wait;
+    shared->wait = wait;
+}
+
+static Stages stagesTogether()
+{
+    Stages s = {};
+    SlaveStages* shared = uncached(&gSlaveStages);
+    shared->roomsDone = shared->drawsDone = 0;
+    uint32_t t0 = ticks();
+    verticesRoomsBegin();
+    verticesClaimMasters();
+    slaveRun(slaveRooms, nullptr);
+    verticesMeshesFeed();
+    bool meshes = false;
+    verticesMasterRooms(s.masterWait, meshes);
+    if (!meshes) {
+        verticesMeshesStart(s.masterWait);
+    }
+    const uint8_t* sets = gFaceSets;
+    uint32_t slaveEnd = 0;
+    for (uint32_t i = 0; i < gDrawCount; i++)
+    {
+        if (!slaveEnd && shared->roomsDone) {
+            slaveEnd = ticksCycles(t0, ticks());
+        }
+        const DrawScene &d = gDraws[i];
+        if (d.type == DRAW_COPY)
+        {
+            facesOther(gGameFaces[d.first], gVertices, gSprites, d.bucket, gMeshList);
+            continue;
+        }
+        const Vertex* vertices = verticesDraw(i, s.masterWait);
+        const FaceSet* set = d.type == DRAW_SHADOW ? facesShadow()
+                                                   : (const FaceSet*)(sets + ((const uint32_t*)sets)[d.mesh]);
+        uint32_t mode = (d.inside ? MESH_INSIDE : 0) | (d.flags & FACE_WATER ? MESH_WATER : 0);
+        facesMeshAsm(set, vertices, mode, &gMeshList);
+    }
+    gNewEnd = facesSlot(gMeshList.link);
+    gNewCmds[0] = gClear;
+    gNewCmds[gNewEnd].w[0] = CMD_END << 16;
+    shared->drawsDone = 1;
+    uint32_t w0 = ticks();
+    uint32_t drawsEnd = ticksCycles(t0, w0);
+    while (!shared->roomsDone);
+    s.masterWait += ticksCycles(w0, ticks());
+    s.late = int32_t(drawsEnd) - int32_t(slaveEnd ? slaveEnd : ticksCycles(t0, ticks()));
+    cachePurge();       // the slave's room list
+    uint16_t* farLast = facesJoinPairs(&gRoomList, &gMeshList, facesLinkBase(gNewCmds),
+                                       facesLinkField(gNewCmds, 0), JOIN_SPLIT << 16 | (JOIN_PAIRS - 1));
+    w0 = ticks();
+    slaveWait();
+    s.masterWait += ticksCycles(w0, ticks());
+    cachePurge();       // the link fields the slave's half set, of commands this CPU made
+    uint16_t* nearLast = shared->nearLast;
+    if (nearLast == &uncached(&gSlaveStages)->nearHead || nearLast == &gSlaveStages.nearHead) {
+        *farLast = facesLink(gNewEnd);      // the near half had no commands
+    }
+    else
+    {
+        *farLast = shared->nearHead;
+        *nearLast = facesLink(gNewEnd);
+    }
+    verticesEnd();
+    s.wall = ticksCycles(t0, ticks());
+    s.masterWork = s.wall - s.masterWait;
+    s.slaveWork = *uncached(&gSlaveStages.work);
+    s.slaveWait = *uncached(&gSlaveStages.wait);
+    return s;
+}
+
+static void stageTogether()
+{
+    // frames to settle the split: each moves the plan by half how late the
+    // master's draws ended after the slave's rooms
+    int32_t bias = 0;
+    for (int32_t f = 0; f < 6; f++)
+    {
+        verticesPlan(bias);
+        newPrepare();
+        verticesPoison();
+        cachePurge();
+        bias += stagesTogether().late / 2;
+    }
+    verticesPlan(bias);
+    Stages sum = {};
+    for (int32_t r = 0; r < RUNS; r++)
+    {
+        newPrepare();
+        verticesPoison();
+        cachePurge();
+        Stages s = stagesTogether();
+        sum.wall += s.wall;
+        sum.masterWork += s.masterWork;
+        sum.masterWait += s.masterWait;
+        sum.slaveWork += s.slaveWork;
+        sum.slaveWait += s.slaveWait;
+    }
+    gLab.stages = sum.wall / RUNS;
+    gLab.stagesMaster = sum.masterWork / RUNS;
+    gLab.stagesMasterWait = sum.masterWait / RUNS;
+    gLab.stagesSlave = sum.slaveWork / RUNS;
+    gLab.stagesSlaveWait = sum.slaveWait / RUNS;
+    int32_t visited, shaded, rooms, meshes;
+    gLab.stagesBad = gameListCheck(gNewCmds, gNewGrd, visited, shaded) + verticesRoomsCheck(rooms) +
+                     verticesMeshesCheck(meshes);
 }
 
 // A command's words and gouraud table, hashed.
@@ -906,6 +1074,15 @@ static void newPage()
     p = put(p, ", new");
     putFixed(p, cyclesToHundredths(gLab.vdp1New), 2, 7);
     page.add(line);
+    page.add("STAGES 2+3 TOGETHER, ms  work  waits");
+    timeRow(page, "  start to end", gLab.stages, 0, nullptr);
+    workRow(page, "  master", gLab.stagesMaster, gLab.stagesMasterWait);
+    workRow(page, "  slave", gLab.stagesSlave, gLab.stagesSlaveWait);
+    p = put(line, "  list and vertices ");
+    p = put(p, gLab.stagesBad ? "OFF (" : "exact (");
+    p = putNumber(p, gLab.stagesBad, 0);
+    put(p, " off)");
+    page.add(line);
     page.add("");
     page.add("R, L: the other pages");
 }
@@ -1046,6 +1223,7 @@ int main()
     upload(gCmds, gGouraud, end);
     gLab.vdp1Lab = vdp1Show();
     stageNew();
+    stageTogether();
     shadeTables(gNewTables, false);
     upload(gNewCmds, gNewGrd, gNewEnd);
     gLab.vdp1New = vdp1Show();

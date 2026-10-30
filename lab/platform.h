@@ -66,6 +66,7 @@ uint32_t padVblank();
 // Starts task(arg) on the slave; the previous one must have returned.
 void slaveRun(void (*task)(void*), void* arg);
 void slaveWait();
+bool slaveDone();
 
 // Claims *p (uncached) for this CPU: true if neither had (TAS.B, atomic
 // between the two on the Saturn: saturn/synctest.cpp).

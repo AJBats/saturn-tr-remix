@@ -151,6 +151,7 @@ static MeshJob gJobs[MAX_DRAWS];
 static MeshDspJob gDspJobs[MAX_DRAWS + 1];
 static MeshDspJob3 gDspJobs3[MAX_DRAWS + 1];
 static int32_t gJobCount;
+static int32_t gJobOfDraw[MAX_DRAWS];      // a draw's job, or -1
 static Vertex gMeshOut[4 + MAX_MESH_VERTICES] __attribute__((aligned(16)));
 static Vertex* const gMeshVertices = gMeshOut + 4;
 
@@ -259,6 +260,27 @@ static void readyVertices(int32_t* ready, const MeshVertex* v, const int8_t* nor
     }
 }
 
+// The order the DSP turns the rooms in (its k-th job's room), and each
+// room's place in it: the rooms done counts in that order.
+static uint8_t gRoomOrder[MAX_ROOMS];
+static uint8_t gRoomTurn[MAX_ROOMS];
+
+static void roomOrder(const uint8_t* order)
+{
+    for (uint32_t k = 0; k < gRoomCount; k++)
+    {
+        gRoomOrder[k] = order[k];
+        gRoomTurn[order[k]] = k;
+    }
+}
+
+// Between polls of what the DSP writes: off the bus a while, so as not to
+// hold up the DSP's transfers.
+static inline void pause()
+{
+    for (volatile int32_t i = 0; i < 16; i++);
+}
+
 const char* verticesInit()
 {
     gRooms = sceneArray<const RoomScene>("ROOM", &gRoomCount);
@@ -274,6 +296,11 @@ const char* verticesInit()
         gRoomCount = MAX_ROOMS;
     }
     int32_t at = 0;
+    uint8_t order[MAX_ROOMS];
+    for (uint32_t i = 0; i < gRoomCount; i++) {
+        order[i] = i;
+    }
+    roomOrder(order);
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
         gRotatedAt[i] = at;
@@ -331,8 +358,10 @@ const char* verticesInit()
     for (uint32_t i = 0; i < gDrawCount && gJobCount < MAX_DRAWS; i++)
     {
         const DrawScene &d = gDraws[i];
+        gJobOfDraw[i] = -1;
         if (d.type != DRAW_MESH && d.type != DRAW_SHADOW)
             continue;
+        gJobOfDraw[i] = gJobCount;
         MeshJob &job = gJobs[gJobCount++];
         job.xform = gXforms + i;
         job.game = gSceneVertices + d.base;
@@ -395,14 +424,26 @@ struct RoomsDone
 } __attribute__((aligned(16)));
 static RoomsDone gRoomsDone;
 
+// Room i turned by the DSP (the cycles waiting added to wait).
+static void roomTurned(uint32_t i, uint32_t &wait)
+{
+    volatile uint32_t* done = uncached(&gRoomsDone.rooms);
+    uint32_t w0 = ticks();
+    while (*done <= gRoomTurn[i]) {
+        pause();
+    }
+    wait += ticksCycles(w0, ticks());
+}
+
 // The rooms' jobs, roomrot.dsp loaded and started on them: the tick it
 // started at.
 static uint32_t roomsDspStart()
 {
-    for (uint32_t i = 0; i < gRoomCount; i++)
+    for (uint32_t k = 0; k < gRoomCount; k++)
     {
+        uint32_t i = gRoomOrder[k];
         const RoomScene &room = gRooms[i];
-        RoomDspJob &job = gRoomJobs[i];
+        RoomDspJob &job = gRoomJobs[k];
         job.vertices = dspAddress(roomPoints(room));
         job.out = dspAddress(gRoomRotated + gRotatedAt[i]);
         job.groups = (room.verticesCount + 3) >> 2;
@@ -635,14 +676,17 @@ int32_t verticesRoomsSeldomCheck()
 }
 
 // Room i's vertices projected from the DSP's rotations.
-static void roomProject(uint32_t i)
+static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
 {
     const RoomScene &room = gRooms[i];
+    if (to < 0) {
+        to = room.verticesCount;
+    }
     RoomProject rp;
     rp.divTable = gDivTable;
     rp.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
     rp.zMax = VIEW_MAX_F >> (FIXED_SHIFT - 8);
-    rp.points = roomPoints(room);
+    rp.points = roomPoints(room) + from;
     rp.x0 = room.clip[0];
     rp.y0 = room.clip[1];
     rp.x1 = room.clip[2];
@@ -650,8 +694,8 @@ static void roomProject(uint32_t i)
     rp.wibble = room.ripple ? kWibble : nullptr;
     rp.phase = room.causticsFrame;
     rp.caustics = room.wet ? gCaustics[i] : nullptr;
-    rp.count = room.verticesCount;
-    roomProjectAsm(gRoomRotated + gRotatedAt[i], room.verticesCount, gVertices + room.base, &rp);
+    rp.count = to;      // the caustics' index, count - vertices left: from on
+    roomProjectAsm(gRoomRotated + gRotatedAt[i] + from, to - from, gVertices + room.base + from, &rp);
 }
 
 void verticesRooms()
@@ -1098,13 +1142,6 @@ static volatile uint32_t* jobLast(const MeshJob &job)
     return uncached((volatile uint32_t*)last + 1);
 }
 
-// Between polls of what the DSP writes: off the bus a while, so as not to
-// hold up the DSP's transfers.
-static inline void pause()
-{
-    for (volatile int32_t i = 0; i < 16; i++);
-}
-
 // Which CPU has each mesh job (tasClaim): the master takes them from the
 // first, the slave its rooms done from the last, until they meet.
 static uint8_t gClaims[MAX_DRAWS] __attribute__((aligned(16)));
@@ -1130,14 +1167,9 @@ static inline bool meshAsMade(MeshProject &mp, int32_t i, uint32_t &wait)
 static void roomsAsTurned(void*)
 {
     uint32_t t0 = ticks(), wait = 0;
-    volatile uint32_t* done = uncached(&gRoomsDone.rooms);
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
-        uint32_t w0 = ticks();
-        while (*done <= i) {
-            pause();
-        }
-        wait += ticksCycles(w0, ticks());
+        roomTurned(i, wait);
         roomProject(i);
     }
     MeshProject mp;
@@ -1146,6 +1178,216 @@ static void roomsAsTurned(void*)
     for (int32_t i = gJobCount - 1; i >= 0 && meshAsMade(mp, i, wait); i--);
     *uncached(&gRoomsDone.work) = ticksCycles(t0, ticks()) - wait;
     *uncached(&gRoomsDone.wait) = wait;
+}
+
+// --- stage 2 in pieces, for stages run together ---------------------------
+
+void verticesPoison()
+{
+    memset(gRoomRotated, 0xA5, sizeof(gRoomRotated));
+    memset(gMeshOut, 0xFF, sizeof(gMeshOut));
+    for (uint32_t i = 0; i < gRoomCount; i++) {
+        memset(gVertices + gRooms[i].base, 0xA5, gRooms[i].verticesCount * sizeof(Vertex));
+    }
+}
+
+static MeshProject gPiecesProject;
+
+// The rooms' projection in chunks of CHUNK vertices, each room's after the
+// one before: each chunk's room, which CPU has it (tasClaim), whether it's
+// done, and whether the plan gives it to the master.
+#define CHUNK           64
+#define MAX_CHUNKS      (MAX_ROOM_VERTICES / CHUNK + MAX_ROOMS)
+static int32_t gChunkAt[MAX_ROOMS + 1];     // a room's first chunk
+static uint8_t gChunkRoom[MAX_CHUNKS];
+static uint8_t gChunkClaims[MAX_CHUNKS] __attribute__((aligned(16)));
+static uint8_t gChunkProjected[MAX_CHUNKS] __attribute__((aligned(16)));
+static bool gChunkMaster[MAX_CHUNKS];
+
+// The plan's prices, SH-2 cycles a unit (Mednafen, the ledge, each stage
+// run alone): the work each CPU has as the counts predict it.
+#define PLAN_ROOM_VERTEX    125     // projected
+#define PLAN_ROOM_FACE      228     // a face given, to commands
+#define PLAN_MESH_JOB       456     // fed
+#define PLAN_MESH_VERTEX    63      // projected
+#define PLAN_MESH_FACE      138     // a face given, to commands
+
+static int32_t chunkSize(int32_t c)
+{
+    const RoomScene &room = gRooms[gChunkRoom[c]];
+    int32_t from = (c - gChunkAt[gChunkRoom[c]]) * CHUNK;
+    return room.verticesCount - from < CHUNK ? room.verticesCount - from : CHUNK;
+}
+
+void verticesPlan(int32_t bias)
+{
+    gChunkAt[0] = 0;
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        gChunkAt[i + 1] = gChunkAt[i] + (gRooms[i].verticesCount + CHUNK - 1) / CHUNK;
+        for (int32_t c = gChunkAt[i]; c < gChunkAt[i + 1]; c++) {
+            gChunkRoom[c] = i;
+        }
+    }
+    // the slave's rooms, the master's draws (its join comes after both), and
+    // the bias the frames before found
+    uint32_t slave = 0, master = bias;
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        const RoomScene &r = gRooms[i];
+        slave += PLAN_ROOM_VERTEX * r.verticesCount + PLAN_ROOM_FACE * (r.quadsCount + r.trianglesCount);
+    }
+    for (int32_t j = 0; j < gJobCount; j++)
+    {
+        const MeshJob &job = gJobs[j];
+        master += PLAN_MESH_JOB + PLAN_MESH_VERTEX * job.count;
+        if (job.center)
+        {
+            const uint8_t* mesh = (const uint8_t*)job.center;
+            master += PLAN_MESH_FACE * (*(const int16_t*)(mesh + 12) + *(const int16_t*)(mesh + 14));
+        }
+        else
+        {
+            master += PLAN_MESH_FACE * 3;
+        }
+    }
+    // from the last chunk back, each that leaves the master's share no
+    // greater than the slave's
+    for (int32_t c = gChunkAt[gRoomCount] - 1; c >= 0; c--)
+    {
+        uint32_t p = PLAN_ROOM_VERTEX * chunkSize(c);
+        gChunkMaster[c] = master + p <= slave - p;
+        if (gChunkMaster[c])
+        {
+            master += p;
+            slave -= p;
+        }
+    }
+
+    // the DSP turns the slave's first room, then those the master has
+    // chunks of (it takes them once fed), then the rest in order
+    uint8_t order[MAX_ROOMS];
+    bool masters[MAX_ROOMS] = {};
+    for (int32_t c = 0; c < gChunkAt[gRoomCount]; c++) {
+        masters[gChunkRoom[c]] = masters[gChunkRoom[c]] || gChunkMaster[c];
+    }
+    uint32_t k = 0;
+    order[k++] = 0;
+    for (uint32_t pass = 0; pass < 2; pass++)
+    {
+        for (uint32_t i = 1; i < gRoomCount; i++)
+        {
+            if (masters[i] == !pass) {
+                order[k++] = i;
+            }
+        }
+    }
+    roomOrder(order);
+}
+
+void verticesRoomsBegin()
+{
+    for (int32_t c = 0; c < gChunkAt[gRoomCount]; c++)
+    {
+        *uncached(gChunkClaims + c) = 0;
+        *uncached(gChunkProjected + c) = 0;
+    }
+    roomsDspStart();
+}
+
+void verticesClaimMasters()
+{
+    for (int32_t c = 0; c < gChunkAt[gRoomCount]; c++)
+    {
+        if (gChunkMaster[c]) {
+            tasClaim(uncached(gChunkClaims + c));
+        }
+    }
+}
+
+// Chunk c projected, its room waited for on the DSP; marked done.
+static void chunkProject(int32_t c, uint32_t &wait)
+{
+    uint32_t room = gChunkRoom[c];
+    roomTurned(room, wait);
+    int32_t from = (c - gChunkAt[room]) * CHUNK;
+    roomProject(room, from, from + chunkSize(c));
+    *uncached(gChunkProjected + c) = 1;
+}
+
+void verticesMasterRooms(uint32_t &wait, bool &meshes)
+{
+    for (int32_t c = 0; c < gChunkAt[gRoomCount]; c++)
+    {
+        if (gChunkMaster[c])
+        {
+            meshes = meshes || verticesMeshesTryStart();
+            chunkProject(c, wait);
+        }
+    }
+}
+
+void verticesRoom(uint32_t i, uint32_t &wait)
+{
+    for (int32_t c = gChunkAt[i]; c < gChunkAt[i + 1]; c++)
+    {
+        if (tasClaim(uncached(gChunkClaims + c)))
+        {
+            chunkProject(c, wait);
+            continue;
+        }
+        volatile uint8_t* projected = uncached(gChunkProjected + c);
+        uint32_t w0 = ticks();
+        while (!*projected) {
+            pause();
+        }
+        wait += ticksCycles(w0, ticks());
+        cacheDrop(gVertices + gRooms[i].base + (c - gChunkAt[i]) * CHUNK, chunkSize(c) * sizeof(Vertex));
+    }
+}
+
+void verticesMeshesFeed()
+{
+    verticesFeed();
+    for (int32_t i = 0; i < gJobCount; i++) {
+        *jobLast(gJobs[i]) = DSP_UNWRITTEN;
+    }
+    gPiecesProject.divTable = gDivTable;
+    gPiecesProject.exact = meshExact;
+}
+
+bool verticesMeshesTryStart()
+{
+    if (dspBusy())
+        return false;
+    meshesDspStart();
+    return true;
+}
+
+void verticesMeshesStart(uint32_t &wait)
+{
+    uint32_t w0 = ticks();
+    while (dspBusy());
+    wait += ticksCycles(w0, ticks());
+    meshesDspStart();
+}
+
+const Vertex* verticesDraw(uint32_t draw, uint32_t &wait)
+{
+    int32_t j = gJobOfDraw[draw];
+    volatile uint32_t* last = jobLast(gJobs[j]);
+    uint32_t w0 = ticks();
+    while ((*last & 0xFF) == DSP_UNWRITTEN) {
+        pause();
+    }
+    wait += ticksCycles(w0, ticks());
+    meshProject(gPiecesProject, j);
+    return gJobs[j].out;
+}
+
+void verticesEnd()
+{
+    while (dspBusy());
 }
 
 Together verticesTogether()

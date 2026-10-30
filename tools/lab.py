@@ -33,7 +33,7 @@ LAB_MAGIC = 0x4C414231
 MAX_CMDS = 1792
 SHADE_CACHE = struct.Struct('>4I256I256I')      # game.h ShadeCache
 SHADE_TABLE_SIZE = 32
-LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIiIii5Ii3I')    # lab.cpp LabResults
+LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIiIii5Ii3I5Ii')    # lab.cpp LabResults
 FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSlave', 'floor',
           'facesBad', 'flushBad', 'splitBad', 'floorBad', 'vdp1Game', 'vdp1Lab', 'meshFacesGiven',
           'roomFacesGiven', 'meshFlush', 'roomFlush', 'newMeshes', 'newRooms', 'newJoin', 'newBad', 'newBadC',
@@ -42,7 +42,8 @@ FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSl
           'newVertsBad', 'newVertsMeshes', 'newVertsSeldom', 'dspRooms', 'dspRoomsBad',
           'newVertsFeed', 'dspMeshes', 'dspMeshesBad', 'dspMeshes3', 'dspMeshes3Bad', 'feedBad',
           'together', 'togetherMaster', 'togetherMasterWait', 'togetherSlave', 'togetherSlaveWait',
-          'togetherBad', 'togetherDspRooms', 'togetherDspGap', 'togetherDspMeshes')
+          'togetherBad', 'togetherDspRooms', 'togetherDspGap', 'togetherDspMeshes',
+          'stages', 'stagesMaster', 'stagesMasterWait', 'stagesSlave', 'stagesSlaveWait', 'stagesBad')
 TEXT_ROWS, TEXT_COLUMNS = 26, 42
 PAGE = struct.Struct(f'>{TEXT_ROWS * (TEXT_COLUMNS + 1)}s2xi')     # lab.h Page
 VRAM_FRAME_CMDS = 0x60
@@ -392,7 +393,7 @@ def main():
           f'new {new_cycles * 1000 / VDP1_HZ:.2f} ms')
     if traces:
         profile(traces, elf, syms)
-    sys.exit(1 if bad or differ or any(results[k] for k in ('vertsBad', 'newVertsBad', 'newVertsSeldom', 'dspRoomsBad', 'dspMeshesBad', 'dspMeshes3Bad', 'feedBad', 'togetherBad', 'facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newAsmBad'))
+    sys.exit(1 if bad or differ or any(results[k] for k in ('vertsBad', 'newVertsBad', 'newVertsSeldom', 'dspRoomsBad', 'dspMeshesBad', 'dspMeshes3Bad', 'feedBad', 'togetherBad', 'stagesBad', 'facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newAsmBad'))
              else 0)
 
 

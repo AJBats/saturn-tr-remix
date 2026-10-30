@@ -254,15 +254,29 @@ void facesOther(const Face &face, const Vertex* half, const Sprite* sprites, int
 // buckets, the last always empty.
 void facesJoin(CommandList* const* lists, int32_t count, Command* cmds, int32_t first, int32_t end);
 
-// The same for the rooms' list and the meshes' (facesjoin.s): linkBase, where
-// the link field of the command VDP1 would link to as 0 lies; links, the
-// first command's link << 16 | the end's.
-extern "C" void facesJoinAsm(CommandList* rooms, CommandList* meshes, uint8_t* linkBase, uint32_t links);
+// The same for the rooms' list and the meshes' (facesjoin.s), a range of
+// their buckets' pairs (nearest << 16 | farthest) from the link field field
+// on: the link field the next chain goes into. linkBase: where the link
+// field of the command VDP1 would link to as 0 lies.
+#define JOIN_PAIRS  ((OT_SIZE + 1) / 2)
+extern "C" uint16_t* facesJoinPairs(CommandList* rooms, CommandList* meshes, uint8_t* linkBase, uint16_t* field,
+                                    uint32_t pairs);
 
+inline uint8_t* facesLinkBase(Command* cmds)
+{
+    return (uint8_t*)(uintptr_t(cmds) - (VRAM_FRAME_CMDS >> 3) * 8 + 2);
+}
+
+inline uint16_t* facesLinkField(Command* cmds, int32_t slot)
+{
+    return (uint16_t*)(facesLinkBase(cmds) + facesLink(slot) * 8);
+}
+
+// Every bucket, from the command in slot first to the one in slot end.
 inline void facesJoinRoomsMeshes(CommandList &rooms, CommandList &meshes, Command* cmds, int32_t first, int32_t end)
 {
-    uint8_t* linkBase = (uint8_t*)(uintptr_t(cmds) - (VRAM_FRAME_CMDS >> 3) * 8 + 2);
-    facesJoinAsm(&rooms, &meshes, linkBase, (facesLink(first) << 16) | facesLink(end));
+    uint16_t* last = facesJoinPairs(&rooms, &meshes, facesLinkBase(cmds), facesLinkField(cmds, first), JOIN_PAIRS - 1);
+    *last = facesLink(end);
 }
 
 #endif

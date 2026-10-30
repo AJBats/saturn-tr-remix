@@ -341,6 +341,11 @@ void slaveWait()
     while (*uncached(&gTask));
 }
 
+bool slaveDone()
+{
+    return !*uncached(&gTask);
+}
+
 void platformInit()
 {
     // the 352-dot clock, repeated until the SMPC reports it (saturn/system.cpp)
