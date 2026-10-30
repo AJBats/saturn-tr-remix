@@ -480,6 +480,9 @@ static void roomTurned(uint32_t i, uint32_t &wait)
 
 // The rooms' jobs, roomrot.dsp loaded and started on them: the tick it
 // started at.
+// The ticks the last runs started at (verticesDspStarts).
+static uint32_t gRoomsDspAt, gMeshesDspAt;
+
 static uint32_t roomsDspStart()
 {
     for (uint32_t k = 0; k < gRoomCount; k++)
@@ -508,6 +511,7 @@ static uint32_t roomsDspStart()
     dspWrite(3, 12, &mask, 1);
     uint32_t t0 = ticks();
     dspStart(0);
+    *uncached(&gRoomsDspAt) = t0;
     return t0;
 }
 
@@ -1033,7 +1037,14 @@ static uint32_t meshesDspStart()
     dspWrite(3, 20, md3, 2);
     uint32_t t0 = ticks();
     dspStart(MESHROT_DSP_START);
+    *uncached(&gMeshesDspAt) = t0;
     return t0;
+}
+
+void verticesDspStarts(uint32_t &rooms, uint32_t &meshes)
+{
+    rooms = *uncached(&gRoomsDspAt);
+    meshes = *uncached(&gMeshesDspAt);
 }
 
 uint32_t verticesMeshesDsp()

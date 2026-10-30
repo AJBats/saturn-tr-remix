@@ -179,7 +179,7 @@ ow:     jmp ow,t0
         dma mc0,d0,1
         jmp job
         nop
-done:   end
+done:   endi                            ; the SCU's DSP end interrupt
 """
 
 

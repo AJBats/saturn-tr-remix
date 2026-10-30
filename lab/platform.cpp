@@ -6,11 +6,17 @@
 
 #define BIOS_CHG_SYSCK      (*(void (**)(uint32_t))0x06000320)  // 0: 320-dot clock, 1: 352-dot
 #define BIOS_SET_UINT       (*(void (**)(uint32_t, void (*)()))0x06000310)  // CPU interrupt vector
+#define BIOS_SET_SINT       (*(void (**)(uint32_t, void (*)()))0x06000300)  // SCU interrupt, dispatched
+#define BIOS_CHG_SCUIM      (*(void (**)(uint32_t, uint32_t))0x06000344)    // SCU mask = (mask & and) | or
 #define BIOS_SLAVE_ENTRY    (*(volatile uint32_t*)0x06000250)   // where the slave starts after SSHON
 #define BIOS_SLAVE_STACK    (*(volatile uint32_t*)0x060002AC)   // its stack, if not 0
 
 #define VECTOR_SLAVE_HBLANK_IN  (0x100 + 0x41)
 #define VECTOR_SLAVE_VBLANK_IN  (0x100 + 0x43)
+#define VECTOR_DSP_END          0x45
+#define SCU_IMS_ALL             0xBFFF  // every SCU interrupt masked
+#define SCU_IMS_DSP_END         0x0020
+#define SR_LEVEL_9              0x90    // SR's interrupt mask: level 10 (the DSP's end) and up taken
 
 #define SMPC_SSHON      0x02
 #define SMPC_SSHOFF     0x03
@@ -45,6 +51,7 @@
 
 extern "C" void slaveEntry();       // crt0.s
 extern "C" void slaveIgnoreIrq();
+extern "C" void dspEndEntry();
 
 uint32_t ticks()
 {
@@ -378,6 +385,85 @@ bool slaveDone()
     return !*uncached(&gTask);
 }
 
+// The slave's timer against the master's: the master pings, the slave
+// answers with its tick; the answer of the shortest round trip read as
+// taken halfway through it.
+#define CLOCK_PINGS 64
+static volatile uint32_t gPing, gPong, gPongTick;
+static uint32_t gSlaveOffset;   // the slave's tick less the master's, 16 bits
+
+static void clockPong(void*)
+{
+    for (uint32_t k = 1; k <= CLOCK_PINGS; k++)
+    {
+        while (*uncached(&gPing) != k);
+        *uncached(&gPongTick) = ticks();
+        *uncached(&gPong) = k;
+    }
+}
+
+static void clockSync()
+{
+    slaveRun(clockPong, nullptr);
+    uint32_t best = 0x10000;
+    for (uint32_t k = 1; k <= CLOCK_PINGS; k++)
+    {
+        uint32_t t0 = ticks();
+        *uncached(&gPing) = k;
+        while (*uncached(&gPong) != k);
+        uint32_t trip = (ticks() - t0) & 0xFFFF;
+        if (trip < best)
+        {
+            best = trip;
+            gSlaveOffset = (*uncached(&gPongTick) - t0 - trip / 2) & 0xFFFF;
+        }
+    }
+    slaveWait();
+}
+
+uint32_t slaveTickOnMaster(uint32_t tick)
+{
+    return (tick - gSlaveOffset) & 0xFFFF;
+}
+
+// --- the DSP's ends -----------------------------------------------------------
+
+#define MAX_DSP_ENDS    4
+static volatile uint32_t gDspEnds[MAX_DSP_ENDS];
+static volatile uint32_t gDspEndCount;
+
+extern "C" void dspEndHandler()
+{
+    uint32_t n = gDspEndCount;
+    if (n < MAX_DSP_ENDS) {
+        gDspEnds[n] = ticks();
+    }
+    gDspEndCount = n + 1;
+}
+
+void dspEndsClear()
+{
+    gDspEndCount = 0;
+}
+
+uint32_t dspEnds(uint32_t* ends, uint32_t max)
+{
+    uint32_t n = gDspEndCount;
+    for (uint32_t i = 0; i < n && i < max && i < MAX_DSP_ENDS; i++) {
+        ends[i] = gDspEnds[i];
+    }
+    return n;
+}
+
+static void dspEndInit()
+{
+    BIOS_SET_SINT(VECTOR_DSP_END, dspEndEntry);
+    BIOS_CHG_SCUIM(0, SCU_IMS_ALL & ~SCU_IMS_DSP_END);
+    uint32_t sr;
+    asm volatile("stc sr, %0" : "=r"(sr));
+    asm volatile("ldc %0, sr" : : "r"((sr & ~0xF0) | SR_LEVEL_9));
+}
+
 void platformInit()
 {
     // the 352-dot clock, repeated until the SMPC reports it (saturn/system.cpp)
@@ -392,4 +478,6 @@ void platformInit()
     vdp1Init();
     FRT_TCR = FRT_DIV32;
     slaveStart();
+    clockSync();
+    dspEndInit();
 }

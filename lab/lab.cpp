@@ -169,6 +169,11 @@ struct LabResults
     uint32_t runWaited;         // those frames
     uint32_t uploadBytes;       // the list's bytes uploaded
     int32_t uploadBad;          // words of the last list in VDP1 VRAM not as uploaded
+    uint32_t stagesDsp;         // cycles the DSP ran in stages 2+3 together (Stages.dsp)
+    uint32_t frameDsp;          // ... in the frame so far
+    uint32_t runMaster;         // the whole frame in a row, a frame: the master's work in the stages
+    uint32_t runSlave;          // ... the slave's
+    uint32_t runDsp;            // ... the DSP's runs
 };
 
 extern "C" LabResults gLab;
@@ -704,6 +709,7 @@ static void newJoin(bool c)
 struct Stages
 {
     uint32_t wall, masterWork, masterWait, slaveWork, slaveWait;
+    uint32_t dsp;       // the DSP's runs, start to end each (dspEnds): rooms, then meshes
     int32_t late;       // cycles the master's draws ended after the slave's rooms (or before: < 0)
 };
 
@@ -819,6 +825,7 @@ static Stages stagesTogether(bool posed, int32_t bias)
     uint32_t slaveItems = 0;
     shared->poses = 0;
     const DrawList &list = drawsList();
+    dspEndsClear();
     uint32_t t0 = ticks();
     if (posed)
     {
@@ -941,6 +948,15 @@ static Stages stagesTogether(bool posed, int32_t bias)
     }
     verticesEnd();
     s.wall = ticksCycles(t0, ticks());
+    uint32_t ends[2], roomsAt, meshesAt;
+    if (dspEnds(ends, 2) == 2)
+    {
+        verticesDspStarts(roomsAt, meshesAt);
+        if (posed) {
+            roomsAt = slaveTickOnMaster(roomsAt);    // the slave started them
+        }
+        s.dsp = ticksCycles(roomsAt, ends[0]) + ticksCycles(meshesAt, ends[1]);
+    }
     s.masterWork = s.wall - s.masterWait;
     s.slaveWork = *uncached(&gSlaveStages.work);
     s.slaveWait = *uncached(&gSlaveStages.wait);
@@ -1036,12 +1052,14 @@ static Stages togetherMeasured(bool posed, int32_t &bad)
         sum.masterWait += s.masterWait;
         sum.slaveWork += s.slaveWork;
         sum.slaveWait += s.slaveWait;
+        sum.dsp += s.dsp;
     }
     sum.wall /= RUNS;
     sum.masterWork /= RUNS;
     sum.masterWait /= RUNS;
     sum.slaveWork /= RUNS;
     sum.slaveWait /= RUNS;
+    sum.dsp /= RUNS;
     int32_t visited, shaded, rooms, meshes;
     bad = gameListCheck(gNewCmds, gNewGrd, visited, shaded) + verticesRoomsCheck(rooms) +
           verticesMeshesCheck(meshes) + (posed ? poseCheck() + roomsSeenCheck() + drawsCheck(gameDrawList()) : 0);
@@ -1056,6 +1074,7 @@ static void stageTogether()
     gLab.stagesMasterWait = s.masterWait;
     gLab.stagesSlave = s.slaveWork;
     gLab.stagesSlaveWait = s.slaveWait;
+    gLab.stagesDsp = s.dsp;
 }
 
 // The frame so far: stages 1, 2 and 3 together, the meshes' transforms the
@@ -1071,6 +1090,7 @@ static void stageFrame()
     gLab.frameMasterWait = s.masterWait;
     gLab.frameSlave = s.slaveWork;
     gLab.frameSlaveWait = s.slaveWait;
+    gLab.frameDsp = s.dsp;
 }
 
 // The new list into VDP1 VRAM where the game puts its own, by the SCU's DMA:
@@ -1151,6 +1171,7 @@ static void stageRun()
     textFrame();
     textRow(0, "THE WHOLE FRAME, RUNNING");
     uint32_t wait = 0, vblank = 0, stages = 0, upload = 0, vdp1 = 0, waited = 0, frames = 0;
+    uint64_t master = 0, slave = 0, dsp = 0;
     uint32_t plotted = vdp1Plot();      // the list as the last measured frame left it
     uint64_t total = 0;
     int32_t bias = 0;
@@ -1162,9 +1183,13 @@ static void stageRun()
         gameShadeCache(1)->frame++;
         gRoomTextures.frame++;
         newLists();
-        bias += stagesTogether(true, bias).late / 2;
+        Stages s = stagesTogether(true, bias);
+        bias += s.late / 2;
         uint32_t t1 = ticks();
         stages += ticksCycles(t0, t1);
+        master += s.masterWork;
+        slave += s.slaveWork;
+        dsp += s.dsp;
         uint32_t w = wait, drawn;
         if (!vdp1ShowDrawn(plotted, drawn, wait, vblank))
             break;
@@ -1192,6 +1217,9 @@ static void stageRun()
         gLab.runVdp1Wait = wait / frames;
         gLab.runVblank = vblank / frames;
         gLab.runUpload = upload / frames;
+        gLab.runMaster = uint32_t(master / frames);
+        gLab.runSlave = uint32_t(slave / frames);
+        gLab.runDsp = uint32_t(dsp / frames);
     }
     gLab.runVdp1 = waited ? vdp1 / waited : 0;
     gLab.runWaited = waited;
@@ -1491,9 +1519,12 @@ static void runPage()
     page.add(line);
     page.add("list while the CPUs make the next");
     page.add("");
-    page.add("A FRAME, ms");
+    page.add("A FRAME, ms              work");
     rateRow(page, "  plot to plot", gLab.runFrame);
     timeRow(page, "  stages 1-3", gLab.runStages, 0, nullptr);
+    timeRow(page, "    master", gLab.runMaster, 0, nullptr);
+    timeRow(page, "    slave", gLab.runSlave, 0, nullptr);
+    timeRow(page, "    DSP", gLab.runDsp, 0, nullptr);
     timeRow(page, "  wait for VDP1", gLab.runVdp1Wait, 0, nullptr);
     timeRow(page, "  wait for vblank", gLab.runVblank, 0, nullptr);
     timeRow(page, "  upload", gLab.runUpload, 0, nullptr);
@@ -1550,10 +1581,12 @@ static void framePage()
     timeRow(page, "  start to end", gLab.stages, 0, nullptr);
     workRow(page, "  master", gLab.stagesMaster, gLab.stagesMasterWait);
     workRow(page, "  slave", gLab.stagesSlave, gLab.stagesSlaveWait);
+    workRow(page, "  DSP", gLab.stagesDsp, gLab.stages - gLab.stagesDsp);
     page.add("1+2+3: pose shared as planned:");
     timeRow(page, "  start to end", gLab.frame, 0, nullptr);
     workRow(page, "  master", gLab.frameMaster, gLab.frameMasterWait);
     workRow(page, "  slave", gLab.frameSlave, gLab.frameSlaveWait);
+    workRow(page, "  DSP", gLab.frameDsp, gLab.frame - gLab.frameDsp);
     p = put(line, "  list, vertices, transforms ");
     p = put(p, gLab.frameBad ? "OFF (" : "exact (");
     p = putNumber(p, gLab.frameBad, 0);

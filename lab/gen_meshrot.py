@@ -224,7 +224,7 @@ done:   mov #16,ct2
         dma mc2,d0,8
 ew:     jmp ew,t0
         nop
-        end
+        endi                            ; the SCU's DSP end interrupt
 
         ; the outputs from where the SH-2 says; RY 65536 from here on; the
         ; first job

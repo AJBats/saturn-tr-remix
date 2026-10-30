@@ -79,6 +79,17 @@ void dmaWait();
 #define PAD_RIGHT   0x8000
 uint32_t padVblank();
 
+// The DSP's ends: a program ending with ENDI raises the SCU's DSP end
+// interrupt, whose handler on the master notes the master's tick.
+// dspEndsClear forgets those noted; dspEnds copies up to max of them, the
+// first first: how many there were.
+void dspEndsClear();
+uint32_t dspEnds(uint32_t* ends, uint32_t max);
+
+// A tick of the slave's timer as the master's reads at that moment (both
+// count the same clock, started apart: the gap measured at start-up).
+uint32_t slaveTickOnMaster(uint32_t tick);
+
 // Starts task(arg) on the slave; the previous one must have returned.
 void slaveRun(void (*task)(void*), void* arg);
 void slaveWait();

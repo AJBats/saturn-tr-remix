@@ -82,6 +82,10 @@ int32_t verticesInsideOf(uint32_t draw);
 // leaves the order be: verticesPlan's started).
 void verticesRoomsStart();
 
+// The ticks the rooms' DSP run and the meshes' last started at, each on the
+// timer of the CPU that started it.
+void verticesDspStarts(uint32_t &rooms, uint32_t &meshes);
+
 // The rooms' rotations on the DSP, a job a room, the master waiting for its
 // end: the SH-2 cycles it took. Then its rotations against xform.s's
 // arithmetic: those that differ.
