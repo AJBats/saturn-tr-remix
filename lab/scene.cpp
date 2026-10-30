@@ -9,7 +9,7 @@
 #define LOW_RAM         0x00200000  // the file's low chunks, as read: low work RAM is the lab's
 #define LOW_RAM_SIZE    0x00100000
 #define SECTOR          2048
-#define ARENA_SIZE      (360 * 1024)
+#define ARENA_SIZE      (330 * 1024)
 #define MAX_CHUNKS      64
 
 enum Where { WHERE_HIGH, WHERE_LOW, WHERE_VDP1 };

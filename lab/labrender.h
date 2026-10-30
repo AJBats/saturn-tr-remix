@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 
+#include "draws.h"
 #include "hints.h"
 #include "rooms.h"
 #include "scene.h"
@@ -51,5 +52,25 @@ void roomsPoison();
 // past the jobs' limit or the vertices' room, wet, dry, rippling), against
 // the game's way on them: those that differ (and paths not taken).
 int32_t roomsSeldomCheck();
+
+// The draw list from the scene (labdraws.cpp): its level's tables (ANIM,
+// AFRM, MODL, MIDX, MNOD, PNOD, SMSH, RLIT, RLVL, MESH, MGEO, SPRS), its view
+// (CAMR) and calls (CALL, OITM): whether they fit the list, and the list
+// made of them after fills of the walk's; against the game's way's: those
+// that differ.
+void drawsLabInit();
+bool drawsLabFits();
+void drawsLab(int32_t fills);
+int32_t drawsCheck(const DrawList &list);
+
+// What the draw list makes overwritten with what it never makes, and the
+// list emptied, so a check after a frame that skipped it fails.
+void drawsPoison();
+
+// What the scene seldom gives it: made-up calls (items moved, turned and
+// at any frame of animations of every rate, statics moved, turned and out of
+// sight, sprites moved and shaded, viewports, rectangles, shadows on a wall)
+// against the game's way on them: those that differ (and paths not taken).
+int32_t drawsSeldomCheck();
 
 #endif

@@ -38,6 +38,7 @@ struct Face
 };
 
 #define MAX_VERTICES    (5 * 1024)
+#define MAX_DRAWS       256     // a frame's: the master's 2048 vertices hold about that many of the smallest meshes
 #define MASTER_VERTICES 2048
 #define MAX_CMDS        1792    // VRAM_MAX_CMDS
 

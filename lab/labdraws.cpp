@@ -1,20 +1,10 @@
-// Stage 1 the new way, the draw list (draws.h): the scene's calls through
-// draws.s, and its checks against the game's way (gamedraws.cpp).
+// The draw list from the scene, and its checks against the game's way
+// (labrender.h).
+#include "labrender.h"
 #include "draws.h"
+#include "game.h"
 
-#include <stddef.h>
 #include <string.h>
-
-static_assert(offsetof(DrawsContext, camera) == 60 && offsetof(DrawsContext, view) == 72 &&
-              offsetof(DrawsContext, viewport) == 80 && offsetof(DrawsContext, base) == 96 &&
-              offsetof(DrawsContext, faceCount) == 144 && offsetof(DrawsContext, k20) == 148 &&
-              offsetof(DrawsContext, frameA) == 156 && offsetof(DrawsContext, viewMin) == 176 &&
-              offsetof(DrawsContext, drawCount) == 184 && offsetof(DrawsContext, hintOpen) == 204,
-              "draws.s's DrawsContext");
-static_assert(sizeof(DrawScene) == 24 && sizeof(PoseItem) == 104 && sizeof(PoseLight) == 12 &&
-              sizeof(PoseStatic) == 20 && sizeof(PoseShadow) == 8 && sizeof(Face) == 16 && sizeof(Vertex) == 8 &&
-              sizeof(Sprite) == 16 && sizeof(HintedCall) == 8 && offsetof(ItemRecord, index) == 78,
-              "draws.s's records");
 
 #define FACE_TYPE_SHIFT     14
 #define FACE_TYPE_SPRITE    6
@@ -23,39 +13,50 @@ static_assert(sizeof(DrawScene) == 24 && sizeof(PoseItem) == 104 && sizeof(PoseL
 #define X_MAX(a, b)         ((a) > (b) ? (a) : (b))
 #define X_MIN(a, b)         ((a) < (b) ? (a) : (b))
 
-static DrawsContext gCtx;
+static DrawsContext &gCtx = drawsContext();
+static DrawList &gList = const_cast<DrawList&>(drawsList());
+static const CallRecord* gCalls;        // the scene's (CALL)
+static uint32_t gCallCount;
+static ItemRecord* gItems;              // OITM
 static int32_t gView[12];
-static DrawList gList;
 
-// Room for what count calls make: a model's meshes, a static, a shadow, a face.
-struct DrawsRoom
+void drawsLabInit()
 {
-    uint32_t draws, models, statics, shadows, faces;
-};
-
-static DrawsRoom roomFor(const CallRecord* calls, uint32_t count, const ItemRecord* items, const GameModel* models)
-{
-    DrawsRoom r = {};
-    for (uint32_t i = 0; i < count; i++)
+    DrawsLevel level;
+    level.anims = sceneArray<const GameAnim>("ANIM");
+    level.frames = sceneArray<const uint8_t>("AFRM") - 2 * AFRM_BASE;
+    level.models = sceneArray<const GameModel>("MODL");
+    level.meshIndex = sceneArray<const uint16_t>("MIDX");
+    level.modelNodes = sceneArray<const uint32_t>("MNOD");
+    level.nodes = sceneArray<const uint8_t>("PNOD");
+    level.statics = sceneArray<const GameStaticMesh>("SMSH");
+    level.roomLights = sceneArray<const RoomLights>("RLIT");
+    level.level = sceneArray<const RoomLevel>("RLVL");
+    level.meshes = sceneArray<const uint32_t>("MESH");
+    level.meshGeometry = sceneArray<const uint8_t>("MGEO");
+    level.sprites = sceneArray<const Sprite>("SPRS");
+    drawsInit(level);
+    const PoseCamera* camera = sceneArray<const PoseCamera>("CAMR");
+    for (int32_t r = 0; r < 3; r++)
     {
-        const CallRecord &c = calls[i];
-        if (c.kind == CALL_MODEL)
-        {
-            r.models++;
-            r.draws += X_MAX(models[items[c.index].item.type].count, 0);
+        for (int32_t c = 0; c < 3; c++) {
+            gView[r * 4 + c] = camera->rotation[r * 3 + c];
         }
-        r.statics += c.kind == CALL_STATIC;
-        r.shadows += c.kind == CALL_SHADOW;
-        r.faces += c.kind == CALL_SPRITE || c.kind == CALL_RECT;
+        gView[r * 4 + 3] = 0;
     }
-    r.draws += r.statics + r.shadows + r.faces;
-    return r;
+    drawsView(camera->pos, gView);
+    gCalls = sceneArray<const CallRecord>("CALL", &gCallCount);
+    gItems = sceneArray<ItemRecord>("OITM");
 }
 
-template <typename T>
-static T* highArray(uint32_t count)
+bool drawsLabFits()
 {
-    return (T*)sceneAlloc(X_MAX(count, 1u) * sizeof(T));
+    return drawsFitting(gCalls, gCallCount, gItems) == gCallCount;
+}
+
+void drawsLab(int32_t fills)
+{
+    draws(gCalls, gCallCount, gItems, fills);
 }
 
 template <typename T>
@@ -64,87 +65,19 @@ static T* lowArray(uint32_t count)
     return (T*)sceneAllocLow(X_MAX(count, 1u) * sizeof(T));
 }
 
-// A list's arrays with room r, in high work RAM (low).
-static void listArrays(DrawList &l, const DrawsRoom &r, bool low)
+// A list's arrays with room for draws, models, statics, shadows and faces, in
+// low work RAM.
+static void listArrays(DrawList &l, uint32_t draws, uint32_t models, uint32_t statics, uint32_t shadows,
+                       uint32_t faces)
 {
-    l.draws = low ? lowArray<DrawScene>(r.draws) : highArray<DrawScene>(r.draws);
-    l.hinted = low ? lowArray<HintedCall>(r.models + r.statics) : highArray<HintedCall>(r.models + r.statics);
-    l.items = low ? lowArray<PoseItem>(r.models) : highArray<PoseItem>(r.models);
-    l.lights = low ? lowArray<PoseLight>(r.models) : highArray<PoseLight>(r.models);
-    l.statics = low ? lowArray<PoseStatic>(r.statics) : highArray<PoseStatic>(r.statics);
-    l.shadows = low ? lowArray<PoseShadow>(r.shadows) : highArray<PoseShadow>(r.shadows);
-    l.faces = low ? lowArray<Face>(r.faces) : highArray<Face>(r.faces);
-    l.vertices = low ? lowArray<Vertex>(2 * r.faces) : highArray<Vertex>(2 * r.faces);
-}
-
-static void contextList(DrawsContext &c, const DrawList &l)
-{
-    c.draws = l.draws;
-    c.poses = l.items;
-    c.lights = l.lights;
-    c.placed = l.statics;
-    c.floors = l.shadows;
-    c.faces = l.faces;
-    c.vertices = l.vertices;
-}
-
-static void run(DrawsContext &c, DrawList &l, int32_t fills)
-{
-    c.base = 2 * fills;
-    c.hinted = l.hinted;
-    drawsAsm(&c);
-    l.hintedCount = c.hintedCount;
-    l.drawCount = c.drawsEnd - c.draws;
-    l.itemCount = c.itemCount;
-    l.staticCount = c.staticCount;
-    l.shadowCount = c.shadowCount;
-    l.faceCount = c.faceCount;
-}
-
-void drawsInit()
-{
-    gCtx.calls = sceneArray<const CallRecord>("CALL", &gCtx.callCount);
-    gCtx.items = sceneArray<ItemRecord>("OITM");
-    gCtx.anims = sceneArray<const GameAnim>("ANIM");
-    gCtx.frames = sceneArray<const uint8_t>("AFRM") - 2 * AFRM_BASE;
-    gCtx.models = sceneArray<const GameModel>("MODL");
-    gCtx.meshIndex = sceneArray<const uint16_t>("MIDX");
-    gCtx.modelNodes = sceneArray<const uint32_t>("MNOD");
-    gCtx.nodes = sceneArray<const uint8_t>("PNOD");
-    gCtx.statics = sceneArray<const GameStaticMesh>("SMSH");
-    gCtx.roomLights = sceneArray<const RoomLights>("RLIT");
-    gCtx.level = sceneArray<const RoomLevel>("RLVL");
-    gCtx.meshes = sceneArray<const uint32_t>("MESH");
-    gCtx.meshGeometry = sceneArray<const uint8_t>("MGEO");
-    gCtx.sprites = sceneArray<const Sprite>("SPRS");
-    const PoseCamera* camera = sceneArray<const PoseCamera>("CAMR");
-    for (int32_t r = 0; r < 3; r++)
-    {
-        gCtx.camera[r] = camera->pos[r];
-        for (int32_t c = 0; c < 3; c++) {
-            gView[r * 4 + c] = camera->rotation[r * 3 + c];
-        }
-        gView[r * 4 + 3] = 0;
-    }
-    gCtx.view = gView;
-    gCtx.divTable = divTable;
-    gCtx.k20 = 1 << 20;
-    gCtx.k18 = 1 << 18;
-    gCtx.viewMin = 64 << 14;
-    gCtx.viewMax = (1024 * 20) << 14;
-    listArrays(gList, roomFor(gCtx.calls, gCtx.callCount, gCtx.items, gCtx.models), false);
-    contextList(gCtx, gList);
-}
-
-void drawsHints(const uint32_t masks[2])
-{
-    gCtx.hintItems = masks[0];
-    gCtx.hintStatics = masks[1];
-}
-
-void draws(int32_t fills)
-{
-    run(gCtx, gList, fills);
+    l.draws = lowArray<DrawScene>(draws);
+    l.hinted = lowArray<HintedCall>(models + statics);
+    l.items = lowArray<PoseItem>(models);
+    l.lights = lowArray<PoseLight>(models);
+    l.statics = lowArray<PoseStatic>(statics);
+    l.shadows = lowArray<PoseShadow>(shadows);
+    l.faces = lowArray<Face>(faces);
+    l.vertices = lowArray<Vertex>(2 * faces);
 }
 
 void drawsPoison()
@@ -159,11 +92,6 @@ void drawsPoison()
     memset(l.faces, 0xA5, l.faceCount * sizeof(Face));
     memset(l.vertices, 0xA5, 2 * l.faceCount * sizeof(Vertex));
     l.drawCount = l.itemCount = l.staticCount = l.shadowCount = l.faceCount = l.hintedCount = 0;
-}
-
-const DrawList& drawsList()
-{
-    return gList;
 }
 
 // Two lists: their draws, items, lights, statics, shadows and faces that
@@ -279,9 +207,8 @@ int32_t drawsSeldomCheck()
         made = lowArray<CallRecord>(SELDOM_CALLS);
         madeItems = lowArray<ItemRecord>(SELDOM_MODELS);
         madeAnims = lowArray<GameAnim>(anims + SELDOM_MODELS);
-        DrawsRoom r = { SELDOM_MODELS * 32 + SELDOM_CALLS, SELDOM_MODELS, SELDOM_CALLS, SELDOM_CALLS, SELDOM_CALLS };
-        listArrays(mine, r, true);
-        listArrays(game, r, true);
+        listArrays(mine, SELDOM_MODELS * 32 + SELDOM_CALLS, SELDOM_MODELS, SELDOM_CALLS, SELDOM_CALLS, SELDOM_CALLS);
+        listArrays(game, SELDOM_MODELS * 32 + SELDOM_CALLS, SELDOM_MODELS, SELDOM_CALLS, SELDOM_CALLS, SELDOM_CALLS);
         if (!made || !madeItems || !madeAnims || !mine.vertices || !game.vertices)
             return -1;
     }
@@ -291,7 +218,7 @@ int32_t drawsSeldomCheck()
     ctx.calls = made;
     ctx.items = madeItems;
     ctx.anims = madeAnims;
-    contextList(ctx, mine);
+    drawsOn(ctx, mine);
 
     // the hints' masks every other thing's, the others each pass: calls
     // hinted and not, closed with draws and without
@@ -456,7 +383,7 @@ int32_t drawsSeldomCheck()
         ctx.hintStatics = masks[1];
         gameDrawsHints(masks);
         ctx.callCount = n;
-        run(ctx, mine, 0);
+        drawsRun(ctx, mine, 0);
         gameDrawsRun(made, n, madeItems, madeAnims, 0, game);
         bad += listsOff(mine, game);
         for (uint32_t i = 0; i < game.hintedCount; i++)

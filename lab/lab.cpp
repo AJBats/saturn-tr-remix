@@ -380,13 +380,13 @@ static void stagePose()
     gLab.draws = measure([] {}, [fills] { gameDraws(fills); });
     gameDraws(fills);
     gLab.drawsBad = gameDrawsCheck(gameDrawList(), fills);
-    drawsInit();
+    drawsLabInit();
     uint32_t masks[2];
     hintsMasks(masks);
     drawsHints(masks);
-    gLab.drawsNew = measure([] {}, [fills] { draws(fills); });
-    draws(fills);
-    gLab.drawsNewBad = drawsCheck(gameDrawList());
+    gLab.drawsNew = measure([] {}, [fills] { drawsLab(fills); });
+    drawsLab(fills);
+    gLab.drawsNewBad = drawsCheck(gameDrawList()) + !drawsLabFits();
     gLab.drawsSeldom = drawsSeldomCheck();
 }
 
@@ -954,7 +954,7 @@ static Stages stagesTogether(bool posed, int32_t bias)
     if (posed)
     {
         slaveRun(slaveRooms, nullptr);
-        draws(gFills);
+        drawsLab(gFills);
         verticesDrawsSet(list.draws, list.drawCount, poseXforms());
         poseUse(&list, gFills);
         uint32_t w0 = ticks();
