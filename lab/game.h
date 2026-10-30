@@ -195,6 +195,12 @@ int32_t gameRoomsInit();
 void gameRooms();
 int32_t gameRoomsCheck(const RoomSeen* seen, int32_t count, int32_t &voids);
 
+// The game's walk from another camera, in another room, and view (12 int32,
+// no translation), the rooms queued to out; near: the portals cut by the
+// near plane it kept.
+void gameRoomsRun(uint32_t room, const int32_t* camera, const int32_t* view, RoomSeen* out, int32_t &count,
+                  int32_t &voids, int32_t &near);
+
 // The game's light on other items, rooms (PLIT's layout), lights (LGHT's)
 // and frames, by item to out.
 struct PoseItem;

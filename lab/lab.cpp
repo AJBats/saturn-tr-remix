@@ -34,6 +34,7 @@
 #include "faces.h"
 #include "game.h"
 #include "pose.h"
+#include "rooms.h"
 #include "vertices.h"
 #include "hw.h"
 
@@ -133,6 +134,9 @@ struct LabResults
     int32_t roomsBad;           // rooms not as the game's (or a list of another length)
     int32_t roomsSeen;          // the rooms the frame queued
     int32_t roomsVoids;         // the fills past the draw distance the walk made
+    uint32_t roomsNew;          // cycles: the new way's
+    int32_t roomsNewBad;
+    int32_t roomsSeldom;        // ... on made-up views, against the game's way on them (and paths not taken)
     uint32_t frame;             // cycles: stages 1, 2 and 3 the new way together (the frame so far), start to the
                                 // list joined: the items' light and pose on the master before its feed
     uint32_t frameMaster;       // ... the master at work
@@ -329,6 +333,11 @@ static void stagePose()
     poseShadows();
     gLab.staticsNewBad = poseStaticsCheck();
     gLab.staticsSeldom = poseStaticsSeldomCheck();
+    roomsInit();
+    gLab.roomsNew = measure([] {}, [] { roomsSeen(); });
+    roomsSeen();
+    gLab.roomsNewBad = roomsSeenCheck();
+    gLab.roomsSeldom = roomsSeldomCheck();
 }
 
 static void stageTwo()
@@ -1227,6 +1236,12 @@ static void posePage()
     timeRow(page, "items' nodes", gLab.poseNew, gLab.poseMatrices, "matrix");
     timeRow(page, "items' light", gLab.lightNew, gLab.poseItems, "item");
     timeRow(page, "statics, shadows", gLab.staticsNew, gLab.staticCount + gLab.shadowCount, "each");
+    timeRow(page, "rooms seen", gLab.roomsNew, gLab.roomsSeen, "room");
+    p = put(line, gLab.roomsNewBad ? "OFF: rooms seen" : "exact: rooms seen");
+    p = putNumber(p, gLab.roomsNewBad, 2);
+    p = put(p, " off, seldom");
+    putNumber(p, gLab.roomsSeldom, 2);
+    page.add(line);
     p = put(line, gLab.poseNewBad || gLab.lightNewBad ? "OFF: matrices" : "exact: matrices");
     p = putNumber(p, gLab.poseNewBad, 2);
     p = put(p, " off, light");

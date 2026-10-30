@@ -16,7 +16,7 @@
 #define PROJ_SHIFT      4
 #define DIV_TABLE_SIZE  1281
 #define VIEW_MAX_F      ((1024 * 20) << FIXED_SHIFT)
-#define MAX_ROOMS_SEEN  32      // MAX_ROOM_LIST
+#define MAX_ROOMS_SEEN  128     // the game's MAX_ROOM_LIST is 32: room for made-up views
 #define X_MAX(a, b)     ((a) > (b) ? (a) : (b))
 #define X_MIN(a, b)     ((a) < (b) ? (a) : (b))
 
@@ -50,6 +50,7 @@ static uint32_t gLevelCount;
 static const Portal* gPortals;
 static const RoomView* gView;
 static const int32_t* gCamera;
+static uint32_t gCameraRoom;
 
 // Room's state: its window and whether it is listed, reset after each frame
 static RectMinMax* gClip;
@@ -59,6 +60,7 @@ static int32_t gListCount;
 static RoomSeen* gSeen;         // the rooms queued, in order
 static int32_t gSeenCount;
 static int32_t gVoids;          // the fills past the draw distance
+static int32_t gNearEdges;      // portals cut by the near plane, kept
 static RectMinMax gViewport;
 
 static void renderVoid(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
@@ -149,6 +151,7 @@ bool checkPortal(uint32_t index, const Portal* portal)
 
     if (znear)
     {
+        gNearEdges++;
         vec3i* a = pv;
         vec3i* b = pv + 3;
         for (int32_t i = 0; i < 4; i++)
@@ -252,6 +255,7 @@ int32_t gameRoomsInit()
     gPortals = sceneArray<const Portal>("RPRT");
     gView = sceneArray<const RoomView>("RVIS");
     gCamera = sceneArray<const PoseCamera>("CAMR")->pos;
+    gCameraRoom = gView->camera;
     gClip = (RectMinMax*)sceneAlloc(gLevelCount * sizeof(RectMinMax));
     gVisible = (uint8_t*)sceneAlloc(gLevelCount);
     gSeen = (RoomSeen*)sceneAlloc(MAX_ROOMS_SEEN * sizeof(RoomSeen));
@@ -269,12 +273,36 @@ int32_t gameRoomsInit()
     return gView->count;
 }
 
+void gameRoomsRun(uint32_t room, const int32_t* camera, const int32_t* view, RoomSeen* out, int32_t &count,
+                  int32_t &voids, int32_t &near)
+{
+    const int32_t* sceneCamera = gCamera;
+    RoomSeen* sceneSeen = gSeen;
+    Matrix sceneView = gMatrixStack[0];
+    gCameraRoom = room;
+    gCamera = camera;
+    gCameraViewPos = camera;
+    memcpy(&gMatrixStack[0], view, sizeof(Matrix));
+    gSeen = out;
+    gNearEdges = 0;
+    gameRooms();
+    count = gSeenCount;
+    voids = gVoids;
+    near = gNearEdges;
+    gCameraRoom = gView->camera;
+    gCamera = sceneCamera;
+    gCameraViewPos = sceneCamera;
+    gSeen = sceneSeen;
+    gMatrixStack[0] = sceneView;
+    gameRooms();
+}
+
 void gameRooms()
 {
     gMatrixPtr = gMatrixStack;
     gVoids = 0;
     gSeenCount = 0;
-    uint32_t camera = gView->camera;
+    uint32_t camera = gCameraRoom;
     gClip[camera] = gViewport;
     uint16_t* list = addVisibleRoom(camera, gList);
     *list++ = camera;
