@@ -13,7 +13,7 @@
 // ORDR  the ordering tables flush was given: uint16 heads, as next, of the
 //       slave's OT_SIZE buckets then the master's; then each's faces by
 //       groups of buckets (OT_GROUPS uint16 each)
-// CMDS  the game's command list: the clear, a command a face, the end
+// CMDS  the game's command list: the clear, a command a face, the end (low work RAM)
 // GRDS  its gouraud tables, one a command
 // TEXS  the level's textures (Texture), PALT its palette (256 colours),
 //       SPRS its sprites (Sprite)

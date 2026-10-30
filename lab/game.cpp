@@ -166,8 +166,9 @@ static Face* gRefRoomOT[OT_SIZE];   // flush's tables, made from ORDR (or the fa
 static Face* gRefMeshOT[OT_SIZE];
 static const uint16_t* gFlushGroups[2];     // ... the rooms' faces and the master's by groups of buckets
 static int16_t gRefBucket[2][MAX_FACES];    // each face's bucket there: the master's, the slave's
-static const Command* gRefCmds;
+static const Command* gRefCmds;    // CMDS, GRDS (low work RAM: the checks')
 static const uint32_t (*gRefGrd)[2];
+static Command gClearCommand;       // the game's clear, its first command
 static const Texture* gTextures;
 static const uint16_t* gPalette;
 static const Sprite* gSprites;
@@ -1175,7 +1176,7 @@ int32_t gameFlush(bool split, uint32_t* slaveCycles)
             gCmds[farEnd].w[0] = pair(CMD_SKIP_JUMP, (VRAM_FRAME_CMDS + nearStart * sizeof(Command)) >> 3);
         }
     }
-    gCmds[0] = gRefCmds[0];     // the game's clear
+    gCmds[0] = gClearCommand;
     gCmds[end].w[0] = CMD_END << 16;
     return end;
 }
@@ -1337,6 +1338,7 @@ void gameInit()
     bucketsOf(gRefRoomOT, gRefSlaveFaces, gRefBucket[1]);
     gRefCmds = sceneArray<const Command>("CMDS");
     gRefGrd = (const uint32_t (*)[2])sceneChunk("GRDS");
+    gClearCommand = gRefCmds[0];
     gameListReference(nullptr);
 
     gTextures = sceneArray<const Texture>("TEXS");

@@ -451,12 +451,13 @@ def main():
                                sys.argv[1].upper().encode()[:15])
 
     # where each lives in the lab, as in the game: high work RAM, but for the
-    # level's palette and sprites in low; and VDP1 VRAM
+    # level's palette and sprites in low; and VDP1 VRAM. The game's list (the
+    # checks' reference alone) lies in low work RAM.
     order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
                  'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT',
                  'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PLIT', 'LGHT', 'STAT', 'SHDW', 'RLVL', 'RPRT',
                  'RVIS', 'RLGE', 'CAUW', 'PALT', 'SPRS', 'VRAM']
-    where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1}
+    where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1, 'CMDS': WHERE_LOW, 'GRDS': WHERE_LOW}
     table = 8 + 16 * len(order_ids)
     offset = (table + 15) & ~15
     body = bytearray()
