@@ -1,5 +1,6 @@
 // openlara/common.cpp's matrix stack and arithmetic as the Saturn builds it,
-// for stage 1 the game's way (gamepose.cpp): the C paths (USE_ASM is off),
+// for stage 1 the game's way (gamepose.cpp, gamelight.cpp), and its square
+// root: the C paths (USE_ASM is off),
 // int32 entries (MATRIX_FIXED_SHIFT 0), rotations by mul16. gamematrix.cpp
 // is compiled as common.cpp is (-O2), apart from its callers, as the game's
 // are (main.cpp, -Os).
@@ -36,6 +37,7 @@ extern const int32_t* gCameraViewPos;
 #define GET_FRAME_T(x,n) (divTable[n] * x)
 
 void matrixPush_c();
+void matrixSetIdentity_c();
 void matrixSetBasis_c(Matrix &dst, const Matrix &src);
 void matrixLerp_c(const Matrix &n, int32_t pmul, int32_t pdiv);
 void matrixTranslateRel_c(int32_t x, int32_t y, int32_t z);
@@ -48,6 +50,7 @@ void matrixFrame_c(const void* pos, const void* angles);
 void matrixFrameLerp(const void* pos, const void* anglesA, const void* anglesB, int32_t delta, int32_t rate);
 
 #define matrixPush          matrixPush_c
+#define matrixSetIdentity   matrixSetIdentity_c
 #define matrixPop()         gMatrixPtr--
 #define matrixSetBasis      matrixSetBasis_c
 #define matrixLerp          matrixLerp_c
@@ -58,5 +61,7 @@ void matrixFrameLerp(const void* pos, const void* anglesA, const void* anglesB, 
 #define matrixRotateZ       matrixRotateZ_c
 #define matrixRotateYXZ     matrixRotateYXZ_c
 #define matrixFrame         matrixFrame_c
+
+uint32_t phd_sqrt(uint32_t x);
 
 #endif

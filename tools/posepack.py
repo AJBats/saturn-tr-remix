@@ -3,9 +3,10 @@ capture's dumps: each item the frame drew with its model's nodes, as
 openlara/draw.h drawModel took it (its place and turn, its frames as
 ItemObj::getFrames picks them, its extra angles; Lara's torso, head and
 arms), and the level data its arithmetic reads (the nodes, the frames, the
-sine table).
+sine table); and what lights each item (PoseLight: its intensity, its room's
+place, ambient and lights).
 
-    pack(mem, sym, recs, first_draws) -> chunks POSE, PNOD, PFRM, SINC
+    pack(mem, sym, recs, first_draws) -> chunks POSE, PNOD, PFRM, SINC, PLIT, LGHT
 
 recs: the capture's records; first_draws: each drawn item's first mesh's
 draw (DRAW's index), by item index. The structures' layouts come from the
@@ -34,6 +35,10 @@ LAYOUT = {
     'arm.flash': 'offsetof(ExtraInfoLara::Arm, flash)', 'arm.basis': 'offsetof(ExtraInfoLara::Arm, useBasis)',
     'NODE_FLAG_ROTX': 'NODE_FLAG_ROTX', 'NODE_FLAG_ROTY': 'NODE_FLAG_ROTY', 'NODE_FLAG_ROTZ': 'NODE_FLAG_ROTZ',
     'ITEM_LARA': 'ITEM_LARA',
+    'i.room': 'offsetof(ItemObj, room)', 'i.intensity': 'offsetof(ItemObj, intensity)',
+    'room': 'sizeof(Room)', 'r.info': 'offsetof(Room, info)', 'r.lights': 'offsetof(Room, data.lights)',
+    'ri.x': 'offsetof(RoomInfo, x)', 'ri.z': 'offsetof(RoomInfo, z)', 'ri.lights': 'offsetof(RoomInfo, lightsCount)',
+    'ri.ambient': 'offsetof(RoomInfo, ambient)', 'light': 'sizeof(Light)',
 }
 
 # PoseItem (lab/scene.h): lara, count, firstDraw, nodes, frameA, frameB, frameDelta, frameRate,
@@ -41,6 +46,9 @@ LAYOUT = {
 # then two PoseArm (frame, frameRate, angle[3], useBasis, pad)
 POSE_ITEM = struct.Struct('>BBHIIIiiI3i3hh4h3h3hB3x')
 POSE_ARM = struct.Struct('>Ii3hBx')
+# PoseLight (lab/scene.h): the room's x and z, the item's intensity, the room's ambient and lights
+# (count, first in LGHT); LGHT: Light (int16 x y z, radius, intensity)
+POSE_LIGHT = struct.Struct('>2h3BxI')
 NONE = 0xFFFFFFFF
 
 
@@ -93,7 +101,8 @@ def pack(mem, sym, recs, first_draws):
             rate -= index_b * rate - end
         return fa, fb, delta, rate
 
-    poses = bytearray()
+    poses, pose_lights, lights = bytearray(), bytearray(), bytearray()
+    light_at = {}
     for r in recs:
         if r['type'] != 'object' or r['kind'] != 0 or r['index'] not in first_draws:
             continue
@@ -141,5 +150,14 @@ def pack(mem, sym, recs, first_draws):
                                 *mem.unpack('>3i', it + L['i.pos']), *mem.unpack('>3h', it + L['i.angle']),
                                 len(extras), *(extras + [0] * (4 - len(extras))), *torso, *head, weapon)
         poses += b''.join(arms)
+        room = u32(it + L['i.room'])
+        info = u32(room + L['r.info'])
+        count_lights = mem.unpack('>B', info + L['ri.lights'])[0]
+        if room not in light_at:
+            light_at[room] = len(lights) // L['light']
+            lights += mem.bytes(u32(room + L['r.lights']), count_lights * L['light'])
+        pose_lights += POSE_LIGHT.pack(*mem.unpack('>h', info + L['ri.x']), *mem.unpack('>h', info + L['ri.z']),
+                                       mem.unpack('>B', it + L['i.intensity'])[0],
+                                       mem.unpack('>B', info + L['ri.ambient'])[0], count_lights, light_at[room])
     return {'POSE': bytes(poses), 'PNOD': bytes(node_data), 'PFRM': bytes(frame_data),
-            'SINC': mem.bytes(sym('_gSinCosTable'), 4096 * 4)}
+            'SINC': mem.bytes(sym('_gSinCosTable'), 4096 * 4), 'PLIT': bytes(pose_lights), 'LGHT': bytes(lights)}

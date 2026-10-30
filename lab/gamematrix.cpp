@@ -29,6 +29,26 @@ void matrixPush_c()
     gMatrixPtr++;
 }
 
+void matrixSetIdentity_c()
+{
+    Matrix &m = matrixGet();
+
+    m.e00 = 0x4000;
+    m.e01 = 0;
+    m.e02 = 0;
+    m.e03 = 0;
+
+    m.e10 = 0;
+    m.e11 = 0x4000;
+    m.e12 = 0;
+    m.e13 = 0;
+
+    m.e20 = 0;
+    m.e21 = 0;
+    m.e22 = 0x4000;
+    m.e23 = 0;
+}
+
 void matrixSetBasis_c(Matrix &dst, const Matrix &src)
 {
     dst.e00 = src.e00;
@@ -197,4 +217,27 @@ void matrixFrameLerp(const void* pos, const void* anglesA, const void* anglesB, 
     matrixRotateYXZ(aX, aY, aZ);
 
     matrixLerp(*(gMatrixPtr + 1), delta, rate);
+}
+
+// common.cpp's square root, floor(sqrt(x)) a bit pair at a time.
+uint32_t phd_sqrt(uint32_t x)
+{
+    uint32_t m = 0x40000000;
+    uint32_t y = 0;
+    uint32_t z = 0;
+
+    do {
+        y += m;
+
+        if (y > x) {
+            y = z;
+        } else {
+            x -= y;
+            y = z + m;
+        }
+
+        z = y >> 1;
+    } while (m >>= 2);
+
+    return y;
 }

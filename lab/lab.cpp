@@ -118,6 +118,8 @@ struct LabResults
     uint32_t poseNew;           // cycles: stage 1 the new way
     int32_t poseNewBad;         // its matrices not the game's
     int32_t poseSeldom;         // ... on made-up inputs, against the game's way on them (and paths not taken)
+    uint32_t light;             // cycles: stage 1 the game's way, the items' light
+    int32_t lightBad;           // draws lit not as the game's
     uint32_t arenaUsed;         // bytes of high work RAM the scene and the stages took (sceneUsed)
     uint32_t arenaSize;
 };
@@ -276,6 +278,10 @@ static void stagePose()
     gLab.pose = measure([] {}, [] { gamePose(); });
     gamePose();
     gLab.poseBad = gamePoseCheck(gLab.poseMatrices);
+    gameLightInit();
+    gLab.light = measure([] {}, [] { gameLight(); });
+    gameLight();
+    gLab.lightBad = gameLightCheck();
 
     poseInit();
     gLab.poseNew = measure([] {}, [] { pose(); });
@@ -998,10 +1004,12 @@ static void posePage()
     page.add("STAGE 1, POSE: THE GAME'S");
     page.add("master, run alone     ms  cycles a");
     timeRow(page, "items' nodes", gLab.pose, gLab.poseMatrices, "matrix");
-    p = put(line, "matrices ");
-    p = put(p, gLab.poseBad ? "OFF (" : "exact (");
-    p = putNumber(p, gLab.poseBad, 0);
-    put(p, " off)");
+    timeRow(page, "items' light", gLab.light, gLab.poseItems, "item");
+    p = put(line, gLab.poseBad || gLab.lightBad ? "OFF: matrices" : "exact: matrices");
+    p = putNumber(p, gLab.poseBad, 2);
+    p = put(p, " off, light");
+    p = putNumber(p, gLab.lightBad, 2);
+    put(p, " off");
     page.add(line);
     page.add("");
     page.add("STAGE 1, POSE: THE NEW WAY");

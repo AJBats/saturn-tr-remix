@@ -209,8 +209,8 @@ $(LAB)/obj/%.cpp.o: %.cpp $(wildcard lab/*.h) saturn/hw.h saturn/font.h saturn/c
 	@mkdir -p $(@D)
 	$(CXX) $(LAB_CXXFLAGS) -c $< -o $@
 
-# the game's pose, compiled as the game compiles draw.h (main.cpp, $(OPT))
-$(LAB)/obj/lab/gamepose.cpp.o: LAB_CXXFLAGS := $(subst -O2,$(OPT),$(LAB_CXXFLAGS))
+# the game's pose and light, compiled as the game compiles draw.h (main.cpp, $(OPT))
+$(LAB)/obj/lab/gamepose.cpp.o $(LAB)/obj/lab/gamelight.cpp.o: LAB_CXXFLAGS := $(subst -O2,$(OPT),$(LAB_CXXFLAGS))
 
 $(LAB)/gen/%.dsp: lab/gen_%.py
 	@mkdir -p $(@D)

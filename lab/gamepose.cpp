@@ -46,6 +46,7 @@ struct AnimFrame
 
 static const PoseItem* gPoses;
 static uint32_t gPoseCount;
+static const ModelNode* gSceneNodes;
 static const ModelNode* gNodes;
 static const uint8_t* gSceneFrames;
 static const uint8_t* gFrames;
@@ -425,7 +426,7 @@ int32_t gamePoseInit()
     uint32_t bytes;
     gPoses = (const PoseItem*)sceneChunk("POSE", &bytes);
     gPoseCount = bytes / sizeof(PoseItem);
-    gNodes = sceneArray<const ModelNode>("PNOD");
+    gSceneNodes = sceneArray<const ModelNode>("PNOD");
     gSceneFrames = sceneArray<const uint8_t>("PFRM");
     gSinCosTable = sceneArray<const uint32_t>("SINC");
     const PoseCamera* camera = sceneArray<const PoseCamera>("CAMR");
@@ -441,8 +442,9 @@ int32_t gamePoseInit()
     return gPoseCount;
 }
 
-void gamePoseRun(const PoseItem* items, uint32_t count, const uint8_t* frames, void* out)
+void gamePoseRun(const PoseItem* items, uint32_t count, const uint8_t* nodes, const uint8_t* frames, void* out)
 {
+    gNodes = (const ModelNode*)nodes;
     gFrames = frames;
     gMatrixPtr = gMatrixStack;
     for (uint32_t i = 0; i < count; i++)
@@ -455,7 +457,7 @@ void gamePoseRun(const PoseItem* items, uint32_t count, const uint8_t* frames, v
 
 void gamePose()
 {
-    gamePoseRun(gPoses, gPoseCount, gSceneFrames, gOut);
+    gamePoseRun(gPoses, gPoseCount, (const uint8_t*)gSceneNodes, gSceneFrames, gOut);
 }
 
 int32_t gamePoseCheck(int32_t &matrices)

@@ -426,7 +426,7 @@ def main():
     # level's palette and sprites in low; and VDP1 VRAM
     order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
                  'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT',
-                 'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PALT', 'SPRS', 'VRAM']
+                 'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PLIT', 'LGHT', 'PALT', 'SPRS', 'VRAM']
     where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1}
     table = 8 + 16 * len(order_ids)
     offset = (table + 15) & ~15

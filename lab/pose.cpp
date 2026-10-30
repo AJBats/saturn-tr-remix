@@ -23,6 +23,7 @@ static PoseMatrix gStack[POSE_STACK] __attribute__((aligned(16)));
 static const PoseItem* gItems;
 static uint32_t gCount;
 static const uint8_t* gNodes;
+static uint32_t gNodesBytes;
 static const uint8_t* gFrames;
 static uint32_t gFramesBytes;
 static const DrawXform* gXforms;
@@ -32,7 +33,7 @@ void poseInit()
     uint32_t bytes;
     gItems = (const PoseItem*)sceneChunk("POSE", &bytes);
     gCount = bytes / sizeof(PoseItem);
-    gNodes = sceneArray<const uint8_t>("PNOD");
+    gNodes = (const uint8_t*)sceneChunk("PNOD", &gNodesBytes);
     gFrames = (const uint8_t*)sceneChunk("PFRM", &gFramesBytes);
     gXforms = sceneArray<const DrawXform>("XFRM");
     const PoseCamera* camera = sceneArray<const PoseCamera>("CAMR");
@@ -140,43 +141,82 @@ static const int16_t LERPS[][2] = {
 enum { COVER_STILL, COVER_HALF, COVER_QUARTER, COVER_THREE, COVER_SLOW, COVER_EXTRA, COVER_ARM_FRAME,
        COVER_ARM_LERP, COVER_BASIS, COVER_SHOTGUN, COVER_PUSH, COVER_MAX };
 
+// The scene's items again, and Lara's as another's: her nodes through the
+// walk their flags push and pop, with made-up flags for extra angles.
+static uint32_t madeUpOf(uint32_t* of)
+{
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < gCount; i++) {
+        of[n++] = i;
+    }
+    for (uint32_t i = 0; i < gCount; i++) {
+        if (gItems[i].lara) of[n++] = i | 0x80000000;
+    }
+    return n;
+}
+
 int32_t poseSeldomCheck()
 {
     // per item: its frames A and B, an arm's frame for each arm
-    uint32_t frameBytes = 0, draws = 0;
-    for (uint32_t i = 0; i < gCount; i++)
+    static uint32_t of[2 * 256];
+    if (2 * gCount > sizeof(of) / sizeof(of[0]))
+        return -1;
+    uint32_t n = madeUpOf(of);
+    uint32_t frameBytes = 0, nodeBytes = 0, draws = 0;
+    for (uint32_t m = 0; m < n; m++)
     {
-        frameBytes += 4 * (20 + 4 * gItems[i].count);
-        draws += gItems[i].count;
+        const PoseItem &from = gItems[of[m] & 0xFFFF];
+        frameBytes += 4 * (20 + 4 * from.count);
+        nodeBytes += 8 * from.count;
+        draws += from.count;
     }
+    static uint8_t* nodes;
     static uint8_t* frames;
     static PoseItem* items;
     static PoseMatrix* outGame;
     static PoseMatrix* outNew;
     if (!frames)
     {
+        nodes = (uint8_t*)sceneAllocLow(gNodesBytes + nodeBytes);
         frames = (uint8_t*)sceneAllocLow(gFramesBytes + frameBytes);
-        items = (PoseItem*)sceneAllocLow(gCount * sizeof(PoseItem));
+        items = (PoseItem*)sceneAllocLow(n * sizeof(PoseItem));
         outGame = (PoseMatrix*)sceneAllocLow(draws * sizeof(PoseMatrix));
         outNew = (PoseMatrix*)sceneAllocLow(draws * sizeof(PoseMatrix));
-        if (!frames || !items || !outGame || !outNew)
+        if (!nodes || !frames || !items || !outGame || !outNew)
             return -1;
+        memcpy(nodes, gNodes, gNodesBytes);
         memcpy(frames, gFrames, gFramesBytes);
     }
 
     int32_t bad = 0, cover[COVER_MAX] = {};
     PoseContext ctx = gCtx;
+    ctx.nodes = nodes;
     ctx.frames = frames;
     ctx.out = outNew;
     for (int32_t pass = 0; pass < SELDOM_PASSES; pass++)
     {
         const int16_t* lerp = LERPS[pass % LERPS_COUNT];
         int32_t variant = pass / LERPS_COUNT;
-        uint32_t at = gFramesBytes, first = 0;
-        for (uint32_t i = 0; i < gCount; i++)
+        uint32_t at = gFramesBytes, nodesAt = gNodesBytes, first = 0;
+        for (uint32_t m = 0; m < n; m++)
         {
-            PoseItem &item = items[i];
-            item = gItems[i];
+            PoseItem &item = items[m];
+            item = gItems[of[m] & 0xFFFF];
+            if (of[m] & 0x80000000)
+            {
+                // her nodes, up to 4 of them taking an extra angle about an axis
+                item.lara = 0;
+                uint16_t* made = (uint16_t*)(nodes + nodesAt);
+                memcpy(made, gNodes + item.nodes, 8 * (item.count - 1));
+                for (int32_t k = 0; k + 1 < item.count; k++) {
+                    made[k * 4 + 3] &= ~NODE_FLAG_ROTS;
+                }
+                for (int32_t e = rnd() >> 30; e >= 0; e--) {
+                    made[(rnd() >> 16) % (item.count - 1) * 4 + 3] |= 4 << (rnd() >> 16) % 3;
+                }
+                item.nodes = nodesAt;
+                nodesAt += 8 * item.count;
+            }
             int32_t size = 20 + 4 * item.count;
             const uint8_t* from = gFrames + item.frameA;
             uint32_t frame[4];
@@ -202,7 +242,7 @@ int32_t poseSeldomCheck()
             // an enemy's extra angles, as many as its nodes' flags take
             int32_t takes = 0;
             for (int32_t k = 0; k + 1 < item.count; k++) {
-                takes += __builtin_popcount(((const uint16_t*)(gNodes + item.nodes))[k * 4 + 3] & NODE_FLAG_ROTS);
+                takes += __builtin_popcount(((const uint16_t*)(nodes + item.nodes))[k * 4 + 3] & NODE_FLAG_ROTS);
             }
             item.extraCount = !item.lara && takes <= 4 && (variant & 2) ? takes : 0;
             for (int32_t k = 0; k < 4; k++) {
@@ -234,8 +274,8 @@ int32_t poseSeldomCheck()
             item.firstDraw = first;
             first += drawnOf(item);
             cover[COVER_EXTRA] += item.extraCount;
-            for (int32_t k = 0; k + 1 < item.count; k++) {
-                cover[COVER_PUSH] += ((const uint16_t*)(gNodes + item.nodes))[k * 4 + 3] & 2 ? 1 : 0;
+            for (int32_t k = 0; k + 1 < item.count && !item.lara; k++) {
+                cover[COVER_PUSH] += ((const uint16_t*)(nodes + item.nodes))[k * 4 + 3] & 2 ? 1 : 0;
             }
         }
         int32_t kind = !lerp[0] ? COVER_STILL
@@ -245,8 +285,8 @@ int32_t poseSeldomCheck()
 
         memset(outGame, 0x55, first * sizeof(PoseMatrix));
         memset(outNew, 0xAA, first * sizeof(PoseMatrix));
-        gamePoseRun(items, gCount, frames, outGame);
-        poseAsm(items, gCount, &ctx);
+        gamePoseRun(items, n, nodes, frames, outGame);
+        poseAsm(items, n, &ctx);
         for (uint32_t k = 0; k < first; k++) {
             bad += memcmp(outGame + k, outNew + k, sizeof(PoseMatrix)) != 0;
         }

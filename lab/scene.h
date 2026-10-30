@@ -116,7 +116,9 @@ struct DrawXform
 //       the first each); PFRM the animation frames they take (AnimFrame:
 //       int16 box[6], pos[3], a spare, then a packed angle a node); SINC the
 //       game's sines and cosines (gSinCosTable, 4096 longwords); CAMR the
-//       camera (PoseCamera).
+//       camera (PoseCamera); PLIT what lights each item (PoseLight, POSE's
+//       order), LGHT its room's lights (Light: int16 x y z from the room,
+//       radius, intensity).
 struct PoseArm
 {
     uint32_t frame;         // in PFRM, or ~0: the arm moves with the body
@@ -141,6 +143,15 @@ struct PoseItem
     int16_t torso[3], head[3];  // Lara's
     uint8_t weapon, pad[3];
     PoseArm arms[2];        // Lara's right and left
+};
+
+struct PoseLight
+{
+    int16_t roomX, roomZ;   // its room's place, in sectors
+    uint8_t intensity;      // the item's own (0: lit by its room)
+    uint8_t ambient;        // its room's
+    uint8_t lights, pad;    // its room's lights, from first in LGHT
+    uint32_t first;
 };
 
 struct PoseCamera

@@ -152,10 +152,27 @@ int32_t gamePoseInit();
 void gamePose();
 int32_t gamePoseCheck(int32_t &matrices);
 
-// The game's way on other items and frames (PFRM's layout), the matrices
-// (12 int32 each) to out by draw.
+// Stage 1 the game's way, the light (gamelight.cpp): each item's as drawModel
+// sets it (calcLightingDynamic at getRelative, or calcLightingStatic; the
+// fog), against the capture's (XFRM: ambient, range, and the light's
+// direction where the range is above 0): the draws that differ. Init
+// returns the items.
+struct GameLight
+{
+    int32_t ambient, range;
+    int16_t view[3];
+    int16_t pad;
+};
+
+int32_t gameLightInit();
+void gameLight();
+const GameLight* gameLights();
+int32_t gameLightCheck();
+
+// The game's way on other items, nodes and frames (PNOD's and PFRM's
+// layouts), the matrices (12 int32 each) to out by draw.
 struct PoseItem;
-void gamePoseRun(const PoseItem* items, uint32_t count, const uint8_t* frames, void* out);
+void gamePoseRun(const PoseItem* items, uint32_t count, const uint8_t* nodes, const uint8_t* frames, void* out);
 
 // Stage 2 the game's way (gamevertices.cpp): the rooms' vertices (xform.s)
 // and the master's draws' (meshxform.s), each set up as the game sets it up,
