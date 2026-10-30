@@ -428,6 +428,16 @@ static void stageThree()
     gLab.flush = measure([] { gameFlushPrepare(); }, [&end] { end = gameFlush(false); });
     gLab.flushBad = gameCommandsCheck(gCmds, gGouraud, end);
 
+    // flush on the faces the game's way made, in their own tables: the game's
+    // list again (the way the lab makes the game's list for other room orders)
+    gameFacesPrepare();
+    gameFacesMaster();
+    gameFacesRooms();
+    gameFlushPrepare(FLUSH_MADE);
+    end = gameFlush(false);
+    gLab.flushBad += gameCommandsCheck(gCmds, gGouraud, end);
+    gameFlushPrepare();
+
     // the faces given: the meshes' quads and triangles, the shadows' quads,
     // the rooms'
     const DrawScene* draws = sceneArray<const DrawScene>("DRAW");

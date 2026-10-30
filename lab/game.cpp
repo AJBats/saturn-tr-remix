@@ -162,8 +162,9 @@ static const Vertex* gSceneVertices;
 static Face* gRefFaces;         // MPOL, SPOL: their next made pointers
 static Face* gRefSlaveFaces;
 static const uint16_t* gOrder;  // ORDR
-static Face* gRefRoomOT[OT_SIZE];   // flush's tables, made from ORDR
+static Face* gRefRoomOT[OT_SIZE];   // flush's tables, made from ORDR (or the faces made)
 static Face* gRefMeshOT[OT_SIZE];
+static const uint16_t* gFlushGroups[2];     // ... the rooms' faces and the master's by groups of buckets
 static int16_t gRefBucket[2][MAX_FACES];    // each face's bucket there: the master's, the slave's
 static const Command* gRefCmds;
 static const uint32_t (*gRefGrd)[2];
@@ -175,6 +176,10 @@ static const uint8_t* gHalfLevel;
 static const uint16_t* gShadeGouraud;
 static ShadeCache* gShadeCaches;
 static ShadeCache gRefShadeCaches[2];   // as the game left them: its list's copies
+static const Command* gCheckCmds;       // the list gameListCheck checks against
+static const uint32_t (*gCheckGrd)[2];
+static int32_t gCheckEnd;
+static const ShadeCache* gCheckCaches;
 static uint8_t (*gDetailKeys)[DETAIL_MAX_KEYS];
 static DetailSlot* gDetailSlots;
 static uint32_t gDetailFrame;
@@ -614,14 +619,19 @@ static void roomFaces(const RoomScene &room)
     }
 }
 
-void gameFacesRooms()
+void gameFacesRooms(const RoomScene* rooms, uint32_t count)
 {
     gSlaveList.next = gSlaveFaces;
     gTop = MAX_VERTICES;
     gBottom = gInfo->bottom;
-    for (uint32_t i = 0; i < gInfo->rooms; i++) {
-        roomFaces(gRooms[i]);
+    for (uint32_t i = 0; i < count; i++) {
+        roomFaces(rooms[i]);
     }
+}
+
+void gameFacesRooms()
+{
+    gameFacesRooms(gRooms, gInfo->rooms);
 }
 
 // --- the master's draws (saturn/render.cpp) -------------------------------
@@ -1080,6 +1090,16 @@ const uint16_t* gameShadeGouraud()
 
 void gameFlushPrepare(FlushFaces faces)
 {
+    if (faces == FLUSH_MADE)
+    {
+        memcpy(gRefRoomOT, gSlaveOT, sizeof(gRefRoomOT));
+        memcpy(gRefMeshOT, gOT, sizeof(gRefMeshOT));
+        gFlushGroups[0] = gSlaveList.groups;
+        gFlushGroups[1] = gFaceList.groups;
+        return;
+    }
+    gFlushGroups[0] = gOrder + 2 * OT_SIZE;
+    gFlushGroups[1] = gFlushGroups[0] + OT_GROUPS;
     memcpy(gVertices, gSceneVertices, sizeof(gVertices));
     for (int32_t b = 0; b < OT_SIZE; b++)
     {
@@ -1104,8 +1124,8 @@ int32_t gameFlush(bool split, uint32_t* slaveCycles)
     // the far buckets holding up to the game's share of the faces (counted by
     // groups of buckets) are the slave's, with its cache of shaded tables;
     // the rest this CPU's, in the commands after them
-    const uint16_t* roomGroups = gOrder + 2 * OT_SIZE;
-    const uint16_t* meshGroups = roomGroups + OT_GROUPS;
+    const uint16_t* roomGroups = gFlushGroups[0];
+    const uint16_t* meshGroups = gFlushGroups[1];
     int32_t total = 0;
     for (int32_t i = 0; i < OT_GROUPS; i++) {
         total += roomGroups[i] + meshGroups[i];
@@ -1206,9 +1226,9 @@ static int32_t sameCommand(const uint32_t* a, const uint32_t* ga, const uint32_t
         // gouraud of the copy's value at every corner (each list's copies in
         // the caches as it left them)
         uint32_t key = copyKey(a[1] & 0xFFFF, gShadeCaches);
-        if ((a[1] >> 16) == (b[1] >> 16) && key && key == copyKey(b[1] & 0xFFFF, gRefShadeCaches))
+        if ((a[1] >> 16) == (b[1] >> 16) && key && key == copyKey(b[1] & 0xFFFF, gCheckCaches))
             return SAME;
-        if (shadedAlike(a[1], gShadeCaches, b + 1, gb) || shadedAlike(b[1], gRefShadeCaches, a + 1, ga))
+        if (shadedAlike(a[1], gShadeCaches, b + 1, gb) || shadedAlike(b[1], gCheckCaches, a + 1, ga))
             return SAME_PICTURE;
         return SAME_NOT;
     }
@@ -1219,7 +1239,7 @@ int32_t gameListCheck(const Command* cmds, const uint32_t (*grd)[2], int32_t &vi
 {
     int32_t bad = 0;
     int32_t slot = 0;
-    int32_t count = gInfo->commands;
+    int32_t count = gCheckEnd;
     visited = 0;
     shadedOther = 0;
     for (int32_t k = 0; k <= count; k++)
@@ -1234,13 +1254,34 @@ int32_t gameListCheck(const Command* cmds, const uint32_t (*grd)[2], int32_t &vi
         }
         if (ctrl & CMD_END)
             return bad + count + 1 - k;
-        int32_t same = sameCommand(a, grd[slot], gRefCmds[k].w, gRefGrd[k]);
+        int32_t same = sameCommand(a, grd[slot], gCheckCmds[k].w, gCheckGrd[k]);
         bad += same == SAME_NOT;
         shadedOther += same == SAME_PICTURE;
         uint32_t jump = (ctrl >> 12) & 7;
         slot = jump == 1 || jump == 5 ? facesSlot(a[0] & 0xFFFF) : slot + 1;
     }
     return bad;
+}
+
+void gameListMake(const RoomScene* rooms, uint32_t count, GameList &list)
+{
+    gameFacesPrepare();
+    gameFacesMaster();
+    gameFacesRooms(rooms, count);
+    gameFlushPrepare(FLUSH_MADE);
+    list.end = gameFlush(false);
+    memcpy(list.cmds, gCmds, (list.end + 1) * sizeof(Command));
+    memcpy(list.grd, gGouraud, (list.end + 1) * sizeof(gGouraud[0]));
+    list.caches[0] = gShadeCaches[0];
+    list.caches[1] = gShadeCaches[1];
+}
+
+void gameListReference(const GameList* list)
+{
+    gCheckCmds = list ? list->cmds : gRefCmds;
+    gCheckGrd = list ? list->grd : gRefGrd;
+    gCheckEnd = list ? list->end : int32_t(gInfo->commands);
+    gCheckCaches = list ? list->caches : gRefShadeCaches;
 }
 
 bool gameCommandMatches(const Command &cmd, const uint32_t* grd, int32_t slot)
@@ -1296,6 +1337,7 @@ void gameInit()
     bucketsOf(gRefRoomOT, gRefSlaveFaces, gRefBucket[1]);
     gRefCmds = sceneArray<const Command>("CMDS");
     gRefGrd = (const uint32_t (*)[2])sceneChunk("GRDS");
+    gameListReference(nullptr);
 
     gTextures = sceneArray<const Texture>("TEXS");
     gPalette = sceneArray<const uint16_t>("PALT");

@@ -232,6 +232,10 @@ void gameFacesMaster();
 void gameFacesRooms();
 int32_t gameFacesCheck();
 
+// The rooms' faces as the game adds them, the rooms given in another order.
+struct RoomScene;
+void gameFacesRooms(const RoomScene* rooms, uint32_t count);
+
 // The faces each list holds after gameFaces*.
 int32_t gameMasterFaces();
 int32_t gameSlaveFaces();
@@ -242,8 +246,9 @@ ShadeCache* gameShadeCache(int32_t cpu);
 const uint16_t* gameShadeGouraud();
 
 // The vertices and the ordering tables as flush was given them: both CPUs'
-// faces, the master's alone, or the slave's (the rooms').
-enum FlushFaces { FLUSH_ALL, FLUSH_MESHES, FLUSH_ROOMS };
+// faces, the master's alone, or the slave's (the rooms'); or (made) the
+// faces gameFaces* made, in their own tables, at the vertices they made.
+enum FlushFaces { FLUSH_ALL, FLUSH_MESHES, FLUSH_ROOMS, FLUSH_MADE };
 void gameFlushPrepare(FlushFaces faces = FLUSH_ALL);
 
 // flush: their commands into gCmds from gCmds[1], with the game's clear first
@@ -260,6 +265,24 @@ int32_t gameFlush(bool split, uint32_t* slaveCycles = nullptr);
 // gouraud of that one value at every corner (each CPU's cache of copies had
 // room for different ones).
 int32_t gameListCheck(const Command* cmds, const uint32_t (*grd)[2], int32_t &visited, int32_t &shadedOther);
+
+// A list of the game's made in the lab: its commands and gouraud tables (room
+// for MAX_CMDS), its end's slot, and the caches of shaded copies its flush
+// left.
+struct GameList
+{
+    Command* cmds;
+    uint32_t (*grd)[2];
+    int32_t end;
+    ShadeCache caches[2];
+};
+
+// The game's list for this frame with its rooms in another order: the faces
+// as the game adds them, flush on them, into list.
+void gameListMake(const RoomScene* rooms, uint32_t count, GameList &list);
+
+// The list gameListCheck checks against: list, or (nullptr) the game's own.
+void gameListReference(const GameList* list);
 
 // A command and its gouraud table as VDP1 reads them against the game's in
 // that slot; and the commands from 1 up to count: those that differ.
