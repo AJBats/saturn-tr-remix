@@ -62,14 +62,12 @@ struct MeshProject
 extern "C" void meshProjectAsm(Vertex* v, int32_t count, MeshProject* mp);
 extern "C" void meshShadesAsm(Vertex* v, int32_t count, const uint8_t* shades, int32_t ambient);
 
-// The level's meshes (in the game's layout, at their offsets in geometry)
-// packed for meshrot.dsp, their parts, and slots for a frame's shadows, in
-// memory alloc gives (16-byte aligned, or none). NULL, or what went wrong.
+// The level's meshes (its mesh store): their parts, and slots for a frame's
+// shadows, in memory alloc gives (16-byte aligned, or none). NULL, or what
+// went wrong.
 struct VerticesLevel
 {
-    const uint32_t* meshes;
-    uint32_t meshCount;
-    const uint8_t* geometry;
+    const MeshStore* store;
     void* (*alloc)(uint32_t bytes);
 };
 const char* verticesInit(const VerticesLevel &level);

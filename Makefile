@@ -134,7 +134,7 @@ $(BUILD)/0MAIN.elf: $(patsubst %,$(BUILD)/obj/%.o,$(GAME_SRC)) saturn/saturn.ld
 PSXDATA := $(ER)/ps1/files/files/PSXDATA
 LEVELS  := TITLE GYM LEVEL1 LEVEL2 LEVEL3A LEVEL3B LEVEL4 LEVEL5 LEVEL6 LEVEL7A LEVEL7B \
            LEVEL8A LEVEL8B LEVEL8C LEVEL10A LEVEL10B LEVEL10C CUT1 CUT2 CUT3 CUT4
-GAME_DISC := $(foreach l,$(LEVELS),$(foreach e,PKD TEX SUB SFX ITX PAL,DATA/$(l).$(e)=build/data/$(l).$(e)))
+GAME_DISC := $(foreach l,$(LEVELS),$(foreach e,PKD TEX SUB SFX ITX PAL MSH,DATA/$(l).$(e)=build/data/$(l).$(e)))
 # the title and loading pictures (saturn/screen.h)
 PICTURES := USATIT USAOPT GYM224 AZTEC224 GREEK224 EGYPT224 ATLAN224 EIDOS224 CRED224 ENDPG224
 GAME_DISC += $(foreach p,$(PICTURES),BINDATA/$(p).BIN=$(DISC)/files/BINDATA/$(p).BIN)
@@ -142,7 +142,8 @@ GAME_DISC += $(foreach p,$(PICTURES),BINDATA/$(p).BIN=$(DISC)/files/BINDATA/$(p)
 VIDEOS := CORELOGO CAFE MANSION SNOW LIFT VISION CANYON PYRAMID PRISON END
 GAME_DISC += $(foreach v,$(VIDEOS),FMV/$(v).CPK=$(DISC)/files/FMV/$(v).CPK)
 
-build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%.ITX build/data/%.PAL &: tools/pack_level.py tools/trsat.py tools/trpsx.py tools/sfx.py \
+build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%.ITX build/data/%.PAL build/data/%.MSH &: \
+		tools/pack_level.py tools/trsat.py tools/trpsx.py tools/sfx.py tools/meshstore.py tools/facepack.py \
 		openlara/common.h saturn/vram.h saturn/sound.h $(DISC)/filelist.txt $(wildcard $(PSXDATA)/*.PSX)
 	$(PY) tools/pack_level.py $(DISC)/files/DATA $* build/data/$*.PKD $(PSXDATA)
 
@@ -232,7 +233,7 @@ $(LAB)/obj/%.s.o: %.s | check-toolchain
 $(LAB)/0MAIN.elf: $(patsubst %,$(LAB)/obj/%.o,$(LAB_SRC)) saturn/saturn.ld
 	$(CXX) $(LAB_CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
 
-$(LAB_SCENE_FILE): tools/labscene.py tools/capture.py tools/facepack.py tools/posepack.py tools/roompack.py 		tools/drawpack.py \
+$(LAB_SCENE_FILE): tools/labscene.py tools/capture.py tools/facepack.py tools/meshstore.py tools/posepack.py tools/roompack.py 		tools/drawpack.py \
 		tools/gamelayout.py \
 		openlara/common.h $(wildcard build/captures/$(LAB_SCENE)/*)
 	@mkdir -p $(@D)

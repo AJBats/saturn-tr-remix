@@ -34,8 +34,9 @@ the original ones in VRAM to compare them (saturn/palettes.h).
 usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD> [<PSXDATA dir>]
        (also writes <out>.TEX, the texture blob loaded at VRAM_TEX_BASE,
        <out>.SUB, the full-resolution room textures and their mip levels, <out>.SFX, the sound
-       samples, <out>.ITX, the inventory item textures, and <out>.PAL, the
-       remastered colour tables)
+       samples, <out>.ITX, the inventory item textures, <out>.PAL, the
+       remastered colour tables, and <out>.MSH, the meshes as the renderer
+       reads them: tools/meshstore.py)
 
 For testing, LARA_START=<room> in the environment starts Lara in that room,
 on the walkable floor nearest its centre; LARA_START=<room>:<x>:<z> on that
@@ -55,6 +56,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sfx  # noqa: E402
 import trpsx  # noqa: E402
+import meshstore  # noqa: E402
 import trsat  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -926,6 +928,26 @@ def report_sounds(name, lvl, sounds):
         print(f"  sample {i} (sound {ids or 'unused'}): {old / 11025:.2f} s -> {new / 11025:.2f} s")
 
 
+# Textured faces' draw mode as the renderer draws them (render.cpp gTexturePmod:
+# 4-bit colour tables, gouraud, the fast shrink).
+TEXTURE_PMOD = 0x100C
+
+
+def mesh_store(data):
+    """The packed level's meshes as the renderer reads them (meshstore.py):
+    each one once, the level's mesh indices to them."""
+    counts = struct.unpack_from(">I14H", data, 0)[1:]
+    offsets = struct.unpack_from(">35I", data, 32)
+    mesh_base, table, meshes = offsets[5], offsets[6], counts[3]
+    mesh_offsets = struct.unpack_from(f">{meshes}i", data, table)
+    unique = sorted(set(mesh_offsets))
+    place = {at: i for i, at in enumerate(unique)}
+    textures = [struct.unpack_from(">5H", data, offsets[15] + 16 * i) for i in range(counts[8])]
+    palette = struct.unpack_from(">256H", data, offsets[0])
+    return meshstore.build([data[mesh_base + at:] for at in unique], [place[at] for at in mesh_offsets],
+                           textures, palette, TEXTURE_PMOD)
+
+
 def main():
     data_dir, name, out_path = sys.argv[1:4]
     lvl = trsat.load(data_dir, name)
@@ -969,9 +991,13 @@ def main():
         f.write(struct.pack(">I", len(palettes)))
         for lut, colors in palettes:
             f.write(struct.pack(">I16H", lut, *colors))
+    store = mesh_store(data)
+    with open(os.path.splitext(out_path)[0] + ".MSH", "wb") as f:
+        f.write(store)
     print(f"{name}: {len(data)} bytes -> {out_path}, {len(packer.textures.blob)} bytes -> {tex_path}, "
           f"{len(lvl.room_tex_sub)} bytes -> {sub_path}, {len(packer.sfx)} bytes -> {sfx_path}, "
-          f"{len(packer.textures.entries)} textures, {len(palettes)} colour tables remastered")
+          f"{len(packer.textures.entries)} textures, {len(palettes)} colour tables remastered, "
+          f"{len(store)} bytes of meshes for the renderer")
 
 
 if __name__ == "__main__":

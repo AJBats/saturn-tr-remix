@@ -26,14 +26,15 @@ void drawsLabInit()
     level.anims = sceneArray<const GameAnim>("ANIM");
     level.frames = sceneArray<const uint8_t>("AFRM") - 2 * AFRM_BASE;
     level.models = sceneArray<const GameModel>("MODL");
-    level.meshIndex = sceneArray<const uint16_t>("MIDX");
+    const MeshStore* store = sceneArray<const MeshStore>("MSTO");
+    level.meshIndex = (const uint16_t*)((const uint8_t*)store + store->index);
     level.modelNodes = sceneArray<const uint32_t>("MNOD");
     level.nodes = sceneArray<const uint8_t>("PNOD");
     level.statics = sceneArray<const GameStaticMesh>("SMSH");
     level.roomLights = sceneArray<const RoomLights>("RLIT");
     level.level = sceneArray<const RoomLevel>("RLVL");
-    level.meshes = sceneArray<const uint32_t>("MESH");
-    level.meshGeometry = sceneArray<const uint8_t>("MGEO");
+    level.meshes = (const uint32_t*)((const uint8_t*)store + store->records);
+    level.meshGeometry = (const uint8_t*)store;
     level.sprites = sceneArray<const Sprite>("SPRS");
     drawsInit(level);
     const PoseCamera* camera = sceneArray<const PoseCamera>("CAMR");
@@ -258,11 +259,16 @@ int32_t drawsSeldomCheck()
                 ItemRecord &it = madeItems[m];
                 uint32_t g = models;
                 bool want = g % 9 != 8 && (g / 9) % 4 == 0;     // a frame before: an animation from 3 on
-                for (int32_t tries = 0; tries < 64; tries++)
+                bool found = false;
+                for (int32_t tries = 0; tries < 64 && !found; tries++)
                 {
                     it = sceneItems[rnd() % items];
-                    if (drawable(it) && (!want || sceneAnims[it.item.animIndex].frameBegin >= 3))
-                        break;
+                    found = drawable(it) && (!want || sceneAnims[it.item.animIndex].frameBegin >= 3);
+                }
+                if (!found)
+                {
+                    n--;        // none the scene holds every mesh of: no call
+                    continue;
                 }
                 GameAnim &a = madeAnims[anims + m];
                 a = sceneAnims[it.item.animIndex];
@@ -344,6 +350,12 @@ int32_t drawsSeldomCheck()
                 const GameStaticMesh &sm = gCtx.statics[id];
                 if ((sm.flags & STATIC_MESH_FLAG_VISIBLE) && gCtx.meshIndex[sm.meshIndex] == 0xFFFF) {
                     id = zf & 0x3F;     // its mesh not in the scene: the call's own
+                }
+                const GameStaticMesh &own = gCtx.statics[id];
+                if ((own.flags & STATIC_MESH_FLAG_VISIBLE) && gCtx.meshIndex[own.meshIndex] == 0xFFFF)
+                {
+                    n--;        // nor the call's own (out of sight in the scene): no call
+                    continue;
                 }
                 hidden += !(gCtx.statics[id].flags & STATIC_MESH_FLAG_VISIBLE);
                 c.args[0] = int32_t(uint32_t(x) << 16 | (uint32_t(y) & 0xFFFF));
@@ -432,8 +444,8 @@ int32_t drawsSeldomCheck()
     for (uint32_t i = 0; i < items; i++) {
         enemies = enemies || (sceneItems[i].item.type != 0 && sceneItems[i].item.extra);
     }
-    return bad + !(hintedCalls - hintedStatics) + (staticCalls ? !hintedStatics : 0) + !posed + !(models - posed) + !lerped + !stills + !lara + (enemies && !extras) + !early[0] +
+    return bad + !(hintedCalls - hintedStatics) + (staticsDrawn ? !hintedStatics : 0) + !posed + !(models - posed) + !lerped + !stills + !lara + (enemies && !extras) + !early[0] +
            !early[1] + !early[2] + !early[3] + !early[4] +
-           (staticCalls ? !staticsDrawn + !(statics - staticsDrawn) + !hidden : 0) + !spritesDrawn +
+           (statics ? (statics > hidden ? !staticsDrawn : 0) + !(statics - staticsDrawn) + !hidden : 0) + !spritesDrawn +
            !(spritesMade - spritesDrawn) + !clamped + !unclamped + !walls;
 }

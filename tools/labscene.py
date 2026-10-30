@@ -19,6 +19,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import capture as cap   # noqa: E402
 import facepack         # noqa: E402
+import meshstore        # noqa: E402
 import posepack         # noqa: E402
 import roompack         # noqa: E402
 import drawpack         # noqa: E402
@@ -459,18 +460,13 @@ def main():
     chunks['MESH'] = struct.pack(f'>{len(mesh_offsets)}I', *mesh_offsets)
     chunks['MGEO'] = bytes(mesh_data)
 
-    # the new face stage's: the materials, and each mesh's faces (MESH's
-    # order) after a table of their offsets
+    # the renderer's: the mesh store of the scene's meshes (MESH's order, the
+    # level's meshes indexed as MIDX), as the level packer makes the level's
     texture_entries = [struct.unpack_from('>5H', chunks['TEXS'], 16 * i) for i in range(textures)]
-    materials = facepack.Materials(texture_entries, struct.unpack('>256H', chunks['PALT']),
-                                   u32(mem, sym('_gTexturePmod')))
-    sets = [facepack.mesh_faces(mesh_data[at:], materials) for at in mesh_offsets]
-    offsets, at = [], 4 * len(sets)
-    for face_set in sets:
-        offsets.append(at)
-        at += len(face_set)
-    chunks['NMSH'] = struct.pack(f'>{len(sets)}I', *offsets) + b''.join(sets)
-    chunks['NMAT'] = materials.bytes()
+    midx = struct.unpack(f'>{len(chunks["MIDX"]) // 2}H', chunks['MIDX'])
+    chunks['MSTO'] = meshstore.build([mesh_data[at:] for at in mesh_offsets], midx, texture_entries,
+                                     struct.unpack('>256H', chunks['PALT']), u32(mem, sym('_gTexturePmod')))
+    materials_count = struct.unpack_from('>I', chunks['MSTO'], 12)[0]
     moved = [(i, natural[i]) for i in range(master_faces) if natural[i] != mesh_bucket[i]]
     chunks['MOVE'] = b''.join(MOVE.pack(*m) for m in moved)
 
@@ -520,7 +516,7 @@ def main():
     # checks' and an untimed preparation's). The low chunks come first in the file: the lab takes
     # low work RAM past them back once the rest is where it belongs.
     order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
-                 'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT',
+                 'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'MSTO',
                  'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PLIT', 'LGHT', 'STAT', 'SHDW', 'RLVL', 'RPRT',
                  'RVIS', 'RLGE', 'CAUW', 'CALL', 'OITM', 'ANIM', 'AFRM', 'MODL', 'MIDX', 'MNOD', 'SMSH', 'RLIT',
                  'DTHG', 'HINT', 'LARA',
@@ -554,7 +550,7 @@ def main():
           f'{len(faced)} rooms, {draw_count} draws ({len(mesh_offsets)} meshes, {copied} faces copied); '
           f'{len(moved)} faces moved by draw order hints'
           + (f' (things {sorted(hinted)})' if hinted else '')
-          + f'; floor exact on {exact} of {len(flush_order)}; {len(materials.data) // facepack.MATERIAL.size} '
+          + f'; floor exact on {exact} of {len(flush_order)}; {materials_count} '
           f'materials; {len(out) // 1024} KB')
 
 

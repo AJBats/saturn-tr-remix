@@ -392,6 +392,30 @@ struct FaceRoom
     const int16_t* caustics;    // a wet room's: each vertex's shade offset, by its index (32); else none
 };
 
+// The level's meshes as the renderer reads them (tools/meshstore.py): each
+// level mesh's record (NO_MESH: none), each record's offset in the store,
+// each record's faces' offset from that table's start (a FaceSet), the
+// materials; a record is the mesh's 20-byte header as the game keeps it
+// (Mesh: center, radius, intensity, vertices, lighting, quads, triangles,
+// bound), its groups for meshrot.dsp (4 vertices each: lit by normals, the 4
+// normals' bytes + 128 then the vertices' int16 x y z, 10 longwords; else
+// the vertices alone, 6), its shades (a byte a vertex, to a longword), its
+// faces.
+#define MESH_STORE_MAGIC    0x4D534831  // 'MSH1'
+#define NO_MESH             0xFFFF
+
+struct MeshStore
+{
+    uint32_t magic;
+    uint32_t meshCount;         // the level's
+    uint32_t recordCount;
+    uint32_t materialCount;
+    uint32_t index;             // the uint16 records of the level's meshes
+    uint32_t records;           // the uint32 offsets of the records
+    uint32_t faceSets;          // the uint32 offsets of the records' faces from here
+    uint32_t materials;
+};
+
 // The frame's draw list: the draws in order (meshes', shadows', and sprites'
 // and rectangles' faces, made, two vertices each), the items posed (frames,
 // extras, light), each static's place, each shadow's floor, and the calls

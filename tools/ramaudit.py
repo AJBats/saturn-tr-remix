@@ -245,6 +245,8 @@ def level(path):
         sys.exit(f'{path}: meshes read as {lv["old"]} bytes, the file has {mesh_offsets - mesh_base}')
     lv['materials'] = len(materials.data)
     lv['new'] = lv['heads'] + lv['groups'] + lv['shades'] + lv['sets']
+    store = path[:-4] + '.MSH'
+    lv['store'] = os.path.getsize(store) if os.path.exists(store) else lv['new'] + lv['materials']
     room_textures, vertices, faces, portals, placed, at = 0, 0, 0, 0, 0, 0
     lv_faces = []
     for r in range(rooms):
@@ -327,14 +329,16 @@ def main():
     print()
     print('2. EACH LEVEL\'S DATA (KB)')
     print('  meshes: TRS\'s (gMeshData) against the new formats: header + meshrot.dsp\'s groups + shades + '
-          'face sets; then the materials, the parts (MeshParts, shadows\' too) and all the new')
+          'face sets, the materials; the level\'s mesh store (DATA/<level>.MSH, its tables in it), the parts '
+          '(MeshParts, shadows\' too) and all the new')
     print(f'  {"level":9s} {"meshes":>6s} {"faces":>5s} {"TRS":>6s} {"new":>6s} = {"head":>5s} {"groups":>6s} '
-          f'{"shades":>6s} {"sets":>6s}   {"mater":>6s} {"parts":>6s}   {"all new":>7s} {"+":>6s}')
+          f'{"shades":>6s} {"sets":>6s} {"mater":>6s}   {"store":>6s} {"parts":>6s}   {"all new":>7s} {"+":>6s}')
     for lv in levels:
-        lv['mesh_store'] = lv['new'] + lv['materials'] + lv['parts']
+        lv['mesh_store'] = lv['store'] + lv['parts']
         print(f'  {lv["name"]:9s} {lv["meshes"]:6d} {lv["faces"]:5d} {kb(lv["old"])} {kb(lv["new"])} = '
-              f'{kb(lv["heads"])[1:]} {kb(lv["groups"])} {kb(lv["shades"])} {kb(lv["sets"])}   '
-              f'{kb(lv["materials"])} {kb(lv["parts"])}   {kb(lv["mesh_store"])} {kb(lv["mesh_store"] - lv["old"])}')
+              f'{kb(lv["heads"])[1:]} {kb(lv["groups"])} {kb(lv["shades"])} {kb(lv["sets"])} '
+              f'{kb(lv["materials"])}   {kb(lv["store"])} {kb(lv["parts"])}   {kb(lv["mesh_store"])} '
+              f'{kb(lv["mesh_store"] - lv["old"])}')
     print('  rooms: room textures (a RoomMaterial, 64 bytes, each), the walk\'s tables (RoomLevel + portals), '
           'vertices (roomrot.dsp reads them by DMA: high work RAM only) and faces, against gRoomData\'s 128')
     print(f'  {"level":9s} {"rooms":>5s} {"tex":>4s} {"mater":>6s} {"walk":>6s} {"verts":>6s} {"faces":>6s} '

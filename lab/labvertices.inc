@@ -46,6 +46,37 @@ static FeedResult* gFeedResults;
 static DrawXform* gFeedXforms;
 static MeshParts* gFeedParts;
 
+// A mesh's groups as the level keeps them for meshrot.dsp (tools/meshstore.py):
+// lit by its normals, a group's 4 normals (bytes nx ny nz each plus 128, and
+// a spare 0) then its 4 vertices' x y z; else the vertices alone. Its last
+// group's spare vertices 0. Returns its longwords.
+static int32_t packMesh(uint32_t* out, const MeshVertex* v, const int8_t* normals, int32_t count)
+{
+    uint32_t* at = out;
+    for (int32_t g = 0; g < count; g += 4)
+    {
+        if (normals)
+        {
+            for (int32_t k = g; k < g + 4; k++)
+            {
+                const int8_t* n = normals + 4 * k;
+                *at++ = k < count ? uint32_t(n[0] + 128) << 24 | uint32_t(n[1] + 128) << 16 |
+                                    uint32_t(n[2] + 128) << 8 : 0;
+            }
+        }
+        int16_t* c = (int16_t*)at;
+        for (int32_t k = g; k < g + 4; k++, c += 3)
+        {
+            bool real = k < count;
+            c[0] = real ? v[k].x : 0;
+            c[1] = real ? v[k].y : 0;
+            c[2] = real ? v[k].z : 0;
+        }
+        at += 6;
+    }
+    return at - out;
+}
+
 static inline int32_t row16(const int16_t* m, int32_t t, int32_t x, int32_t y, int32_t z)
 {
     return int32_t(uint32_t(t) + uint32_t(m[0] * x) + uint32_t(m[1] * y) + uint32_t(m[2] * z));
@@ -101,17 +132,19 @@ const char* verticesLabInit(const FaceRoom* rooms, uint32_t roomCount)
     gXforms = sceneArray<const DrawXform>("XFRM");
     gSceneVertices = sceneArray<const Vertex>("VERT");
     VerticesLevel level;
-    level.meshes = sceneArray<const uint32_t>("MESH", &level.meshCount);
-    level.geometry = sceneArray<const uint8_t>("MGEO");
+    level.store = sceneArray<const MeshStore>("MSTO");
     level.alloc = sceneAlloc;
     const char* failed = verticesInit(level);
     if (failed)
         return failed;
 
-    // the meshes in meshlight3.dsp's layout, and the shadows' slots
+    // the meshes as the game keeps them (MESH, MGEO: the store's records in
+    // its order), in meshlight3.dsp's layout, and the shadows' slots
+    const uint32_t* meshes = sceneArray<const uint32_t>("MESH");
+    const uint8_t* geometry = sceneArray<const uint8_t>("MGEO");
     uint32_t readyGroups = MAX_DRAW_SHADOWS * SHADOW_VERTICES / 4;
     for (uint32_t m = 0; m < gMeshCount; m++) {
-        readyGroups += (gMeshGeometry[gMeshes[m] + 10] + 3) >> 2;
+        readyGroups += (geometry[meshes[m] + 10] + 3) >> 2;
     }
     gMeshReady = (int32_t*)sceneAlloc(readyGroups * 24 * 4);
     gReady = (int32_t**)sceneAllocLow((gMeshCount + MAX_DRAW_SHADOWS) * sizeof(int32_t*));
@@ -130,7 +163,7 @@ const char* verticesLabInit(const FaceRoom* rooms, uint32_t roomCount)
     int32_t* ready = gMeshReady;
     for (uint32_t m = 0; m < gMeshCount; m++)
     {
-        const uint8_t* mesh = gMeshGeometry + gMeshes[m];
+        const uint8_t* mesh = geometry + meshes[m];
         int32_t count = mesh[10];
         const int8_t* normals = mesh[11] == MESH_LIGHT_NORMALS ? (const int8_t*)(mesh + 20 + count * 6) : nullptr;
         gReady[m] = ready;

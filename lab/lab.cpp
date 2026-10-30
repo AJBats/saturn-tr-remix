@@ -610,9 +610,10 @@ static void newRoomsInit()
     }
     gRoomTexturesShort = textures > MAX_ROOM_TEXTURES;
 
+    const MeshStore* store = sceneArray<const MeshStore>("MSTO");
     FrameLevel level;
-    level.faceSets = sceneArray<const uint8_t>("NMSH");
-    level.materials = sceneArray<const Material>("NMAT");
+    level.faceSets = (const uint8_t*)store + store->faceSets;
+    level.materials = (const Material*)((const uint8_t*)store + store->materials);
     level.textures = sceneArray<const Texture>("TEXS");
     level.palette = sceneArray<const uint16_t>("PALT");
     level.sprites = sceneArray<const Sprite>("SPRS");
@@ -641,7 +642,8 @@ static void newRoomsInit()
 static void newMeshes(bool c, bool water = false)
 {
     const DrawScene* draws = gDraws;
-    const uint8_t* sets = sceneArray<const uint8_t>("NMSH");
+    const MeshStore* store = sceneArray<const MeshStore>("MSTO");
+    const uint8_t* sets = (const uint8_t*)store + store->faceSets;
     frameHintsBegin();
     frameHinted(gSceneHinted, gSceneHintedCount);
     for (uint32_t i = 0; i < gDrawCount; i++)

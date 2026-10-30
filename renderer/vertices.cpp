@@ -52,7 +52,7 @@ struct RoomDspJob
 };
 
 // A mesh's job for meshrot.dsp (lab/gen_meshrot.py): its coefficients ready
-// to use, its groups as the level would keep them (packMesh).
+// to use, its groups as the level keeps them.
 struct MeshDspJob
 {
     int32_t k[16];              // 4t 4m 4m 4m a row; ambient << 16 | 0xFFFF less 128 times the
@@ -82,7 +82,7 @@ struct MeshParts
     int32_t normals;            // its groups hold its normals
     const uint8_t* shades;      // MESH_SHADES'
     int32_t intensity;
-    const uint32_t* packed;     // its groups (packMesh's)
+    const uint32_t* packed;     // its groups (its record's, or a shadow's slot's)
     const int16_t* center;      // a mesh's bounding sphere, or none (a shadow)
     int32_t radius;
     int32_t faces;              // its quads and triangles: its commands at most
@@ -123,9 +123,8 @@ static uint32_t gRoomCount;
 static const DrawScene* gDraws;     // ... and its draws (verticesDrawsSet)
 static const DrawXform* gXforms;
 static uint32_t gDrawCount;
-static const uint32_t* gMeshes;     // the level's meshes
-static uint32_t gMeshCount;
-static const uint8_t* gMeshGeometry;
+static const uint8_t* gStore;       // the level's meshes (MeshStore)
+static uint32_t gMeshCount;         // ... its records
 
 // The rooms' rotations, the DSP's, a room's at its own place (whole groups
 // of 4), and their jobs.
@@ -135,12 +134,11 @@ static int32_t gRoomsPredicted;     // the plan's prediction of their projection
 static int32_t gRoomsFaces;         // their quads and triangles
 static RoomDspJob gRoomJobs[MAX_ROOMS + 1];
 
-// The meshes' groups as the level would keep them (a mesh's once, a
-// shadow's each frame; then 10 longwords meshrot.dsp reads past the last);
-// each mesh's parts, then the shadows' slots'; the frame's jobs and the
-// plan's prediction of them, the DSP's of each; their vertices, a job's
-// after another, whole groups, after a group's room for meshrot.dsp's first
-// output, of nothing.
+// The shadows' groups, made each frame (then 10 longwords meshrot.dsp reads
+// past the last; a mesh's are its record's); each mesh's parts, then the
+// shadows' slots'; the frame's jobs and the plan's prediction of them, the
+// DSP's of each; their vertices, a job's after another, whole groups, after
+// a group's room for meshrot.dsp's first output, of nothing.
 static uint32_t* gMeshPacked;
 static MeshParts* gParts;
 static const MeshParts* gShadowParts;
@@ -170,37 +168,6 @@ static inline int32_t row(const int32_t* m, int32_t t, int32_t x, int32_t y, int
 {
     return int32_t(uint32_t(t) + uint32_t(m[0]) * uint32_t(x) + uint32_t(m[1]) * uint32_t(y) +
                    uint32_t(m[2]) * uint32_t(z));
-}
-
-// A mesh's groups as the level would keep them for meshrot.dsp: lit by its
-// normals, a group's 4 normals (bytes nx ny nz each plus 128, and a spare 0)
-// then its 4 vertices' x y z; else the vertices alone. Its last group's
-// spare vertices 0. Returns its longwords.
-static int32_t packMesh(uint32_t* out, const MeshVertex* v, const int8_t* normals, int32_t count)
-{
-    uint32_t* at = out;
-    for (int32_t g = 0; g < count; g += 4)
-    {
-        if (normals)
-        {
-            for (int32_t k = g; k < g + 4; k++)
-            {
-                const int8_t* n = normals + 4 * k;
-                *at++ = k < count ? uint32_t(n[0] + 128) << 24 | uint32_t(n[1] + 128) << 16 |
-                                    uint32_t(n[2] + 128) << 8 : 0;
-            }
-        }
-        int16_t* c = (int16_t*)at;
-        for (int32_t k = g; k < g + 4; k++, c += 3)
-        {
-            bool real = k < count;
-            c[0] = real ? v[k].x : 0;
-            c[1] = real ? v[k].y : 0;
-            c[2] = real ? v[k].z : 0;
-        }
-        at += 6;
-    }
-    return at - out;
 }
 
 // The order the DSP turns the rooms in (its k-th job's room), and each
@@ -296,45 +263,37 @@ int32_t verticesInsideOf(uint32_t draw)
 
 const char* verticesInit(const VerticesLevel &level)
 {
-    gMeshes = level.meshes;
-    gMeshCount = level.meshCount;
-    gMeshGeometry = level.geometry;
+    gStore = (const uint8_t*)level.store;
+    gMeshCount = level.store->recordCount;
+    const uint32_t* records = (const uint32_t*)(gStore + level.store->records);
 
-    // the meshes packed, once; their parts; the shadows' slots
-    uint32_t packedLongwords = 10;
-    for (uint32_t m = 0; m < gMeshCount; m++)
-    {
-        const uint8_t* mesh = gMeshGeometry + gMeshes[m];
-        packedLongwords += ((mesh[10] + 3) >> 2) * (mesh[11] == MESH_LIGHT_NORMALS ? 10 : 6);
-    }
-    packedLongwords += MAX_DRAW_SHADOWS * SHADOW_VERTICES / 4 * 6;
+    // each mesh's parts from its record; the shadows' slots, their groups
+    // made each frame (and room for what meshrot.dsp reads past the last)
+    uint32_t packedLongwords = MAX_DRAW_SHADOWS * SHADOW_VERTICES / 4 * 6 + 10;
     gMeshPacked = (uint32_t*)level.alloc(packedLongwords * 4);
     gParts = (MeshParts*)level.alloc((gMeshCount + MAX_DRAW_SHADOWS) * sizeof(MeshParts));
     if (!gMeshPacked || !gParts)
-        return "no room for the meshes' layouts";
+        return "no room for the meshes' parts";
     memset(gMeshPacked, 0, packedLongwords * 4);
-    uint32_t* packed = gMeshPacked;
     for (uint32_t m = 0; m < gMeshCount; m++)
     {
-        // the mesh's arrays (render.cpp meshParts)
-        const uint8_t* mesh = gMeshGeometry + gMeshes[m];
+        const uint8_t* mesh = gStore + records[m];
         int32_t count = mesh[10];
-        const uint8_t* after = mesh + 20 + count * 6;
-        const int8_t* normals = mesh[11] == MESH_LIGHT_NORMALS ? (const int8_t*)after : nullptr;
+        bool normals = mesh[11] == MESH_LIGHT_NORMALS;
         MeshParts &p = gParts[m];
         p.count = count;
         p.price = PLAN_MESH_JOB + PLAN_MESH_VERTEX * count +
                   PLAN_MESH_FACE * (*(const int16_t*)(mesh + 12) + *(const int16_t*)(mesh + 14));
-        p.normals = normals != nullptr;
-        p.shades = mesh[11] == MESH_LIGHT_SHADES ? after : nullptr;
+        p.normals = normals;
+        p.packed = (const uint32_t*)(mesh + 20);
+        p.shades = mesh[11] == MESH_LIGHT_SHADES ? mesh + 20 + ((count + 3) >> 2) * 24 : nullptr;
         p.intensity = *(const uint16_t*)(mesh + 8);
-        p.packed = packed;
         p.center = (const int16_t*)mesh;
         p.radius = *(const int16_t*)(mesh + 16);
         p.faces = *(const int16_t*)(mesh + 12) + *(const int16_t*)(mesh + 14);
-        packed += packMesh(packed, (const MeshVertex*)(mesh + 20), normals, count);
     }
     // a shadow's: 8 vertices, 3 faces given
+    uint32_t* packed = gMeshPacked;
     for (uint32_t s = 0; s < MAX_DRAW_SHADOWS; s++)
     {
         MeshParts &p = gParts[gMeshCount + s];

@@ -57,7 +57,7 @@ void roomsPoison();
 int32_t roomsSeldomCheck();
 
 // The draw list from the scene (labdraws.cpp): its level's tables (ANIM,
-// AFRM, MODL, MIDX, MNOD, PNOD, SMSH, RLIT, RLVL, MESH, MGEO, SPRS), its view
+// AFRM, MODL, MNOD, PNOD, SMSH, RLIT, RLVL, SPRS, the mesh store MSTO), its view
 // (CAMR) and calls (CALL, OITM): whether they fit the list, and the list
 // made of them after fills of the walk's; against the game's way's: those
 // that differ.
