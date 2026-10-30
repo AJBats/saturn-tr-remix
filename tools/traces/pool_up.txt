@@ -1,0 +1,16 @@
+# tools/hwtest.sh pool, from boot: the overlay paged away, then Lara dives
+# from the surface and swims back up, the camera under water behind her
+# seeing the dry room above through the surface (lab scene under_water:
+# capture.py --frame 1730 --trace this)
+frame=1500 PRESS R
+frame=1510 RELEASE R
+frame=1520 PRESS R
+frame=1530 RELEASE R
+frame=1540 PRESS R
+frame=1550 RELEASE R
+frame=1560 PRESS R
+frame=1570 RELEASE R
+frame=1600 PRESS B
+frame=1610 RELEASE B
+frame=1640 PRESS DOWN
+frame=1760 RELEASE DOWN
