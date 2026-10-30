@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import capture as cap   # noqa: E402
 import facepack         # noqa: E402
 import posepack         # noqa: E402
+import roompack         # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -373,6 +374,7 @@ def main():
     order = sorted(first_draws, key=first_draws.get)
     shadows = [(d, order.index(i), r) for d, i, r in shadows if i in first_draws]
     chunks.update(posepack.pack(mem, sym, recs, first_draws, header, statics, shadows))
+    chunks.update(roompack.pack(mem, sym, recs, header))
     chunks['CAMR'] = struct.pack('>3i9h2x', *header['camera'], *header['rotation'])
     chunks['MESH'] = struct.pack(f'>{len(mesh_offsets)}I', *mesh_offsets)
     chunks['MGEO'] = bytes(mesh_data)
@@ -434,8 +436,8 @@ def main():
     # level's palette and sprites in low; and VDP1 VRAM
     order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
                  'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT',
-                 'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PLIT', 'LGHT', 'STAT', 'SHDW', 'PALT', 'SPRS',
-                 'VRAM']
+                 'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PLIT', 'LGHT', 'STAT', 'SHDW', 'RLVL', 'RPRT',
+                 'RVIS', 'PALT', 'SPRS', 'VRAM']
     where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1}
     table = 8 + 16 * len(order_ids)
     offset = (table + 15) & ~15

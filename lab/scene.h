@@ -120,6 +120,10 @@ struct DrawXform
 //       order), LGHT its room's lights (Light: int16 x y z from the room,
 //       radius, intensity); STAT the static meshes drawn (PoseStatic), SHDW
 //       the items' shadows (PoseShadow).
+// RLVL  every room of the level as the portal walk reads it (RoomLevel), RPRT
+//       their portals (room.h Portal: uint16 room, int16 normal, 4 corners);
+//       RVIS the view the walk starts from and, for the check, the rooms the
+//       frame queued (RoomView) (tools/roompack.py).
 struct PoseArm
 {
     uint32_t frame;         // in PFRM, or ~0: the arm moves with the body
@@ -168,6 +172,34 @@ struct PoseShadow
     uint16_t draw;          // DRAW's
     uint16_t item;          // POSE's
     int32_t floor;          // the floor's height under the item
+};
+
+struct RoomLevel
+{
+    int16_t x, z;           // its place, in sectors
+    int16_t yTop;
+    uint8_t flags;          // ROOM_FLAG_WATER
+    uint8_t portals;
+    uint16_t vertices, pad;
+    uint32_t first;         // its first portal in RPRT
+};
+
+// A room queued: its window (x0 y0 x1 y1) and matrix (the view placed at the
+// room, Matrix's 12 int32).
+struct RoomSeen
+{
+    uint16_t room, pad;
+    int32_t window[4];
+    int32_t m[12];
+};
+
+struct RoomView
+{
+    uint16_t camera, pad;   // the camera's room
+    int32_t viewport[4];
+    uint8_t water, pad2[3]; // the camera under water
+    uint32_t count;         // the rooms the frame queued, in order
+    RoomSeen queued[1];
 };
 
 struct PoseCamera

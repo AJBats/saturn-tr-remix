@@ -129,6 +129,10 @@ struct LabResults
     uint32_t staticsNew;        // cycles: the new way's
     int32_t staticsNewBad;
     int32_t staticsSeldom;      // ... on made-up inputs, against the game's way on them (and paths not taken)
+    uint32_t rooms;             // cycles: stage 1 the game's way, the rooms seen (the portal walk, the rooms' matrices)
+    int32_t roomsBad;           // rooms not as the game's (or a list of another length)
+    int32_t roomsSeen;          // the rooms the frame queued
+    int32_t roomsVoids;         // the fills past the draw distance the walk made
     uint32_t frame;             // cycles: stages 1, 2 and 3 the new way together (the frame so far), start to the
                                 // list joined: the items' light and pose on the master before its feed
     uint32_t frameMaster;       // ... the master at work
@@ -301,6 +305,10 @@ static void stagePose()
     gLab.light = measure([] {}, [] { gameLight(); });
     gameLight();
     gLab.lightBad = gameLightCheck();
+    gLab.roomsSeen = gameRoomsInit();
+    gLab.rooms = measure([] {}, [] { gameRooms(); });
+    gameRooms();
+    gLab.roomsBad = gameRoomsCheck(nullptr, 0, gLab.roomsVoids);
     gameStaticsInit();
     gLab.statics = measure([] {}, [] { gameStatics(); });
     gameStatics();
@@ -1197,6 +1205,12 @@ static void posePage()
     timeRow(page, "items' nodes", gLab.pose, gLab.poseMatrices, "matrix");
     timeRow(page, "items' light", gLab.light, gLab.poseItems, "item");
     timeRow(page, "statics, shadows", gLab.statics, gLab.staticCount + gLab.shadowCount, "each");
+    timeRow(page, "rooms seen", gLab.rooms, gLab.roomsSeen, "room");
+    p = put(line, gLab.roomsBad ? "OFF: rooms seen" : "exact: rooms seen");
+    p = putNumber(p, gLab.roomsBad, 2);
+    p = put(p, " off, voids");
+    putNumber(p, gLab.roomsVoids, 2);
+    page.add(line);
     p = put(line, gLab.poseBad || gLab.lightBad ? "OFF: matrices" : "exact: matrices");
     p = putNumber(p, gLab.poseBad, 2);
     p = put(p, " off, light");

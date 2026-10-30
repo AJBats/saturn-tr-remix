@@ -185,6 +185,16 @@ int32_t xformOff(const DrawXform &a, const DrawXform &b, bool shadow);
 void gameStaticsRun(const PoseStatic* statics, uint32_t statCount, const PoseShadow* shadows, uint32_t shadowCount,
                     const PoseItem* items, const GameLight* lights, const uint8_t* frames, DrawXform* out);
 
+// Stage 1 the game's way, the rooms seen (gamerooms.cpp: room.h's portal
+// walk, draw.h queueRoom's matrices); Init returns the rooms the frame
+// queued; Check the rooms that differ from the capture's (list, windows,
+// matrices; seen: another's, or none for the game's way's), voids: the fills
+// past the draw distance the walk made.
+struct RoomSeen;
+int32_t gameRoomsInit();
+void gameRooms();
+int32_t gameRoomsCheck(const RoomSeen* seen, int32_t count, int32_t &voids);
+
 // The game's light on other items, rooms (PLIT's layout), lights (LGHT's)
 // and frames, by item to out.
 struct PoseItem;
