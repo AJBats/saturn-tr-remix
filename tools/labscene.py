@@ -454,24 +454,29 @@ def main():
                                sys.argv[1].upper().encode()[:15])
 
     # where each lives in the lab, as in the game: high work RAM, but for the
-    # level's palette and sprites in low; and VDP1 VRAM. The game's list (the
-    # checks' reference alone) lies in low work RAM.
+    # level's palette and sprites in low; and VDP1 VRAM. What no timed run
+    # reads lies in low work RAM: the game's list, the vertices as it drew
+    # them, the ordering tables flush was given (the checks' and an untimed
+    # preparation's). The low chunks come first in the file: the lab takes
+    # low work RAM past them back once the rest is where it belongs.
     order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
                  'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT',
                  'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PLIT', 'LGHT', 'STAT', 'SHDW', 'RLVL', 'RPRT',
                  'RVIS', 'RLGE', 'CAUW', 'CALL', 'OITM', 'ANIM', 'AFRM', 'MODL', 'MIDX', 'MNOD', 'SMSH', 'RLIT',
                  'PALT', 'SPRS', 'VRAM']
-    where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1, 'CMDS': WHERE_LOW, 'GRDS': WHERE_LOW}
+    where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1, 'CMDS': WHERE_LOW, 'GRDS': WHERE_LOW,
+             'VERT': WHERE_LOW, 'ORDR': WHERE_LOW}
     table = 8 + 16 * len(order_ids)
     offset = (table + 15) & ~15
     body = bytearray()
-    entries = []
-    for cid in order_ids:
-        data = chunks[cid]
-        entries.append(struct.pack('>4sIII', cid.encode(), offset + len(body), len(data),
-                                   where.get(cid, WHERE_HIGH)))
-        body += data
+    at = {}
+    rank = {WHERE_LOW: 0, WHERE_HIGH: 1, WHERE_VDP1: 2}
+    for cid in sorted(order_ids, key=lambda c: rank[where.get(c, WHERE_HIGH)]):
+        at[cid] = offset + len(body)
+        body += chunks[cid]
         body += bytes(-len(body) % 16)
+    entries = [struct.pack('>4sIII', cid.encode(), at[cid], len(chunks[cid]), where.get(cid, WHERE_HIGH))
+               for cid in order_ids]
     out = struct.pack('>II', SCENE_MAGIC, len(order_ids)) + b''.join(entries)
     out += bytes(offset - len(out)) + body
     with open(out_path, 'wb') as f:

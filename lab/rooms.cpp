@@ -175,7 +175,8 @@ int32_t roomsSeldomCheck()
     static FaceRoom *gameJobs, *jobs;
     static RoomLevel* level;
     static int16_t table[32];
-    static int32_t gameRects[ROOM_FILLS][4], rects[ROOM_FILLS][4];
+    static int32_t (*gameRects)[4] = lowArray<int32_t[4]>(ROOM_FILLS);
+    static int32_t (*rects)[4] = lowArray<int32_t[4]>(ROOM_FILLS);
     if (!game)
     {
         game = lowArray<RoomSeen>(ROOMS_LISTED);

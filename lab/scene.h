@@ -377,8 +377,9 @@ void* sceneAlloc(uint32_t bytes);
 void* sceneAllocLow(uint32_t bytes);
 
 // The bytes of the high room the scene's chunks and sceneAlloc have taken,
-// and its size.
+// and its size; of low work RAM, the low chunks and sceneAllocLow.
 uint32_t sceneUsed(uint32_t* size = nullptr);
+uint32_t sceneUsedLow(uint32_t* size = nullptr);
 
 template <typename T>
 inline T* sceneArray(const char* id, uint32_t* count = nullptr)

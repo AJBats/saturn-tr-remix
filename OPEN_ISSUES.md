@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-238 | Rendering: the new renderer's open work |
+| 219-239 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3697,6 +3697,22 @@ rooms' chunks) · Fix: small*
 - **Levers:** a leaner draw (8 bytes: type, mesh, flags, first vertex) where
   the stages after need no more; a byte table of each mesh's vertex count
   instead of its header's; the items' fields read in one pass of lines.
+
+### 239. The new renderer's RAM in TRS isn't budgeted yet
+*Kind: coverage · Size: TRS's high work RAM has ~31 KB free at the ledge
+(measured, 2026-10-30) · Fix: medium, before step 8*
+
+- The old renderer's working buffers in TRS: ~222 KB (command list and
+  gouraud 70, vertices 40, face pools 60, ordering tables 15, room texture
+  cache 14, DSP and jobs 10). The new renderer's in the lab: ~250 KB, sized
+  for the lab's maximums (room materials 32 for 512 textures, the walk's
+  lists 17 for 128 rooms, mesh and DSP jobs 35 for 256 draws).
+- Its level data in its own formats (the DSP's packed meshes, the face sets,
+  the room materials) is packed per scene only: never measured for whole
+  levels against TRS's gMeshData (96 KB) and gRoomData (128 KB).
+- **Fix:** the audit the owner asked for before step 8: every buffer sized
+  to the game's real limits, every level's data in the new formats measured,
+  against TRS's map, so the switch is known to fit.
 
 ---
 

@@ -24,7 +24,7 @@ static const Chunk* gChunks;
 static uint32_t gCount;
 static uint8_t* gData[MAX_CHUNKS];
 static uint32_t gUsed;
-static uint8_t* gLow;       // low work RAM past the file
+static uint8_t* gLow;       // low work RAM past the file's low chunks
 
 const char* sceneLoad(const char* path)
 {
@@ -39,7 +39,7 @@ const char* sceneLoad(const char* path)
 
     gCount = ((const uint32_t*)file)[1];
     gChunks = (const Chunk*)(file + 8);
-    uint32_t used = 0;
+    uint32_t used = 0, low = 8 + 16 * gCount;
     for (uint32_t i = 0; i < gCount; i++)
     {
         const Chunk &c = gChunks[i];
@@ -59,6 +59,7 @@ const char* sceneLoad(const char* path)
         else if (c.where == WHERE_LOW)
         {
             gData[i] = src;
+            low = c.offset + c.size > low ? c.offset + c.size : low;
         }
         else
         {
@@ -70,7 +71,9 @@ const char* sceneLoad(const char* path)
         }
     }
     gUsed = used;
-    gLow = file + ((size + 15) & ~15);
+    // the high and VDP1 chunks lie past the low ones, copied where they
+    // belong: their room is the lab's again
+    gLow = file + ((low + 15) & ~15);
     return nullptr;
 }
 
@@ -90,6 +93,14 @@ void* sceneAlloc(uint32_t bytes)
     void* p = gArena + gUsed;
     gUsed = (gUsed + bytes + 15) & ~15;
     return p;
+}
+
+uint32_t sceneUsedLow(uint32_t* size)
+{
+    if (size) {
+        *size = LOW_RAM_SIZE;
+    }
+    return gLow - (uint8_t*)LOW_RAM;
 }
 
 uint32_t sceneUsed(uint32_t* size)

@@ -165,7 +165,7 @@ static const uint16_t* gOrder;  // ORDR
 static Face* gRefRoomOT[OT_SIZE];   // flush's tables, made from ORDR (or the faces made)
 static Face* gRefMeshOT[OT_SIZE];
 static const uint16_t* gFlushGroups[2];     // ... the rooms' faces and the master's by groups of buckets
-static int16_t gRefBucket[2][MAX_FACES];    // each face's bucket there: the master's, the slave's
+static int16_t (*gRefBucket)[MAX_FACES];    // each face's bucket there: the master's, the slave's (low)
 static const Command* gRefCmds;    // CMDS, GRDS (low work RAM: the checks')
 static const uint32_t (*gRefGrd)[2];
 static Command gClearCommand;       // the game's clear, its first command
@@ -176,7 +176,7 @@ static const uint8_t* gShadeLevel;
 static const uint8_t* gHalfLevel;
 static const uint16_t* gShadeGouraud;
 static ShadeCache* gShadeCaches;
-static ShadeCache gRefShadeCaches[2];   // as the game left them: its list's copies
+static ShadeCache* gRefShadeCaches;     // as the game left them: its list's copies (2, low)
 static const Command* gCheckCmds;       // the list gameListCheck checks against
 static const uint32_t (*gCheckGrd)[2];
 static int32_t gCheckEnd;
@@ -722,8 +722,8 @@ static void bucketsOf(Face* const* ot, const Face* pool, int16_t* bucket)
 
 int32_t gameFacesCheck()
 {
-    static int16_t bucket[MAX_FACES];
-    static int16_t want[MAX_FACES];
+    static int16_t* bucket = (int16_t*)sceneAllocLow(MAX_FACES * sizeof(int16_t));
+    static int16_t* want = (int16_t*)sceneAllocLow(MAX_FACES * sizeof(int16_t));
     int32_t bad = 0;
 
     // the master's: each face the game's, in its bucket but where a draw
@@ -732,7 +732,7 @@ int32_t gameFacesCheck()
     int32_t ref = gInfo->masterFaces;
     bad += X_MAX(count, ref) - X_MIN(count, ref);
     bucketsOf(gOT, gFaces, bucket);
-    memcpy(want, gRefBucket[0], sizeof(want));
+    memcpy(want, gRefBucket[0], MAX_FACES * sizeof(int16_t));
     for (uint32_t i = 0; i < gInfo->moved; i++) {
         want[gMoves[i].face] = gMoves[i].bucket;
     }
@@ -1334,6 +1334,8 @@ void gameInit()
     poolPointers(gRefSlaveFaces, gInfo->slaveFaces);
     gOrder = sceneArray<const uint16_t>("ORDR");
     gameFlushPrepare();
+    gRefBucket = (int16_t (*)[MAX_FACES])sceneAllocLow(2 * MAX_FACES * sizeof(int16_t));
+    gRefShadeCaches = (ShadeCache*)sceneAllocLow(2 * sizeof(ShadeCache));
     bucketsOf(gRefMeshOT, gRefFaces, gRefBucket[0]);
     bucketsOf(gRefRoomOT, gRefSlaveFaces, gRefBucket[1]);
     gRefCmds = sceneArray<const Command>("CMDS");

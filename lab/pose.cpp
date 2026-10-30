@@ -318,8 +318,8 @@ static uint32_t madeUpOf(uint32_t* of)
 int32_t poseSeldomCheck()
 {
     // per item: its frames A and B, an arm's frame for each arm
-    static uint32_t of[2 * 256];
-    if (2 * gCount > sizeof(of) / sizeof(of[0]))
+    static uint32_t* of = (uint32_t*)sceneAllocLow(2 * 256 * sizeof(uint32_t));
+    if (2 * gCount > 2 * 256)
         return -1;
     uint32_t n = madeUpOf(of);
     uint32_t frameBytes = 0, nodeBytes = 0, draws = 0;

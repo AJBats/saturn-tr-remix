@@ -155,6 +155,8 @@ struct LabResults
     int32_t drawsSeldom;        // ... on made-up calls, against the game's way on them (and paths not taken)
     uint32_t arenaUsed;         // bytes of high work RAM the scene and the stages took (sceneUsed)
     uint32_t arenaSize;
+    uint32_t lowUsed;           // ... of low work RAM (sceneUsedLow)
+    uint32_t lowSize;
 };
 
 extern "C" LabResults gLab;
@@ -1004,7 +1006,7 @@ static uint32_t commandHash(int32_t slot)
 // frame before's, at most 8. The frames run.
 static int32_t newSettle()
 {
-    static uint32_t hashes[MAX_CMDS];
+    static uint32_t* hashes = (uint32_t*)sceneAllocLow(MAX_CMDS * sizeof(uint32_t));
     for (int32_t f = 1; f <= 8; f++)
     {
         gameShadeCache(0)->frame++;
@@ -1033,7 +1035,7 @@ static int32_t newSettle()
 // (save) or put back.
 static void roomQuadFlags(bool save)
 {
-    static uint32_t flags[2048];
+    static uint32_t* flags = (uint32_t*)sceneAllocLow(2048 * sizeof(uint32_t));
     int32_t n = 0;
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
@@ -1049,7 +1051,7 @@ static void roomQuadFlags(bool save)
 }
 
 // The room texture cache as the frame found it, for the loader below.
-static uint8_t gKeys[DETAIL_VARIANTS][DETAIL_MAX_KEYS];
+static uint8_t (*gKeys)[DETAIL_MAX_KEYS];
 
 // A loader taking a texture into the cache as the frame had it.
 static int32_t roomTextureReload(uint32_t key, uint32_t, uint32_t variant)
@@ -1065,13 +1067,16 @@ static int32_t roomTextureReload(uint32_t key, uint32_t, uint32_t variant)
 // differ.
 static int32_t newAsmCheck()
 {
-    static uint32_t hashes[MAX_CMDS];
+    static uint32_t* hashes = (uint32_t*)sceneAllocLow(MAX_CMDS * sizeof(uint32_t));
     static uint32_t water[MAX_ROOMS];
     for (uint32_t i = 0; i < gRoomCount; i++) {
         water[i] = gRooms[i].flags;
     }
     roomQuadFlags(true);
-    memcpy(gKeys, gRoomTextures.keys, sizeof(gKeys));
+    if (!gKeys) {
+        gKeys = (uint8_t (*)[DETAIL_MAX_KEYS])sceneAllocLow(DETAIL_VARIANTS * DETAIL_MAX_KEYS);
+    }
+    memcpy(gKeys, gRoomTextures.keys, DETAIL_VARIANTS * DETAIL_MAX_KEYS);
     int32_t bad = 0;
     for (int32_t pass = 0; pass < 3; pass++)
     {
@@ -1124,7 +1129,7 @@ static int32_t newAsmCheck()
     }
     gRoomTextures.frame = sceneInfo().detailFrame;
     gRoomTextures.miss = roomTextureMiss;
-    memcpy(gRoomTextures.keys, gKeys, sizeof(gKeys));
+    memcpy(gRoomTextures.keys, gKeys, DETAIL_VARIANTS * DETAIL_MAX_KEYS);
     roomQuadFlags(false);
     return bad;
 }
@@ -1650,6 +1655,7 @@ int main()
     upload(gNewCmds, gNewGrd, gNewEnd);
     gLab.vdp1New = vdp1Show();
     gLab.arenaUsed = sceneUsed(&gLab.arenaSize);
+    gLab.lowUsed = sceneUsedLow(&gLab.lowSize);
     gLab.magic = LAB_MAGIC;
 
     resultsPage();

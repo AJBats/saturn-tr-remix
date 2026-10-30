@@ -328,15 +328,15 @@ const char* verticesInit(const FaceRoom* rooms, uint32_t roomCount)
     }
     gMeshPacked = (uint32_t*)sceneAlloc(packedLongwords * 4);
     gMeshReady = (int32_t*)sceneAlloc(readyGroups * 24 * 4);
-    gSeldomRotated = (RoomRotated*)sceneAlloc(SELDOM_VERTICES * sizeof(RoomRotated));
-    gSeldomPoints = (RoomVertex*)sceneAlloc(SELDOM_VERTICES * sizeof(RoomVertex));
-    gSeldomAsm = (Vertex*)sceneAlloc(SELDOM_VERTICES * sizeof(Vertex));
-    gSeldomModel = (Vertex*)sceneAlloc(SELDOM_VERTICES * sizeof(Vertex));
+    gSeldomRotated = (RoomRotated*)sceneAllocLow(SELDOM_VERTICES * sizeof(RoomRotated));
+    gSeldomPoints = (RoomVertex*)sceneAllocLow(SELDOM_VERTICES * sizeof(RoomVertex));
+    gSeldomAsm = (Vertex*)sceneAllocLow(SELDOM_VERTICES * sizeof(Vertex));
+    gSeldomModel = (Vertex*)sceneAllocLow(SELDOM_VERTICES * sizeof(Vertex));
     if (!gMeshPacked || !gMeshReady || !gSeldomModel)
         return "no room for the meshes' layouts";
-    gFeedXforms = (DrawXform*)sceneAlloc(gDrawCount * sizeof(DrawXform));
-    gFeedC = (MeshDspJob*)sceneAlloc((gDrawCount + 1) * sizeof(MeshDspJob));
-    gFeedResults = (FeedResult*)sceneAlloc(gDrawCount * sizeof(FeedResult));
+    gFeedXforms = (DrawXform*)sceneAllocLow(gDrawCount * sizeof(DrawXform));
+    gFeedC = (MeshDspJob*)sceneAllocLow((gDrawCount + 1) * sizeof(MeshDspJob));
+    gFeedResults = (FeedResult*)sceneAllocLow(gDrawCount * sizeof(FeedResult));
     if (!gFeedResults)
         return "no room for the feeding's check";
     memset(gMeshPacked, 0, packedLongwords * 4);
