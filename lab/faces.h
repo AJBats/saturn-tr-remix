@@ -84,6 +84,7 @@ struct CommandList
     const uint16_t* shadeGouraud;   // +32 shade 0 .. 31 to its gouraud colour
     ShadeCache* shade;      // +36 the CPU's shaded colour tables, or none
     const uint8_t* shadeLevel;      // +40 shade 0 .. 31 to its gouraud level, for water
+    const Sprite* sprites;  // +44 the level's, for a sprite's face
 };
 
 // A command's place, as VDP1 links to it.
@@ -102,7 +103,7 @@ inline int32_t facesSlot(uint32_t link)
 // tails of OT_SIZE.
 void facesListInit(CommandList &list, Command* cmds, uint32_t (*grd)[2], int32_t first, int32_t end,
                    uint16_t* heads, uint16_t* tails, const Material* materials, const uint16_t* shadeGouraud,
-                   const uint8_t* shadeLevel, ShadeCache* shade);
+                   const uint8_t* shadeLevel, ShadeCache* shade, const Sprite* sprites);
 
 // A mesh's faces, with its vertices; mode MESH_INSIDE: none of them is off
 // the frame or past a plane, so no face is culled for that; MESH_WATER: under
@@ -247,9 +248,20 @@ struct RoomRun
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);
 
-// One face as the game made it (a sprite's, a portal's fill: render.cpp
-// faceCommand), into bucket depth.
-void facesOther(const Face &face, const Vertex* half, const Sprite* sprites, int32_t depth, CommandList &list);
+// One face as the game made it whole (a sprite's, a rectangle's or line's,
+// a fill's, a void's: render.cpp faceCommand), its corners in half, into
+// bucket depth (facesother.s).
+extern "C" void facesOtherAsm(const Face* face, const Vertex* half, int32_t depth, CommandList* list);
+
+// The same in C: what facesOtherAsm does, to check it against.
+void facesOther(const Face &face, const Vertex* half, int32_t depth, CommandList &list);
+
+// facesOtherAsm against facesOther on made-up faces of every kind (sprites
+// flipped or not and shaded, rectangles and lines of any place and
+// size, voids reaching past each edge or off the frame, buckets shared, a
+// list filling up): the commands, gouraud tables, buckets and cursors that
+// differ (and paths not taken).
+int32_t facesOtherCheck(const uint16_t* shadeGouraud);
 
 // The lists' buckets far to near, in each the lists' chains in turn, from the
 // command in slot first of cmds (whose link it sets) to the one in slot end;

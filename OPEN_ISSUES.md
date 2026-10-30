@@ -3584,12 +3584,6 @@ built · Fix: medium*
   moved), so the exactness checks can't see it.
 - **Fix:** capture a scene where hints move faces, then add them to the new way.
 
-### 227. Sprites and portal fills are still C in the new face stage
-*Kind: speed (the production standard) · Size: small in the scenes so far ·
-Fix: small*
-
-- `lab/faces.cpp` facesOther. The rest of the stage is assembly.
-
 ### 229. Vertices near the camera jitter from the divide table
 *Kind: look · Size: corner error p99 1.93 → 1.31 px with an exact divide
 (crunch lab, ledge) · Fix: medium, after a decision*
@@ -3728,6 +3722,16 @@ Fix: small*
 | **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
 
 ## Closed
+
+### 227. Sprites and portal fills are still C in the new face stage
+*Closed 2026-10-30: lab/facesother.s*
+
+- Sprites, rectangles and lines (renderRect), the walk's fills and voids go
+  straight to their commands in assembly (`facesOtherAsm`); `facesOther`
+  stays as its C model. Exact on four scenes; `facesOtherCheck` compares
+  both on made-up faces of every kind with paths counted (five mutations
+  caught: a clamp, the skip test, the flip mask, a bucket's first, a
+  rectangle's corner).
 
 ### 235. The frame's rooms walk holds up the DSP's start
 *Closed 2026-10-30: the slave walks, while the master makes the draw list*

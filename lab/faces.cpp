@@ -3,6 +3,7 @@
 
 #include "faces.h"
 #include "hw.h"
+#include "scene.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -26,7 +27,7 @@ enum { FACE_TYPE_SPRITE = 6, FACE_TYPE_FILL_S, FACE_TYPE_LINE_H, FACE_TYPE_LINE_
 
 void facesListInit(CommandList &list, Command* cmds, uint32_t (*grd)[2], int32_t first, int32_t end,
                    uint16_t* heads, uint16_t* tails, const Material* materials, const uint16_t* shadeGouraud,
-                   const uint8_t* shadeLevel, ShadeCache* shade)
+                   const uint8_t* shadeLevel, ShadeCache* shade, const Sprite* sprites)
 {
     list.cmd = cmds[first].w;
     list.end = cmds[end].w;
@@ -39,6 +40,7 @@ void facesListInit(CommandList &list, Command* cmds, uint32_t (*grd)[2], int32_t
     list.shadeGouraud = shadeGouraud;
     list.shadeLevel = shadeLevel;
     list.shade = shade;
+    list.sprites = sprites;
     memset(heads, 0, (OT_SIZE + 1) * sizeof(heads[0]));
 }
 
@@ -926,7 +928,11 @@ const FaceSet* facesShadow()
     return &shadow.set;
 }
 
-void facesOther(const Face &face, const Vertex* half, const Sprite* sprites, int32_t depth, CommandList &list)
+// facesother.s's layouts
+static_assert(offsetof(CommandList, sprites) == 44 && offsetof(Face, indices) == 8 && sizeof(Sprite) == 16 &&
+              offsetof(Sprite, attr) == 6, "facesother.s's layouts");
+
+void facesOther(const Face &face, const Vertex* half, int32_t depth, CommandList &list)
 {
     if (list.cmd == list.end)
         return;
@@ -940,7 +946,7 @@ void facesOther(const Face &face, const Vertex* half, const Sprite* sprites, int
         case FACE_TYPE_SPRITE:
         {
             // a scaled sprite between the two corners, one shade
-            const Sprite &sprite = sprites[flags & FACE_TEXTURE];
+            const Sprite &sprite = list.sprites[flags & FACE_TEXTURE];
             uint32_t g = list.shadeGouraud[v0->g];
             w0 = (CMD_SCALED_SPRITE | CMD_JUMP | (sprite.attr & TEX_ATTR_DIR)) << 16;
             w[1] = pair(PMOD_ECD_OFF | PMOD_LUT16 | PMOD_GOURAUD, sprite.colr);
@@ -993,6 +999,201 @@ void facesOther(const Face &face, const Vertex* half, const Sprite* sprites, int
         }
     }
     linked(list, w0, depth);
+}
+
+// The made-up faces' check: two lists of OTHER_COMMANDS each, a pass's faces
+// more than that, into a few buckets (the first, the last, between).
+#define OTHER_COMMANDS  48
+#define OTHER_FACES     56
+#define OTHER_VERTICES  16
+#define OTHER_SPRITES   16
+#define OTHER_PASSES    64
+
+enum OtherCover
+{
+    COVER_SPRITE, COVER_FLIPPED, COVER_FILL, COVER_LINE_H, COVER_LINE_V, COVER_VOID, COVER_OTHER_TYPE,
+    COVER_SKIP_X, COVER_SKIP_Y, COVER_DRAWN, COVER_LEFT, COVER_TOP, COVER_RIGHT, COVER_BOTTOM,
+    COVER_INSIDE, COVER_FULL, COVER_FIRST, COVER_SHARED, COVER_COUNT
+};
+
+int32_t facesOtherCheck(const uint16_t* shadeGouraud)
+{
+    static const int32_t kBuckets[6] = { 0, 1, 37, 640, OT_SIZE - 2, OT_SIZE - 1 };
+    struct Side
+    {
+        CommandList list;
+        Command* cmds;
+        uint32_t (*grd)[2];
+        uint16_t* heads;
+        uint16_t* tails;
+    };
+    static Side sides[2];
+    static Vertex* vertices;
+    static Sprite* sprites;
+    if (!sprites)
+    {
+        for (Side &s : sides)
+        {
+            s.cmds = (Command*)sceneAllocLow((OTHER_COMMANDS + 1) * sizeof(Command));
+            s.grd = (uint32_t (*)[2])sceneAllocLow((OTHER_COMMANDS + 1) * 8);
+            s.heads = (uint16_t*)sceneAllocLow((OT_SIZE + 1) * sizeof(uint16_t));
+            s.tails = (uint16_t*)sceneAllocLow(OT_SIZE * sizeof(uint16_t));
+        }
+        vertices = (Vertex*)sceneAllocLow(OTHER_VERTICES * sizeof(Vertex));
+        sprites = (Sprite*)sceneAllocLow(OTHER_SPRITES * sizeof(Sprite));
+        if (!sprites || !sides[1].tails)
+            return 1;
+    }
+    uint32_t seed = 0x2B7E1516;
+    auto next = [&seed] { seed = seed * 1664525 + 1013904223; return seed >> 8; };
+    int32_t bad = 0, cover[COVER_COUNT] = {};
+    Face faces[OTHER_FACES];
+    int32_t depths[OTHER_FACES];
+    for (int32_t pass = 0; pass < OTHER_PASSES; pass++)
+    {
+        // the corners: from well off the frame to inside it, every other
+        // one small (a rectangle's size, any sign); shades within the table;
+        // the sprites' fields at random
+        int32_t reach = pass & 1 ? 1500 : 400;
+        for (int32_t k = 0; k < OTHER_VERTICES; k++)
+        {
+            Vertex &v = vertices[k];
+            if (k & 1)
+            {
+                v.x = int16_t(int32_t(next() % 400) - 40);
+                v.y = int16_t(int32_t(next() % 300) - 30);
+            }
+            else
+            {
+                v.x = int16_t(int32_t(next() % (2 * reach)) - reach + FRAME_WIDTH / 2);
+                v.y = int16_t(int32_t(next() % (2 * reach)) - reach + FRAME_HEIGHT / 2);
+            }
+            v.z = int16_t(next());
+            v.g = next() % 32;
+            v.clip = next();
+        }
+        for (int32_t k = 0; k < OTHER_SPRITES; k++)
+        {
+            Sprite &sp = sprites[k];
+            sp.srca = next();
+            sp.colr = next();
+            sp.size = next();
+            sp.attr = k & 1 ? next() : next() & ~TEX_ATTR_DIR;
+            sp.l = sp.t = sp.r = sp.b = int16_t(next());
+        }
+
+        // the faces: a sprite's, a fill's, a line's, a void's, or any type;
+        // the flags' bits past the type at random; corners anywhere
+        bool used[6] = {};
+        for (int32_t f = 0; f < OTHER_FACES; f++)
+        {
+            Face &face = faces[f];
+            uint32_t kind = next() % 8;
+            uint32_t type = kind < 3 ? 6 : kind < 6 ? 7 + kind - 3 : kind == 6 ? 11 : next() % 16;
+            uint32_t low = type == 6 ? next() % OTHER_SPRITES : next() & FACE_TEXTURE;
+            face.flags = (next() << 18) | (type << FACE_TYPE_SHIFT) | low;
+            face.next = nullptr;
+            for (int32_t i = 0; i < 4; i++) {
+                face.indices[i] = int16_t(8 * (next() % (OTHER_VERTICES / 2) * 2));
+            }
+            uint32_t b = next() % 6;
+            depths[f] = kBuckets[b];
+            if (f < OTHER_COMMANDS)
+            {
+                cover[used[b] ? COVER_SHARED : COVER_FIRST]++;
+                used[b] = true;
+            }
+        }
+
+        // each side's list over the same words, then the faces into it, in C
+        // and in assembly
+        for (int32_t s = 0; s < 2; s++)
+        {
+            Side &side = sides[s];
+            uint32_t fill = 0x9E3779B9 * uint32_t(pass + 1);
+            for (int32_t c = 0; c <= OTHER_COMMANDS; c++)
+            {
+                for (int32_t w = 0; w < 8; w++) {
+                    side.cmds[c].w[w] = fill + 77 * uint32_t(c * 8 + w);
+                }
+                side.grd[c][0] = side.grd[c][1] = ~fill + uint32_t(c);
+            }
+            facesListInit(side.list, side.cmds, side.grd, 0, OTHER_COMMANDS, side.heads, side.tails, nullptr,
+                          shadeGouraud, nullptr, nullptr, sprites);
+            for (int32_t f = 0; f < OTHER_FACES; f++)
+            {
+                if (s) {
+                    facesOtherAsm(faces + f, vertices, depths[f], &side.list);
+                } else {
+                    facesOther(faces[f], vertices, depths[f], side.list);
+                }
+            }
+        }
+        const Side &c = sides[0], &a = sides[1];
+        for (int32_t k = 0; k <= OTHER_COMMANDS; k++) {
+            bad += memcmp(c.cmds[k].w, a.cmds[k].w, sizeof(Command)) != 0 || memcmp(c.grd[k], a.grd[k], 8) != 0;
+        }
+        bad += memcmp(c.heads, a.heads, (OT_SIZE + 1) * sizeof(uint16_t)) != 0;
+        for (int32_t b = 0; b < 6; b++) {
+            bad += c.heads[kBuckets[b]] && c.tails[kBuckets[b]] != a.tails[kBuckets[b]];
+        }
+        bad += c.list.cmd - c.cmds[0].w != a.list.cmd - a.cmds[0].w || c.list.grd - c.grd[0] != a.list.grd - a.grd[0] ||
+               c.list.link != a.list.link || c.list.grdLink != a.list.grdLink;
+
+        // the paths these faces took
+        for (int32_t f = 0; f < OTHER_FACES; f++)
+        {
+            const Face &face = faces[f];
+            uint32_t type = (face.flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK;
+            if (f >= OTHER_COMMANDS)
+            {
+                cover[COVER_FULL]++;
+                continue;
+            }
+            switch (type)
+            {
+                case 6:
+                    cover[COVER_SPRITE]++;
+                    cover[COVER_FLIPPED] += (sprites[face.flags & FACE_TEXTURE].attr & TEX_ATTR_DIR) != 0;
+                    break;
+                case 7: cover[COVER_FILL]++; break;
+                case 8: cover[COVER_LINE_H]++; break;
+                case 9: cover[COVER_LINE_V]++; break;
+                default:
+                {
+                    cover[type == 11 ? COVER_VOID : COVER_OTHER_TYPE]++;
+                    const Vertex* v0 = corner(vertices, face.indices[0]);
+                    int32_t x0 = v0->x, y0 = v0->y, x1 = x0, y1 = y0;
+                    for (int32_t i = 1; i < 4; i++)
+                    {
+                        const Vertex* v = corner(vertices, face.indices[i]);
+                        x0 = min(x0, v->x);
+                        y0 = min(y0, v->y);
+                        x1 = max(x1, v->x);
+                        y1 = max(y1, v->y);
+                    }
+                    cover[COVER_LEFT] += x0 < 0;
+                    cover[COVER_TOP] += y0 < 0;
+                    cover[COVER_RIGHT] += x1 > FRAME_WIDTH - 1;
+                    cover[COVER_BOTTOM] += y1 > FRAME_HEIGHT - 1;
+                    cover[COVER_INSIDE] += x0 >= 0 && y0 >= 0 && x1 < FRAME_WIDTH && y1 < FRAME_HEIGHT;
+                    x0 = max(x0, 0);
+                    y0 = max(y0, 0);
+                    x1 = min(x1, FRAME_WIDTH - 1);
+                    y1 = min(y1, FRAME_HEIGHT - 1);
+                    cover[COVER_SKIP_X] += x0 > x1;
+                    cover[COVER_SKIP_Y] += x0 <= x1 && y0 > y1;
+                    cover[COVER_DRAWN] += x0 <= x1 && y0 <= y1;
+                }
+            }
+        }
+    }
+
+    // a path never taken counts as every face off
+    for (int32_t k = 0; k < COVER_COUNT; k++) {
+        bad += cover[k] ? 0 : OTHER_FACES;
+    }
+    return bad;
 }
 
 void facesJoin(CommandList* const* lists, int32_t count, Command* cmds, int32_t first, int32_t end)

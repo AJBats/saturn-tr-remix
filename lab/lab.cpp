@@ -157,6 +157,8 @@ struct LabResults
     uint32_t arenaSize;
     uint32_t lowUsed;           // ... of low work RAM (sceneUsedLow)
     uint32_t lowSize;
+    int32_t othersBad;          // made-up sprites, rectangles, lines and voids: facesOtherAsm not as
+                                // facesOther (and paths not taken)
 };
 
 extern "C" LabResults gLab;
@@ -546,9 +548,9 @@ static void newPrepare()
     const Material* materials = sceneArray<const Material>("NMAT");
     const uint8_t* shadeLevel = sceneArray<const uint8_t>("SHAD");
     facesListInit(gRoomList, gNewCmds, gNewGrd, 1, gMeshFirst, gHeads[0], gTails[0], materials,
-                  gameShadeGouraud(), shadeLevel, gameShadeCache(1));
+                  gameShadeGouraud(), shadeLevel, gameShadeCache(1), gSprites);
     facesListInit(gMeshList, gNewCmds, gNewGrd, gMeshFirst, MAX_CMDS - 1, gHeads[1], gTails[1], materials,
-                  gameShadeGouraud(), shadeLevel, gameShadeCache(0));
+                  gameShadeGouraud(), shadeLevel, gameShadeCache(0), gSprites);
     gSplit.top = MAX_VERTICES;
     gSplit.bottom = sceneInfo().bottom;
 
@@ -637,7 +639,11 @@ static void newMeshes(bool c, bool water = false)
         const Vertex* vertices = gVertices + d.base;
         if (d.type == DRAW_COPY)
         {
-            facesOther(gGameFaces[d.first], gVertices, gSprites, d.bucket, gMeshList);
+            if (c) {
+                facesOther(gGameFaces[d.first], gVertices, d.bucket, gMeshList);
+            } else {
+                facesOtherAsm(gGameFaces + d.first, gVertices, d.bucket, &gMeshList);
+            }
             continue;
         }
         const FaceSet* set = d.type == DRAW_SHADOW ? facesShadow()
@@ -858,7 +864,7 @@ static Stages stagesTogether(bool posed, int32_t bias)
             v[1].x = fill[k][2] - fill[k][0];
             v[1].y = fill[k][3] - fill[k][1];
             const Face face = { FACE_LINE_H, nullptr, { 0 } };
-            facesOther(face, v, gSprites, OT_SIZE - 1, gMeshList);
+            facesOtherAsm(&face, v, OT_SIZE - 1, &gMeshList);
         }
     }
     else
@@ -878,9 +884,9 @@ static Stages stagesTogether(bool posed, int32_t bias)
         {
             // a sprite's or rectangle's face: the draw list's made, the scene's copied
             if (posed) {
-                facesOther(list.faces[d.first], list.vertices + 2 * d.first, gSprites, d.bucket, gMeshList);
+                facesOtherAsm(list.faces + d.first, list.vertices + 2 * d.first, d.bucket, &gMeshList);
             } else {
-                facesOther(gGameFaces[d.first], gVertices, gSprites, d.bucket, gMeshList);
+                facesOtherAsm(gGameFaces + d.first, gVertices, d.bucket, &gMeshList);
             }
             continue;
         }
@@ -1266,6 +1272,7 @@ static void stageNew()
     gLab.newMeshes = measure([] { newPrepare(); }, [] { newMeshes(false); });
     gLab.meshCommands = facesSlot(gMeshList.link) - gMeshFirst;
     gLab.newAsmBad = newAsmCheck();
+    gLab.othersBad = facesOtherCheck(gameShadeGouraud());
     gLab.newJoin = measure([] { newPrepare(); newRooms(false); newMeshes(false); }, [] { newJoin(false); });
     gLab.newBad = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded) + gRoomTexturesShort;
     shadeTables(gNewTables, true);
@@ -1543,6 +1550,12 @@ static void newPage()
     p = put(p, gLab.newAsmBad ? "OFF" : "as C");
     p = put(p, " (");
     p = putNumber(p, gLab.newAsmBad, 0);
+    put(p, " off)");
+    page.add(line);
+    p = put(line, "sprites, fills made up: asm ");
+    p = put(p, gLab.othersBad ? "OFF" : "as C");
+    p = put(p, " (");
+    p = putNumber(p, gLab.othersBad, 0);
     put(p, " off)");
     page.add(line);
     p = put(line, "VDP1 ms: game's list");

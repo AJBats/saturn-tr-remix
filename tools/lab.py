@@ -33,7 +33,7 @@ LAB_MAGIC = 0x4C414231
 MAX_CMDS = 1792
 SHADE_CACHE = struct.Struct('>4I256I256I')      # game.h ShadeCache
 SHADE_TABLE_SIZE = 32
-LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIiIii5Ii3I5IiI3iI2iIiI2iI3iI2iI3iI2i5I2iIiII2i4I')    # lab.cpp LabResults
+LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIiIii5Ii3I5IiI3iI2iIiI2iI3iI2iI3iI2i5I2iIiII2i4Ii')    # lab.cpp LabResults
 FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSlave', 'floor',
           'facesBad', 'flushBad', 'splitBad', 'floorBad', 'vdp1Game', 'vdp1Lab', 'meshFacesGiven',
           'roomFacesGiven', 'meshFlush', 'roomFlush', 'newMeshes', 'newRooms', 'newJoin', 'newBad', 'newBadC',
@@ -50,7 +50,7 @@ FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSl
           'rooms', 'roomsBad', 'roomsSeen', 'roomsVoids', 'roomsNew', 'roomsNewBad', 'roomsSeldom',
           'frame', 'frameMaster', 'frameMasterWait', 'frameSlave', 'frameSlaveWait', 'frameBad', 'orderOff',
           'draws', 'drawsBad', 'drawCalls', 'drawsNew', 'drawsNewBad', 'drawsSeldom', 'arenaUsed', 'arenaSize',
-          'lowUsed', 'lowSize')
+          'lowUsed', 'lowSize', 'othersBad')
 TEXT_ROWS, TEXT_COLUMNS = 26, 42
 PAGE = struct.Struct(f'>{TEXT_ROWS * (TEXT_COLUMNS + 1)}s2xi')     # lab.h Page
 VRAM_FRAME_CMDS = 0x60
@@ -425,7 +425,7 @@ def main():
     sys.exit(1 if bad or differ or any(results[k] for k in ('poseBad', 'lightBad', 'poseNewBad', 'poseSeldom', 'lightNewBad', 'lightSeldom', 'staticsBad',
                                               'staticsNewBad', 'staticsSeldom', 'roomsBad', 'roomsNewBad', 'drawsBad', 'drawsNewBad',
                                               'drawsSeldom',
-                                              'roomsSeldom', 'vertsBad', 'newVertsBad', 'newVertsSeldom', 'dspRoomsBad', 'dspMeshesBad', 'dspMeshes3Bad', 'feedBad', 'togetherBad', 'stagesBad', 'frameBad', 'facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newAsmBad'))
+                                              'roomsSeldom', 'vertsBad', 'newVertsBad', 'newVertsSeldom', 'dspRoomsBad', 'dspMeshesBad', 'dspMeshes3Bad', 'feedBad', 'togetherBad', 'stagesBad', 'frameBad', 'facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newAsmBad', 'othersBad'))
              else 0)
 
 
