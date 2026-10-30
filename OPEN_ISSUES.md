@@ -3574,16 +3574,6 @@ built · Fix: medium*
 - **Levers:** load the mesh program without the CPU's hand-off; start the DSP
   earlier, overlapping pose or the previous frame's end.
 
-### 226. The new face stage doesn't apply the draw order hints
-*Kind: correctness · Fix: medium*
-
-- `saturn/depth_hints.txt` (06107f4) moves some of the master's faces to other
-  buckets. The game's way in the lab applies the moves (the scene's MOVE
-  chunk); the new way (`lab/facesmesh.s`) doesn't.
-- No captured scene has a hinted face yet (ledge, pool, wolves, wolves_aim: 0
-  moved), so the exactness checks can't see it.
-- **Fix:** capture a scene where hints move faces, then add them to the new way.
-
 ### 229. Vertices near the camera jitter from the divide table
 *Kind: look · Size: corner error p99 1.93 → 1.31 px with an exact divide
 (crunch lab, ledge) · Fix: medium, after a decision*
@@ -3684,6 +3674,12 @@ Fix: small*
   the plan 5.3k (0.18 ms), the share and the claims 0.8k. The jobs' pass is
   a lever of its own: `drawsAsm` could write each mesh's job (out, parts,
   transform) as it writes the draw, with the draw's lines still in hand.
+- The draw order hints (a0a4c24) cost the draw list ~0.08 ms at the ledge
+  (each model's and static's call tests its thing's bit), and a hinted
+  mesh's faces are found and held in C after `facesMeshAsm` (~0.15 ms with
+  LEVEL1's stamped icicle and planks on screen; render.cpp's own hints cost
+  ~0.2 ms there). Both could be asm: the bit test inside the model and
+  static handlers, the holding beside `facesmesh.s`.
 
 ### 239. The new renderer's RAM in TRS isn't budgeted yet
 *Kind: coverage · Size: TRS's high work RAM has ~31 KB free at the ledge
@@ -3749,6 +3745,18 @@ field's vblank-in by ~2.5 ms and the frame takes three fields (50.15 ms,
 | **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
 
 ## Closed
+
+### 226. The new face stage doesn't apply the draw order hints
+*Closed 2026-10-30: lab/hints.cpp, a0a4c24*
+
+- Both ways apply `saturn/depth_hints.txt` as render.cpp does: the game's
+  way holds and places faces with render.cpp's own logic, now checked in
+  the buckets the capture left them in; the new way's draw list records the
+  calls whose thing may be hinted, holds those meshes' named faces after
+  `facesMeshAsm` and places them once the room they go behind is projected.
+- Scene `hints` (the depth cases' feet spot) moves 2 icicle faces; exact on
+  six scenes, mutations caught, the chains' surgery checked at random
+  (`facesChainCheck`).
 
 ### 227. Sprites and portal fills are still C in the new face stage
 *Closed 2026-10-30: lab/facesother.s*
