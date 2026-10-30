@@ -2992,6 +2992,12 @@ void renderRoom(Room* room);
 void depthHintsBegin(Room* const* visible);
 void depthHintsEnd();
 void depthHintObject(int32 kind, int32 owner, int32 index);
+// While a frame is captured for the render lab (saturn/capture.h): the
+// renderer's calls as the game makes them.
+extern bool gCaptureRecording;
+void captureModelCall(const ItemObj* item);
+void captureStaticCall(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz);
+void captureShadowCall(const ItemObj* item, int32 floor);
 void renderRoomsQueued();
 bool roomStaticsQueued(const Room* room);   // its static meshes go with it (to the slave)
 bool claimItem(const ItemObj* item);        // this CPU draws it: the other hasn't taken it

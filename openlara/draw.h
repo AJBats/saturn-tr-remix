@@ -237,6 +237,9 @@ void drawShadow(const ItemObj* item, int32 size)
 {
     const Sector* sector = item->room->getSector(item->pos.x, item->pos.z);
     int32 floor = sector->getFloor(item->pos.x, item->pos.y, item->pos.z);
+    if (gCaptureRecording) {
+        captureShadowCall(item, floor);
+    }
 
     if (floor == WALL)
         return;
@@ -649,6 +652,9 @@ void drawLaraNodesLerp(const ItemObj* lara, const AnimFrame* frameA, const AnimF
 
 void drawModel(const ItemObj* item)
 {
+    if (gCaptureRecording) {
+        captureModelCall(item);
+    }
     const AnimFrame *frameA, *frameB;
     
     int32 frameRate;
@@ -759,6 +765,9 @@ void queueRoom(Room* room)
 // of the rooms queued for it (roomStaticsQueued), after their faces.
 void drawRoomStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz)
 {
+    if (gCaptureRecording) {
+        captureStaticCall(mesh, rx, ry, rz);
+    }
 #ifdef NO_STATIC_MESH_PLANTS
     if (STATIC_MESH_ID(mesh->zf) < 10)
         return;

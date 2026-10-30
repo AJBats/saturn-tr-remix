@@ -7,7 +7,11 @@
 // What is recorded is what the renderer is given: each room queued with its
 // matrix and window, each object begun, each mesh, static mesh, shadow and
 // sprite drawn with the matrix and light it was drawn with; then the ordering
-// tables flush is given, and the camera.
+// tables flush is given, and the camera. Beside them the renderer's calls as
+// the game makes them, before the renderer's own tests: each item's model
+// (drawModel), room static (drawRoomStatic), shadow (drawShadow, with the
+// floor the sector data gave) and rectangle (renderRect: the walk's fills,
+// then the HUD's), and each viewport set.
 // While recording, every object is the master's (as for the polygon hunt), so
 // the records come in the order the master draws them.
 #ifndef CAPTURE_H
@@ -16,7 +20,8 @@
 #include "render.h"
 
 enum CaptureRequest { CAPTURE_NONE, CAPTURE_ARM, CAPTURE_RELEASE };
-enum CaptureType { CAP_ROOM = 1, CAP_OBJECT, CAP_MESH, CAP_STATIC, CAP_SHADOW, CAP_SPRITE };
+enum CaptureType { CAP_ROOM = 1, CAP_OBJECT, CAP_MESH, CAP_STATIC, CAP_SHADOW, CAP_SPRITE,
+                   CAP_VIEWPORT, CAP_MODEL, CAP_STATIC_CALL, CAP_SHADOW_CALL, CAP_RECT };
 
 // A thing drawn.
 struct CaptureRecord
@@ -32,8 +37,13 @@ struct CaptureRecord
     const Vertex* base;     // its vertices, as drawn
     const Face* first;      // and its first face
     int32 extra[4];         // a room's window x0 y0 x1 y1; an object's kind and owner;
-                            // a shadow's x z sx sz; a sprite's vx vy vz vg
+                            // a shadow's x z sx sz; a sprite's vx vy vz vg; a viewport's
+                            // x0 y0 x1 y1; a shadow call's floor; a rectangle's x y width height
 };
+// A call's record: a model's item (index) with the animation and frame it
+// was drawn with (ambient, range: an item's draw may swap them) and its type
+// (light.x); a static's RoomMesh (ref) and place from the camera (light); a
+// rectangle's type, colour (ambient, range) and bucket (light.x).
 
 // The frame, in front of its records.
 struct CaptureHeader
@@ -90,6 +100,8 @@ void captureDraw(CaptureType type, const void* ref, const Vertex* base, const Fa
                  int32 e0, int32 e1, int32 e2, int32 e3);
 void captureOrdered(Face* const* roomOT, const uint16* roomGroups, Face* const* meshOT, const uint16* meshGroups,
                     int32 farShare, uint32 shadeFrame);
+void captureViewport(const RectMinMax &vp);
+void captureRect(int32 x, int32 y, int32 width, int32 height, uint32 type, uint16 color, int32 z);
 void captureFlushed(int32 faces);
 
 #endif

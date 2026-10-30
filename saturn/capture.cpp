@@ -62,10 +62,12 @@ void captureHold()
     traceResume();
 }
 
-// The next record, or NULL when there is no room left; its matrix and light
-// are the drawing CPU's now.
+// The next record, or NULL when there is no room left (or on the slave: the
+// records are the master's); its matrix and light are the drawing CPU's now.
 static CaptureRecord* record(CaptureType type, const void* ref)
 {
+    if (cpuState()->slave)
+        return NULL;
     if (gCapture->count == gCapacity)
     {
         gCapture->overflow = 1;
@@ -129,6 +131,66 @@ void captureDraw(CaptureType type, const void* ref, const Vertex* base, const Fa
     r->extra[1] = e1;
     r->extra[2] = e2;
     r->extra[3] = e3;
+}
+
+void captureViewport(const RectMinMax &vp)
+{
+    CaptureRecord* r = record(CAP_VIEWPORT, NULL);
+    if (r)
+    {
+        r->extra[0] = vp.x0;
+        r->extra[1] = vp.y0;
+        r->extra[2] = vp.x1;
+        r->extra[3] = vp.y1;
+    }
+}
+
+void captureModelCall(const ItemObj* item)
+{
+    CaptureRecord* r = record(CAP_MODEL, item);
+    if (r)
+    {
+        r->index = item - items;
+        r->ambient = item->animIndex;
+        r->range = item->frameIndex;
+        r->light.x = item->type;
+    }
+}
+
+void captureStaticCall(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz)
+{
+    CaptureRecord* r = record(CAP_STATIC_CALL, mesh);
+    if (r)
+    {
+        r->light.x = rx;
+        r->light.y = ry;
+        r->light.z = rz;
+    }
+}
+
+void captureShadowCall(const ItemObj* item, int32 floor)
+{
+    CaptureRecord* r = record(CAP_SHADOW_CALL, item);
+    if (r)
+    {
+        r->index = item - items;
+        r->extra[0] = floor;
+    }
+}
+
+void captureRect(int32 x, int32 y, int32 width, int32 height, uint32 type, uint16 color, int32 z)
+{
+    CaptureRecord* r = record(CAP_RECT, NULL);
+    if (r)
+    {
+        r->extra[0] = x;
+        r->extra[1] = y;
+        r->extra[2] = width;
+        r->extra[3] = height;
+        r->ambient = type;
+        r->range = color;
+        r->light.x = z;
+    }
 }
 
 void captureOrdered(Face* const* roomOT, const uint16* roomGroups, Face* const* meshOT, const uint16* meshGroups,

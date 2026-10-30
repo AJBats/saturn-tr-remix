@@ -77,6 +77,9 @@ static volatile vdp1_cmd_t* const gVdp1Cmds = (volatile vdp1_cmd_t*)VDP1_VRAM;
 void setViewport(const RectMinMax &vp)
 {
     viewport = vp;
+    if (gCaptureRecording) {
+        captureViewport(vp);
+    }
 }
 
 // Meshes drawn while this is set (items in water rooms, or everything while
@@ -2497,6 +2500,9 @@ void renderGlyph(int32 vx, int32 vy, int32 index)
 
 static void renderRect(int32 x, int32 y, int32 width, int32 height, uint32 type, uint16 color, int32 z)
 {
+    if (gCaptureRecording) {
+        captureRect(x, y, width, height, type, color, z);
+    }
     if (gVerticesBase - gVertices + 2 > MASTER_VERTICES || gFaceList.next - gFaces + 1 > MAX_FACES)
     {
         ASSERT(false);

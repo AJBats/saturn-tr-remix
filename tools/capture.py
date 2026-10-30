@@ -52,7 +52,8 @@ RECORD = struct.Struct('>BBHI12i2i3iIII4i')     # CaptureRecord, 104 bytes
 OT_SIZE = 1281
 OT_GROUPS = 41
 ORDER = struct.Struct(f'>{OT_SIZE}I{OT_SIZE}I{OT_GROUPS}H{OT_GROUPS}HiII')    # CaptureOrder, 10424 bytes
-TYPES = {1: 'room', 2: 'object', 3: 'mesh', 4: 'static', 5: 'shadow', 6: 'sprite'}
+TYPES = {1: 'room', 2: 'object', 3: 'mesh', 4: 'static', 5: 'shadow', 6: 'sprite',
+         7: 'viewport', 8: 'model', 9: 'static call', 10: 'shadow call', 11: 'rect'}
 MESH = struct.Struct('>3hhHBBhhhh')             # Mesh (common.h), 20 bytes
 SPRITE_BYTES = 16                               # Sprite (common.h)
 DEFAULT_KEYS = '1500:R,R,R,R'                   # trace.py's: the HW_LOG overlay paged away
@@ -291,6 +292,16 @@ def records(mem, syms):
         elif kind == 6:
             r['sprite'] = (ref - sprites) // SPRITE_BYTES
             r['position'], r['g'] = extra[:3], extra[3]
+        elif kind == 7:
+            r['window'] = extra
+        elif kind == 8:
+            r['item'], r['anim'], r['frame'], r['itemType'] = index, ambient, rng, lx
+        elif kind == 9:
+            r['place'] = [lx, ly, lz]
+        elif kind == 10:
+            r['item'], r['floor'] = index, extra[0]
+        elif kind == 11:
+            r['rect'], r['rectType'], r['colour'], r['bucket'] = extra, ambient, rng, lx
         out.append(r)
     # the faces each drew: up to the next draw's first
     draws = [r for r in out if r['type'] in ('mesh', 'static', 'shadow', 'sprite')]
