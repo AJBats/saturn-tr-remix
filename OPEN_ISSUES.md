@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-231 | Rendering: the new renderer's open work |
+| 219-232 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3620,6 +3620,16 @@ Fix: small*
 - Shrunk object faces are 13% of a frame's VDP1 time at one spot and 31% among
   plants, but mips would save only 1.5-5%: most of their cost is per line, on
   small faces. They would also take VRAM from the room texture cache.
+
+### 232. Light: the divider's waits and the square root
+*Kind: speed · Size: about 0.1-0.15 ms of the new light's 0.64 (estimated) ·
+Fix: small*
+
+- `lab/pose.s` (poseLightAsm) waits on the SH-2's divider for each light, and
+  three times for the light's direction: about 15% of its time. phd_sqrt's 16
+  bit-pair steps take about another 15%.
+- **Fix:** overlap each divide with the next light's arithmetic, and the
+  direction's divides with the view's products; a shorter exact square root.
 
 ---
 
