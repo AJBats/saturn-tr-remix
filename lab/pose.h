@@ -73,7 +73,6 @@ void poseInit();
 // The items, lights, statics and shadows posed: a draw list's (draws.h, its
 // frames as places; its draw i the scene's i + fills, the walk's fills
 // coming first there), or (nullptr) the scene's; false: more items than room.
-struct DrawList;
 bool poseUse(const DrawList* list, int32_t fills = 0);
 DrawXform* poseXforms();
 

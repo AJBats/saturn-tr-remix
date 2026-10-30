@@ -11,40 +11,13 @@
 #include <stdint.h>
 
 #include "textures.h"
+#include "types.h"
 
-#define ALIGN16 __attribute__((aligned(16)))
+using namespace render;
 
-struct Vertex
-{
-    union
-    {
-        struct
-        {
-            int16_t x;
-            int16_t y;
-        };
-        uint32_t xy;
-    };
-    int16_t z;
-    uint8_t g;
-    uint8_t clip;
-};
-
-struct Face
-{
-    uint32_t flags;
-    Face* next;
-    int16_t indices[4];     // corners: byte offsets in their CPU's half of gVertices
-};
-
-#define MAX_VERTICES    (5 * 1024)
-#define MASTER_VERTICES 2048
 #define gSlaveVertices  (gVertices + MASTER_VERTICES)
 #define MAX_FACES       1920
-#define MAX_CMDS        1792    // VRAM_MAX_CMDS
 
-#define OT_SHIFT        4
-#define OT_SIZE         1281
 #define OT_GROUP_SHIFT  5
 #define OT_GROUPS       ((OT_SIZE >> OT_GROUP_SHIFT) + 1)
 
@@ -56,84 +29,16 @@ struct FaceList
     uint16_t groups[OT_GROUPS];
 };
 
-struct RoomQuad
-{
-    uint32_t flags;
-    uint16_t indices[4];    // byte offsets into the room's vertices
-};
-
-struct RoomVertex
-{
-    uint8_t x, y, z, g;
-};
-
-struct MeshVertex
-{
-    int16_t x, y, z;
-};
-
 struct MeshQuad
 {
     uint16_t flags;
     uint8_t indices[4];
 };
 
-struct Texture
-{
-    uint16_t srca, colr, size, attr, color, reserved, altColor, contrast;
-};
-
-struct Sprite
-{
-    uint16_t srca, colr, size, attr;
-    int16_t l, t, r, b;
-};
-
-// The room texture cache (saturn/detail.h): slots in VDP1 VRAM holding the
-// room textures in use, whole, in quadrants for a split quad, transposed, or
-// at half or a quarter of their size; a texture's key is Texture.reserved - 1.
-#define DETAIL_MAX_KEYS     1088
-#define DETAIL_SLOT_SIZE    2048
-#define DETAIL_FULL_SLOTS   128
-#define DETAIL_MIP_SLOTS    64
-enum DetailVariant { DETAIL_WHOLE, DETAIL_QUADS, DETAIL_TURNED, DETAIL_MIP1, DETAIL_MIP1_TURNED, DETAIL_MIP2,
-                     DETAIL_MIP2_TURNED, DETAIL_VARIANTS };
-
-struct DetailSlot
-{
-    uint16_t key;           // the texture's key, its variant << 12
-    uint32_t frame;         // last drawn
-};
-
-// The CPUs' caches of shaded copies of colour tables (render.cpp): a copy of
-// a face's table with a gouraud value added to its colours draws as gouraud
-// would, all corners taking that value, without its cost. Two-way set
-// associative by table and value, in VDP1 VRAM.
-struct ShadeCache
-{
-    uint32_t frame;         // the frame being built
-    uint32_t validFrom;     // copies drawn before this frame are stale
-    uint32_t vram;          // the copies' VDP1 VRAM offset; 0: none
-    uint32_t (*miss)(ShadeCache* cache, uint32_t key, uint32_t index);
-    uint32_t keys[256];     // table address / 8 << 15 | gouraud value
-    uint32_t frames[256];   // last drawn
-};
-
-#define SHADE_TABLE_SIZE 32
-
 // A copy for the key, in the pair of slots holding index whose copy was drawn
 // longest ago, unless both are drawn this frame or the last: its table
 // address / 8, or 0.
 uint32_t shadeTableMiss(ShadeCache* cache, uint32_t key, uint32_t index);
-
-// Command words: ctrl|link, pmod|colr, srca|size, A, B, C, D, grda|0.
-union Command
-{
-    uint32_t w[8];
-};
-
-#define VRAM_FRAME_CMDS     0x00060
-#define VRAM_GOURAUD_BASE   (VRAM_FRAME_CMDS + MAX_CMDS * 32)
 
 extern Vertex gVertices[MAX_VERTICES];
 extern Command gCmds[MAX_CMDS];
@@ -176,10 +81,6 @@ int32_t gameLightCheck();
 // the floor's lookup aside), by draw; against the capture's (XFRM): those
 // that differ (statics, shadows: how many), made: the new way's, or none for
 // the game's way's. Run on others: the shadows' items' light by item.
-struct DrawXform;
-struct PoseItem;
-struct PoseStatic;
-struct PoseShadow;
 void gameStaticsInit();
 void gameStatics();
 int32_t gameStaticsCheck(const DrawXform* made, int32_t &statics, int32_t &shadows);
@@ -192,7 +93,6 @@ void gameStaticsRun(const PoseStatic* statics, uint32_t statCount, const PoseSha
 // queued; Check the rooms that differ from the capture's (list, windows,
 // matrices; seen: another's, or none for the game's way's), voids: the fills
 // past the draw distance the walk made.
-struct RoomSeen;
 int32_t gameRoomsInit();
 void gameRooms();
 int32_t gameRoomsCheck(const RoomSeen* seen, int32_t count, int32_t &voids);
@@ -221,29 +121,6 @@ int32_t gameRoomJobsCheck(const FaceRoom* jobs, int32_t count);
 // Init: the calls; gameDraws after fills of the walk's (their vertices
 // first); the check against the scene's (DRAW past its fills, POSE, PLIT,
 // STAT, SHDW, the hinted calls' things against DTHG): those that differ.
-struct DrawScene;
-struct HintedCall;
-struct PoseItem;
-struct PoseLight;
-struct PoseStatic;
-struct PoseShadow;
-struct DrawList
-{
-    DrawScene* draws;
-    uint32_t drawCount;
-    PoseItem* items;
-    PoseLight* lights;
-    uint32_t itemCount;
-    PoseStatic* statics;
-    uint32_t staticCount;
-    PoseShadow* shadows;
-    uint32_t shadowCount;
-    Face* faces;
-    Vertex* vertices;
-    uint32_t faceCount;
-    HintedCall* hinted;
-    uint32_t hintedCount;
-};
 int32_t gameDrawsInit();
 void gameDrawsHints(const uint32_t masks[2]);
 void gameDraws(int32_t fills);
@@ -252,28 +129,21 @@ int32_t gameDrawsCheck(const DrawList &list, int32_t fills);
 
 // The game's way on other calls, items and animations, into out's arrays
 // (room enough for them).
-struct CallRecord;
-struct ItemRecord;
-struct GameAnim;
 void gameDrawsRun(const CallRecord* calls, uint32_t count, ItemRecord* items, const GameAnim* anims, int32_t fills,
                   DrawList &out);
 
 // The game's jobs for a list of rooms, with another level, camera room and
 // camera: the jobs made.
-struct RoomLevel;
 int32_t gameRoomJobsRun(const RoomLevel* level, const RoomSeen* seen, int32_t count, uint32_t cameraRoom,
                         const int32_t* camera, FaceRoom* jobs);
 
 // The game's light on other items, rooms (PLIT's layout), lights (LGHT's)
 // and frames, by item to out.
-struct PoseItem;
-struct PoseLight;
 void gameLightRun(const PoseItem* items, const PoseLight* rooms, const void* lights, uint32_t count,
                   const uint8_t* frames, GameLight* out);
 
 // The game's way on other items, nodes and frames (PNOD's and PFRM's
 // layouts), the matrices (12 int32 each) to out by draw.
-struct PoseItem;
 void gamePoseRun(const PoseItem* items, uint32_t count, const uint8_t* nodes, const uint8_t* frames, void* out);
 
 // Stage 2 the game's way (gamevertices.cpp): the rooms' vertices (xform.s)

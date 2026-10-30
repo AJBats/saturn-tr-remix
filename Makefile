@@ -200,11 +200,11 @@ LAB_SRC := $(wildcard lab/*.cpp lab/*.s) saturn/font.cpp saturn/cd.cpp saturn/ds
 LAB_DSP := $(patsubst lab/gen_%.py,$(LAB)/gen/%_dsp.h,$(wildcard lab/gen_*.py)) $(LAB)/gen/meshlight3_dsp.h
 # -g: lines for profiles (tools/lab.py's trace), and the assembly's local
 # labels kept, for the places inside its macros; the code is the same without
-LAB_FLAGS := -m2 -mb -O2 -g -Wall -Ilab -Isaturn -I$(LAB)/gen -ffunction-sections
+LAB_FLAGS := -m2 -mb -O2 -g -Wall -Ilab -Irenderer -Isaturn -I$(LAB)/gen -ffunction-sections
 LAB_CXXFLAGS := $(LAB_FLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
 	-fno-asynchronous-unwind-tables
 
-$(LAB)/obj/%.cpp.o: %.cpp $(wildcard lab/*.h) saturn/hw.h saturn/font.h saturn/cd.h saturn/dsp.h $(LAB_DSP) \
+$(LAB)/obj/%.cpp.o: %.cpp $(wildcard lab/*.h renderer/*.h) saturn/hw.h saturn/font.h saturn/cd.h saturn/dsp.h $(LAB_DSP) \
 		| check-toolchain
 	@mkdir -p $(@D)
 	$(CXX) $(LAB_CXXFLAGS) -c $< -o $@
