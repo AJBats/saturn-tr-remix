@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-232 | Rendering: the new renderer's open work |
+| 219-233 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3630,6 +3630,18 @@ Fix: small*
   bit-pair steps take about another 15%.
 - **Fix:** overlap each divide with the next light's arithmetic, and the
   direction's divides with the view's products; a shorter exact square root.
+
+### 233. The draws' meshes run on the master alone
+*Kind: speed · Size: the pool's frame is 3.98 ms with the slave idle 2.4 ms
+(measured) · Fix: medium*
+
+- In the frame (stages 1-3 together) the master projects every draw's mesh
+  and adds its faces; the slave takes rooms and, when the master is the
+  heavier, some items' pose. A scene with few rooms and many meshes (the pool:
+  1 room) leaves the slave idle.
+- **Fix:** let the slave take draws too: mesh jobs claimed from the end, as
+  the room chunks are, their faces into its own list of buckets, kept in the
+  game's order by the join.
 
 ---
 
