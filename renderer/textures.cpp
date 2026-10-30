@@ -1,42 +1,25 @@
 // The room texture cache's misses and uploads (textures.h): saturn/detail.cpp
-// detailSlotMiss and detailUpload, on the scene's cache and room texture set.
+// detailSlotMiss and detailUpload.
 
 #include "textures.h"
-#include "game.h"
-#include "hw.h"
 #include "platform.h"
-#include "scene.h"
 
 #include <string.h>
 
+namespace render {
+
 #define DETAIL_UNIT     256     // Texture.reserved = full-res offset / DETAIL_UNIT + 1
-#define DETAIL_SLOTS    (DETAIL_FULL_SLOTS + 2 * DETAIL_MIP_SLOTS)
 #define NO_KEY          0xFFFF
 #define VARIANT_SHIFT   12      // DetailSlot.key
 #define KEY_MASK        0xFFF
 #define UPLOAD_OFFSET   0x00FFFFFF
 #define UPLOAD_VARIANT  24
 
-// The room texture set's layout (RTXI).
-struct TextureSet
-{
-    uint32_t levels[3];     // each level's offset in the set: full res, half, quarter
-    uint32_t dataSize;      // the full-res set's bytes (detail.cpp gDataSize)
-    int32_t pools[3];       // each level's pool's slots (gPoolCount)
-};
-
 static const uint32_t kSlotSize[3] = { DETAIL_SLOT_SIZE, DETAIL_SLOT_SIZE / 4, DETAIL_SLOT_SIZE / 16 };
 
-static const uint8_t* gSet;             // RTEX, in low work RAM
-static const TextureSet* gLayout;
-static uint32_t gPoolVram[3];
-static uint8_t (*gKeys)[DETAIL_MAX_KEYS];           // the cache: DKEY
-static DetailSlot* gSlots;                          // DSLT
-static const uint8_t (*gKeysFound)[DETAIL_MAX_KEYS];    // as the frame found it: DKY0
-static const DetailSlot* gSlotsFound;               // DSL0
-static uint8_t (*gKeysLeft)[DETAIL_MAX_KEYS];       // as the game's frame left it (low work RAM)
-static DetailSlot* gSlotsLeft;
-static TextureQueue gCaptured;
+static TextureSet gSet;
+static uint8_t gKeys[DETAIL_VARIANTS][DETAIL_MAX_KEYS];
+static DetailSlot gSlots[DETAIL_SLOTS];
 
 // Two staging buffers: one filled while the SCU's DMA reads the other.
 static uint8_t gStaging[2][DETAIL_SLOT_SIZE] __attribute__((aligned(16)));
@@ -51,36 +34,26 @@ static inline uint32_t detailPoolStart(uint32_t level)
     return level ? DETAIL_FULL_SLOTS + (level - 1) * DETAIL_MIP_SLOTS : 0;
 }
 
-void texturesInit()
+uint8_t (*texturesKeys())[DETAIL_MAX_KEYS]
 {
-    const SceneInfo &info = sceneInfo();
-    gSet = sceneArray<const uint8_t>("RTEX");
-    gLayout = sceneArray<const TextureSet>("RTXI");
-    for (int32_t l = 0; l < 3; l++) {
-        gPoolVram[l] = info.poolVram[l];
-    }
-    gKeys = (uint8_t (*)[DETAIL_MAX_KEYS])sceneChunk("DKEY");
-    gSlots = sceneArray<DetailSlot>("DSLT");
-    gKeysFound = (const uint8_t (*)[DETAIL_MAX_KEYS])sceneChunk("DKY0");
-    gSlotsFound = sceneArray<const DetailSlot>("DSL0");
-    gKeysLeft = (uint8_t (*)[DETAIL_MAX_KEYS])sceneAllocLow(DETAIL_VARIANTS * DETAIL_MAX_KEYS);
-    gSlotsLeft = (DetailSlot*)sceneAllocLow(DETAIL_SLOTS * sizeof(DetailSlot));
-    memcpy(gKeysLeft, gKeys, DETAIL_VARIANTS * DETAIL_MAX_KEYS);
-    memcpy(gSlotsLeft, gSlots, DETAIL_SLOTS * sizeof(DetailSlot));
-    memcpy(&gCaptured, sceneChunk("DUPL"), sizeof(gCaptured));
+    return gKeys;
 }
 
-void texturesReset()
+DetailSlot* texturesSlots()
 {
-    memcpy(gKeys, gKeysFound, DETAIL_VARIANTS * DETAIL_MAX_KEYS);
-    memcpy(gSlots, gSlotsFound, DETAIL_SLOTS * sizeof(DetailSlot));
+    return gSlots;
+}
+
+void texturesInit(const TextureSet &set)
+{
+    gSet = set;
 }
 
 int32_t texturesMiss(TextureQueue &queue, uint32_t frame, uint32_t key, uint32_t texSize, uint32_t variant)
 {
     uint32_t w = (texSize >> 8) * 16;   // the whole texture's
     uint32_t h = (texSize & 0xFF) * 2;
-    if (key >= DETAIL_MAX_KEYS || key * DETAIL_UNIT + w * h / 2 > gLayout->dataSize)
+    if (key >= DETAIL_MAX_KEYS || key * DETAIL_UNIT + w * h / 2 > gSet.dataSize)
         return -1;
 
     uint32_t level = detailLevel(variant);
@@ -93,7 +66,7 @@ int32_t texturesMiss(TextureQueue &queue, uint32_t frame, uint32_t key, uint32_t
     DetailSlot* pool = gSlots + detailPoolStart(level);
     int32_t victim = -1;
     uint32_t oldest = frame;
-    for (int32_t i = 0; i < gLayout->pools[level]; i++)
+    for (int32_t i = 0; i < gSet.pools[level]; i++)
     {
         if (pool[i].frame < oldest)
         {
@@ -113,8 +86,8 @@ int32_t texturesMiss(TextureQueue &queue, uint32_t frame, uint32_t key, uint32_t
     gKeys[variant][key] = victim + 1;
 
     TextureUpload &upload = queue.uploads[queue.count++];
-    upload.src = gLayout->levels[level] + ((key * DETAIL_UNIT) >> (2 * level));
-    upload.dst = (gPoolVram[level] + victim * kSlotSize[level]) | (variant << UPLOAD_VARIANT);
+    upload.src = gSet.levels[level] + ((key * DETAIL_UNIT) >> (2 * level));
+    upload.dst = (gSet.poolVram[level] + victim * kSlotSize[level]) | (variant << UPLOAD_VARIANT);
     upload.size = (w << 16) | h;
     return victim;
 }
@@ -180,10 +153,9 @@ static void transpose(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h)
     }
 }
 
-// An upload's texture as its slot holds it, into dst: its bytes.
-static uint32_t staged(uint8_t* dst, const TextureUpload &upload)
+uint32_t texturesStaged(uint8_t* dst, const TextureUpload &upload)
 {
-    const uint8_t* src = gSet + upload.src;
+    const uint8_t* src = gSet.data + upload.src;
     uint32_t variant = upload.dst >> UPLOAD_VARIANT;
     uint32_t w = upload.size >> 16, h = upload.size & 0xFFFF;
     uint32_t size = w * h / 2;
@@ -205,7 +177,7 @@ uint32_t texturesUpload(const TextureQueue &queue)
     {
         const TextureUpload &upload = queue.uploads[i];
         uint32_t t0 = ticks();
-        uint32_t size = staged(gStaging[buffer], upload);
+        uint32_t size = texturesStaged(gStaging[buffer], upload);
         cycles += ticksCycles(t0, ticks());
         dmaToVdp1(gStaging[buffer], upload.dst & UPLOAD_OFFSET, size);
         buffer ^= 1;
@@ -214,48 +186,4 @@ uint32_t texturesUpload(const TextureQueue &queue)
     return cycles;
 }
 
-const TextureQueue& texturesCaptured()
-{
-    return gCaptured;
-}
-
-int32_t texturesQueueOff(const TextureQueue &a, const TextureQueue &b)
-{
-    if (a.count != b.count)
-        return a.count > b.count ? a.count : b.count;
-    int32_t off = 0;
-    for (int32_t i = 0; i < a.count; i++) {
-        off += memcmp(a.uploads + i, b.uploads + i, sizeof(TextureUpload)) != 0;
-    }
-    return off;
-}
-
-int32_t texturesStateOff()
-{
-    int32_t off = 0;
-    for (int32_t v = 0; v < DETAIL_VARIANTS; v++) {
-        for (int32_t k = 0; k < DETAIL_MAX_KEYS; k++) {
-            off += gKeys[v][k] != gKeysLeft[v][k];
-        }
-    }
-    for (int32_t i = 0; i < DETAIL_SLOTS; i++) {
-        off += gSlots[i].key != gSlotsLeft[i].key || gSlots[i].frame != gSlotsLeft[i].frame;
-    }
-    return off;
-}
-
-int32_t texturesVramOff(const TextureQueue &queue)
-{
-    int32_t off = 0;
-    for (int32_t i = 0; i < queue.count; i++)
-    {
-        const TextureUpload &upload = queue.uploads[i];
-        uint32_t size = staged(gStaging[0], upload);
-        const volatile uint32_t* vram = (const volatile uint32_t*)(VDP1_VRAM + (upload.dst & UPLOAD_OFFSET));
-        const uint32_t* want = (const uint32_t*)gStaging[0];
-        for (uint32_t k = 0; k < size / 4; k++) {
-            off += vram[k] != want[k];
-        }
-    }
-    return off;
 }

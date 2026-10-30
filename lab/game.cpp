@@ -5,6 +5,7 @@
 #include "game.h"
 #include "faces.h"
 #include "hints.h"
+#include "labrender.h"
 #include "platform.h"
 #include "scene.h"
 #include "hw.h"
@@ -1522,8 +1523,8 @@ void gameInit()
         gShadeCaches[i].miss = shadeTableMiss;
         gRefShadeCaches[i] = gShadeCaches[i];
     }
-    gDetailKeys = (uint8_t (*)[DETAIL_MAX_KEYS])sceneChunk("DKEY");
-    gDetailSlots = sceneArray<DetailSlot>("DSLT");
+    gDetailKeys = texturesKeys();
+    gDetailSlots = texturesSlots();
     gDetailFrame = gInfo->detailFrame;
     gDivTable = sceneArray<const uint16_t>("DIVT");
     gRooms = sceneArray<const RoomScene>("ROOM");
@@ -1541,6 +1542,6 @@ void gameInit()
     hintsMasks(masks);
     gameDrawsHints(masks);
     gTexturePmod = gInfo->texturePmod;
-    texturesInit();
+    texturesLabInit();
 }
 

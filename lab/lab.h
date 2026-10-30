@@ -4,7 +4,7 @@
 
 #include <stdint.h>
 
-#include "platform.h"
+#include "labplatform.h"
 #include "scene.h"
 
 // A page of results: rows of text.

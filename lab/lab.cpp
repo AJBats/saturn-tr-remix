@@ -37,7 +37,7 @@
 #include "pose.h"
 #include "rooms.h"
 #include "hints.h"
-#include "textures.h"
+#include "labrender.h"
 #include "vertices.h"
 #include "hw.h"
 
@@ -662,8 +662,8 @@ static void newRoomsInit()
     RoomTextures &t = gRoomTextures;
     t.textures = sceneArray<const Texture>("TEXS");
     t.palette = sceneArray<const uint16_t>("PALT");
-    t.keys = (uint8_t (*)[DETAIL_MAX_KEYS])sceneChunk("DKEY");
-    t.slots = (DetailSlot*)sceneChunk("DSLT");
+    t.keys = texturesKeys();
+    t.slots = texturesSlots();
     t.frame = info.detailFrame;
     t.lod = info.lod;
     t.pmod = info.texturePmod;
@@ -1280,8 +1280,8 @@ static void stageRun()
 {
     // what the frames change: the list, the shaded copies' caches, the room
     // texture cache, the quads' kept decisions, the frames
-    uint32_t slots;
-    DetailSlot* detailSlots = (DetailSlot*)sceneArray<DetailSlot>("DSLT", &slots);
+    uint32_t slots = DETAIL_SLOTS;
+    DetailSlot* detailSlots = texturesSlots();
     Command* cmds = (Command*)sceneAllocLow(sizeof(gNewCmds));
     uint32_t (*grd)[2] = (uint32_t (*)[2])sceneAllocLow(sizeof(gNewGrd));
     ShadeCache* caches = (ShadeCache*)sceneAllocLow(2 * sizeof(ShadeCache));

@@ -193,7 +193,7 @@ $(eval $(call DISC_RULE,$(BENCH),))
 LAB := build/lab
 LAB_SCENE ?= ledge
 LAB_SCENE_FILE := $(LAB)/$(shell echo $(LAB_SCENE) | tr a-z A-Z).SCN
-LAB_SRC := $(wildcard lab/*.cpp lab/*.s) saturn/font.cpp saturn/cd.cpp saturn/dsp.cpp saturn/faces.s \
+LAB_SRC := $(wildcard renderer/*.cpp renderer/*.s lab/*.cpp lab/*.s) saturn/font.cpp saturn/cd.cpp saturn/dsp.cpp saturn/faces.s \
 	saturn/flush.s saturn/xform.s saturn/meshxform.s
 # DSP programs lab/gen_NAME.py writes, assembled into NAME_dsp.h; and the
 # bench's v3 mesh program

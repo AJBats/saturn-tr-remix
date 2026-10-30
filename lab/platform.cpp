@@ -1,6 +1,6 @@
 // The lab's Saturn start-up (see platform.h).
 
-#include "platform.h"
+#include "labplatform.h"
 #include "font.h"
 #include "hw.h"
 
