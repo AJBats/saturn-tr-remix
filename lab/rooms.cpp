@@ -76,10 +76,18 @@ void roomsSeen()
     roomsJobsAsm(&gCtx);
 }
 
-const FaceRoom* roomsJobs(uint32_t &count)
+FaceRoom* roomsJobs(uint32_t &count)
 {
     count = gCtx.jobCount;
     return gCtx.jobs;
+}
+
+void roomsPoison()
+{
+    memset(gCtx.seen, 0xA5, ROOMS_LISTED * sizeof(RoomSeen));
+    memset(gCtx.jobs, 0xA5, ROOM_JOBS * sizeof(FaceRoom));
+    gCtx.listed = 0;
+    gCtx.jobCount = 0;
 }
 
 int32_t roomsSeenCheck()

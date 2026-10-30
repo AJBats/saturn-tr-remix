@@ -1,5 +1,6 @@
 // Stage 2 the new way (vertices.h).
 #include "vertices.h"
+#include "faces.h"
 #include "platform.h"
 #include "scene.h"
 
@@ -118,10 +119,8 @@ struct FeedResult
     uint32_t shadow[SHADOW_VERTICES / 4 * 6];
 };
 
-static const RoomScene* gRooms;
+static const FaceRoom* gRooms;     // the frame's (verticesRoomsSet)
 static uint32_t gRoomCount;
-static const uint8_t* gRoomGeometry;
-static const int16_t (*gCaustics)[32];
 static const uint16_t* gDivTable;
 static const DrawScene* gDraws;
 static const DrawXform* gXforms;
@@ -169,9 +168,9 @@ static MeshDspJob* gFeedC;
 static FeedResult* gFeedResults;
 static DrawXform* gFeedXforms;
 
-static inline const RoomVertex* roomPoints(const RoomScene &room)
+static inline Vertex* roomVertices(const FaceRoom &room)
 {
-    return (const RoomVertex*)(gRoomGeometry + room.vertices);
+    return (Vertex*)room.vertices;
 }
 
 static inline int32_t clamp(int32_t v, int32_t lo, int32_t hi)
@@ -282,11 +281,26 @@ static inline void pause()
     for (volatile int32_t i = 0; i < 16; i++);
 }
 
-const char* verticesInit()
+void verticesRoomsSet(const FaceRoom* rooms, uint32_t count)
 {
-    gRooms = sceneArray<const RoomScene>("ROOM", &gRoomCount);
-    gRoomGeometry = sceneArray<const uint8_t>("RGEO");
-    gCaustics = (const int16_t (*)[32])sceneChunk("CAUS");
+    gRooms = rooms;
+    gRoomCount = count < MAX_ROOMS ? count : MAX_ROOMS;
+    int32_t at = 0;
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        gRotatedAt[i] = at;
+        at += (gRooms[i].verticesCount + 3) & ~3;
+    }
+}
+
+const char* verticesInit(const FaceRoom* rooms, uint32_t roomCount)
+{
+    verticesRoomsSet(rooms, roomCount);
+    uint8_t order[MAX_ROOMS];
+    for (uint32_t i = 0; i < gRoomCount; i++) {
+        order[i] = i;
+    }
+    roomOrder(order);
     gDivTable = sceneArray<const uint16_t>("DIVT");
     gDraws = sceneArray<const DrawScene>("DRAW", &gDrawCount);
     gXforms = sceneArray<const DrawXform>("XFRM");
@@ -294,20 +308,6 @@ const char* verticesInit()
     gMeshes = sceneArray<const uint32_t>("MESH", &gMeshCount);
     gMeshGeometry = sceneArray<const uint8_t>("MGEO");
     gSceneVertices = sceneArray<const Vertex>("VERT");
-    if (gRoomCount > MAX_ROOMS) {
-        gRoomCount = MAX_ROOMS;
-    }
-    int32_t at = 0;
-    uint8_t order[MAX_ROOMS];
-    for (uint32_t i = 0; i < gRoomCount; i++) {
-        order[i] = i;
-    }
-    roomOrder(order);
-    for (uint32_t i = 0; i < gRoomCount; i++)
-    {
-        gRotatedAt[i] = at;
-        at += (gRooms[i].verticesCount + 3) & ~3;
-    }
 
     // the meshes packed and in meshlight3.dsp's layout, once
     uint32_t packedLongwords = 10, readyGroups = 0;
@@ -407,12 +407,12 @@ const char* verticesInit()
 
 // xform.s's multiplies for a room's vertex: its bytes times 4 against each
 // row, the translation first.
-static RoomRotated roomModel(const RoomScene &room, int32_t k)
+static RoomRotated roomModel(const FaceRoom &room, int32_t k)
 {
-    const RoomVertex* p = roomPoints(room) + k;
+    const RoomVertex* p = room.points + k;
     int32_t x = p->x * 4, y = p->y * 4, z = p->z * 4;
-    return { row16(room.m, room.tx, x, y, z), row16(room.m + 3, room.ty, x, y, z),
-             row16(room.m + 6, room.tz, x, y, z) };
+    return { row16(room.m, room.t[0], x, y, z), row16(room.m + 3, room.t[1], x, y, z),
+             row16(room.m + 6, room.t[2], x, y, z) };
 }
 
 // The rooms the DSP has turned so far, which roomrot.dsp sends after each
@@ -444,15 +444,14 @@ static uint32_t roomsDspStart()
     for (uint32_t k = 0; k < gRoomCount; k++)
     {
         uint32_t i = gRoomOrder[k];
-        const RoomScene &room = gRooms[i];
+        const FaceRoom &room = gRooms[i];
         RoomDspJob &job = gRoomJobs[k];
-        job.vertices = dspAddress(roomPoints(room));
+        job.vertices = dspAddress(room.points);
         job.out = dspAddress(gRoomRotated + gRotatedAt[i]);
         job.groups = (room.verticesCount + 3) >> 2;
-        const int32_t t[3] = { room.tx, room.ty, room.tz };
         for (int32_t r = 0; r < 3; r++)
         {
-            job.m[4 * r] = t[r];
+            job.m[4 * r] = room.t[r];
             for (int32_t k = 0; k < 3; k++) {
                 job.m[4 * r + 1 + k] = 4 * room.m[3 * r + k];
             }
@@ -680,7 +679,7 @@ int32_t verticesRoomsSeldomCheck()
 // Room i's vertices projected from the DSP's rotations.
 static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
 {
-    const RoomScene &room = gRooms[i];
+    const FaceRoom &room = gRooms[i];
     if (to < 0) {
         to = room.verticesCount;
     }
@@ -688,16 +687,16 @@ static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
     rp.divTable = gDivTable;
     rp.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
     rp.zMax = VIEW_MAX_F >> (FIXED_SHIFT - 8);
-    rp.points = roomPoints(room) + from;
+    rp.points = room.points + from;
     rp.x0 = room.clip[0];
     rp.y0 = room.clip[1];
     rp.x1 = room.clip[2];
     rp.y1 = room.clip[3];
     rp.wibble = room.ripple ? kWibble : nullptr;
-    rp.phase = room.causticsFrame;
-    rp.caustics = room.wet ? gCaustics[i] : nullptr;
+    rp.phase = room.phase;
+    rp.caustics = room.caustics;
     rp.count = to;      // the caustics' index, count - vertices left: from on
-    roomProjectAsm(gRoomRotated + gRotatedAt[i] + from, to - from, gVertices + room.base + from, &rp);
+    roomProjectAsm(gRoomRotated + gRotatedAt[i] + from, to - from, roomVertices(room) + from, &rp);
 }
 
 void verticesRooms()
@@ -1189,7 +1188,7 @@ void verticesPoison()
     memset(gRoomRotated, 0xA5, sizeof(gRoomRotated));
     memset(gMeshOut, 0xFF, sizeof(gMeshOut));
     for (uint32_t i = 0; i < gRoomCount; i++) {
-        memset(gVertices + gRooms[i].base, 0xA5, gRooms[i].verticesCount * sizeof(Vertex));
+        memset(roomVertices(gRooms[i]), 0xA5, gRooms[i].verticesCount * sizeof(Vertex));
     }
 }
 
@@ -1217,7 +1216,7 @@ static bool gChunkMaster[MAX_CHUNKS];
 
 static int32_t chunkSize(int32_t c)
 {
-    const RoomScene &room = gRooms[gChunkRoom[c]];
+    const FaceRoom &room = gRooms[gChunkRoom[c]];
     int32_t from = (c - gChunkAt[gChunkRoom[c]]) * CHUNK;
     return room.verticesCount - from < CHUNK ? room.verticesCount - from : CHUNK;
 }
@@ -1228,7 +1227,7 @@ void verticesPredicted(int32_t &master, int32_t &slave)
     master = 0;
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
-        const RoomScene &r = gRooms[i];
+        const FaceRoom &r = gRooms[i];
         slave += PLAN_ROOM_VERTEX * r.verticesCount + PLAN_ROOM_FACE * (r.quadsCount + r.trianglesCount);
     }
     for (int32_t j = 0; j < gJobCount; j++)
@@ -1375,7 +1374,7 @@ void verticesRoom(uint32_t i, uint32_t &wait)
             pause();
         }
         wait += ticksCycles(w0, ticks());
-        cacheDrop(gVertices + gRooms[i].base + (c - gChunkAt[i]) * CHUNK, chunkSize(c) * sizeof(Vertex));
+        cacheDrop(roomVertices(gRooms[i]) + (c - gChunkAt[i]) * CHUNK, chunkSize(c) * sizeof(Vertex));
     }
 }
 
@@ -1526,9 +1525,10 @@ int32_t verticesRoomsCheck(int32_t &vertices)
     vertices = 0;
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
-        const RoomScene &room = gRooms[i];
+        const FaceRoom &room = gRooms[i];
+        int32_t base = room.vertices - gVertices;
         vertices += room.verticesCount;
-        for (int32_t k = room.base; k < room.base + room.verticesCount; k++) {
+        for (int32_t k = base; k < base + room.verticesCount; k++) {
             bad += memcmp(gVertices + k, gSceneVertices + k, sizeof(Vertex)) != 0;
         }
     }

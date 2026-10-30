@@ -49,8 +49,12 @@ extern "C" void roomsJobsAsm(RoomsContext* ctx);
 // capture's (RVIS, ROOM): the rooms that differ (or a list of another length).
 void roomsInit();
 void roomsSeen();
-const FaceRoom* roomsJobs(uint32_t &count);
+FaceRoom* roomsJobs(uint32_t &count);
 int32_t roomsSeenCheck();
+
+// What the walk makes (the rooms listed, their jobs) overwritten with what it
+// never makes, so a check after a frame that skipped it fails.
+void roomsPoison();
 
 // What the scene seldom gives the walk: made-up places and turns of the
 // camera (portals past the draw distance, cut by the near plane, facing

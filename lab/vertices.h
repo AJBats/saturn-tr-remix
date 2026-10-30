@@ -62,9 +62,15 @@ struct MeshProject
 extern "C" void meshProjectAsm(Vertex* v, int32_t count, MeshProject* mp);
 extern "C" void meshShadesAsm(Vertex* v, int32_t count, const uint8_t* shades, int32_t ambient);
 
-// The scene's rooms and draws for the new way: the meshes laid out for the
-// DSP, each draw's job and where its vertices go. NULL, or what went wrong.
-const char* verticesInit();
+// The scene's rooms (the walk's jobs) and draws for the new way: the meshes
+// laid out for the DSP, each draw's job and where its vertices go. NULL, or
+// what went wrong.
+struct FaceRoom;
+const char* verticesInit(const FaceRoom* rooms, uint32_t roomCount);
+
+// A frame's rooms (the walk's jobs): where the DSP's rotations of each go
+// (the order the DSP turns them in stays the plan's).
+void verticesRoomsSet(const FaceRoom* rooms, uint32_t count);
 
 // The rooms' rotations on the DSP, a job a room, the master waiting for its
 // end: the SH-2 cycles it took. Then its rotations against xform.s's

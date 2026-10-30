@@ -145,6 +145,7 @@ struct LabResults
     uint32_t frameSlaveWait;
     int32_t frameBad;           // commands VDP1 follows not as the game's, vertices not the game's, draws whose
                                 // transform the pose made not as the game's
+    int32_t orderOff;           // the game's list with its rooms in the walk's order: commands not the capture's
     uint32_t arenaUsed;         // bytes of high work RAM the scene and the stages took (sceneUsed)
     uint32_t arenaSize;
 };
@@ -353,7 +354,9 @@ static void stageTwo()
 
 static void stageTwoNew()
 {
-    const char* error = verticesInit();
+    uint32_t jobCount;
+    const FaceRoom* jobs = roomsJobs(jobCount);
+    const char* error = verticesInit(jobs, jobCount);
     if (error)
     {
         textRow(1, error);
@@ -505,8 +508,7 @@ static uint32_t gDrawCount;
 static const uint8_t* gFaceSets;
 static const Face* gGameFaces;
 static const Sprite* gSprites;
-static const RoomScene* gRoomScenes;
-static FaceRoom gRooms[MAX_ROOMS];
+static FaceRoom* gRooms;        // the walk's jobs (roomsJobs)
 static uint32_t gRoomCount;
 static RoomTextures gRoomTextures;
 static RoomSplit gSplit;
@@ -533,16 +535,11 @@ static void newPrepare()
     }
 }
 
-// The rooms in the order the slave faced them, through facesRoom or (c)
-// facesRoomC.
+// The rooms in the walk's order, through facesRoom or (c) facesRoomC.
 static void newRooms(bool c)
 {
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
-        const RoomScene &scene = gRoomScenes[i];
-        if (scene.dsp) {
-            cacheDrop(gRooms[i].vertices, scene.verticesCount * sizeof(Vertex));  // the DSP wrote some
-        }
         if (c) {
             facesRoomC(gRooms[i], gRoomTextures, gSplit, gRoomList);
         } else {
@@ -565,38 +562,9 @@ static int32_t roomTextureMiss(uint32_t, uint32_t, uint32_t)
 static void newRoomsInit()
 {
     const SceneInfo &info = sceneInfo();
-    gRoomScenes = sceneArray<const RoomScene>("ROOM");
-    uint8_t* geometry = (uint8_t*)sceneChunk("RGEO");
-    gRoomCount = info.rooms < MAX_ROOMS ? info.rooms : MAX_ROOMS;
-    for (uint32_t i = 0; i < gRoomCount; i++)
-    {
-        const RoomScene &scene = gRoomScenes[i];
-        FaceRoom &room = gRooms[i];
-        room.quads = (RoomQuad*)(geometry + scene.quads);
-        room.triangles = (const RoomQuad*)(geometry + scene.triangles);
-        room.points = (const RoomVertex*)(geometry + scene.vertices);
-        room.vertices = gVertices + scene.base;
-        room.quadsCount = scene.quadsCount;
-        room.trianglesCount = scene.trianglesCount;
-        for (int32_t k = 0; k < 6; k++) {
-            room.facing[k] = scene.facing[k];
-        }
-        for (int32_t k = 0; k < 3; k++)
-        {
-            room.camera[k] = scene.camera[k];
-            room.m[k * 3] = scene.m[k * 3];
-            room.m[k * 3 + 1] = scene.m[k * 3 + 1];
-            room.m[k * 3 + 2] = scene.m[k * 3 + 2];
-        }
-        room.t[0] = scene.tx;
-        room.t[1] = scene.ty;
-        room.t[2] = scene.tz;
-        for (int32_t k = 0; k < 4; k++) {
-            room.clip[k] = scene.clip[k];
-        }
-        room.flags = scene.wet ? FACE_WATER : 0;
-        room.ripple = scene.ripple;
-        room.phase = scene.causticsFrame;
+    gRooms = roomsJobs(gRoomCount);
+    if (gRoomCount > MAX_ROOMS) {
+        gRoomCount = MAX_ROOMS;
     }
 
     RoomTextures &t = gRoomTextures;
@@ -709,6 +677,7 @@ struct SlaveStages
     volatile uint32_t work, wait;
     volatile uint32_t poses;    // the slave poses its items (gPoseSlave) first
     volatile uint32_t posed;
+    volatile uint32_t roomsReady;   // the master's walk done, its rooms' DSP run started
 } __attribute__((aligned(16)));
 static SlaveStages gSlaveStages;
 
@@ -726,6 +695,13 @@ static void slaveRooms(void*)
     {
         poseShare(1, gPoseSlave);
         shared->posed = 1;
+    }
+    if (!shared->roomsReady)
+    {
+        uint32_t w0 = ticks();
+        while (!shared->roomsReady);
+        wait += ticksCycles(w0, ticks());
+        cachePurge();   // the rooms the master's walk made
     }
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
@@ -746,16 +722,18 @@ static void slaveRooms(void*)
     shared->wait = wait;
 }
 
-// Stages 2 and 3 together; posed: stage 1 too, the items' light and pose
-// shared as the plan shares them (gPoseSlave), their transforms the feed's.
-// The slave poses its items, then starts its rooms; the master poses its
-// own, feeds the meshes before the first of the slave's, and the rest once
-// the slave has posed them.
+// Stages 2 and 3 together; posed: stage 1 too, the rooms seen and the
+// items' light and pose, shared as the plan shares them (gPoseSlave), their
+// transforms the feed's. The slave poses its items, then starts its rooms
+// once the master has walked them; the master walks the rooms, starts the
+// DSP on them, poses its own items, feeds the meshes before the first of
+// the slave's, and the rest once the slave has posed them.
 static Stages stagesTogether(bool posed)
 {
     Stages s = {};
     SlaveStages* shared = uncached(&gSlaveStages);
     shared->roomsDone = shared->drawsDone = shared->posed = 0;
+    shared->roomsReady = !posed;
     uint32_t items = posed ? poseCount() : 0, slaveItems = 0;
     int32_t part = verticesJobs();
     for (uint32_t i = 0; i < items; i++)
@@ -767,9 +745,20 @@ static Stages stagesTogether(bool posed)
     }
     shared->poses = slaveItems;
     uint32_t t0 = ticks();
+    if (posed)
+    {
+        slaveRun(slaveRooms, nullptr);
+        roomsSeen();
+        uint32_t count;
+        verticesRoomsSet(roomsJobs(count), count);
+    }
     verticesRoomsBegin();
     verticesClaimMasters();
-    slaveRun(slaveRooms, nullptr);
+    if (posed) {
+        shared->roomsReady = 1;
+    } else {
+        slaveRun(slaveRooms, nullptr);
+    }
     if (posed)
     {
         poseShare(0, gPoseSlave);
@@ -895,8 +884,10 @@ static Stages togetherMeasured(bool posed, int32_t &bad)
         framePlan(bias, posed);
         newPrepare();
         verticesPoison();
-        if (posed) {
+        if (posed)
+        {
             posePoison();
+            roomsPoison();
         }
         cachePurge();
         bias += stagesTogether(posed).late / 2;
@@ -907,8 +898,10 @@ static Stages togetherMeasured(bool posed, int32_t &bad)
     {
         newPrepare();
         verticesPoison();
-        if (posed) {
+        if (posed)
+        {
             posePoison();
+            roomsPoison();
         }
         cachePurge();
         Stages s = stagesTogether(posed);
@@ -925,7 +918,7 @@ static Stages togetherMeasured(bool posed, int32_t &bad)
     sum.slaveWait /= RUNS;
     int32_t visited, shaded, rooms, meshes;
     bad = gameListCheck(gNewCmds, gNewGrd, visited, shaded) + verticesRoomsCheck(rooms) +
-          verticesMeshesCheck(meshes) + (posed ? poseCheck() : 0);
+          verticesMeshesCheck(meshes) + (posed ? poseCheck() + roomsSeenCheck() : 0);
     return sum;
 }
 
@@ -1030,6 +1023,10 @@ static int32_t roomTextureReload(uint32_t key, uint32_t, uint32_t variant)
 static int32_t newAsmCheck()
 {
     static uint32_t hashes[MAX_CMDS];
+    static uint32_t water[MAX_ROOMS];
+    for (uint32_t i = 0; i < gRoomCount; i++) {
+        water[i] = gRooms[i].flags;
+    }
     roomQuadFlags(true);
     memcpy(gKeys, gRoomTextures.keys, sizeof(gKeys));
     int32_t bad = 0;
@@ -1037,7 +1034,7 @@ static int32_t newAsmCheck()
     {
         bool wet = pass == 0;
         for (uint32_t i = 0; i < gRoomCount; i++) {
-            gRooms[i].flags = wet || gRoomScenes[i].wet ? FACE_WATER : 0;
+            gRooms[i].flags = wet ? FACE_WATER : water[i];
         }
         gRoomTextures.frame = sceneInfo().detailFrame + (pass == 1);
         gRoomTextures.miss = pass == 2 ? roomTextureReload : roomTextureMiss;
@@ -1080,7 +1077,7 @@ static int32_t newAsmCheck()
         }
     }
     for (uint32_t i = 0; i < gRoomCount; i++) {
-        gRooms[i].flags = gRoomScenes[i].wet ? FACE_WATER : 0;
+        gRooms[i].flags = water[i];
     }
     gRoomTextures.frame = sceneInfo().detailFrame;
     gRoomTextures.miss = roomTextureMiss;
@@ -1089,9 +1086,48 @@ static int32_t newAsmCheck()
     return bad;
 }
 
+// The game's list with its rooms in the walk's order (the new way's, not the
+// order the game's slave and DSP happened to finish them): the game's own
+// jobs (ROOM) in that order, their faces as the game adds them, flush on
+// them. The new way's lists are checked against it; it against the
+// capture's, the commands the order moves.
+static GameList gWalkList;
+
+static void walkOrderList()
+{
+    uint32_t count, rooms;
+    const FaceRoom* jobs = roomsJobs(count);
+    const RoomScene* scene = sceneArray<const RoomScene>("ROOM", &rooms);
+    RoomScene* ordered = (RoomScene*)sceneAllocLow(rooms * sizeof(RoomScene));
+    gWalkList.cmds = (Command*)sceneAllocLow(MAX_CMDS * sizeof(Command));
+    gWalkList.grd = (uint32_t (*)[2])sceneAllocLow(MAX_CMDS * sizeof(gWalkList.grd[0]));
+    if (!ordered || !gWalkList.cmds || !gWalkList.grd)
+    {
+        textRow(1, "no low work RAM for the walk's list");
+        while (1);
+    }
+    uint32_t n = 0;
+    for (uint32_t k = 0; k < count; k++)
+    {
+        for (uint32_t i = 0; i < rooms; i++)
+        {
+            if (scene[i].room == jobs[k].room)
+            {
+                ordered[n++] = scene[i];
+                break;
+            }
+        }
+    }
+    gameListMake(ordered, n, gWalkList);
+    int32_t visited, shaded;
+    gLab.orderOff = gameListCheck(gWalkList.cmds, gWalkList.grd, visited, shaded) + (n != rooms);
+    gameListReference(&gWalkList);
+}
+
 static void stageNew()
 {
     const SceneInfo &info = sceneInfo();
+    walkOrderList();
     gDraws = sceneArray<const DrawScene>("DRAW");
     gDrawCount = info.draws;
     gFaceSets = sceneArray<const uint8_t>("NMSH");
@@ -1476,6 +1512,10 @@ static void resultsPage()
     p = putNumber(p, info.floorExact - gLab.floorBad, 5);
     p = put(p, " of");
     p = putNumber(p, info.floorExact, 5);
+    page.add(line);
+    p = put(line, "rooms in walk order:");
+    p = putNumber(p, gLab.orderOff, 5);
+    put(p, " commands move");
     page.add(line);
     p = put(line, "VDP1 ms: game's list");
     p = putFixed(p, cyclesToHundredths(gLab.vdp1Game), 2, 7);

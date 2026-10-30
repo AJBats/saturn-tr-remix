@@ -33,7 +33,7 @@ LAB_MAGIC = 0x4C414231
 MAX_CMDS = 1792
 SHADE_CACHE = struct.Struct('>4I256I256I')      # game.h ShadeCache
 SHADE_TABLE_SIZE = 32
-LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIiIii5Ii3I5IiI3iI2iIiI2iI3iI2iI3iI2i5Ii2I')    # lab.cpp LabResults
+LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIiIii5Ii3I5IiI3iI2iIiI2iI3iI2iI3iI2i5I2i2I')    # lab.cpp LabResults
 FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSlave', 'floor',
           'facesBad', 'flushBad', 'splitBad', 'floorBad', 'vdp1Game', 'vdp1Lab', 'meshFacesGiven',
           'roomFacesGiven', 'meshFlush', 'roomFlush', 'newMeshes', 'newRooms', 'newJoin', 'newBad', 'newBadC',
@@ -48,7 +48,7 @@ FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSl
           'light', 'lightBad', 'lightNew', 'lightNewBad', 'lightSeldom',
           'statics', 'staticsBad', 'staticCount', 'shadowCount', 'staticsNew', 'staticsNewBad', 'staticsSeldom',
           'rooms', 'roomsBad', 'roomsSeen', 'roomsVoids', 'roomsNew', 'roomsNewBad', 'roomsSeldom',
-          'frame', 'frameMaster', 'frameMasterWait', 'frameSlave', 'frameSlaveWait', 'frameBad',
+          'frame', 'frameMaster', 'frameMasterWait', 'frameSlave', 'frameSlaveWait', 'frameBad', 'orderOff',
           'arenaUsed', 'arenaSize')
 TEXT_ROWS, TEXT_COLUMNS = 26, 42
 PAGE = struct.Struct(f'>{TEXT_ROWS * (TEXT_COLUMNS + 1)}s2xi')     # lab.h Page
@@ -333,6 +333,7 @@ def main():
     gouraud = cap.symbol(syms, '__ZL7gNewGrd')
     end_at = cap.symbol(syms, '__ZL7gNewEnd')
     caches_at = cap.symbol(syms, '__ZL12gShadeCaches')
+    walk_at = cap.symbol(syms, '__ZL9gWalkList')     # lab.cpp: game.h GameList
 
     med = cap.Mednafen(os.path.abspath(args.cue), 'lab')
     try:
@@ -361,6 +362,10 @@ def main():
         new_cmds = med.read(commands, MAX_CMDS * 32)
         new_grds = med.read(gouraud, MAX_CMDS * 8)
         caches = med.read(struct.unpack('>I', med.read(caches_at, 4))[0], 2 * SHADE_CACHE.size)
+        walk_cmds_at, walk_grds_at, walk_end = struct.unpack('>IIi', med.read(walk_at, 12))
+        walk_caches = med.read(walk_at + 12, 2 * SHADE_CACHE.size)
+        walk_cmds = med.read(walk_cmds_at, (walk_end + 1) * 32)
+        walk_grds = med.read(walk_grds_at, walk_end * 8)
         vram = med.read(cap.VDP1_VRAM, cap.VDP1_BYTES)
         if args.shots:
             shots = os.path.join(ROOT, 'build/lab/shots')
@@ -381,25 +386,37 @@ def main():
     finally:
         med.quit()
 
-    # the new list as VDP1 follows it against the game's
+    # the game's list with its rooms in the walk's order (the new way's)
+    # against the capture's, and the new list against it, as VDP1 follows them
     import numpy as np
     scene = chunks(os.path.join(ROOT, 'build/lab', args.scene.upper() + '.SCN'))
-    ref_cmds, ref_grds = scene['CMDS'], scene['GRDS']
-    keys = (cache_keys(caches), cache_keys(scene['SHCA']))
-    followed, bad, other, shaded = follow(new_cmds, new_grds, ref_cmds, ref_grds, keys)
-    print(f'new list: {followed} commands followed (the game\'s {len(ref_grds) // 8 + 1}); '
-          f'{len(bad)} differ from the game\'s' + (f': {bad[:10]}' if bad else '')
+    game_cmds, game_grds = scene['CMDS'], scene['GRDS']
+    copies = lambda caches: [(c[2],) + c[4:4 + 256] for c in
+                             (SHADE_CACHE.unpack_from(caches, i * SHADE_CACHE.size) for i in range(2))]
+    if copies(walk_caches) != copies(scene['SHCA']):
+        print('the game\'s list in walk order made shaded copies the capture lacks: its picture is not exact')
+    followed, moved, _, _ = follow(walk_cmds, walk_grds, game_cmds, game_grds,
+                                   (cache_keys(walk_caches), cache_keys(scene['SHCA'])))
+    print(f'the game\'s list, rooms in walk order: {followed} commands followed (the capture\'s '
+          f'{len(game_grds) // 8 + 1}); {len(moved)} not the capture\'s in that place')
+    keys = (cache_keys(caches), cache_keys(walk_caches))
+    followed, bad, other, shaded = follow(new_cmds, new_grds, walk_cmds, walk_grds, keys)
+    print(f'new list: {followed} commands followed (the game\'s in walk order {walk_end + 1}); '
+          f'{len(bad)} differ from it' + (f': {bad[:10]}' if bad else '')
           + f'; {other} shaded another way (a shaded copy of a colour table for gouraud of one value); '
           f'drawn through shaded copies: new {shaded[0]}, game {shaded[1]}; the new way\'s frames to settle '
           f'{results["newFrames"]}')
 
     # each drawn over VDP1 VRAM with its own shaded copies: the game's as the
     # scene has them, the new way's as the lab left them
-    game_frame, game_cycles = draw(scene['VRAM'], ref_cmds, ref_grds)
+    game_frame, game_cycles = draw(scene['VRAM'], game_cmds, game_grds)
+    walk_frame, walk_cycles = draw(scene['VRAM'], walk_cmds, walk_grds)
     new_frame, new_cycles = draw(vram, new_cmds[:(end + 1) * 32], new_grds[:end * 8])
-    differ = int(np.any(game_frame != new_frame, axis=2).sum())
-    print(f'drawn (Mednafen VDP1): {differ} pixels differ; VDP1 game {game_cycles * 1000 / VDP1_HZ:.2f} ms, '
-          f'new {new_cycles * 1000 / VDP1_HZ:.2f} ms')
+    order = int(np.any(game_frame != walk_frame, axis=2).sum())
+    differ = int(np.any(walk_frame != new_frame, axis=2).sum())
+    print(f'drawn (Mednafen VDP1): new against the game\'s in walk order {differ} pixels differ; the room '
+          f'order itself moves {order} pixels; VDP1 game {game_cycles * 1000 / VDP1_HZ:.2f} ms, in walk order '
+          f'{walk_cycles * 1000 / VDP1_HZ:.2f}, new {new_cycles * 1000 / VDP1_HZ:.2f} ms')
     if traces:
         profile(traces, elf, syms)
     sys.exit(1 if bad or differ or any(results[k] for k in ('poseBad', 'lightBad', 'poseNewBad', 'poseSeldom', 'lightNewBad', 'lightSeldom', 'staticsBad',
