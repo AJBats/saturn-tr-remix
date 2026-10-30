@@ -76,6 +76,24 @@ void posePoison();
 void pose();
 int32_t poseCheck();
 
+// For a frame shared between the CPUs: items first .. first + count - 1 lit
+// and posed on a CPU (0 the master, 1 the slave, each with its own context);
+// the items; an item's price in cycles, the plan's (its light, its drawn
+// matrices); its first draw, and its draws (none if no mesh shows); the
+// master's cached copies of those items' transforms dropped (the slave made
+// them).
+void poseItems(int32_t cpu, uint32_t first, uint32_t count);
+
+// A CPU's share of the items lit and posed, run by run (slave: an item's 1 if
+// the slave poses it); the master's cached copies of the slave's dropped.
+void poseShare(int32_t cpu, const uint8_t* slave);
+void poseDropShare(const uint8_t* slave);
+uint32_t poseCount();
+int32_t posePrice(uint32_t item);
+uint32_t poseFirstDraw(uint32_t item);
+int32_t poseDraws(uint32_t item);
+void poseDrop(uint32_t first, uint32_t count);
+
 // What the scene seldom gives pose: every item again, many times over, on
 // made-up frames, lerps of every kind, extra angles, Lara's arms (with and
 // without their own frames, turned by her basis or not, the shotgun's

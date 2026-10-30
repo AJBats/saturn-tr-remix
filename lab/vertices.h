@@ -136,7 +136,8 @@ void verticesXforms(const DrawXform* xforms);
 // every room's faces; the master feeds, projects and adds the draws'), bias
 // cycles added to the master's (what the frames before found it short of
 // what it takes).
-// - the plan made (a frame);
+// - the plan made (a frame; ahead: the master's predicted work before its
+//   feed, which the DSP's room order takes into account);
 // - the rooms' DSP run started (the rooms' jobs built, roomrot.dsp loaded),
 //   no chunk claimed yet; then the master's chunks claimed, before the
 //   slave starts;
@@ -145,21 +146,33 @@ void verticesXforms(const DrawXform* xforms);
 //   as the rooms' has ended (meshes: whether it has been);
 // - room i's chunks for the slave: those it claims projected, the master's
 //   waited for (their lines dropped from its cache);
-// - the meshes fed and their jobs marked; the meshes' DSP run started if the
-//   rooms' has ended (whether it did), or once it has;
+// - the meshes fed and their jobs marked (from to to: a feed can come in
+//   parts); the meshes' DSP run started if the rooms' has ended (whether it
+//   did), or once it has;
 // - draw i's mesh job (a mesh or a shadow) waited for and projected: its
 //   vertices;
 // - the DSP's run waited for.
-void verticesPlan(int32_t bias);
+void verticesPlan(int32_t bias, int32_t ahead = 0);
 void verticesRoomsBegin();
 void verticesClaimMasters();
 void verticesMasterRooms(uint32_t &wait, bool &meshes);
 void verticesRoom(uint32_t i, uint32_t &wait);
-void verticesMeshesFeed();
+void verticesMeshesFeed(int32_t from = 0, int32_t to = -1);
 bool verticesMeshesTryStart();
 void verticesMeshesStart(uint32_t &wait);
 const Vertex* verticesDraw(uint32_t draw, uint32_t &wait);
 void verticesEnd();
+
+// The work the plan's counts predict, in cycles: the master's (the draws)
+// and the slave's (the rooms), before any chunk moves; a draw's mesh job, or
+// -1; the jobs.
+void verticesPredicted(int32_t &master, int32_t &slave);
+
+// The cycles the slave predictably waits at a frame's start, for the DSP's
+// first room.
+int32_t verticesSlaveIdle();
+int32_t verticesJobOfDraw(uint32_t draw);
+int32_t verticesJobs();
 
 // What the scene seldom takes: the meshes' vertices projected as though none
 // lay inside the frame, then as though each lay at the near plane (its z >>

@@ -665,12 +665,26 @@ struct SlaveStages
     volatile uint16_t nearHead;
     uint16_t pad;
     volatile uint32_t work, wait;
+    volatile uint32_t poses;    // the slave poses its items (gPoseSlave) first
+    volatile uint32_t posed;
 } __attribute__((aligned(16)));
 static SlaveStages gSlaveStages;
+
+// The frame's split between the CPUs, beside the rooms' chunks: the items the
+// slave poses.
+#define MAX_POSE_ITEMS  64
+#define X_MAX(a, b)     ((a) > (b) ? (a) : (b))
+static uint8_t gPoseSlave[MAX_POSE_ITEMS];
 
 static void slaveRooms(void*)
 {
     uint32_t t0 = ticks(), wait = 0;
+    SlaveStages* shared = uncached(&gSlaveStages);
+    if (shared->poses)
+    {
+        poseShare(1, gPoseSlave);
+        shared->posed = 1;
+    }
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
         verticesRoom(i, wait);
@@ -684,30 +698,48 @@ static void slaveRooms(void*)
     while (!*uncached(&gSlaveStages.drawsDone));
     wait += ticksCycles(w0, ticks());
     cachePurge();       // the master's mesh list
-    SlaveStages* shared = uncached(&gSlaveStages);
     shared->nearLast = facesJoinPairs(&gRoomList, &gMeshList, facesLinkBase(gNewCmds),
                                       (uint16_t*)&shared->nearHead, JOIN_SPLIT - 1);
     shared->work = ticksCycles(t0, ticks()) - wait;
     shared->wait = wait;
 }
 
-// Stages 2 and 3 together; posed: stage 1 too, the items' light and pose on
-// the master as the slave starts its rooms, their transforms the feed's.
+// Stages 2 and 3 together; posed: stage 1 too, the items' light and pose
+// shared as the plan shares them (gPoseSlave), their transforms the feed's.
+// The slave poses its items, then starts its rooms; the master poses its
+// own, feeds the meshes before the first of the slave's, and the rest once
+// the slave has posed them.
 static Stages stagesTogether(bool posed)
 {
     Stages s = {};
     SlaveStages* shared = uncached(&gSlaveStages);
-    shared->roomsDone = shared->drawsDone = 0;
+    shared->roomsDone = shared->drawsDone = shared->posed = 0;
+    uint32_t items = posed ? poseCount() : 0, slaveItems = 0;
+    int32_t part = verticesJobs();
+    for (uint32_t i = 0; i < items; i++)
+    {
+        slaveItems += gPoseSlave[i];
+        if (gPoseSlave[i] && poseDraws(i) && part == verticesJobs()) {
+            part = verticesJobOfDraw(poseFirstDraw(i));
+        }
+    }
+    shared->poses = slaveItems;
     uint32_t t0 = ticks();
     verticesRoomsBegin();
     verticesClaimMasters();
     slaveRun(slaveRooms, nullptr);
-    if (posed)
-    {
-        poseLight();
-        pose();
+    if (posed) {
+        poseShare(0, gPoseSlave);
     }
-    verticesMeshesFeed();
+    verticesMeshesFeed(0, part);
+    if (slaveItems)
+    {
+        uint32_t w0 = ticks();
+        while (!shared->posed);
+        s.masterWait += ticksCycles(w0, ticks());
+        poseDropShare(gPoseSlave);
+        verticesMeshesFeed(part);
+    }
     bool meshes = false;
     verticesMasterRooms(s.masterWait, meshes);
     if (!meshes) {
@@ -765,6 +797,48 @@ static Stages stagesTogether(bool posed)
     return s;
 }
 
+// The plan for a frame (verticesPlan), with the items' pose (gPoseSlave: the
+// slave's): the heaviest first, each that leaves the master's predicted work
+// no less than the slave's, and its own pose no less than the slave's (so
+// it has its own to do while the slave poses), the slave's wait for the
+// DSP's first room free for it; the rooms' chunks then even out what is
+// left.
+static void framePlan(int32_t bias, bool posed)
+{
+    memset(gPoseSlave, 0, sizeof(gPoseSlave));
+    if (!posed || poseCount() > MAX_POSE_ITEMS)
+    {
+        verticesPlan(bias);
+        return;
+    }
+    int32_t master, slave, masterPose = 0, slavePose = 0, idle = verticesSlaveIdle();
+    verticesPredicted(master, slave);
+    master += bias;
+    for (uint32_t i = 0; i < poseCount(); i++) {
+        masterPose += posePrice(i);
+    }
+    while (1)
+    {
+        int32_t best = -1, price = 0;
+        for (uint32_t i = 0; i < poseCount(); i++)
+        {
+            int32_t p = posePrice(i);
+            if (!gPoseSlave[i] && p > price && master + masterPose - p >= slave + X_MAX(slavePose + p - idle, 0) &&
+                masterPose - p >= slavePose + p - idle)
+            {
+                best = i;
+                price = p;
+            }
+        }
+        if (best < 0)
+            break;
+        gPoseSlave[best] = 1;
+        masterPose -= price;
+        slavePose += price;
+    }
+    verticesPlan(bias + masterPose - X_MAX(slavePose - idle, 0), masterPose);
+}
+
 // The stages run together, RUNS times after the frames that settle the
 // split (each moves the plan by half how late the master's draws ended after
 // the slave's rooms): their mean, and the list and vertices against the
@@ -774,7 +848,7 @@ static Stages togetherMeasured(bool posed, int32_t &bad)
     int32_t bias = 0;
     for (int32_t f = 0; f < 6; f++)
     {
-        verticesPlan(bias);
+        framePlan(bias, posed);
         newPrepare();
         verticesPoison();
         if (posed) {
@@ -783,7 +857,7 @@ static Stages togetherMeasured(bool posed, int32_t &bad)
         cachePurge();
         bias += stagesTogether(posed).late / 2;
     }
-    verticesPlan(bias);
+    framePlan(bias, posed);
     Stages sum = {};
     for (int32_t r = 0; r < RUNS; r++)
     {
@@ -1070,7 +1144,7 @@ static void framePage()
     timeRow(page, "  start to end", gLab.stages, 0, nullptr);
     workRow(page, "  master", gLab.stagesMaster, gLab.stagesMasterWait);
     workRow(page, "  slave", gLab.stagesSlave, gLab.stagesSlaveWait);
-    page.add("1+2+3: pose first on the master:");
+    page.add("1+2+3: pose shared as planned:");
     timeRow(page, "  start to end", gLab.frame, 0, nullptr);
     workRow(page, "  master", gLab.frameMaster, gLab.frameMasterWait);
     workRow(page, "  slave", gLab.frameSlave, gLab.frameSlaveWait);

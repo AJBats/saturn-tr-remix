@@ -1213,6 +1213,7 @@ static bool gChunkMaster[MAX_CHUNKS];
 #define PLAN_MESH_JOB       456     // fed
 #define PLAN_MESH_VERTEX    63      // projected
 #define PLAN_MESH_FACE      138     // a face given, to commands
+#define PLAN_DSP_VERTEX     46      // a room's, turned on the DSP
 
 static int32_t chunkSize(int32_t c)
 {
@@ -1221,19 +1222,10 @@ static int32_t chunkSize(int32_t c)
     return room.verticesCount - from < CHUNK ? room.verticesCount - from : CHUNK;
 }
 
-void verticesPlan(int32_t bias)
+void verticesPredicted(int32_t &master, int32_t &slave)
 {
-    gChunkAt[0] = 0;
-    for (uint32_t i = 0; i < gRoomCount; i++)
-    {
-        gChunkAt[i + 1] = gChunkAt[i] + (gRooms[i].verticesCount + CHUNK - 1) / CHUNK;
-        for (int32_t c = gChunkAt[i]; c < gChunkAt[i + 1]; c++) {
-            gChunkRoom[c] = i;
-        }
-    }
-    // the slave's rooms, the master's draws (its join comes after both), and
-    // the bias the frames before found
-    uint32_t slave = 0, master = bias;
+    slave = 0;
+    master = 0;
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
         const RoomScene &r = gRooms[i];
@@ -1253,11 +1245,43 @@ void verticesPlan(int32_t bias)
             master += PLAN_MESH_FACE * 3;
         }
     }
+}
+
+int32_t verticesSlaveIdle()
+{
+    return PLAN_DSP_VERTEX * gRooms[0].verticesCount;
+}
+
+int32_t verticesJobOfDraw(uint32_t draw)
+{
+    return gJobOfDraw[draw];
+}
+
+int32_t verticesJobs()
+{
+    return gJobCount;
+}
+
+void verticesPlan(int32_t bias, int32_t ahead)
+{
+    gChunkAt[0] = 0;
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        gChunkAt[i + 1] = gChunkAt[i] + (gRooms[i].verticesCount + CHUNK - 1) / CHUNK;
+        for (int32_t c = gChunkAt[i]; c < gChunkAt[i + 1]; c++) {
+            gChunkRoom[c] = i;
+        }
+    }
+    // the slave's rooms, the master's draws (its join comes after both), and
+    // the bias the frames before found
+    int32_t master, slave;
+    verticesPredicted(master, slave);
+    master += bias;
     // from the last chunk back, each that leaves the master's share no
     // greater than the slave's
     for (int32_t c = gChunkAt[gRoomCount] - 1; c >= 0; c--)
     {
-        uint32_t p = PLAN_ROOM_VERTEX * chunkSize(c);
+        int32_t p = PLAN_ROOM_VERTEX * chunkSize(c);
         gChunkMaster[c] = master + p <= slave - p;
         if (gChunkMaster[c])
         {
@@ -1267,10 +1291,17 @@ void verticesPlan(int32_t bias)
     }
 
     // the DSP turns the slave's first room, then those the master has
-    // chunks of (it takes them once fed), then the rest in order
+    // chunks of (it takes them once fed), then the rest in order; or every
+    // room in order, when the master comes to its chunks only after the DSP
+    // has turned them all
     uint8_t order[MAX_ROOMS];
     bool masters[MAX_ROOMS] = {};
-    for (int32_t c = 0; c < gChunkAt[gRoomCount]; c++) {
+    int32_t dsp = 0;
+    for (uint32_t i = 0; i < gRoomCount; i++) {
+        dsp += PLAN_DSP_VERTEX * gRooms[i].verticesCount;
+    }
+    bool late = ahead + PLAN_MESH_JOB * gJobCount >= dsp;
+    for (int32_t c = 0; c < gChunkAt[gRoomCount] && !late; c++) {
         masters[gChunkRoom[c]] = masters[gChunkRoom[c]] || gChunkMaster[c];
     }
     uint32_t k = 0;
@@ -1348,10 +1379,15 @@ void verticesRoom(uint32_t i, uint32_t &wait)
     }
 }
 
-void verticesMeshesFeed()
+void verticesMeshesFeed(int32_t from, int32_t to)
 {
-    verticesFeed();
-    for (int32_t i = 0; i < gJobCount; i++) {
+    if (to < 0) {
+        to = gJobCount;
+    }
+    if (from < to) {
+        verticesFeedAsm(gJobs + from, to - from, gDspJobs + from, kTails);
+    }
+    for (int32_t i = from; i < to; i++) {
         *jobLast(gJobs[i]) = DSP_UNWRITTEN;
     }
     gPiecesProject.divTable = gDivTable;

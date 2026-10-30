@@ -2,6 +2,7 @@
 // checks against the game's.
 #include "pose.h"
 #include "game.h"
+#include "platform.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -22,7 +23,15 @@ static_assert(sizeof(PoseItem) == 104 && offsetof(PoseItem, extraCount) == 46 &&
 #define NODE_FLAG_ROTS  (4 | 8 | 16)
 
 static PoseContext gCtx;
+static PoseContext gSlaveCtx __attribute__((aligned(16)));
 static PoseMatrix gStack[POSE_STACK] __attribute__((aligned(16)));
+static PoseLit* gLit;
+static const PoseLight* gRooms;
+
+// The plan's prices, cycles at the ledge (Mednafen): an item's light, a drawn
+// matrix.
+#define PRICE_LIGHT     1150
+#define PRICE_MATRIX    430
 static const PoseItem* gItems;
 static uint32_t gCount;
 static const uint8_t* gNodes;
@@ -30,6 +39,16 @@ static uint32_t gNodesBytes;
 static const uint8_t* gFrames;
 static uint32_t gFramesBytes;
 static const DrawXform* gXforms;
+
+// The meshes an item draws: Lara's all, another's those its mask shows.
+static int32_t drawnOf(const PoseItem &item)
+{
+    int32_t drawn = 0;
+    for (int32_t k = 0; k < item.count; k++) {
+        drawn += item.lara || (item.visibleMask >> k & 1);
+    }
+    return drawn;
+}
 
 void poseInit()
 {
@@ -51,9 +70,11 @@ void poseInit()
     gCtx.out = (DrawXform*)sceneAlloc(sceneInfo().draws * sizeof(DrawXform));
     memcpy(gCtx.out, gXforms, sceneInfo().draws * sizeof(DrawXform));
     gCtx.stack = gStack;
-    gCtx.rooms = sceneArray<const PoseLight>("PLIT");
+    gRooms = sceneArray<const PoseLight>("PLIT");
+    gCtx.rooms = gRooms;
     gCtx.lights = sceneChunk("LGHT");
     gCtx.lit = (PoseLit*)sceneAlloc(gCount * sizeof(PoseLit));
+    gLit = gCtx.lit;
     PoseMatrix &view = gStack[0];
     for (int32_t r = 0; r < 3; r++)
     {
@@ -62,6 +83,10 @@ void poseInit()
         }
         view.m[r * 4 + 3] = 0;
     }
+    // the slave's: its own stack and scratch
+    gSlaveCtx = gCtx;
+    gSlaveCtx.stack = (PoseMatrix*)sceneAlloc(POSE_STACK * sizeof(PoseMatrix));
+    gSlaveCtx.stack[0] = view;
 }
 
 void pose()
@@ -69,19 +94,72 @@ void pose()
     poseAsm(gItems, gCount, &gCtx);
 }
 
-// The meshes an item draws: Lara's all, another's those its mask shows.
-static int32_t drawnOf(const PoseItem &item)
-{
-    int32_t drawn = 0;
-    for (int32_t k = 0; k < item.count; k++) {
-        drawn += item.lara || (item.visibleMask >> k & 1);
-    }
-    return drawn;
-}
-
 DrawXform* poseXforms()
 {
     return gCtx.out;
+}
+
+void poseItems(int32_t cpu, uint32_t first, uint32_t count)
+{
+    if (!count)
+        return;
+    PoseContext* ctx = cpu ? &gSlaveCtx : &gCtx;
+    ctx->lit = gLit + first;
+    ctx->rooms = gRooms + first;
+    poseLightAsm(gItems + first, count, ctx);
+    poseAsm(gItems + first, count, ctx);
+    ctx->lit = gLit;
+    ctx->rooms = gRooms;
+}
+
+void poseShare(int32_t cpu, const uint8_t* slave)
+{
+    uint32_t first = 0;
+    while (first < gCount)
+    {
+        uint32_t end = first + 1;
+        while (end < gCount && slave[end] == slave[first]) {
+            end++;
+        }
+        if ((slave[first] != 0) == (cpu != 0)) {
+            poseItems(cpu, first, end - first);
+        }
+        first = end;
+    }
+}
+
+void poseDropShare(const uint8_t* slave)
+{
+    for (uint32_t i = 0; i < gCount; i++) {
+        if (slave[i]) poseDrop(i, 1);
+    }
+}
+
+uint32_t poseCount()
+{
+    return gCount;
+}
+
+int32_t posePrice(uint32_t item)
+{
+    return PRICE_LIGHT + PRICE_MATRIX * drawnOf(gItems[item]);
+}
+
+uint32_t poseFirstDraw(uint32_t item)
+{
+    return gItems[item].firstDraw;
+}
+
+int32_t poseDraws(uint32_t item)
+{
+    return drawnOf(gItems[item]);
+}
+
+void poseDrop(uint32_t first, uint32_t count)
+{
+    for (uint32_t i = first; i < first + count; i++) {
+        cacheDrop(gCtx.out + gItems[i].firstDraw, drawnOf(gItems[i]) * sizeof(DrawXform));
+    }
 }
 
 void posePoison()
