@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-239 | Rendering: the new renderer's open work |
+| 219-241 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3700,6 +3700,33 @@ Fix: small*
 - **Fix:** the audit the owner asked for before step 8: every buffer sized
   to the game's real limits, every level's data in the new formats measured,
   against TRS's map, so the switch is known to fit.
+
+### 240. The new way's two lists split where the capture's did
+*Kind: correctness (production) · Fix: small to medium*
+
+- The rooms' list takes command slots 1 up to `gMeshFirst`, the draws' list
+  the rest; `gMeshFirst` is 1 + the capture's slave faces (lab.cpp
+  newRoomsInit). A frame with more room faces than that drops room faces
+  while the draws' list has room to spare.
+- **Fix:** a split from the game's limits, or the two lists growing toward
+  each other from the two ends of the buffer (the face stages' cursors step
+  down for one of them).
+
+### 241. VDP1 idles between lists: the change waits for a vblank, then the upload
+*Kind: speed · Size: Mednafen ledge: VDP1 32.55 ms misses the second
+field's vblank-in by ~2.5 ms and the frame takes three fields (50.15 ms,
+19.94 fps); wolves_aim (VDP1 23.91) holds 30 fps · Fix: medium*
+
+- `stageRun` (lab.cpp): once VDP1 has drawn a list the master waits for the
+  vblank-in, asks for the frame buffers' change, waits for the display to
+  start (a plot late in the vertical blank locks VDP1 up), uploads the next
+  list (0.84 ms, 43 KB at the ledge) and only then plots it. For 30 fps a
+  list has to be drawn by the second field's vblank-in: about 30.9 ms after
+  the display starts, less the upload.
+- **Levers:** two command areas in VDP1 VRAM, the next list uploaded while
+  VDP1 draws the last, plotted at once after the change; the plot as early
+  after the change as the hardware allows (when the change takes effect,
+  measured on the Saturn).
 
 ---
 
