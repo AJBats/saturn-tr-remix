@@ -230,29 +230,61 @@ static void vdp1Init()
 
 // A plot started in the last lines of the vertical blank is aborted on a
 // Saturn and VDP1 locks up; changing frame buffers under a plot does too.
-uint32_t vdp1Show()
+uint32_t vdp1Plot()
 {
     waitDisplayStart();
     uint32_t t0 = ticks();
     VDP1_PTMR = 1;
     // EDSR can still hold the last list's end for a moment after a plot starts
     for (int32_t i = 0; i < 1000 && (VDP1_EDSR & EDSR_CEF); i++);
-    uint32_t last = t0, elapsed = 0;
+    return t0;
+}
+
+bool vdp1ShowDrawn(uint32_t plotted, uint32_t &drawn, uint32_t &wait, uint32_t &vblank)
+{
+    uint32_t t0 = ticks(), last = t0, elapsed = 0;
     while (!(VDP1_EDSR & EDSR_CEF))
     {
         uint32_t now = ticks();
         elapsed += (now - last) & 0xFFFF;
         last = now;
         if (elapsed * TICK_CYCLES > 28600000 / 4)
-            return 0;   // a quarter of a second: never ending
+            return false;   // a quarter of a second: never ending
     }
-    uint32_t cycles = (elapsed + ((ticks() - last) & 0xFFFF)) * TICK_CYCLES;
+    uint32_t t1 = ticks();
+    drawn = ticksCycles(plotted, t1);
+    wait += (elapsed + ((t1 - last) & 0xFFFF)) * TICK_CYCLES;
 
     // the frame buffers change at the next field, asked for at a vblank-in
     waitVblankIn();
     VDP1_FBCR = FBCR_FCM | FBCR_FCT;
     waitDisplayStart();
-    return cycles;
+    vblank += ticksCycles(t1, ticks());
+    return true;
+}
+
+uint32_t vdp1Show()
+{
+    uint32_t drawn, wait = 0, vblank = 0;
+    return vdp1ShowDrawn(vdp1Plot(), drawn, wait, vblank) ? drawn : 0;
+}
+
+// --- the SCU's DMA ------------------------------------------------------------
+
+void dmaToVdp1(const void* src, uint32_t vram, uint32_t size)
+{
+    dmaWait();
+    SCU_D0R = uint32_t(src);
+    SCU_D0W = VDP1_VRAM + vram;
+    SCU_D0C = size;
+    SCU_D0AD = 0x101;   // read +4, write +4
+    SCU_D0MD = 0x07;    // direct, started by the CPU
+    SCU_D0EN = 0x101;   // enabled, started
+}
+
+void dmaWait()
+{
+    while (SCU_DSTA & DSTA_D0_BUSY);
 }
 
 // --- the pad ----------------------------------------------------------------

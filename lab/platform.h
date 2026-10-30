@@ -51,6 +51,22 @@ void textRow(int32_t row, const char* text);
 // finished.
 uint32_t vdp1Show();
 
+// The same in two halves, for VDP1 drawing a list while the CPUs go on: the
+// list plotted, in the display's lines (VDP1 locks up on a plot started late
+// in the vertical blank): the tick it was plotted at. Then, once VDP1 has
+// drawn it, that frame shown from the next field: the SH-2 cycles from the
+// plot to this CPU seeing it drawn into drawn, waiting for that added to
+// wait, then for the vertical blank and the change added to vblank; false if
+// VDP1 never finished (a quarter of a second).
+uint32_t vdp1Plot();
+bool vdp1ShowDrawn(uint32_t plotted, uint32_t &drawn, uint32_t &wait, uint32_t &vblank);
+
+// size bytes from src (high work RAM: the SCU's DMA can't read low) to VDP1
+// VRAM at offset vram by the SCU's level 0 DMA, once the copy before has
+// ended; dmaWait waits for the last.
+void dmaToVdp1(const void* src, uint32_t vram, uint32_t size);
+void dmaWait();
+
 // Waits for the next vertical blank, then reads the pad on port 1: the
 // buttons held (PAD_*), as of the read before.
 #define PAD_L       0x0008

@@ -159,6 +159,16 @@ struct LabResults
     uint32_t lowSize;
     int32_t othersBad;          // made-up sprites, rectangles, lines and voids: facesOtherAsm not as
                                 // facesOther (and paths not taken)
+    uint32_t runFrames;         // the whole frame run in a row (stageRun): frames
+    uint32_t runFrame;          // cycles a frame, plot to plot
+    uint32_t runStages;         // ... the stages (the master, start to end)
+    uint32_t runVdp1Wait;       // ... the master waiting for VDP1 to draw the last list
+    uint32_t runVblank;         // ... then for the vertical blank and the frame buffers' change
+    uint32_t runUpload;         // ... the list's upload
+    uint32_t runVdp1;           // cycles VDP1 drew a list in, plot to drawn, over the frames it was waited for
+    uint32_t runWaited;         // those frames
+    uint32_t uploadBytes;       // the list's bytes uploaded
+    int32_t uploadBad;          // words of the last list in VDP1 VRAM not as uploaded
 };
 
 extern "C" LabResults gLab;
@@ -542,17 +552,24 @@ static RoomMaterial gRoomMaterials[MAX_ROOM_TEXTURES];
 static RoomRun gRoomRun;
 static bool gRoomTexturesShort;     // the rooms take more textures than that
 
-static void newPrepare()
+// The lists empty for a frame of the new way's, the rooms' split vertices
+// free.
+static void newLists()
 {
-    gameFlushPrepare();
-    const Material* materials = sceneArray<const Material>("NMAT");
-    const uint8_t* shadeLevel = sceneArray<const uint8_t>("SHAD");
+    static const Material* materials = sceneArray<const Material>("NMAT");
+    static const uint8_t* shadeLevel = sceneArray<const uint8_t>("SHAD");
     facesListInit(gRoomList, gNewCmds, gNewGrd, 1, gMeshFirst, gHeads[0], gTails[0], materials,
                   gameShadeGouraud(), shadeLevel, gameShadeCache(1), gSprites);
     facesListInit(gMeshList, gNewCmds, gNewGrd, gMeshFirst, MAX_CMDS - 1, gHeads[1], gTails[1], materials,
                   gameShadeGouraud(), shadeLevel, gameShadeCache(0), gSprites);
     gSplit.top = MAX_VERTICES;
     gSplit.bottom = sceneInfo().bottom;
+}
+
+static void newPrepare()
+{
+    gameFlushPrepare();
+    newLists();
 
     // the materials' characters looked up afresh, as in a frame of its own
     for (int32_t i = 0; i < MAX_ROOM_TEXTURES; i++) {
@@ -1056,6 +1073,143 @@ static void stageFrame()
     gLab.frameSlaveWait = s.slaveWait;
 }
 
+// The new list into VDP1 VRAM where the game puts its own, by the SCU's DMA:
+// the clear and the rooms' commands, then the draws' and the end, and their
+// gouraud tables. The bytes uploaded.
+static uint32_t listUpload()
+{
+    int32_t rooms = facesSlot(gRoomList.link), meshes = gNewEnd + 1 - gMeshFirst;
+    dmaToVdp1(gNewCmds, VRAM_FRAME_CMDS, rooms * sizeof(Command));
+    dmaToVdp1(gNewCmds + gMeshFirst, VRAM_FRAME_CMDS + gMeshFirst * sizeof(Command), meshes * sizeof(Command));
+    dmaToVdp1(gNewGrd, VRAM_GOURAUD_BASE, rooms * sizeof(gNewGrd[0]));
+    dmaToVdp1(gNewGrd + gMeshFirst, VRAM_GOURAUD_BASE + gMeshFirst * sizeof(gNewGrd[0]),
+              (meshes - 1) * sizeof(gNewGrd[0]));
+    dmaWait();
+    return (rooms + meshes) * sizeof(Command) + (rooms + meshes - 1) * sizeof(gNewGrd[0]);
+}
+
+// The words of the uploaded list in VDP1 VRAM not as gNewCmds and gNewGrd
+// hold them.
+static int32_t uploadCheck()
+{
+    int32_t bad = 0;
+    int32_t rooms = facesSlot(gRoomList.link);
+    const volatile uint32_t* cmds = (const volatile uint32_t*)(VDP1_VRAM + VRAM_FRAME_CMDS);
+    const volatile uint32_t* grd = (const volatile uint32_t*)(VDP1_VRAM + VRAM_GOURAUD_BASE);
+    for (int32_t i = 0; i <= gNewEnd; i++)
+    {
+        if (i == rooms) {
+            i = gMeshFirst;
+        }
+        for (int32_t w = 0; w < 8; w++) {
+            bad += cmds[8 * i + w] != gNewCmds[i].w[w];
+        }
+        if (i < gNewEnd) {
+            bad += (grd[2 * i] != gNewGrd[i][0]) + (grd[2 * i + 1] != gNewGrd[i][1]);
+        }
+    }
+    return bad;
+}
+
+// The whole frame, frame after frame as the game runs it, RUN_FRAMES frames:
+// each frame's stages 1-3 (stagesTogether: the slave walks, the master makes
+// the draw list, ...), the shaded copies' and room textures' frames on by
+// one; once VDP1 has drawn the last list and that frame is shown (the frame
+// buffers changed at a vblank-in), the new list uploaded and plotted, VDP1
+// drawing it while the CPUs make the next. Each frame starts from an empty
+// cache, as the stages were measured (the DSP and the other CPU wrote behind
+// it). What it changes put back after, so the list and caches stay those the
+// checks read.
+#define RUN_FRAMES  1000
+
+static void roomQuadFlags(bool save);
+
+static void stageRun()
+{
+    // what the frames change: the list, the shaded copies' caches, the room
+    // texture cache, the quads' kept decisions, the frames
+    uint32_t slots;
+    DetailSlot* detailSlots = (DetailSlot*)sceneArray<DetailSlot>("DSLT", &slots);
+    Command* cmds = (Command*)sceneAllocLow(sizeof(gNewCmds));
+    uint32_t (*grd)[2] = (uint32_t (*)[2])sceneAllocLow(sizeof(gNewGrd));
+    ShadeCache* caches = (ShadeCache*)sceneAllocLow(2 * sizeof(ShadeCache));
+    uint8_t* keys = (uint8_t*)sceneAllocLow(DETAIL_VARIANTS * DETAIL_MAX_KEYS);
+    DetailSlot* saved = (DetailSlot*)sceneAllocLow(slots * sizeof(DetailSlot));
+    if (!saved)
+        return;
+    memcpy(cmds, gNewCmds, sizeof(gNewCmds));
+    memcpy(grd, gNewGrd, sizeof(gNewGrd));
+    int32_t end = gNewEnd;
+    for (int32_t c = 0; c < 2; c++) {
+        caches[c] = *gameShadeCache(c);
+    }
+    memcpy(keys, gRoomTextures.keys, DETAIL_VARIANTS * DETAIL_MAX_KEYS);
+    memcpy(saved, detailSlots, slots * sizeof(DetailSlot));
+    roomQuadFlags(true);
+    uint32_t textureFrame = gRoomTextures.frame;
+
+    textFrame();
+    textRow(0, "THE WHOLE FRAME, RUNNING");
+    uint32_t wait = 0, vblank = 0, stages = 0, upload = 0, vdp1 = 0, waited = 0, frames = 0;
+    uint32_t plotted = vdp1Plot();      // the list as the last measured frame left it
+    uint64_t total = 0;
+    int32_t bias = 0;
+    for (int32_t f = 0; f < RUN_FRAMES; f++)
+    {
+        cachePurge();
+        uint32_t t0 = ticks();
+        gameShadeCache(0)->frame++;
+        gameShadeCache(1)->frame++;
+        gRoomTextures.frame++;
+        newLists();
+        bias += stagesTogether(true, bias).late / 2;
+        uint32_t t1 = ticks();
+        stages += ticksCycles(t0, t1);
+        uint32_t w = wait, drawn;
+        if (!vdp1ShowDrawn(plotted, drawn, wait, vblank))
+            break;
+        if (wait > w)
+        {
+            vdp1 += drawn;
+            waited++;
+        }
+        uint32_t u0 = ticks();
+        gLab.uploadBytes = listUpload();
+        upload += ticksCycles(u0, ticks());
+        uint32_t next = vdp1Plot();
+        total += ticksCycles(plotted, next);
+        plotted = next;
+        frames++;
+    }
+    uint32_t drawn, w = 0, v = 0;
+    vdp1ShowDrawn(plotted, drawn, w, v);
+    gLab.uploadBad = uploadCheck();
+    gLab.runFrames = frames;
+    if (frames)
+    {
+        gLab.runFrame = uint32_t(total / frames);
+        gLab.runStages = stages / frames;
+        gLab.runVdp1Wait = wait / frames;
+        gLab.runVblank = vblank / frames;
+        gLab.runUpload = upload / frames;
+    }
+    gLab.runVdp1 = waited ? vdp1 / waited : 0;
+    gLab.runWaited = waited;
+
+    memcpy(gNewCmds, cmds, sizeof(gNewCmds));
+    memcpy(gNewGrd, grd, sizeof(gNewGrd));
+    gNewEnd = end;
+    for (int32_t c = 0; c < 2; c++) {
+        *gameShadeCache(c) = caches[c];
+    }
+    memcpy(gRoomTextures.keys, keys, DETAIL_VARIANTS * DETAIL_MAX_KEYS);
+    memcpy(detailSlots, saved, slots * sizeof(DetailSlot));
+    roomQuadFlags(false);
+    gRoomTextures.frame = textureFrame;
+    verticesDrawsSet(sceneArray<const DrawScene>("DRAW"), sceneInfo().draws, sceneArray<const DrawXform>("XFRM"));
+    poseUse(nullptr);
+}
+
 // A command's words and gouraud table, hashed.
 static uint32_t commandHash(int32_t slot)
 {
@@ -1305,7 +1459,65 @@ static void workRow(Page &page, const char* name, uint32_t work, uint32_t waits)
     page.add(line);
 }
 
-static Page gResults, gPosePage, gVerticesPage, gNewResults, gFramePage;
+static Page gResults, gPosePage, gVerticesPage, gNewResults, gFramePage, gRunPage;
+
+// ms a frame and the frames a second it makes.
+static void rateRow(Page &page, const char* name, uint32_t cycles)
+{
+    char line[TEXT_COLUMNS + 1];
+    char* p = put(line, name);
+    p = pad(line, p, 17);
+    p = putFixed(p, cyclesToHundredths(cycles), 2, 6);
+    p = put(p, " =");
+    p = putFixed(p, cycles ? int32_t(uint64_t(28636364) * 100 / cycles) : 0, 2, 6);
+    put(p, " fps");
+    page.add(line);
+}
+
+static void runPage()
+{
+    const SceneInfo &info = sceneInfo();
+    Page &page = gRunPage;
+    char line[TEXT_COLUMNS + 1];
+    char* p;
+
+    page.count = 0;
+    p = put(line, "RENDER LAB  ");
+    p = put(p, info.name);
+    put(p, ": the whole frame");
+    page.add(line);
+    p = putNumber(line, gLab.runFrames, 0);
+    put(p, " frames in a row, VDP1 drawing each");
+    page.add(line);
+    page.add("list while the CPUs make the next");
+    page.add("");
+    page.add("A FRAME, ms");
+    rateRow(page, "  plot to plot", gLab.runFrame);
+    timeRow(page, "  stages 1-3", gLab.runStages, 0, nullptr);
+    timeRow(page, "  wait for VDP1", gLab.runVdp1Wait, 0, nullptr);
+    timeRow(page, "  wait for vblank", gLab.runVblank, 0, nullptr);
+    timeRow(page, "  upload", gLab.runUpload, 0, nullptr);
+    p = put(line, "    (SCU DMA,");
+    p = putNumber(p, (gLab.uploadBytes + 512) / 1024, 3);
+    put(p, " KB)");
+    page.add(line);
+    page.add("");
+    page.add("VDP1 A LIST, ms");
+    timeRow(page, "  alone", gLab.vdp1New, 0, nullptr);
+    timeRow(page, "  running", gLab.runVdp1, 0, nullptr);
+    p = put(line, "    (the");
+    p = putNumber(p, gLab.runWaited, 5);
+    put(p, " frames waited for)");
+    page.add(line);
+    page.add("");
+    p = put(line, "upload ");
+    p = put(p, gLab.uploadBad ? "OFF (" : "exact (");
+    p = putNumber(p, gLab.uploadBad, 0);
+    put(p, " off)");
+    page.add(line);
+    page.add("");
+    page.add("R, L: the other pages");
+}
 
 static void framePage()
 {
@@ -1656,7 +1868,7 @@ static void resultsPage()
     page.add("R, L: the other pages");
 }
 
-enum { PAGE_GAME_WAY, PAGE_POSE, PAGE_NEW_VERTICES, PAGE_NEW_WAY, PAGE_FRAME, PAGE_GAME, PAGE_NEW, PAGES };
+enum { PAGE_GAME_WAY, PAGE_POSE, PAGE_NEW_VERTICES, PAGE_NEW_WAY, PAGE_FRAME, PAGE_RUN, PAGE_GAME, PAGE_NEW, PAGES };
 
 static void show(int32_t page)
 {
@@ -1664,7 +1876,7 @@ static void show(int32_t page)
     {
         const Page &text = page == PAGE_GAME_WAY ? gResults : page == PAGE_POSE ? gPosePage
                          : page == PAGE_NEW_VERTICES ? gVerticesPage : page == PAGE_NEW_WAY ? gNewResults
-                         : gFramePage;
+                         : page == PAGE_FRAME ? gFramePage : gRunPage;
         textPage();
         for (int32_t r = 0; r < text.count; r++) {
             textRow(r, text.rows[r]);
@@ -1726,6 +1938,9 @@ int main()
     shadeTables(gNewTables, false);
     upload(gNewCmds, gNewGrd, gNewEnd);
     gLab.vdp1New = vdp1Show();
+    stageRun();
+    shadeTables(gNewTables, false);
+    upload(gNewCmds, gNewGrd, gNewEnd);
     gLab.arenaUsed = sceneUsed(&gLab.arenaSize);
     gLab.lowUsed = sceneUsedLow(&gLab.lowSize);
     gLab.magic = LAB_MAGIC;
@@ -1735,6 +1950,7 @@ int main()
     verticesPage();
     newPage();
     framePage();
+    runPage();
     int32_t page = PAGE_GAME_WAY;
     show(page);
     uint32_t last = 0;
