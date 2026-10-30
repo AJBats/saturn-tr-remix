@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-234 | Rendering: the new renderer's open work |
+| 219-236 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3653,6 +3653,26 @@ Fix: small*
   cycles, and the new pose costs ×1.38 on the Saturn.
 - **Fix:** find the wait (the frame trace on the Saturn), then price the plan
   from the Saturn's figures.
+
+### 235. The frame's rooms walk holds up the DSP's start
+*Kind: speed · Size: ledge frame 16.41 → 16.86 ms for a 0.42 ms walk
+(measured, 966a05c); the slave waits 0.85 ms · Fix: small*
+
+- The master walks the rooms and makes their jobs before the DSP can start
+  on them; the slave poses its share meanwhile, then waits. The plan doesn't
+  price the walk, so the master's share comes out too big.
+- **Fix:** price the walk in the plan; or let the slave walk while the
+  master poses (the DSP still starts after the walk, but the master's path
+  loses it).
+
+### 236. The frame's plan runs between frames, untimed
+*Kind: coverage · Size: unmeasured, small (a pass over the items and the
+rooms' chunks) · Fix: small*
+
+- `framePlan` (lab.cpp) shares the pose and the rooms' chunks between the
+  CPUs before each measured frame, from the rooms the frame before walked.
+  A frame of the game would plan after its own walk, inside the frame.
+- **Fix:** run it in the frame after the walk, timed.
 
 ---
 
