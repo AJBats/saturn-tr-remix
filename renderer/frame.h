@@ -1,0 +1,156 @@
+// The frame: the renderer's stages on both CPUs and the DSP at once, into
+// the command list VDP1 draws.
+//
+// The slave walks the rooms and starts the DSP on them while the master
+// makes the draw list and its meshes' jobs; the master plans the frame (the
+// items the slave poses, the rooms' chunks of vertices the master projects)
+// and claims its chunks; then the slave poses its items and takes the rooms
+// in order, each projected as soon as the DSP has turned it and its faces
+// added to the rooms' list, while the master poses its own items, feeds the
+// meshes to the DSP and takes the draws in order, each mesh projected once
+// the DSP has made it and its faces added to the draws' list. Both done,
+// each joins half the lists' buckets, far to near. Room faces stay on the
+// slave: they share the room texture cache and the materials' memo, and keep
+// the game's order in the rooms' list.
+#ifndef RENDER_FRAME_H
+#define RENDER_FRAME_H
+
+#include <stdint.h>
+
+#include "draws.h"
+#include "faces.h"
+#include "hints.h"
+#include "textures.h"
+#include "types.h"
+
+namespace render {
+
+// The command list: the clear in slot 0, the rooms' commands from slot 1 to
+// gMeshFirst, the draws' from there to the end's slot; their gouraud tables
+// beside.
+extern Command gFrameCmds[MAX_CMDS];
+extern uint32_t gFrameGrd[MAX_CMDS][2];
+extern int32_t gFrameEnd;
+extern int32_t gMeshFirst;
+extern CommandList gRoomList, gMeshList;
+
+// The frame's rooms (the walk's jobs), the room texture cache as their faces
+// take it, the room textures' materials, the uploads the faces queued, where
+// quads split near the camera put their corners, the room faces' run.
+#define MAX_ROOMS           64      // with vertices, a frame
+#define MAX_ROOM_TEXTURES   288     // a level's (GYM has 279)
+extern FaceRoom* gFrameRooms;
+extern uint32_t gFrameRoomCount;
+extern RoomTextures gRoomTextures;
+extern RoomMaterial gRoomMaterials[MAX_ROOM_TEXTURES];
+extern TextureQueue gFrameTextures;
+extern RoomSplit gSplit;
+extern RoomRun gRoomRun;
+
+// The level's for the faces: the meshes' faces (an offset table, then each
+// mesh's FaceSet), the materials, the textures, palette and sprites, the
+// shades' gouraud colours and levels (0 .. 31), the CPUs' caches of shaded
+// colour tables (the master's, the slave's), the room texture cache's look
+// and pools, the room textures' count, the list's first command, and the
+// vertices the walk places the rooms' in (split corners from the top down).
+struct FrameLevel
+{
+    const uint8_t* faceSets;
+    const Material* materials;
+    const Texture* textures;
+    const uint16_t* palette;
+    const Sprite* sprites;
+    const uint16_t* shadeGouraud;
+    const uint8_t* shadeLevel;
+    ShadeCache* shade[2];
+    uint32_t pmod;              // textured faces' draw mode
+    int32_t lod;                // RoomTextures.lod
+    uint32_t pools[3];
+    uint32_t frame;             // the cache's frame now
+    uint32_t roomTextures;
+    Command clear;
+    Vertex* vertices;
+};
+void frameInit(const FrameLevel &level);
+
+// The lists emptied (their buckets too) on the slots the split last gave.
+void frameLists();
+
+// The slots split between the lists for the frame's rooms and draws (the
+// draws make a command a face at most: their meshes' and shadows' faces,
+// their copies, the fills; the rooms about one a face, some split): when
+// both fit, the draws' list as long as their commands at most, the rooms'
+// the rest; else each as long as its share. Then the lists on to their
+// slots, their buckets empty since the join before, the split corners free.
+void frameSplit(const DrawScene* draws, uint32_t count, int32_t fills);
+void frameListsStart();
+
+// The frame's times, SH-2 cycles: start to end, each CPU's work and waits,
+// the DSP's runs (start to end each: rooms, then meshes), and how late the
+// master's draws ended after the slave's rooms (< 0: before), which the next
+// frame's plan takes half of (bias).
+struct FrameTimes
+{
+    uint32_t wall, masterWork, masterWait, slaveWork, slaveWait, dsp;
+    int32_t late;
+};
+
+// A frame of the game's: its calls (their models' items), the draws' first
+// vertex (base: the lab's checks place them after the walk's fills, as the
+// game does).
+struct FrameCalls
+{
+    const CallRecord* calls;
+    uint32_t count;
+    ItemRecord* items;
+    int32_t base;
+};
+FrameTimes frameRun(const FrameCalls &calls, int32_t bias);
+
+// A frame of draws given (the rooms set, the draws posed, the plan made: the
+// lab's scenes): the copies' faces and their vertices, the draws whose
+// faces hints move.
+struct FrameDraws
+{
+    const DrawScene* draws;
+    uint32_t count;
+    const Face* copies;
+    const Vertex* copyVertices;
+    const HintedDraw* hinted;
+    int32_t hintedCount;
+};
+FrameTimes frameDraws(const FrameDraws &draws, int32_t bias);
+
+// The plan for a frame (vertices.h verticesPlan), with the items' pose
+// shared (posed): the heaviest first, each that leaves the master's
+// predicted work no less than the slave's.
+void framePlan(int32_t bias, bool posed, bool started = false);
+
+// A texture the room faces miss, into the cache, its upload queued.
+int32_t frameTextureMiss(uint32_t key, uint32_t texSize, uint32_t variant);
+
+// The draw order hints of a frame: the faces held out of their buckets
+// (facesMeshHinted) until the rooms' are projected (wait: waited for, the
+// cycles added to waited; else as they stand); the draws whose faces hints
+// move, from; mesh draw i's faces, hinted or not.
+#define MAX_HELD    32
+void frameHintsBegin();
+void frameHintsPlace(bool wait, uint32_t &waited);
+void frameHinted(const HintedDraw* hinted, int32_t count);
+void frameMesh(uint32_t i, const FaceSet* set, const Vertex* vertices, uint32_t mode);
+
+// Mesh draw i's faces if hints move them (else false: the caller adds them).
+bool frameMeshHinted(uint32_t i, const FaceSet* set, const Vertex* vertices, uint32_t mode);
+
+// The list's ends: the clear in slot 0, the end after the draws' last.
+void frameEnds();
+
+// The list and the textures its faces queued into VDP1 VRAM where the game
+// keeps its own, by the SCU's DMA: the textures, the clear and the rooms'
+// commands, then the draws' and the end, and their gouraud tables. The
+// list's bytes.
+uint32_t frameUpload();
+
+}
+
+#endif

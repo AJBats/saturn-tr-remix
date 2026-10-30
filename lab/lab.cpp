@@ -37,6 +37,7 @@
 #include "pose.h"
 #include "rooms.h"
 #include "hints.h"
+#include "frame.h"
 #include "labrender.h"
 #include "vertices.h"
 #include "hw.h"
@@ -185,11 +186,6 @@ struct LabResults
 
 extern "C" LabResults gLab;
 LabResults gLab;
-
-// The new way's command list (its gouraud tables beside), and before the new
-// way runs the floor's.
-static ALIGN16 Command gNewCmds[MAX_CMDS];
-static ALIGN16 uint32_t gNewGrd[MAX_CMDS][2];
 
 void Page::add(const char* text)
 {
@@ -526,8 +522,8 @@ static void stageFloor()
     static FloorXform xf;
     gLab.floor = measure([] {}, [faces, &info] {
         xf.vertices = gVertices;
-        xf.cmd = gNewCmds[1].w;
-        xf.grd = gNewGrd[1];
+        xf.cmd = gFrameCmds[1].w;
+        xf.grd = gFrameGrd[1];
         xf.grdLink = ((VRAM_GOURAUD_BASE >> 3) + 1) << 16;
         xf.shadeGouraud = (const uint16_t*)(sceneArray<const uint8_t>("SHAD") + 128);
         floorAsm(faces, info.floorFaces, &xf);
@@ -535,91 +531,35 @@ static void stageFloor()
     gLab.floorBad = 0;
     for (uint32_t i = 0; i < info.floorFaces; i++) {
         if (faces[i].flags & FLOOR_EXACT) {
-            gLab.floorBad += !gameCommandMatches(gNewCmds[i + 1], gNewGrd[i + 1], i + 1);
+            gLab.floorBad += !gameCommandMatches(gFrameCmds[i + 1], gFrameGrd[i + 1], i + 1);
         }
     }
 }
 
-// The new way: a command list of the rooms' (the slave's, with its cache of
-// shaded tables) and one of the master's draws, in the commands after as many
-// as the game's rooms took (gNewCmds).
-static uint16_t gHeads[2][OT_SIZE + 1] __attribute__((aligned(4)));
-static uint16_t gTails[2][OT_SIZE];
-static CommandList gRoomList, gMeshList;
-static CommandList* const gLists[2] = { &gRoomList, &gMeshList };
-static int32_t gMeshFirst;  // the master's first command (newSplit's)
-static int32_t gNewEnd;     // the new list's end
-
-#define FACE_WATER  (1u << 30)
-#define FACE_LINE_H (8u << 14)  // FaceType FACE_TYPE_LINE_H: renderRect's line, a fill's
-#define MAX_ROOMS   64
-
-// The scene's draws and what they draw, its rooms and the room texture cache,
-// for the new way.
+// The scene's draws and what they draw, for the new way's pages (the frame
+// module's state holds the rest: renderer/frame.h).
 static const DrawScene* gDraws;
 static uint32_t gDrawCount;
-static const uint8_t* gFaceSets;
 static const Face* gGameFaces;
 static const DrawThing* gThings;    // DTHG: the scene's draws' things
-static const Sprite* gSprites;
-static FaceRoom* gRooms;        // the walk's jobs (roomsJobs)
-static uint32_t gRoomCount;
-static RoomTextures gRoomTextures;
-static TextureQueue gNewTextures;   // the uploads the new way's faces queued
+static bool gRoomTexturesShort;     // the rooms take more textures than the frame keeps materials for
+static bool gBottomOff;             // the split corners' bottom not the game's
+static HintedDraw gSceneHinted[MAX_HELD];
+static int32_t gSceneHintedCount;
+static CommandList* const gLists[2] = { &gRoomList, &gMeshList };
+
+#define FACE_WATER  (1u << 30)
 
 // The game's list with its rooms in the walk's order (walkOrderList): what
 // the new way's lists are checked against.
 static GameList gWalkList;
-static RoomSplit gSplit;
-#define MAX_ROOM_TEXTURES   512
-static RoomMaterial gRoomMaterials[MAX_ROOM_TEXTURES];
-static RoomRun gRoomRun;
-static bool gRoomTexturesShort;     // the rooms take more textures than that
-
-// The rooms' list from slot 1, the draws' from the split to the end's slot.
-// The draws make a command a face at most (their meshes' and shadows'
-// faces, their copies, the fills), the rooms about one a face (some split):
-// when both fit, the draws' list as long as their commands at most, the
-// rooms' the rest; else each as long as its share of the faces.
-static void newSplit(const DrawScene* draws, uint32_t count, int32_t fills)
-{
-    int32_t meshes = verticesFaces() + fills, rooms = verticesRoomFaces(), slots = MAX_CMDS - 2;
-    for (uint32_t i = 0; i < count; i++) {
-        meshes += draws[i].type == DRAW_COPY;
-    }
-    gMeshFirst = rooms + meshes <= slots ? MAX_CMDS - 1 - meshes : 1 + int32_t(int64_t(slots) * rooms / (rooms + meshes));
-}
-
-// The lists on to a frame's slots (newSplit's), their buckets empty since
-// the join before; the rooms' split vertices free.
-static void newListsStart()
-{
-    facesListStart(gRoomList, gNewCmds, gNewGrd, 1, gMeshFirst);
-    facesListStart(gMeshList, gNewCmds, gNewGrd, gMeshFirst, MAX_CMDS - 1);
-    gSplit.top = MAX_VERTICES;
-    gSplit.bottom = sceneInfo().bottom;
-}
-
-// The lists empty for a frame of the new way's, the rooms' split vertices
-// free.
-static void newLists()
-{
-    static const Material* materials = sceneArray<const Material>("NMAT");
-    static const uint8_t* shadeLevel = sceneArray<const uint8_t>("SHAD");
-    facesListInit(gRoomList, gNewCmds, gNewGrd, 1, gMeshFirst, gHeads[0], gTails[0], materials,
-                  gameShadeGouraud(), shadeLevel, gameShadeCache(1), gSprites);
-    facesListInit(gMeshList, gNewCmds, gNewGrd, gMeshFirst, MAX_CMDS - 1, gHeads[1], gTails[1], materials,
-                  gameShadeGouraud(), shadeLevel, gameShadeCache(0), gSprites);
-    gSplit.top = MAX_VERTICES;
-    gSplit.bottom = sceneInfo().bottom;
-}
 
 static void newPrepare()
 {
     gameFlushPrepare();
-    newLists();
+    frameLists();
     texturesReset();
-    gNewTextures.count = 0;
+    gFrameTextures.count = 0;
 
     // the materials' characters looked up afresh, as in a frame of its own
     for (int32_t i = 0; i < MAX_ROOM_TEXTURES; i++) {
@@ -630,53 +570,35 @@ static void newPrepare()
 // The rooms in the walk's order, through facesRoom or (c) facesRoomC.
 static void newRooms(bool c)
 {
-    for (uint32_t i = 0; i < gRoomCount; i++)
+    for (uint32_t i = 0; i < gFrameRoomCount; i++)
     {
         if (c) {
-            facesRoomC(gRooms[i], gRoomTextures, gSplit, gRoomList);
+            facesRoomC(gFrameRooms[i], gRoomTextures, gSplit, gRoomList);
         } else {
             if (!i) {
                 facesRoomsBegin(gRoomRun, gRoomTextures, gSplit, gRoomList);
             }
-            facesRoom(gRooms[i], gRoomRun);
+            facesRoom(gFrameRooms[i], gRoomRun);
         }
     }
 }
 
-// A texture the cache hasn't: into it, its upload queued (textures.h), from
-// the cache as the frame found it (newPrepare).
-static int32_t roomTextureMiss(uint32_t key, uint32_t texSize, uint32_t variant)
-{
-    return texturesMiss(gNewTextures, gRoomTextures.frame, key, texSize, variant);
-}
-
-// The rooms as facesRoom* takes them, and the cache as the frame found it.
+// The frame module on the scene: the walk's jobs as its rooms, the scene's
+// faces and materials, the cache as the frame found it, the split for the
+// scene's draws.
 static void newRoomsInit()
 {
     const SceneInfo &info = sceneInfo();
-    gRooms = roomsJobs(gRoomCount);
-    if (gRoomCount > MAX_ROOMS) {
-        gRoomCount = MAX_ROOMS;
+    gFrameRooms = roomsJobs(gFrameRoomCount);
+    if (gFrameRoomCount > MAX_ROOMS) {
+        gFrameRoomCount = MAX_ROOMS;
     }
 
-    RoomTextures &t = gRoomTextures;
-    t.textures = sceneArray<const Texture>("TEXS");
-    t.palette = sceneArray<const uint16_t>("PALT");
-    t.keys = texturesKeys();
-    t.slots = texturesSlots();
-    t.frame = info.detailFrame;
-    t.lod = info.lod;
-    t.pmod = info.texturePmod;
-    t.pools[0] = info.detailVram;
-    t.pools[1] = info.poolVram[1];
-    t.pools[2] = info.poolVram[2];
-    t.miss = roomTextureMiss;
-
-    // the materials of the textures the rooms' faces take
+    // the textures the rooms' faces take
     uint32_t textures = 0;
-    for (uint32_t i = 0; i < gRoomCount; i++)
+    for (uint32_t i = 0; i < gFrameRoomCount; i++)
     {
-        const FaceRoom &room = gRooms[i];
+        const FaceRoom &room = gFrameRooms[i];
         for (int32_t k = 0; k < room.quadsCount; k++) {
             uint32_t n = (room.quads[k].flags & 0x3FFF) + 1;
             textures = n > textures ? n : textures;
@@ -687,89 +609,30 @@ static void newRoomsInit()
         }
     }
     gRoomTexturesShort = textures > MAX_ROOM_TEXTURES;
-    facesRoomMaterials(t, gRoomMaterials, gRoomTexturesShort ? MAX_ROOM_TEXTURES : textures);
-    t.materials = gRoomMaterials;
-    gSplit.vertices = gVertices;
-    gSplit.divTable = sceneArray<const uint16_t>("DIVT");
-    newSplit(gDraws, gDrawCount, 0);
-}
 
-// The draw order hints of the new way's frame: the faces held out of their
-// buckets (facesMeshHinted) until the rooms' are projected; whether those
-// are projected in the frame (waited for), or as the scene drew them.
-#define MAX_HELD    32
-static HeldCommand gHeld[MAX_HELD];
-static int32_t gHeldCount;
-static bool gHintsWait;
-static uint32_t gHintsWaited;
-
-static void newHintsBegin()
-{
-    static uint16_t rooms[MAX_ROOMS];
-    for (uint32_t i = 0; i < gRoomCount; i++) {
-        rooms[i] = gRooms[i].room;
-    }
-    hintsBegin(rooms, gRoomCount);
-    gHeldCount = 0;
-}
-
-static bool newHintRoom(uint32_t room, HintRoom &out)
-{
-    for (uint32_t i = 0; i < gRoomCount; i++)
-    {
-        const FaceRoom &r = gRooms[i];
-        if (r.room != room)
-            continue;
-        if (gHintsWait) {
-            verticesRoomWait(i, gHintsWaited);
-        }
-        out = { r.quads, r.triangles, r.quadsCount, r.trianglesCount, r.points, r.vertices, r.camera };
-        return true;
-    }
-    return false;
-}
-
-// The held faces into their buckets (render.cpp depthHintsPlace), in the
-// order held.
-static void newHintsPlace()
-{
-    for (int32_t i = 0; i < gHeldCount; i++) {
-        facesLinkHeld(gMeshList, gHeld[i], hintsPlace(gHeld[i].hint, gHeld[i].depth, newHintRoom));
-    }
-    gHeldCount = 0;
-}
-
-// The frame's draws its hints move (hintsDraws), the scene's (from DTHG, at
-// its rooms: once), and the next of them: its draw, or none (~0).
-static HintedDraw gHinted[MAX_HELD], gSceneHinted[MAX_HELD];
-static const HintedDraw* gHintedList;
-static int32_t gHintedCount, gSceneHintedCount, gHintedNext;
-static uint32_t gNextHinted;
-
-static void hintedFrom(const HintedDraw* hinted, int32_t count)
-{
-    gHintedList = hinted;
-    gHintedCount = count;
-    gHintedNext = 0;
-    gNextHinted = count ? hinted[0].draw : ~0u;
-}
-
-// Mesh draw i's faces: a hinted one's (its thing's hints) through
-// facesMeshHinted, another's through facesMeshAsm or (c) facesMeshC.
-static inline __attribute__((always_inline)) void newMesh(uint32_t i, const FaceSet* set, const Vertex* vertices,
-                                                          uint32_t mode, bool c)
-{
-    HintFaces hints;
-    if (i == gNextHinted)
-    {
-        hintsOf(gHintedList[gHintedNext++].thing, hints);
-        gNextHinted = gHintedNext < gHintedCount ? gHintedList[gHintedNext].draw : ~0u;
-        facesMeshHinted(set, vertices, mode, gMeshList, hints, gHeld, gHeldCount, MAX_HELD);
-    } else if (c) {
-        facesMeshC(set, vertices, mode, gMeshList);
-    } else {
-        facesMeshAsm(set, vertices, mode, &gMeshList);
-    }
+    FrameLevel level;
+    level.faceSets = sceneArray<const uint8_t>("NMSH");
+    level.materials = sceneArray<const Material>("NMAT");
+    level.textures = sceneArray<const Texture>("TEXS");
+    level.palette = sceneArray<const uint16_t>("PALT");
+    level.sprites = sceneArray<const Sprite>("SPRS");
+    level.shadeGouraud = gameShadeGouraud();
+    level.shadeLevel = sceneArray<const uint8_t>("SHAD");
+    level.shade[0] = gameShadeCache(0);
+    level.shade[1] = gameShadeCache(1);
+    level.pmod = info.texturePmod;
+    level.lod = info.lod;
+    level.pools[0] = info.detailVram;
+    level.pools[1] = info.poolVram[1];
+    level.pools[2] = info.poolVram[2];
+    level.frame = info.detailFrame;
+    level.roomTextures = textures;
+    level.clear = sceneArray<const Command>("CMDS")[0];
+    level.vertices = gVertices;
+    frameInit(level);
+    frameSplit(gDraws, gDrawCount, 0);
+    frameLists();
+    gBottomOff = gSplit.bottom != info.bottom;
 }
 
 // The master's draws in order, their faces through facesMeshAsm or (c)
@@ -778,10 +641,9 @@ static inline __attribute__((always_inline)) void newMesh(uint32_t i, const Face
 static void newMeshes(bool c, bool water = false)
 {
     const DrawScene* draws = gDraws;
-    const uint8_t* sets = gFaceSets;
-    newHintsBegin();
-    hintedFrom(gSceneHinted, gSceneHintedCount);
-    gHintsWait = false;
+    const uint8_t* sets = sceneArray<const uint8_t>("NMSH");
+    frameHintsBegin();
+    frameHinted(gSceneHinted, gSceneHintedCount);
     for (uint32_t i = 0; i < gDrawCount; i++)
     {
         const DrawScene &d = draws[i];
@@ -798,350 +660,57 @@ static void newMeshes(bool c, bool water = false)
         const FaceSet* set = d.type == DRAW_SHADOW ? facesShadow()
                                                    : (const FaceSet*)(sets + ((const uint32_t*)sets)[d.mesh]);
         uint32_t mode = (d.inside ? MESH_INSIDE : 0) | (water || (d.flags & FACE_WATER) ? MESH_WATER : 0);
-        newMesh(i, set, vertices, mode, c);
+        if (frameMeshHinted(i, set, vertices, mode))
+            continue;
+        if (c) {
+            facesMeshC(set, vertices, mode, gMeshList);
+        } else {
+            facesMeshAsm(set, vertices, mode, &gMeshList);
+        }
     }
-    newHintsPlace();
+    uint32_t waited = 0;
+    frameHintsPlace(false, waited);
 }
 
 // The buckets joined (facesJoinAsm, or facesJoin), after the game's clear;
 // the end after the last command.
-static Command gClear;
-
 static void newJoin(bool c)
 {
-    gNewEnd = facesSlot(gMeshList.link);
-    gNewCmds[0] = gClear;
-    gNewCmds[gNewEnd].w[0] = CMD_END << 16;
+    frameEnds();
     if (c) {
-        facesJoin(gLists, 2, gNewCmds, 0, gNewEnd);
+        facesJoin(gLists, 2, gFrameCmds, 0, gFrameEnd);
     } else {
-        facesJoinRoomsMeshes(gRoomList, gMeshList, gNewCmds, 0, gNewEnd);
+        facesJoinRoomsMeshes(gRoomList, gMeshList, gFrameCmds, 0, gFrameEnd);
     }
-}
-
-// Stages 2 and 3 the new way together, as a frame would run them: the DSP
-// turns the rooms, then the meshes; the slave takes each room in order as
-// soon as the DSP has turned it, projects it and adds its faces (the room
-// list); the master feeds the meshes meanwhile and projects the chunks of
-// rooms the plan gives it (verticesPlan), then takes the draws in order,
-// each mesh job projected once the DSP has made it and its faces added (the
-// mesh list); then, both done, each joins half the lists' buckets (the
-// slave the near half, from a field of its own the master then links the
-// far half's last command to). Each CPU's work and waits.
-// Room faces stay on the slave: they share the room texture cache and the
-// materials' memo, and keep the game's order in the room list.
-struct Stages
-{
-    uint32_t wall, masterWork, masterWait, slaveWork, slaveWait;
-    uint32_t dsp;       // the DSP's runs, start to end each (dspEnds): rooms, then meshes
-    int32_t late;       // cycles the master's draws ended after the slave's rooms (or before: < 0)
-};
-
-// Between the CPUs (each read and written uncached, and volatile, so that
-// a wait on it stays a wait): the slave's rooms done, the master's draws
-// done; the near half's first chain (its head, for the far half's last
-// command to link to) and the link field its last goes into; the slave's
-// work and waits.
-#define JOIN_SPLIT  (JOIN_PAIRS / 2)    // the far half's nearest pair
-
-struct SlaveStages
-{
-    volatile uint32_t roomsDone, drawsDone;
-    uint16_t* volatile nearLast;
-    volatile uint16_t nearHead;
-    uint16_t pad;
-    volatile uint32_t work, wait;
-    volatile uint32_t poses;    // the slave poses its items (gPoseSlave) first
-    volatile uint32_t posed;
-    volatile uint32_t roomsReady;   // the plan made, the master's rooms' chunks claimed
-    volatile uint32_t walks;    // the slave walks the rooms and starts the DSP on them first
-    volatile uint32_t walked;
-} __attribute__((aligned(16)));
-static SlaveStages gSlaveStages;
-
-// The frame's split between the CPUs, beside the rooms' chunks: the items the
-// slave poses.
-#define MAX_POSE_ITEMS  64
-#define X_MAX(a, b)     ((a) > (b) ? (a) : (b))
-static uint8_t gPoseSlave[MAX_POSE_ITEMS];
-
-static void slaveRooms(void*)
-{
-    uint32_t t0 = ticks(), wait = 0;
-    SlaveStages* shared = uncached(&gSlaveStages);
-    if (shared->walks)
-    {
-        // the rooms seen, their jobs, laid out, the DSP started on them in order
-        roomsSeen();
-        uint32_t count;
-        verticesRoomsSet(roomsJobs(count), count);
-        verticesRoomsStart();
-        shared->walked = 1;
-    }
-    if (!shared->roomsReady)
-    {
-        uint32_t w0 = ticks();
-        while (!shared->roomsReady);
-        wait += ticksCycles(w0, ticks());
-        cachePurge();   // the master's draw list and plan
-    }
-    if (shared->poses)
-    {
-        poseShare(1, gPoseSlave);
-        shared->posed = 1;
-    }
-    for (uint32_t i = 0; i < gRoomCount; i++)
-    {
-        verticesRoom(i, wait);
-        if (!i) {
-            facesRoomsBegin(gRoomRun, gRoomTextures, gSplit, gRoomList);
-        }
-        facesRoom(gRooms[i], gRoomRun);
-    }
-    *uncached(&gSlaveStages.roomsDone) = 1;
-    uint32_t w0 = ticks();
-    while (!*uncached(&gSlaveStages.drawsDone));
-    wait += ticksCycles(w0, ticks());
-    cachePurge();       // the master's mesh list
-    shared->nearLast = facesJoinPairs(&gRoomList, &gMeshList, facesLinkBase(gNewCmds),
-                                      (uint16_t*)&shared->nearHead, JOIN_SPLIT - 1);
-    shared->work = ticksCycles(t0, ticks()) - wait;
-    shared->wait = wait;
-}
-
-static void framePlan(int32_t bias, bool posed, bool started = false);
-
-// The pose's share and the feed's: the slave's items (gPoseSlave), and the
-// master's mesh jobs to feed before the slave's first.
-static uint32_t slaveShare(int32_t &part)
-{
-    uint32_t items = poseCount(), slaveItems = 0;
-    part = verticesJobs();
-    for (uint32_t i = 0; i < items; i++)
-    {
-        slaveItems += gPoseSlave[i];
-        if (gPoseSlave[i] && poseDraws(i) && part == verticesJobs()) {
-            part = verticesJobOfDraw(poseFirstDraw(i));
-        }
-    }
-    return slaveItems;
 }
 
 // The frame's fills past the draw distance (the walk's at the scene's view):
 // their vertices before the draw list's.
 static int32_t gFills;
 
-// Stages 2 and 3 together; posed: stage 1 too, the frame so far: the slave
-// walks the rooms and starts the DSP on them while the master makes the
-// draw list and its meshes' jobs; the master plans the frame (the slave's
-// items, the rooms' chunks it takes) and claims its chunks; then the slave
-// poses its items and takes its rooms, the master poses its own, feeds the
-// meshes before the first of the slave's and the rest once the slave has
-// posed them. bias: the plan's (posed: made here; else before).
-static Stages stagesTogether(bool posed, int32_t bias)
+// Stages 2 and 3 together on the scene's draws, or (posed) the frame from
+// its calls (renderer/frame.h): the pose's checks then held to its draw list.
+static FrameTimes stagesTogether(bool posed, int32_t bias)
 {
-    Stages s = {};
-    SlaveStages* shared = uncached(&gSlaveStages);
-    shared->roomsDone = shared->drawsDone = shared->posed = shared->walked = 0;
-    shared->roomsReady = !posed;
-    shared->walks = posed;
-    int32_t part = verticesJobs();
-    uint32_t slaveItems = 0;
-    shared->poses = 0;
-    const DrawList &list = drawsList();
-    dspEndsClear();
-    uint32_t t0 = ticks();
-    if (posed)
+    if (!posed)
     {
-        slaveRun(slaveRooms, nullptr);
-        drawsLab(gFills);
-        verticesDrawsSet(list.draws, list.drawCount, poseXforms());
-        poseLabUse(&list, gFills);
-        uint32_t w0 = ticks();
-        while (!shared->walked);
-        s.masterWait += ticksCycles(w0, ticks());
-        cachePurge();   // the rooms the slave walked
-        newSplit(list.draws, list.drawCount, gFills);
-        newListsStart();
-        newHintsBegin();
-        framePlan(bias, true, true);
-        slaveItems = slaveShare(part);
-        shared->poses = slaveItems;
-        verticesClaimMasters();
-        shared->roomsReady = 1;
+        FrameDraws given = { gDraws, gDrawCount, gGameFaces, gVertices, gSceneHinted, gSceneHintedCount };
+        return frameDraws(given, bias);
     }
-    else
-    {
-        newHintsBegin();
-        verticesRoomsBegin();
-        verticesClaimMasters();
-        slaveRun(slaveRooms, nullptr);
-    }
-    if (posed)
-    {
-        poseShare(0, gPoseSlave);
-        poseStatics();
-    }
-    verticesMeshesFeed(0, part);
-    if (slaveItems)
-    {
-        uint32_t w0 = ticks();
-        while (!shared->posed);
-        s.masterWait += ticksCycles(w0, ticks());
-        poseDropShare(gPoseSlave);
-        verticesMeshesFeed(part);
-    }
-    bool meshes = false;
-    verticesMasterRooms(s.masterWait, meshes);
-    if (!meshes) {
-        verticesMeshesStart(s.masterWait);
-    }
-    const uint8_t* sets = gFaceSets;
-    uint32_t slaveEnd = 0;
-    const DrawScene* draws = posed ? list.draws : gDraws;
-    uint32_t drawCount = posed ? list.drawCount : gDrawCount;
-    if (posed) {
-        hintedFrom(gHinted, hintsDraws(list.hinted, list.hintedCount, gHinted, MAX_HELD));
-    } else {
-        hintedFrom(gSceneHinted, gSceneHintedCount);
-    }
-    if (posed)
-    {
-        // the fills past the draw distance the walk found (render.cpp
-        // renderVoid: a rectangle of colour 0 behind everything), before the
-        // draws
-        int32_t fills;
-        const int32_t (*fill)[4] = roomsFills(fills);
-        for (int32_t k = 0; k < fills; k++)
-        {
-            Vertex v[2] = {};
-            v[0].x = fill[k][0];
-            v[0].y = fill[k][1];
-            v[1].x = fill[k][2] - fill[k][0];
-            v[1].y = fill[k][3] - fill[k][1];
-            const Face face = { FACE_LINE_H, nullptr, { 0 } };
-            facesOtherAsm(&face, v, OT_SIZE - 1, &gMeshList);
-        }
-    }
-    for (uint32_t i = 0; i < drawCount; i++)
-    {
-        if (!slaveEnd && shared->roomsDone) {
-            slaveEnd = ticksCycles(t0, ticks());
-        }
-        const DrawScene &d = draws[i];
-        if (d.type == DRAW_COPY)
-        {
-            // a sprite's or rectangle's face: the draw list's made, the scene's copied
-            if (posed) {
-                facesOtherAsm(list.faces + d.first, list.vertices + 2 * d.first, d.bucket, &gMeshList);
-            } else {
-                facesOtherAsm(gGameFaces + d.first, gVertices, d.bucket, &gMeshList);
-            }
-            continue;
-        }
-        const Vertex* vertices = verticesDraw(i, s.masterWait);
-        const FaceSet* set = d.type == DRAW_SHADOW ? facesShadow()
-                                                   : (const FaceSet*)(sets + ((const uint32_t*)sets)[d.mesh]);
-        int32_t inside = posed ? verticesInsideOf(i) : d.inside;
-        uint32_t mode = (inside ? MESH_INSIDE : 0) | (d.flags & FACE_WATER ? MESH_WATER : 0);
-        newMesh(i, set, vertices, mode, false);
-    }
-    gHintsWait = true;
-    gHintsWaited = 0;
-    newHintsPlace();
-    s.masterWait += gHintsWaited;
-    gNewEnd = facesSlot(gMeshList.link);
-    gNewCmds[0] = gClear;
-    gNewCmds[gNewEnd].w[0] = CMD_END << 16;
-    shared->drawsDone = 1;
-    uint32_t w0 = ticks();
-    uint32_t drawsEnd = ticksCycles(t0, w0);
-    while (!shared->roomsDone);
-    s.masterWait += ticksCycles(w0, ticks());
-    s.late = int32_t(drawsEnd) - int32_t(slaveEnd ? slaveEnd : ticksCycles(t0, ticks()));
-    cachePurge();       // the slave's room list
-    uint16_t* farLast = facesJoinPairs(&gRoomList, &gMeshList, facesLinkBase(gNewCmds),
-                                       facesLinkField(gNewCmds, 0), JOIN_SPLIT << 16 | (JOIN_PAIRS - 1));
-    w0 = ticks();
-    slaveWait();
-    s.masterWait += ticksCycles(w0, ticks());
-    cachePurge();       // the link fields the slave's half set, of commands this CPU made
-    uint16_t* nearLast = shared->nearLast;
-    if (nearLast == &uncached(&gSlaveStages)->nearHead || nearLast == &gSlaveStages.nearHead) {
-        *farLast = facesLink(gNewEnd);      // the near half had no commands
-    }
-    else
-    {
-        *farLast = shared->nearHead;
-        *nearLast = facesLink(gNewEnd);
-    }
-    verticesEnd();
-    s.wall = ticksCycles(t0, ticks());
-    uint32_t ends[2], roomsAt, meshesAt;
-    if (dspEnds(ends, 2) == 2)
-    {
-        verticesDspStarts(roomsAt, meshesAt);
-        if (posed) {
-            roomsAt = slaveTickOnMaster(roomsAt);    // the slave started them
-        }
-        s.dsp = ticksCycles(roomsAt, ends[0]) + ticksCycles(meshesAt, ends[1]);
-    }
-    s.masterWork = s.wall - s.masterWait;
-    s.slaveWork = *uncached(&gSlaveStages.work);
-    s.slaveWait = *uncached(&gSlaveStages.wait);
+    FrameCalls calls;
+    calls.calls = sceneArray<const CallRecord>("CALL", &calls.count);
+    calls.items = sceneArray<ItemRecord>("OITM");
+    calls.base = gFills;
+    FrameTimes s = frameRun(calls, bias);
+    poseLabUse(&drawsList(), gFills);
     return s;
-}
-
-// The plan for a frame (verticesPlan), with the items' pose (gPoseSlave: the
-// slave's): the heaviest first, each that leaves the master's predicted work
-// no less than the slave's, and its own pose no less than the slave's (so
-// it has its own to do while the slave poses), the slave's wait for the
-// DSP's first room free for it; the rooms' chunks then even out what is
-// left.
-static void framePlan(int32_t bias, bool posed, bool started)
-{
-    memset(gPoseSlave, 0, sizeof(gPoseSlave));
-    if (!posed || poseCount() > MAX_POSE_ITEMS)
-    {
-        verticesPlan(bias, 0, started);
-        return;
-    }
-    int32_t master, slave, masterPose = 0, slavePose = 0, idle = verticesSlaveIdle();
-    verticesPredicted(master, slave);
-    master += bias;
-    int32_t prices[MAX_POSE_ITEMS];
-    for (uint32_t i = 0; i < poseCount(); i++)
-    {
-        prices[i] = posePrice(i);
-        masterPose += prices[i];
-    }
-    while (1)
-    {
-        int32_t best = -1, price = 0;
-        for (uint32_t i = 0; i < poseCount(); i++)
-        {
-            int32_t p = prices[i];
-            if (!gPoseSlave[i] && p > price && master + masterPose - p >= slave + X_MAX(slavePose + p - idle, 0) &&
-                masterPose - p >= slavePose + p - idle)
-            {
-                best = i;
-                price = p;
-            }
-        }
-        if (best < 0)
-            break;
-        gPoseSlave[best] = 1;
-        masterPose -= price;
-        slavePose += price;
-    }
-    verticesPlan(bias + masterPose - X_MAX(slavePose - idle, 0), masterPose, started);
 }
 
 // The stages run together, RUNS times after the frames that settle the
 // split (each moves the plan by half how late the master's draws ended after
 // the slave's rooms): their mean, and the list and vertices against the
 // game's.
-static Stages togetherMeasured(bool posed, int32_t &bad)
+static FrameTimes togetherMeasured(bool posed, int32_t &bad)
 {
     int32_t bias = 0;
     for (int32_t f = 0; f < 6; f++)
@@ -1163,7 +732,7 @@ static Stages togetherMeasured(bool posed, int32_t &bad)
     if (!posed) {
         framePlan(bias, posed);
     }
-    Stages sum = {};
+    FrameTimes sum = {};
     for (int32_t r = 0; r < RUNS; r++)
     {
         newPrepare();
@@ -1175,7 +744,7 @@ static Stages togetherMeasured(bool posed, int32_t &bad)
             roomsPoison();
         }
         cachePurge();
-        Stages s = stagesTogether(posed, bias);
+        FrameTimes s = stagesTogether(posed, bias);
         sum.wall += s.wall;
         sum.masterWork += s.masterWork;
         sum.masterWait += s.masterWait;
@@ -1190,15 +759,15 @@ static Stages togetherMeasured(bool posed, int32_t &bad)
     sum.slaveWait /= RUNS;
     sum.dsp /= RUNS;
     int32_t visited, shaded, rooms, meshes;
-    bad = gameListCheck(gNewCmds, gNewGrd, visited, shaded) + verticesRoomsCheck(rooms) +
-          verticesMeshesCheck(meshes) + texturesQueueOff(gNewTextures, gWalkList.textures) +
+    bad = gameListCheck(gFrameCmds, gFrameGrd, visited, shaded) + verticesRoomsCheck(rooms) +
+          verticesMeshesCheck(meshes) + texturesQueueOff(gFrameTextures, gWalkList.textures) +
           (posed ? poseCheck() + roomsSeenCheck() + drawsCheck(gameDrawList()) : 0);
     return sum;
 }
 
 static void stageTogether()
 {
-    Stages s = togetherMeasured(false, gLab.stagesBad);
+    FrameTimes s = togetherMeasured(false, gLab.stagesBad);
     gLab.stages = s.wall;
     gLab.stagesMaster = s.masterWork;
     gLab.stagesMasterWait = s.masterWait;
@@ -1212,7 +781,7 @@ static void stageTogether()
 static void stageFrame()
 {
     roomsFills(gFills);
-    Stages s = togetherMeasured(true, gLab.frameBad);
+    FrameTimes s = togetherMeasured(true, gLab.frameBad);
     verticesDrawsSet(sceneArray<const DrawScene>("DRAW"), sceneInfo().draws, sceneArray<const DrawXform>("XFRM"));
     poseLabUse(nullptr);
     gLab.frame = s.wall;
@@ -1223,41 +792,24 @@ static void stageFrame()
     gLab.frameDsp = s.dsp;
 }
 
-// The new list into VDP1 VRAM where the game puts its own, by the SCU's DMA,
-// after the textures its faces queued: the clear and the rooms' commands,
-// then the draws' and the end, and their gouraud tables. The list's bytes
-// uploaded.
-static uint32_t listUpload()
-{
-    texturesUpload(gNewTextures);
-    int32_t rooms = facesSlot(gRoomList.link), meshes = gNewEnd + 1 - gMeshFirst;
-    dmaToVdp1(gNewCmds, VRAM_FRAME_CMDS, rooms * sizeof(Command));
-    dmaToVdp1(gNewCmds + gMeshFirst, VRAM_FRAME_CMDS + gMeshFirst * sizeof(Command), meshes * sizeof(Command));
-    dmaToVdp1(gNewGrd, VRAM_GOURAUD_BASE, rooms * sizeof(gNewGrd[0]));
-    dmaToVdp1(gNewGrd + gMeshFirst, VRAM_GOURAUD_BASE + gMeshFirst * sizeof(gNewGrd[0]),
-              (meshes - 1) * sizeof(gNewGrd[0]));
-    dmaWait();
-    return (rooms + meshes) * sizeof(Command) + (rooms + meshes - 1) * sizeof(gNewGrd[0]);
-}
-
-// The words of the uploaded list in VDP1 VRAM not as gNewCmds and gNewGrd
-// hold them.
+// The words of the uploaded list in VDP1 VRAM not as gFrameCmds and
+// gFrameGrd hold them.
 static int32_t uploadCheck()
 {
     int32_t bad = 0;
     int32_t rooms = facesSlot(gRoomList.link);
     const volatile uint32_t* cmds = (const volatile uint32_t*)(VDP1_VRAM + VRAM_FRAME_CMDS);
     const volatile uint32_t* grd = (const volatile uint32_t*)(VDP1_VRAM + VRAM_GOURAUD_BASE);
-    for (int32_t i = 0; i <= gNewEnd; i++)
+    for (int32_t i = 0; i <= gFrameEnd; i++)
     {
         if (i == rooms) {
             i = gMeshFirst;
         }
         for (int32_t w = 0; w < 8; w++) {
-            bad += cmds[8 * i + w] != gNewCmds[i].w[w];
+            bad += cmds[8 * i + w] != gFrameCmds[i].w[w];
         }
-        if (i < gNewEnd) {
-            bad += (grd[2 * i] != gNewGrd[i][0]) + (grd[2 * i + 1] != gNewGrd[i][1]);
+        if (i < gFrameEnd) {
+            bad += (grd[2 * i] != gFrameGrd[i][0]) + (grd[2 * i + 1] != gFrameGrd[i][1]);
         }
     }
     return bad;
@@ -1282,18 +834,18 @@ static void stageRun()
     // texture cache, the quads' kept decisions, the frames
     uint32_t slots = DETAIL_SLOTS;
     DetailSlot* detailSlots = texturesSlots();
-    Command* cmds = (Command*)sceneAllocLow(sizeof(gNewCmds));
-    uint32_t (*grd)[2] = (uint32_t (*)[2])sceneAllocLow(sizeof(gNewGrd));
+    Command* cmds = (Command*)sceneAllocLow(sizeof(gFrameCmds));
+    uint32_t (*grd)[2] = (uint32_t (*)[2])sceneAllocLow(sizeof(gFrameGrd));
     ShadeCache* caches = (ShadeCache*)sceneAllocLow(2 * sizeof(ShadeCache));
     uint8_t* keys = (uint8_t*)sceneAllocLow(DETAIL_VARIANTS * DETAIL_MAX_KEYS);
     DetailSlot* saved = (DetailSlot*)sceneAllocLow(slots * sizeof(DetailSlot));
     static TextureQueue uploads;
     if (!saved)
         return;
-    uploads = gNewTextures;
-    memcpy(cmds, gNewCmds, sizeof(gNewCmds));
-    memcpy(grd, gNewGrd, sizeof(gNewGrd));
-    int32_t end = gNewEnd;
+    uploads = gFrameTextures;
+    memcpy(cmds, gFrameCmds, sizeof(gFrameCmds));
+    memcpy(grd, gFrameGrd, sizeof(gFrameGrd));
+    int32_t end = gFrameEnd;
     for (int32_t c = 0; c < 2; c++) {
         caches[c] = *gameShadeCache(c);
     }
@@ -1316,8 +868,8 @@ static void stageRun()
         gameShadeCache(0)->frame++;
         gameShadeCache(1)->frame++;
         gRoomTextures.frame++;
-        gNewTextures.count = 0;
-        Stages s = stagesTogether(true, bias);
+        gFrameTextures.count = 0;
+        FrameTimes s = stagesTogether(true, bias);
         bias += s.late / 2;
         uint32_t t1 = ticks();
         stages += ticksCycles(t0, t1);
@@ -1333,7 +885,7 @@ static void stageRun()
             waited++;
         }
         uint32_t u0 = ticks();
-        gLab.uploadBytes = listUpload();
+        gLab.uploadBytes = frameUpload();
         upload += ticksCycles(u0, ticks());
         uint32_t next = vdp1Plot();
         total += ticksCycles(plotted, next);
@@ -1358,9 +910,9 @@ static void stageRun()
     gLab.runVdp1 = waited ? vdp1 / waited : 0;
     gLab.runWaited = waited;
 
-    memcpy(gNewCmds, cmds, sizeof(gNewCmds));
-    memcpy(gNewGrd, grd, sizeof(gNewGrd));
-    gNewEnd = end;
+    memcpy(gFrameCmds, cmds, sizeof(gFrameCmds));
+    memcpy(gFrameGrd, grd, sizeof(gFrameGrd));
+    gFrameEnd = end;
     for (int32_t c = 0; c < 2; c++) {
         *gameShadeCache(c) = caches[c];
     }
@@ -1368,8 +920,8 @@ static void stageRun()
     memcpy(detailSlots, saved, slots * sizeof(DetailSlot));
     roomQuadFlags(false);
     gRoomTextures.frame = textureFrame;
-    gNewTextures = uploads;
-    texturesUpload(gNewTextures);
+    gFrameTextures = uploads;
+    texturesUpload(gFrameTextures);
     verticesDrawsSet(sceneArray<const DrawScene>("DRAW"), sceneInfo().draws, sceneArray<const DrawXform>("XFRM"));
     poseLabUse(nullptr);
 }
@@ -1379,9 +931,9 @@ static uint32_t commandHash(int32_t slot)
 {
     uint32_t h = 0;
     for (int32_t i = 0; i < 8; i++) {
-        h = ((h << 5) | (h >> 27)) ^ gNewCmds[slot].w[i];
+        h = ((h << 5) | (h >> 27)) ^ gFrameCmds[slot].w[i];
     }
-    return ((h << 5) | (h >> 27)) ^ gNewGrd[slot][0] ^ (gNewGrd[slot][1] << 1);
+    return ((h << 5) | (h >> 27)) ^ gFrameGrd[slot][0] ^ (gFrameGrd[slot][1] << 1);
 }
 
 // The new way's frames at this view, its caches of shaded tables settling on
@@ -1420,14 +972,14 @@ static void roomQuadFlags(bool save)
 {
     static uint32_t* flags = (uint32_t*)sceneAllocLow(2048 * sizeof(uint32_t));
     int32_t n = 0;
-    for (uint32_t i = 0; i < gRoomCount; i++)
+    for (uint32_t i = 0; i < gFrameRoomCount; i++)
     {
-        for (int32_t k = 0; k < gRooms[i].quadsCount && n < 2048; k++, n++)
+        for (int32_t k = 0; k < gFrameRooms[i].quadsCount && n < 2048; k++, n++)
         {
             if (save) {
-                flags[n] = gRooms[i].quads[k].flags;
+                flags[n] = gFrameRooms[i].quads[k].flags;
             } else {
-                gRooms[i].quads[k].flags = flags[n];
+                gFrameRooms[i].quads[k].flags = flags[n];
             }
         }
     }
@@ -1452,8 +1004,8 @@ static int32_t newAsmCheck()
 {
     static uint32_t* hashes = (uint32_t*)sceneAllocLow(MAX_CMDS * sizeof(uint32_t));
     static uint32_t water[MAX_ROOMS];
-    for (uint32_t i = 0; i < gRoomCount; i++) {
-        water[i] = gRooms[i].flags;
+    for (uint32_t i = 0; i < gFrameRoomCount; i++) {
+        water[i] = gFrameRooms[i].flags;
     }
     roomQuadFlags(true);
     if (!gKeys) {
@@ -1464,11 +1016,11 @@ static int32_t newAsmCheck()
     for (int32_t pass = 0; pass < 3; pass++)
     {
         bool wet = pass == 0;
-        for (uint32_t i = 0; i < gRoomCount; i++) {
-            gRooms[i].flags = wet ? FACE_WATER : water[i];
+        for (uint32_t i = 0; i < gFrameRoomCount; i++) {
+            gFrameRooms[i].flags = wet ? FACE_WATER : water[i];
         }
         gRoomTextures.frame = sceneInfo().detailFrame + (pass == 1);
-        gRoomTextures.miss = pass == 2 ? roomTextureReload : roomTextureMiss;
+        gRoomTextures.miss = pass == 2 ? roomTextureReload : frameTextureMiss;
         int32_t rooms = 0, meshes = 0;
         for (int32_t c = 1; c >= 0; c--)
         {
@@ -1507,11 +1059,11 @@ static int32_t newAsmCheck()
             }
         }
     }
-    for (uint32_t i = 0; i < gRoomCount; i++) {
-        gRooms[i].flags = water[i];
+    for (uint32_t i = 0; i < gFrameRoomCount; i++) {
+        gFrameRooms[i].flags = water[i];
     }
     gRoomTextures.frame = sceneInfo().detailFrame;
-    gRoomTextures.miss = roomTextureMiss;
+    gRoomTextures.miss = frameTextureMiss;
     memcpy(gRoomTextures.keys, gKeys, DETAIL_VARIANTS * DETAIL_MAX_KEYS);
     roomQuadFlags(false);
     return bad;
@@ -1559,14 +1111,10 @@ static void stageNew()
     walkOrderList();
     gDraws = sceneArray<const DrawScene>("DRAW");
     gDrawCount = info.draws;
-    gFaceSets = sceneArray<const uint8_t>("NMSH");
     gGameFaces = sceneArray<const Face>("MPOL");
     gThings = sceneArray<const DrawThing>("DTHG");
-    gSprites = sceneArray<const Sprite>("SPRS");
-    gClear = sceneArray<const Command>("CMDS")[0];
-    gClear.w[0] |= 0x1000 << 16;    // jumping to the first bucket's
     newRoomsInit();
-    newHintsBegin();
+    frameHintsBegin();
     gSceneHintedCount = hintsSceneDraws(gThings, gDrawCount, gSceneHinted, MAX_HELD);
 
     // the game's way: adding the faces, then flush's work on the master's
@@ -1585,7 +1133,7 @@ static void stageNew()
     newRooms(true);
     newMeshes(true);
     newJoin(true);
-    gLab.newBadC = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded);
+    gLab.newBadC = gameListCheck(gFrameCmds, gFrameGrd, gLab.newVisited, gLab.newShaded);
     gLab.newRooms = measure([] { newPrepare(); }, [] { newRooms(false); });
     gLab.roomCommands = facesSlot(gRoomList.link) - 1;
     gLab.newMeshes = measure([] { newPrepare(); }, [] { newMeshes(false); });
@@ -1593,8 +1141,8 @@ static void stageNew()
     gLab.newAsmBad = newAsmCheck();
     gLab.othersBad = facesOtherCheck(gameShadeGouraud()) + facesChainCheck();
     gLab.newJoin = measure([] { newPrepare(); newRooms(false); newMeshes(false); }, [] { newJoin(false); });
-    gLab.newBad = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded) + gRoomTexturesShort +
-                  texturesQueueOff(gNewTextures, gWalkList.textures);
+    gLab.newBad = gameListCheck(gFrameCmds, gFrameGrd, gLab.newVisited, gLab.newShaded) + gRoomTexturesShort + gBottomOff +
+                  texturesQueueOff(gFrameTextures, gWalkList.textures);
     shadeTables(gNewTables, true);
 }
 
@@ -2077,8 +1625,8 @@ static void show(int32_t page)
     else
     {
         shadeTables(gNewTables, false);
-        upload(gNewCmds, gNewGrd, gNewEnd);
-        texturesUpload(gNewTextures);
+        upload(gFrameCmds, gFrameGrd, gFrameEnd);
+        texturesUpload(gFrameTextures);
         textRow(0, "THE NEW LIST");
     }
     vdp1Show();
@@ -2120,13 +1668,13 @@ int main()
     stageTogether();
     stageFrame();
     shadeTables(gNewTables, false);
-    upload(gNewCmds, gNewGrd, gNewEnd);
-    texturesUpload(gNewTextures);
-    gLab.texturesUploadOff = texturesVramOff(gNewTextures);
+    upload(gFrameCmds, gFrameGrd, gFrameEnd);
+    texturesUpload(gFrameTextures);
+    gLab.texturesUploadOff = texturesVramOff(gFrameTextures);
     gLab.vdp1New = vdp1Show();
     stageRun();
     shadeTables(gNewTables, false);
-    upload(gNewCmds, gNewGrd, gNewEnd);
+    upload(gFrameCmds, gFrameGrd, gFrameEnd);
     gLab.arenaUsed = sceneUsed(&gLab.arenaSize);
     gLab.lowUsed = sceneUsedLow(&gLab.lowSize);
     gLab.magic = LAB_MAGIC;

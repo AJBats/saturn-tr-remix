@@ -374,9 +374,9 @@ def main():
     pages = [cap.symbol(syms, '__ZL8gResults'), cap.symbol(syms, '__ZL9gPosePage'),
              cap.symbol(syms, '__ZL13gVerticesPage'), cap.symbol(syms, '__ZL11gNewResults'),
              cap.symbol(syms, '__ZL10gFramePage'), cap.symbol(syms, '__ZL8gRunPage')]
-    commands = cap.symbol(syms, '__ZL8gNewCmds')
-    gouraud = cap.symbol(syms, '__ZL7gNewGrd')
-    end_at = cap.symbol(syms, '__ZL7gNewEnd')
+    commands = cap.symbol(syms, '__ZN6render10gFrameCmdsE')
+    gouraud = cap.symbol(syms, '__ZN6render9gFrameGrdE')
+    end_at = cap.symbol(syms, '__ZN6render9gFrameEndE')
     caches_at = cap.symbol(syms, '__ZL12gShadeCaches')
     walk_at = cap.symbol(syms, '__ZL9gWalkList')     # lab.cpp: game.h GameList
 

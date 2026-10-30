@@ -17,8 +17,8 @@ level's packed file (build/data/*.PKD), and prints:
      vertices (which roomrot.dsp reads by DMA, so high work RAM only) and
      faces against gRoomData; its low work RAM, and how much of that is a
      copy TRS has also placed in high work RAM.
-  3. The new renderer's buffers: as the lab builds them, and at the game's
-     limits where the lab sizes for itself.
+  3. The new renderer's buffers (renderer/, as the lab builds it): as they
+     are, and at the game's limits where the lab sizes for itself.
   4. Code: the old renderer's against the new's (its checks and C models
      left out), and 0MAIN.BIN's size before and after.
   5. High work RAM after the switch, at each level.
@@ -40,7 +40,6 @@ import re
 import struct
 import subprocess
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import facepack     # noqa: E402
@@ -93,17 +92,15 @@ OLD_TOOLS = ['hunt.cpp']
 
 # --- the lab: the new renderer's buffers -------------------------------------
 
-# the renderer's objects; every buffer in them is the renderer's but those
-# named in LAB_ONLY
-NEW_OBJECTS = ['lab.cpp', 'vertices.cpp', 'faces.cpp', 'pose.cpp', 'draws.cpp', 'rooms.cpp', 'hints.cpp']
+# the renderer's objects (renderer/, built for the lab: the lab's halves of
+# vertices and faces included in them); every buffer in them is the
+# renderer's but those named in LAB_ONLY
+NEW_OBJECTS = ['frame.cpp', 'vertices.cpp', 'faces.cpp', 'pose.cpp', 'draws.cpp', 'rooms.cpp', 'hints.cpp']
 LAB_ONLY = {
-    'lab.cpp': ['gWalkList', 'gVerticesPage', 'gRunPage', 'gResults', 'gPosePage', 'gNewResults', 'gFramePage',
-                'gLab', 'stageRun()::uploads', 'gSceneHinted', 'newAsmCheck()::water', 'gNewTextures'],
-    'vertices.cpp': ['gDspJobs3', 'meshlight3_dsp', 'verticesRoomsSeldomCheck()::kCaustics'],
+    'vertices.cpp': ['gDspJobs3', 'meshlight3_dsp', 'verticesRoomsSeldomCheck()::kCaustics', 'gSceneVertices',
+                     'gMeshReady', 'gReady', 'gSeldomRotated', 'gSeldomPoints', 'gSeldomAsm', 'gSeldomModel', 'gFeedC',
+                     'gFeedResults', 'gFeedXforms', 'gFeedParts', 'gClaims'],
     'faces.cpp': ['facesOtherCheck(unsigned short const*)::sides', 'facesOtherCheck(unsigned short const*)::kBuckets'],
-    'pose.cpp': ['LERPS', 'poseStaticsSeldomCheck()::LERP', 'poseLightSeldomCheck()::RADII'],
-    'draws.cpp': ['drawsSeldomCheck()::kRates'],
-    'rooms.cpp': ['roomsSeldomCheck()::table'],
 }
 # the renderer's buffers in the game's objects: the vertices it projects the
 # rooms into (the lab keeps the game's way's master vertices below them, for
@@ -113,8 +110,7 @@ NEW_ELSEWHERE = {('game.cpp', 'gVertices'): (MAX_ROOM_VERTICES * 8, 'rooms\' fro
 # parameters)
 MOST_MESH_FACES = 256       # LEVEL3B has a mesh of 163 (this audit)
 NEW_RESIZED = {
-    'gRoomMaterials': (LIMITS['room_textures'] * 64, '512 room textures in the lab'),
-    'facesMeshHinted::made': (MOST_MESH_FACES * 16, "a mesh's faces held: 512 in the lab"),
+    'render::facesMeshHinted::made': (MOST_MESH_FACES * 16, "a mesh's faces held: 512 in the lab"),
 }
 # code: the renderer's assembly whole, and its C but for the lab's own
 NEW_ASM = ['pose.s', 'facesroom.s', 'facesmesh.s', 'draws.s', 'rooms.s', 'roomproject.s', 'meshfeed.s',
@@ -127,9 +123,6 @@ LAB_FUNCTIONS = ('Check', 'Seldom', 'Poison', 'facesRoomC', 'facesMeshC', 'faces
                  'Page::', 'pad(', 'togetherMeasured', 'newMeshes', 'newPrepare', 'newRooms(', 'roomQuadFlags', 'shadeTables', 'upload(', 'labTrace',
                  'hintsSceneDraws', 'CSWTCH', 'LERPS', 'kRates', '::table', '::kBuckets', '::kCaustics',
                  '::LERP', '::RADII', 'newJoin', 'newAsm', 'newSettle', 'newCheck', 'meshFlush', 'roomFlush')
-
-STRUCTS = ['DrawScene', 'DrawXform', 'HintedCall', 'PoseItem', 'PoseLight', 'PoseLit', 'PoseStatic', 'PoseShadow',
-           'Face', 'Vertex', 'RoomLevel', 'RoomSeen', 'FaceRoom', 'PoseMatrix']
 
 # TRS's buffers no frame reads, which could go to low work RAM: the bytes
 # each takes there by level (None: none, it reads them where they are)
@@ -211,23 +204,6 @@ def sections(elf):
         if len(p) >= 4 and p[1].startswith('.') and not p[1].startswith('.debug'):
             found[p[1]] = (int(p[2], 16), int(p[3], 16))
     return found
-
-
-def struct_sizes(lab):
-    """The lab's structures' sizes, as its compiler lays them out."""
-    with tempfile.TemporaryDirectory() as tmp:
-        src = os.path.join(tmp, 'sizes.cpp')
-        with open(src, 'w') as f:
-            for h in ('scene', 'pose', 'draws', 'rooms', 'faces', 'hints', 'vertices'):
-                f.write(f'#include "{h}.h"\n')
-            for s in STRUCTS:
-                f.write(f'char s_{s}[sizeof({s})];\n')
-        obj = os.path.join(tmp, 'sizes.o')
-        env = dict(os.environ, PATH=BIN + os.pathsep + os.environ['PATH'])
-        subprocess.run([tool('g++'), '-m2', '-mb', '-O2', '-I' + os.path.join(ROOT, 'lab'),
-                        '-I' + os.path.join(ROOT, 'saturn'), '-I' + os.path.join(lab, 'gen'),
-                        '-fno-rtti', '-fno-exceptions', '-c', src, '-o', obj], check=True, env=env)
-        return {name[2:]: size for name, size in data(obj).items()}
 
 
 def kb(n):
@@ -321,7 +297,8 @@ def main():
         if name + '.o' not in lab_code:
             sys.exit(f'{name} is not linked in {args.lab}: name a linked object')
     trs_obj = lambda name: os.path.join(args.trs, 'obj', 'saturn', name + '.o')
-    lab_obj = lambda name: os.path.join(args.lab, 'obj', 'lab', name + '.o')
+    lab_obj = lambda name: next(p for p in (os.path.join(args.lab, 'obj', d, name + '.o') for d in ('renderer', 'lab'))
+                                if os.path.exists(p))
 
     # 1. TRS today
     sec = sections(os.path.join(args.trs, '0MAIN.elf'))
@@ -375,7 +352,6 @@ def main():
               f'{kb(lv["old"] + lv["placed"])}')
 
     # 3. the new renderer's buffers
-    sizes = struct_sizes(args.lab)
     print()
     print('3. THE NEW RENDERER\'S BUFFERS (KB): as the lab builds them, and at the game\'s limits')
     new_static = new_lab = 0
@@ -404,25 +380,6 @@ def main():
     resized = {plain(n) for obj in NEW_OBJECTS for n in data(lab_obj(obj))}
     unnamed += [n for n in NEW_RESIZED if n not in resized]
     print(f'  {"static":42s} {kb(new_lab)} {kb(new_static)}')
-    L = LIMITS
-    arena = [
-        ('draw list: draws', L['draws'] * sizes['DrawScene']),
-        ('draw list: hinted calls', (L['items'] + L['statics']) * sizes['HintedCall']),
-        ('draw list: items, lights', L['items'] * (sizes['PoseItem'] + sizes['PoseLight'])),
-        ('draw list: statics, shadows', L['statics'] * sizes['PoseStatic'] + L['shadows'] * sizes['PoseShadow']),
-        ('draw list: faces and their vertices', L['faces'] * (sizes['Face'] + 2 * sizes['Vertex'])),
-        ('pose: a draw\'s transform', L['draws'] * sizes['DrawXform']),
-        ('pose: items\' light', L['items'] * sizes['PoseLit']),
-        ('pose: the slave\'s stack', 9 * sizes['PoseMatrix']),
-        ('walk: windows, seen flags', L['rooms'] * 17),
-        ('walk: rooms listed', (L['room_list'] + 1) * 2 + L['room_list'] * sizes['RoomSeen']),
-        ('walk: room jobs, fills', L['room_jobs'] * sizes['FaceRoom'] + L['room_fills'] * 16),
-    ]
-    print('  made at load (the lab\'s arena), at the game\'s limits:')
-    for name, size in arena:
-        print(f'    {name:38s} {kb(size)}')
-    arena_bytes = sum(s for _, s in arena)
-    print(f'    {"all":38s} {kb(arena_bytes)}')
     if unnamed:
         print(f'  (LAB_ONLY names not in the lab any more: {", ".join(unnamed)})')
 
@@ -454,11 +411,11 @@ def main():
     # 5. after the switch
     print()
     print('5. HIGH WORK RAM AFTER THE SWITCH (KB), by level: today\'s free + the old renderer (buffers, code, '
-          'its polygon hunt, gMeshData) - the new (buffers, arena, code, mesh store, room materials, walk tables)')
+          'its polygon hunt, gMeshData) - the new (buffers, code, mesh store, walk tables)')
     freed = old_buffers + old_code + old_tools + gmesh
     worst = None
     for lv in levels:
-        need = new_static + arena_bytes + new_code + lv['mesh_store'] + lv['walk']
+        need = new_static + new_code + lv['mesh_store'] + lv['walk']
         left = free + freed - need
         if worst is None or left < worst[1]:
             worst = (lv['name'], left)
@@ -479,7 +436,7 @@ def main():
     print(f'  {"level":9s} {"high left":>9s} {"low free":>9s}  {"(today":>7s} {"+ out":>6s} {"- in)":>6s}')
     worst_high = worst_low = None
     for lv in levels:
-        need = new_static + arena_bytes + new_code + lv['mesh_store'] + lv['walk']
+        need = new_static + new_code + lv['mesh_store'] + lv['walk']
         high = free + freed - need + moved - STACK
         out = lv['old'] + lv['new_placed']
         into = sum(lv[ext[1:]] for _, _, ext, _ in MOVES if ext)
