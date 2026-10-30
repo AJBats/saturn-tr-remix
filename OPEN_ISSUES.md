@@ -3645,18 +3645,6 @@ Fix: small*
   pose claimed item by item (as the rooms' chunks are) instead of planned,
   or the rooms' first chunks taken before the plan.
 
-### 237. No captured scene has a fill past the draw distance
-*Kind: coverage · Fix: small*
-
-- The walk's fills (renderVoid) are exact against the game's walk on
-  made-up views (33 fills at the ledge's), and the frame turns them into
-  faces before its draws. But none of the four scenes has one, so a fill's
-  command in a whole list (the farthest bucket, before the draws' faces) has
-  never been checked against the game's.
-- About 1 in 30 cameras placed in random rooms of Caves sees one.
-- **Fix:** find such a view with the lab's walk, start Lara there
-  (LARA_START) and capture it.
-
 ### 238. The draw list is mostly cold memory
 *Kind: speed · Size: ledge 0.96 ms new against the game's 1.29 (measured,
 163aca5); maybe 0.3 ms to win (estimated) · Fix: medium*
@@ -3745,6 +3733,17 @@ field's vblank-in by ~2.5 ms and the frame takes three fields (50.15 ms,
 | **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
 
 ## Closed
+
+### 237. No captured scene has a fill past the draw distance
+*Closed 2026-10-30: scene fill*
+
+- A search of LEVEL1's side portals with the lab's walk found views that
+  reach past the draw distance; Lara started in room 15 (18432,4352,46592,
+  yaw 0) gives the capture `fill` (one fill, 873 commands). The frame makes
+  its fill from the walk, exact against the game's list.
+- It found two of the lab's own faults, fixed: stages 2+3 run on the scene's
+  draws dropped the capture's copies of its fills, and the frame's pose
+  check read the scene's transforms a fill early on a draw list.
 
 ### 226. The new face stage doesn't apply the draw order hints
 *Closed 2026-10-30: lab/hints.cpp, a0a4c24*

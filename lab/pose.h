@@ -71,9 +71,10 @@ extern "C" void poseShadowsAsm(const PoseShadow* shadows, int32_t count, PoseCon
 void poseInit();
 
 // The items, lights, statics and shadows posed: a draw list's (draws.h, its
-// frames as places), or (nullptr) the scene's; false: more items than room.
+// frames as places; its draw i the scene's i + fills, the walk's fills
+// coming first there), or (nullptr) the scene's; false: more items than room.
 struct DrawList;
-bool poseUse(const DrawList* list);
+bool poseUse(const DrawList* list, int32_t fills = 0);
 DrawXform* poseXforms();
 
 // The items' meshes' transforms in poseXforms garbled, so a frame that reads

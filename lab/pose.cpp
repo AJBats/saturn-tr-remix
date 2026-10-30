@@ -127,10 +127,14 @@ void poseInit()
     gSceneShadowCount = gShadowCount;
 }
 
-bool poseUse(const DrawList* list)
+// The scene's draw of a draw's: the draw list's past the walk's fills.
+static int32_t gSceneDraw;
+
+bool poseUse(const DrawList* list, int32_t fills)
 {
     if (list && list->itemCount > gSceneCount)
         return false;   // no room for their light
+    gSceneDraw = list ? fills : 0;
     gItems = list ? list->items : gSceneItems;
     gCount = list ? list->itemCount : gSceneCount;
     gRooms = list ? list->lights : gSceneRooms;
@@ -273,7 +277,7 @@ int32_t poseCheck()
         int32_t drawn = drawnOf(item);
         for (int32_t k = 0; k < drawn; k++)
         {
-            const DrawXform &made = gCtx.out[item.firstDraw + k], &game = gXforms[item.firstDraw + k];
+            const DrawXform &made = gCtx.out[item.firstDraw + k], &game = gXforms[item.firstDraw + k + gSceneDraw];
             bad += memcmp(made.m, game.m, sizeof(made.m)) || made.ambient != game.ambient ||
                    made.range != game.range || (game.range > 0 && memcmp(made.light, game.light, sizeof(made.light)));
         }

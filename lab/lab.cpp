@@ -932,7 +932,7 @@ static Stages stagesTogether(bool posed, int32_t bias)
         slaveRun(slaveRooms, nullptr);
         draws(gFills);
         verticesDrawsSet(list.draws, list.drawCount, poseXforms());
-        poseUse(&list);
+        poseUse(&list, gFills);
         uint32_t w0 = ticks();
         while (!shared->walked);
         s.masterWait += ticksCycles(w0, ticks());
@@ -972,7 +972,6 @@ static Stages stagesTogether(bool posed, int32_t bias)
     }
     const uint8_t* sets = gFaceSets;
     uint32_t slaveEnd = 0;
-    uint32_t first = 0;
     const DrawScene* draws = posed ? list.draws : gDraws;
     uint32_t drawCount = posed ? list.drawCount : gDrawCount;
     if (posed) {
@@ -998,14 +997,7 @@ static Stages stagesTogether(bool posed, int32_t bias)
             facesOtherAsm(&face, v, OT_SIZE - 1, &gMeshList);
         }
     }
-    else
-    {
-        // the scene's draws: the capture's copies of its fills skipped
-        while (first < drawCount && draws[first].type == DRAW_COPY) {
-            first++;
-        }
-    }
-    for (uint32_t i = first; i < drawCount; i++)
+    for (uint32_t i = 0; i < drawCount; i++)
     {
         if (!slaveEnd && shared->roomsDone) {
             slaveEnd = ticksCycles(t0, ticks());
