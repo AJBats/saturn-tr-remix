@@ -33,7 +33,7 @@ LAB_MAGIC = 0x4C414231
 MAX_CMDS = 1792
 SHADE_CACHE = struct.Struct('>4I256I256I')      # game.h ShadeCache
 SHADE_TABLE_SIZE = 32
-LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIiIii5Ii3I5IiI3iI2iIiI2i2I')    # lab.cpp LabResults
+LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIiIii5Ii3I5IiI3iI2iIiI2i5Ii2I')    # lab.cpp LabResults
 FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSlave', 'floor',
           'facesBad', 'flushBad', 'splitBad', 'floorBad', 'vdp1Game', 'vdp1Lab', 'meshFacesGiven',
           'roomFacesGiven', 'meshFlush', 'roomFlush', 'newMeshes', 'newRooms', 'newJoin', 'newBad', 'newBadC',
@@ -45,7 +45,9 @@ FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSl
           'togetherBad', 'togetherDspRooms', 'togetherDspGap', 'togetherDspMeshes',
           'stages', 'stagesMaster', 'stagesMasterWait', 'stagesSlave', 'stagesSlaveWait', 'stagesBad',
           'pose', 'poseBad', 'poseMatrices', 'poseItems', 'poseNew', 'poseNewBad', 'poseSeldom',
-          'light', 'lightBad', 'lightNew', 'lightNewBad', 'lightSeldom', 'arenaUsed', 'arenaSize')
+          'light', 'lightBad', 'lightNew', 'lightNewBad', 'lightSeldom',
+          'frame', 'frameMaster', 'frameMasterWait', 'frameSlave', 'frameSlaveWait', 'frameBad',
+          'arenaUsed', 'arenaSize')
 TEXT_ROWS, TEXT_COLUMNS = 26, 42
 PAGE = struct.Struct(f'>{TEXT_ROWS * (TEXT_COLUMNS + 1)}s2xi')     # lab.h Page
 VRAM_FRAME_CMDS = 0x60
@@ -53,7 +55,7 @@ VRAM_GOURAUD_BASE = VRAM_FRAME_CMDS + 1792 * 32
 VDP1_HZ = 28636364
 CMD_SKIP, CMD_SCALED_SPRITE, CMD_POLYGON, CMD_END, PMOD_GOURAUD = 0x4000, 0x0001, 0x0004, 0x8000, 0x0004
 JUMPS = 0x7000
-SEGMENTS = ('pose', 'light', 'new: pose', 'new: light', 'room vertices', 'mesh vertices', 'new: room vertices', 'new: feeding', 'new: mesh vertices', 'mesh faces', 'room faces', 'flush split', 'flush alone', 'floor', "flush of the master's faces",
+SEGMENTS = ('pose', 'light', 'new: light', 'new: pose', 'room vertices', 'mesh vertices', 'new: room vertices', 'new: feeding', 'new: mesh vertices', 'mesh faces', 'room faces', 'flush split', 'flush alone', 'floor', "flush of the master's faces",
             "flush of the rooms' faces", 'new: rooms', "new: the master's draws", 'new: join')  # lab.cpp's measure()s
 MARK_BREAK = 4      # lab.cpp labTraceBegin, labTraceEnd: their third instruction
 ADDR2LINE = os.path.join(ROOT, 'toolchain/gcc-14.2.0/sh2eb-elf/bin/sh2eb-elf-addr2line')
@@ -322,7 +324,8 @@ def main():
     syms = cap.symbols(elf)
     lab = cap.symbol(syms, '_gLab')
     pages = [cap.symbol(syms, '__ZL8gResults'), cap.symbol(syms, '__ZL9gPosePage'),
-             cap.symbol(syms, '__ZL13gVerticesPage'), cap.symbol(syms, '__ZL11gNewResults')]
+             cap.symbol(syms, '__ZL13gVerticesPage'), cap.symbol(syms, '__ZL11gNewResults'),
+             cap.symbol(syms, '__ZL10gFramePage')]
     commands = cap.symbol(syms, '__ZL8gNewCmds')
     gouraud = cap.symbol(syms, '__ZL7gNewGrd')
     end_at = cap.symbol(syms, '__ZL7gNewEnd')
@@ -359,7 +362,7 @@ def main():
         if args.shots:
             shots = os.path.join(ROOT, 'build/lab/shots')
             os.makedirs(shots, exist_ok=True)
-            for name in ('', '', '', 'game', 'new'):
+            for name in ('', '', '', '', 'game', 'new'):
                 med.send('input R', 'ok input', 10)
                 med.send('frame_advance 10', 'done frame_advance', 30)
                 med.send('input_release R', 'ok input_release', 10)
@@ -396,7 +399,7 @@ def main():
           f'new {new_cycles * 1000 / VDP1_HZ:.2f} ms')
     if traces:
         profile(traces, elf, syms)
-    sys.exit(1 if bad or differ or any(results[k] for k in ('poseBad', 'lightBad', 'poseNewBad', 'poseSeldom', 'lightNewBad', 'lightSeldom', 'vertsBad', 'newVertsBad', 'newVertsSeldom', 'dspRoomsBad', 'dspMeshesBad', 'dspMeshes3Bad', 'feedBad', 'togetherBad', 'stagesBad', 'facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newAsmBad'))
+    sys.exit(1 if bad or differ or any(results[k] for k in ('poseBad', 'lightBad', 'poseNewBad', 'poseSeldom', 'lightNewBad', 'lightSeldom', 'vertsBad', 'newVertsBad', 'newVertsSeldom', 'dspRoomsBad', 'dspMeshesBad', 'dspMeshes3Bad', 'feedBad', 'togetherBad', 'stagesBad', 'frameBad', 'facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newAsmBad'))
              else 0)
 
 

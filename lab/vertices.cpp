@@ -125,6 +125,7 @@ static const int16_t (*gCaustics)[32];
 static const uint16_t* gDivTable;
 static const DrawScene* gDraws;
 static const DrawXform* gXforms;
+static const DrawXform* gJobXforms;     // the jobs' (verticesXforms)
 static uint32_t gDrawCount;
 static const uint32_t* gMeshes;
 static uint32_t gMeshCount;
@@ -289,6 +290,7 @@ const char* verticesInit()
     gDivTable = sceneArray<const uint16_t>("DIVT");
     gDraws = sceneArray<const DrawScene>("DRAW", &gDrawCount);
     gXforms = sceneArray<const DrawXform>("XFRM");
+    gJobXforms = gXforms;
     gMeshes = sceneArray<const uint32_t>("MESH", &gMeshCount);
     gMeshGeometry = sceneArray<const uint8_t>("MGEO");
     gSceneVertices = sceneArray<const Vertex>("VERT");
@@ -1383,6 +1385,14 @@ const Vertex* verticesDraw(uint32_t draw, uint32_t &wait)
     wait += ticksCycles(w0, ticks());
     meshProject(gPiecesProject, j);
     return gJobs[j].out;
+}
+
+void verticesXforms(const DrawXform* xforms)
+{
+    for (int32_t i = 0; i < gJobCount; i++) {
+        gJobs[i].xform = xforms + (gJobs[i].xform - gJobXforms);
+    }
+    gJobXforms = xforms;
 }
 
 void verticesEnd()

@@ -26,7 +26,7 @@ struct PoseContext
     const uint8_t* nodes;       // +8  PNOD
     const uint8_t* frames;      // +12 PFRM
     int32_t camera[3];          // +16
-    PoseMatrix* out;            // +28 the draws' matrices, by draw
+    DrawXform* out;             // +28 the draws' matrices and light, by draw
     PoseMatrix* stack;          // +32 POSE_STACK; the first the view's
     void* op;                   // +36 a node's frame: still or lerped
     int32_t kind;               // +40 the lerp: POSE_*
@@ -45,7 +45,7 @@ struct PoseContext
     const PoseLight* rooms;     // +176 what lights each item (PLIT)
     const void* lights;         // +180 LGHT
     struct PoseLit* lit;        // +184 the items' light, by item
-    int32_t pad;
+    const struct PoseLit* litNow;   // +188 pose.s's own
 };
 
 // An item's light as drawModel leaves it for its meshes (DrawXform's ambient,
@@ -62,10 +62,17 @@ enum { POSE_STILL, POSE_HALF, POSE_QUARTER, POSE_THREE, POSE_SLOW };
 extern "C" void poseAsm(const PoseItem* items, int32_t count, PoseContext* ctx);
 extern "C" void poseLightAsm(const PoseItem* items, int32_t count, PoseContext* ctx);
 
-// The scene's items for the new way: its context and where the matrices go.
+// The scene's items for the new way: its context, and the draws' transforms
+// it writes, the scene's (XFRM) for the draws not an item's mesh.
 void poseInit();
+DrawXform* poseXforms();
 
-// The scene's items posed; against the game's (XFRM): the matrices that differ.
+// The items' meshes' transforms in poseXforms garbled, so a frame that reads
+// them before pose writes them shows.
+void posePoison();
+
+// The scene's items posed (their light from poseLight); against the game's
+// (XFRM): the draws whose matrix or light differs.
 void pose();
 int32_t poseCheck();
 

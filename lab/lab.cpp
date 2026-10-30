@@ -123,6 +123,14 @@ struct LabResults
     uint32_t lightNew;          // cycles: the new way's
     int32_t lightNewBad;
     int32_t lightSeldom;        // ... on made-up inputs, against the game's way on them (and paths not taken)
+    uint32_t frame;             // cycles: stages 1, 2 and 3 the new way together (the frame so far), start to the
+                                // list joined: the items' light and pose on the master before its feed
+    uint32_t frameMaster;       // ... the master at work
+    uint32_t frameMasterWait;
+    uint32_t frameSlave;        // ... the slave at work
+    uint32_t frameSlaveWait;
+    int32_t frameBad;           // commands VDP1 follows not as the game's, vertices not the game's, draws whose
+                                // transform the pose made not as the game's
     uint32_t arenaUsed;         // bytes of high work RAM the scene and the stages took (sceneUsed)
     uint32_t arenaSize;
 };
@@ -287,14 +295,15 @@ static void stagePose()
     gLab.lightBad = gameLightCheck();
 
     poseInit();
-    gLab.poseNew = measure([] {}, [] { pose(); });
-    pose();
-    gLab.poseNewBad = poseCheck();
-    gLab.poseSeldom = poseSeldomCheck();
     gLab.lightNew = measure([] {}, [] { poseLight(); });
     poseLight();
     gLab.lightNewBad = poseLightCheck();
     gLab.lightSeldom = poseLightSeldomCheck();
+    gLab.poseNew = measure([] {}, [] { pose(); });
+    posePoison();
+    pose();
+    gLab.poseNewBad = poseCheck();
+    gLab.poseSeldom = poseSeldomCheck();
 }
 
 static void stageTwo()
@@ -682,7 +691,9 @@ static void slaveRooms(void*)
     shared->wait = wait;
 }
 
-static Stages stagesTogether()
+// Stages 2 and 3 together; posed: stage 1 too, the items' light and pose on
+// the master as the slave starts its rooms, their transforms the feed's.
+static Stages stagesTogether(bool posed)
 {
     Stages s = {};
     SlaveStages* shared = uncached(&gSlaveStages);
@@ -691,6 +702,11 @@ static Stages stagesTogether()
     verticesRoomsBegin();
     verticesClaimMasters();
     slaveRun(slaveRooms, nullptr);
+    if (posed)
+    {
+        poseLight();
+        pose();
+    }
     verticesMeshesFeed();
     bool meshes = false;
     verticesMasterRooms(s.masterWait, meshes);
@@ -749,18 +765,23 @@ static Stages stagesTogether()
     return s;
 }
 
-static void stageTogether()
+// The stages run together, RUNS times after the frames that settle the
+// split (each moves the plan by half how late the master's draws ended after
+// the slave's rooms): their mean, and the list and vertices against the
+// game's.
+static Stages togetherMeasured(bool posed, int32_t &bad)
 {
-    // frames to settle the split: each moves the plan by half how late the
-    // master's draws ended after the slave's rooms
     int32_t bias = 0;
     for (int32_t f = 0; f < 6; f++)
     {
         verticesPlan(bias);
         newPrepare();
         verticesPoison();
+        if (posed) {
+            posePoison();
+        }
         cachePurge();
-        bias += stagesTogether().late / 2;
+        bias += stagesTogether(posed).late / 2;
     }
     verticesPlan(bias);
     Stages sum = {};
@@ -768,22 +789,50 @@ static void stageTogether()
     {
         newPrepare();
         verticesPoison();
+        if (posed) {
+            posePoison();
+        }
         cachePurge();
-        Stages s = stagesTogether();
+        Stages s = stagesTogether(posed);
         sum.wall += s.wall;
         sum.masterWork += s.masterWork;
         sum.masterWait += s.masterWait;
         sum.slaveWork += s.slaveWork;
         sum.slaveWait += s.slaveWait;
     }
-    gLab.stages = sum.wall / RUNS;
-    gLab.stagesMaster = sum.masterWork / RUNS;
-    gLab.stagesMasterWait = sum.masterWait / RUNS;
-    gLab.stagesSlave = sum.slaveWork / RUNS;
-    gLab.stagesSlaveWait = sum.slaveWait / RUNS;
+    sum.wall /= RUNS;
+    sum.masterWork /= RUNS;
+    sum.masterWait /= RUNS;
+    sum.slaveWork /= RUNS;
+    sum.slaveWait /= RUNS;
     int32_t visited, shaded, rooms, meshes;
-    gLab.stagesBad = gameListCheck(gNewCmds, gNewGrd, visited, shaded) + verticesRoomsCheck(rooms) +
-                     verticesMeshesCheck(meshes);
+    bad = gameListCheck(gNewCmds, gNewGrd, visited, shaded) + verticesRoomsCheck(rooms) +
+          verticesMeshesCheck(meshes) + (posed ? poseCheck() : 0);
+    return sum;
+}
+
+static void stageTogether()
+{
+    Stages s = togetherMeasured(false, gLab.stagesBad);
+    gLab.stages = s.wall;
+    gLab.stagesMaster = s.masterWork;
+    gLab.stagesMasterWait = s.masterWait;
+    gLab.stagesSlave = s.slaveWork;
+    gLab.stagesSlaveWait = s.slaveWait;
+}
+
+// The frame so far: stages 1, 2 and 3 together, the meshes' transforms the
+// new pose's.
+static void stageFrame()
+{
+    verticesXforms(poseXforms());
+    Stages s = togetherMeasured(true, gLab.frameBad);
+    verticesXforms(sceneArray<const DrawXform>("XFRM"));
+    gLab.frame = s.wall;
+    gLab.frameMaster = s.masterWork;
+    gLab.frameMasterWait = s.masterWait;
+    gLab.frameSlave = s.slaveWork;
+    gLab.frameSlaveWait = s.slaveWait;
 }
 
 // A command's words and gouraud table, hashed.
@@ -988,7 +1037,51 @@ static void workRow(Page &page, const char* name, uint32_t work, uint32_t waits)
     page.add(line);
 }
 
-static Page gResults, gPosePage, gVerticesPage, gNewResults;
+static Page gResults, gPosePage, gVerticesPage, gNewResults, gFramePage;
+
+static void framePage()
+{
+    const SceneInfo &info = sceneInfo();
+    Page &page = gFramePage;
+    char line[TEXT_COLUMNS + 1];
+    char* p;
+
+    page.count = 0;
+    p = put(line, "RENDER LAB  ");
+    p = put(p, info.name);
+    put(p, ": the frame so far");
+    page.add(line);
+    page.add("");
+    page.add("THE GAME'S WAY, ONE CPU          ms");
+    uint32_t pose = gLab.pose + gLab.light;
+    uint32_t vertices = gLab.vertsRooms + gLab.vertsMeshes;
+    uint32_t faces = gLab.facesMeshes + gLab.facesRooms + gLab.flush;
+    timeRow(page, "1 pose and light", pose, 0, nullptr);
+    timeRow(page, "2 vertices", vertices, 0, nullptr);
+    timeRow(page, "3 faces, commands", faces, 0, nullptr);
+    timeRow(page, "  all three", pose + vertices + faces, 0, nullptr);
+    page.add("");
+    page.add("THE NEW WAY, ONE CPU");
+    uint32_t newPose = gLab.lightNew + gLab.poseNew;
+    timeRow(page, "1 pose and light", newPose, 0, nullptr);
+    page.add("");
+    page.add("THE NEW WAY TOGETHER, ms   work  waits");
+    page.add("2+3, master, slave, DSP:");
+    timeRow(page, "  start to end", gLab.stages, 0, nullptr);
+    workRow(page, "  master", gLab.stagesMaster, gLab.stagesMasterWait);
+    workRow(page, "  slave", gLab.stagesSlave, gLab.stagesSlaveWait);
+    page.add("1+2+3: pose first on the master:");
+    timeRow(page, "  start to end", gLab.frame, 0, nullptr);
+    workRow(page, "  master", gLab.frameMaster, gLab.frameMasterWait);
+    workRow(page, "  slave", gLab.frameSlave, gLab.frameSlaveWait);
+    p = put(line, "  list, vertices, transforms ");
+    p = put(p, gLab.frameBad ? "OFF (" : "exact (");
+    p = putNumber(p, gLab.frameBad, 0);
+    put(p, " off)");
+    page.add(line);
+    page.add("");
+    page.add("R, L: the other pages");
+}
 
 static void posePage()
 {
@@ -1251,14 +1344,15 @@ static void resultsPage()
     page.add("R, L: the other pages");
 }
 
-enum { PAGE_GAME_WAY, PAGE_POSE, PAGE_NEW_VERTICES, PAGE_NEW_WAY, PAGE_GAME, PAGE_NEW, PAGES };
+enum { PAGE_GAME_WAY, PAGE_POSE, PAGE_NEW_VERTICES, PAGE_NEW_WAY, PAGE_FRAME, PAGE_GAME, PAGE_NEW, PAGES };
 
 static void show(int32_t page)
 {
-    if (page == PAGE_GAME_WAY || page == PAGE_POSE || page == PAGE_NEW_VERTICES || page == PAGE_NEW_WAY)
+    if (page < PAGE_GAME)
     {
         const Page &text = page == PAGE_GAME_WAY ? gResults : page == PAGE_POSE ? gPosePage
-                         : page == PAGE_NEW_VERTICES ? gVerticesPage : gNewResults;
+                         : page == PAGE_NEW_VERTICES ? gVerticesPage : page == PAGE_NEW_WAY ? gNewResults
+                         : gFramePage;
         textPage();
         for (int32_t r = 0; r < text.count; r++) {
             textRow(r, text.rows[r]);
@@ -1316,6 +1410,7 @@ int main()
     gLab.vdp1Lab = vdp1Show();
     stageNew();
     stageTogether();
+    stageFrame();
     shadeTables(gNewTables, false);
     upload(gNewCmds, gNewGrd, gNewEnd);
     gLab.vdp1New = vdp1Show();
@@ -1326,6 +1421,7 @@ int main()
     posePage();
     verticesPage();
     newPage();
+    framePage();
     int32_t page = PAGE_GAME_WAY;
     show(page);
     uint32_t last = 0;

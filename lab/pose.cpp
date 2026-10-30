@@ -48,7 +48,8 @@ void poseInit()
     for (int32_t i = 0; i < 3; i++) {
         gCtx.camera[i] = camera->pos[i];
     }
-    gCtx.out = (PoseMatrix*)sceneAlloc(sceneInfo().draws * sizeof(PoseMatrix));
+    gCtx.out = (DrawXform*)sceneAlloc(sceneInfo().draws * sizeof(DrawXform));
+    memcpy(gCtx.out, gXforms, sceneInfo().draws * sizeof(DrawXform));
     gCtx.stack = gStack;
     gCtx.rooms = sceneArray<const PoseLight>("PLIT");
     gCtx.lights = sceneChunk("LGHT");
@@ -78,6 +79,20 @@ static int32_t drawnOf(const PoseItem &item)
     return drawn;
 }
 
+DrawXform* poseXforms()
+{
+    return gCtx.out;
+}
+
+void posePoison()
+{
+    for (uint32_t i = 0; i < gCount; i++)
+    {
+        const PoseItem &item = gItems[i];
+        memset(gCtx.out + item.firstDraw, 0xA5, drawnOf(item) * sizeof(DrawXform));
+    }
+}
+
 int32_t poseCheck()
 {
     int32_t bad = 0;
@@ -85,8 +100,11 @@ int32_t poseCheck()
     {
         const PoseItem &item = gItems[i];
         int32_t drawn = drawnOf(item);
-        for (int32_t k = 0; k < drawn; k++) {
-            bad += memcmp(gCtx.out + item.firstDraw + k, gXforms[item.firstDraw + k].m, sizeof(PoseMatrix)) != 0;
+        for (int32_t k = 0; k < drawn; k++)
+        {
+            const DrawXform &made = gCtx.out[item.firstDraw + k], &game = gXforms[item.firstDraw + k];
+            bad += memcmp(made.m, game.m, sizeof(made.m)) || made.ambient != game.ambient ||
+                   made.range != game.range || (game.range > 0 && memcmp(made.light, game.light, sizeof(made.light)));
         }
     }
     return bad;
@@ -180,15 +198,17 @@ int32_t poseSeldomCheck()
     static uint8_t* frames;
     static PoseItem* items;
     static PoseMatrix* outGame;
-    static PoseMatrix* outNew;
+    static DrawXform* outNew;
+    static PoseLit* lit;
     if (!frames)
     {
         nodes = (uint8_t*)sceneAllocLow(gNodesBytes + nodeBytes);
         frames = (uint8_t*)sceneAllocLow(gFramesBytes + frameBytes);
         items = (PoseItem*)sceneAllocLow(n * sizeof(PoseItem));
         outGame = (PoseMatrix*)sceneAllocLow(draws * sizeof(PoseMatrix));
-        outNew = (PoseMatrix*)sceneAllocLow(draws * sizeof(PoseMatrix));
-        if (!nodes || !frames || !items || !outGame || !outNew)
+        outNew = (DrawXform*)sceneAllocLow(draws * sizeof(DrawXform));
+        lit = (PoseLit*)sceneAllocLow(n * sizeof(PoseLit));
+        if (!nodes || !frames || !items || !outGame || !outNew || !lit)
             return -1;
         memcpy(nodes, gNodes, gNodesBytes);
         memcpy(frames, gFrames, gFramesBytes);
@@ -199,6 +219,7 @@ int32_t poseSeldomCheck()
     ctx.nodes = nodes;
     ctx.frames = frames;
     ctx.out = outNew;
+    ctx.lit = lit;
     for (int32_t pass = 0; pass < SELDOM_PASSES; pass++)
     {
         const int16_t* lerp = LERPS[pass % LERPS_COUNT];
@@ -290,11 +311,11 @@ int32_t poseSeldomCheck()
         cover[kind]++;
 
         memset(outGame, 0x55, first * sizeof(PoseMatrix));
-        memset(outNew, 0xAA, first * sizeof(PoseMatrix));
+        memset(outNew, 0xAA, first * sizeof(DrawXform));
         gamePoseRun(items, n, nodes, frames, outGame);
         poseAsm(items, n, &ctx);
         for (uint32_t k = 0; k < first; k++) {
-            bad += memcmp(outGame + k, outNew + k, sizeof(PoseMatrix)) != 0;
+            bad += memcmp(outGame[k].m, outNew[k].m, sizeof(outNew[k].m)) != 0;
         }
     }
     for (int32_t c = 0; c < COVER_MAX; c++) {

@@ -7,6 +7,10 @@
 !
 ! void poseAsm(const PoseItem* items, int32 count, PoseContext* ctx)
 !
+! Each drawn mesh's matrix to its draw's DrawXform (scene.h), with its item's
+! light from ctx->lit (poseLightAsm's, by item), as the mesh feed reads them:
+! +0 the matrix, +48 ambient, +52 range, +56 light (int16 x y z).
+!
 ! A rotation's x c - y s >> 14 (MATRIX_ROTXY): the products of the low
 ! halves by MULS.W as mul16, the sum shifted left 2, its high half sign-
 ! extended; exact, as the sum stays inside 2^29 (the rotation's entries and
@@ -66,6 +70,17 @@
     .equ    C_TORSO,        68
     .equ    C_ARMS,         80
     .equ    C_POSLERP,      104
+    .equ    C_LIGHT,        112     ! the light's scratch (L_*)
+    .equ    C_ROOMS,        176
+    .equ    C_LIGHTS,       180
+    .equ    C_LIT,          184
+    .equ    C_LITNOW,       188     ! the item's PoseLit
+
+    .equ    X_AMBIENT,      48      ! DrawXform
+    .equ    X_RANGE,        52
+    .equ    X_LIGHT,        56
+    .equ    DRAW_XFORM,     72
+    .equ    LIT,            16      ! PoseLit
 
     .equ    F_POS,          12
     .equ    F_ANGLES,       20
@@ -222,7 +237,8 @@
     add     #-MATRIX, r14
     .endm
 
-! The top to the next draw's matrix (drawMesh); r0 r1 r2 r3.
+! The top and the item's light to the next draw's DrawXform (drawMesh); r0
+! r1 r2 r3.
     .macro  OUT
     mov.l   @r14, r0
     mov.l   @(4,r14), r1
@@ -248,7 +264,18 @@
     mov.l   r1, @(36,r11)
     mov.l   r2, @(40,r11)
     mov.l   r3, @(44,r11)
-    add     #MATRIX, r11
+    mov.l   @(C_LITNOW,gbr), r0
+    mov.l   @(0,r0), r1
+    mov.l   @(4,r0), r2
+    mov.l   @(8,r0), r3
+    mov.w   @(12,r0), r0
+    mov.l   r1, @(X_AMBIENT,r11)
+    mov.l   r2, @(X_RANGE,r11)
+    mov.l   r3, @(X_LIGHT,r11)
+    mov     r11, r1
+    add     #X_LIGHT+4, r1
+    mov.w   r0, @r1
+    add     #DRAW_XFORM, r11
     .endm
 
 ! matrixLerp's entries, the top towards the slot above (r7).
@@ -323,6 +350,8 @@ _poseAsm:
     ldc     r6, gbr
     mov.l   @r6, r13
     mov     r4, r10
+    mov.l   @(C_LIT,gbr), r0
+    mov.l   r0, @(C_LITNOW,gbr)
     mov     r5, r0
     tst     r0, r0
     bf/s    .Litem
@@ -331,14 +360,15 @@ _poseAsm:
     nop
 
 .Litem:
-    ! its draws' matrices from out + firstDraw * 48
+    ! its draws' DrawXforms from out + firstDraw * 72
     mov.w   @(I_FIRST,r10), r0
     extu.w  r0, r1
     mov     r1, r2
-    shll    r2
+    shll8   r2
+    shlr2   r2
+    shll2   r1
+    shll    r1
     add     r2, r1
-    shll2   r1
-    shll2   r1
     mov.l   @(C_OUT,gbr), r0
     add     r0, r1
     mov     r1, r11
@@ -476,6 +506,9 @@ _poseAsm:
     nop
 
 .Lnext:
+    mov.l   @(C_LITNOW,gbr), r0
+    add     #LIT, r0
+    mov.l   r0, @(C_LITNOW,gbr)
     mov.l   @(C_LEFT,gbr), r0
     add     #ITEM, r10
     dt      r0
@@ -985,10 +1018,6 @@ _poseAsm:
 ! (a temporary in the light loop), r12 lights left, r11 the next PoseLit,
 ! r10 the item, r9 its PoseLight, r8 the next light.
 
-    .equ    C_LIGHT,        112
-    .equ    C_ROOMS,        176
-    .equ    C_LIGHTS,       180
-    .equ    C_LIT,          184
     .equ    L_VIEW,         0       ! the light's direction in the view, kept from item to item
     .equ    L_PX,           8       ! the point lit
     .equ    L_DX,           20      ! the brightest light from it
@@ -1002,7 +1031,6 @@ _poseAsm:
     .equ    P_LIGHTS,       6
     .equ    P_FIRST,        8
     .equ    POSE_LIGHT,     12
-    .equ    LIT,            16
 
 ! v >> n, arithmetic: k = 2^(32 - n)
     .macro  SAR v, k

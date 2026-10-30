@@ -124,6 +124,11 @@ Together verticesTogether();
 // run sees every value made in it.
 void verticesPoison();
 
+// The draws' transforms the meshes' jobs read: the scene's (XFRM) to begin
+// with, or others laid out as it, by draw (pose.h poseXforms).
+struct DrawXform;
+void verticesXforms(const DrawXform* xforms);
+
 // Stage 2 in pieces, for a frame's stages run together. The rooms are
 // projected in chunks of vertices, each claimed by the CPU that takes it
 // (tasClaim); the plan gives the master chunks from the last room back while
