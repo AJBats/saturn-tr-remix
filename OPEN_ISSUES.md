@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-241 | Rendering: the new renderer's open work |
+| 219-243 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3669,22 +3669,6 @@ Fix: small*
   ~0.2 ms there). Both could be asm: the bit test inside the model and
   static handlers, the holding beside `facesmesh.s`.
 
-### 239. The new renderer's RAM in TRS isn't budgeted yet
-*Kind: coverage · Size: TRS's high work RAM has ~31 KB free at the ledge
-(measured, 2026-10-30) · Fix: medium, before step 8*
-
-- The old renderer's working buffers in TRS: ~222 KB (command list and
-  gouraud 70, vertices 40, face pools 60, ordering tables 15, room texture
-  cache 14, DSP and jobs 10). The new renderer's in the lab: ~250 KB, sized
-  for the lab's maximums (room materials 32 for 512 textures, the walk's
-  lists 17 for 128 rooms, mesh and DSP jobs 35 for 256 draws).
-- Its level data in its own formats (the DSP's packed meshes, the face sets,
-  the room materials) is packed per scene only: never measured for whole
-  levels against TRS's gMeshData (96 KB) and gRoomData (128 KB).
-- **Fix:** the audit the owner asked for before step 8: every buffer sized
-  to the game's real limits, every level's data in the new formats measured,
-  against TRS's map, so the switch is known to fit.
-
 ### 241. VDP1 idles between lists: the change waits for a vblank, then the upload
 *Kind: speed · Size: Mednafen ledge: VDP1 32.55 ms misses the second
 field's vblank-in by ~2.5 ms and the frame takes three fields (50.15 ms,
@@ -3700,6 +3684,54 @@ field's vblank-in by ~2.5 ms and the frame takes three fields (50.15 ms,
   VDP1 draws the last, plotted at once after the change; the plot as early
   after the change as the hardware allows (when the change takes effect,
   measured on the Saturn).
+
+### 242. Step 8 doesn't fit high work RAM without moving three of TRS's buffers
+*Kind: coverage · Size: as the lab stands the switch is 103 KB short at
+LEVEL7B; with these moves 35 KB is left (the stack's 4 KB kept) and 118 KB
+of low work RAM; no frame reads what moves (tools/ramaudit.py) · Fix:
+medium, before step 8*
+
+- **Moves:** to low work RAM, the three of TRS's buffers no frame reads:
+  `gTextures` (25 KB: the level's file in low work RAM holds the entries
+  already, so read them there; the new renderer reads them at load and on
+  the careful split path only), `gPalettes` (45 KB: swapped into VRAM at
+  load and at the player's pick) and `gItemData` (72 KB: copied to VRAM
+  once as the inventory opens, then by the CPU, since SCU DMA can't read
+  low work RAM).
+- **Room for them:** TRS loads each level's meshes and rooms into low work
+  RAM and copies them to `gMeshData` and `gRoomData`, which leaves up to
+  213 KB of dead copies (LEVEL7B, which has 1.9 KB free today). The packer
+  writes the meshes (in the new formats) and the rooms' placed vertices and
+  faces as their own block, loaded straight to high work RAM.
+- **The renderer at the game's limits** (in the audit's sums already): room
+  materials for 288 textures (GYM has 279; the lab 512), a mesh's held
+  faces 256 (the largest mesh has 163; the lab 512), the rooms' vertices
+  from 0 (the lab keeps the master's 2048 below them for its scenes'
+  copies).
+- **In reserve**, the renderer's own levers if the budget tightens: face
+  sets in low work RAM (60 KB at LEVEL7B; the cost unmeasured: TRS's meshes
+  ran a quarter slower from there), face sets at 8 bytes a face (20 KB;
+  corners scaled from bytes, roughly 0.3-0.6 ms on the master), the meshes'
+  parts folded into their headers (about 10 KB), the draws' limit measured
+  in play (208 bytes a draw at 256: about 20 KB at 160), the rooms
+  projected in place over the DSP's rotated vertices (25 KB; the chunks'
+  claims make it a design job).
+- The code freed counts render.cpp and rooms.cpp whole (50 KB): some of
+  render.cpp (HUD, text, sprite calls) stays in some form, and the switch
+  adds glue for the game's calls. Give or take 10 KB.
+
+### 243. Animated textures: the new renderer's materials are made once
+*Kind: correctness · Size: every level with an animated range (water,
+lava) · Fix: small to medium, before step 8*
+
+- TRS shifts the texture entries along each animated range every few
+  frames (openlara level.h `animTexturesShift`). The new renderer makes its
+  room materials (`RoomMaterial`, with its per-frame memo of the cache's
+  character) and its mesh materials (keyed by texture and parallelogram)
+  once, at load, so they don't follow.
+- No scene covers it: each is one captured frame. **Fix:** shift the
+  materials with the entries (a mesh texture can own two materials), and a
+  scene of an animated range over several frames.
 
 ---
 
@@ -3722,6 +3754,25 @@ field's vblank-in by ~2.5 ms and the frame takes three fields (50.15 ms,
 | **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
 
 ## Closed
+
+### 239. The new renderer's RAM in TRS isn't budgeted yet
+*Closed 2026-10-30: measured (tools/ramaudit.py); what it found is 242 and
+243*
+
+- `tools/ramaudit.py` reads TRS's map, the lab's buffers and code (sorted
+  into the renderer's and the lab's own) and every level's packed file, and
+  prints high and low work RAM after the switch, level by level.
+- As the lab stands, the switch leaves high work RAM 103 KB short at
+  LEVEL7B. TRS has 29 KB free today; the old renderer frees 355 KB (buffers
+  209, code 50, `gMeshData` 96); the new takes 488 KB (buffers 225 at the
+  game's limits, made at load 57, code 43, LEVEL7B's meshes in the new
+  formats with their materials and parts 153, the walk's tables 9).
+- The new formats cost the meshes: LEVEL7B's 88 KB become 121 (face sets
+  take 12 bytes a face against TRS's 6; meshrot.dsp's groups pad to four
+  vertices), plus materials 18 and the meshes' parts 15.
+- Every room's vertices must sit in high work RAM: roomrot.dsp reads them
+  by DMA, which can't reach low work RAM. 47 KB at most (LEVEL7A), so
+  `gRoomData` takes every room's vertices first, then faces as they fit.
 
 ### 240. The new way's two lists split where the capture's did
 *Closed 2026-10-30: each frame's split from its own faces*
