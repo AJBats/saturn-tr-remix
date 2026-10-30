@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 
+#include "hints.h"
 #include "scene.h"
 #include "textures.h"
 
@@ -24,5 +25,12 @@ const TextureQueue& texturesCaptured();
 int32_t texturesQueueOff(const TextureQueue &a, const TextureQueue &b);
 int32_t texturesStateOff();
 int32_t texturesVramOff(const TextureQueue &queue);
+
+// The draw order hints from the scene (labhints.cpp): its level's (HINT) and
+// Lara's room and block (LARA); the draws whose faces the frame's hints move
+// from the scene's draws' things (DTHG), as hintsDraws from a draw list's
+// hinted calls.
+void hintsLabInit();
+int32_t hintsSceneDraws(const DrawThing* things, uint32_t count, HintedDraw* out, int32_t room);
 
 #endif

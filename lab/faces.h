@@ -17,6 +17,7 @@
 #include <stdint.h>
 
 #include "game.h"
+#include "hints.h"
 
 // A command's first three words as a face's material makes them, and what may
 // be done to them.
@@ -121,7 +122,6 @@ void facesMeshC(const FaceSet* set, const Vertex* vertices, uint32_t mode, Comma
 
 // A face's command made but held out of its bucket (a draw order hint's):
 // where it is, its first word (unlinked), its place, its bucket, the hint.
-struct DepthHint;
 struct HeldCommand
 {
     uint32_t* cmd;
@@ -134,7 +134,6 @@ struct HeldCommand
 // moved by the hints' buckets, or (the faces they name, in their order,
 // while held has room) taken back out of its bucket and held, into held from
 // count; count on past them. Then a held face into bucket depth.
-struct HintFaces;
 void facesMeshHinted(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList &list,
                      const HintFaces &hints, HeldCommand* held, int32_t &count, int32_t room);
 void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth);

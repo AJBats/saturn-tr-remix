@@ -1537,7 +1537,7 @@ void gameInit()
     for (uint32_t i = 0; i < gInfo->rooms; i++) {
         gRoomIndices[i] = gRooms[i].room;
     }
-    hintsInit();
+    hintsLabInit();
     uint32_t masks[2];
     hintsMasks(masks);
     gameDrawsHints(masks);

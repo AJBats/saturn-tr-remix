@@ -2,26 +2,29 @@
 // matching, depthHintsPlace and rooms.cpp roomsFaceDepth.
 
 #include "hints.h"
-#include "scene.h"
+
+namespace render {
 
 #define HINT_ANYWHERE   0xFF
 #define MAX_ACTIVE      32
 
-static const DepthHint* gHints;     // the scene's level's (HINT)
+static const DepthHint* gHints;     // the level's
 static uint32_t gHintCount;
-static int32_t gLara[3];            // her room and block (LARA)
-static uint32_t gMasks[2];          // hintsMasks'
+static int32_t gLara[3];            // her room and block
 static const DepthHint* gActive[MAX_ACTIVE];
 static int32_t gActiveCount;
 
-void hintsInit()
+void hintsInit(const DepthHint* hints, uint32_t count)
 {
-    gHints = sceneArray<const DepthHint>("HINT", &gHintCount);
-    const int32_t* lara = sceneArray<const int32_t>("LARA");
-    for (int32_t i = 0; i < 3; i++) {
-        gLara[i] = lara[i];
-    }
-    hintsMasks(gMasks);
+    gHints = hints;
+    gHintCount = count;
+}
+
+void hintsLara(int32_t room, int32_t bx, int32_t bz)
+{
+    gLara[0] = room;
+    gLara[1] = bx;
+    gLara[2] = bz;
 }
 
 // A hint of Lara's block, or of anywhere.
@@ -123,20 +126,6 @@ int32_t hintsDraws(const HintedCall* calls, uint32_t count, HintedDraw* out, int
     return n;
 }
 
-int32_t hintsSceneDraws(const DrawThing* things, uint32_t count, HintedDraw* out, int32_t room)
-{
-    int32_t n = 0;
-    HintFaces faces;
-    for (uint32_t i = 0; i < count && n < room; i++)
-    {
-        const DrawThing &t = things[i];
-        if (t.kind != NO_THING && (gMasks[t.kind] >> (t.index & 31) & 1) && hintsOf(t, faces)) {
-            out[n++] = { i, t };
-        }
-    }
-    return n;
-}
-
 // The bucket of a room face's farthest corner, if it faces the camera.
 static bool roomFaceDepth(uint32_t room, uint32_t index, bool triangle, HintRooms rooms, int32_t &depth)
 {
@@ -191,4 +180,6 @@ int32_t hintsPlace(const DepthHint* hint, int32_t depth, HintRooms rooms)
         }
     }
     return hintsBucket(depth);
+}
+
 }

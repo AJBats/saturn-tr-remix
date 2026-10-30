@@ -5,13 +5,14 @@
 // bucket farther than the farthest corner of those room faces that face the
 // camera (or where they were). Both ways take the hints and where to place a
 // held face from here; each holds and places its own faces.
-#ifndef HINTS_H
-#define HINTS_H
+#ifndef RENDER_HINTS_H
+#define RENDER_HINTS_H
 
 #include <stdint.h>
 
-#include "game.h"
-#include "scene.h"
+#include "types.h"
+
+namespace render {
 
 #define HINT_WHOLE      0xFF    // DepthHint.node: every face of the thing
 #define HINT_TRIANGLE   0x8000  // DepthHint.polygon, behind: a triangle's index, else a quad's
@@ -46,16 +47,17 @@ struct HintRoom
 };
 typedef bool (*HintRooms)(uint32_t room, HintRoom &out);
 
-void hintsInit();
+// The level's hints; Lara's room and block this frame (x >> 10, z >> 10).
+void hintsInit(const DepthHint* hints, uint32_t count);
+void hintsLara(int32_t room, int32_t bx, int32_t bz);
 
 // The things a frame's hints may name, as their index's bit (& 31) by kind
-// (render.cpp gHintMask): those of the scene's level, of Lara's block or of
-// anywhere, before the rooms drawn are known.
+// (render.cpp gHintMask): those of Lara's block or of anywhere, before the
+// rooms drawn are known.
 void hintsMasks(uint32_t masks[2]);
 
-// The frame's hints: those of the scene's level, of Lara's block or of
-// anywhere, and (for faces drawn before a room's) of a room drawn (rooms:
-// their level indices).
+// The frame's hints: those of Lara's block or of anywhere, and (for faces
+// drawn before a room's) of a room drawn (rooms: their level indices).
 void hintsBegin(const uint16_t* rooms, uint32_t count);
 
 // The faces of a thing's mesh its hints move: by buckets (0 none); else held
@@ -73,15 +75,13 @@ struct HintFaces
 bool hintsOf(const DrawThing &thing, HintFaces &out);
 
 // The draws whose faces the frame's hints move, in draw order, each with its
-// thing: from a draw list's hinted calls, or from the scene's draws' things
-// (DTHG); how many (room at most).
+// thing, from a draw list's hinted calls; how many (room at most).
 struct HintedDraw
 {
     uint32_t draw;
     DrawThing thing;
 };
 int32_t hintsDraws(const HintedCall* calls, uint32_t count, HintedDraw* out, int32_t room);
-int32_t hintsSceneDraws(const DrawThing* things, uint32_t count, HintedDraw* out, int32_t room);
 
 // A held face's bucket: depth (its corners'), or one farther than the
 // farthest corner of each room face facing the camera that the frame's hints
@@ -92,6 +92,8 @@ int32_t hintsPlace(const DepthHint* hint, int32_t depth, HintRooms rooms);
 inline int32_t hintsBucket(int32_t depth)
 {
     return depth < 0 ? 0 : depth > OT_SIZE - 2 ? OT_SIZE - 2 : depth;
+}
+
 }
 
 #endif
