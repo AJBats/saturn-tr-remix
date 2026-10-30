@@ -6,11 +6,13 @@
 
 #include <stdint.h>
 
+#include "faces.h"
 #include "scene.h"
 
 // The rooms a walk may list: the game's MAX_ROOM_LIST is 32; the lab's room
 // for more, so made-up views that see further can't overrun it.
 #define ROOMS_LISTED    128
+#define ROOM_JOBS       64      // rooms.cpp's MAX_ROOM_JOBS: those queued with vertices
 
 struct RoomsContext
 {
@@ -30,20 +32,31 @@ struct RoomsContext
     uint16_t* listEnd;          // +72 rooms.s's own
     int32_t k18, k20;           // +76 2^18, 2^20
     int32_t viewMax;            // +84 VIEW_MAX_F
+    const RoomGeometry* geometry;   // +88 RLGE
+    uint8_t* rgeo;              // +92 RGEO
+    Vertex* vertices;           // +96 gVertices
+    FaceRoom* jobs;             // +100 the rooms listed with vertices, placed (roomsJobsAsm)
+    int32_t jobCount;           // +104
+    const RoomCaustics* caustics;   // +108 CAUW
+    int16_t* table;             // +112 the caustics' table, a vertex's shade offset by its index (32)
 };
 
 extern "C" void roomsSeenAsm(RoomsContext* ctx);
+extern "C" void roomsJobsAsm(RoomsContext* ctx);
 
-// The scene's view for the new way; the rooms it lists; against the
-// capture's (RVIS): the rooms that differ (or a list of another length).
+// The scene's view for the new way; the rooms it lists and their jobs (the
+// rooms with vertices, placed, as stages 2 and 3 take them); against the
+// capture's (RVIS, ROOM): the rooms that differ (or a list of another length).
 void roomsInit();
 void roomsSeen();
+const FaceRoom* roomsJobs(uint32_t &count);
 int32_t roomsSeenCheck();
 
 // What the scene seldom gives the walk: made-up places and turns of the
 // camera (portals past the draw distance, cut by the near plane, facing
-// away), against the game's way on them: the walks that differ (and paths
-// not taken).
+// away), and the jobs made-up lists of rooms give (rooms without vertices,
+// past the jobs' limit or the vertices' room, wet, dry, rippling), against
+// the game's way on them: those that differ (and paths not taken).
 int32_t roomsSeldomCheck();
 
 #endif

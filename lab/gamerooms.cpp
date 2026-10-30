@@ -5,6 +5,7 @@
 // matrix for each room seen (the view placed at the room). Compiled as the
 // game compiles room.h and draw.h (main.cpp, -Os: the Makefile), on
 // common.cpp's matrices.
+#include "faces.h"
 #include "game.h"
 #include "gamematrix.h"
 #include "scene.h"
@@ -17,6 +18,9 @@
 #define DIV_TABLE_SIZE  1281
 #define VIEW_MAX_F      ((1024 * 20) << FIXED_SHIFT)
 #define MAX_ROOMS_SEEN  128     // the game's MAX_ROOM_LIST is 32: room for made-up views
+#define MAX_ROOM_JOBS   64
+#define FACE_WATER      (1u << 30)
+#define ROOM_FLAG_WATER 1
 #define X_MAX(a, b)     ((a) > (b) ? (a) : (b))
 #define X_MIN(a, b)     ((a) < (b) ? (a) : (b))
 
@@ -59,6 +63,12 @@ static uint16_t gList[MAX_ROOMS_SEEN + 1];
 static int32_t gListCount;
 static RoomSeen* gSeen;         // the rooms queued, in order
 static int32_t gSeenCount;
+static const RoomGeometry* gGeometry;   // RLGE
+static uint8_t* gRoomGeometry;          // RGEO
+static const RoomCaustics* gCaustics;   // CAUW
+static FaceRoom* gJobs;         // the rooms queued with vertices placed, as stages 2 and 3 take them
+static int32_t gJobCount;
+static int16_t gCausticsTable[32];
 static int32_t gVoids;          // the fills past the draw distance
 static int32_t gNearEdges;      // portals cut by the near plane, kept
 static RectMinMax gViewport;
@@ -249,6 +259,78 @@ void queueRoom(uint32_t index)
     matrixPop();
 }
 
+// rooms.cpp roomsQueue's job for each room queued with vertices (draw.h's
+// camera room's water; at most MAX_ROOM_JOBS), placeRooms' place for its
+// vertices from gBottom up (none: never drawn), roomBegin's caustics: as the
+// stages after take them.
+static int32_t roomJobs(const RoomSeen* seen, int32_t count, uint32_t cameraRoom, FaceRoom* jobs)
+{
+    bool cameraWater = gLevel[cameraRoom].flags & ROOM_FLAG_WATER;
+    int32_t queued = 0, placed = 0, bottom = MASTER_VERTICES;
+    bool wet = false;
+    for (int32_t i = 0; i < count; i++)
+    {
+        uint32_t index = seen[i].room;
+        const RoomLevel* info = gLevel + index;
+        if (info->vertices == 0 || queued == MAX_ROOM_JOBS)
+            continue;
+        queued++;
+        int32_t size = (info->vertices + 15) & ~15;
+        if (bottom + size > MAX_VERTICES)
+            continue;
+
+        const RoomGeometry &g = gGeometry[index];
+        FaceRoom &job = jobs[placed++];
+        job.quads = (RoomQuad*)(gRoomGeometry + g.quads);
+        job.triangles = (const RoomQuad*)(gRoomGeometry + g.triangles);
+        job.points = (const RoomVertex*)(gRoomGeometry + g.points);
+        job.vertices = gVertices + bottom;
+        bottom += size;
+        job.quadsCount = g.quadsCount;
+        job.trianglesCount = g.trianglesCount;
+        memcpy(job.facing, g.facing, sizeof(job.facing));
+        job.camera[0] = gCamera[0] - (info->x << 8);
+        job.camera[1] = gCamera[1] - info->yTop;
+        job.camera[2] = gCamera[2] - (info->z << 8);
+        for (int32_t r = 0; r < 3; r++)
+        {
+            for (int32_t c = 0; c < 3; c++) {
+                job.m[r * 3 + c] = seen[i].m[r * 4 + c];
+            }
+            job.t[r] = seen[i].m[r * 4 + 3] >> (FIXED_SHIFT - 8);
+        }
+        memcpy(job.clip, seen[i].window, sizeof(job.clip));
+        bool water = info->flags & ROOM_FLAG_WATER;
+        job.flags = water || cameraWater ? FACE_WATER : 0;
+        job.ripple = water != cameraWater;
+        job.phase = gCaustics->phase;
+        job.verticesCount = info->vertices;
+        job.room = index;
+        job.caustics = job.flags ? gCausticsTable : nullptr;
+        wet = wet || job.flags;
+    }
+    if (wet)
+    {
+        for (int32_t i = 0; i < 32; i++) {
+            gCausticsTable[i] = gCaustics->wave[(gCaustics->starts[i] + gCaustics->phase) & 31];
+        }
+    }
+    return placed;
+}
+
+int32_t gameRoomJobsRun(const RoomLevel* level, const RoomSeen* seen, int32_t count, uint32_t cameraRoom,
+                        const int32_t* camera, FaceRoom* jobs)
+{
+    const RoomLevel* sceneLevel = gLevel;
+    const int32_t* sceneCamera = gCamera;
+    gLevel = level;
+    gCamera = camera;
+    int32_t placed = roomJobs(seen, count, cameraRoom, jobs);
+    gLevel = sceneLevel;
+    gCamera = sceneCamera;
+    return placed;
+}
+
 int32_t gameRoomsInit()
 {
     gLevel = sceneArray<const RoomLevel>("RLVL", &gLevelCount);
@@ -256,6 +338,10 @@ int32_t gameRoomsInit()
     gView = sceneArray<const RoomView>("RVIS");
     gCamera = sceneArray<const PoseCamera>("CAMR")->pos;
     gCameraRoom = gView->camera;
+    gGeometry = sceneArray<const RoomGeometry>("RLGE");
+    gRoomGeometry = sceneArray<uint8_t>("RGEO");
+    gCaustics = sceneArray<const RoomCaustics>("CAUW");
+    gJobs = (FaceRoom*)sceneAlloc(MAX_ROOM_JOBS * sizeof(FaceRoom));
     gClip = (RectMinMax*)sceneAlloc(gLevelCount * sizeof(RectMinMax));
     gVisible = (uint8_t*)sceneAlloc(gLevelCount);
     gSeen = (RoomSeen*)sceneAlloc(MAX_ROOMS_SEEN * sizeof(RoomSeen));
@@ -274,10 +360,12 @@ int32_t gameRoomsInit()
 }
 
 void gameRoomsRun(uint32_t room, const int32_t* camera, const int32_t* view, RoomSeen* out, int32_t &count,
-                  int32_t &voids, int32_t &near)
+                  int32_t &voids, int32_t &near, FaceRoom* jobs, int32_t &jobCount)
 {
     const int32_t* sceneCamera = gCamera;
     RoomSeen* sceneSeen = gSeen;
+    FaceRoom* sceneJobs = gJobs;
+    gJobs = jobs;
     Matrix sceneView = gMatrixStack[0];
     gCameraRoom = room;
     gCamera = camera;
@@ -289,6 +377,8 @@ void gameRoomsRun(uint32_t room, const int32_t* camera, const int32_t* view, Roo
     count = gSeenCount;
     voids = gVoids;
     near = gNearEdges;
+    jobCount = gJobCount;
+    gJobs = sceneJobs;
     gCameraRoom = gView->camera;
     gCamera = sceneCamera;
     gCameraViewPos = sceneCamera;
@@ -310,6 +400,7 @@ void gameRooms()
     for (int32_t i = 0; i < gListCount; i++) {
         queueRoom(gList[i]);
     }
+    gJobCount = roomJobs(gSeen, gSeenCount, camera, gJobs);
     // the rooms reset for the next frame (draw.h drawRooms: room->reset())
     for (int32_t i = 0; i < gListCount; i++)
     {
@@ -320,6 +411,44 @@ void gameRooms()
         gClip[r].x1 = 0;
         gClip[r].y1 = 0;
     }
+}
+
+int32_t gameRoomJobsCheck(const FaceRoom* jobs, int32_t count)
+{
+    if (!jobs)
+    {
+        jobs = gJobs;
+        count = gJobCount;
+    }
+    uint32_t rooms;
+    const RoomScene* game = sceneArray<const RoomScene>("ROOM", &rooms);
+    const int16_t (*caustics)[32] = (const int16_t (*)[32])sceneChunk("CAUS");
+    int32_t bad = count != int32_t(rooms);
+    for (int32_t k = 0; k < count; k++)
+    {
+        const FaceRoom &a = jobs[k];
+        uint32_t i = 0;
+        while (i < rooms && game[i].room != a.room) {
+            i++;
+        }
+        if (i == rooms)
+        {
+            bad++;
+            continue;
+        }
+        const RoomScene &b = game[i];
+        bool wet = b.wet != 0;
+        bad += memcmp(a.m, b.m, sizeof(a.m)) || a.t[0] != b.tx || a.t[1] != b.ty || a.t[2] != b.tz ||
+               memcmp(a.clip, b.clip, sizeof(a.clip)) || memcmp(a.camera, b.camera, sizeof(a.camera)) ||
+               a.phase != b.causticsFrame || (a.flags != 0) != wet || a.ripple != (b.ripple != 0) ||
+               a.vertices != gVertices + b.base || a.verticesCount != b.verticesCount ||
+               a.quadsCount != b.quadsCount || a.trianglesCount != b.trianglesCount ||
+               memcmp(a.facing, b.facing, sizeof(a.facing)) || (const uint8_t*)a.quads != gRoomGeometry + b.quads ||
+               (const uint8_t*)a.triangles != gRoomGeometry + b.triangles ||
+               (const uint8_t*)a.points != gRoomGeometry + b.vertices || (a.caustics != nullptr) != wet ||
+               (wet && memcmp(a.caustics, caustics[i], sizeof(caustics[i])));
+    }
+    return bad;
 }
 
 int32_t gameRoomsCheck(const RoomSeen* seen, int32_t count, int32_t &voids)

@@ -62,7 +62,9 @@ HUD_TYPES = (7, 8, 9)       # FaceType FILL_S, LINE_H, LINE_V: renderRect's, the
 WHERE_HIGH, WHERE_LOW, WHERE_VDP1 = 0, 1, 2
 
 INFO = struct.Struct('>9I3I4I3i2I16s')      # SceneInfo
-ROOM = struct.Struct('>9hh3i4i3iiBBBBi4H6H3I')  # RoomScene
+ROOM = struct.Struct('>9hH3i4i3iiBBBBi4H6H3I')  # RoomScene
+ROOM_GEOMETRY = struct.Struct('>3I2H6H4x')      # RoomGeometry
+NO_GEOMETRY = 0xFFFFFFFF
 DRAW = struct.Struct('>BBHIiiii')           # DrawScene
 XFORM = struct.Struct('>12i2i3h4hh')        # DrawXform
 FLOOR = struct.Struct('>3I4HI')             # FloorFace
@@ -255,6 +257,9 @@ def main():
     room_recs = bytearray()
     geometry = bytearray()
     caustics_tables = bytearray()
+    rooms_base, room_size = sym('_rooms'), roompack.room_size()
+    geometry_of = {}
+    phases = set()
     for j in faced:
         at = jobs + JOB_BYTES * j
         room = u32(mem, at)
@@ -274,12 +279,20 @@ def main():
             offsets.append(len(geometry))
             geometry += mem.bytes(address, size)
             geometry += bytes(-len(geometry) % 4)
-        room_recs += ROOM.pack(*m, 0, *t, *clip, *camera, caustics, wet, ripple, dsp, 0, spans[j][0],
+        index = (room - rooms_base) // room_size
+        room_recs += ROOM.pack(*m, index, *t, *clip, *camera, caustics, wet, ripple, dsp, 0, spans[j][0],
                                quads, triangles, count, 0, *facing, *offsets)
+        geometry_of[index] = (*offsets, quads, triangles, *facing)
+        phases.add(caustics)
         caustics_tables += struct.pack('>32h', *(cap.s16(wave[(starts[i] + caustics) & 31]) for i in range(32)))
     chunks['ROOM'] = bytes(room_recs)
     chunks['RGEO'] = bytes(geometry)
     chunks['CAUS'] = bytes(caustics_tables)
+    # the frame's phase of the caustics' wave, the wave, each vertex's start
+    if len(phases) > 1:
+        sys.exit('rooms queued with different caustics phases')
+    chunks['CAUW'] = struct.pack('>i32h32B', phases.pop() if phases else 0, *(cap.s16(w) for w in wave),
+                                 *(s & 31 for s in starts))
 
     # the master's draws in order, the faces they added; before the first,
     # the portals' fills past the draw distance (renderVoid). Sprites' and
@@ -375,6 +388,11 @@ def main():
     shadows = [(d, order.index(i), r) for d, i, r in shadows if i in first_draws]
     chunks.update(posepack.pack(mem, sym, recs, first_draws, header, statics, shadows))
     chunks.update(roompack.pack(mem, sym, recs, header))
+    # each level room's geometry in RGEO: the rooms this frame drew, the
+    # others none
+    chunks['RLGE'] = b''.join(ROOM_GEOMETRY.pack(*geometry_of[r]) if r in geometry_of else
+                              ROOM_GEOMETRY.pack(NO_GEOMETRY, NO_GEOMETRY, NO_GEOMETRY, 0, 0, 0, 0, 0, 0, 0, 0)
+                              for r in range(len(chunks['RLVL']) // roompack.ROOM_LEVEL.size))
     chunks['CAMR'] = struct.pack('>3i9h2x', *header['camera'], *header['rotation'])
     chunks['MESH'] = struct.pack(f'>{len(mesh_offsets)}I', *mesh_offsets)
     chunks['MGEO'] = bytes(mesh_data)
@@ -437,7 +455,7 @@ def main():
     order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
                  'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT',
                  'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PLIT', 'LGHT', 'STAT', 'SHDW', 'RLVL', 'RPRT',
-                 'RVIS', 'PALT', 'SPRS', 'VRAM']
+                 'RVIS', 'RLGE', 'CAUW', 'PALT', 'SPRS', 'VRAM']
     where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1}
     table = 8 + 16 * len(order_ids)
     offset = (table + 15) & ~15

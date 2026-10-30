@@ -312,7 +312,7 @@ static void stagePose()
     gLab.roomsSeen = gameRoomsInit();
     gLab.rooms = measure([] {}, [] { gameRooms(); });
     gameRooms();
-    gLab.roomsBad = gameRoomsCheck(nullptr, 0, gLab.roomsVoids);
+    gLab.roomsBad = gameRoomsCheck(nullptr, 0, gLab.roomsVoids) + gameRoomJobsCheck(nullptr, 0);
     gameStaticsInit();
     gLab.statics = measure([] {}, [] { gameStatics(); });
     gameStatics();

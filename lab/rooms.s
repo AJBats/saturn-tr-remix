@@ -17,7 +17,10 @@
 ! (Matrix), +28 clip (per room x0 y0 x1 y1), +32 visible (a byte a room),
 ! +36 list (uint16), +40 listed, +44 seen (RoomSeen, 68 each), +48 viewport,
 ! +64 the camera's room, +68 voids, +72 the list's end (the walk's own),
-! +76 2^18, +80 2^20, +84 VIEW_MAX_F (constants out of a pool's reach).
+! +76 2^18, +80 2^20, +84 VIEW_MAX_F (constants out of a pool's reach); for
+! the jobs +88 each room's RoomGeometry, +92 RGEO, +96 gVertices, +100 the
+! jobs (FaceRoom), +104 their count, +108 RoomCaustics, +112 the caustics'
+! table (32 int16).
 
     .equ    R_LEVEL,        0
     .equ    R_PORTALS,      4
@@ -36,6 +39,13 @@
     .equ    R_K18,          76
     .equ    R_K20,          80
     .equ    R_VIEW_MAX,     84
+    .equ    R_GEOMETRY,     88
+    .equ    R_RGEO,         92
+    .equ    R_VERTICES,     96
+    .equ    R_JOBS,         100
+    .equ    R_JOB_COUNT,    104
+    .equ    R_CAUSTICS,     108
+    .equ    R_TABLE,        112
 
     .equ    L_X,            0       ! RoomLevel
     .equ    L_Z,            2
@@ -656,3 +666,230 @@ _roomsSeenAsm:
     rts
     mov.l   @r15+, r8
 
+! rooms.cpp roomsQueue, placeRooms and roomBegin's caustics: each room listed
+! with vertices (at most ROOM_JOBS), its vertices placed from MASTER_VERTICES
+! up (a room that has no place below MAX_VERTICES has no job), as a FaceRoom
+! (faces.h) for stages 2 and 3; the caustics' table once, if a room is wet.
+!
+! void roomsJobsAsm(RoomsContext* ctx)
+
+    .equ    L_FLAGS,        6
+    .equ    L_VERTICES,     8
+    .equ    JOB,            112     ! FaceRoom
+    .equ    J_COUNTS,       16      ! quadsCount, trianglesCount, facing[6]
+    .equ    J_CAMERA,       32
+    .equ    J_M,            44
+    .equ    J_T,            64      ! from here, at r1: +0 t, +12 clip, +28 flags,
+                                    ! +32 ripple, +36 phase, +40 count | room, +44 caustics
+    .equ    G_QUADS,        0       ! RoomGeometry: +12 quadsCount .. facing[6]
+    .equ    ROOM_JOBS,      64
+
+    .global _roomsJobsAsm
+_roomsJobsAsm:
+    mov.l   r8, @-r15
+    mov.l   r9, @-r15
+    mov.l   r10, @-r15
+    mov.l   r11, @-r15
+    mov.l   r12, @-r15
+    mov.l   r13, @-r15
+    mov.l   r14, @-r15
+    stc.l   gbr, @-r15
+    ldc     r4, gbr
+    ! the camera's room under water
+    mov.l   @(R_CAMERA_ROOM,gbr), r0
+    shll2   r0
+    shll2   r0
+    mov     r0, r1
+    mov.l   @(R_LEVEL,gbr), r0
+    add     r0, r1
+    mov.b   @(L_FLAGS,r1), r0
+    and     #1, r0
+    mov     r0, r13
+    mov.l   @(R_SEEN,gbr), r0
+    mov     r0, r8                  ! the next room listed
+    mov.l   @(R_LISTED,gbr), r0
+    mov     r0, r9
+    mov.l   @(R_JOBS,gbr), r0
+    mov     r0, r10                 ! the next job
+    mov     #0, r0
+    mov.l   r0, @(R_JOB_COUNT,gbr)
+    mov     #1, r11
+    shll8   r11
+    shll2   r11
+    shll    r11                     ! the vertices' bottom: MASTER_VERTICES
+    mov     #0, r12                 ! the rooms queued
+    bra     .Ljob
+    mov     #0, r14                 ! any wet
+.Lnojob:
+    dt      r9
+    bf/s    .Ljob
+    add     #SEEN, r8
+    bra     .Ljobsend
+    nop
+.Ljob:
+    mov.w   @r8, r0
+    extu.w  r0, r6                  ! its room
+    mov     r6, r7
+    shll2   r7
+    shll2   r7
+    mov.l   @(R_LEVEL,gbr), r0
+    add     r0, r7                  ! its RoomLevel
+    mov.w   @(L_VERTICES,r7), r0
+    extu.w  r0, r5
+    tst     r5, r5
+    bt      .Lnojob
+    mov     r12, r0
+    cmp/eq  #ROOM_JOBS, r0
+    bt      .Lnojob
+    add     #1, r12
+    mov     r5, r4
+    add     #15, r4
+    mov     #-16, r0
+    and     r0, r4                  ! its vertices' size
+    mov     r11, r0
+    add     r4, r0
+    mov     #5, r1
+    shll8   r1
+    shll2   r1                      ! MAX_VERTICES
+    cmp/gt  r1, r0
+    bt      .Lnojob
+    ! its geometry, its vertices' place
+    mov     r6, r3
+    shll2   r3
+    shll2   r3
+    shll    r3
+    mov.l   @(R_GEOMETRY,gbr), r0
+    add     r0, r3                  ! its RoomGeometry
+    mov.l   @(R_RGEO,gbr), r0
+    mov     r0, r2
+    mov.l   @(G_QUADS,r3), r0
+    add     r2, r0
+    mov.l   r0, @r10
+    mov.l   @(G_QUADS+4,r3), r0
+    add     r2, r0
+    mov.l   r0, @(4,r10)
+    mov.l   @(G_QUADS+8,r3), r0
+    add     r2, r0
+    mov.l   r0, @(8,r10)
+    mov     r11, r1
+    shll2   r1
+    shll    r1
+    mov.l   @(R_VERTICES,gbr), r0
+    add     r1, r0
+    mov.l   r0, @(12,r10)
+    add     r4, r11
+    .irp    k, 0, 4, 8, 12
+    mov.l   @(12+\k,r3), r0
+    mov.l   r0, @(J_COUNTS+\k,r10)
+    .endr
+    ! the camera from its origin
+    mov.w   @(L_X,r7), r0
+    shll8   r0
+    mov     r0, r1
+    mov.l   @(R_CAMERA,gbr), r0
+    sub     r1, r0
+    mov.l   r0, @(J_CAMERA,r10)
+    mov.w   @(L_TOP,r7), r0
+    mov     r0, r1
+    mov.l   @(R_CAMERA+4,gbr), r0
+    sub     r1, r0
+    mov.l   r0, @(J_CAMERA+4,r10)
+    mov.w   @(L_Z,r7), r0
+    shll8   r0
+    mov     r0, r1
+    mov.l   @(R_CAMERA+8,gbr), r0
+    sub     r1, r0
+    mov.l   r0, @(J_CAMERA+8,r10)
+    ! the matrix's rotation, its translation >> 6
+    mov     r10, r1
+    add     #J_M, r1
+    .irp    k, 0, 1, 2, 4, 5, 6, 8, 9, 10
+    mov.l   @(20+4*\k,r8), r0
+    .if \k < 4
+    mov.w   r0, @(2*\k,r1)
+    .elseif \k < 8
+    mov.w   r0, @(2*\k-2,r1)
+    .else
+    mov.w   r0, @(2*\k-4,r1)
+    .endif
+    .endr
+    mov     r10, r1
+    add     #J_T, r1
+    mov     r8, r2
+    add     #32, r2                 ! its matrix's translation column
+    mov     #1, r3
+    shll16  r3
+    shll8   r3
+    shll2   r3                      ! 2^26: x >> 6 the high longword of x 2^26
+    .irp    k, 0, 1, 2
+    mov.l   @(16*\k,r2), r0
+    dmuls.l r0, r3
+    sts     mach, r0
+    mov.l   r0, @(4*\k,r1)
+    .endr
+    .irp    k, 0, 4, 8, 12
+    mov.l   @(4+\k,r8), r0
+    mov.l   r0, @(12+\k,r1)
+    .endr
+    ! wet (the room or the camera under water), rippling (one of them)
+    mov.b   @(L_FLAGS,r7), r0
+    and     #1, r0
+    mov     r0, r2
+    xor     r13, r2
+    mov.l   r2, @(32,r1)
+    or      r13, r0
+    or      r0, r14
+    mov     r0, r2
+    rotr    r0
+    rotr    r0
+    mov.l   r0, @(28,r1)            ! FACE_WATER
+    neg     r2, r2
+    mov.l   @(R_TABLE,gbr), r0
+    and     r2, r0
+    mov.l   r0, @(44,r1)
+    mov.l   @(R_CAUSTICS,gbr), r0
+    mov.l   @r0, r0
+    mov.l   r0, @(36,r1)
+    mov     r5, r0
+    shll16  r0
+    or      r6, r0
+    mov.l   r0, @(40,r1)
+    add     #JOB, r10
+    mov.l   @(R_JOB_COUNT,gbr), r0
+    add     #1, r0
+    bra     .Lnojob
+    mov.l   r0, @(R_JOB_COUNT,gbr)
+
+.Ljobsend:
+    ! the caustics: each vertex's shade offset, the wave at its start plus
+    ! the frame's phase
+    tst     r14, r14
+    bt      .Ljobsdone
+    mov.l   @(R_CAUSTICS,gbr), r0
+    mov     r0, r3
+    mov.l   @r3+, r2                ! the phase
+    mov     r3, r4
+    add     #64, r4                 ! the starts
+    mov.l   @(R_TABLE,gbr), r0
+    mov     r0, r5
+    mov     #32, r6
+.Lcaustic:
+    mov.b   @r4+, r0
+    add     r2, r0
+    and     #31, r0
+    add     r0, r0
+    mov.w   @(r0,r3), r7
+    mov.w   r7, @r5
+    dt      r6
+    bf/s    .Lcaustic
+    add     #2, r5
+.Ljobsdone:
+    ldc.l   @r15+, gbr
+    mov.l   @r15+, r14
+    mov.l   @r15+, r13
+    mov.l   @r15+, r12
+    mov.l   @r15+, r11
+    mov.l   @r15+, r10
+    mov.l   @r15+, r9
+    rts
+    mov.l   @r15+, r8

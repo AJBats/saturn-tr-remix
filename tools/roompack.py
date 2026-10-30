@@ -29,6 +29,10 @@ ROOM_VIEW = struct.Struct('>H2x4iB3xI')
 ROOM_QUEUED = struct.Struct('>H2x4i12i')
 
 
+def room_size():
+    return layout(LAYOUT)['room']
+
+
 def s32(v):
     return (v & 0xFFFFFFFF) - ((v & 0x80000000) << 1)
 

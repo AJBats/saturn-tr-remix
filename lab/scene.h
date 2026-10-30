@@ -68,7 +68,7 @@ struct SceneInfo
 struct RoomScene
 {
     int16_t m[9];           // RoomMatrix: the rotation
-    int16_t pad;
+    uint16_t room;          // its index in the level
     int32_t tx, ty, tz;     // ... the translation
     int32_t clip[4];        // its portal window: x0 y0 x1 y1
     int32_t camera[3];      // the camera from the room's origin
@@ -123,7 +123,9 @@ struct DrawXform
 // RLVL  every room of the level as the portal walk reads it (RoomLevel), RPRT
 //       their portals (room.h Portal: uint16 room, int16 normal, 4 corners);
 //       RVIS the view the walk starts from and, for the check, the rooms the
-//       frame queued (RoomView) (tools/roompack.py).
+//       frame queued (RoomView) (tools/roompack.py); RLGE each room's
+//       geometry in RGEO (RoomGeometry: the rooms this frame drew, the others
+//       none); CAUW the caustics' wave (RoomCaustics).
 struct PoseArm
 {
     uint32_t frame;         // in PFRM, or ~0: the arm moves with the body
@@ -191,6 +193,25 @@ struct RoomSeen
     uint16_t room, pad;
     int32_t window[4];
     int32_t m[12];
+};
+
+struct RoomGeometry
+{
+    uint32_t quads, triangles, points;  // offsets in RGEO; NO_GEOMETRY: none in the scene
+    uint16_t quadsCount, trianglesCount;
+    uint16_t facing[6];     // RoomInfo.facing
+    uint32_t pad;
+};
+
+#define NO_GEOMETRY     0xFFFFFFFF
+
+// The caustics under water: a vertex's shade offset is the wave at its start
+// (its index's) plus the frame's phase.
+struct RoomCaustics
+{
+    int32_t phase;          // gCausticsFrame
+    int16_t wave[32];       // gCaustics
+    uint8_t starts[32];     // gRandTable, & 31
 };
 
 struct RoomView
