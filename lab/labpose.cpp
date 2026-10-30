@@ -1,153 +1,91 @@
-// Stage 1 the new way (pose.h): the scene's items through pose.s, and its
-// checks against the game's.
-#include "pose.h"
+// Pose from the scene, and its checks against the game's way (labrender.h).
+#include "labrender.h"
 #include "game.h"
 #include "platform.h"
+#include "pose.h"
 
 #include <stddef.h>
 #include <string.h>
 
-static_assert(offsetof(PoseContext, camera) == 16 && offsetof(PoseContext, op) == 36 &&
-              offsetof(PoseContext, anglesA) == 48 && offsetof(PoseContext, left) == 64 &&
-              offsetof(PoseContext, torso) == 68 && offsetof(PoseContext, armA) == 80 &&
-              offsetof(PoseContext, armB) == 88 && offsetof(PoseContext, armLerp) == 96 &&
-              offsetof(PoseContext, posLerp) == 104, "pose.s's PoseContext");
-static_assert(offsetof(PoseContext, light) == 112 && offsetof(PoseContext, rooms) == 176 &&
-              offsetof(PoseContext, lit) == 184 && sizeof(PoseLit) == 16 && sizeof(PoseLight) == 12,
-              "pose.s's light");
-static_assert(offsetof(PoseContext, items) == 192 && sizeof(PoseStatic) == 20 && offsetof(PoseStatic, x) == 8 &&
-              sizeof(PoseShadow) == 8 && sizeof(DrawXform) == 72 && offsetof(DrawXform, shadow) == 62,
-              "pose.s's statics and shadows");
-static_assert(sizeof(PoseItem) == 104 && offsetof(PoseItem, extraCount) == 46 && offsetof(PoseItem, torso) == 56 &&
-              offsetof(PoseItem, weapon) == 68 && offsetof(PoseItem, arms) == 72 && sizeof(PoseArm) == 16,
-              "pose.s's PoseItem");
-
 #define NO_FRAME        0xFFFFFFFF
 #define NODE_FLAG_ROTS  (4 | 8 | 16)
 
-static PoseContext gCtx;
-static PoseContext gSlaveCtx __attribute__((aligned(16)));
-static PoseMatrix gStack[POSE_STACK] __attribute__((aligned(16)));
-static PoseLit* gLit;
-static const PoseLight* gRooms;
+static PoseContext &gCtx = poseContext(0);
+static const PoseItem* gItems;          // the items now posed, their statics and shadows
+static uint32_t gCount;
 static const PoseStatic* gStatics;
 static uint32_t gStaticCount;
 static const PoseShadow* gShadows;
 static uint32_t gShadowCount;
-
-// The plan's prices, cycles at the ledge (Mednafen): an item's light, a drawn
-// matrix.
-#define PRICE_LIGHT     1150
-#define PRICE_MATRIX    430
-static const PoseItem* gItems;
-static uint32_t gCount;
-static const uint8_t* gNodes;
+static const uint8_t* gNodes;           // the scene's (PNOD, PFRM)
 static uint32_t gNodesBytes;
 static const uint8_t* gFrames;
 static uint32_t gFramesBytes;
-static const DrawXform* gXforms;
-static const PoseItem* gSceneItems;     // the scene's (poseUse)
+static const DrawXform* gXforms;        // XFRM
+static const PoseItem* gSceneItems;     // POSE
 static uint32_t gSceneCount;
-static const PoseLight* gSceneRooms;
-static const PoseStatic* gSceneStatics;
+static const PoseLight* gSceneRooms;    // PLIT
+static const PoseStatic* gSceneStatics; // STAT
 static uint32_t gSceneStaticCount;
-static const PoseShadow* gSceneShadows;
+static const PoseShadow* gSceneShadows; // SHDW
 static uint32_t gSceneShadowCount;
+static int32_t gSceneDraw;              // the scene's draw of a draw's: the draw list's past the walk's fills
 
-// The meshes an item draws: Lara's all, another's those its mask shows.
-static int32_t drawnOf(const PoseItem &item)
-{
-    int32_t drawn = 0;
-    for (int32_t k = 0; k < item.count; k++) {
-        drawn += item.lara || (item.visibleMask >> k & 1);
-    }
-    return drawn;
-}
-
-// The shadows of items first .. end - 1: their run in SHDW (in draw order,
-// as their items are).
-static void shadowsOf(uint32_t first, uint32_t end, uint32_t &from, uint32_t &to)
-{
-    from = 0;
-    while (from < gShadowCount && gShadows[from].item < first) {
-        from++;
-    }
-    to = from;
-    while (to < gShadowCount && gShadows[to].item < end) {
-        to++;
-    }
-}
-
-void poseInit()
+void poseLabInit()
 {
     uint32_t bytes;
-    gItems = (const PoseItem*)sceneChunk("POSE", &bytes);
-    gCount = bytes / sizeof(PoseItem);
+    gSceneItems = (const PoseItem*)sceneChunk("POSE", &bytes);
+    gSceneCount = bytes / sizeof(PoseItem);
     gNodes = (const uint8_t*)sceneChunk("PNOD", &gNodesBytes);
     gFrames = (const uint8_t*)sceneChunk("PFRM", &gFramesBytes);
     gXforms = sceneArray<const DrawXform>("XFRM");
+    gSceneRooms = sceneArray<const PoseLight>("PLIT");
+    gSceneStatics = sceneArray<const PoseStatic>("STAT", &gSceneStaticCount);
+    gSceneShadows = sceneArray<const PoseShadow>("SHDW", &gSceneShadowCount);
+    PoseLevel level;
+    level.sines = sceneArray<const uint32_t>("SINC");
+    level.nodes = gNodes;
+    level.lights = sceneChunk("LGHT");
+    poseInit(level);
     const PoseCamera* camera = sceneArray<const PoseCamera>("CAMR");
-
-    gCtx.sines = sceneArray<const uint32_t>("SINC");
-    gCtx.divTable = divTable;
-    gCtx.nodes = gNodes;
-    gCtx.frames = gFrames;
-    for (int32_t i = 0; i < 3; i++) {
-        gCtx.camera[i] = camera->pos[i];
-    }
-    gCtx.out = (DrawXform*)sceneAlloc(sceneInfo().draws * sizeof(DrawXform));
-    memcpy(gCtx.out, gXforms, sceneInfo().draws * sizeof(DrawXform));
-    gCtx.stack = gStack;
-    gRooms = sceneArray<const PoseLight>("PLIT");
-    gCtx.rooms = gRooms;
-    gCtx.lights = sceneChunk("LGHT");
-    gCtx.lit = (PoseLit*)sceneAlloc(gCount * sizeof(PoseLit));
-    gLit = gCtx.lit;
-    gCtx.items = gItems;
-    gStatics = sceneArray<const PoseStatic>("STAT", &gStaticCount);
-    gShadows = sceneArray<const PoseShadow>("SHDW", &gShadowCount);
-    PoseMatrix &view = gStack[0];
+    int32_t view[12];
     for (int32_t r = 0; r < 3; r++)
     {
         for (int32_t c = 0; c < 3; c++) {
-            view.m[r * 4 + c] = camera->rotation[r * 3 + c];
+            view[r * 4 + c] = camera->rotation[r * 3 + c];
         }
-        view.m[r * 4 + 3] = 0;
+        view[r * 4 + 3] = 0;
     }
-    // the slave's: its own stack and scratch
-    gSlaveCtx = gCtx;
-    gSlaveCtx.stack = (PoseMatrix*)sceneAlloc(POSE_STACK * sizeof(PoseMatrix));
-    gSlaveCtx.stack[0] = view;
-    gSceneItems = gItems;
-    gSceneCount = gCount;
-    gSceneRooms = gRooms;
-    gSceneStatics = gStatics;
-    gSceneStaticCount = gStaticCount;
-    gSceneShadows = gShadows;
-    gSceneShadowCount = gShadowCount;
+    poseView(camera->pos, view);
+    memcpy(poseXforms(), gXforms, sceneInfo().draws * sizeof(DrawXform));
+    poseLabUse(nullptr);
 }
 
-// The scene's draw of a draw's: the draw list's past the walk's fills.
-static int32_t gSceneDraw;
-
-bool poseUse(const DrawList* list, int32_t fills)
+bool poseLabUse(const DrawList* list, int32_t fills)
 {
     if (list && list->itemCount > gSceneCount)
-        return false;   // no room for their light
+        return false;   // as many as the scene's: the lab's checks' room
     gSceneDraw = list ? fills : 0;
-    gItems = list ? list->items : gSceneItems;
-    gCount = list ? list->itemCount : gSceneCount;
-    gRooms = list ? list->lights : gSceneRooms;
-    gStatics = list ? list->statics : gSceneStatics;
-    gStaticCount = list ? list->staticCount : gSceneStaticCount;
-    gShadows = list ? list->shadows : gSceneShadows;
-    gShadowCount = list ? list->shadowCount : gSceneShadowCount;
-    PoseContext* const contexts[2] = { &gCtx, &gSlaveCtx };
-    for (PoseContext* ctx : contexts)
+    if (list)
     {
-        ctx->items = gItems;
-        ctx->rooms = gRooms;
-        ctx->frames = list ? nullptr : gFrames;     // a draw list's frames are their places
+        poseUse(*list);
+        gItems = list->items;
+        gCount = list->itemCount;
+        gStatics = list->statics;
+        gStaticCount = list->staticCount;
+        gShadows = list->shadows;
+        gShadowCount = list->shadowCount;
+    }
+    else
+    {
+        poseSet(gSceneItems, gSceneCount, gSceneRooms, gSceneStatics, gSceneStaticCount, gSceneShadows,
+                gSceneShadowCount, gFrames);
+        gItems = gSceneItems;
+        gCount = gSceneCount;
+        gStatics = gSceneStatics;
+        gStaticCount = gSceneStaticCount;
+        gShadows = gSceneShadows;
+        gShadowCount = gSceneShadowCount;
     }
     return true;
 }
@@ -157,115 +95,26 @@ void pose()
     poseAsm(gItems, gCount, &gCtx);
 }
 
-DrawXform* poseXforms()
-{
-    return gCtx.out;
-}
-
-void poseItems(int32_t cpu, uint32_t first, uint32_t count)
-{
-    if (!count)
-        return;
-    PoseContext* ctx = cpu ? &gSlaveCtx : &gCtx;
-    ctx->lit = gLit + first;
-    ctx->rooms = gRooms + first;
-    poseLightAsm(gItems + first, count, ctx);
-    poseAsm(gItems + first, count, ctx);
-    ctx->lit = gLit;
-    ctx->rooms = gRooms;
-    uint32_t from, to;
-    shadowsOf(first, first + count, from, to);
-    if (from < to) {
-        poseShadowsAsm(gShadows + from, to - from, ctx);
-    }
-}
-
-void poseShare(int32_t cpu, const uint8_t* slave)
-{
-    uint32_t first = 0;
-    while (first < gCount)
-    {
-        uint32_t end = first + 1;
-        while (end < gCount && slave[end] == slave[first]) {
-            end++;
-        }
-        if ((slave[first] != 0) == (cpu != 0)) {
-            poseItems(cpu, first, end - first);
-        }
-        first = end;
-    }
-}
-
-void poseDropShare(const uint8_t* slave)
-{
-    for (uint32_t i = 0; i < gCount; i++) {
-        if (slave[i]) poseDrop(i, 1);
-    }
-}
-
-uint32_t poseCount()
-{
-    return gCount;
-}
-
-int32_t posePrice(uint32_t item)
-{
-    return PRICE_LIGHT + PRICE_MATRIX * drawnOf(gItems[item]);
-}
-
-uint32_t poseFirstDraw(uint32_t item)
-{
-    return gItems[item].firstDraw;
-}
-
-int32_t poseDraws(uint32_t item)
-{
-    return drawnOf(gItems[item]);
-}
-
-void poseDrop(uint32_t first, uint32_t count)
-{
-    for (uint32_t i = first; i < first + count; i++)
-    {
-        cacheDrop(gCtx.out + gItems[i].firstDraw, drawnOf(gItems[i]) * sizeof(DrawXform));
-        cacheDrop(gLit + i, sizeof(PoseLit));
-    }
-    uint32_t from, to;
-    shadowsOf(first, first + count, from, to);
-    for (uint32_t s = from; s < to; s++) {
-        cacheDrop(gCtx.out + gShadows[s].draw, sizeof(DrawXform));
-    }
-}
-
 void posePoison()
 {
+    DrawXform* out = poseXforms();
     for (uint32_t i = 0; i < gCount; i++)
     {
         const PoseItem &item = gItems[i];
-        memset(gCtx.out + item.firstDraw, 0xA5, drawnOf(item) * sizeof(DrawXform));
+        memset(out + item.firstDraw, 0xA5, poseDrawn(item) * sizeof(DrawXform));
     }
     for (uint32_t i = 0; i < gStaticCount; i++) {
-        memset(gCtx.out + gStatics[i].draw, 0xA5, sizeof(DrawXform));
+        memset(out + gStatics[i].draw, 0xA5, sizeof(DrawXform));
     }
     for (uint32_t i = 0; i < gShadowCount; i++) {
-        memset(gCtx.out + gShadows[i].draw, 0xA5, sizeof(DrawXform));
+        memset(out + gShadows[i].draw, 0xA5, sizeof(DrawXform));
     }
-}
-
-void poseStatics()
-{
-    poseStaticsAsm(gStatics, gStaticCount, &gCtx);
-}
-
-void poseShadows()
-{
-    poseShadowsAsm(gShadows, gShadowCount, &gCtx);
 }
 
 int32_t poseStaticsCheck()
 {
     int32_t statics, shadows;
-    return gameStaticsCheck(gCtx.out, statics, shadows);
+    return gameStaticsCheck(poseXforms(), statics, shadows);
 }
 
 int32_t poseCheck()
@@ -274,7 +123,7 @@ int32_t poseCheck()
     for (uint32_t i = 0; i < gCount; i++)
     {
         const PoseItem &item = gItems[i];
-        int32_t drawn = drawnOf(item);
+        int32_t drawn = poseDrawn(item);
         for (int32_t k = 0; k < drawn; k++)
         {
             const DrawXform &made = gCtx.out[item.firstDraw + k], &game = gXforms[item.firstDraw + k + gSceneDraw];
@@ -474,7 +323,7 @@ int32_t poseSeldomCheck()
                 cover[COVER_SHOTGUN] += item.weapon == 3 && item.arms[0].frame != NO_FRAME;
             }
             item.firstDraw = first;
-            first += drawnOf(item);
+            first += poseDrawn(item);
             cover[COVER_EXTRA] += item.extraCount;
             for (int32_t k = 0; k + 1 < item.count && !item.lara; k++) {
                 cover[COVER_PUSH] += ((const uint16_t*)(nodes + item.nodes))[k * 4 + 3] & 2 ? 1 : 0;
@@ -520,7 +369,7 @@ int32_t poseLightCheck()
     for (uint32_t i = 0; i < gCount; i++)
     {
         const PoseItem &item = gItems[i];
-        int32_t drawn = drawnOf(item);
+        int32_t drawn = poseDrawn(item);
         for (int32_t k = 0; k < drawn; k++)
         {
             const DrawXform &x = gXforms[item.firstDraw + k];
@@ -659,7 +508,7 @@ int32_t poseLightSeldomCheck()
                     room.lights = 1;
                 }
             }
-            const int32_t* view = gStack[0].m;
+            const int32_t* view = gCtx.stack[0].m;
             int32_t depth = (view[8] * (item.pos[0] - gCtx.camera[0]) + view[9] * (item.pos[1] - gCtx.camera[1]) +
                              view[10] * (item.pos[2] - gCtx.camera[2])) >> 14;
             cover[LIT_FOG] += depth > 1024 * 12;
@@ -718,7 +567,7 @@ int32_t poseStaticsSeldomCheck()
     ctx.frames = frames;
     ctx.out = outNew;
     ctx.items = items;
-    const int32_t* view = gStack[0].m;
+    const int32_t* view = gCtx.stack[0].m;
     for (int32_t pass = 0; pass < STATIC_PASSES; pass++)
     {
         uint32_t at = 0;
@@ -768,7 +617,7 @@ int32_t poseStaticsSeldomCheck()
         }
         memset(outGame, 0x55, draws * sizeof(DrawXform));
         memset(outNew, 0xAA, draws * sizeof(DrawXform));
-        gameStaticsRun(statics, gCount, shadows, gCount, items, (const GameLight*)gLit, frames, outGame);
+        gameStaticsRun(statics, gCount, shadows, gCount, items, (const GameLight*)gCtx.lit, frames, outGame);
         poseStaticsAsm(statics, gCount, &ctx);
         poseShadowsAsm(shadows, gCount, &ctx);
         for (uint32_t i = 0; i < gCount; i++)

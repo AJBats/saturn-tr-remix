@@ -352,7 +352,7 @@ static void stagePose()
     gameStatics();
     gLab.staticsBad = gameStaticsCheck(nullptr, gLab.staticCount, gLab.shadowCount);
 
-    poseInit();
+    poseLabInit();
     gLab.lightNew = measure([] {}, [] { poseLight(); });
     poseLight();
     gLab.lightNewBad = poseLightCheck();
@@ -956,7 +956,7 @@ static Stages stagesTogether(bool posed, int32_t bias)
         slaveRun(slaveRooms, nullptr);
         drawsLab(gFills);
         verticesDrawsSet(list.draws, list.drawCount, poseXforms());
-        poseUse(&list, gFills);
+        poseLabUse(&list, gFills);
         uint32_t w0 = ticks();
         while (!shared->walked);
         s.masterWait += ticksCycles(w0, ticks());
@@ -1214,7 +1214,7 @@ static void stageFrame()
     roomsFills(gFills);
     Stages s = togetherMeasured(true, gLab.frameBad);
     verticesDrawsSet(sceneArray<const DrawScene>("DRAW"), sceneInfo().draws, sceneArray<const DrawXform>("XFRM"));
-    poseUse(nullptr);
+    poseLabUse(nullptr);
     gLab.frame = s.wall;
     gLab.frameMaster = s.masterWork;
     gLab.frameMasterWait = s.masterWait;
@@ -1371,7 +1371,7 @@ static void stageRun()
     gNewTextures = uploads;
     texturesUpload(gNewTextures);
     verticesDrawsSet(sceneArray<const DrawScene>("DRAW"), sceneInfo().draws, sceneArray<const DrawXform>("XFRM"));
-    poseUse(nullptr);
+    poseLabUse(nullptr);
 }
 
 // A command's words and gouraud table, hashed.

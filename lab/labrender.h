@@ -7,6 +7,7 @@
 
 #include "draws.h"
 #include "hints.h"
+#include "pose.h"
 #include "rooms.h"
 #include "scene.h"
 #include "textures.h"
@@ -72,5 +73,42 @@ void drawsPoison();
 // sight, sprites moved and shaded, viewports, rectangles, shadows on a wall)
 // against the game's way on them: those that differ (and paths not taken).
 int32_t drawsSeldomCheck();
+
+// Pose from the scene (labpose.cpp): its level's (SINC, PNOD, LGHT), its view
+// (CAMR); the items to pose: a draw list's (its draw i the scene's i + fills,
+// the walk's fills coming first there), or (nullptr) the scene's (POSE,
+// PLIT, STAT, SHDW, PFRM), the transforms as the scene's (XFRM) to start
+// with; false: more items than the scene's.
+void poseLabInit();
+bool poseLabUse(const DrawList* list, int32_t fills = 0);
+
+// The items' meshes' transforms in poseXforms garbled, so a frame that reads
+// them before pose writes them shows.
+void posePoison();
+
+// The items posed on the master (their light from poseLight); against the
+// game's (XFRM): the draws whose matrix or light differs.
+void pose();
+int32_t poseCheck();
+
+// What the scene seldom gives pose: every item again, many times over, on
+// made-up frames, lerps of every kind, extra angles, Lara's arms (with and
+// without their own frames, turned by her basis or not, the shotgun's
+// torso), against the game's way on the same: the matrices that differ.
+int32_t poseSeldomCheck();
+
+// The items' light (pose.s poseLightAsm); against the game's (XFRM): the
+// draws that differ. Made up: items, rooms and lights the scene seldom gives
+// (divisors of 0 and -1, a light on the point lit, own intensities, rooms
+// without lights, overflowing radii) against the game's way on the same.
+void poseLight();
+int32_t poseLightCheck();
+int32_t poseLightSeldomCheck();
+
+// The statics' and shadows' transforms against the game's (XFRM): those that
+// differ. Made up: quarter turns, intensities, places, the fog, lerped boxes,
+// floors and yaws the scene seldom gives, against the game's way on them.
+int32_t poseStaticsCheck();
+int32_t poseStaticsSeldomCheck();
 
 #endif

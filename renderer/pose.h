@@ -1,14 +1,17 @@
-// Stage 1 the new way: pose. The items' node matrices, each exactly the
-// game's (openlara draw.h drawModel, drawNodesLerp and drawLaraNodesLerp on
-// common.cpp's matrix arithmetic), every item in one call (pose.s): no call
-// an operation, a rotation's >> 14 in three instructions where the game
-// calls libgcc's shift of one bit at a time.
-#ifndef POSE_H
-#define POSE_H
+// Pose: the items' light and node matrices, each exactly the game's
+// (openlara draw.h drawModel, drawNodesLerp and drawLaraNodesLerp on
+// common.cpp's matrix arithmetic, calcLightingDynamic), every item in one
+// call (pose.s): no call an operation, a rotation's >> 14 in three
+// instructions where the game calls libgcc's shift of one bit at a time; and
+// the statics' and shadows' transforms.
+#ifndef RENDER_POSE_H
+#define RENDER_POSE_H
 
 #include <stdint.h>
 
-#include "scene.h"
+#include "types.h"
+
+namespace render {
 
 // A matrix as the game keeps it: rows m0 m1 m2 t, int32 each (DrawXform.m).
 struct PoseMatrix
@@ -23,8 +26,8 @@ struct PoseContext
 {
     const uint32_t* sines;      // +0  gSinCosTable: sin << 16 | cos (low halves)
     const uint16_t* divTable;   // +4
-    const uint8_t* nodes;       // +8  PNOD
-    const uint8_t* frames;      // +12 PFRM
+    const uint8_t* nodes;       // +8  the models' nodes
+    const uint8_t* frames;      // +12 where the items' frames lie (none: their places are pointers)
     int32_t camera[3];          // +16
     DrawXform* out;             // +28 the draws' matrices and light, by draw
     PoseMatrix* stack;          // +32 POSE_STACK; the first the view's
@@ -42,8 +45,8 @@ struct PoseContext
     int32_t armLerp[2];         // +96
     int16_t posLerp[4];         // +104
     int32_t light[16];          // +112 the light's scratch
-    const PoseLight* rooms;     // +176 what lights each item (PLIT)
-    const void* lights;         // +180 LGHT
+    const PoseLight* rooms;     // +176 what lights each item
+    const void* lights;         // +180 the rooms' lights
     struct PoseLit* lit;        // +184 the items' light, by item
     const struct PoseLit* litNow;   // +188 pose.s's own
     const PoseItem* items;      // +192 the shadows' items
@@ -66,24 +69,25 @@ extern "C" void poseLightAsm(const PoseItem* items, int32_t count, PoseContext* 
 extern "C" void poseStaticsAsm(const PoseStatic* statics, int32_t count, PoseContext* ctx);
 extern "C" void poseShadowsAsm(const PoseShadow* shadows, int32_t count, PoseContext* ctx);
 
-// The scene's items for the new way: its context, and the draws' transforms
-// it writes, the scene's (XFRM) for the draws not an item's mesh.
-void poseInit();
+// The level's: the game's sines and cosines (gSinCosTable), its models'
+// nodes, its rooms' lights; the frame's view: the camera and the view's
+// matrix (12 int32, no translation).
+struct PoseLevel
+{
+    const uint32_t* sines;
+    const uint8_t* nodes;
+    const void* lights;
+};
+void poseInit(const PoseLevel &level);
+void poseView(const int32_t camera[3], const int32_t view[12]);
 
-// The items, lights, statics and shadows posed: a draw list's (draws.h, its
-// frames as places; its draw i the scene's i + fills, the walk's fills
-// coming first there), or (nullptr) the scene's; false: more items than room.
-bool poseUse(const DrawList* list, int32_t fills = 0);
+// The items, lights, statics and shadows to pose: a draw list's (draws.h:
+// its frames as places), or others with their frames in frames; and the
+// draws' transforms pose writes, by draw.
+void poseUse(const DrawList &list);
+void poseSet(const PoseItem* items, uint32_t count, const PoseLight* rooms, const PoseStatic* statics,
+             uint32_t staticCount, const PoseShadow* shadows, uint32_t shadowCount, const uint8_t* frames);
 DrawXform* poseXforms();
-
-// The items' meshes' transforms in poseXforms garbled, so a frame that reads
-// them before pose writes them shows.
-void posePoison();
-
-// The scene's items posed (their light from poseLight); against the game's
-// (XFRM): the draws whose matrix or light differs.
-void pose();
-int32_t poseCheck();
 
 // For a frame shared between the CPUs: items first .. first + count - 1 lit
 // and posed on a CPU (0 the master, 1 the slave, each with its own context),
@@ -104,27 +108,17 @@ uint32_t poseFirstDraw(uint32_t item);
 int32_t poseDraws(uint32_t item);
 void poseDrop(uint32_t first, uint32_t count);
 
-// What the scene seldom gives pose: every item again, many times over, on
-// made-up frames, lerps of every kind, extra angles, Lara's arms (with and
-// without their own frames, turned by her basis or not, the shotgun's
-// torso), against the game's way on the same: the matrices that differ.
-int32_t poseSeldomCheck();
-
-// The items' light (pose.s poseLightAsm); against the game's (XFRM): the
-// draws that differ. Made up: items, rooms and lights the scene seldom gives
-// (divisors of 0 and -1, a light on the point lit, own intensities, rooms
-// without lights, overflowing radii) against the game's way on the same.
-void poseLight();
-int32_t poseLightCheck();
-int32_t poseLightSeldomCheck();
+// The meshes an item draws: Lara's all, another's those its mask shows.
+int32_t poseDrawn(const PoseItem &item);
 
 // The static meshes' and the shadows' transforms (pose.s), into poseXforms
-// by draw (the shadows' items lit); against the game's (XFRM): those that
-// differ. Made up: quarter turns, intensities, places, the fog, lerped boxes,
-// floors and yaws the scene seldom gives, against the game's way on them.
+// by draw (the shadows' items lit).
 void poseStatics();
 void poseShadows();
-int32_t poseStaticsCheck();
-int32_t poseStaticsSeldomCheck();
+
+// A CPU's context (0 the master's, 1 the slave's), for checks.
+PoseContext& poseContext(int32_t cpu);
+
+}
 
 #endif
