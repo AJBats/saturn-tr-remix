@@ -3686,10 +3686,10 @@ field's vblank-in by ~2.5 ms and the frame takes three fields (50.15 ms,
   measured on the Saturn).
 
 ### 242. Step 8 doesn't fit high work RAM without moving three of TRS's buffers
-*Kind: coverage · Size: as the lab stands the switch is 103 KB short at
-LEVEL7B; with these moves 35 KB is left (the stack's 4 KB kept) and 118 KB
-of low work RAM; no frame reads what moves (tools/ramaudit.py) · Fix:
-medium, before step 8*
+*Kind: coverage · Size: as the lab stands the switch is 96 KB short at
+LEVEL7B (TRS as it ships); with these moves 42 KB is left (the stack's 4 KB
+kept) and 118 KB of low work RAM; no frame reads what moves
+(tools/ramaudit.py) · Fix: medium, before step 8*
 
 - **Moves:** to low work RAM, the three of TRS's buffers no frame reads:
   `gTextures` (25 KB: the level's file in low work RAM holds the entries
@@ -3716,9 +3716,16 @@ medium, before step 8*
   in play (208 bytes a draw at 256: about 20 KB at 160), the rooms
   projected in place over the DSP's rotated vertices (25 KB; the chunks'
   claims make it a design job).
-- The code freed counts render.cpp and rooms.cpp whole (50 KB): some of
-  render.cpp (HUD, text, sprite calls) stays in some form, and the switch
-  adds glue for the game's calls. Give or take 10 KB.
+- **Code:** the old renderer's objects (40 KB) and the game's drawing the
+  new replaces (pose, light, walk, draw list in main.cpp: 6 KB) go; the new
+  renderer's code is 43 KB, so 0MAIN.BIN shrinks 3 KB (189 to 186), 7 with
+  the polygon hunt (4 KB), which reads the old renderer's faces. The debug
+  menu's rendering options go with the old renderer: their code is inside
+  it, and their menu rows are about 2 KB of what's left. Some of
+  render.cpp (HUD, text and sprite calls) stays as calls into the new, and
+  the switch adds glue for the game's calls: give or take a few KB.
+- HW_LOG builds (the trace, the bench, the profiler) have 13 KB less free
+  than the game as it ships; the audit measures the shipping build.
 
 ### 243. Animated textures: the new renderer's materials are made once
 *Kind: correctness · Size: every level with an animated range (water,
@@ -3762,11 +3769,12 @@ lava) · Fix: small to medium, before step 8*
 - `tools/ramaudit.py` reads TRS's map, the lab's buffers and code (sorted
   into the renderer's and the lab's own) and every level's packed file, and
   prints high and low work RAM after the switch, level by level.
-- As the lab stands, the switch leaves high work RAM 103 KB short at
-  LEVEL7B. TRS has 29 KB free today; the old renderer frees 355 KB (buffers
-  209, code 50, `gMeshData` 96); the new takes 488 KB (buffers 225 at the
-  game's limits, made at load 57, code 43, LEVEL7B's meshes in the new
-  formats with their materials and parts 153, the walk's tables 9).
+- As the lab stands, the switch leaves high work RAM 96 KB short at
+  LEVEL7B. TRS as it ships has 42 KB free; the old renderer frees 349 KB
+  (buffers 203, code 46, its polygon hunt 4, `gMeshData` 96); the new takes
+  488 KB (buffers 225 at the game's limits, made at load 57, code 43,
+  LEVEL7B's meshes in the new formats with their materials and parts 153,
+  the walk's tables 9).
 - The new formats cost the meshes: LEVEL7B's 88 KB become 121 (face sets
   take 12 bytes a face against TRS's 6; meshrot.dsp's groups pad to four
   vertices), plus materials 18 and the meshes' parts 15.

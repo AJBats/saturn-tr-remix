@@ -1,11 +1,13 @@
 """The RAM the new renderer (lab/) takes in TRS against what TRS's own
 renderer frees: step 8's switch, measured (OPEN_ISSUES 239).
 
-    ramaudit.py [--trs build] [--lab build/lab] [--data build/data]
+    ramaudit.py [--trs build/ship] [--lab build/lab] [--data build/data]
 
-Reads TRS's map (its ELF and objects), the lab's (its objects, and its
-structures' sizes from the cross-compiler) and every level's packed file
-(build/data/*.PKD), and prints:
+TRS as it ships, without HW_LOG's tools (make BUILD=build/ship
+build/ship/0MAIN.elf builds it; an HW_LOG build is said to be one). Reads
+TRS's map (its ELF, link map and objects: only those linked), the lab's
+(likewise, and its structures' sizes from the cross-compiler) and every
+level's packed file (build/data/*.PKD), and prints:
 
   1. TRS's high work RAM: its sections, what the master's stack leaves free,
      and the old renderer's buffers, which go at the switch.
@@ -18,7 +20,7 @@ structures' sizes from the cross-compiler) and every level's packed file
   3. The new renderer's buffers: as the lab builds them, and at the game's
      limits where the lab sizes for itself.
   4. Code: the old renderer's against the new's (its checks and C models
-     left out).
+     left out), and 0MAIN.BIN's size before and after.
   5. High work RAM after the switch, at each level.
   6. The same with three of TRS's buffers that no frame reads moved to low
      work RAM (the level's texture entries, the palettes' other versions,
@@ -76,13 +78,18 @@ OLD_BUFFERS = {
                    'turnObjectQuads(unsigned int)::turnedIndex', 'gHeld', 'gActiveHints', 'gFarXform'],
     'rooms.cpp': ['gSlaveFaces', 'gSlaveOT', 'gSlaveMeshOT', 'gDspDivide', 'gJobs', 'gWork', 'gStaticSkipped',
                   'gItemClaims', 'gStaticTaken', 'gMeshList', 'gFaceList', 'gXform'],
-    'meshlight.cpp': ['gMeshLightJobs', 'gMeshLightSentinels'],
 }
 # its code: these objects whole (render.cpp's HUD, text and sprite calls stay
-# in some form, so this is the most the switch frees)
-OLD_CODE = ['render.cpp', 'rooms.cpp', 'meshlight.cpp', 'faces.s', 'flush.s', 'flush_kinds.s',
-            'flush_coloured.s', 'flush_shades.s', 'meshxform.s', 'meshfaces.s', 'xform.s',
-            'meshxform_ref.s', 'xform_ref.s']
+# as calls into the new, so a little less goes), and the game's drawing that
+# the new renderer's pose, light, walk and draw list replace
+OLD_CODE = ['render.cpp', 'rooms.cpp', 'faces.s', 'flush.s', 'meshxform.s', 'xform.s']
+OLD_FUNCTIONS = {
+    'main.cpp': ['drawLaraNodesLerp', 'drawLaraNodes', 'drawNodesLerp', 'drawNodes', 'calcLightingDynamic',
+                 'calcLightingStatic', 'drawModel', 'drawRoomObjects', 'drawRoomStatic', 'drawShadow',
+                 'Room::checkPortal', 'Room::addVisibleRoom', 'Room::getVisibleRooms', 'drawRooms'],
+}
+# the debug menu's tools that work on the old renderer's faces, and go with it
+OLD_TOOLS = ['hunt.cpp']
 
 # --- the lab: the new renderer's buffers -------------------------------------
 
@@ -132,6 +139,36 @@ MOVES = [
     ('detail.cpp', 'gItemData', '.ITX', 'copied to VRAM once as the inventory opens (by the CPU from low)'),
 ]
 STACK = 4 * KB              # saturn.ld: what bss leaves for the master's stack
+SECTION = re.compile(r'^ (\.\S+|COMMON)(?:\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)\s+(\S+))?$')
+CONTINUED = re.compile(r'^\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)\s+(\S+)$')
+
+
+def linked(path):
+    """Each linked object's code and read-only data from a GNU ld map (its
+    merged strings left out: the map gives them all to the first object),
+    and whether the build is an HW_LOG one (trace.cpp has code)."""
+    lines = open(path).read().splitlines()
+    sizes = {os.path.basename(l[5:].replace('\\', '/')): 0 for l in lines if l.startswith('LOAD ')}
+    k = next(i for i, l in enumerate(lines) if l.startswith('Linker script and memory map'))
+    while k < len(lines):
+        m = SECTION.match(lines[k])
+        k += 1
+        if not m:
+            continue
+        if m.group(2) is None:
+            c = CONTINUED.match(lines[k]) if k < len(lines) else None
+            if not c:
+                continue
+            addr, size, obj = int(c.group(1), 16), int(c.group(2), 16), c.group(3)
+            k += 1
+        else:
+            addr, size, obj = int(m.group(2), 16), int(m.group(3), 16), m.group(4)
+        sec = m.group(1)
+        code_section = sec.startswith('.text') or (sec.startswith('.rodata') and '.str' not in sec)
+        if addr and code_section:
+            name = os.path.basename(obj.replace('\\', '/'))
+            sizes[name] = sizes.get(name, 0) + size
+    return sizes, sizes.get('trace.cpp.o', 0) > 0
 
 
 def plain(name):
@@ -164,18 +201,6 @@ def data(obj):
 
 def code(obj):
     return symbols(obj, 'tTrR')
-
-
-def code_bytes(obj):
-    """An object's code and read-only data, from its sections: what an
-    assembly file's symbols, which carry no sizes, can't tell."""
-    out = subprocess.run([tool('objdump'), '-h', obj], capture_output=True, text=True).stdout
-    total = 0
-    for line in out.splitlines():
-        p = line.split()
-        if len(p) >= 3 and (p[1].startswith('.text') or p[1].startswith('.rodata')):
-            total += int(p[2], 16)
-    return total
 
 
 def sections(elf):
@@ -281,10 +306,20 @@ def level(path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--trs', default=os.path.join(ROOT, 'build'))
+    ap.add_argument('--trs', default=os.path.join(ROOT, 'build', 'ship'))
     ap.add_argument('--lab', default=os.path.join(ROOT, 'build', 'lab'))
     ap.add_argument('--data', default=os.path.join(ROOT, 'build', 'data'))
     args = ap.parse_args()
+    if not os.path.exists(os.path.join(args.trs, '0MAIN.map')):
+        sys.exit(f'no TRS build in {args.trs}: make BUILD=build/ship build/ship/0MAIN.elf')
+    trs_code, hw_log = linked(os.path.join(args.trs, '0MAIN.map'))
+    lab_code, _ = linked(os.path.join(args.lab, '0MAIN.map'))
+    for name in list(OLD_BUFFERS) + OLD_CODE + list(OLD_FUNCTIONS) + OLD_TOOLS + [m[0] for m in MOVES]:
+        if name + '.o' not in trs_code:
+            sys.exit(f'{name} is not linked in {args.trs}: name a linked object')
+    for name in NEW_OBJECTS + NEW_ASM:
+        if name + '.o' not in lab_code:
+            sys.exit(f'{name} is not linked in {args.lab}: name a linked object')
     trs_obj = lambda name: os.path.join(args.trs, 'obj', 'saturn', name + '.o')
     lab_obj = lambda name: os.path.join(args.lab, 'obj', 'lab', name + '.o')
 
@@ -292,7 +327,8 @@ def main():
     sec = sections(os.path.join(args.trs, '0MAIN.elf'))
     bss_vma, bss_size = sec['.bss'][1], sec['.bss'][0]
     free = HWRAM_TOP - (bss_vma + bss_size)
-    print('1. TRS TODAY, HIGH WORK RAM (KB)')
+    print('1. TRS TODAY, HIGH WORK RAM (KB)' + ('  AN HW_LOG BUILD: its tools take more than the game ships with'
+                                               if hw_log else ', as it ships'))
     for name in ('.text', '.rodata', '.data', '.bss'):
         print(f'  {name:10s} {kb(sec[name][0])}')
     print(f'  free       {kb(free)}  (the master\'s stack grows down into it)')
@@ -393,9 +429,16 @@ def main():
     # 4. code
     print()
     print('4. CODE (KB)')
-    old_code = sum(code_bytes(trs_obj(o)) for o in OLD_CODE)
-    print(f'  old renderer, its objects whole   {kb(old_code)}')
-    new_asm = sum(code_bytes(lab_obj(o)) for o in NEW_ASM)
+    old_objects = sum(trs_code[o + '.o'] for o in OLD_CODE)
+    old_drawing = 0
+    for obj, names in OLD_FUNCTIONS.items():
+        have = {plain(n): s for n, s in code(trs_obj(obj)).items()}
+        old_drawing += sum(have[n] for n in names)
+    old_code = old_objects + old_drawing
+    print(f'  old renderer: its objects whole {kb(old_objects)}, the game\'s drawing {kb(old_drawing)}  '
+          f'{kb(old_code)}')
+    old_tools = sum(trs_code[o + '.o'] for o in OLD_TOOLS)
+    new_asm = sum(lab_code[o + '.o'] for o in NEW_ASM)
     new_c = 0
     for obj in NEW_OBJECTS:
         for n, s in code(lab_obj(obj)).items():
@@ -403,12 +446,16 @@ def main():
                 new_c += s
     new_code = new_asm + new_c
     print(f'  new renderer: assembly {kb(new_asm)}, C {kb(new_c)} (DSP programs in it)  {kb(new_code)}')
+    binary = sec['.text'][0] + sec['.rodata'][0] + sec['.data'][0]
+    print(f'  0MAIN.BIN {kb(binary)} today; after the switch {kb(binary - old_code + new_code)} '
+          f'({kb(new_code - old_code).strip()}); the polygon hunt, which reads the old renderer\'s faces, '
+          f'{kb(old_tools).strip()} more if it goes')
 
     # 5. after the switch
     print()
     print('5. HIGH WORK RAM AFTER THE SWITCH (KB), by level: today\'s free + the old renderer (buffers, code, '
-          'gMeshData) - the new (buffers, arena, code, mesh store, room materials, walk tables)')
-    freed = old_buffers + old_code + gmesh
+          'its polygon hunt, gMeshData) - the new (buffers, arena, code, mesh store, room materials, walk tables)')
+    freed = old_buffers + old_code + old_tools + gmesh
     worst = None
     for lv in levels:
         need = new_static + arena_bytes + new_code + lv['mesh_store'] + lv['walk']
