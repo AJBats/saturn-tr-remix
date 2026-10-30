@@ -135,6 +135,10 @@ const char* sceneLoad(const char* path);
 // A chunk's data and bytes, or NULL.
 const void* sceneChunk(const char* id, uint32_t* bytes = nullptr);
 
+// Room in high work RAM after the scene's chunks, for what the lab makes of
+// them (16-byte aligned), or NULL.
+void* sceneAlloc(uint32_t bytes);
+
 template <typename T>
 inline T* sceneArray(const char* id, uint32_t* count = nullptr)
 {

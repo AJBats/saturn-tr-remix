@@ -33,14 +33,14 @@ LAB_MAGIC = 0x4C414231
 MAX_CMDS = 1792
 SHADE_CACHE = struct.Struct('>4I256I256I')      # game.h ShadeCache
 SHADE_TABLE_SIZE = 32
-LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIi')    # lab.cpp LabResults
+LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIiIi')    # lab.cpp LabResults
 FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSlave', 'floor',
           'facesBad', 'flushBad', 'splitBad', 'floorBad', 'vdp1Game', 'vdp1Lab', 'meshFacesGiven',
           'roomFacesGiven', 'meshFlush', 'roomFlush', 'newMeshes', 'newRooms', 'newJoin', 'newBad', 'newBadC',
           'newVisited', 'newShaded', 'newAsmBad', 'newFrames', 'meshCommands', 'roomCommands', 'vdp1New',
           'vertsRooms', 'vertsMeshes', 'vertsBad', 'roomVertices', 'meshVertices', 'newVertsRooms',
           'newVertsBad', 'newVertsMeshes', 'newVertsSeldom', 'dspRooms', 'dspRoomsBad',
-          'newVertsFeed', 'dspMeshes', 'dspMeshesBad')
+          'newVertsFeed', 'dspMeshes', 'dspMeshesBad', 'dspMeshes3', 'dspMeshes3Bad')
 TEXT_ROWS, TEXT_COLUMNS = 26, 42
 PAGE = struct.Struct(f'>{TEXT_ROWS * (TEXT_COLUMNS + 1)}s2xi')     # lab.h Page
 VRAM_FRAME_CMDS = 0x60
@@ -316,7 +316,8 @@ def main():
     elf = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(args.cue))), '0MAIN.elf')
     syms = cap.symbols(elf)
     lab = cap.symbol(syms, '_gLab')
-    pages = [cap.symbol(syms, '__ZL8gResults'), cap.symbol(syms, '__ZL11gNewResults')]
+    pages = [cap.symbol(syms, '__ZL8gResults'), cap.symbol(syms, '__ZL13gVerticesPage'),
+             cap.symbol(syms, '__ZL11gNewResults')]
     commands = cap.symbol(syms, '__ZL8gNewCmds')
     gouraud = cap.symbol(syms, '__ZL7gNewGrd')
     end_at = cap.symbol(syms, '__ZL7gNewEnd')
@@ -352,13 +353,13 @@ def main():
         if args.shots:
             shots = os.path.join(ROOT, 'build/lab/shots')
             os.makedirs(shots, exist_ok=True)
-            for name in ('', 'game', 'new'):
+            for name in ('', '', 'game', 'new'):
                 med.send('input R', 'ok input', 10)
                 med.send('frame_advance 10', 'done frame_advance', 30)
                 med.send('input_release R', 'ok input_release', 10)
                 med.send('frame_advance 20', 'done frame_advance', 30)
                 if not name:
-                    continue    # the new way's results page
+                    continue    # the new way's results pages
                 shot = os.path.join(shots, f'{name}.png')
                 if os.path.exists(shot):
                     os.remove(shot)
@@ -389,7 +390,7 @@ def main():
           f'new {new_cycles * 1000 / VDP1_HZ:.2f} ms')
     if traces:
         profile(traces, elf, syms)
-    sys.exit(1 if bad or differ or any(results[k] for k in ('vertsBad', 'newVertsBad', 'newVertsSeldom', 'dspRoomsBad', 'dspMeshesBad', 'facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newAsmBad'))
+    sys.exit(1 if bad or differ or any(results[k] for k in ('vertsBad', 'newVertsBad', 'newVertsSeldom', 'dspRoomsBad', 'dspMeshesBad', 'dspMeshes3Bad', 'facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newAsmBad'))
              else 0)
 
 

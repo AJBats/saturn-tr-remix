@@ -4,8 +4,10 @@
 // the face stage reads (game.h Vertex).
 //
 // Rooms: roomrot.dsp (lab/gen_roomrot.py) from the rooms' data as stored;
-// meshes: meshlight3.dsp (dspbench/gen_meshlight3.py) from their vertices
-// and normals laid out for it, a longword each (the bench's v3).
+// meshes: meshrot.dsp (lab/gen_meshrot.py) from their int16 vertices and
+// byte normals, packed as the level would keep them. Beside it for its time,
+// meshlight3.dsp (dspbench/gen_meshlight3.py, the bench's v3) from the same
+// laid out for it, a longword each.
 #ifndef VERTICES_H
 #define VERTICES_H
 
@@ -61,8 +63,8 @@ extern "C" void meshProjectAsm(Vertex* v, int32_t count, MeshProject* mp);
 extern "C" void meshShadesAsm(Vertex* v, int32_t count, const uint8_t* shades, int32_t ambient);
 
 // The scene's rooms and draws for the new way: the meshes laid out for the
-// DSP, each draw's job and where its vertices go.
-void verticesInit();
+// DSP, each draw's job and where its vertices go. NULL, or what went wrong.
+const char* verticesInit();
 
 // The rooms' rotations on the DSP, a job a room, the master waiting for its
 // end: the SH-2 cycles it took. Then its rotations against xform.s's
@@ -76,11 +78,13 @@ void verticesRooms();
 int32_t verticesRoomsCheck(int32_t &vertices);
 
 // The meshes fed to the DSP: each one's job (its coefficients, how it's
-// lit, whether it lies inside the frame), a shadow's vertices laid out.
+// lit, whether it lies inside the frame), a shadow's vertices packed.
 // Then the DSP run over them, the master waiting: the SH-2 cycles it took;
 // and its output against meshxform.s's arithmetic: the vertices that differ.
+// meshlight3.dsp's run over the same, fed from the jobs, for its time.
 void verticesFeed();
 uint32_t verticesMeshesDsp();
+uint32_t verticesMeshesDsp3();
 int32_t verticesMeshesDspCheck();
 
 // The meshes' vertices projected in place and shaded; against the game's:

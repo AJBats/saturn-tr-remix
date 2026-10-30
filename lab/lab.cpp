@@ -88,6 +88,8 @@ struct LabResults
     uint32_t newVertsFeed;      // cycles: the meshes fed to the DSP
     uint32_t dspMeshes;         // cycles the DSP took over the meshes
     int32_t dspMeshesBad;       // its output not meshxform.s's arithmetic
+    uint32_t dspMeshes3;        // ... meshlight3.dsp (the bench's v3) took, from data laid out for it
+    int32_t dspMeshes3Bad;
 };
 
 extern "C" LabResults gLab;
@@ -251,11 +253,18 @@ static void stageTwo()
 
 static void stageTwoNew()
 {
-    verticesInit();
+    const char* error = verticesInit();
+    if (error)
+    {
+        textRow(1, error);
+        while (1);
+    }
     gLab.dspRooms = verticesRoomsDsp();
     gLab.dspRoomsBad = verticesRoomsDspCheck();
     gLab.newVertsRooms = measure([] { gameVerticesPrepare(); }, [] { verticesRooms(); });
     gLab.newVertsFeed = measure([] {}, [] { verticesFeed(); });
+    gLab.dspMeshes3 = verticesMeshesDsp3();
+    gLab.dspMeshes3Bad = verticesMeshesDspCheck();
     gLab.dspMeshes = verticesMeshesDsp();
     gLab.dspMeshesBad = verticesMeshesDspCheck();
     gLab.newVertsMeshes = measure([] { verticesMeshesDsp(); }, [] { verticesMeshes(); });
@@ -722,7 +731,57 @@ static void timeRow(Page &page, const char* name, uint32_t cycles, uint32_t unit
     page.add(line);
 }
 
-static Page gResults, gNewResults;
+static Page gResults, gVerticesPage, gNewResults;
+
+static void verticesPage()
+{
+    const SceneInfo &info = sceneInfo();
+    Page &page = gVerticesPage;
+    char line[TEXT_COLUMNS + 1];
+    char* p;
+
+    page.count = 0;
+    p = put(line, "RENDER LAB  ");
+    p = put(p, info.name);
+    put(p, ": vertices");
+    page.add(line);
+    p = put(line, "rooms':");
+    p = putNumber(p, gLab.roomVertices, 5);
+    p = put(p, ", draws':");
+    putNumber(p, gLab.meshVertices, 5);
+    page.add(line);
+    page.add("");
+    page.add("STAGE 2, VERTICES: THE NEW WAY");
+    page.add("master, run alone     ms  cycles a");
+    timeRow(page, "rooms: game's", gLab.vertsRooms, gLab.roomVertices, "vertex");
+    timeRow(page, "  DSP", gLab.dspRooms, gLab.roomVertices, "vertex");
+    timeRow(page, "  projected", gLab.newVertsRooms, gLab.roomVertices, "vertex");
+    timeRow(page, "meshes: game's", gLab.vertsMeshes, gLab.meshVertices, "vertex");
+    timeRow(page, "  DSP", gLab.dspMeshes, gLab.meshVertices, "vertex");
+    timeRow(page, "  DSP, v3's data", gLab.dspMeshes3, gLab.meshVertices, "vertex");
+    timeRow(page, "  fed", gLab.newVertsFeed, gLab.meshVertices, "vertex");
+    timeRow(page, "  projected", gLab.newVertsMeshes, gLab.meshVertices, "vertex");
+    p = put(line, "vertices ");
+    p = put(p, gLab.newVertsBad ? "OFF" : "exact");
+    p = put(p, " (");
+    p = putNumber(p, gLab.newVertsBad, 0);
+    p = put(p, " off), seldom paths");
+    p = putNumber(p, gLab.newVertsSeldom, 2);
+    put(p, " off");
+    page.add(line);
+    p = put(line, "DSP as modelled: rooms");
+    p = putNumber(p, gLab.dspRoomsBad, 2);
+    p = put(p, " off, meshes");
+    p = putNumber(p, gLab.dspMeshesBad, 2);
+    put(p, " off");
+    page.add(line);
+    p = put(line, "  v3 as modelled:");
+    p = putNumber(p, gLab.dspMeshes3Bad, 2);
+    put(p, " off");
+    page.add(line);
+    page.add("");
+    page.add("R, L: the other pages");
+}
 
 static void newPage()
 {
@@ -740,30 +799,6 @@ static void newPage()
     p = putNumber(p, gLab.meshCommands, 5);
     p = put(p, ", rooms':");
     putNumber(p, gLab.roomCommands, 5);
-    page.add(line);
-    page.add("");
-    page.add("STAGE 2, VERTICES: THE NEW WAY");
-    page.add("master, run alone     ms  cycles a");
-    timeRow(page, "rooms: game's", gLab.vertsRooms, gLab.roomVertices, "vertex");
-    timeRow(page, "  DSP", gLab.dspRooms, gLab.roomVertices, "vertex");
-    timeRow(page, "  projected", gLab.newVertsRooms, gLab.roomVertices, "vertex");
-    timeRow(page, "meshes: game's", gLab.vertsMeshes, gLab.meshVertices, "vertex");
-    timeRow(page, "  DSP", gLab.dspMeshes, gLab.meshVertices, "vertex");
-    timeRow(page, "  fed", gLab.newVertsFeed, gLab.meshVertices, "vertex");
-    timeRow(page, "  projected", gLab.newVertsMeshes, gLab.meshVertices, "vertex");
-    p = put(line, "vertices ");
-    p = put(p, gLab.newVertsBad ? "OFF" : "exact");
-    p = put(p, " (");
-    p = putNumber(p, gLab.newVertsBad, 0);
-    p = put(p, " off), seldom paths");
-    p = putNumber(p, gLab.newVertsSeldom, 2);
-    put(p, " off");
-    page.add(line);
-    p = put(line, "DSP as modelled: rooms");
-    p = putNumber(p, gLab.dspRoomsBad, 2);
-    p = put(p, " off, meshes");
-    p = putNumber(p, gLab.dspMeshesBad, 2);
-    put(p, " off");
     page.add(line);
     page.add("");
     page.add("STAGE 3, FACES TO COMMANDS: THE NEW WAY");
@@ -882,13 +917,13 @@ static void resultsPage()
     page.add("R, L: the other pages");
 }
 
-enum { PAGE_GAME_WAY, PAGE_NEW_WAY, PAGE_GAME, PAGE_NEW, PAGES };
+enum { PAGE_GAME_WAY, PAGE_NEW_VERTICES, PAGE_NEW_WAY, PAGE_GAME, PAGE_NEW, PAGES };
 
 static void show(int32_t page)
 {
-    if (page == PAGE_GAME_WAY || page == PAGE_NEW_WAY)
+    if (page == PAGE_GAME_WAY || page == PAGE_NEW_VERTICES || page == PAGE_NEW_WAY)
     {
-        const Page &text = page == PAGE_GAME_WAY ? gResults : gNewResults;
+        const Page &text = page == PAGE_GAME_WAY ? gResults : page == PAGE_NEW_VERTICES ? gVerticesPage : gNewResults;
         textPage();
         for (int32_t r = 0; r < text.count; r++) {
             textRow(r, text.rows[r]);
@@ -948,6 +983,7 @@ int main()
     gLab.magic = LAB_MAGIC;
 
     resultsPage();
+    verticesPage();
     newPage();
     int32_t page = PAGE_GAME_WAY;
     show(page);

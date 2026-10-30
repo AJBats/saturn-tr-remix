@@ -23,6 +23,7 @@ static uint8_t gArena[ARENA_SIZE] __attribute__((aligned(16)));
 static const Chunk* gChunks;
 static uint32_t gCount;
 static uint8_t* gData[MAX_CHUNKS];
+static uint32_t gUsed;
 
 const char* sceneLoad(const char* path)
 {
@@ -67,7 +68,17 @@ const char* sceneLoad(const char* path)
             used = (used + c.size + 15) & ~15;
         }
     }
+    gUsed = used;
     return nullptr;
+}
+
+void* sceneAlloc(uint32_t bytes)
+{
+    if (gUsed + bytes > ARENA_SIZE)
+        return nullptr;
+    void* p = gArena + gUsed;
+    gUsed = (gUsed + bytes + 15) & ~15;
+    return p;
 }
 
 const void* sceneChunk(const char* id, uint32_t* bytes)
