@@ -46,6 +46,13 @@ static uint32_t gNodesBytes;
 static const uint8_t* gFrames;
 static uint32_t gFramesBytes;
 static const DrawXform* gXforms;
+static const PoseItem* gSceneItems;     // the scene's (poseUse)
+static uint32_t gSceneCount;
+static const PoseLight* gSceneRooms;
+static const PoseStatic* gSceneStatics;
+static uint32_t gSceneStaticCount;
+static const PoseShadow* gSceneShadows;
+static uint32_t gSceneShadowCount;
 
 // The meshes an item draws: Lara's all, another's those its mask shows.
 static int32_t drawnOf(const PoseItem &item)
@@ -111,6 +118,34 @@ void poseInit()
     gSlaveCtx = gCtx;
     gSlaveCtx.stack = (PoseMatrix*)sceneAlloc(POSE_STACK * sizeof(PoseMatrix));
     gSlaveCtx.stack[0] = view;
+    gSceneItems = gItems;
+    gSceneCount = gCount;
+    gSceneRooms = gRooms;
+    gSceneStatics = gStatics;
+    gSceneStaticCount = gStaticCount;
+    gSceneShadows = gShadows;
+    gSceneShadowCount = gShadowCount;
+}
+
+bool poseUse(const DrawList* list)
+{
+    if (list && list->itemCount > gSceneCount)
+        return false;   // no room for their light
+    gItems = list ? list->items : gSceneItems;
+    gCount = list ? list->itemCount : gSceneCount;
+    gRooms = list ? list->lights : gSceneRooms;
+    gStatics = list ? list->statics : gSceneStatics;
+    gStaticCount = list ? list->staticCount : gSceneStaticCount;
+    gShadows = list ? list->shadows : gSceneShadows;
+    gShadowCount = list ? list->shadowCount : gSceneShadowCount;
+    PoseContext* const contexts[2] = { &gCtx, &gSlaveCtx };
+    for (PoseContext* ctx : contexts)
+    {
+        ctx->items = gItems;
+        ctx->rooms = gRooms;
+        ctx->frames = list ? nullptr : gFrames;     // a draw list's frames are their places
+    }
+    return true;
 }
 
 void pose()

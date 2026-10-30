@@ -68,9 +68,19 @@ extern "C" void meshShadesAsm(Vertex* v, int32_t count, const uint8_t* shades, i
 struct FaceRoom;
 const char* verticesInit(const FaceRoom* rooms, uint32_t roomCount);
 
-// A frame's rooms (the walk's jobs): where the DSP's rotations of each go
-// (the order the DSP turns them in stays the plan's).
+// A frame's rooms (the walk's jobs): where the DSP's rotations of each go,
+// their chunks (the order the DSP turns them in stays the plan's).
 void verticesRoomsSet(const FaceRoom* rooms, uint32_t count);
+
+// A frame's draws (a draw list's) and their transforms: each mesh's and
+// shadow's job; after feeding, whether a draw's mesh lies wholly inside the
+// frame (meshxform.s's test, MESH_INSIDE).
+void verticesDrawsSet(const DrawScene* draws, uint32_t count, const DrawXform* xforms);
+int32_t verticesInsideOf(uint32_t draw);
+
+// The rooms' DSP run started in their order, before the plan (which then
+// leaves the order be: verticesPlan's started).
+void verticesRoomsStart();
 
 // The rooms' rotations on the DSP, a job a room, the master waiting for its
 // end: the SH-2 cycles it took. Then its rotations against xform.s's
@@ -130,11 +140,6 @@ Together verticesTogether();
 // run sees every value made in it.
 void verticesPoison();
 
-// The draws' transforms the meshes' jobs read: the scene's (XFRM) to begin
-// with, or others laid out as it, by draw (pose.h poseXforms).
-struct DrawXform;
-void verticesXforms(const DrawXform* xforms);
-
 // Stage 2 in pieces, for a frame's stages run together. The rooms are
 // projected in chunks of vertices, each claimed by the CPU that takes it
 // (tasClaim); the plan gives the master chunks from the last room back while
@@ -158,7 +163,7 @@ void verticesXforms(const DrawXform* xforms);
 // - draw i's mesh job (a mesh or a shadow) waited for and projected: its
 //   vertices;
 // - the DSP's run waited for.
-void verticesPlan(int32_t bias, int32_t ahead = 0);
+void verticesPlan(int32_t bias, int32_t ahead = 0, bool started = false);
 void verticesRoomsBegin();
 void verticesClaimMasters();
 void verticesMasterRooms(uint32_t &wait, bool &meshes);

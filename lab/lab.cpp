@@ -700,7 +700,9 @@ struct SlaveStages
     volatile uint32_t work, wait;
     volatile uint32_t poses;    // the slave poses its items (gPoseSlave) first
     volatile uint32_t posed;
-    volatile uint32_t roomsReady;   // the master's walk done, its rooms' DSP run started
+    volatile uint32_t roomsReady;   // the plan made, the master's rooms' chunks claimed
+    volatile uint32_t walks;    // the slave walks the rooms and starts the DSP on them first
+    volatile uint32_t walked;
 } __attribute__((aligned(16)));
 static SlaveStages gSlaveStages;
 
@@ -714,17 +716,26 @@ static void slaveRooms(void*)
 {
     uint32_t t0 = ticks(), wait = 0;
     SlaveStages* shared = uncached(&gSlaveStages);
-    if (shared->poses)
+    if (shared->walks)
     {
-        poseShare(1, gPoseSlave);
-        shared->posed = 1;
+        // the rooms seen, their jobs, laid out, the DSP started on them in order
+        roomsSeen();
+        uint32_t count;
+        verticesRoomsSet(roomsJobs(count), count);
+        verticesRoomsStart();
+        shared->walked = 1;
     }
     if (!shared->roomsReady)
     {
         uint32_t w0 = ticks();
         while (!shared->roomsReady);
         wait += ticksCycles(w0, ticks());
-        cachePurge();   // the rooms the master's walk made
+        cachePurge();   // the master's draw list and plan
+    }
+    if (shared->poses)
+    {
+        poseShare(1, gPoseSlave);
+        shared->posed = 1;
     }
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
@@ -745,20 +756,14 @@ static void slaveRooms(void*)
     shared->wait = wait;
 }
 
-// Stages 2 and 3 together; posed: stage 1 too, the rooms seen and the
-// items' light and pose, shared as the plan shares them (gPoseSlave), their
-// transforms the feed's. The slave poses its items, then starts its rooms
-// once the master has walked them; the master walks the rooms, starts the
-// DSP on them, poses its own items, feeds the meshes before the first of
-// the slave's, and the rest once the slave has posed them.
-static Stages stagesTogether(bool posed)
+static void framePlan(int32_t bias, bool posed, bool started = false);
+
+// The pose's share and the feed's: the slave's items (gPoseSlave), and the
+// master's mesh jobs to feed before the slave's first.
+static uint32_t slaveShare(int32_t &part)
 {
-    Stages s = {};
-    SlaveStages* shared = uncached(&gSlaveStages);
-    shared->roomsDone = shared->drawsDone = shared->posed = 0;
-    shared->roomsReady = !posed;
-    uint32_t items = posed ? poseCount() : 0, slaveItems = 0;
-    int32_t part = verticesJobs();
+    uint32_t items = poseCount(), slaveItems = 0;
+    part = verticesJobs();
     for (uint32_t i = 0; i < items; i++)
     {
         slaveItems += gPoseSlave[i];
@@ -766,20 +771,52 @@ static Stages stagesTogether(bool posed)
             part = verticesJobOfDraw(poseFirstDraw(i));
         }
     }
-    shared->poses = slaveItems;
+    return slaveItems;
+}
+
+// The frame's fills past the draw distance (the walk's at the scene's view):
+// their vertices before the draw list's.
+static int32_t gFills;
+
+// Stages 2 and 3 together; posed: stage 1 too, the frame so far: the slave
+// walks the rooms and starts the DSP on them while the master makes the
+// draw list and its meshes' jobs; the master plans the frame (the slave's
+// items, the rooms' chunks it takes) and claims its chunks; then the slave
+// poses its items and takes its rooms, the master poses its own, feeds the
+// meshes before the first of the slave's and the rest once the slave has
+// posed them. bias: the plan's (posed: made here; else before).
+static Stages stagesTogether(bool posed, int32_t bias)
+{
+    Stages s = {};
+    SlaveStages* shared = uncached(&gSlaveStages);
+    shared->roomsDone = shared->drawsDone = shared->posed = shared->walked = 0;
+    shared->roomsReady = !posed;
+    shared->walks = posed;
+    int32_t part = verticesJobs();
+    uint32_t slaveItems = 0;
+    shared->poses = 0;
+    const DrawList &list = drawsList();
     uint32_t t0 = ticks();
     if (posed)
     {
         slaveRun(slaveRooms, nullptr);
-        roomsSeen();
-        uint32_t count;
-        verticesRoomsSet(roomsJobs(count), count);
-    }
-    verticesRoomsBegin();
-    verticesClaimMasters();
-    if (posed) {
+        draws(gFills);
+        verticesDrawsSet(list.draws, list.drawCount, poseXforms());
+        poseUse(&list);
+        uint32_t w0 = ticks();
+        while (!shared->walked);
+        s.masterWait += ticksCycles(w0, ticks());
+        cachePurge();   // the rooms the slave walked
+        framePlan(bias, true, true);
+        slaveItems = slaveShare(part);
+        shared->poses = slaveItems;
+        verticesClaimMasters();
         shared->roomsReady = 1;
-    } else {
+    }
+    else
+    {
+        verticesRoomsBegin();
+        verticesClaimMasters();
         slaveRun(slaveRooms, nullptr);
     }
     if (posed)
@@ -804,11 +841,13 @@ static Stages stagesTogether(bool posed)
     const uint8_t* sets = gFaceSets;
     uint32_t slaveEnd = 0;
     uint32_t first = 0;
+    const DrawScene* draws = posed ? list.draws : gDraws;
+    uint32_t drawCount = posed ? list.drawCount : gDrawCount;
     if (posed)
     {
         // the fills past the draw distance the walk found (render.cpp
         // renderVoid: a rectangle of colour 0 behind everything), before the
-        // draws; the capture's copies of them skipped
+        // draws
         int32_t fills;
         const int32_t (*fill)[4] = roomsFills(fills);
         for (int32_t k = 0; k < fills; k++)
@@ -821,25 +860,35 @@ static Stages stagesTogether(bool posed)
             const Face face = { FACE_LINE_H, nullptr, { 0 } };
             facesOther(face, v, gSprites, OT_SIZE - 1, gMeshList);
         }
-        while (first < gDrawCount && gDraws[first].type == DRAW_COPY) {
+    }
+    else
+    {
+        // the scene's draws: the capture's copies of its fills skipped
+        while (first < drawCount && draws[first].type == DRAW_COPY) {
             first++;
         }
     }
-    for (uint32_t i = first; i < gDrawCount; i++)
+    for (uint32_t i = first; i < drawCount; i++)
     {
         if (!slaveEnd && shared->roomsDone) {
             slaveEnd = ticksCycles(t0, ticks());
         }
-        const DrawScene &d = gDraws[i];
+        const DrawScene &d = draws[i];
         if (d.type == DRAW_COPY)
         {
-            facesOther(gGameFaces[d.first], gVertices, gSprites, d.bucket, gMeshList);
+            // a sprite's or rectangle's face: the draw list's made, the scene's copied
+            if (posed) {
+                facesOther(list.faces[d.first], list.vertices + 2 * d.first, gSprites, d.bucket, gMeshList);
+            } else {
+                facesOther(gGameFaces[d.first], gVertices, gSprites, d.bucket, gMeshList);
+            }
             continue;
         }
         const Vertex* vertices = verticesDraw(i, s.masterWait);
         const FaceSet* set = d.type == DRAW_SHADOW ? facesShadow()
                                                    : (const FaceSet*)(sets + ((const uint32_t*)sets)[d.mesh]);
-        uint32_t mode = (d.inside ? MESH_INSIDE : 0) | (d.flags & FACE_WATER ? MESH_WATER : 0);
+        int32_t inside = posed ? verticesInsideOf(i) : d.inside;
+        uint32_t mode = (inside ? MESH_INSIDE : 0) | (d.flags & FACE_WATER ? MESH_WATER : 0);
         facesMeshAsm(set, vertices, mode, &gMeshList);
     }
     gNewEnd = facesSlot(gMeshList.link);
@@ -881,26 +930,29 @@ static Stages stagesTogether(bool posed)
 // it has its own to do while the slave poses), the slave's wait for the
 // DSP's first room free for it; the rooms' chunks then even out what is
 // left.
-static void framePlan(int32_t bias, bool posed)
+static void framePlan(int32_t bias, bool posed, bool started)
 {
     memset(gPoseSlave, 0, sizeof(gPoseSlave));
     if (!posed || poseCount() > MAX_POSE_ITEMS)
     {
-        verticesPlan(bias);
+        verticesPlan(bias, 0, started);
         return;
     }
     int32_t master, slave, masterPose = 0, slavePose = 0, idle = verticesSlaveIdle();
     verticesPredicted(master, slave);
     master += bias;
-    for (uint32_t i = 0; i < poseCount(); i++) {
-        masterPose += posePrice(i);
+    int32_t prices[MAX_POSE_ITEMS];
+    for (uint32_t i = 0; i < poseCount(); i++)
+    {
+        prices[i] = posePrice(i);
+        masterPose += prices[i];
     }
     while (1)
     {
         int32_t best = -1, price = 0;
         for (uint32_t i = 0; i < poseCount(); i++)
         {
-            int32_t p = posePrice(i);
+            int32_t p = prices[i];
             if (!gPoseSlave[i] && p > price && master + masterPose - p >= slave + X_MAX(slavePose + p - idle, 0) &&
                 masterPose - p >= slavePose + p - idle)
             {
@@ -914,7 +966,7 @@ static void framePlan(int32_t bias, bool posed)
         masterPose -= price;
         slavePose += price;
     }
-    verticesPlan(bias + masterPose - X_MAX(slavePose - idle, 0), masterPose);
+    verticesPlan(bias + masterPose - X_MAX(slavePose - idle, 0), masterPose, started);
 }
 
 // The stages run together, RUNS times after the frames that settle the
@@ -926,18 +978,23 @@ static Stages togetherMeasured(bool posed, int32_t &bad)
     int32_t bias = 0;
     for (int32_t f = 0; f < 6; f++)
     {
-        framePlan(bias, posed);
+        if (!posed) {
+            framePlan(bias, posed);
+        }
         newPrepare();
         verticesPoison();
         if (posed)
         {
             posePoison();
+            drawsPoison();
             roomsPoison();
         }
         cachePurge();
-        bias += stagesTogether(posed).late / 2;
+        bias += stagesTogether(posed, bias).late / 2;
     }
-    framePlan(bias, posed);
+    if (!posed) {
+        framePlan(bias, posed);
+    }
     Stages sum = {};
     for (int32_t r = 0; r < RUNS; r++)
     {
@@ -946,10 +1003,11 @@ static Stages togetherMeasured(bool posed, int32_t &bad)
         if (posed)
         {
             posePoison();
+            drawsPoison();
             roomsPoison();
         }
         cachePurge();
-        Stages s = stagesTogether(posed);
+        Stages s = stagesTogether(posed, bias);
         sum.wall += s.wall;
         sum.masterWork += s.masterWork;
         sum.masterWait += s.masterWait;
@@ -963,7 +1021,7 @@ static Stages togetherMeasured(bool posed, int32_t &bad)
     sum.slaveWait /= RUNS;
     int32_t visited, shaded, rooms, meshes;
     bad = gameListCheck(gNewCmds, gNewGrd, visited, shaded) + verticesRoomsCheck(rooms) +
-          verticesMeshesCheck(meshes) + (posed ? poseCheck() + roomsSeenCheck() : 0);
+          verticesMeshesCheck(meshes) + (posed ? poseCheck() + roomsSeenCheck() + drawsCheck(gameDrawList()) : 0);
     return sum;
 }
 
@@ -981,9 +1039,10 @@ static void stageTogether()
 // new pose's.
 static void stageFrame()
 {
-    verticesXforms(poseXforms());
+    roomsFills(gFills);
     Stages s = togetherMeasured(true, gLab.frameBad);
-    verticesXforms(sceneArray<const DrawXform>("XFRM"));
+    verticesDrawsSet(sceneArray<const DrawScene>("DRAW"), sceneInfo().draws, sceneArray<const DrawXform>("XFRM"));
+    poseUse(nullptr);
     gLab.frame = s.wall;
     gLab.frameMaster = s.masterWork;
     gLab.frameMasterWait = s.masterWait;

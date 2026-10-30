@@ -8,9 +8,10 @@
 !   tails: a job's last three longwords (entry, place, longwords), without
 !   normals then with
 !
-! MeshJob (vertices.cpp): +8 count, +12 inside, +16 shading, +20 shades,
-! +24 normals, +28 intensity, +32 far, +36 packed, +40 center, +44 radius,
-! +52 xform; 56 bytes.
+! MeshJob (vertices.cpp): +4 parts, +8 xform, +12 inside, +16 shading,
+! +20 far; 24 bytes.
+! MeshParts (vertices.cpp): +0 count, +8 normals, +12 shades, +16 intensity,
+! +20 packed, +24 center, +28 radius.
 ! DrawXform (scene.h): +0 m (rows m0 m1 m2 t), +48 ambient, +52 range,
 ! +56 light (int16 x3), +62 shadow (int16 x, z, half sizes x, z).
 ! MeshDspJob (vertices.cpp): +0 k (16), +64 src, +68 groups, +72 entry,
@@ -19,18 +20,19 @@
 ! A sum >> n is the high longword of it times 2 ^ (32 - n) (DMULS.L): the
 ! arithmetic shift C makes of it.
 
-    .equ    J_COUNT,        8
+    .equ    J_PARTS,        4
+    .equ    J_XFORM,        8
     .equ    J_INSIDE,       12
     .equ    J_SHADING,      16
-    .equ    J_SHADES,       20
-    .equ    J_NORMALS,      24
-    .equ    J_INTENSITY,    28
-    .equ    J_FAR,          32
-    .equ    J_PACKED,       36
-    .equ    J_CENTER,       40
-    .equ    J_RADIUS,       44
-    .equ    J_XFORM,        52
-    .equ    MESH_JOB,       56
+    .equ    J_FAR,          20
+    .equ    MESH_JOB,       24
+    .equ    P_COUNT,        0
+    .equ    P_NORMALS,      8
+    .equ    P_SHADES,       12
+    .equ    P_INTENSITY,    16
+    .equ    P_PACKED,       20
+    .equ    P_CENTER,       24
+    .equ    P_RADIUS,       28
     .equ    X_AMBIENT,      48
     .equ    X_RANGE,        52
     .equ    X_LIGHT,        56
@@ -132,7 +134,8 @@ _verticesFeedAsm:
     mov     r1, r10
     sub     r9, r10             ! zns2
     add     r3, r9              ! zps2 (zps1 + half size z)
-    mov.l   @(J_PACKED, r4), r2
+    mov.l   @(J_PARTS, r4), r2
+    mov.l   @(P_PACKED, r2), r2
     add     #48, r2
     mov     #0, r0
     mov.w   r3, @-r2            ! group 1, from vertex 7's z back
@@ -162,8 +165,9 @@ _verticesFeedAsm:
     mov.w   r11, @-r2
 
 .Ljob:
+    mov.l   @(J_PARTS, r4), r9
     mov.l   @(J_XFORM, r4), r8
-    mov.l   @(J_CENTER, r4), r9
+    mov.l   @(P_CENTER, r9), r9
     mov     #0, r0
     mov.l   r0, @(J_FAR, r4)
     tst     r9, r9
@@ -182,7 +186,8 @@ _verticesFeedAsm:
     ROW     32, r12             ! cz
 
     ! far: the sphere might reach past 30000 in z, either way
-    mov.l   @(J_RADIUS, r4), r13
+    mov.l   @(J_PARTS, r4), r13
+    mov.l   @(P_RADIUS, r13), r13
     mov     r12, r14
     add     r13, r14            ! cz + radius
     mov     r12, r9
@@ -272,7 +277,8 @@ _verticesFeedAsm:
     shll2   r14
     neg     r14, r14
     mov.l   @(X_AMBIENT, r8), r9
-    mov.l   @(J_NORMALS, r4), r0
+    mov.l   @(J_PARTS, r4), r0
+    mov.l   @(P_NORMALS, r0), r0
     tst     r0, r0
     bt      .LnoNormals
     tst     r13, r13
@@ -343,7 +349,8 @@ _verticesFeedAsm:
 .L512:          .short  512
 
 .LnoNormals:
-    mov.l   @(J_SHADES, r4), r0
+    mov.l   @(J_PARTS, r4), r0
+    mov.l   @(P_SHADES, r0), r0
     tst     r0, r0
     bt      .Lflat
     mov     #0, r9              ! by its vertices' shades: no ambient, no light
@@ -351,7 +358,8 @@ _verticesFeedAsm:
     mov     #MESH_SHADES, r0
 
 .Lflat:                         ! one shade for all: clamp(int16((intensity + ambient) >> 8), 0, 31) << 8
-    mov.l   @(J_INTENSITY, r4), r0
+    mov.l   @(J_PARTS, r4), r0
+    mov.l   @(P_INTENSITY, r0), r0
     add     r0, r9
     shlr8   r9
     exts.w  r9, r9
@@ -379,17 +387,18 @@ _verticesFeedAsm:
     ! its groups, their count, and the tail: where a group begins, where it
     ! lands, its longwords
 .Ltail:
-    mov.l   @(J_PACKED, r4), r1
+    mov.l   @(J_PARTS, r4), r3
+    mov.l   @(P_PACKED, r3), r1
     mov.l   .Lphysical, r0
     and     r0, r1
     shlr2   r1
-    mov.l   @(J_COUNT, r4), r2
+    mov.l   @(P_COUNT, r3), r2
     add     #3, r2
     shlr2   r2
     add     #64, r6
     mov.l   r1, @r6
     mov.l   r2, @(4, r6)
-    mov.l   @(J_NORMALS, r4), r0
+    mov.l   @(P_NORMALS, r3), r0
     tst     r0, r0
     bt      1f
     mov.l   @(12, gbr), r0

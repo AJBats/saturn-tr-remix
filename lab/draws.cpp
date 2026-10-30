@@ -136,6 +136,19 @@ void draws(int32_t fills)
     run(gCtx, gList, fills);
 }
 
+void drawsPoison()
+{
+    DrawList &l = gList;
+    memset(l.draws, 0xA5, l.drawCount * sizeof(DrawScene));
+    memset(l.items, 0xA5, l.itemCount * sizeof(PoseItem));
+    memset(l.lights, 0xA5, l.itemCount * sizeof(PoseLight));
+    memset(l.statics, 0xA5, l.staticCount * sizeof(PoseStatic));
+    memset(l.shadows, 0xA5, l.shadowCount * sizeof(PoseShadow));
+    memset(l.faces, 0xA5, l.faceCount * sizeof(Face));
+    memset(l.vertices, 0xA5, 2 * l.faceCount * sizeof(Vertex));
+    l.drawCount = l.itemCount = l.staticCount = l.shadowCount = l.faceCount = 0;
+}
+
 const DrawList& drawsList()
 {
     return gList;

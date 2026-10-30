@@ -61,6 +61,10 @@ void draws(int32_t fills);
 const DrawList& drawsList();
 int32_t drawsCheck(const DrawList &list);
 
+// What the draw list makes overwritten with what it never makes, and the
+// list emptied, so a check after a frame that skipped it fails.
+void drawsPoison();
+
 // What the scene seldom gives it: made-up calls (items moved, turned and
 // at any frame of animations of every rate, statics moved, turned and out of
 // sight, sprites moved and shaded, viewports, rectangles, shadows on a wall)

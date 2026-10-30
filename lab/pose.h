@@ -69,6 +69,11 @@ extern "C" void poseShadowsAsm(const PoseShadow* shadows, int32_t count, PoseCon
 // The scene's items for the new way: its context, and the draws' transforms
 // it writes, the scene's (XFRM) for the draws not an item's mesh.
 void poseInit();
+
+// The items, lights, statics and shadows posed: a draw list's (draws.h, its
+// frames as places), or (nullptr) the scene's; false: more items than room.
+struct DrawList;
+bool poseUse(const DrawList* list);
 DrawXform* poseXforms();
 
 // The items' meshes' transforms in poseXforms garbled, so a frame that reads
