@@ -36,6 +36,7 @@
 #include "draws.h"
 #include "pose.h"
 #include "rooms.h"
+#include "hints.h"
 #include "textures.h"
 #include "vertices.h"
 #include "hw.h"
@@ -159,7 +160,8 @@ struct LabResults
     uint32_t lowUsed;           // ... of low work RAM (sceneUsedLow)
     uint32_t lowSize;
     int32_t othersBad;          // made-up sprites, rectangles, lines and voids: facesOtherAsm not as
-                                // facesOther (and paths not taken)
+                                // facesOther; made-up chains of commands held and placed: not as their
+                                // model (and paths not taken)
     uint32_t runFrames;         // the whole frame run in a row (stageRun): frames
     uint32_t runFrame;          // cycles a frame, plot to plot
     uint32_t runStages;         // ... the stages (the master, start to end)
@@ -379,6 +381,9 @@ static void stagePose()
     gameDraws(fills);
     gLab.drawsBad = gameDrawsCheck(gameDrawList(), fills);
     drawsInit();
+    uint32_t masks[2];
+    hintsMasks(masks);
+    drawsHints(masks);
     gLab.drawsNew = measure([] {}, [fills] { draws(fills); });
     draws(fills);
     gLab.drawsNewBad = drawsCheck(gameDrawList());
@@ -555,6 +560,7 @@ static const DrawScene* gDraws;
 static uint32_t gDrawCount;
 static const uint8_t* gFaceSets;
 static const Face* gGameFaces;
+static const DrawThing* gThings;    // DTHG: the scene's draws' things
 static const Sprite* gSprites;
 static FaceRoom* gRooms;        // the walk's jobs (roomsJobs)
 static uint32_t gRoomCount;
@@ -664,12 +670,94 @@ static void newRoomsInit()
     gMeshFirst = 1 + info.slaveFaces;
 }
 
+// The draw order hints of the new way's frame: the faces held out of their
+// buckets (facesMeshHinted) until the rooms' are projected; whether those
+// are projected in the frame (waited for), or as the scene drew them.
+#define MAX_HELD    32
+static HeldCommand gHeld[MAX_HELD];
+static int32_t gHeldCount;
+static bool gHintsWait;
+static uint32_t gHintsWaited;
+
+static void newHintsBegin()
+{
+    static uint16_t rooms[MAX_ROOMS];
+    for (uint32_t i = 0; i < gRoomCount; i++) {
+        rooms[i] = gRooms[i].room;
+    }
+    hintsBegin(rooms, gRoomCount);
+    gHeldCount = 0;
+}
+
+static bool newHintRoom(uint32_t room, HintRoom &out)
+{
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        const FaceRoom &r = gRooms[i];
+        if (r.room != room)
+            continue;
+        if (gHintsWait) {
+            verticesRoomWait(i, gHintsWaited);
+        }
+        out = { r.quads, r.triangles, r.quadsCount, r.trianglesCount, r.points, r.vertices, r.camera };
+        return true;
+    }
+    return false;
+}
+
+// The held faces into their buckets (render.cpp depthHintsPlace), in the
+// order held.
+static void newHintsPlace()
+{
+    for (int32_t i = 0; i < gHeldCount; i++) {
+        facesLinkHeld(gMeshList, gHeld[i], hintsPlace(gHeld[i].hint, gHeld[i].depth, newHintRoom));
+    }
+    gHeldCount = 0;
+}
+
+// The frame's draws its hints move (hintsDraws), the scene's (from DTHG, at
+// its rooms: once), and the next of them: its draw, or none (~0).
+static HintedDraw gHinted[MAX_HELD], gSceneHinted[MAX_HELD];
+static const HintedDraw* gHintedList;
+static int32_t gHintedCount, gSceneHintedCount, gHintedNext;
+static uint32_t gNextHinted;
+
+static void hintedFrom(const HintedDraw* hinted, int32_t count)
+{
+    gHintedList = hinted;
+    gHintedCount = count;
+    gHintedNext = 0;
+    gNextHinted = count ? hinted[0].draw : ~0u;
+}
+
+// Mesh draw i's faces: a hinted one's (its thing's hints) through
+// facesMeshHinted, another's through facesMeshAsm or (c) facesMeshC.
+static inline __attribute__((always_inline)) void newMesh(uint32_t i, const FaceSet* set, const Vertex* vertices,
+                                                          uint32_t mode, bool c)
+{
+    HintFaces hints;
+    if (i == gNextHinted)
+    {
+        hintsOf(gHintedList[gHintedNext++].thing, hints);
+        gNextHinted = gHintedNext < gHintedCount ? gHintedList[gHintedNext].draw : ~0u;
+        facesMeshHinted(set, vertices, mode, gMeshList, hints, gHeld, gHeldCount, MAX_HELD);
+    } else if (c) {
+        facesMeshC(set, vertices, mode, gMeshList);
+    } else {
+        facesMeshAsm(set, vertices, mode, &gMeshList);
+    }
+}
+
 // The master's draws in order, their faces through facesMeshAsm or (c)
-// facesMeshC; with water, every draw under water.
+// facesMeshC, a hinted mesh's held or moved; with water, every draw under
+// water.
 static void newMeshes(bool c, bool water = false)
 {
     const DrawScene* draws = gDraws;
     const uint8_t* sets = gFaceSets;
+    newHintsBegin();
+    hintedFrom(gSceneHinted, gSceneHintedCount);
+    gHintsWait = false;
     for (uint32_t i = 0; i < gDrawCount; i++)
     {
         const DrawScene &d = draws[i];
@@ -686,12 +774,9 @@ static void newMeshes(bool c, bool water = false)
         const FaceSet* set = d.type == DRAW_SHADOW ? facesShadow()
                                                    : (const FaceSet*)(sets + ((const uint32_t*)sets)[d.mesh]);
         uint32_t mode = (d.inside ? MESH_INSIDE : 0) | (water || (d.flags & FACE_WATER) ? MESH_WATER : 0);
-        if (c) {
-            facesMeshC(set, vertices, mode, gMeshList);
-        } else {
-            facesMeshAsm(set, vertices, mode, &gMeshList);
-        }
+        newMesh(i, set, vertices, mode, c);
     }
+    newHintsPlace();
 }
 
 // The buckets joined (facesJoinAsm, or facesJoin), after the game's clear;
@@ -852,6 +937,7 @@ static Stages stagesTogether(bool posed, int32_t bias)
         while (!shared->walked);
         s.masterWait += ticksCycles(w0, ticks());
         cachePurge();   // the rooms the slave walked
+        newHintsBegin();
         framePlan(bias, true, true);
         slaveItems = slaveShare(part);
         shared->poses = slaveItems;
@@ -860,6 +946,7 @@ static Stages stagesTogether(bool posed, int32_t bias)
     }
     else
     {
+        newHintsBegin();
         verticesRoomsBegin();
         verticesClaimMasters();
         slaveRun(slaveRooms, nullptr);
@@ -888,6 +975,11 @@ static Stages stagesTogether(bool posed, int32_t bias)
     uint32_t first = 0;
     const DrawScene* draws = posed ? list.draws : gDraws;
     uint32_t drawCount = posed ? list.drawCount : gDrawCount;
+    if (posed) {
+        hintedFrom(gHinted, hintsDraws(list.hinted, list.hintedCount, gHinted, MAX_HELD));
+    } else {
+        hintedFrom(gSceneHinted, gSceneHintedCount);
+    }
     if (posed)
     {
         // the fills past the draw distance the walk found (render.cpp
@@ -934,8 +1026,12 @@ static Stages stagesTogether(bool posed, int32_t bias)
                                                    : (const FaceSet*)(sets + ((const uint32_t*)sets)[d.mesh]);
         int32_t inside = posed ? verticesInsideOf(i) : d.inside;
         uint32_t mode = (inside ? MESH_INSIDE : 0) | (d.flags & FACE_WATER ? MESH_WATER : 0);
-        facesMeshAsm(set, vertices, mode, &gMeshList);
+        newMesh(i, set, vertices, mode, false);
     }
+    gHintsWait = true;
+    gHintsWaited = 0;
+    newHintsPlace();
+    s.masterWait += gHintsWaited;
     gNewEnd = facesSlot(gMeshList.link);
     gNewCmds[0] = gClear;
     gNewCmds[gNewEnd].w[0] = CMD_END << 16;
@@ -1448,10 +1544,13 @@ static void stageNew()
     gDrawCount = info.draws;
     gFaceSets = sceneArray<const uint8_t>("NMSH");
     gGameFaces = sceneArray<const Face>("MPOL");
+    gThings = sceneArray<const DrawThing>("DTHG");
     gSprites = sceneArray<const Sprite>("SPRS");
     gClear = sceneArray<const Command>("CMDS")[0];
     gClear.w[0] |= 0x1000 << 16;    // jumping to the first bucket's
     newRoomsInit();
+    newHintsBegin();
+    gSceneHintedCount = hintsSceneDraws(gThings, gDrawCount, gSceneHinted, MAX_HELD);
 
     // the game's way: adding the faces, then flush's work on the master's
     // alone, and on the rooms'
@@ -1475,7 +1574,7 @@ static void stageNew()
     gLab.newMeshes = measure([] { newPrepare(); }, [] { newMeshes(false); });
     gLab.meshCommands = facesSlot(gMeshList.link) - gMeshFirst;
     gLab.newAsmBad = newAsmCheck();
-    gLab.othersBad = facesOtherCheck(gameShadeGouraud());
+    gLab.othersBad = facesOtherCheck(gameShadeGouraud()) + facesChainCheck();
     gLab.newJoin = measure([] { newPrepare(); newRooms(false); newMeshes(false); }, [] { newJoin(false); });
     gLab.newBad = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded) + gRoomTexturesShort +
                   texturesQueueOff(gNewTextures, gWalkList.textures);
@@ -1830,8 +1929,8 @@ static void newPage()
     p = putNumber(p, gLab.texturesUploadOff, 0);
     put(p, " off)");
     page.add(line);
-    p = put(line, "sprites, fills made up: asm ");
-    p = put(p, gLab.othersBad ? "OFF" : "as C");
+    p = put(line, "made up sprites, holds: ");
+    p = put(p, gLab.othersBad ? "OFF" : "ok");
     p = put(p, " (");
     p = putNumber(p, gLab.othersBad, 0);
     put(p, " off)");

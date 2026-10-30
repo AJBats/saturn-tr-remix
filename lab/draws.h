@@ -50,6 +50,11 @@ struct DrawsContext
     int32_t delta, rate, frameSize;
     int32_t viewMin, viewMax;   // +176 VIEW_MIN_F, VIEW_MAX_F
     uint32_t drawCount;         // +184
+    uint32_t hintItems;         // +188 the frame's hints' things' bits (index & 31): items'
+    uint32_t hintStatics;       // +192 ... statics'
+    HintedCall* hinted;         // +196 the next
+    uint32_t hintedCount;       // +200
+    uint32_t hintOpen;          // +204 the call's, at hinted, is open
 };
 
 extern "C" void drawsAsm(DrawsContext* ctx);
@@ -57,6 +62,7 @@ extern "C" void drawsAsm(DrawsContext* ctx);
 // The scene's calls; the draw list after fills of the walk's (their vertices
 // first); against the game's way's (gameDrawList): those that differ.
 void drawsInit();
+void drawsHints(const uint32_t masks[2]);
 void draws(int32_t fills);
 const DrawList& drawsList();
 int32_t drawsCheck(const DrawList &list);

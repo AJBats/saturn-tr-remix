@@ -172,6 +172,10 @@ void verticesRoomsBegin();
 void verticesClaimMasters();
 void verticesMasterRooms(uint32_t &wait, bool &meshes);
 void verticesRoom(uint32_t i, uint32_t &wait);
+
+// Room i's vertices all projected, by either CPU: this CPU's cached lines of
+// them dropped (the cycles waiting added to wait).
+void verticesRoomWait(uint32_t i, uint32_t &wait);
 void verticesMeshesFeed(int32_t from = 0, int32_t to = -1);
 bool verticesMeshesTryStart();
 void verticesMeshesStart(uint32_t &wait);

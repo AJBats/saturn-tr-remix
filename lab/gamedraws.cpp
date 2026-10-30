@@ -569,6 +569,7 @@ int32_t gameDrawsInit()
     }
     draws += statics + shadows + faces;
     gList.draws = alloc<DrawScene>(draws);
+    gList.hinted = alloc<HintedCall>(models + statics);
     gList.items = alloc<PoseItem>(models);
     gList.lights = alloc<PoseLight>(models);
     gList.statics = alloc<PoseStatic>(statics);
@@ -578,13 +579,43 @@ int32_t gameDrawsInit()
     return gCallCount;
 }
 
+// The frame's hints' things' bits (index & 31), items' and statics'.
+static uint32_t gHintMasks[2];
+
+void gameDrawsHints(const uint32_t masks[2])
+{
+    gHintMasks[0] = masks[0];
+    gHintMasks[1] = masks[1];
+}
+
+// The call's HintedCall opened, if its thing's bit is in its kind's mask
+// (render.cpp depthHintObject's), from the next draw: whether it was.
+static bool hintedOpen(const CallRecord &c)
+{
+    if (c.kind != CALL_MODEL && c.kind != CALL_STATIC)
+        return false;
+    uint32_t kind = c.kind == CALL_STATIC;
+    uint32_t index = uint16_t(c.args[kind ? 5 : 0]);
+    if (!(gHintMasks[kind] >> (index & 31) & 1))
+        return false;
+    HintedCall &h = gList.hinted[gList.hintedCount];
+    h.kind = kind;
+    h.owner = kind ? c.index : 0;
+    h.index = index;
+    h.first = gList.drawCount;
+    h.count = 0;
+    return true;
+}
+
 void gameDraws(int32_t fills)
 {
     gList.drawCount = gList.itemCount = gList.staticCount = gList.shadowCount = gList.faceCount = 0;
+    gList.hintedCount = 0;
     gBase = 2 * fills;
     for (uint32_t i = 0; i < gCallCount; i++)
     {
         const CallRecord &c = gCalls[i];
+        bool hinted = hintedOpen(c);
         switch (c.kind)
         {
             case CALL_VIEWPORT:
@@ -608,6 +639,12 @@ void gameDraws(int32_t fills)
             case CALL_RECT:
                 renderRect(c.args[0], c.args[1], c.args[2], c.args[3], c.index, c.args[4], c.args[5]);
                 break;
+        }
+        if (hinted)
+        {
+            HintedCall &h = gList.hinted[gList.hintedCount];
+            h.count = gList.drawCount - h.first;
+            gList.hintedCount += h.count != 0;
         }
     }
 }
@@ -657,7 +694,9 @@ int32_t gameDrawsCheck(const DrawList &list, int32_t fills)
 {
     const SceneInfo &info = sceneInfo();
     const DrawScene* draws = sceneArray<const DrawScene>("DRAW");
+    const DrawThing* things = sceneArray<const DrawThing>("DTHG");
     const Face* faces = sceneArray<const Face>("MPOL");
+
     const uint8_t* vertices = sceneArray<const uint8_t>("VERT");
     uint32_t items, statics, shadows;
     const PoseItem* poses = sceneArray<const PoseItem>("POSE", &items);
@@ -667,6 +706,16 @@ int32_t gameDrawsCheck(const DrawList &list, int32_t fills)
     const PoseShadow* floors = sceneArray<const PoseShadow>("SHDW", &shadows);
 
     int32_t bad = list.drawCount + fills != info.draws;
+    // each hinted call's draws the scene's of its thing
+    for (uint32_t k = 0; k < list.hintedCount; k++)
+    {
+        const HintedCall &h = list.hinted[k];
+        for (uint32_t i = h.first; i < uint32_t(h.first + h.count) && i + fills < info.draws; i++)
+        {
+            const DrawThing &t = things[i + fills];
+            bad += t.kind != h.kind || t.owner != h.owner || t.index != h.index || t.node != i - h.first;
+        }
+    }
     for (uint32_t i = 0; i < list.drawCount && i + fills < info.draws; i++)
     {
         const DrawScene &a = list.draws[i], &b = draws[i + fills];

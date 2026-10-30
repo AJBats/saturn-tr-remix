@@ -100,6 +100,32 @@ struct DrawScene
     int32_t bucket;         // DRAW_COPY's
 };
 
+// A draw's thing (render.cpp depthHintObject's: an item, or a room's static)
+// and its mesh, from the thing's first drawn: what the draw order hints name
+// (DTHG, the scene's draws'; a draw list's hinted calls' draws).
+#define NO_THING    0xFF        // kind: a draw of no thing (a shadow's, a copy)
+
+struct DrawThing
+{
+    uint8_t kind;           // 0 an item, 1 a static
+    uint8_t owner;          // a static's room
+    uint8_t node;
+    uint8_t pad;
+    uint16_t index;         // the item's in the level, or the static's in its room
+    uint16_t pad2;
+};
+
+// A call whose thing may have a draw order hint (the bit of its index & 31
+// in the frame's mask of its kind: hints.h hintsMasks), and its draws: a
+// draw list's.
+struct HintedCall
+{
+    uint8_t kind;           // DrawThing's
+    uint8_t owner;
+    uint16_t index;
+    uint16_t first, count;  // its draws
+};
+
 // A draw's transform as the game set it up (the capture's record).
 struct DrawXform
 {
@@ -247,9 +273,10 @@ struct CallRecord
     uint8_t kind, pad;
     uint16_t index;         // a model's or shadow's ItemRecord, a static's room, a sprite's, a rectangle's type
     uint32_t flags;         // the faces' at the call (FACE_WATER)
-    int32_t args[6];        // a viewport's x0 y0 x1 y1; a static's RoomMesh (xy, zf), place from the camera
-                            // and index in its room; a shadow's floor; a sprite's x y z and shade; a
-                            // rectangle's x y width height, colour and bucket
+    int32_t args[6];        // a viewport's x0 y0 x1 y1; a model's item's index in the level; a static's
+                            // RoomMesh (xy, zf), place from the camera and index in its room; a
+                            // shadow's floor; a sprite's x y z and shade; a rectangle's x y width
+                            // height, colour and bucket
 };
 
 #define AFRM_BASE   0x10000
@@ -303,7 +330,8 @@ struct GameLara            // ExtraInfoLara, its first bytes
 struct ItemRecord
 {
     GameItem item;
-    uint16_t room, pad;     // its room's index
+    uint16_t room;          // its room's index
+    uint16_t index;         // the item's in the level
     uint8_t extra[228];     // its extra's first bytes: GameLara, or an enemy's angles
 };
 

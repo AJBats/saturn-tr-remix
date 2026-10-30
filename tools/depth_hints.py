@@ -1,4 +1,7 @@
-"""saturn/depth_hints.txt to a C header: depth_hints.py IN OUT"""
+"""saturn/depth_hints.txt to a C header: depth_hints.py IN OUT
+
+parse(path) gives the hints as tuples in render.cpp DepthHint's order, the
+level by name: the lab packs its level's (tools/labscene.py)."""
 import re
 import sys
 
@@ -16,8 +19,9 @@ def polygon(face):
     return int(face[1:]) | (TRIANGLE if face[0] == 't' else 0)
 
 
-def main():
-    src, out = sys.argv[1], sys.argv[2]
+def parse(src):
+    """(level, room, bx, bz, kind, owner, index, buckets, node, behind room,
+    polygon, behind) each, kind 0 an item, 1 a static."""
     hints = []
     for n, line in enumerate(open(src), 1):
         line = line.split('#')[0].strip()
@@ -30,20 +34,23 @@ def main():
         (level, room, bx, bz, anywhere, item, owner, static, buckets,
          node, kind, index, behind_room, faces) = m.groups()
         room, bx, bz = (ANYWHERE, 0, 0) if anywhere else (int(room), int(bx), int(bz))
-        if item is not None:
-            thing = f'DEPTH_HINT_ITEM, 0, {int(item)}'
-        else:
-            thing = f'DEPTH_HINT_STATIC, {int(owner)}, {int(static)}'
-        where = f'{level}, {room}, {bx}, {bz}'
+        thing = (0, 0, int(item)) if item is not None else (1, int(owner), int(static))
         if buckets is not None:
             if int(buckets) == 0:
                 sys.exit(f'{src}:{n}: 0 buckets: {line}')
-            hints.append(f'    {{ {where}, {thing}, {int(buckets)}, 0, 0, 0, 0 }},')
+            hints.append((level, room, bx, bz, *thing, int(buckets), 0, 0, 0, 0))
             continue
         own = (int(node), polygon(kind + index)) if node is not None else (WHOLE, 0)
         for face in faces.split():
-            hints.append(f'    {{ {where}, {thing}, 0, {own[0]}, {int(behind_room)}, '
-                         f'{own[1]:#x}, {polygon(face):#x} }},')
+            hints.append((level, room, bx, bz, *thing, 0, own[0], int(behind_room), own[1], polygon(face)))
+    return hints
+
+
+def main():
+    src, out = sys.argv[1], sys.argv[2]
+    kinds = ('DEPTH_HINT_ITEM', 'DEPTH_HINT_STATIC')
+    hints = [f'    {{ {h[0]}, {h[1]}, {h[2]}, {h[3]}, {kinds[h[4]]}, {h[5]}, {h[6]}, {h[7]}, {h[8]}, {h[9]}, '
+             f'{h[10]:#x}, {h[11]:#x} }},' for h in parse(src)]
 
     with open(out, 'w', newline='\n') as f:
         f.write(f'// Made from {src} by tools/depth_hints.py\n')

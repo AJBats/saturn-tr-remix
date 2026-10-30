@@ -1418,6 +1418,20 @@ void verticesRoom(uint32_t i, uint32_t &wait)
     }
 }
 
+void verticesRoomWait(uint32_t i, uint32_t &wait)
+{
+    for (int32_t c = gChunkAt[i]; c < gChunkAt[i + 1]; c++)
+    {
+        volatile uint8_t* projected = uncached(gChunkProjected + c);
+        uint32_t w0 = ticks();
+        while (!*projected) {
+            pause();
+        }
+        wait += ticksCycles(w0, ticks());
+    }
+    cacheDrop(roomVertices(gRooms[i]), gRooms[i].verticesCount * sizeof(Vertex));
+}
+
 void verticesMeshesFeed(int32_t from, int32_t to)
 {
     if (to < 0) {

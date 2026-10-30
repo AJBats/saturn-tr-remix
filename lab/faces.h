@@ -115,6 +115,32 @@ extern "C" void facesMeshAsm(const FaceSet* set, const Vertex* vertices, uint32_
 // The same in C: what facesMeshAsm does, to check it against.
 void facesMeshC(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList &list);
 
+// A face's command made but held out of its bucket (a draw order hint's):
+// where it is, its first word (unlinked), its place, its bucket, the hint.
+struct DepthHint;
+struct HeldCommand
+{
+    uint32_t* cmd;
+    uint32_t w0, link;
+    int32_t depth;
+    const DepthHint* hint;
+};
+
+// A hinted mesh's faces (hints.h hintsOf), as facesMeshAsm makes them: each
+// moved by the hints' buckets, or (the faces they name, in their order,
+// while held has room) taken back out of its bucket and held, into held from
+// count; count on past them. Then a held face into bucket depth.
+struct HintFaces;
+void facesMeshHinted(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList &list,
+                     const HintFaces &hints, HeldCommand* held, int32_t &count, int32_t room);
+void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth);
+
+// The buckets' chains as facesMeshHinted and facesLinkHeld change them
+// (commands linked, taken back out from a chain's head, middle and end, and
+// linked again elsewhere), at random, against a model of each chain: the
+// chains and firsts that differ (and paths not taken).
+int32_t facesChainCheck();
+
 // The shadows' faces: an octagon's three quads.
 const FaceSet* facesShadow();
 

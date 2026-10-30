@@ -2,6 +2,7 @@
 // against; the faces few enough for C; the join.
 
 #include "faces.h"
+#include "hints.h"
 #include "hw.h"
 #include "scene.h"
 
@@ -311,6 +312,237 @@ void facesMeshC(const FaceSet* set, const Vertex* vertices, uint32_t mode, Comma
         parallelogramCommand(list, m, shading, a, b, c, t->flags & TRI_V0_AT_D,
                              uint32_t(a->z + b->z + c->z + c->z) >> (2 + OT_SHIFT));
     }
+}
+
+// The list's command at link (its VDP1 place / 8): its words.
+static inline uint32_t* commandAt(const CommandList &list, uint32_t link)
+{
+    return list.cmd - (list.link - link) * 2;
+}
+
+// A command into bucket depth, its first word w0 (unlinked): jumping to the
+// bucket's last.
+static void linkCommand(CommandList &list, uint32_t* cmd, uint32_t w0, uint32_t link, int32_t depth)
+{
+    uint32_t head = list.heads[depth];
+    cmd[0] = w0 | head;
+    list.heads[depth] = link;
+    if (!head) {
+        list.tails[depth] = link;
+    }
+}
+
+// A command back out of its bucket's chain (render.cpp faceUnlink): its
+// newer neighbour, or the head, jumping past it; its newer neighbour the
+// first when it was.
+static void unlinkCommand(CommandList &list, uint32_t link, int32_t depth)
+{
+    uint32_t older = commandAt(list, link)[0] & 0xFFFF;
+    if (list.heads[depth] == link)
+    {
+        list.heads[depth] = older;
+        return;
+    }
+    for (uint32_t p = list.heads[depth]; p;)
+    {
+        uint32_t* c = commandAt(list, p);
+        uint32_t next = c[0] & 0xFFFF;
+        if (next == link)
+        {
+            c[0] = (c[0] & 0xFFFF0000) | older;
+            if (list.tails[depth] == link) {
+                list.tails[depth] = p;
+            }
+            return;
+        }
+        p = next;
+    }
+}
+
+// render.cpp renderMeshHinted: the mesh's faces as facesMeshAsm makes them,
+// then moved by the buckets, or the faces the hints name, in their order,
+// taken back out of their buckets and held. facesMeshAsm makes a command for
+// each face its tests keep, in order: each command's face, its polygon and
+// bucket, from those tests here.
+#define MAX_MADE_FACES  512
+void facesMeshHinted(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList &list,
+                     const HintFaces &hints, HeldCommand* held, int32_t &count, int32_t room)
+{
+    struct Made
+    {
+        uint32_t link;
+        int32_t depth;
+        uint32_t polygon;
+        bool taken;
+    };
+    static Made made[MAX_MADE_FACES];
+    const uint32_t step = sizeof(Command) >> 3;
+    uint32_t first = list.link;
+    facesMeshAsm(set, vertices, mode, &list);
+    uint32_t madeCount = (list.link - first) / step;
+
+    bool inside = mode & MESH_INSIDE;
+    uint32_t n = 0;
+    const FaceQuad* q = faceQuads(set);
+    for (int32_t i = 0; i < set->quads && n < madeCount && n < MAX_MADE_FACES; i++, q++)
+    {
+        const Vertex* a = corner(vertices, q->corners[0]);
+        const Vertex* b = corner(vertices, q->corners[1]);
+        const Vertex* c = corner(vertices, q->corners[2]);
+        const Vertex* d = corner(vertices, q->corners[3]);
+        if (backface(a, b, c) ||
+            (!inside && culled(a->clip & b->clip & c->clip & d->clip, a->clip | b->clip | c->clip | d->clip)))
+            continue;
+        made[n] = { first + n * step, int32_t(uint32_t(a->z + b->z + c->z + d->z) >> (2 + OT_SHIFT)), uint32_t(i),
+                    false };
+        n++;
+    }
+    const FaceTriangle* t = faceTriangles(set);
+    for (int32_t i = 0; i < set->triangles && n < madeCount && n < MAX_MADE_FACES; i++, t++)
+    {
+        const Vertex* a = corner(vertices, t->corners[0]);
+        const Vertex* b = corner(vertices, t->corners[1]);
+        const Vertex* c = corner(vertices, t->corners[2]);
+        if (backface(a, b, c) || (!inside && culled(a->clip & b->clip & c->clip, a->clip | b->clip | c->clip)))
+            continue;
+        made[n] = { first + n * step, int32_t(uint32_t(a->z + b->z + c->z + c->z) >> (2 + OT_SHIFT)),
+                    uint32_t(i) | HINT_TRIANGLE, false };
+        n++;
+    }
+
+    if (hints.buckets)
+    {
+        for (uint32_t k = 0; k < n; k++)
+        {
+            uint32_t* cmd = commandAt(list, made[k].link);
+            unlinkCommand(list, made[k].link, made[k].depth);
+            linkCommand(list, cmd, cmd[0] & 0xFFFF0000, made[k].link, hintsBucket(made[k].depth + hints.buckets));
+        }
+        return;
+    }
+    for (int32_t e = 0; e < hints.count; e++)
+    {
+        uint32_t polygon = hints.polygons[e];
+        for (uint32_t k = 0; k < n && count < room; k++)
+        {
+            Made &f = made[k];
+            if (f.taken || (polygon != HINT_EVERY && f.polygon != polygon))
+                continue;
+            f.taken = true;
+            uint32_t* cmd = commandAt(list, f.link);
+            unlinkCommand(list, f.link, f.depth);
+            held[count++] = { cmd, cmd[0] & 0xFFFF0000, f.link, f.depth, hints.hints[e] };
+        }
+    }
+}
+
+void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth)
+{
+    linkCommand(list, held.cmd, held.w0, held.link, depth);
+}
+
+#define CHAIN_COMMANDS  64
+#define CHAIN_BUCKETS   6
+#define CHAIN_PASSES    64
+
+int32_t facesChainCheck()
+{
+    static Command* cmds;
+    static uint16_t* heads;
+    static uint16_t* tails;
+    if (!cmds)
+    {
+        cmds = (Command*)sceneAllocLow(CHAIN_COMMANDS * sizeof(Command));
+        heads = (uint16_t*)sceneAllocLow((OT_SIZE + 1) * sizeof(uint16_t));
+        tails = (uint16_t*)sceneAllocLow(OT_SIZE * sizeof(uint16_t));
+        if (!tails)
+            return 1;
+    }
+    uint32_t seed = 0x1F123BB5;
+    auto next = [&seed] { seed = seed * 1664525 + 1013904223; return seed >> 8; };
+    enum { HEAD_ALONE, HEAD, MIDDLE, END, INTO_EMPTY, INTO_CHAIN, COVER_COUNT };
+    int32_t bad = 0, cover[COVER_COUNT] = {};
+    for (int32_t pass = 0; pass < CHAIN_PASSES; pass++)
+    {
+        static uint32_t (*grd)[2] = (uint32_t (*)[2])sceneAllocLow(CHAIN_COMMANDS * 8);
+        CommandList list;
+        facesListInit(list, cmds, grd, 0, CHAIN_COMMANDS, heads, tails, nullptr, nullptr, nullptr, nullptr, nullptr);
+        // the model: each bucket's commands, newest first; a command's bucket
+        int8_t chain[CHAIN_BUCKETS][CHAIN_COMMANDS];
+        int32_t length[CHAIN_BUCKETS] = {};
+        int32_t bucketOf[CHAIN_COMMANDS];
+        int32_t made = 0;
+        auto bucket = [](int32_t b) { return b * 211; };
+        for (int32_t op = 0; op < 3 * CHAIN_COMMANDS; op++)
+        {
+            uint32_t kind = next() % 4;
+            if ((kind == 0 || made < 4) && made < CHAIN_COMMANDS)
+            {
+                // a command made and linked, as linked() links
+                int32_t b = next() % CHAIN_BUCKETS;
+                uint32_t* w = list.cmd;
+                uint32_t link = list.link;
+                list.cmd += 8;
+                list.link += sizeof(Command) >> 3;
+                linkCommand(list, w, (0x1000 | next() % 16) << 16, link, bucket(b));
+                for (int32_t k = length[b]; k > 0; k--) {
+                    chain[b][k] = chain[b][k - 1];
+                }
+                chain[b][0] = made;
+                length[b]++;
+                bucketOf[made++] = b;
+                continue;
+            }
+            // a command in a chain taken out, and (or not) linked into another
+            int32_t c = next() % made;
+            int32_t b = bucketOf[c];
+            if (b < 0)
+                continue;
+            int32_t at = 0;
+            while (chain[b][at] != c) {
+                at++;
+            }
+            cover[length[b] == 1 ? HEAD_ALONE : at == 0 ? HEAD : at == length[b] - 1 ? END : MIDDLE]++;
+            uint32_t link = facesLink(c);
+            unlinkCommand(list, link, bucket(b));
+            for (int32_t k = at; k < length[b] - 1; k++) {
+                chain[b][k] = chain[b][k + 1];
+            }
+            length[b]--;
+            bucketOf[c] = -1;
+            if (kind == 1)
+                continue;
+            int32_t to = next() % CHAIN_BUCKETS;
+            cover[length[to] ? INTO_CHAIN : INTO_EMPTY]++;
+            uint32_t* w = cmds[c].w;
+            linkCommand(list, w, w[0] & 0xFFFF0000, link, bucket(to));
+            for (int32_t k = length[to]; k > 0; k--) {
+                chain[to][k] = chain[to][k - 1];
+            }
+            chain[to][0] = c;
+            length[to]++;
+            bucketOf[c] = to;
+        }
+
+        // each chain, from its head through the commands' links, and its first
+        for (int32_t b = 0; b < CHAIN_BUCKETS; b++)
+        {
+            uint32_t p = heads[bucket(b)];
+            int32_t k = 0;
+            bool same = true;
+            for (; p && k < length[b]; k++)
+            {
+                same = same && p == facesLink(chain[b][k]);
+                p = cmds[facesSlot(p)].w[0] & 0xFFFF;
+            }
+            same = same && !p && k == length[b] && (!length[b] || tails[bucket(b)] == facesLink(chain[b][k - 1]));
+            bad += !same;
+        }
+    }
+    for (int32_t k = 0; k < COVER_COUNT; k++) {
+        bad += cover[k] ? 0 : CHAIN_BUCKETS;
+    }
+    return bad;
 }
 
 // --- rooms ------------------------------------------------------------------

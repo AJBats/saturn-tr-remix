@@ -22,6 +22,7 @@ import facepack         # noqa: E402
 import posepack         # noqa: E402
 import roompack         # noqa: E402
 import drawpack         # noqa: E402
+import depth_hints      # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -69,6 +70,9 @@ ROOM = struct.Struct('>9hH3i4i3iiBBBBi4H6H3I')  # RoomScene
 ROOM_GEOMETRY = struct.Struct('>3I2H6H4x')      # RoomGeometry
 NO_GEOMETRY = 0xFFFFFFFF
 DRAW = struct.Struct('>BBHIiiii')           # DrawScene
+DRAW_THING = struct.Struct('>BBBxH2x')      # DrawThing: kind, owner, node, index
+HINT = struct.Struct('>BBBBBBHhBBHH')       # render.cpp DepthHint
+NO_THING = 0xFF
 XFORM = struct.Struct('>12i2i3h4hh')        # DrawXform
 FLOOR = struct.Struct('>3I4HI')             # FloorFace
 MOVE = struct.Struct('>HH')
@@ -134,6 +138,15 @@ def mesh_inside(mem, r):
     near = cz - bound
     return (near > 64 and cz + bound < VIEW_DIST and
             cap.s32((abs(cx) + bound) << 8) < 172 * near and cap.s32((abs(cy) + bound) << 8) < 108 * near)
+
+
+def level_ids():
+    """openlara/common.h LevelID: each level's number by name."""
+    text = open(os.path.join(ROOT, 'openlara/common.h')).read()
+    body = text[text.index('enum LevelID'):]
+    body = body[body.index('{') + 1:body.index('}')]
+    names = [n.split('=')[0].strip() for n in body.split(',')]
+    return {n: i for i, n in enumerate(n for n in names if n)}
 
 
 def main():
@@ -341,9 +354,12 @@ def main():
     natural = {}
     copied = 0
 
+    things = bytearray()   # each draw's thing and its mesh, from its first drawn (DTHG)
+
     def copy_face(i):
-        nonlocal draws, draw_count, copied
+        nonlocal draws, draw_count, copied, things
         draws += DRAW.pack(DRAW_COPY, 0, 0, 0, 0, i, 1, mesh_bucket[i])
+        things += DRAW_THING.pack(NO_THING, 0, 0, 0)
         xforms.extend(xform())
         draw_count += 1
         natural[i] = mesh_bucket[i]
@@ -363,9 +379,11 @@ def main():
     first_draws = {}    # a drawn item's first mesh's draw, by item index
     statics, shadows = [], []   # (draw, object record); (draw, item index, record)
     k = 0
+    node = 0
     for r in recs:
         if r['type'] == 'object':
             owner = r
+            node = 0
             continue
         if r['type'] not in ('mesh', 'static', 'shadow', 'sprite'):
             continue
@@ -390,7 +408,13 @@ def main():
         xforms.extend(xform(r))
         if r['type'] == 'shadow':
             draws += DRAW.pack(DRAW_SHADOW, 0, 0, r['flags'], base, first, end - first, 0)
+            things += DRAW_THING.pack(NO_THING, 0, 0, 0)
         else:
+            if owner:
+                things += DRAW_THING.pack(owner['kind'], owner['owner'], node, owner['index'])
+                node += 1
+            else:
+                things += DRAW_THING.pack(NO_THING, 0, 0, 0)
             address = r['ref'] & 0x0FFFFFFF
             if address not in mesh_index:
                 mesh_index[address] = len(mesh_offsets)
@@ -409,7 +433,16 @@ def main():
         for i in hud:
             copy_face(i)
     chunks['DRAW'] = bytes(draws)
+    chunks['DTHG'] = bytes(things)
     chunks['XFRM'] = bytes(xforms)
+
+    # the draw order hints of the scene's level (saturn/depth_hints.txt), the
+    # level by its LevelID
+    levels = level_ids()
+    level_id = u32(mem, sym('_gLevelID'))
+    hints = [h for h in depth_hints.parse(os.path.join(ROOT, 'saturn/depth_hints.txt'))
+             if levels.get(h[0]) == level_id]
+    chunks['HINT'] = b''.join(HINT.pack(level_id, *h[1:]) for h in hints)
     # a shadow's item: its place in POSE, items in the order first drawn
     order = sorted(first_draws, key=first_draws.get)
     shadows = [(d, order.index(i), r) for d, i, r in shadows if i in first_draws]
@@ -490,6 +523,7 @@ def main():
                  'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT',
                  'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PLIT', 'LGHT', 'STAT', 'SHDW', 'RLVL', 'RPRT',
                  'RVIS', 'RLGE', 'CAUW', 'CALL', 'OITM', 'ANIM', 'AFRM', 'MODL', 'MIDX', 'MNOD', 'SMSH', 'RLIT',
+                 'DTHG', 'HINT', 'LARA',
                  'DKY0', 'DSL0', 'DUPL', 'RTXI', 'RTEX', 'PALT', 'SPRS', 'VRAM']
     where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1, 'CMDS': WHERE_LOW, 'GRDS': WHERE_LOW,
              'VERT': WHERE_LOW, 'ORDR': WHERE_LOW, 'DKY0': WHERE_LOW, 'DSL0': WHERE_LOW, 'DUPL': WHERE_LOW,

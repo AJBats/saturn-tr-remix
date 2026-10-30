@@ -4,6 +4,7 @@
 
 #include "game.h"
 #include "faces.h"
+#include "hints.h"
 #include "platform.h"
 #include "scene.h"
 #include "hw.h"
@@ -190,7 +191,8 @@ static const uint8_t* gRoomGeometry;
 static const DrawScene* gDraws;
 static const uint32_t* gMeshes;
 static const uint8_t* gMeshGeometry;
-static const MoveScene* gMoves;
+static const DrawThing* gThings;   // DTHG: each draw's thing
+static uint16_t* gRoomIndices;      // ROOM's rooms' level indices, the rooms drawn for the hints
 
 static inline uint32_t pair(uint32_t hi, uint32_t lo)
 {
@@ -627,6 +629,143 @@ static void roomFaces(const RoomScene &room)
     }
 }
 
+// --- the draw order hints, as render.cpp holds and places faces -----------
+
+#define MAX_HELD_FACES  32
+struct HeldFace
+{
+    Face* face;
+    int32_t depth;
+    const DepthHint* hint;  // the first naming it
+};
+static HeldFace gHeld[MAX_HELD_FACES];
+static int32_t gHeldCount;
+
+// render.cpp faceUnlink: a face just added, back out of the bucket its
+// corners put it in; false if it isn't there.
+static bool faceUnlink(Face* face, int32_t &depth)
+{
+    int32_t z = 0;
+    for (int32_t k = 0; k < 4; k++) {
+        z += ((const Vertex*)((const uint8_t*)gVertices + face->indices[k]))->z;
+    }
+    depth = uint32_t(z) >> (2 + OT_SHIFT);
+    Face** p = &gFaceList.ot[depth];
+    while (*p && *p != face) {
+        p = &(*p)->next;
+    }
+    if (!*p)
+        return false;
+    *p = face->next;
+    gFaceList.groups[depth >> OT_GROUP_SHIFT]--;
+    return true;
+}
+
+static void faceLink(Face* face, int32_t depth)
+{
+    depth = hintsBucket(depth);
+    face->next = gFaceList.ot[depth];
+    gFaceList.ot[depth] = face;
+    gFaceList.groups[depth >> OT_GROUP_SHIFT]++;
+}
+
+static void faceHold(Face* face, const DepthHint* hint)
+{
+    for (int32_t i = 0; i < gHeldCount; i++) {
+        if (gHeld[i].face == face)
+            return;
+    }
+    int32_t depth;
+    if (gHeldCount == MAX_HELD_FACES || !faceUnlink(face, depth))
+        return;
+    gHeld[gHeldCount++] = { face, depth, hint };
+}
+
+// render.cpp meshFace: the face of a mesh with these corners, in any order,
+// from first; none if it wasn't drawn (polygon k's at most k after first).
+static Face* meshFace(Face* first, int32_t k, const Vertex* base, const uint8_t* corners, int32_t n)
+{
+    for (Face* f = X_MIN(first + k, gFaceList.next - 1); f >= first; f--)
+    {
+        int32_t c = 0;
+        for (; c < n; c++)
+        {
+            int32_t v = (const Vertex*)((const uint8_t*)gVertices + f->indices[c]) - base;
+            int32_t m = 0;
+            while (m < n && corners[m] != v) {
+                m++;
+            }
+            if (m == n)
+                break;
+        }
+        if (c == n)
+            return f;
+    }
+    return nullptr;
+}
+
+// render.cpp renderMeshHinted: a hinted mesh's faces, just added from first,
+// moved by its buckets, or the faces its hints name held.
+static void meshHinted(const HintFaces &hf, Face* first, const Vertex* base, const MeshQuad* quads, int32_t rCount,
+                       const MeshQuad* triangles, int32_t tCount)
+{
+    if (hf.buckets)
+    {
+        for (Face* f = first; f < gFaceList.next; f++)
+        {
+            int32_t depth;
+            if (faceUnlink(f, depth)) {
+                faceLink(f, depth + hf.buckets);
+            }
+        }
+        return;
+    }
+    for (int32_t k = 0; k < hf.count; k++)
+    {
+        uint32_t polygon = hf.polygons[k];
+        if (polygon == HINT_EVERY)
+        {
+            for (Face* f = first; f < gFaceList.next; f++) {
+                faceHold(f, hf.hints[k]);
+            }
+            continue;
+        }
+        int32_t index = polygon & ~HINT_TRIANGLE;
+        Face* f = nullptr;
+        if (!(polygon & HINT_TRIANGLE) && index < rCount) {
+            f = meshFace(first, index, base, quads[index].indices, 4);
+        } else if ((polygon & HINT_TRIANGLE) && index < tCount) {
+            f = meshFace(first, rCount + index, base, triangles[index].indices, 3);
+        }
+        if (f) {
+            faceHold(f, hf.hints[k]);
+        }
+    }
+}
+
+// The rooms whose faces the game's way last added: a hint's room among them.
+static const RoomScene* gHintRooms;
+static uint32_t gHintRoomCount;
+
+static bool hintRoom(uint32_t room, HintRoom &out)
+{
+    for (uint32_t i = 0; i < gHintRoomCount; i++)
+    {
+        const RoomScene &r = gHintRooms[i];
+        if (r.room != room)
+            continue;
+        out.quads = (const RoomQuad*)(gRoomGeometry + r.quads);
+        out.triangles = (const RoomQuad*)(gRoomGeometry + r.triangles);
+        out.quadsCount = r.quadsCount;
+        out.trianglesCount = r.trianglesCount;
+        out.points = (const RoomVertex*)(gRoomGeometry + r.vertices);
+        out.vertices = gVertices + r.base;
+        out.camera = r.camera;
+        return true;
+    }
+    return false;
+}
+
 void gameFacesRooms(const RoomScene* rooms, uint32_t count)
 {
     gSlaveList.next = gSlaveFaces;
@@ -635,6 +774,15 @@ void gameFacesRooms(const RoomScene* rooms, uint32_t count)
     for (uint32_t i = 0; i < count; i++) {
         roomFaces(rooms[i]);
     }
+
+    // the faces the hints held, now the rooms' are placed (render.cpp
+    // depthHintsPlace)
+    gHintRooms = rooms;
+    gHintRoomCount = count;
+    for (int32_t i = 0; i < gHeldCount; i++) {
+        faceLink(gHeld[i].face, hintsPlace(gHeld[i].hint, gHeld[i].depth, hintRoom));
+    }
+    gHeldCount = 0;
 }
 
 void gameFacesRooms()
@@ -656,6 +804,10 @@ static const MeshQuad gShadowQuads[] = {
 void gameFacesMaster()
 {
     gFaceList.next = gFaces;
+    hintsBegin(gRoomIndices, gInfo->rooms);
+    static HintedDraw hinted[MAX_HELD_FACES];
+    static int32_t hintedCount = hintsSceneDraws(gThings, gInfo->draws, hinted, MAX_HELD_FACES);
+    int32_t h = 0;
     for (uint32_t i = 0; i < gInfo->draws; i++)
     {
         const DrawScene &d = gDraws[i];
@@ -686,17 +838,24 @@ void gameFacesMaster()
         } else if (mesh[11] == MESH_LIGHT_SHADES) {
             ptr += (vCount + 1) & ~1;
         }
+        Face* first = gFaceList.next;
         if (rCount > 0) {
             faceAddMeshQuadsAsm((const MeshQuad*)ptr, rCount, &mf);
         }
         if (tCount > 0) {
             faceAddMeshTrianglesAsm((const MeshQuad*)(ptr + rCount * 6), tCount, &mf);
         }
+        HintFaces hf;
+        if (h < hintedCount && hinted[h].draw == i && hintsOf(hinted[h++].thing, hf)) {
+            meshHinted(hf, first, gVertices + d.base, (const MeshQuad*)ptr, rCount,
+                       (const MeshQuad*)(ptr + rCount * 6), tCount);
+        }
     }
 }
 
 void gameFacesPrepare()
 {
+    gHeldCount = 0;
     texturesReset();
     gTextureQueue.count = 0;
     memcpy(gVertices, gSceneVertices, sizeof(gVertices));
@@ -735,16 +894,13 @@ int32_t gameFacesCheck()
     static int16_t* want = (int16_t*)sceneAllocLow(MAX_FACES * sizeof(int16_t));
     int32_t bad = 0;
 
-    // the master's: each face the game's, in its bucket but where a draw
-    // order hint moved it (MOVE: in the bucket its corners put it)
+    // the master's: each face the game's, in its bucket (where a draw order
+    // hint moved it, too)
     int32_t count = gameMasterFaces();
     int32_t ref = gInfo->masterFaces;
     bad += X_MAX(count, ref) - X_MIN(count, ref);
     bucketsOf(gOT, gFaces, bucket);
     memcpy(want, gRefBucket[0], MAX_FACES * sizeof(int16_t));
-    for (uint32_t i = 0; i < gInfo->moved; i++) {
-        want[gMoves[i].face] = gMoves[i].bucket;
-    }
     for (int32_t i = 0; i < X_MIN(count, ref); i++)
     {
         const Face &a = gFaces[i], &b = gRefFaces[i];
@@ -1375,7 +1531,15 @@ void gameInit()
     gDraws = sceneArray<const DrawScene>("DRAW");
     gMeshes = sceneArray<const uint32_t>("MESH");
     gMeshGeometry = sceneArray<const uint8_t>("MGEO");
-    gMoves = sceneArray<const MoveScene>("MOVE");
+    gThings = sceneArray<const DrawThing>("DTHG");
+    gRoomIndices = (uint16_t*)sceneAllocLow(gInfo->rooms * sizeof(uint16_t));
+    for (uint32_t i = 0; i < gInfo->rooms; i++) {
+        gRoomIndices[i] = gRooms[i].room;
+    }
+    hintsInit();
+    uint32_t masks[2];
+    hintsMasks(masks);
+    gameDrawsHints(masks);
     gTexturePmod = gInfo->texturePmod;
     texturesInit();
 }

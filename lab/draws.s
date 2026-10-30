@@ -62,6 +62,11 @@
     .equ    D_VIEW_MIN,     176     ! VIEW_MIN_F
     .equ    D_VIEW_MAX,     180     ! VIEW_MAX_F
     .equ    D_DRAW_COUNT,   184
+    .equ    D_HINT_ITEMS,   188     ! the frame's hints' things' bits (index & 31): items'
+    .equ    D_HINT_STATICS, 192     ! ... statics'
+    .equ    D_HINTED,       196     ! the next HintedCall
+    .equ    D_HINTED_COUNT, 200
+    .equ    D_HINT_OPEN,    204     ! the call's, at D_HINTED, is open
 
     .equ    CALL_BYTES,     32      ! CallRecord
     .equ    C_INDEX,        2
@@ -81,6 +86,8 @@
     .equ    IT_VISIBLE,     60
     .equ    IT_EXTRA,       64
     .equ    IT_ROOM,        76
+    .equ    IT_INDEX,       78
+    .equ    HINTED_BYTES,   8       ! HintedCall: kind, owner, index, first, count
     .equ    A_RATE,         4       ! GameAnim
     .equ    A_BEGIN,        16
     .equ    A_END,          18
@@ -1193,6 +1200,88 @@
     rts
     mov.l   r0, @(D_VIEWPORT+12,gbr)
 
+! the call at r14, if its thing's index has its bit (& 31) in the frame's
+! hints' mask of its kind (render.cpp depthHintObject's): its HintedCall
+! opened at D_HINTED, from the next draw (kind r1, owner, index r2); r0 .. r3
+.Lhinted:
+    mov.b   @r14, r0
+    cmp/eq  #CALL_MODEL, r0
+    bt      1f
+    cmp/eq  #CALL_STATIC, r0
+    bt      2f
+    rts
+    nop
+1:  mov.l   @(D_HINT_ITEMS,gbr), r0
+    tst     r0, r0
+    bt      9f                      ! no item's
+    mov     r0, r3
+    mov.l   @(C_ARGS,r14), r0
+    extu.w  r0, r2                  ! the item's index in the level
+    bra     3f
+    mov     #0, r1                  ! kind 0, owner 0
+2:  mov.l   @(D_HINT_STATICS,gbr), r0
+    tst     r0, r0
+    bt      9f                      ! no static's
+    mov     r0, r3
+    mov.l   @(C_ARGS+20,r14), r0
+    extu.w  r0, r2                  ! its index in its room
+    mov.w   @(C_INDEX,r14), r0      ! its room
+    extu.b  r0, r1
+    mov     #1, r0
+    shll8   r0
+    or      r0, r1                  ! kind 1 << 8 | owner
+3:  mov     #31, r0
+    and     r2, r0
+    shll2   r0
+    mov.l   r4, @-r15
+    mov.l   .LhintBits, r4
+    mov.l   @(r0,r4), r0
+    mov.l   @r15+, r4
+    tst     r0, r3
+    bt      9f                      ! its bit isn't in the mask
+    mov.l   @(D_HINTED,gbr), r0
+    mov     r0, r3
+    mov     r1, r0
+    mov.w   r0, @r3                 ! kind, owner
+    mov     r2, r0
+    mov.w   r0, @(2,r3)             ! index
+    mov.l   @(D_DRAW_COUNT,gbr), r0
+    mov.w   r0, @(4,r3)             ! its first draw
+    mov     #1, r0
+    mov.l   r0, @(D_HINT_OPEN,gbr)
+9:  rts
+    nop
+
+! the open HintedCall closed: its draws counted, kept if there are any; r0 .. r2
+.Lhintedclose:
+    mov     #0, r0
+    mov.l   r0, @(D_HINT_OPEN,gbr)
+    mov.l   @(D_HINTED,gbr), r0
+    mov     r0, r1
+    mov.w   @(4,r1), r0
+    extu.w  r0, r2
+    mov.l   @(D_DRAW_COUNT,gbr), r0
+    sub     r2, r0
+    tst     r0, r0
+    bt      9f                      ! none: dropped
+    mov.w   r0, @(6,r1)
+    add     #HINTED_BYTES, r1
+    mov     r1, r0
+    mov.l   r0, @(D_HINTED,gbr)
+    mov.l   @(D_HINTED_COUNT,gbr), r0
+    add     #1, r0
+    mov.l   r0, @(D_HINTED_COUNT,gbr)
+9:  rts
+    nop
+
+    .align  2
+.LhintBits: .long   .LhintBitTable
+.LhintBitTable:
+    .long   1 << 0, 1 << 1, 1 << 2, 1 << 3, 1 << 4, 1 << 5, 1 << 6, 1 << 7
+    .long   1 << 8, 1 << 9, 1 << 10, 1 << 11, 1 << 12, 1 << 13, 1 << 14, 1 << 15
+    .long   1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20, 1 << 21, 1 << 22, 1 << 23
+    .long   1 << 24, 1 << 25, 1 << 26, 1 << 27, 1 << 28, 1 << 29, 1 << 30, 1 << 31
+
     .global _drawsAsm
 _drawsAsm:
     mov.l   r8, @-r15
@@ -1219,9 +1308,13 @@ _drawsAsm:
     mov.l   r0, @(D_SHADOW_COUNT,gbr)
     mov.l   r0, @(D_FACE_COUNT,gbr)
     mov.l   r0, @(D_DRAW_COUNT,gbr)
+    mov.l   r0, @(D_HINTED_COUNT,gbr)
+    mov.l   r0, @(D_HINT_OPEN,gbr)
     tst     r13, r13
     bt      .Lend
 .Lcall:
+    bsr     .Lhinted
+    nop
     mov.b   @r14, r0
     cmp/eq  #CALL_VIEWPORT, r0
     bf      1f
@@ -1258,7 +1351,12 @@ _drawsAsm:
     bsr     .Lrect
     nop
 .Lnext:
-    dt      r13
+    mov.l   @(D_HINT_OPEN,gbr), r0
+    tst     r0, r0
+    bt      1f
+    bsr     .Lhintedclose
+    nop
+1:  dt      r13
     bf/s    .Lcall
     add     #CALL_BYTES, r14
 .Lend:

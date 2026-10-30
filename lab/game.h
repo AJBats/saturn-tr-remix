@@ -216,10 +216,13 @@ int32_t gameRoomJobsCheck(const FaceRoom* jobs, int32_t count);
 // mesh, faces' flags and first vertex; sprites' and rectangles' faces, made,
 // in faces with two vertices each), each item posed with its frames (as
 // pointers), extras and light (PoseItem, PoseLight), each static's place
-// (PoseStatic), each shadow's floor (PoseShadow). Init: the calls; gameDraws
-// after fills of the walk's (their vertices first); the check against the
-// scene's (DRAW past its fills, POSE, PLIT, STAT, SHDW): those that differ.
+// (PoseStatic), each shadow's floor (PoseShadow), the calls whose thing may
+// have a draw order hint (HintedCall: the hints' masks, gameDrawsHints).
+// Init: the calls; gameDraws after fills of the walk's (their vertices
+// first); the check against the scene's (DRAW past its fills, POSE, PLIT,
+// STAT, SHDW, the hinted calls' things against DTHG): those that differ.
 struct DrawScene;
+struct HintedCall;
 struct PoseItem;
 struct PoseLight;
 struct PoseStatic;
@@ -238,8 +241,11 @@ struct DrawList
     Face* faces;
     Vertex* vertices;
     uint32_t faceCount;
+    HintedCall* hinted;
+    uint32_t hintedCount;
 };
 int32_t gameDrawsInit();
+void gameDrawsHints(const uint32_t masks[2]);
 void gameDraws(int32_t fills);
 const DrawList& gameDrawList();
 int32_t gameDrawsCheck(const DrawList &list, int32_t fills);

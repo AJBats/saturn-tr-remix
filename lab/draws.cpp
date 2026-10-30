@@ -9,10 +9,12 @@ static_assert(offsetof(DrawsContext, camera) == 60 && offsetof(DrawsContext, vie
               offsetof(DrawsContext, viewport) == 80 && offsetof(DrawsContext, base) == 96 &&
               offsetof(DrawsContext, faceCount) == 144 && offsetof(DrawsContext, k20) == 148 &&
               offsetof(DrawsContext, frameA) == 156 && offsetof(DrawsContext, viewMin) == 176 &&
-              offsetof(DrawsContext, drawCount) == 184, "draws.s's DrawsContext");
+              offsetof(DrawsContext, drawCount) == 184 && offsetof(DrawsContext, hintOpen) == 204,
+              "draws.s's DrawsContext");
 static_assert(sizeof(DrawScene) == 24 && sizeof(PoseItem) == 104 && sizeof(PoseLight) == 12 &&
               sizeof(PoseStatic) == 20 && sizeof(PoseShadow) == 8 && sizeof(Face) == 16 && sizeof(Vertex) == 8 &&
-              sizeof(Sprite) == 16, "draws.s's records");
+              sizeof(Sprite) == 16 && sizeof(HintedCall) == 8 && offsetof(ItemRecord, index) == 78,
+              "draws.s's records");
 
 #define FACE_TYPE_SHIFT     14
 #define FACE_TYPE_SPRITE    6
@@ -66,6 +68,7 @@ static T* lowArray(uint32_t count)
 static void listArrays(DrawList &l, const DrawsRoom &r, bool low)
 {
     l.draws = low ? lowArray<DrawScene>(r.draws) : highArray<DrawScene>(r.draws);
+    l.hinted = low ? lowArray<HintedCall>(r.models + r.statics) : highArray<HintedCall>(r.models + r.statics);
     l.items = low ? lowArray<PoseItem>(r.models) : highArray<PoseItem>(r.models);
     l.lights = low ? lowArray<PoseLight>(r.models) : highArray<PoseLight>(r.models);
     l.statics = low ? lowArray<PoseStatic>(r.statics) : highArray<PoseStatic>(r.statics);
@@ -88,7 +91,9 @@ static void contextList(DrawsContext &c, const DrawList &l)
 static void run(DrawsContext &c, DrawList &l, int32_t fills)
 {
     c.base = 2 * fills;
+    c.hinted = l.hinted;
     drawsAsm(&c);
+    l.hintedCount = c.hintedCount;
     l.drawCount = c.drawsEnd - c.draws;
     l.itemCount = c.itemCount;
     l.staticCount = c.staticCount;
@@ -131,6 +136,12 @@ void drawsInit()
     contextList(gCtx, gList);
 }
 
+void drawsHints(const uint32_t masks[2])
+{
+    gCtx.hintItems = masks[0];
+    gCtx.hintStatics = masks[1];
+}
+
 void draws(int32_t fills)
 {
     run(gCtx, gList, fills);
@@ -140,13 +151,14 @@ void drawsPoison()
 {
     DrawList &l = gList;
     memset(l.draws, 0xA5, l.drawCount * sizeof(DrawScene));
+    memset(l.hinted, 0xA5, l.hintedCount * sizeof(HintedCall));
     memset(l.items, 0xA5, l.itemCount * sizeof(PoseItem));
     memset(l.lights, 0xA5, l.itemCount * sizeof(PoseLight));
     memset(l.statics, 0xA5, l.staticCount * sizeof(PoseStatic));
     memset(l.shadows, 0xA5, l.shadowCount * sizeof(PoseShadow));
     memset(l.faces, 0xA5, l.faceCount * sizeof(Face));
     memset(l.vertices, 0xA5, 2 * l.faceCount * sizeof(Vertex));
-    l.drawCount = l.itemCount = l.staticCount = l.shadowCount = l.faceCount = 0;
+    l.drawCount = l.itemCount = l.staticCount = l.shadowCount = l.faceCount = l.hintedCount = 0;
 }
 
 const DrawList& drawsList()
@@ -160,9 +172,12 @@ const DrawList& drawsList()
 static int32_t listsOff(const DrawList &a, const DrawList &b)
 {
     int32_t bad = (a.drawCount != b.drawCount) + (a.itemCount != b.itemCount) + (a.staticCount != b.staticCount) +
-                  (a.shadowCount != b.shadowCount) + (a.faceCount != b.faceCount);
+                  (a.shadowCount != b.shadowCount) + (a.faceCount != b.faceCount) + (a.hintedCount != b.hintedCount);
     for (uint32_t i = 0; i < X_MIN(a.drawCount, b.drawCount); i++) {
         bad += memcmp(a.draws + i, b.draws + i, sizeof(DrawScene)) != 0;
+    }
+    for (uint32_t i = 0; i < X_MIN(a.hintedCount, b.hintedCount); i++) {
+        bad += memcmp(a.hinted + i, b.hinted + i, sizeof(HintedCall)) != 0;
     }
     for (uint32_t i = 0; i < X_MIN(a.itemCount, b.itemCount); i++) {
         bad += memcmp(a.items + i, b.items + i, sizeof(PoseItem)) || memcmp(a.lights + i, b.lights + i,
@@ -277,6 +292,10 @@ int32_t drawsSeldomCheck()
     ctx.items = madeItems;
     ctx.anims = madeAnims;
     contextList(ctx, mine);
+
+    // the hints' masks every other thing's, the others each pass: calls
+    // hinted and not, closed with draws and without
+    int32_t hintedCalls = 0, hintedStatics = 0;
 
     static const uint8_t kRates[] = { 0, 1, 2, 4, 3, 5, 6, 8 };
     int32_t bad = 0, models = 0, posed = 0, lerped = 0, stills = 0, lara = 0, extras = 0, walls = 0;
@@ -432,10 +451,19 @@ int32_t drawsSeldomCheck()
             }
         }
 
+        const uint32_t masks[2] = { pass & 1 ? 0xAAAAAAAA : 0x55555555, pass & 1 ? 0x55555555 : 0xAAAAAAAA };
+        ctx.hintItems = masks[0];
+        ctx.hintStatics = masks[1];
+        gameDrawsHints(masks);
         ctx.callCount = n;
         run(ctx, mine, 0);
         gameDrawsRun(made, n, madeItems, madeAnims, 0, game);
         bad += listsOff(mine, game);
+        for (uint32_t i = 0; i < game.hintedCount; i++)
+        {
+            hintedCalls++;
+            hintedStatics += game.hinted[i].kind;
+        }
         posed += game.itemCount;
         staticsDrawn += game.staticCount;
         for (uint32_t i = 0; i < game.itemCount; i++)
@@ -472,11 +500,12 @@ int32_t drawsSeldomCheck()
             }
         }
     }
+    gameDrawsHints(&gCtx.hintItems);
     bool enemies = false;
     for (uint32_t i = 0; i < items; i++) {
         enemies = enemies || (sceneItems[i].item.type != 0 && sceneItems[i].item.extra);
     }
-    return bad + !posed + !(models - posed) + !lerped + !stills + !lara + (enemies && !extras) + !early[0] +
+    return bad + !(hintedCalls - hintedStatics) + (staticCalls ? !hintedStatics : 0) + !posed + !(models - posed) + !lerped + !stills + !lara + (enemies && !extras) + !early[0] +
            !early[1] + !early[2] + !early[3] + !early[4] +
            (staticCalls ? !staticsDrawn + !(statics - staticsDrawn) + !hidden : 0) + !spritesDrawn +
            !(spritesMade - spritesDrawn) + !clamped + !unclamped + !walls;
