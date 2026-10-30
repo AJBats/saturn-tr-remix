@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-237 | Rendering: the new renderer's open work |
+| 219-238 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3685,6 +3685,18 @@ rooms' chunks) · Fix: small*
 - About 1 in 30 cameras placed in random rooms of Caves sees one.
 - **Fix:** find such a view with the lab's walk, start Lara there
   (LARA_START) and capture it.
+
+### 238. The draw list is mostly cold memory
+*Kind: speed · Size: ledge 0.96 ms new against the game's 1.29 (measured,
+163aca5); maybe 0.3 ms to win (estimated) · Fix: medium*
+
+- `lab/draws.s`'s profile is flat: the sphere tests ~8%, writing the draws
+  ~10%, each mesh's vertex count looked up ~4%, the calls' dispatch, the
+  pose's items. With the cache emptied before each run (as a frame finds the
+  game's items), most of its 27.6k cycles are lines filled.
+- **Levers:** a leaner draw (8 bytes: type, mesh, flags, first vertex) where
+  the stages after need no more; a byte table of each mesh's vertex count
+  instead of its header's; the items' fields read in one pass of lines.
 
 ---
 
