@@ -547,7 +547,7 @@ static uint16_t gHeads[2][OT_SIZE + 1] __attribute__((aligned(4)));
 static uint16_t gTails[2][OT_SIZE];
 static CommandList gRoomList, gMeshList;
 static CommandList* const gLists[2] = { &gRoomList, &gMeshList };
-static int32_t gMeshFirst;  // the master's first command
+static int32_t gMeshFirst;  // the master's first command (newSplit's)
 static int32_t gNewEnd;     // the new list's end
 
 #define FACE_WATER  (1u << 30)
@@ -575,6 +575,30 @@ static RoomSplit gSplit;
 static RoomMaterial gRoomMaterials[MAX_ROOM_TEXTURES];
 static RoomRun gRoomRun;
 static bool gRoomTexturesShort;     // the rooms take more textures than that
+
+// The rooms' list from slot 1, the draws' from the split to the end's slot.
+// The draws make a command a face at most (their meshes' and shadows'
+// faces, their copies, the fills), the rooms about one a face (some split):
+// when both fit, the draws' list as long as their commands at most, the
+// rooms' the rest; else each as long as its share of the faces.
+static void newSplit(const DrawScene* draws, uint32_t count, int32_t fills)
+{
+    int32_t meshes = verticesFaces() + fills, rooms = verticesRoomFaces(), slots = MAX_CMDS - 2;
+    for (uint32_t i = 0; i < count; i++) {
+        meshes += draws[i].type == DRAW_COPY;
+    }
+    gMeshFirst = rooms + meshes <= slots ? MAX_CMDS - 1 - meshes : 1 + int32_t(int64_t(slots) * rooms / (rooms + meshes));
+}
+
+// The lists on to a frame's slots (newSplit's), their buckets empty since
+// the join before; the rooms' split vertices free.
+static void newListsStart()
+{
+    facesListStart(gRoomList, gNewCmds, gNewGrd, 1, gMeshFirst);
+    facesListStart(gMeshList, gNewCmds, gNewGrd, gMeshFirst, MAX_CMDS - 1);
+    gSplit.top = MAX_VERTICES;
+    gSplit.bottom = sceneInfo().bottom;
+}
 
 // The lists empty for a frame of the new way's, the rooms' split vertices
 // free.
@@ -667,7 +691,7 @@ static void newRoomsInit()
     t.materials = gRoomMaterials;
     gSplit.vertices = gVertices;
     gSplit.divTable = sceneArray<const uint16_t>("DIVT");
-    gMeshFirst = 1 + info.slaveFaces;
+    newSplit(gDraws, gDrawCount, 0);
 }
 
 // The draw order hints of the new way's frame: the faces held out of their
@@ -937,6 +961,8 @@ static Stages stagesTogether(bool posed, int32_t bias)
         while (!shared->walked);
         s.masterWait += ticksCycles(w0, ticks());
         cachePurge();   // the rooms the slave walked
+        newSplit(list.draws, list.drawCount, gFills);
+        newListsStart();
         newHintsBegin();
         framePlan(bias, true, true);
         slaveItems = slaveShare(part);
@@ -1290,7 +1316,6 @@ static void stageRun()
         gameShadeCache(0)->frame++;
         gameShadeCache(1)->frame++;
         gRoomTextures.frame++;
-        newLists();
         gNewTextures.count = 0;
         Stages s = stagesTogether(true, bias);
         bias += s.late / 2;

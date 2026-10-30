@@ -105,6 +105,10 @@ void facesListInit(CommandList &list, Command* cmds, uint32_t (*grd)[2], int32_t
                    uint16_t* heads, uint16_t* tails, const Material* materials, const uint16_t* shadeGouraud,
                    const uint8_t* shadeLevel, ShadeCache* shade, const Sprite* sprites);
 
+// A list on to slots first .. end for a frame, its buckets as the last
+// join left them: empty.
+void facesListStart(CommandList &list, Command* cmds, uint32_t (*grd)[2], int32_t first, int32_t end);
+
 // A mesh's faces, with its vertices; mode MESH_INSIDE: none of them is off
 // the frame or past a plane, so no face is culled for that; MESH_WATER: under
 // water, its shades fading to teal with distance.

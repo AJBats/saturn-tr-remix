@@ -30,11 +30,7 @@ void facesListInit(CommandList &list, Command* cmds, uint32_t (*grd)[2], int32_t
                    uint16_t* heads, uint16_t* tails, const Material* materials, const uint16_t* shadeGouraud,
                    const uint8_t* shadeLevel, ShadeCache* shade, const Sprite* sprites)
 {
-    list.cmd = cmds[first].w;
-    list.end = cmds[end].w;
-    list.grd = grd[first];
-    list.link = facesLink(first);
-    list.grdLink = ((VRAM_GOURAUD_BASE >> 3) + first) << 16;
+    facesListStart(list, cmds, grd, first, end);
     list.heads = heads;
     list.tails = tails;
     list.materials = materials;
@@ -43,6 +39,15 @@ void facesListInit(CommandList &list, Command* cmds, uint32_t (*grd)[2], int32_t
     list.shade = shade;
     list.sprites = sprites;
     memset(heads, 0, (OT_SIZE + 1) * sizeof(heads[0]));
+}
+
+void facesListStart(CommandList &list, Command* cmds, uint32_t (*grd)[2], int32_t first, int32_t end)
+{
+    list.cmd = cmds[first].w;
+    list.end = cmds[end].w;
+    list.grd = grd[first];
+    list.link = facesLink(first);
+    list.grdLink = ((VRAM_GOURAUD_BASE >> 3) + first) << 16;
 }
 
 static inline const Vertex* corner(const Vertex* vertices, uint32_t offset)

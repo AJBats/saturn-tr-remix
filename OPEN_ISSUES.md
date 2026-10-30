@@ -3685,17 +3685,6 @@ Fix: small*
   to the game's real limits, every level's data in the new formats measured,
   against TRS's map, so the switch is known to fit.
 
-### 240. The new way's two lists split where the capture's did
-*Kind: correctness (production) · Fix: small to medium*
-
-- The rooms' list takes command slots 1 up to `gMeshFirst`, the draws' list
-  the rest; `gMeshFirst` is 1 + the capture's slave faces (lab.cpp
-  newRoomsInit). A frame with more room faces than that drops room faces
-  while the draws' list has room to spare.
-- **Fix:** a split from the game's limits, or the two lists growing toward
-  each other from the two ends of the buffer (the face stages' cursors step
-  down for one of them).
-
 ### 241. VDP1 idles between lists: the change waits for a vblank, then the upload
 *Kind: speed · Size: Mednafen ledge: VDP1 32.55 ms misses the second
 field's vblank-in by ~2.5 ms and the frame takes three fields (50.15 ms,
@@ -3733,6 +3722,21 @@ field's vblank-in by ~2.5 ms and the frame takes three fields (50.15 ms,
 | **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
 
 ## Closed
+
+### 240. The new way's two lists split where the capture's did
+*Closed 2026-10-30: each frame's split from its own faces*
+
+- Each frame splits the command slots from its own draw list and walk
+  (`newSplit`, once the slave has walked): the draws can make a command a
+  face at most (their meshes' and shadows' faces, their copies, the fills),
+  the rooms about one a face. When both fit, the draws' list is as long as
+  the draws' commands at most and the rooms' list takes the rest; when they
+  don't, each list gets its share of the faces.
+- The first try, the draws' bound and the rooms the rest, ran the rooms out
+  at the ledge (the wolves' and Lara's back faces count in the bound): the
+  share fixed it. All eight scenes exact.
+- The frame starts its lists on those slots without emptying their buckets
+  again (`facesListStart`: the join before left them empty).
 
 ### 237. No captured scene has a fill past the draw distance
 *Closed 2026-10-30: scene fill*

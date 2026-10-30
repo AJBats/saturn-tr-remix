@@ -78,6 +78,11 @@ void verticesRoomsSet(const FaceRoom* rooms, uint32_t count);
 void verticesDrawsSet(const DrawScene* draws, uint32_t count, const DrawXform* xforms);
 int32_t verticesInsideOf(uint32_t draw);
 
+// The faces of the draws' meshes and shadows: their commands at most; the
+// rooms' faces.
+int32_t verticesFaces();
+int32_t verticesRoomFaces();
+
 // The rooms' DSP run started in their order, before the plan (which then
 // leaves the order be: verticesPlan's started).
 void verticesRoomsStart();

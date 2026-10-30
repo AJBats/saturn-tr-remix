@@ -96,6 +96,7 @@ struct MeshParts
     const int16_t* center;      // a mesh's bounding sphere, or none (a shadow)
     int32_t radius;
     int32_t* ready;             // in meshlight3.dsp's layout
+    int32_t faces;              // its quads and triangles: its commands at most
 };
 
 // A mesh's projection and shading, as feeding it to the DSP set them up.
@@ -151,6 +152,7 @@ static const Vertex* gSceneVertices;
 static RoomRotated gRoomRotated[MAX_ROOM_VERTICES] __attribute__((aligned(16)));
 static int32_t gRotatedAt[MAX_ROOMS];
 static int32_t gRoomsPredicted;     // the plan's prediction of their projection and faces
+static int32_t gRoomsFaces;         // their quads and triangles
 static RoomDspJob gRoomJobs[MAX_ROOMS + 1];
 
 // The meshes' groups as the level would keep them (a mesh's once, a
@@ -167,6 +169,7 @@ static const MeshParts* gShadowParts;
 static const MeshParts* gShadowPartsEnd;
 static MeshJob gJobs[MAX_DRAWS];
 static int32_t gJobsPredicted;
+static int32_t gJobsFaces;      // the jobs' faces: their commands at most
 static MeshDspJob gDspJobs[MAX_DRAWS + 1];
 static MeshDspJob3 gDspJobs3[MAX_DRAWS + 1];
 static int32_t gJobCount;
@@ -307,15 +310,17 @@ void verticesRoomsSet(const FaceRoom* rooms, uint32_t count)
 {
     gRooms = rooms;
     gRoomCount = count < MAX_ROOMS ? count : MAX_ROOMS;
-    int32_t at = 0, predicted = 0;
+    int32_t at = 0, predicted = 0, faces = 0;
     for (uint32_t i = 0; i < gRoomCount; i++)
     {
         const FaceRoom &r = gRooms[i];
         gRotatedAt[i] = at;
         at += (r.verticesCount + 3) & ~3;
         predicted += PLAN_ROOM_VERTEX * r.verticesCount + PLAN_ROOM_FACE * (r.quadsCount + r.trianglesCount);
+        faces += r.quadsCount + r.trianglesCount;
     }
     gRoomsPredicted = predicted;
+    gRoomsFaces = faces;
     chunksLay();
 }
 
@@ -325,7 +330,7 @@ void verticesDrawsSet(const DrawScene* draws, uint32_t count, const DrawXform* x
     gDrawCount = count;
     // the draws' jobs: where each one's vertices go, its mesh's parts or its
     // shadow's slot's
-    int32_t jobs = 0, predicted = 0;
+    int32_t jobs = 0, predicted = 0, faces = 0;
     Vertex* out = gMeshVertices;
     const MeshParts* shadow = gShadowParts;
     for (uint32_t i = 0; i < count && jobs < MAX_DRAWS; i++)
@@ -347,9 +352,21 @@ void verticesDrawsSet(const DrawScene* draws, uint32_t count, const DrawXform* x
         job.xform = xforms + i;
         out += (parts->count + 3) & ~3;
         predicted += parts->price;
+        faces += parts->faces;
     }
     gJobCount = jobs;
     gJobsPredicted = predicted;
+    gJobsFaces = faces;
+}
+
+int32_t verticesFaces()
+{
+    return gJobsFaces;
+}
+
+int32_t verticesRoomFaces()
+{
+    return gRoomsFaces;
 }
 
 int32_t verticesInsideOf(uint32_t draw)
@@ -422,6 +439,7 @@ const char* verticesInit(const FaceRoom* rooms, uint32_t roomCount)
         p.center = (const int16_t*)mesh;
         p.radius = *(const int16_t*)(mesh + 16);
         p.ready = ready;
+        p.faces = *(const int16_t*)(mesh + 12) + *(const int16_t*)(mesh + 14);
         packed += packMesh(packed, (const MeshVertex*)(mesh + 20), normals, count);
         readyVertices(ready, (const MeshVertex*)(mesh + 20), normals, count);
         ready += ((count + 3) & ~3) * 6;
@@ -433,6 +451,7 @@ const char* verticesInit(const FaceRoom* rooms, uint32_t roomCount)
         p = {};
         p.count = SHADOW_VERTICES;
         p.price = PLAN_MESH_JOB + PLAN_MESH_VERTEX * SHADOW_VERTICES + PLAN_MESH_FACE * 3;
+        p.faces = 3;
         p.packed = packed;
         packed += SHADOW_VERTICES / 4 * 6;
         p.ready = ready;
