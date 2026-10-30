@@ -196,11 +196,12 @@ void gameRooms();
 int32_t gameRoomsCheck(const RoomSeen* seen, int32_t count, int32_t &voids);
 
 // The game's walk from another camera, in another room, and view (12 int32,
-// no translation), the rooms queued to out and their jobs to jobs; near: the
-// portals cut by the near plane it kept.
+// no translation), the rooms queued to out, their jobs to jobs and the
+// fills' rectangles (the first 64) to fills; near: the portals cut by the
+// near plane it kept.
 struct FaceRoom;
 void gameRoomsRun(uint32_t room, const int32_t* camera, const int32_t* view, RoomSeen* out, int32_t &count,
-                  int32_t &voids, int32_t &near, FaceRoom* jobs, int32_t &jobCount);
+                  int32_t &voids, int32_t &near, FaceRoom* jobs, int32_t &jobCount, int32_t (*fills)[4]);
 
 // Room jobs (FaceRoom: the rooms queued with vertices, in order, placed in
 // gVertices, as stages 2 and 3 take them; jobs null: the game's own) against

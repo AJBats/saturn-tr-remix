@@ -19,6 +19,7 @@
 #define VIEW_MAX_F      ((1024 * 20) << FIXED_SHIFT)
 #define MAX_ROOMS_SEEN  128     // the game's MAX_ROOM_LIST is 32: room for made-up views
 #define MAX_ROOM_JOBS   64
+#define MAX_FILLS       64
 #define FACE_WATER      (1u << 30)
 #define ROOM_FLAG_WATER 1
 #define X_MAX(a, b)     ((a) > (b) ? (a) : (b))
@@ -70,11 +71,19 @@ static FaceRoom* gJobs;         // the rooms queued with vertices placed, as sta
 static int32_t gJobCount;
 static int16_t gCausticsTable[32];
 static int32_t gVoids;          // the fills past the draw distance
+static int32_t (*gFills)[4];    // ... the first MAX_FILLS, x0 y0 x1 y1
 static int32_t gNearEdges;      // portals cut by the near plane, kept
 static RectMinMax gViewport;
 
 static void renderVoid(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
 {
+    if (gVoids < MAX_FILLS)
+    {
+        gFills[gVoids][0] = x0;
+        gFills[gVoids][1] = y0;
+        gFills[gVoids][2] = x1;
+        gFills[gVoids][3] = y1;
+    }
     gVoids++;
 }
 
@@ -342,6 +351,7 @@ int32_t gameRoomsInit()
     gRoomGeometry = sceneArray<uint8_t>("RGEO");
     gCaustics = sceneArray<const RoomCaustics>("CAUW");
     gJobs = (FaceRoom*)sceneAlloc(MAX_ROOM_JOBS * sizeof(FaceRoom));
+    gFills = (int32_t (*)[4])sceneAlloc(MAX_FILLS * sizeof(*gFills));
     gClip = (RectMinMax*)sceneAlloc(gLevelCount * sizeof(RectMinMax));
     gVisible = (uint8_t*)sceneAlloc(gLevelCount);
     gSeen = (RoomSeen*)sceneAlloc(MAX_ROOMS_SEEN * sizeof(RoomSeen));
@@ -360,12 +370,14 @@ int32_t gameRoomsInit()
 }
 
 void gameRoomsRun(uint32_t room, const int32_t* camera, const int32_t* view, RoomSeen* out, int32_t &count,
-                  int32_t &voids, int32_t &near, FaceRoom* jobs, int32_t &jobCount)
+                  int32_t &voids, int32_t &near, FaceRoom* jobs, int32_t &jobCount, int32_t (*fills)[4])
 {
     const int32_t* sceneCamera = gCamera;
     RoomSeen* sceneSeen = gSeen;
     FaceRoom* sceneJobs = gJobs;
+    int32_t (*sceneFills)[4] = gFills;
     gJobs = jobs;
+    gFills = fills;
     Matrix sceneView = gMatrixStack[0];
     gCameraRoom = room;
     gCamera = camera;
@@ -379,6 +391,7 @@ void gameRoomsRun(uint32_t room, const int32_t* camera, const int32_t* view, Roo
     near = gNearEdges;
     jobCount = gJobCount;
     gJobs = sceneJobs;
+    gFills = sceneFills;
     gCameraRoom = gView->camera;
     gCamera = sceneCamera;
     gCameraViewPos = sceneCamera;

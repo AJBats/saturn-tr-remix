@@ -20,7 +20,8 @@
 ! +76 2^18, +80 2^20, +84 VIEW_MAX_F (constants out of a pool's reach); for
 ! the jobs +88 each room's RoomGeometry, +92 RGEO, +96 gVertices, +100 the
 ! jobs (FaceRoom), +104 their count, +108 RoomCaustics, +112 the caustics'
-! table (32 int16).
+! table (32 int16); +116 the fills' rectangles (x0 y0 x1 y1, the first
+! ROOM_FILLS; +68 counts them all).
 
     .equ    R_LEVEL,        0
     .equ    R_PORTALS,      4
@@ -46,6 +47,8 @@
     .equ    R_JOB_COUNT,    104
     .equ    R_CAUSTICS,     108
     .equ    R_TABLE,        112
+    .equ    R_FILLS,        116
+    .equ    ROOM_FILLS,     64
 
     .equ    L_X,            0       ! RoomLevel
     .equ    L_Z,            2
@@ -299,7 +302,8 @@
     mov     r11, r0
     cmp/eq  #4, r0
     bf      .Lnear
-    ! past the draw distance: the fill, within the room's window
+    ! past the draw distance: the fill, within the room's window (r3 r5 to
+    ! r4 r6), kept
     mov.l   @(F_X0,r15), r3
     add     r1, r3
     mov.l   @(0,r7), r0
@@ -314,21 +318,34 @@
     mov     r0, r4
 2:  cmp/gt  r3, r4
     bf      .Lnofill
-    mov.l   @(F_Y0,r15), r3
-    add     r2, r3
+    mov.l   @(F_Y0,r15), r5
+    add     r2, r5
     mov.l   @(4,r7), r0
-    cmp/gt  r3, r0
+    cmp/gt  r5, r0
     bf      3f
-    mov     r0, r3
-3:  mov.l   @(F_Y1,r15), r4
-    add     r2, r4
+    mov     r0, r5
+3:  mov.l   @(F_Y1,r15), r6
+    add     r2, r6
     mov.l   @(12,r7), r0
-    cmp/gt  r0, r4
+    cmp/gt  r0, r6
     bf      4f
-    mov     r0, r4
-4:  cmp/gt  r3, r4
+    mov     r0, r6
+4:  cmp/gt  r5, r6
     bf      .Lnofill
     mov.l   @(R_VOIDS,gbr), r0
+    mov     #ROOM_FILLS, r1
+    cmp/hs  r1, r0
+    bt      5f
+    shll2   r0
+    shll2   r0
+    mov     r0, r1
+    mov.l   @(R_FILLS,gbr), r0
+    add     r0, r1
+    mov.l   r3, @r1
+    mov.l   r5, @(4,r1)
+    mov.l   r4, @(8,r1)
+    mov.l   r6, @(12,r1)
+5:  mov.l   @(R_VOIDS,gbr), r0
     add     #1, r0
     mov.l   r0, @(R_VOIDS,gbr)
 .Lnofill:

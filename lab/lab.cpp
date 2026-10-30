@@ -499,6 +499,7 @@ static int32_t gMeshFirst;  // the master's first command
 static int32_t gNewEnd;     // the new list's end
 
 #define FACE_WATER  (1u << 30)
+#define FACE_LINE_H (8u << 14)  // FaceType FACE_TYPE_LINE_H: renderRect's line, a fill's
 #define MAX_ROOMS   64
 
 // The scene's draws and what they draw, its rooms and the room texture cache,
@@ -780,7 +781,29 @@ static Stages stagesTogether(bool posed)
     }
     const uint8_t* sets = gFaceSets;
     uint32_t slaveEnd = 0;
-    for (uint32_t i = 0; i < gDrawCount; i++)
+    uint32_t first = 0;
+    if (posed)
+    {
+        // the fills past the draw distance the walk found (render.cpp
+        // renderVoid: a rectangle of colour 0 behind everything), before the
+        // draws; the capture's copies of them skipped
+        int32_t fills;
+        const int32_t (*fill)[4] = roomsFills(fills);
+        for (int32_t k = 0; k < fills; k++)
+        {
+            Vertex v[2] = {};
+            v[0].x = fill[k][0];
+            v[0].y = fill[k][1];
+            v[1].x = fill[k][2] - fill[k][0];
+            v[1].y = fill[k][3] - fill[k][1];
+            const Face face = { FACE_LINE_H, nullptr, { 0 } };
+            facesOther(face, v, gSprites, OT_SIZE - 1, gMeshList);
+        }
+        while (first < gDrawCount && gDraws[first].type == DRAW_COPY) {
+            first++;
+        }
+    }
+    for (uint32_t i = first; i < gDrawCount; i++)
     {
         if (!slaveEnd && shared->roomsDone) {
             slaveEnd = ticksCycles(t0, ticks());

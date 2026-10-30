@@ -13,6 +13,7 @@
 // for more, so made-up views that see further can't overrun it.
 #define ROOMS_LISTED    128
 #define ROOM_JOBS       64      // rooms.cpp's MAX_ROOM_JOBS: those queued with vertices
+#define ROOM_FILLS      64      // the fills past the draw distance kept (all counted)
 
 struct RoomsContext
 {
@@ -39,6 +40,7 @@ struct RoomsContext
     int32_t jobCount;           // +104
     const RoomCaustics* caustics;   // +108 CAUW
     int16_t* table;             // +112 the caustics' table, a vertex's shade offset by its index (32)
+    int32_t (*fills)[4];        // +116 the fills' rectangles, x0 y0 x1 y1 (the first ROOM_FILLS)
 };
 
 extern "C" void roomsSeenAsm(RoomsContext* ctx);
@@ -50,6 +52,10 @@ extern "C" void roomsJobsAsm(RoomsContext* ctx);
 void roomsInit();
 void roomsSeen();
 FaceRoom* roomsJobs(uint32_t &count);
+
+// The fills past the draw distance the walk found (renderVoid's: x0 y0 x1
+// y1), the first ROOM_FILLS: their count.
+const int32_t (*roomsFills(int32_t &count))[4];
 int32_t roomsSeenCheck();
 
 // What the walk makes (the rooms listed, their jobs) overwritten with what it

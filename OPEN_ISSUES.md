@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-236 | Rendering: the new renderer's open work |
+| 219-237 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3673,6 +3673,18 @@ rooms' chunks) · Fix: small*
   CPUs before each measured frame, from the rooms the frame before walked.
   A frame of the game would plan after its own walk, inside the frame.
 - **Fix:** run it in the frame after the walk, timed.
+
+### 237. No captured scene has a fill past the draw distance
+*Kind: coverage · Fix: small*
+
+- The walk's fills (renderVoid) are exact against the game's walk on
+  made-up views (33 fills at the ledge's), and the frame turns them into
+  faces before its draws. But none of the four scenes has one, so a fill's
+  command in a whole list (the farthest bucket, before the draws' faces) has
+  never been checked against the game's.
+- About 1 in 30 cameras placed in random rooms of Caves sees one.
+- **Fix:** find such a view with the lab's walk, start Lara there
+  (LARA_START) and capture it.
 
 ---
 

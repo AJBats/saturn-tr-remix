@@ -10,7 +10,8 @@ static_assert(offsetof(RoomsContext, camera) == 12 && offsetof(RoomsContext, vie
               offsetof(RoomsContext, seen) == 44 && offsetof(RoomsContext, viewport) == 48 &&
               offsetof(RoomsContext, cameraRoom) == 64 && offsetof(RoomsContext, listEnd) == 72 &&
               offsetof(RoomsContext, viewMax) == 84 && offsetof(RoomsContext, geometry) == 88 &&
-              offsetof(RoomsContext, jobs) == 100 && offsetof(RoomsContext, table) == 112,
+              offsetof(RoomsContext, jobs) == 100 && offsetof(RoomsContext, table) == 112 &&
+              offsetof(RoomsContext, fills) == 116,
               "rooms.s's RoomsContext");
 static_assert(sizeof(RoomLevel) == 16 && offsetof(RoomLevel, first) == 12 && sizeof(RoomSeen) == 68,
               "rooms.s's RoomLevel, RoomSeen");
@@ -68,6 +69,7 @@ void roomsInit()
     gCtx.jobs = (FaceRoom*)sceneAlloc(ROOM_JOBS * sizeof(FaceRoom));
     gCtx.caustics = sceneArray<const RoomCaustics>("CAUW");
     gCtx.table = gCausticsTable;
+    gCtx.fills = (int32_t (*)[4])sceneAlloc(ROOM_FILLS * sizeof(*gCtx.fills));
 }
 
 void roomsSeen()
@@ -82,6 +84,31 @@ FaceRoom* roomsJobs(uint32_t &count)
     return gCtx.jobs;
 }
 
+const int32_t (*roomsFills(int32_t &count))[4]
+{
+    count = gCtx.voids < ROOM_FILLS ? gCtx.voids : ROOM_FILLS;
+    return gCtx.fills;
+}
+
+// The fills the capture's master drew before its first draw (renderVoid's
+// renderRect: a face whose first corner's vertex holds x y, the next width
+// height) against the walk's: those that differ, or a count unlike.
+static int32_t fillsCheck()
+{
+    uint32_t draws;
+    const DrawScene* draw = sceneArray<const DrawScene>("DRAW", &draws);
+    const Face* faces = sceneArray<const Face>("MPOL");
+    const Vertex* vertices = sceneArray<const Vertex>("VERT");
+    int32_t n = 0, bad = 0;
+    for (; n < int32_t(draws) && draw[n].type == DRAW_COPY; n++)
+    {
+        const Vertex* v = (const Vertex*)((const uint8_t*)vertices + faces[draw[n].first].indices[0]);
+        bad += n >= ROOM_FILLS || gCtx.fills[n][0] != v[0].x || gCtx.fills[n][1] != v[0].y ||
+               gCtx.fills[n][2] != v[0].x + v[1].x || gCtx.fills[n][3] != v[0].y + v[1].y;
+    }
+    return bad + (n != gCtx.voids);
+}
+
 void roomsPoison()
 {
     memset(gCtx.seen, 0xA5, ROOMS_LISTED * sizeof(RoomSeen));
@@ -94,7 +121,7 @@ int32_t roomsSeenCheck()
 {
     int32_t voids;
     int32_t bad = gameRoomsCheck(gCtx.seen, gCtx.listed, voids);
-    return bad + (gCtx.voids != voids) + gameRoomJobsCheck(gCtx.jobs, gCtx.jobCount);
+    return bad + (gCtx.voids != voids) + gameRoomJobsCheck(gCtx.jobs, gCtx.jobCount) + fillsCheck();
 }
 
 // Two lists of jobs: those that differ (the same caustics the same table's),
@@ -148,6 +175,7 @@ int32_t roomsSeldomCheck()
     static FaceRoom *gameJobs, *jobs;
     static RoomLevel* level;
     static int16_t table[32];
+    static int32_t gameRects[ROOM_FILLS][4], rects[ROOM_FILLS][4];
     if (!game)
     {
         game = lowArray<RoomSeen>(ROOMS_LISTED);
@@ -166,6 +194,7 @@ int32_t roomsSeldomCheck()
     ctx.seen = seen;
     ctx.jobs = jobs;
     ctx.table = table;
+    ctx.fills = rects;
     int32_t bad = 0, fills = 0, edges = 0, more = 0;
     for (int32_t pass = 0; pass < ROOM_PASSES; pass++)
     {
@@ -222,10 +251,13 @@ int32_t roomsSeldomCheck()
         view[8] = (cx * sy) >> 14;  view[9] = -sx; view[10] = (cx * cy) >> 14; view[11] = 0;
 
         int32_t count, voids, near, jobCount;
-        gameRoomsRun(ctx.cameraRoom, ctx.camera, view, game, count, voids, near, gameJobs, jobCount);
+        gameRoomsRun(ctx.cameraRoom, ctx.camera, view, game, count, voids, near, gameJobs, jobCount, gameRects);
         roomsSeenAsm(&ctx);
         roomsJobsAsm(&ctx);
         bad += count != ctx.listed || voids != ctx.voids;
+        for (int32_t i = 0; i < voids && i < ROOM_FILLS; i++) {
+            bad += memcmp(rects[i], gameRects[i], sizeof(rects[i])) != 0;
+        }
         for (int32_t i = 0; i < count && i < ctx.listed; i++)
         {
             const RoomSeen &a = ctx.seen[i], &b = game[i];
