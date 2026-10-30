@@ -11,6 +11,7 @@
 #include "rooms.h"
 #include "scene.h"
 #include "textures.h"
+#include "vertices.h"
 
 // The room texture cache from the scene (labtextures.cpp): its set (RTEX,
 // RTXI, INFO's pools) and the cache as the game's frame left it (DKEY, DSLT);
@@ -110,5 +111,74 @@ int32_t poseLightSeldomCheck();
 // floors and yaws the scene seldom gives, against the game's way on them.
 int32_t poseStaticsCheck();
 int32_t poseStaticsSeldomCheck();
+
+// Vertices from the scene (labvertices.inc): the walk's jobs and the scene's
+// draws, the meshes also laid out for meshlight3.dsp (the bench's v3, run
+// beside for its time). NULL, or what went wrong.
+const char* verticesLabInit(const FaceRoom* rooms, uint32_t roomCount);
+
+// The rooms' rotations on the DSP, a job a room, the master waiting for its
+// end: the SH-2 cycles it took. Then its rotations against xform.s's
+// arithmetic: those that differ.
+uint32_t verticesRoomsDsp();
+int32_t verticesRoomsDspCheck();
+
+// The rooms' vertices projected from the DSP's rotations, into gVertices
+// where the game put them; against the game's: the vertices that differ.
+void verticesRooms();
+int32_t verticesRoomsCheck(int32_t &vertices);
+
+// The rooms' projection where the scene seldom takes it, made-up rotations
+// through every path of both roomproject.s loops against a C model of its
+// arithmetic: the vertices that differ.
+int32_t verticesRoomsSeldomCheck();
+
+// The meshes fed to the DSP: each one's job (its coefficients, how it's
+// lit, whether it lies inside the frame), a shadow's vertices packed.
+// Then the DSP run over them, the master waiting: the SH-2 cycles it took;
+// and its output against meshxform.s's arithmetic: the vertices that differ.
+// meshlight3.dsp's run over the same, fed from the jobs, for its time.
+void verticesFeed();
+uint32_t verticesMeshesDsp();
+
+// The feeding (meshfeed.s) against its C model: on the scene's transforms,
+// then on made-up ones through every case; the jobs that differ.
+int32_t verticesFeedCheck();
+uint32_t verticesMeshesDsp3();
+int32_t verticesMeshesDspCheck();
+
+// The meshes' vertices projected in place and shaded; against the game's:
+// the vertices that differ (vertices: the meshes').
+void verticesMeshes();
+int32_t verticesMeshesCheck(int32_t &vertices);
+
+// Stage 2 the new way as a frame would run it: the DSP turns the rooms then
+// the meshes; the slave projects each room as soon as the DSP has turned it;
+// the master feeds the meshes meanwhile, then projects each as soon as the
+// DSP has made it, from the first, the slave joining from the last once its
+// rooms are done. The SH-2 cycles from the start to both CPUs done, and
+// each CPU's at work and waiting (polling the DSP, or the master the
+// slave); the DSP's rooms (to their end as the master saw it), the gap to
+// its meshes' start, and its meshes (to their end as the master saw it,
+// its own jobs done).
+struct Together
+{
+    uint32_t wall;
+    uint32_t masterWork, masterWait;
+    uint32_t slaveWork, slaveWait;
+    uint32_t dspRooms, dspGap, dspMeshes;
+};
+Together verticesTogether();
+
+// What the stages write overwritten with what they never make (the rooms'
+// rotations, the meshes' outputs, the rooms' vertices), so a check after a
+// run sees every value made in it.
+void verticesPoison();
+
+// What the scene seldom takes: the meshes' vertices projected as though none
+// lay inside the frame, then as though each lay at the near plane (its z >>
+// 14 64, so meshproject.s has it worked out from its mesh), each from the
+// DSP's output again, against the game's: the vertices that differ.
+int32_t verticesFallbacksCheck();
 
 #endif

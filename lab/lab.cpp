@@ -405,7 +405,7 @@ static void stageTwoNew()
 {
     uint32_t jobCount;
     const FaceRoom* jobs = roomsJobs(jobCount);
-    const char* error = verticesInit(jobs, jobCount);
+    const char* error = verticesLabInit(jobs, jobCount);
     if (error)
     {
         textRow(1, error);

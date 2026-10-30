@@ -1,5 +1,5 @@
 """Writes roomrot.dsp: the rooms' vertices rotated on the SCU DSP for stage 2
-the new way (lab/vertices.h), each room vertex's three sums as xform.s makes
+(renderer/vertices.h), each room vertex's three sums as xform.s makes
 them before its divide, for the CPUs to project (roomproject.s).
 
 usage: gen_roomrot.py OUT.dsp

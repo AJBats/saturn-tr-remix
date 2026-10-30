@@ -1,5 +1,5 @@
 """Writes meshrot.dsp: the meshes' vertices rotated and lit on the SCU DSP for
-stage 2 the new way (lab/vertices.h), from their data packed as the level
+stage 2 (renderer/vertices.h), from their data packed as the level
 keeps it (int16 coordinates, byte normals) and unpacked here. It makes what
 meshlight3.dsp (dspbench/gen_meshlight3.py) makes from data laid out for
 it, a longword each.

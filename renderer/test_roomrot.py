@@ -1,4 +1,4 @@
-"""Runs roomrot.dsp (lab/gen_roomrot.py) in tools/dspsim.py over a lab
+"""Runs roomrot.dsp (renderer/gen_roomrot.py) in tools/dspsim.py over a lab
 scene's rooms, checks every vertex's three sums against xform.s's arithmetic
 (vertices.cpp vertexModel's), and times it as Mednafen and as the Saturn
 would.

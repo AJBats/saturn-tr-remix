@@ -1,4 +1,4 @@
-"""Runs meshrot.dsp (lab/gen_meshrot.py) in tools/dspsim.py over the bench's
+"""Runs meshrot.dsp (renderer/gen_meshrot.py) in tools/dspsim.py over the bench's
 page 5 meshes (dspbench/test_meshlight.py), the planks unlit by their
 normals, checks every vertex against meshxform.s's arithmetic, and times it
 as Mednafen and as the Saturn would, beside meshlight3.dsp over the same
