@@ -33,6 +33,7 @@
 #include "lab.h"
 #include "faces.h"
 #include "game.h"
+#include "draws.h"
 #include "pose.h"
 #include "rooms.h"
 #include "vertices.h"
@@ -149,6 +150,9 @@ struct LabResults
     uint32_t draws;             // cycles: the draw list the game's way (the renderer's side of the calls)
     int32_t drawsBad;           // ... its draws, items, statics, shadows and faces not the capture's
     uint32_t drawCalls;         // the calls it took
+    uint32_t drawsNew;          // cycles: the draw list the new way
+    int32_t drawsNewBad;        // ... not the game's way's
+    int32_t drawsSeldom;        // ... on made-up calls, against the game's way on them (and paths not taken)
     uint32_t arenaUsed;         // bytes of high work RAM the scene and the stages took (sceneUsed)
     uint32_t arenaSize;
 };
@@ -350,6 +354,11 @@ static void stagePose()
     gLab.draws = measure([] {}, [fills] { gameDraws(fills); });
     gameDraws(fills);
     gLab.drawsBad = gameDrawsCheck(gameDrawList(), fills);
+    drawsInit();
+    gLab.drawsNew = measure([] {}, [fills] { draws(fills); });
+    draws(fills);
+    gLab.drawsNewBad = drawsCheck(gameDrawList());
+    gLab.drawsSeldom = drawsSeldomCheck();
 }
 
 static void stageTwo()
@@ -1322,10 +1331,16 @@ static void posePage()
     timeRow(page, "items' light", gLab.lightNew, gLab.poseItems, "item");
     timeRow(page, "statics, shadows", gLab.staticsNew, gLab.staticCount + gLab.shadowCount, "each");
     timeRow(page, "rooms seen", gLab.roomsNew, gLab.roomsSeen, "room");
+    timeRow(page, "draw list", gLab.drawsNew, gLab.drawCalls, "call");
     p = put(line, gLab.roomsNewBad ? "OFF: rooms seen" : "exact: rooms seen");
     p = putNumber(p, gLab.roomsNewBad, 2);
     p = put(p, " off, seldom");
     putNumber(p, gLab.roomsSeldom, 2);
+    page.add(line);
+    p = put(line, gLab.drawsNewBad ? "OFF: draw list" : "exact: draw list");
+    p = putNumber(p, gLab.drawsNewBad, 2);
+    p = put(p, " off, seldom");
+    putNumber(p, gLab.drawsSeldom, 2);
     page.add(line);
     p = put(line, gLab.poseNewBad || gLab.lightNewBad ? "OFF: matrices" : "exact: matrices");
     p = putNumber(p, gLab.poseNewBad, 2);

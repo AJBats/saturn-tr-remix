@@ -617,6 +617,28 @@ const DrawList& gameDrawList()
     return gList;
 }
 
+void gameDrawsRun(const CallRecord* calls, uint32_t count, ItemRecord* items, const GameAnim* anims, int32_t fills,
+                  DrawList &out)
+{
+    const CallRecord* sceneCalls = gCalls;
+    uint32_t sceneCount = gCallCount;
+    ItemRecord* sceneItems = gItems;
+    const GameAnim* sceneAnims = gAnims;
+    DrawList sceneList = gList;
+    gCalls = calls;
+    gCallCount = count;
+    gItems = items;
+    gAnims = anims;
+    gList = out;
+    gameDraws(fills);
+    out = gList;
+    gCalls = sceneCalls;
+    gCallCount = sceneCount;
+    gItems = sceneItems;
+    gAnims = sceneAnims;
+    gList = sceneList;
+}
+
 // A frame's bytes (its box, place and packed angles) against another's.
 static bool sameFrame(uint32_t a, const uint8_t* b, int32_t count)
 {
