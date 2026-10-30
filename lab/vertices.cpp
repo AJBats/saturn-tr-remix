@@ -8,6 +8,7 @@
 #include "meshrot_dsp.h"
 #include "roomrot_dsp.h"
 
+#include <stddef.h>
 #include <string.h>
 
 #define FIXED_SHIFT     14
@@ -93,6 +94,30 @@ struct MeshJob
     const DrawXform* xform;
 };
 
+// meshfeed.s's offsets
+static_assert(offsetof(MeshJob, count) == 8 && offsetof(MeshJob, inside) == 12 &&
+              offsetof(MeshJob, shading) == 16 && offsetof(MeshJob, shades) == 20 &&
+              offsetof(MeshJob, normals) == 24 && offsetof(MeshJob, intensity) == 28 &&
+              offsetof(MeshJob, far) == 32 && offsetof(MeshJob, packed) == 36 &&
+              offsetof(MeshJob, center) == 40 && offsetof(MeshJob, radius) == 44 &&
+              offsetof(MeshJob, xform) == 52 && sizeof(MeshJob) == 56, "meshfeed.s's MeshJob");
+static_assert(offsetof(MeshDspJob, src) == 64 && sizeof(MeshDspJob) == 84, "meshfeed.s's MeshDspJob");
+static_assert(offsetof(DrawXform, ambient) == 48 && offsetof(DrawXform, light) == 56 &&
+              offsetof(DrawXform, shadow) == 62, "meshfeed.s's DrawXform");
+
+extern "C" void verticesFeedAsm(MeshJob* jobs, int32_t count, MeshDspJob* dsp, const uint32_t* tails);
+
+// A job's last three longwords, without normals then with: where a group
+// begins, where it lands in MD2, its longwords.
+static const uint32_t kTails[6] = { MESHROT_DSP_COORDS, 4, 6, MESHROT_DSP_NORMALS, 0, 10 };
+
+// What feeding leaves of a job but its DSP job, for the check.
+struct FeedResult
+{
+    int32_t inside, far, shading;
+    uint32_t shadow[SHADOW_VERTICES / 4 * 6];
+};
+
 static const RoomScene* gRooms;
 static uint32_t gRoomCount;
 static const uint8_t* gRoomGeometry;
@@ -136,6 +161,12 @@ static RoomVertex* gSeldomPoints;
 static Vertex* gSeldomAsm;
 static Vertex* gSeldomModel;
 
+// The feeding's check: the C's jobs and results, made-up transforms (each
+// in the scene's arena).
+static MeshDspJob* gFeedC;
+static FeedResult* gFeedResults;
+static DrawXform* gFeedXforms;
+
 static inline const RoomVertex* roomPoints(const RoomScene &room)
 {
     return (const RoomVertex*)(gRoomGeometry + room.vertices);
@@ -150,7 +181,8 @@ static inline int32_t clamp(int32_t v, int32_t lo, int32_t hi)
 // multiply-accumulate unit does.
 static inline int32_t row(const int32_t* m, int32_t t, int32_t x, int32_t y, int32_t z)
 {
-    return int32_t(uint32_t(t) + uint32_t(m[0] * x) + uint32_t(m[1] * y) + uint32_t(m[2] * z));
+    return int32_t(uint32_t(t) + uint32_t(m[0]) * uint32_t(x) + uint32_t(m[1]) * uint32_t(y) +
+                   uint32_t(m[2]) * uint32_t(z));
 }
 
 static inline int32_t row16(const int16_t* m, int32_t t, int32_t x, int32_t y, int32_t z)
@@ -273,6 +305,11 @@ const char* verticesInit()
     gSeldomModel = (Vertex*)sceneAlloc(SELDOM_VERTICES * sizeof(Vertex));
     if (!gMeshPacked || !gMeshReady || !gSeldomModel)
         return "no room for the meshes' layouts";
+    gFeedXforms = (DrawXform*)sceneAlloc(gDrawCount * sizeof(DrawXform));
+    gFeedC = (MeshDspJob*)sceneAlloc((gDrawCount + 1) * sizeof(MeshDspJob));
+    gFeedResults = (FeedResult*)sceneAlloc(gDrawCount * sizeof(FeedResult));
+    if (!gFeedResults)
+        return "no room for the feeding's check";
     memset(gMeshPacked, 0, packedLongwords * 4);
     uint32_t* packed = gMeshPacked;
     int32_t* ready = gMeshReady;
@@ -608,14 +645,17 @@ void verticesRooms()
 static bool meshInside(const DrawXform &d, const int16_t* center, int32_t radius, bool &far)
 {
     const int32_t* m = d.m;
-    int32_t cx = (m[0] * center[0] + m[1] * center[1] + m[2] * center[2] + m[3]) >> FIXED_SHIFT;
-    int32_t cy = (m[4] * center[0] + m[5] * center[1] + m[6] * center[2] + m[7]) >> FIXED_SHIFT;
-    int32_t cz = (m[8] * center[0] + m[9] * center[1] + m[10] * center[2] + m[11]) >> FIXED_SHIFT;
-    far = cz + radius > 30000 || cz - radius < -30000;
-    int32_t zNear = cz - radius;
-    return (zNear > (VIEW_MIN_F >> FIXED_SHIFT)) && (cz + radius < VIEW_DIST) &&
-           (((cx < 0 ? -cx : cx) + radius) * 256 < ((FRAME_WIDTH >> 1) - 4) * zNear) &&
-           (((cy < 0 ? -cy : cy) + radius) * 256 < ((FRAME_HEIGHT >> 1) - 4) * zNear);
+    int32_t cx = row(m, m[3], center[0], center[1], center[2]) >> FIXED_SHIFT;
+    int32_t cy = row(m + 4, m[7], center[0], center[1], center[2]) >> FIXED_SHIFT;
+    int32_t cz = row(m + 8, m[11], center[0], center[1], center[2]) >> FIXED_SHIFT;
+    int32_t zFar = int32_t(uint32_t(cz) + uint32_t(radius));
+    int32_t zNear = int32_t(uint32_t(cz) - uint32_t(radius));
+    far = zFar > 30000 || zNear < -30000;
+    int32_t ax = int32_t((uint32_t(cx < 0 ? -uint32_t(cx) : cx) + uint32_t(radius)) << 8);
+    int32_t ay = int32_t((uint32_t(cy < 0 ? -uint32_t(cy) : cy) + uint32_t(radius)) << 8);
+    return (zNear > (VIEW_MIN_F >> FIXED_SHIFT)) && (zFar < VIEW_DIST) &&
+           (ax < int32_t(uint32_t((FRAME_WIDTH >> 1) - 4) * uint32_t(zNear))) &&
+           (ay < int32_t(uint32_t((FRAME_HEIGHT >> 1) - 4) * uint32_t(zNear)));
 }
 
 // A vertex of the job's in mesh space, and its normal, from its groups.
@@ -639,9 +679,10 @@ static void meshLight(const DrawXform &x, int32_t &lx, int32_t &ly, int32_t &lz)
 {
     const int32_t* m = x.m;
     const int16_t* l = x.light;
-    lx = (m[0] * l[0] + m[4] * l[1] + m[8] * l[2]) >> (FIXED_SHIFT + 7);
-    ly = (m[1] * l[0] + m[5] * l[1] + m[9] * l[2]) >> (FIXED_SHIFT + 7);
-    lz = (m[2] * l[0] + m[6] * l[1] + m[10] * l[2]) >> (FIXED_SHIFT + 7);
+    const int32_t c0[3] = { m[0], m[4], m[8] }, c1[3] = { m[1], m[5], m[9] }, c2[3] = { m[2], m[6], m[10] };
+    lx = row(c0, 0, l[0], l[1], l[2]) >> (FIXED_SHIFT + 7);
+    ly = row(c1, 0, l[0], l[1], l[2]) >> (FIXED_SHIFT + 7);
+    lz = row(c2, 0, l[0], l[1], l[2]) >> (FIXED_SHIFT + 7);
 }
 
 // The game's arithmetic for one mesh vertex but its shade (meshxform.s
@@ -682,13 +723,14 @@ static void meshExact(MeshProject* mp, int32_t index, Vertex* v)
     v->clip = clip;
 }
 
-void verticesFeed()
+// The feeding in C, meshfeed.s's model: the DSP's jobs to dsp.
+static void verticesFeedC(MeshDspJob* jobs)
 {
     for (int32_t i = 0; i < gJobCount; i++)
     {
         MeshJob &job = gJobs[i];
         const DrawXform &x = *job.xform;
-        MeshDspJob &dsp = gDspJobs[i];
+        MeshDspJob &dsp = jobs[i];
         if (!job.center)
         {
             const int16_t* s = x.shadow;
@@ -708,9 +750,9 @@ void verticesFeed()
         const int32_t t[3] = { x.m[3], x.m[7], x.m[11] };
         for (int32_t r = 0; r < 3; r++)
         {
-            dsp.k[4 * r] = t[r] * 4;
+            dsp.k[4 * r] = int32_t(uint32_t(t[r]) << 2);
             for (int32_t k = 0; k < 3; k++) {
-                dsp.k[4 * r + 1 + k] = x.m[4 * r + k] * 4;
+                dsp.k[4 * r + 1 + k] = int32_t(uint32_t(x.m[4 * r + k]) << 2);
             }
         }
         int32_t range = x.range * -4;
@@ -749,7 +791,111 @@ void verticesFeed()
         dsp.place = job.normals ? 0 : 4;
         dsp.longwords = job.normals ? 10 : 6;
     }
-    gDspJobs[gJobCount].groups = 0;
+    jobs[gJobCount].groups = 0;
+}
+
+void verticesFeed()
+{
+    verticesFeedAsm(gJobs, gJobCount, gDspJobs, kTails);
+}
+
+// The C's feeding of the jobs as they stand, then the assembly's: the jobs
+// whose DSP job, results or shadow differ.
+static int32_t feedCompare()
+{
+    verticesFeedC(gFeedC);
+    for (int32_t i = 0; i < gJobCount; i++)
+    {
+        const MeshJob &job = gJobs[i];
+        FeedResult &r = gFeedResults[i];
+        r.inside = job.inside;
+        r.far = job.far;
+        r.shading = job.shading;
+        if (!job.center) {
+            memcpy(r.shadow, job.packed, sizeof(r.shadow));
+        }
+    }
+    memset(gDspJobs, 0xA5, (gJobCount + 1) * sizeof(MeshDspJob));
+    verticesFeed();
+    int32_t bad = 0;
+    for (int32_t i = 0; i < gJobCount; i++)
+    {
+        const MeshJob &job = gJobs[i];
+        const FeedResult &r = gFeedResults[i];
+        bad += memcmp(gDspJobs + i, gFeedC + i, sizeof(MeshDspJob)) || job.inside != r.inside ||
+               job.far != r.far || job.shading != r.shading ||
+               (!job.center && memcmp(r.shadow, job.packed, sizeof(r.shadow)));
+    }
+    return bad + (gDspJobs[gJobCount].groups != 0);
+}
+
+int32_t verticesFeedCheck()
+{
+    // the scene's transforms; then made up, each pass a kind for every job:
+    // far either way, behind the camera, off to each side, at the near plane,
+    // lights the DSP can't take (range past the ambient, the light too
+    // strong), meshes lit by none, and the transforms at random
+    int32_t bad = feedCompare();
+    const DrawXform* scene[MAX_DRAWS];
+    for (int32_t i = 0; i < gJobCount; i++) {
+        scene[i] = gJobs[i].xform;
+    }
+    uint32_t seed = 0x3243F6A8;
+    auto next = [&seed] { seed = seed * 1664525 + 1013904223; return seed; };
+    int32_t inside = 0, outside = 0, far = 0, shading[3] = {};
+    for (int32_t pass = 0; pass < 10; pass++)
+    {
+        for (int32_t i = 0; i < gJobCount; i++)
+        {
+            DrawXform &x = gFeedXforms[i];
+            x = *scene[i];
+            int32_t* t = x.m;
+            switch (pass)
+            {
+            case 0: t[11] += 40000 << FIXED_SHIFT; break;
+            case 1: t[11] -= 40000 << FIXED_SHIFT; break;
+            case 2: t[11] = -t[11]; break;
+            case 3: t[3] += int32_t(next() % 4000 + 1) << FIXED_SHIFT; break;
+            case 4: t[3] -= int32_t(next() % 4000 + 1) << FIXED_SHIFT; break;
+            case 5: t[7] += (int32_t(next() % 3000) - 1500) * (1 << FIXED_SHIFT); t[11] = int32_t(next() % 200) << FIXED_SHIFT; break;
+            case 6: x.range = x.ambient + int32_t(next() % 100) + 1; break;
+            case 7: x.light[0] = x.light[1] = x.light[2] = 32767; break;
+            case 8: x.range = 0; x.ambient = int32_t(next() >> 16) - 0x4000; break;
+            default:
+                for (int32_t k = 0; k < 12; k++) {
+                    x.m[k] = int32_t(next());
+                }
+                x.ambient = int32_t(next() >> 19);
+                x.range = int32_t(next() >> 20);
+                for (int32_t k = 0; k < 3; k++) {
+                    x.light[k] = int16_t(next() >> 16);
+                }
+                for (int32_t k = 0; k < 4; k++) {
+                    x.shadow[k] = int16_t(next() >> 16);
+                }
+            }
+            gJobs[i].xform = &x;
+        }
+        bad += feedCompare();
+        for (int32_t i = 0; i < gJobCount; i++)
+        {
+            const MeshJob &job = gJobs[i];
+            inside += job.inside;
+            outside += job.center && !job.inside;
+            far += job.far;
+            shading[job.shading]++;
+        }
+    }
+    for (int32_t i = 0; i < gJobCount; i++) {
+        gJobs[i].xform = scene[i];
+    }
+    verticesFeed();
+
+    // a case never met counts as every job off
+    if (!inside || !outside || !far || !shading[MESH_SHADED] || !shading[MESH_SHADES] || !shading[MESH_NORMALS]) {
+        bad += gJobCount;
+    }
+    return bad;
 }
 
 uint32_t verticesMeshesDsp()

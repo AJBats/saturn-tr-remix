@@ -89,6 +89,10 @@ int32_t verticesRoomsSeldomCheck();
 // meshlight3.dsp's run over the same, fed from the jobs, for its time.
 void verticesFeed();
 uint32_t verticesMeshesDsp();
+
+// The feeding (meshfeed.s) against its C model: on the scene's transforms,
+// then on made-up ones through every case; the jobs that differ.
+int32_t verticesFeedCheck();
 uint32_t verticesMeshesDsp3();
 int32_t verticesMeshesDspCheck();
 

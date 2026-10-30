@@ -91,6 +91,7 @@ struct LabResults
     int32_t dspMeshesBad;       // its output not meshxform.s's arithmetic
     uint32_t dspMeshes3;        // ... meshlight3.dsp (the bench's v3) took, from data laid out for it
     int32_t dspMeshes3Bad;
+    int32_t feedBad;            // the jobs the feeding's assembly makes not as its C
 };
 
 extern "C" LabResults gLab;
@@ -263,6 +264,7 @@ static void stageTwoNew()
     gLab.dspRooms = verticesRoomsDsp();
     gLab.dspRoomsBad = verticesRoomsDspCheck();
     gLab.newVertsRooms = measure([] { gameVerticesPrepare(); }, [] { verticesRooms(); });
+    gLab.feedBad = verticesFeedCheck();
     gLab.newVertsFeed = measure([] {}, [] { verticesFeed(); });
     gLab.dspMeshes3 = verticesMeshesDsp3();
     gLab.dspMeshes3Bad = verticesMeshesDspCheck();
@@ -778,6 +780,10 @@ static void verticesPage()
     page.add(line);
     p = put(line, "  v3 as modelled:");
     p = putNumber(p, gLab.dspMeshes3Bad, 2);
+    put(p, " off");
+    page.add(line);
+    p = put(line, "feeding's asm as its C:");
+    p = putNumber(p, gLab.feedBad, 2);
     put(p, " off");
     page.add(line);
     page.add("");
