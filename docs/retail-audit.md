@@ -1,5 +1,9 @@
 # Retail audit: our build vs retail Saturn Tomb Raider (2026-10-29)
 
+> The live, numbered list with full details is [OPEN_ISSUES.md](../OPEN_ISSUES.md).
+> Each issue there carries the audit ID used here. This file is the audit's
+> snapshot.
+
 Every place found where our build (at a98d9fa) plays, looks or sounds
 different from retail Saturn TR1 (T-7910H). The audit was prompted by four
 things noticed in play: the underwater woosh, unshaded inventory items, the
