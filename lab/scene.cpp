@@ -6,8 +6,9 @@
 
 #include <string.h>
 
-#define LOW_RAM         0x00200000  // the file, as read: low work RAM is the lab's
+#define LOW_RAM         0x00200000  // the file's low chunks, as read: low work RAM is the lab's
 #define LOW_RAM_SIZE    0x00100000
+#define SECTOR          2048
 #define ARENA_SIZE      (360 * 1024)
 #define MAX_CHUNKS      64
 
@@ -26,54 +27,65 @@ static uint8_t* gData[MAX_CHUNKS];
 static uint32_t gUsed;
 static uint8_t* gLow;       // low work RAM past the file's low chunks
 
+// The file holds its low chunks first (the chunk table among them), then its
+// high ones, then its VDP1 one, each run from a sector's start
+// (tools/labscene.py): each run is read straight to where it lives.
 const char* sceneLoad(const char* path)
 {
     if (cdInit() < 0)
         return "no CD";
-    uint8_t* file = (uint8_t*)LOW_RAM;
-    int32_t size = cdLoadFile(path, file, LOW_RAM_SIZE);
-    if (size < 8)
+    uint32_t lba, size;
+    if (cdFind(path, &lba, &size) != 0 || size < SECTOR)
         return "no scene file";
+    uint8_t* file = (uint8_t*)LOW_RAM;
+    if (cdRead(lba, SECTOR, file) != 0)
+        return "the scene file unread";
     if (((const uint32_t*)file)[0] != SCENE_MAGIC || ((const uint32_t*)file)[1] > MAX_CHUNKS)
         return "not a scene";
 
+    // each run's span in the file
     gCount = ((const uint32_t*)file)[1];
     gChunks = (const Chunk*)(file + 8);
-    uint32_t used = 0, low = 8 + 16 * gCount;
+    uint32_t from[3] = { size, size, size }, to[3] = { 0, 0, 0 };
+    from[WHERE_LOW] = 0;
+    to[WHERE_LOW] = 8 + 16 * gCount;
     for (uint32_t i = 0; i < gCount; i++)
     {
         const Chunk &c = gChunks[i];
-        if (c.offset + c.size > uint32_t(size))
+        if (c.offset + c.size > size || c.where > WHERE_VDP1)
             return "a chunk past the file's end";
-        uint8_t* src = file + c.offset;
-        if (c.where == WHERE_VDP1)
-        {
-            if (c.size > 0x80000)
-                return "VRAM chunk too big";
-            volatile uint32_t* dst = (volatile uint32_t*)VDP1_VRAM;
-            for (uint32_t k = 0; k < c.size / 4; k++) {
-                dst[k] = ((const uint32_t*)src)[k];
-            }
-            gData[i] = nullptr;
-        }
-        else if (c.where == WHERE_LOW)
-        {
-            gData[i] = src;
-            low = c.offset + c.size > low ? c.offset + c.size : low;
-        }
-        else
-        {
-            if (used + c.size > ARENA_SIZE)
-                return "scene too big for high work RAM";
-            gData[i] = gArena + used;
-            memcpy(gData[i], src, c.size);
-            used = (used + c.size + 15) & ~15;
-        }
+        from[c.where] = c.offset < from[c.where] ? c.offset : from[c.where];
+        to[c.where] = c.offset + c.size > to[c.where] ? c.offset + c.size : to[c.where];
     }
-    gUsed = used;
-    // the high and VDP1 chunks lie past the low ones, copied where they
-    // belong: their room is the lab's again
-    gLow = file + ((low + 15) & ~15);
+    if (to[WHERE_LOW] > LOW_RAM_SIZE)
+        return "scene too big for low work RAM";
+    if (to[WHERE_HIGH] > from[WHERE_HIGH] && to[WHERE_HIGH] - from[WHERE_HIGH] > ARENA_SIZE)
+        return "scene too big for high work RAM";
+    if (to[WHERE_VDP1] > from[WHERE_VDP1] && to[WHERE_VDP1] - from[WHERE_VDP1] > 0x80000)
+        return "VRAM chunk too big";
+    if (from[WHERE_HIGH] % SECTOR || from[WHERE_VDP1] % SECTOR)
+        return "a run not at a sector's start";
+
+    // the runs where they live
+    if (cdRead(lba, to[WHERE_LOW], file) != 0)
+        return "the scene file unread";
+    gUsed = 0;
+    if (to[WHERE_HIGH] > from[WHERE_HIGH])
+    {
+        if (cdRead(lba + from[WHERE_HIGH] / SECTOR, to[WHERE_HIGH] - from[WHERE_HIGH], gArena) != 0)
+            return "the scene file unread";
+        gUsed = (to[WHERE_HIGH] - from[WHERE_HIGH] + 15) & ~15;
+    }
+    if (to[WHERE_VDP1] > from[WHERE_VDP1] &&
+        cdRead(lba + from[WHERE_VDP1] / SECTOR, to[WHERE_VDP1] - from[WHERE_VDP1], (void*)VDP1_VRAM) != 0)
+        return "the scene file unread";
+    for (uint32_t i = 0; i < gCount; i++)
+    {
+        const Chunk &c = gChunks[i];
+        gData[i] = c.where == WHERE_LOW ? file + c.offset
+                 : c.where == WHERE_HIGH ? gArena + (c.offset - from[WHERE_HIGH]) : nullptr;
+    }
+    gLow = file + ((to[WHERE_LOW] + 15) & ~15);
     return nullptr;
 }
 

@@ -37,6 +37,8 @@ VRAM_GOURAUD_BASE = VRAM_FRAME_CMDS + 1792 * 32
 DIV_TABLE_SIZE = 1281
 DETAIL_KEYS_BYTES = 7 * 1088
 DETAIL_SLOTS_BYTES = 256 * 8
+DETAIL_MAX_UPLOADS = 32
+SECTOR = 2048
 SHADE_CACHE_BYTES = 2064
 PALETTE_COLOURS = 256
 TEXTURE_BYTES = 16
@@ -222,6 +224,30 @@ def main():
     chunks['SHCA'] = mem.bytes(sym('__ZL12gShadeCaches'), 2 * SHADE_CACHE_BYTES)
     chunks['DKEY'] = mem.bytes(sym('_gDetailKeys'), DETAIL_KEYS_BYTES)
     chunks['DSLT'] = mem.bytes(sym('_gDetailSlots'), DETAIL_SLOTS_BYTES)
+
+    # the room texture cache as the frame found it (a capture without that:
+    # as it left it, which serves a frame that missed nothing), the uploads
+    # the frame's faces queued, and the level's room texture set the misses
+    # take textures from: its levels (full res, half, quarter), the full-res
+    # set's size, each level's pool's slots
+    if 'cache' in header:
+        chunks['DKY0'] = mem.bytes(header['cache'], cap.CACHE_KEYS)
+        chunks['DSL0'] = mem.bytes(header['cache'] + cap.CACHE_KEYS, cap.CACHE_SLOTS)
+        uploads = header['uploads']
+    else:
+        chunks['DKY0'], chunks['DSL0'], uploads = chunks['DKEY'], chunks['DSLT'], []
+    data = mem.unpack('>3I', sym('__ZL5gData'))
+    data_size = u32(mem, sym('__ZL9gDataSize'))
+    pools = mem.unpack('>3i', sym('__ZL10gPoolCount'))
+    levels = [a - data[0] for a in data]
+    set_bytes = levels[1] + levels[1] // 4 + levels[1] // 16 if pools[1] else data_size
+    chunks['RTEX'] = mem.bytes(data[0], set_bytes)
+    chunks['RTXI'] = struct.pack('>3II3i', *levels, data_size, *pools)
+    queue = b''.join(struct.pack('>3I', u['src'] - data[0], u['dst'] | u['variant'] << 24, u['w'] << 16 | u['h'])
+                     for u in uploads)
+    if any(not 0 <= u['src'] - data[0] < set_bytes for u in uploads):
+        sys.exit('an upload comes from outside the room texture set')
+    chunks['DUPL'] = struct.pack('>i', len(uploads)) + queue + bytes(12 * (DETAIL_MAX_UPLOADS - len(uploads)))
     chunks['DIVT'] = mem.bytes(sym('_divTable'), DIV_TABLE_SIZE * 2)
 
     # the rooms, in the order the slave added their faces: a face is the
@@ -437,7 +463,7 @@ def main():
             chosen.append(match[0] if match else corners[0])
         shades = [mem.unpack('>B', vertices + c + 6)[0] for c in chosen]
         gouraud = (shade_gouraud[shades[0]] << 16 | shade_gouraud[shades[1]],
-                   shade_gouraud[shades[2]] << 16 | shade_gouraud[shades[3]])
+                   shade_gouraud[shades[2]] << 16 | shade_gouraud[shades[3]]) if max(shades) < 32 else None
         ok = found and (not (w[1] >> 16) & 4 or gouraud == g)
         exact += ok
         floor += FLOOR.pack(w[0], w[1], w[2], *chosen, FLOOR_EXACT if ok else 0)
@@ -454,24 +480,32 @@ def main():
                                sys.argv[1].upper().encode()[:15])
 
     # where each lives in the lab, as in the game: high work RAM, but for the
-    # level's palette and sprites in low; and VDP1 VRAM. What no timed run
-    # reads lies in low work RAM: the game's list, the vertices as it drew
-    # them, the ordering tables flush was given (the checks' and an untimed
-    # preparation's). The low chunks come first in the file: the lab takes
+    # level's palette, sprites and room texture set in low; and VDP1 VRAM.
+    # What no timed run reads lies in low work RAM: the game's list, the
+    # vertices as it drew them, the ordering tables flush was given, the
+    # texture cache as the frame found it and the uploads it queued (the
+    # checks' and an untimed preparation's). The low chunks come first in the file: the lab takes
     # low work RAM past them back once the rest is where it belongs.
     order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
                  'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT',
                  'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PLIT', 'LGHT', 'STAT', 'SHDW', 'RLVL', 'RPRT',
                  'RVIS', 'RLGE', 'CAUW', 'CALL', 'OITM', 'ANIM', 'AFRM', 'MODL', 'MIDX', 'MNOD', 'SMSH', 'RLIT',
-                 'PALT', 'SPRS', 'VRAM']
+                 'DKY0', 'DSL0', 'DUPL', 'RTXI', 'RTEX', 'PALT', 'SPRS', 'VRAM']
     where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1, 'CMDS': WHERE_LOW, 'GRDS': WHERE_LOW,
-             'VERT': WHERE_LOW, 'ORDR': WHERE_LOW}
+             'VERT': WHERE_LOW, 'ORDR': WHERE_LOW, 'DKY0': WHERE_LOW, 'DSL0': WHERE_LOW, 'DUPL': WHERE_LOW,
+             'RTXI': WHERE_LOW, 'RTEX': WHERE_LOW}
     table = 8 + 16 * len(order_ids)
     offset = (table + 15) & ~15
     body = bytearray()
     at = {}
     rank = {WHERE_LOW: 0, WHERE_HIGH: 1, WHERE_VDP1: 2}
+    run = WHERE_LOW
     for cid in sorted(order_ids, key=lambda c: rank[where.get(c, WHERE_HIGH)]):
+        if where.get(cid, WHERE_HIGH) != run:
+            # the next run (high, then VDP1) from a sector's start: the lab
+            # reads each straight to where it lives
+            run = where.get(cid, WHERE_HIGH)
+            body += bytes(-(offset + len(body)) % SECTOR)
         at[cid] = offset + len(body)
         body += chunks[cid]
         body += bytes(-len(body) % 16)

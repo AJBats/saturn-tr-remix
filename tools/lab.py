@@ -33,7 +33,7 @@ LAB_MAGIC = 0x4C414231
 MAX_CMDS = 1792
 SHADE_CACHE = struct.Struct('>4I256I256I')      # game.h ShadeCache
 SHADE_TABLE_SIZE = 32
-LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIiIii5Ii3I5IiI3iI2iIiI2iI3iI2iI3iI2i5I2iIiII2i4Ii9Ii5I')    # lab.cpp LabResults
+LAB_RESULTS = struct.Struct('>7I4i4I5I6i3I2I3iIiIiIiIIiIii5Ii3I5IiI3iI2iIiI2iI3iI2iI3iI2i5I2iIiII2i4Ii9Ii5I3i')    # lab.cpp LabResults
 FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSlave', 'floor',
           'facesBad', 'flushBad', 'splitBad', 'floorBad', 'vdp1Game', 'vdp1Lab', 'meshFacesGiven',
           'roomFacesGiven', 'meshFlush', 'roomFlush', 'newMeshes', 'newRooms', 'newJoin', 'newBad', 'newBadC',
@@ -52,7 +52,7 @@ FIELDS = ('magic', 'facesMeshes', 'facesRooms', 'flush', 'splitMaster', 'splitSl
           'draws', 'drawsBad', 'drawCalls', 'drawsNew', 'drawsNewBad', 'drawsSeldom', 'arenaUsed', 'arenaSize',
           'lowUsed', 'lowSize', 'othersBad', 'runFrames', 'runFrame', 'runStages', 'runVdp1Wait', 'runVblank',
           'runUpload', 'runVdp1', 'runWaited', 'uploadBytes', 'uploadBad', 'stagesDsp', 'frameDsp',
-          'runMaster', 'runSlave', 'runDsp')
+          'runMaster', 'runSlave', 'runDsp', 'texturesQueued', 'texturesGameOff', 'texturesUploadOff')
 TEXT_ROWS, TEXT_COLUMNS = 26, 42
 PAGE = struct.Struct(f'>{TEXT_ROWS * (TEXT_COLUMNS + 1)}s2xi')     # lab.h Page
 VRAM_FRAME_CMDS = 0x60
@@ -77,6 +77,47 @@ def chunks(path):
         cid, offset, size, _ = struct.unpack('>4sIII', data[8 + 16 * i:24 + 16 * i])
         out[cid.decode()] = data[offset:offset + size]
     return out
+
+
+TEXTURE_QUEUE = struct.Struct('>i96I')     # textures.h TextureQueue
+DETAIL_QUADS, TURNED = 1, (2, 4, 6)       # DetailVariant: in quadrants; transposed
+
+
+def staged(texture_set, src, variant, w, h):
+    """lab/textures.cpp staged: a texture of the room texture set as its
+    slot holds it: whole, in quadrants (clockwise from top left) or
+    transposed (texel x, y to y, x; 4 bits a texel, the first the high
+    nibble)."""
+    data = texture_set[src:src + w * h // 2]
+    if variant == DETAIL_QUADS:
+        qw, qh = w // 2, h // 2
+        row = qw // 2
+        out = bytearray()
+        for ox, oy in ((0, 0), (1, 0), (1, 1), (0, 1)):
+            for r in range(qh):
+                at = (oy * qh + r) * row * 2 + ox * row
+                out += data[at:at + row]
+        return bytes(out)
+    if variant in TURNED:
+        texel = lambda x, y: data[(y * w + x) // 2] >> (4 if x % 2 == 0 else 0) & 15
+        out = bytearray()
+        for x in range(w):
+            for y in range(0, h, 2):
+                out.append(texel(x, y) << 4 | texel(x, y + 1))
+        return bytes(out)
+    return data
+
+
+def uploaded(vram, texture_set, queue):
+    """VDP1 VRAM with a TextureQueue's textures in their slots."""
+    count, *words = TEXTURE_QUEUE.unpack(queue)
+    image = bytearray(vram)
+    for i in range(count):
+        src, dst, size = words[3 * i:3 * i + 3]
+        texture = staged(texture_set, src, dst >> 24, size >> 16, size & 0xFFFF)
+        at = dst & 0xFFFFFF
+        image[at:at + len(texture)] = texture
+    return bytes(image)
 
 
 SAME_NOT, SAME, SAME_PICTURE = 0, 1, 2
@@ -369,6 +410,7 @@ def main():
         caches = med.read(struct.unpack('>I', med.read(caches_at, 4))[0], 2 * SHADE_CACHE.size)
         walk_cmds_at, walk_grds_at, walk_end = struct.unpack('>IIi', med.read(walk_at, 12))
         walk_caches = med.read(walk_at + 12, 2 * SHADE_CACHE.size)
+        walk_textures = med.read(walk_at + 12 + 2 * SHADE_CACHE.size, TEXTURE_QUEUE.size)
         walk_cmds = med.read(walk_cmds_at, (walk_end + 1) * 32)
         walk_grds = med.read(walk_grds_at, walk_end * 8)
         vram = med.read(cap.VDP1_VRAM, cap.VDP1_BYTES)
@@ -412,10 +454,11 @@ def main():
           f'drawn through shaded copies: new {shaded[0]}, game {shaded[1]}; the new way\'s frames to settle '
           f'{results["newFrames"]}')
 
-    # each drawn over VDP1 VRAM with its own shaded copies: the game's as the
-    # scene has them, the new way's as the lab left them
+    # each drawn over VDP1 VRAM with its own shaded copies and room textures:
+    # the game's as the scene has them (in walk order, its own uploads made),
+    # the new way's as the lab left them
     game_frame, game_cycles = draw(scene['VRAM'], game_cmds, game_grds)
-    walk_frame, walk_cycles = draw(scene['VRAM'], walk_cmds, walk_grds)
+    walk_frame, walk_cycles = draw(uploaded(scene['VRAM'], scene['RTEX'], walk_textures), walk_cmds, walk_grds)
     new_frame, new_cycles = draw(vram, new_cmds[:(end + 1) * 32], new_grds[:end * 8])
     order = int(np.any(game_frame != walk_frame, axis=2).sum())
     differ = int(np.any(walk_frame != new_frame, axis=2).sum())
@@ -427,7 +470,8 @@ def main():
     sys.exit(1 if bad or differ or any(results[k] for k in ('poseBad', 'lightBad', 'poseNewBad', 'poseSeldom', 'lightNewBad', 'lightSeldom', 'staticsBad',
                                               'staticsNewBad', 'staticsSeldom', 'roomsBad', 'roomsNewBad', 'drawsBad', 'drawsNewBad',
                                               'drawsSeldom',
-                                              'roomsSeldom', 'vertsBad', 'newVertsBad', 'newVertsSeldom', 'dspRoomsBad', 'dspMeshesBad', 'dspMeshes3Bad', 'feedBad', 'togetherBad', 'stagesBad', 'frameBad', 'facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newAsmBad', 'othersBad', 'uploadBad'))
+                                              'roomsSeldom', 'vertsBad', 'newVertsBad', 'newVertsSeldom', 'dspRoomsBad', 'dspMeshesBad', 'dspMeshes3Bad', 'feedBad', 'togetherBad', 'stagesBad', 'frameBad', 'facesBad', 'flushBad', 'splitBad', 'newBad', 'newBadC', 'newAsmBad', 'othersBad', 'uploadBad', 'texturesGameOff',
+                                              'texturesUploadOff'))
              else 0)
 
 

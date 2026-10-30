@@ -314,11 +314,18 @@ static inline uint32_t detailPoolStart(uint32_t level)
     return level ? DETAIL_FULL_SLOTS + (level - 1) * DETAIL_MIP_SLOTS : 0;
 }
 
-// The cache holds every texture the frame's faces drew with: one it misses,
-// the game failed to take into it.
-static int32_t detailSlotMiss(uint32_t, uint32_t, uint32_t)
+// A texture the cache hasn't: into it, its upload queued (textures.h, as
+// the game's detail.cpp), from the cache as the frame found it.
+static TextureQueue gTextureQueue;
+
+static int32_t detailSlotMiss(uint32_t key, uint32_t texSize, uint32_t variant)
 {
-    return -1;
+    return texturesMiss(gTextureQueue, gDetailFrame, key, texSize, variant);
+}
+
+const TextureQueue& gameTextureQueue()
+{
+    return gTextureQueue;
 }
 
 static inline int32_t detailSlot(uint32_t key, uint32_t texSize, uint32_t variant)
@@ -690,6 +697,8 @@ void gameFacesMaster()
 
 void gameFacesPrepare()
 {
+    texturesReset();
+    gTextureQueue.count = 0;
     memcpy(gVertices, gSceneVertices, sizeof(gVertices));
     memset(gOT, 0, sizeof(gOT));
     memset(gSlaveOT, 0, sizeof(gSlaveOT));
@@ -1275,6 +1284,7 @@ void gameListMake(const RoomScene* rooms, uint32_t count, GameList &list)
     memcpy(list.grd, gGouraud, (list.end + 1) * sizeof(gGouraud[0]));
     list.caches[0] = gShadeCaches[0];
     list.caches[1] = gShadeCaches[1];
+    list.textures = gTextureQueue;
 }
 
 void gameListReference(const GameList* list)
@@ -1367,5 +1377,6 @@ void gameInit()
     gMeshGeometry = sceneArray<const uint8_t>("MGEO");
     gMoves = sceneArray<const MoveScene>("MOVE");
     gTexturePmod = gInfo->texturePmod;
+    texturesInit();
 }
 

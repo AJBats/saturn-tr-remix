@@ -10,6 +10,8 @@
 
 #include <stdint.h>
 
+#include "textures.h"
+
 #define ALIGN16 __attribute__((aligned(16)))
 
 struct Vertex
@@ -330,11 +332,15 @@ struct GameList
     uint32_t (*grd)[2];
     int32_t end;
     ShadeCache caches[2];
+    TextureQueue textures;      // the uploads its faces queued
 };
 
 // The game's list for this frame with its rooms in another order: the faces
 // as the game adds them, flush on them, into list.
 void gameListMake(const RoomScene* rooms, uint32_t count, GameList &list);
+
+// The uploads the game's way's room faces last queued (from gameFacesPrepare).
+const TextureQueue& gameTextureQueue();
 
 // The list gameListCheck checks against: list, or (nullptr) the game's own.
 void gameListReference(const GameList* list);

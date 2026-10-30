@@ -36,6 +36,7 @@
 #include "draws.h"
 #include "pose.h"
 #include "rooms.h"
+#include "textures.h"
 #include "vertices.h"
 #include "hw.h"
 
@@ -174,6 +175,10 @@ struct LabResults
     uint32_t runMaster;         // the whole frame in a row, a frame: the master's work in the stages
     uint32_t runSlave;          // ... the slave's
     uint32_t runDsp;            // ... the DSP's runs
+    int32_t texturesQueued;     // room textures the game's way's faces queued for upload
+    int32_t texturesGameOff;    // ... not as the game's (its uploads, the cache after, the textures as
+                                // its upload left VDP1 VRAM)
+    int32_t texturesUploadOff;  // longwords of the new way's uploads in VDP1 VRAM not as staged
 };
 
 extern "C" LabResults gLab;
@@ -457,6 +462,9 @@ static void stageThree()
     gameFacesMaster();
     gameFacesRooms();
     gLab.facesBad = gameFacesCheck();
+    gLab.texturesQueued = gameTextureQueue().count;
+    gLab.texturesGameOff = texturesQueueOff(gameTextureQueue(), texturesCaptured()) + texturesStateOff() +
+                           texturesVramOff(gameTextureQueue());
 
     int32_t end = 0;
     uint32_t slave = 0;
@@ -551,6 +559,11 @@ static const Sprite* gSprites;
 static FaceRoom* gRooms;        // the walk's jobs (roomsJobs)
 static uint32_t gRoomCount;
 static RoomTextures gRoomTextures;
+static TextureQueue gNewTextures;   // the uploads the new way's faces queued
+
+// The game's list with its rooms in the walk's order (walkOrderList): what
+// the new way's lists are checked against.
+static GameList gWalkList;
 static RoomSplit gSplit;
 #define MAX_ROOM_TEXTURES   512
 static RoomMaterial gRoomMaterials[MAX_ROOM_TEXTURES];
@@ -575,6 +588,8 @@ static void newPrepare()
 {
     gameFlushPrepare();
     newLists();
+    texturesReset();
+    gNewTextures.count = 0;
 
     // the materials' characters looked up afresh, as in a frame of its own
     for (int32_t i = 0; i < MAX_ROOM_TEXTURES; i++) {
@@ -598,11 +613,11 @@ static void newRooms(bool c)
     }
 }
 
-// The cache holds every texture the frame's faces drew with: one it misses,
-// the game failed to take into it.
-static int32_t roomTextureMiss(uint32_t, uint32_t, uint32_t)
+// A texture the cache hasn't: into it, its upload queued (textures.h), from
+// the cache as the frame found it (newPrepare).
+static int32_t roomTextureMiss(uint32_t key, uint32_t texSize, uint32_t variant)
 {
-    return -1;
+    return texturesMiss(gNewTextures, gRoomTextures.frame, key, texSize, variant);
 }
 
 // The rooms as facesRoom* takes them, and the cache as the frame found it.
@@ -1062,7 +1077,8 @@ static Stages togetherMeasured(bool posed, int32_t &bad)
     sum.dsp /= RUNS;
     int32_t visited, shaded, rooms, meshes;
     bad = gameListCheck(gNewCmds, gNewGrd, visited, shaded) + verticesRoomsCheck(rooms) +
-          verticesMeshesCheck(meshes) + (posed ? poseCheck() + roomsSeenCheck() + drawsCheck(gameDrawList()) : 0);
+          verticesMeshesCheck(meshes) + texturesQueueOff(gNewTextures, gWalkList.textures) +
+          (posed ? poseCheck() + roomsSeenCheck() + drawsCheck(gameDrawList()) : 0);
     return sum;
 }
 
@@ -1093,11 +1109,13 @@ static void stageFrame()
     gLab.frameDsp = s.dsp;
 }
 
-// The new list into VDP1 VRAM where the game puts its own, by the SCU's DMA:
-// the clear and the rooms' commands, then the draws' and the end, and their
-// gouraud tables. The bytes uploaded.
+// The new list into VDP1 VRAM where the game puts its own, by the SCU's DMA,
+// after the textures its faces queued: the clear and the rooms' commands,
+// then the draws' and the end, and their gouraud tables. The list's bytes
+// uploaded.
 static uint32_t listUpload()
 {
+    texturesUpload(gNewTextures);
     int32_t rooms = facesSlot(gRoomList.link), meshes = gNewEnd + 1 - gMeshFirst;
     dmaToVdp1(gNewCmds, VRAM_FRAME_CMDS, rooms * sizeof(Command));
     dmaToVdp1(gNewCmds + gMeshFirst, VRAM_FRAME_CMDS + gMeshFirst * sizeof(Command), meshes * sizeof(Command));
@@ -1155,8 +1173,10 @@ static void stageRun()
     ShadeCache* caches = (ShadeCache*)sceneAllocLow(2 * sizeof(ShadeCache));
     uint8_t* keys = (uint8_t*)sceneAllocLow(DETAIL_VARIANTS * DETAIL_MAX_KEYS);
     DetailSlot* saved = (DetailSlot*)sceneAllocLow(slots * sizeof(DetailSlot));
+    static TextureQueue uploads;
     if (!saved)
         return;
+    uploads = gNewTextures;
     memcpy(cmds, gNewCmds, sizeof(gNewCmds));
     memcpy(grd, gNewGrd, sizeof(gNewGrd));
     int32_t end = gNewEnd;
@@ -1183,6 +1203,7 @@ static void stageRun()
         gameShadeCache(1)->frame++;
         gRoomTextures.frame++;
         newLists();
+        gNewTextures.count = 0;
         Stages s = stagesTogether(true, bias);
         bias += s.late / 2;
         uint32_t t1 = ticks();
@@ -1234,6 +1255,8 @@ static void stageRun()
     memcpy(detailSlots, saved, slots * sizeof(DetailSlot));
     roomQuadFlags(false);
     gRoomTextures.frame = textureFrame;
+    gNewTextures = uploads;
+    texturesUpload(gNewTextures);
     verticesDrawsSet(sceneArray<const DrawScene>("DRAW"), sceneInfo().draws, sceneArray<const DrawXform>("XFRM"));
     poseUse(nullptr);
 }
@@ -1337,6 +1360,7 @@ static int32_t newAsmCheck()
         for (int32_t c = 1; c >= 0; c--)
         {
             roomQuadFlags(false);
+            newPrepare();
             if (pass == 2)
             {
                 for (int32_t v = 0; v < DETAIL_VARIANTS; v++) {
@@ -1345,7 +1369,6 @@ static int32_t newAsmCheck()
                     }
                 }
             }
-            newPrepare();
             newRooms(c);
             newMeshes(c, wet);
             int32_t roomEnd = facesSlot(gRoomList.link), meshEnd = facesSlot(gMeshList.link);
@@ -1386,8 +1409,6 @@ static int32_t newAsmCheck()
 // jobs (ROOM) in that order, their faces as the game adds them, flush on
 // them. The new way's lists are checked against it; it against the
 // capture's, the commands the order moves.
-static GameList gWalkList;
-
 static void walkOrderList()
 {
     uint32_t count, rooms;
@@ -1456,7 +1477,8 @@ static void stageNew()
     gLab.newAsmBad = newAsmCheck();
     gLab.othersBad = facesOtherCheck(gameShadeGouraud());
     gLab.newJoin = measure([] { newPrepare(); newRooms(false); newMeshes(false); }, [] { newJoin(false); });
-    gLab.newBad = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded) + gRoomTexturesShort;
+    gLab.newBad = gameListCheck(gNewCmds, gNewGrd, gLab.newVisited, gLab.newShaded) + gRoomTexturesShort +
+                  texturesQueueOff(gNewTextures, gWalkList.textures);
     shadeTables(gNewTables, true);
 }
 
@@ -1797,6 +1819,17 @@ static void newPage()
     p = putNumber(p, gLab.newAsmBad, 0);
     put(p, " off)");
     page.add(line);
+    p = put(line, "texture misses:");
+    p = putNumber(p, gLab.texturesQueued, 3);
+    p = put(p, gLab.texturesGameOff ? " game's OFF (" : " game's exact (");
+    p = putNumber(p, gLab.texturesGameOff, 0);
+    put(p, " off)");
+    page.add(line);
+    p = put(line, "  new's uploaded ");
+    p = put(p, gLab.texturesUploadOff ? "OFF (" : "exact (");
+    p = putNumber(p, gLab.texturesUploadOff, 0);
+    put(p, " off)");
+    page.add(line);
     p = put(line, "sprites, fills made up: asm ");
     p = put(p, gLab.othersBad ? "OFF" : "as C");
     p = put(p, " (");
@@ -1922,12 +1955,14 @@ static void show(int32_t page)
         const SceneInfo &info = sceneInfo();
         shadeTables(gGameTables, false);
         upload(sceneArray<const Command>("CMDS"), (const uint32_t (*)[2])sceneChunk("GRDS"), info.commands);
+        texturesUpload(texturesCaptured());
         textRow(0, "THE GAME'S LIST");
     }
     else
     {
         shadeTables(gNewTables, false);
         upload(gNewCmds, gNewGrd, gNewEnd);
+        texturesUpload(gNewTextures);
         textRow(0, "THE NEW LIST");
     }
     vdp1Show();
@@ -1970,6 +2005,8 @@ int main()
     stageFrame();
     shadeTables(gNewTables, false);
     upload(gNewCmds, gNewGrd, gNewEnd);
+    texturesUpload(gNewTextures);
+    gLab.texturesUploadOff = texturesVramOff(gNewTextures);
     gLab.vdp1New = vdp1Show();
     stageRun();
     shadeTables(gNewTables, false);
