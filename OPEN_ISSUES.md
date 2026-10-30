@@ -1,7 +1,9 @@
 # Open issues
 
 Every known place where our build plays, looks or sounds different from retail
-Saturn Tomb Raider (T-7910H). Retail is the source of truth.
+Saturn Tomb Raider (T-7910H). Retail is the source of truth. The rendering
+section (219 on) is the exception: the new renderer's own open work, measured
+against the game rather than retail.
 
 Most of these come from the retail audit of 2026-10-29 (code at a98d9fa).
 Its terse summary is [docs/retail-audit.md](docs/retail-audit.md); each issue
@@ -41,6 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
+| 219-231 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3484,6 +3487,142 @@ Fix: small · Audit: GFX-12*
 
 ---
 
+## Rendering: the new renderer's open work
+
+Not differences from retail: open work on the renderer being rebuilt in the
+render lab (`lab/`, `make lab`, `tools/lab.py`), measured or known and left
+for later. Times are Mednafen at the ledge with the master alone, unless the
+issue says otherwise.
+
+**Each issue has these fields:**
+- **Kind**: *speed*, *look*, *correctness* (the new way not yet doing what
+  the game does), or *coverage* (not yet measured or checked somewhere).
+- **Size**: what it is worth or costs, and whether that was measured or
+  estimated.
+- **Fix**: small / medium / large.
+
+### 219. Pose: each rotation waits on the multiplier
+*Kind: speed · Size: about 4% of the new pose, ~0.05 ms (estimated) · Fix:
+small*
+
+- `lab/pose.s` (ROWROT) reads two of each row's four products straight after
+  their MULS.W: about 4 wait cycles a row, 12 in a rotation of ~91.
+- **Fix:** interleave the rows so the next row's loads and multiplies fill the
+  waits. That needs two more registers: park the pending sine offsets on the
+  stack once per `.Lrot` call.
+
+### 220. Pose: each node's matrix is built at the stack's top, then copied out
+*Kind: speed · Size: the copy-out is 12% of the new pose (measured); about 5%
+to win (estimated) · Fix: medium*
+
+- Each drawn node's 48 bytes are copied to its draw's slot, and a node that
+  pushes copies 48 bytes onto the stack.
+- **Fix:** at the whole-frame step, write the matrices straight into the mesh
+  jobs the feed builds for the DSP (`lab/meshfeed.s`), which removes the copy.
+  Failing that, build each node from its parent in its own slot, with a stack
+  of pointers.
+
+### 221. Rooms decide turned lines and mip levels every other frame
+*Kind: speed · Size: ~0.6 ms (~0.7 on the Saturn), measured · Fix: small*
+
+- Deciding every 4th frame would save that much of the room pass. A quad's
+  choice could then be up to 3 frames late (now 1).
+- Parked by the owner (2026-10-29) as a saving, to be judged on a moving
+  capture.
+
+### 222. Rooms aren't culled before the transform
+*Kind: speed · Size: ~0.8 ms net, measured, not built · Fix: large*
+
+- Culling face by face would leave 820 of the ledge's 1,414 room vertices
+  needed. Spatial clusters with exact box tests save only 7-19%: TR's faces
+  are big next to its portals, so a cluster's box nearly always straddles a
+  portal edge.
+- A DSP outcode pass plus a face pre-pass nets about 0.8 ms.
+- Skipped vertices would take made-up clip flags, and faces would keep the
+  game's order (an exact list needs it).
+
+### 223. Mesh back faces are found after the transform
+*Kind: speed · Size: at most ~1.1 ms, about what the test costs; measured, not
+built · Fix: medium*
+
+- 790 of the ledge's 1,339 mesh faces face away, but the front faces still use
+  1,117 of its 1,634 mesh vertices.
+- A test per face in mesh space costs about what it saves, unless each face's
+  normal is stored, which costs RAM.
+
+### 224. Room faces run on the slave alone
+*Kind: speed · Size: unmeasured · Fix: medium*
+
+- With stages 2 and 3 together, the rooms' faces stay on the slave: they share
+  the room texture cache and the per-texture material records, and keep the
+  room list's order.
+- Splitting them across both CPUs needs a material record set per CPU and the
+  order kept.
+
+### 225. The DSP has the longest lane in stage 2
+*Kind: speed · Size: ~1 ms (packing's +31%), measured · Fix: medium*
+
+- The DSP turns the rooms and then the meshes: 2.29 + 0.06 + ~4.7 ms, longer
+  than either CPU's work. Meshes packed as the level keeps them cost +31% DSP
+  time against the bench's v3 layout, which would have grown RAM.
+- **Levers:** load the mesh program without the CPU's hand-off; start the DSP
+  earlier, overlapping pose or the previous frame's end.
+
+### 226. The new face stage doesn't apply the draw order hints
+*Kind: correctness · Fix: medium*
+
+- `saturn/depth_hints.txt` (06107f4) moves some of the master's faces to other
+  buckets. The game's way in the lab applies the moves (the scene's MOVE
+  chunk); the new way (`lab/facesmesh.s`) doesn't.
+- No captured scene has a hinted face yet (ledge, pool, wolves, wolves_aim: 0
+  moved), so the exactness checks can't see it.
+- **Fix:** capture a scene where hints move faces, then add them to the new way.
+
+### 227. Sprites and portal fills are still C in the new face stage
+*Kind: speed (the production standard) · Size: small in the scenes so far ·
+Fix: small*
+
+- `lab/faces.cpp` facesOther. The rest of the stage is assembly.
+
+### 228. Stage 2, stages 2+3 together and pose have no Saturn numbers yet
+*Kind: coverage · Fix: small*
+
+- Only stage 3 has been timed on the Saturn (31.2 → 21.0 ms, one CPU). The lab
+  on the card has stage 2, stages 2+3 together and both ways of pose; photos of
+  its pages give the hardware figures.
+- Mednafen slows the DSP while both CPUs work (meshes 4.27 ms alone, ~4.7
+  together). The Saturn may differ.
+
+### 229. Vertices near the camera jitter from the divide table
+*Kind: look · Size: corner error p99 1.93 → 1.31 px with an exact divide
+(crunch lab, ledge) · Fix: medium, after a decision*
+
+- The projection uses `divTable[z >> 4]` (65536 / i in 16 bits), from
+  OpenLara's GBA build. The error grows near the camera: about 5 px at z 512,
+  176 px off centre. Retail divided each vertex with the SH-2's divider.
+- The lab's stages reproduce the game's arithmetic exactly. An exact divide
+  changes the output, so the checks would compare against a new reference.
+
+### 230. Textures crunch and shimmer: the crunch lab's favoured look isn't in the game
+*Kind: look · Fix: large*
+
+- `tools/crunch` measured each idea's flicker on the ledge. The owner's
+  favourite (2026-10-29): ripmaps, the textures' own palette, softened thin
+  lines, an exact divide (issue 229) and contrast by room light. Baked relief
+  is the most promising texture treatment.
+- Ripmaps matter because the mip level is chosen along lines only, so grazing
+  faces shimmer.
+- None of it is in the game or the new renderer yet.
+
+### 231. Objects have no mip levels
+*Kind: speed (VDP1) · Size: 1.5-5% of VDP1 time, measured · Fix: medium*
+
+- Shrunk object faces are 13% of a frame's VDP1 time at one spot and 31% among
+  plants, but mips would save only 1.5-5%: most of their cost is per line, on
+  small faces. They would also take VRAM from the room texture cache.
+
+---
+
 ## Decisions needed before fixing
 
 | Issue | Decision |
@@ -3500,6 +3639,7 @@ Fix: small · Audit: GFX-12*
 | **145** | Retail's sound sliders do nothing. Ours has on/off switches. Which to keep? |
 | **161** | Keep the FPS counter on by default during development? |
 | **162** | Attract demos need deterministic logic (issue 202) and the DEMODATA format. Build them? |
+| **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
 
 ## Closed
 
