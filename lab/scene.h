@@ -110,6 +110,46 @@ struct DrawXform
     int16_t pad;
 };
 
+// POSE  the pose stage's inputs (tools/posepack.py): each item the frame drew
+//       with its model's nodes, in the order drawn (PoseItem); PNOD their
+//       models' nodes (ModelNode: int16 x y z, uint16 flags; a mesh's after
+//       the first each); PFRM the animation frames they take (AnimFrame:
+//       int16 box[6], pos[3], a spare, then a packed angle a node); SINC the
+//       game's sines and cosines (gSinCosTable, 4096 longwords); CAMR the
+//       camera (PoseCamera).
+struct PoseArm
+{
+    uint32_t frame;         // in PFRM, or ~0: the arm moves with the body
+    int32_t frameRate;
+    int16_t angle[3];
+    uint8_t useBasis, pad;
+};
+
+struct PoseItem
+{
+    uint8_t lara;           // Lara's nodes (draw.h drawLaraNodesLerp), else drawNodesLerp's
+    uint8_t count;          // its model's nodes, a mesh each
+    uint16_t firstDraw;     // its first mesh's draw (DRAW, XFRM); the rest follow
+    uint32_t nodes;         // in PNOD
+    uint32_t frameA, frameB;    // in PFRM
+    int32_t frameDelta, frameRate;  // ItemObj::getFrames's
+    uint32_t visibleMask;
+    int32_t pos[3];
+    int16_t angle[3];
+    int16_t extraCount;     // an enemy's extra angles (head, neck), as many as its nodes' ROT flags take
+    int16_t extra[4];
+    int16_t torso[3], head[3];  // Lara's
+    uint8_t weapon, pad[3];
+    PoseArm arms[2];        // Lara's right and left
+};
+
+struct PoseCamera
+{
+    int32_t pos[3];         // gCameraViewPos
+    int16_t rotation[9];    // gViewRotation
+    int16_t pad;
+};
+
 // A command as the floor builds it: three words as the game's, the corners
 // whose positions the game's corner words hold (byte offsets in the
 // vertices). FLOOR_EXACT: the floor gives the game's command.

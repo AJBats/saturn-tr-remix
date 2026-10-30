@@ -1285,6 +1285,7 @@ void gameInit()
 {
     gInfo = &sceneInfo();
     gSceneVertices = sceneArray<const Vertex>("VERT");
+    memcpy(divTable, sceneChunk("DIVT"), DIV_TABLE_SIZE * sizeof(divTable[0]));
     gRefFaces = sceneArray<Face>("MPOL");
     gRefSlaveFaces = sceneArray<Face>("SPOL");
     poolPointers(gRefFaces, gInfo->masterFaces);

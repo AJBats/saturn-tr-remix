@@ -5,6 +5,9 @@
 // master's, in SH-2 cycles at 28.6 MHz: the mean of RUNS runs, the cache
 // emptied before each (a frame's data never stays in a 4 KB cache).
 //
+// Stage 1, pose, the game's way (game.h): the matrices of the items' nodes,
+// from their frames, checked against those the game drew with.
+//
 // Stage 2, vertices, the game's way (game.h): the rooms' (xform.s) and the
 // master's draws' (meshxform.s), each set up as the game sets it up, checked
 // against the vertices the game drew with.
@@ -24,8 +27,8 @@
 // the same way, the buckets joined; the list VDP1 follows checked against the
 // game's as VDP1 draws it.
 //
-// Pages, L and R: the game's way, the new way, the frame from the game's own
-// list, the frame from the new.
+// Pages, L and R: the game's way, the pose, the new way's vertices and
+// commands, the frame from the game's own list, the frame from the new.
 
 #include "lab.h"
 #include "faces.h"
@@ -107,6 +110,10 @@ struct LabResults
     uint32_t stagesSlave;       // ... the slave at work
     uint32_t stagesSlaveWait;
     int32_t stagesBad;          // commands VDP1 follows not as the game's, and vertices not the game's
+    uint32_t pose;              // cycles: stage 1 the game's way, the items' node matrices
+    int32_t poseBad;            // matrices not the game's
+    int32_t poseMatrices;       // the matrices made, a drawn mesh each
+    int32_t poseItems;          // the items posed
 };
 
 extern "C" LabResults gLab;
@@ -255,6 +262,14 @@ static void upload(const Command* cmds, const uint32_t (*grd)[2], int32_t count)
     for (int32_t i = 0; i < count * 2; i++) {
         dst[i] = src[i];
     }
+}
+
+static void stagePose()
+{
+    gLab.poseItems = gamePoseInit();
+    gLab.pose = measure([] {}, [] { gamePose(); });
+    gamePose();
+    gLab.poseBad = gamePoseCheck(gLab.poseMatrices);
 }
 
 static void stageTwo()
@@ -948,7 +963,37 @@ static void workRow(Page &page, const char* name, uint32_t work, uint32_t waits)
     page.add(line);
 }
 
-static Page gResults, gVerticesPage, gNewResults;
+static Page gResults, gPosePage, gVerticesPage, gNewResults;
+
+static void posePage()
+{
+    const SceneInfo &info = sceneInfo();
+    Page &page = gPosePage;
+    char line[TEXT_COLUMNS + 1];
+    char* p;
+
+    page.count = 0;
+    p = put(line, "RENDER LAB  ");
+    p = put(p, info.name);
+    put(p, ": pose");
+    page.add(line);
+    p = put(line, "items:");
+    p = putNumber(p, gLab.poseItems, 3);
+    p = put(p, ", matrices:");
+    putNumber(p, gLab.poseMatrices, 4);
+    page.add(line);
+    page.add("");
+    page.add("STAGE 1, POSE: THE GAME'S");
+    page.add("master, run alone     ms  cycles a");
+    timeRow(page, "items' nodes", gLab.pose, gLab.poseMatrices, "matrix");
+    p = put(line, "matrices ");
+    p = put(p, gLab.poseBad ? "OFF (" : "exact (");
+    p = putNumber(p, gLab.poseBad, 0);
+    put(p, " off)");
+    page.add(line);
+    page.add("");
+    page.add("R, L: the other pages");
+}
 
 static void verticesPage()
 {
@@ -1163,13 +1208,14 @@ static void resultsPage()
     page.add("R, L: the other pages");
 }
 
-enum { PAGE_GAME_WAY, PAGE_NEW_VERTICES, PAGE_NEW_WAY, PAGE_GAME, PAGE_NEW, PAGES };
+enum { PAGE_GAME_WAY, PAGE_POSE, PAGE_NEW_VERTICES, PAGE_NEW_WAY, PAGE_GAME, PAGE_NEW, PAGES };
 
 static void show(int32_t page)
 {
-    if (page == PAGE_GAME_WAY || page == PAGE_NEW_VERTICES || page == PAGE_NEW_WAY)
+    if (page == PAGE_GAME_WAY || page == PAGE_POSE || page == PAGE_NEW_VERTICES || page == PAGE_NEW_WAY)
     {
-        const Page &text = page == PAGE_GAME_WAY ? gResults : page == PAGE_NEW_VERTICES ? gVerticesPage : gNewResults;
+        const Page &text = page == PAGE_GAME_WAY ? gResults : page == PAGE_POSE ? gPosePage
+                         : page == PAGE_NEW_VERTICES ? gVerticesPage : gNewResults;
         textPage();
         for (int32_t r = 0; r < text.count; r++) {
             textRow(r, text.rows[r]);
@@ -1207,6 +1253,7 @@ int main()
     textRow(1, "measuring...");
     gameInit();
 
+    stagePose();
     stageTwo();
     stageTwoNew();
     stageThree();
@@ -1230,6 +1277,7 @@ int main()
     gLab.magic = LAB_MAGIC;
 
     resultsPage();
+    posePage();
     verticesPage();
     newPage();
     int32_t page = PAGE_GAME_WAY;

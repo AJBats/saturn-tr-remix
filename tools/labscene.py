@@ -19,6 +19,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import capture as cap   # noqa: E402
 import facepack         # noqa: E402
+import posepack         # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -55,6 +56,8 @@ DEFAULTS = {'_gBenchMode': 0, '_gDarkFaces': 0, '_gShadeTables': 1, '_gFlatDist'
             '_gShadowMode': 2, '_gTexelView': 0, '_gTurnLines': 1, '_gTextureLod': 4}
 
 DRAW_MESH, DRAW_SHADOW, DRAW_COPY = 1, 2, 3
+FACE_TYPE_SHIFT, FACE_TYPE_MASK = 14, 15     # saturn/render.h
+HUD_TYPES = (7, 8, 9)       # FaceType FILL_S, LINE_H, LINE_V: renderRect's, the HUD's bars and frames
 WHERE_HIGH, WHERE_LOW, WHERE_VDP1 = 0, 1, 2
 
 INFO = struct.Struct('>9I3I4I3i2I16s')      # SceneInfo
@@ -316,6 +319,7 @@ def main():
         copy_face(i)
     hinted = set()
     owner = None
+    first_draws = {}    # a drawn item's first mesh's draw, by item index
     k = 0
     for r in recs:
         if r['type'] == 'object':
@@ -325,9 +329,16 @@ def main():
             continue
         first, end = firsts[k], firsts[k + 1]
         k += 1
+        # the HUD's faces, drawn between two draws, after the first's: copied as made
+        hud = first
+        while hud < end and (u32(mem, master_pool + 16 * hud) >> FACE_TYPE_SHIFT & FACE_TYPE_MASK) not in HUD_TYPES:
+            hud += 1
+        hud, end = range(hud, end), hud
         base = (r['base'] - vertices) // 8
         if r['type'] == 'sprite':
             for i in range(first, end):
+                copy_face(i)
+            for i in hud:
                 copy_face(i)
             continue
         for i in range(first, end):
@@ -346,9 +357,15 @@ def main():
                 mesh_data += bytes(-len(mesh_data) % 4)
             draws += DRAW.pack(DRAW_MESH, int(mesh_inside(mem, r)), mesh_index[address], r['flags'], base,
                                first, end - first, 0)
+            if owner and owner['kind'] == 0 and r['type'] == 'mesh':
+                first_draws.setdefault(owner['index'], draw_count)
         draw_count += 1
+        for i in hud:
+            copy_face(i)
     chunks['DRAW'] = bytes(draws)
     chunks['XFRM'] = bytes(xforms)
+    chunks.update(posepack.pack(mem, sym, recs, first_draws))
+    chunks['CAMR'] = struct.pack('>3i9h2x', *header['camera'], *header['rotation'])
     chunks['MESH'] = struct.pack(f'>{len(mesh_offsets)}I', *mesh_offsets)
     chunks['MGEO'] = bytes(mesh_data)
 
@@ -409,7 +426,7 @@ def main():
     # level's palette and sprites in low; and VDP1 VRAM
     order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
                  'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'NMSH', 'NMAT',
-                 'PALT', 'SPRS', 'VRAM']
+                 'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PALT', 'SPRS', 'VRAM']
     where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1}
     table = 8 + 16 * len(order_ids)
     offset = (table + 15) & ~15

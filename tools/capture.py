@@ -1,10 +1,12 @@
 """Captures one frame's render inputs for the clean-room renderer's lab
 (saturn/capture.h).
 
-    capture.py CUE [--frame N] [--keys F:K,K,...] [--out NAME]
+    capture.py CUE [--frame N] [--keys F:K,K,... | --trace FILE] [--out NAME]
 
 Boots CUE in a Mednafen of its own (as trace.py capture: its own automation
-and home directories), taps the keys, runs to frame N, then asks the game for
+and home directories), taps the keys or plays the input trace from boot
+(lines "frame=N PRESS|RELEASE BUTTON", as the debugger's input_trace writes
+them; tools/traces/), runs to frame N, then asks the game for
 a capture (gCaptureRequest) and advances until that frame is recorded and
 held. Into build/captures/NAME:
     lwram.bin, hwram.bin    both work RAMs with the frame held: the records,
@@ -200,14 +202,16 @@ class Memory:
         return struct.unpack(fmt, self.bytes(address, struct.calcsize(fmt)))
 
 
-def capture(cue, elf, frame, keys, folder):
+def capture(cue, elf, frame, keys, trace, folder):
     syms = symbols(elf)
     request = symbol(syms, '_gCaptureRequest')
     pointer = symbol(syms, '_gCapture')
     med = Mednafen(cue)
     try:
         med.send('deterministic', 'deterministic', 10)
-        if keys:
+        if trace:
+            med.send(f'input_playback {os.path.abspath(trace).replace(os.sep, "/")}', 'ok input_playback', 10)
+        elif keys:
             at, buttons = keys.split(':')
             med.send(f'run_to_frame {at}', 'done run_to_frame')
             for b in buttons.split(','):
@@ -432,6 +436,7 @@ def main():
     ap.add_argument('cue')
     ap.add_argument('--frame', type=int, default=1900)
     ap.add_argument('--keys', default=DEFAULT_KEYS)
+    ap.add_argument('--trace')
     ap.add_argument('--out', default='ledge')
     args = ap.parse_args()
 
@@ -441,7 +446,7 @@ def main():
         elf = os.path.join(ROOT, 'build/0MAIN.elf')
     print(f'symbols: {os.path.normpath(elf)}')
     folder = os.path.join(ROOT, 'build/captures', args.out)
-    syms = capture(cue, elf, args.frame, args.keys, folder)
+    syms = capture(cue, elf, args.frame, args.keys, args.trace, folder)
     shutil.copy(elf, os.path.join(folder, '0MAIN.elf'))
 
     with open(os.path.join(folder, 'lwram.bin'), 'rb') as f:

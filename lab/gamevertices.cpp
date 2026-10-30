@@ -189,7 +189,6 @@ void gameVerticesInit()
     gMeshes = sceneArray<const uint32_t>("MESH");
     gMeshGeometry = sceneArray<const uint8_t>("MGEO");
     gSceneVertices = sceneArray<const Vertex>("VERT");
-    memcpy(divTable, sceneChunk("DIVT"), sizeof(divTable));
 }
 
 void gameVerticesPrepare()

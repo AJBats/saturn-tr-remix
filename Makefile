@@ -209,6 +209,9 @@ $(LAB)/obj/%.cpp.o: %.cpp $(wildcard lab/*.h) saturn/hw.h saturn/font.h saturn/c
 	@mkdir -p $(@D)
 	$(CXX) $(LAB_CXXFLAGS) -c $< -o $@
 
+# the game's pose, compiled as the game compiles draw.h (main.cpp, $(OPT))
+$(LAB)/obj/lab/gamepose.cpp.o: LAB_CXXFLAGS := $(subst -O2,$(OPT),$(LAB_CXXFLAGS))
+
 $(LAB)/gen/%.dsp: lab/gen_%.py
 	@mkdir -p $(@D)
 	$(PY) $< $@
@@ -227,7 +230,8 @@ $(LAB)/obj/%.s.o: %.s | check-toolchain
 $(LAB)/0MAIN.elf: $(patsubst %,$(LAB)/obj/%.o,$(LAB_SRC)) saturn/saturn.ld
 	$(CXX) $(LAB_CXXFLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
 
-$(LAB_SCENE_FILE): tools/labscene.py tools/capture.py tools/facepack.py $(wildcard build/captures/$(LAB_SCENE)/*)
+$(LAB_SCENE_FILE): tools/labscene.py tools/capture.py tools/facepack.py tools/posepack.py tools/gamelayout.py \
+		openlara/common.h $(wildcard build/captures/$(LAB_SCENE)/*)
 	@mkdir -p $(@D)
 	$(PY) tools/labscene.py $(LAB_SCENE) $@
 

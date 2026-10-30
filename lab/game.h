@@ -140,6 +140,18 @@ extern uint32_t gGouraud[MAX_CMDS][2];
 // From the scene: the tables and caches the game's stage reads.
 void gameInit();
 
+// The game's divide table (gamevertices.cpp), the projection's and the pose's.
+extern uint16_t divTable[];
+
+// Stage 1 the game's way (gamepose.cpp): the items' node matrices as
+// openlara/draw.h drawModel, drawNodesLerp and drawLaraNodesLerp make them
+// with common.cpp's matrix arithmetic, each drawn mesh's to its draw; Init
+// returns the items, Check the matrices that differ from the capture's (XFRM)
+// (matrices: those made).
+int32_t gamePoseInit();
+void gamePose();
+int32_t gamePoseCheck(int32_t &matrices);
+
 // Stage 2 the game's way (gamevertices.cpp): the rooms' vertices (xform.s)
 // and the master's draws' (meshxform.s), each set up as the game sets it up,
 // into gVertices where the game put them; Prepare empties gVertices, Check
