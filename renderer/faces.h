@@ -1,4 +1,4 @@
-// Stage 3 the new way: faces straight to VDP1 commands, in one pass.
+// Faces: straight to VDP1 commands, in one pass.
 //
 // Each face a CPU keeps (facing the camera, not wholly off the frame) has its
 // command and gouraud table written at once into the CPU's CommandList, and is
@@ -11,13 +11,15 @@
 // What a face's command takes from the level is made ready by the packer
 // (tools/facepack.py): its corners as byte offsets into its mesh's vertices,
 // and a material, the command's first three words.
-#ifndef FACES_H
-#define FACES_H
+#ifndef RENDER_FACES_H
+#define RENDER_FACES_H
 
 #include <stdint.h>
 
-#include "game.h"
 #include "hints.h"
+#include "types.h"
+
+namespace render {
 
 // A command's first three words as a face's material makes them, and what may
 // be done to them.
@@ -117,9 +119,6 @@ void facesListStart(CommandList &list, Command* cmds, uint32_t (*grd)[2], int32_
 #define MESH_WATER      2
 extern "C" void facesMeshAsm(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList* list);
 
-// The same in C: what facesMeshAsm does, to check it against.
-void facesMeshC(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList &list);
-
 // A face's command made but held out of its bucket (a draw order hint's):
 // where it is, its first word (unlinked), its place, its bucket, the hint.
 struct HeldCommand
@@ -137,12 +136,6 @@ struct HeldCommand
 void facesMeshHinted(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList &list,
                      const HintFaces &hints, HeldCommand* held, int32_t &count, int32_t room);
 void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth);
-
-// The buckets' chains as facesMeshHinted and facesLinkHeld change them
-// (commands linked, taken back out from a chain's head, middle and end, and
-// linked again elsewhere), at random, against a model of each chain: the
-// chains and firsts that differ (and paths not taken).
-int32_t facesChainCheck();
 
 // The shadows' faces: an octagon's three quads.
 const FaceSet* facesShadow();
@@ -204,10 +197,9 @@ struct RoomRun;
 // A room's faces: its quads in their runs, then its triangles, as the game
 // adds them (faces.s, rooms.cpp roomFaces), each straight to its command,
 // through facesroom.s, the run made for the frame's rooms by
-// facesRoomsBegin; facesRoomC does the same in C.
+// facesRoomsBegin.
 void facesRoomsBegin(RoomRun &run, RoomTextures &textures, RoomSplit &split, CommandList &list);
 void facesRoom(const FaceRoom &room, RoomRun &run);
-void facesRoomC(const FaceRoom &room, RoomTextures &textures, RoomSplit &split, CommandList &list);
 
 // A face's shading in facesroom.s.
 enum RoomShading { SHADING_WATER = -1, SHADING_NEAR, SHADING_FAR, SHADING_PLAIN };
@@ -260,22 +252,6 @@ extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);
 // bucket depth (facesother.s).
 extern "C" void facesOtherAsm(const Face* face, const Vertex* half, int32_t depth, CommandList* list);
 
-// The same in C: what facesOtherAsm does, to check it against.
-void facesOther(const Face &face, const Vertex* half, int32_t depth, CommandList &list);
-
-// facesOtherAsm against facesOther on made-up faces of every kind (sprites
-// flipped or not and shaded, rectangles and lines of any place and
-// size, voids reaching past each edge or off the frame, buckets shared, a
-// list filling up): the commands, gouraud tables, buckets and cursors that
-// differ (and paths not taken).
-int32_t facesOtherCheck(const uint16_t* shadeGouraud);
-
-// The lists' buckets far to near, in each the lists' chains in turn, from the
-// command in slot first of cmds (whose link it sets) to the one in slot end;
-// the heads emptied for the next frame. Each list's heads hold OT_SIZE + 1
-// buckets, the last always empty.
-void facesJoin(CommandList* const* lists, int32_t count, Command* cmds, int32_t first, int32_t end);
-
 // The same for the rooms' list and the meshes' (facesjoin.s), a range of
 // their buckets' pairs (nearest << 16 | farthest) from the link field field
 // on: the link field the next chain goes into. linkBase: where the link
@@ -299,6 +275,8 @@ inline void facesJoinRoomsMeshes(CommandList &rooms, CommandList &meshes, Comman
 {
     uint16_t* last = facesJoinPairs(&rooms, &meshes, facesLinkBase(cmds), facesLinkField(cmds, first), JOIN_PAIRS - 1);
     *last = facesLink(end);
+}
+
 }
 
 #endif

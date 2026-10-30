@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "draws.h"
+#include "faces.h"
 #include "hints.h"
 #include "pose.h"
 #include "rooms.h"
@@ -180,5 +181,35 @@ void verticesPoison();
 // 14 64, so meshproject.s has it worked out from its mesh), each from the
 // DSP's output again, against the game's: the vertices that differ.
 int32_t verticesFallbacksCheck();
+
+// The faces in C, what the assembly does, to check it against
+// (labfaces.inc): a mesh's, a room's, a face made whole; and their checks;
+// the join in C.
+// The same in C: what facesMeshAsm does, to check it against.
+void facesMeshC(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList &list);
+
+// The buckets' chains as facesMeshHinted and facesLinkHeld change them
+// (commands linked, taken back out from a chain's head, middle and end, and
+// linked again elsewhere), at random, against a model of each chain: the
+// chains and firsts that differ (and paths not taken).
+int32_t facesChainCheck();
+
+void facesRoomC(const FaceRoom &room, RoomTextures &textures, RoomSplit &split, CommandList &list);
+
+// The same in C: what facesOtherAsm does, to check it against.
+void facesOther(const Face &face, const Vertex* half, int32_t depth, CommandList &list);
+
+// facesOtherAsm against facesOther on made-up faces of every kind (sprites
+// flipped or not and shaded, rectangles and lines of any place and
+// size, voids reaching past each edge or off the frame, buckets shared, a
+// list filling up): the commands, gouraud tables, buckets and cursors that
+// differ (and paths not taken).
+int32_t facesOtherCheck(const uint16_t* shadeGouraud);
+
+// The lists' buckets far to near, in each the lists' chains in turn, from the
+// command in slot first of cmds (whose link it sets) to the one in slot end;
+// the heads emptied for the next frame. Each list's heads hold OT_SIZE + 1
+// buckets, the last always empty.
+void facesJoin(CommandList* const* lists, int32_t count, Command* cmds, int32_t first, int32_t end);
 
 #endif
