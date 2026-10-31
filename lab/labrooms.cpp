@@ -21,6 +21,7 @@ void roomsLabInit()
     level.caustics = sceneArray<const RoomCaustics>("CAUW");
     level.vertices = gVertices;
     roomsInit(level);
+    roomsFarScaled(false);  // as the captured game projected, for the checks against it
     const PoseCamera* camera = sceneArray<const PoseCamera>("CAMR");
     const RoomView* view = sceneArray<const RoomView>("RVIS");
     int32_t m[12];
@@ -144,7 +145,9 @@ int32_t roomsSeldomCheck()
     for (int32_t pass = 0; pass < ROOM_PASSES; pass++)
     {
         // the camera turned, and moved about its room, into another, or far
-        // back from a side portal of another facing it (past the draw distance)
+        // back from a side portal of another facing it (past the draw
+        // distance); corners past the far plane scaled to it or not
+        ctx.farScaled = gPortalsFarScaled = (pass >> 2) & 1;
         uint32_t yaw = rnd() >> 16, pitch = (rnd() >> 18) - 0x2000;
         if ((pass & 3) == 1)
         {
@@ -213,6 +216,8 @@ int32_t roomsSeldomCheck()
         edges += near;
         more += count > 1;
     }
+
+    gPortalsFarScaled = 0;
 
     // the jobs on made-up lists (rooms at random, repeated, any window and
     // matrix), the level's rooms wet or dry at random and now and then

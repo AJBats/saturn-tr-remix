@@ -226,9 +226,8 @@ static void roomProjectModel(const RoomRotated* src, int32_t count, Vertex* dst,
 {
     for (int32_t k = 0; k < count; k++)
     {
-        int32_t x = clamp(src[k].x, -XY_MAX, XY_MAX);
-        int32_t y = clamp(src[k].y, -XY_MAX, XY_MAX);
-        paths[PATH_BOUND] += x != src[k].x || y != src[k].y;
+        int32_t x = src[k].x;
+        int32_t y = src[k].y;
         int32_t z = src[k].z;
         int32_t shade = rp.points[k].g << 8;
         uint32_t clip = 0;
@@ -240,10 +239,18 @@ static void roomProjectModel(const RoomRotated* src, int32_t count, Vertex* dst,
         }
         else if (z >= rp.zMax)
         {
+            if (rp.farScaled)
+            {
+                x = int32_t(int64_t(x) * rp.zMax / z);
+                y = int32_t(int64_t(y) * rp.zMax / z);
+            }
             z = rp.zMax;
             clip = CLIP_PLANE;
             paths[PATH_FAR]++;
         }
+        paths[PATH_BOUND] += x != clamp(x, -XY_MAX, XY_MAX) || y != clamp(y, -XY_MAX, XY_MAX);
+        x = clamp(x, -XY_MAX, XY_MAX);
+        y = clamp(y, -XY_MAX, XY_MAX);
         int32_t zz = uint32_t(z) >> 8;
         int32_t d = rp.divTable[zz >> 4];
         int32_t px = clamp(int16_t(uint32_t(x) >> 8) * d, -P_MAX, P_MAX);
@@ -305,9 +312,11 @@ int32_t verticesRoomsSeldomCheck()
     auto next = [&seed] { seed = seed * 1664525 + 1013904223; return seed; };
     int32_t bad = 0;
     int32_t dry[PATHS] = {}, wet[PATHS] = {};
-    for (int32_t w = 0; w < 3; w++)
+    for (int32_t pass = 0; pass < 6; pass++)
     {
+        int32_t w = pass % 3;
         RoomProject rp;
+        rp.farScaled = pass / 3;
         rp.points = gSeldomPoints;
         rp.x0 = windows[w][0];
         rp.y0 = windows[w][1];
@@ -352,9 +361,12 @@ int32_t verticesRoomsSeldomCheck()
             put(b, near(0), rp.zMin + int32_t(next() % uint32_t(rp.zMax - rp.zMin)), next() >> 24);
             put(near(0), b, rp.zMin + int32_t(next() % uint32_t(rp.zMax - rp.zMin)), next() >> 24);
         }
-        const int32_t planes[] = { rp.zMin - 1, rp.zMin, rp.zMin + 1, rp.zMax - 1, rp.zMax, rp.zMax + 1 };
-        for (int32_t z : planes) {
+        const int32_t planes[] = { rp.zMin - 1, rp.zMin, rp.zMin + 1, rp.zMax - 1, rp.zMax, rp.zMax + 1,
+                                   rp.zMax * 2, rp.zMax * 50, 0x7FFFFFFF };
+        for (int32_t z : planes)
+        {
             put(near(0), near(0), z, next() >> 24);
+            put(0x7FFFFFF, -0x7FFFFFF, z, next() >> 24);
         }
         const int32_t fogs[] = { FOG_MIN - 1, FOG_MIN, FOG_MIN + 1, FOG_MIN + 255, FOG_MIN + 256, FOG_MIN + 257 };
         const int32_t shades[] = { 30, 31, 32, 255 };
@@ -698,11 +710,91 @@ int32_t verticesMeshesDspCheck()
     return bad;
 }
 
+// meshProjectAsm's arithmetic for a mesh not inside the frame and none of
+// its vertices at z >> 14 = 64 (the near plane's own, worked out in C).
+static void meshProjectModel(Vertex* v, int32_t count, const MeshProject &mp)
+{
+    for (int32_t k = 0; k < count; k++)
+    {
+        uint32_t* w = (uint32_t*)(v + k);
+        int32_t x = int16_t(w[0] >> 16), y = int16_t(w[0]), z = int16_t(w[1] >> 16);
+        uint32_t clip = 0;
+        if (!(z > (VIEW_MIN_F >> FIXED_SHIFT)))
+        {
+            z = VIEW_MIN_F >> FIXED_SHIFT;
+            clip = CLIP_PLANE;
+        }
+        if (z >= VIEW_DIST)
+        {
+            if (mp.farScaled)
+            {
+                x = x * VIEW_DIST / z;
+                y = y * VIEW_DIST / z;
+            }
+            z = VIEW_DIST;
+            clip = CLIP_PLANE;
+        }
+        int32_t d = int16_t(mp.divTable[z >> 4]);
+        int32_t sx = int16_t(uint32_t(clamp(int16_t(x) * d, -P_MAX, P_MAX)) >> 12) + (FRAME_WIDTH >> 1);
+        int32_t sy = int16_t(uint32_t(clamp(int16_t(y) * d, -P_MAX, P_MAX)) >> 12) + (FRAME_HEIGHT >> 1);
+        if (uint32_t(sx) > FRAME_WIDTH || uint32_t(sy) > FRAME_HEIGHT)
+        {
+            clip += CLIP_FRAME;
+            sx = clamp(sx, -1024, 1023);
+            sy = clamp(sy, -1024, 1023);
+            clip += (sx < 0 ? CLIP_LEFT : 0) + (sx > FRAME_WIDTH ? CLIP_RIGHT : 0) +
+                    (sy < 0 ? CLIP_TOP : 0) + (sy > FRAME_HEIGHT ? CLIP_BOTTOM : 0);
+        }
+        w[0] = uint32_t(sx) << 16 | (sy & 0xFFFF);
+        w[1] = uint32_t(z) << 16 | (w[1] & 0xFFFF) | clip;
+    }
+}
+
+// Made-up mesh vertices as the DSP leaves them, anywhere from behind the
+// near plane to far past the far one (but z >> 14 = 64), x and y any 16
+// bits: meshProjectAsm against its model, vertices past the far plane
+// scaled to it and not.
+int32_t verticesMeshesSeldomCheck()
+{
+    uint32_t seed = 0x452821E6;
+    auto next = [&seed] { seed = seed * 1664525 + 1013904223; return seed >> 8; };
+    int32_t bad = 0, far = 0;
+    for (int32_t pass = 0; pass < 2; pass++)
+    {
+        MeshProject mp;
+        mp.divTable = divTable;
+        mp.inside = 0;
+        mp.exact = meshExact;
+        mp.farScaled = pass;
+        for (int32_t k = 0; k < SELDOM_VERTICES; k++)
+        {
+            uint32_t kind = next() & 3;
+            int32_t z = kind == 0 ? int32_t(next() % 64) : kind == 1 ? VIEW_DIST - 64 + int32_t(next() % 12352)
+                      : 65 + int32_t(next() % (VIEW_DIST - 65));
+            int32_t spread = (next() & 1) ? 0x7FFF : z;
+            int32_t x = int32_t(next() % uint32_t(2 * spread + 1)) - spread;
+            int32_t y = int32_t(next() % uint32_t(2 * spread + 1)) - spread;
+            uint32_t* w = (uint32_t*)(gSeldomAsm + k);
+            w[0] = uint32_t(clamp(x, -32768, 32767)) << 16 | (clamp(y, -32768, 32767) & 0xFFFF);
+            w[1] = uint32_t(z) << 16 | (next() & 0x1F) << 8;
+            far += z >= VIEW_DIST;
+        }
+        memcpy(gSeldomModel, gSeldomAsm, SELDOM_VERTICES * sizeof(Vertex));
+        meshProjectAsm(gSeldomAsm, SELDOM_VERTICES, &mp);
+        meshProjectModel(gSeldomModel, SELDOM_VERTICES, mp);
+        for (int32_t k = 0; k < SELDOM_VERTICES; k++) {
+            bad += memcmp(gSeldomAsm + k, gSeldomModel + k, sizeof(Vertex)) != 0;
+        }
+    }
+    return bad + (far ? 0 : SELDOM_VERTICES);
+}
+
 void verticesMeshes()
 {
     MeshProject mp;
     mp.divTable = divTable;
     mp.exact = meshExact;
+    mp.farScaled = gFarScaled;
     for (int32_t i = 0; i < gJobCount; i++) {
         meshProject(mp, i);
     }
@@ -743,6 +835,7 @@ static void roomsAsTurned(void*)
     MeshProject mp;
     mp.divTable = divTable;
     mp.exact = meshExact;
+    mp.farScaled = gFarScaled;
     for (int32_t i = gJobCount - 1; i >= 0 && meshAsMade(mp, i, wait); i--);
     *uncached(&gRoomsDone.work) = ticksCycles(t0, ticks()) - wait;
     *uncached(&gRoomsDone.wait) = wait;
@@ -780,6 +873,7 @@ Together verticesTogether()
     MeshProject mp;
     mp.divTable = divTable;
     mp.exact = meshExact;
+    mp.farScaled = gFarScaled;
     for (int32_t i = 0; i < gJobCount && meshAsMade(mp, i, r.masterWait); i++);
     w0 = ticks();
     while (dspBusy());
@@ -819,6 +913,7 @@ int32_t verticesFallbacksCheck()
     MeshProject mp;
     mp.divTable = divTable;
     mp.exact = meshExact;
+    mp.farScaled = gFarScaled;
     mp.inside = 0;
     for (int32_t pass = 0; pass < 2; pass++)
     {

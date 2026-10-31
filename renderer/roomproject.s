@@ -15,6 +15,8 @@
 !   +36 int32 phase                 ripple phase
 !   +40 const int16* caustics       shade offsets (32), by vertex index, or NULL
 !   +44 int32 count                 the room's vertex count
+!   +48 int32 farScaled             a vertex past the far plane scaled to it
+!                                   (vertices.h verticesFarScaled)
 !
 ! Vertex (render.h): int16 x, y; int16 z; uint8 g, clip.
 !
@@ -67,9 +69,8 @@ _roomProjectAsm:
     bra     .LzChecked
     mov     #CLIP_PLANE, r14
 .LzFar:
-    mov     r0, r11             ! past the far plane
-    bra     .LzChecked
-    mov     #CLIP_PLANE, r14
+    bra     .LzFarScaled        ! past the far plane
+    nop
 
 .LclampXY:                      ! r1 = the largest x, y; r2 = -r1
     cmp/gt  r1, r12
@@ -300,6 +301,53 @@ _roomProjectAsm:
     rts
     mov.l   @r15+, r8
 
+    ! x, y (r12, r13) times zMax (r0) / z (r11), the divider's 64 / 32 at
+    ! r1 (DVSR set): projected at the far plane, they land where the vertex
+    ! does; scratch b
+    .macro  FAR_SCALE b
+    dmuls.l r0, r12
+    sts     mach, \b
+    mov.l   \b, @(16, r1)       ! DVDNTH
+    sts     macl, \b
+    mov.l   \b, @(20, r1)       ! DVDNTL: divides
+    mov.l   @(20, r1), r12
+    dmuls.l r0, r13
+    sts     mach, \b
+    mov.l   \b, @(16, r1)
+    sts     macl, \b
+    mov.l   \b, @(20, r1)
+    mov.l   @(20, r1), r13
+    .endm
+
+    ! past the far plane (z r11, zMax r0): x and y scaled to it unless the
+    ! original's way (+48); z at it, flagged
+.LzFarScaled:
+    mov.l   @(48, r7), r1
+    tst     r1, r1
+    bt      1f
+    mov     #-1, r1
+    shll8   r1                  ! the divider at 0xFFFFFF00
+    mov.l   r11, @r1            ! DVSR: z
+    FAR_SCALE r2
+1:  mov     r0, r11
+    bra     .LzChecked
+    mov     #CLIP_PLANE, r14
+
+    ! the same in the dry loop (the projection at GBR; r1, r14 free)
+.LdFarScaled:
+    mov.l   @(48, gbr), r0
+    tst     r0, r0
+    bt      1f
+    mov     #-1, r1
+    shll8   r1
+    mov.l   r11, @r1
+    mov.l   @(28, gbr), r0      ! zMax
+    FAR_SCALE r14
+1:  mov.l   @(28, gbr), r0
+    mov     r0, r11
+    bra     .LdZ
+    mov     #1, r14
+
     .align 2
 .LxyMax:        .long   0x007FFF00  ! view x, y whose >> 8 fits in 16 bits
 .LpMax:         .long   0x007FF000  ! projected 2047 << 12
@@ -332,9 +380,8 @@ _roomProjectAsm:
     bra     .LdZ
     mov     #1, r14
 .LdFar:                         ! past the far plane
-    mov     r0, r11
-    bra     .LdZ
-    mov     #1, r14
+    bra     .LdFarScaled
+    nop
 
 .LdClampXY:                     ! x, y within the view bound
     neg     r9, r1

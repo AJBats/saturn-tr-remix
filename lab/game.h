@@ -102,6 +102,10 @@ int32_t gameRoomsCheck(const RoomSeen* seen, int32_t count, int32_t &voids);
 // no translation), the rooms queued to out, their jobs to jobs and the
 // fills' rectangles (the first 64) to fills; near: the portals cut by the
 // near plane it kept.
+// A portal's corner past the far plane scaled to it as the renderer scales
+// it (rooms.h roomsFarScaled); 0 as the captured game projected it.
+extern int32_t gPortalsFarScaled;
+
 void gameRoomsRun(uint32_t room, const int32_t* camera, const int32_t* view, RoomSeen* out, int32_t &count,
                   int32_t &voids, int32_t &near, FaceRoom* jobs, int32_t &jobCount, int32_t (*fills)[4]);
 

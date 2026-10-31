@@ -369,6 +369,13 @@ static uint32_t roomsDspStart()
     return t0;
 }
 
+static bool gFarScaled = true;
+
+void verticesFarScaled(bool on)
+{
+    gFarScaled = on;
+}
+
 // Room i's vertices projected from the DSP's rotations.
 static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
 {
@@ -389,6 +396,7 @@ static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
     rp.phase = room.phase;
     rp.caustics = room.caustics;
     rp.count = to;      // the caustics' index, count - vertices left: from on
+    rp.farScaled = gFarScaled;
     roomProjectAsm(gRoomRotated + gRotatedAt[i] + from, to - from, roomVertices(room) + from, &rp);
 }
 
@@ -435,13 +443,20 @@ static void meshExact(MeshProject* mp, int32_t index, Vertex* v)
         z = VIEW_MIN_F;
         clip = CLIP_PLANE;
     }
+    int32_t far = 0;    // past the far plane: its depth, to scale x and y to the plane by
     if (z >= VIEW_MAX_F)
     {
+        far = z >> FIXED_SHIFT;
         z = VIEW_MAX_F;
         clip = CLIP_PLANE;
     }
     int32_t x = int16_t(uint32_t(row(m, m[3], p.x, p.y, p.z)) >> FIXED_SHIFT);
     int32_t y = int16_t(uint32_t(row(m + 4, m[7], p.x, p.y, p.z)) >> FIXED_SHIFT);
+    if (far && mp->farScaled)
+    {
+        x = x * VIEW_DIST / far;
+        y = y * VIEW_DIST / far;
+    }
     int32_t d = mp->divTable[uint32_t(z) >> (FIXED_SHIFT + 4)];
     int32_t sx = int16_t(uint32_t(clamp(x * d, -P_MAX, P_MAX)) >> 12) + (FRAME_WIDTH >> 1);
     int32_t sy = int16_t(uint32_t(clamp(y * d, -P_MAX, P_MAX)) >> 12) + (FRAME_HEIGHT >> 1);
@@ -735,6 +750,7 @@ void verticesMeshesFeed(int32_t from, int32_t to)
     }
     gPiecesProject.divTable = divTable;
     gPiecesProject.exact = meshExact;
+    gPiecesProject.farScaled = gFarScaled;
 }
 
 bool verticesMeshesTryStart()

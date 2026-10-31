@@ -33,6 +33,7 @@ struct RoomProject
     int32_t phase;              // +36 the ripple's
     const int16_t* caustics;    // +40 shade offsets (32) by vertex index under water, or none
     int32_t count;              // +44 the room's vertices
+    int32_t farScaled;          // +48 verticesFarScaled's
 };
 
 extern "C" void roomProjectAsm(const RoomRotated* src, int32_t count, Vertex* dst, RoomProject* rp);
@@ -57,7 +58,15 @@ struct MeshProject
     void (*exact)(MeshProject* mp, int32_t index, Vertex* v);  // +8 a vertex z >> 14 can't place
                                 // against the near plane, worked out from the mesh
     const struct MeshJob* job;  // +12 for exact
+    int32_t farScaled;          // +16 verticesFarScaled's
 };
+
+// A vertex past the far plane takes its depth there (and the plane's clip
+// flag), its x and y scaled by the plane's depth over its own so that it
+// projects where it lies: what fills a face the plane cuts covers it there.
+// Off, it projects at the plane, as the original game's did (the lab's
+// checks against its captures).
+void verticesFarScaled(bool on);
 
 extern "C" void meshProjectAsm(Vertex* v, int32_t count, MeshProject* mp);
 extern "C" void meshShadesAsm(Vertex* v, int32_t count, const uint8_t* shades, int32_t ambient);

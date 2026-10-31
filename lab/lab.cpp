@@ -424,7 +424,7 @@ static void stageTwoNew()
     verticesMeshes();
     int32_t rooms, meshes;
     gLab.newVertsBad = verticesRoomsCheck(rooms) + verticesMeshesCheck(meshes);
-    gLab.newVertsSeldom = verticesFallbacksCheck() + verticesRoomsSeldomCheck();
+    gLab.newVertsSeldom = verticesFallbacksCheck() + verticesRoomsSeldomCheck() + verticesMeshesSeldomCheck();
 
     Together sum = {};
     for (int32_t r = 0; r < RUNS; r++)
@@ -1668,6 +1668,7 @@ int main()
     }
     textRow(1, "measuring...");
     gameInit();
+    verticesFarScaled(false);   // as the captured game projected, for the checks against it
     gGameTables = (uint32_t (*)[SHADE_TABLES / 4])sceneAllocLow(2 * SHADE_TABLES);
     gNewTables = (uint32_t (*)[SHADE_TABLES / 4])sceneAllocLow(2 * SHADE_TABLES);
 

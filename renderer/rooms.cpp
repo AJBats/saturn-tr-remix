@@ -11,7 +11,7 @@ static_assert(offsetof(RoomsContext, camera) == 12 && offsetof(RoomsContext, vie
               offsetof(RoomsContext, cameraRoom) == 64 && offsetof(RoomsContext, listEnd) == 72 &&
               offsetof(RoomsContext, viewMax) == 84 && offsetof(RoomsContext, geometry) == 88 &&
               offsetof(RoomsContext, jobs) == 100 && offsetof(RoomsContext, table) == 112 &&
-              offsetof(RoomsContext, fills) == 116,
+              offsetof(RoomsContext, fills) == 116 && offsetof(RoomsContext, farScaled) == 120,
               "rooms.s's RoomsContext");
 static_assert(sizeof(RoomLevel) == 16 && offsetof(RoomLevel, first) == 12 && sizeof(RoomSeen) == 68,
               "rooms.s's RoomLevel, RoomSeen");
@@ -63,6 +63,12 @@ void roomsInit(const RoomsLevel &level)
     gCtx.caustics = level.caustics;
     gCtx.table = gCausticsTable;
     gCtx.fills = gFills;
+    gCtx.farScaled = 1;
+}
+
+void roomsFarScaled(bool on)
+{
+    gCtx.farScaled = on;
 }
 
 void roomsView(const int32_t camera[3], const int32_t view[12], const int32_t viewport[4], uint32_t cameraRoom)

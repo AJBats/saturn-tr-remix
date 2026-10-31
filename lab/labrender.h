@@ -134,6 +134,11 @@ int32_t verticesRoomsCheck(int32_t &vertices);
 // arithmetic: the vertices that differ.
 int32_t verticesRoomsSeldomCheck();
 
+// The meshes' projection on made-up vertices as the DSP leaves them, past the
+// far plane scaled to it and not: meshProjectAsm against a C model of its
+// arithmetic, the vertices that differ.
+int32_t verticesMeshesSeldomCheck();
+
 // The meshes fed to the DSP: each one's job (its coefficients, how it's
 // lit, whether it lies inside the frame), a shadow's vertices packed.
 // Then the DSP run over them, the master waiting: the SH-2 cycles it took;

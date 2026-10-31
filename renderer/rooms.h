@@ -43,6 +43,7 @@ struct RoomsContext
     const RoomCaustics* caustics;   // +108 the caustics' wave
     int16_t* table;             // +112 the caustics' table, a vertex's shade offset by its index (32)
     int32_t (*fills)[4];        // +116 the fills' rectangles, x0 y0 x1 y1 (the first ROOM_FILLS)
+    int32_t farScaled;          // +120 roomsFarScaled's
 };
 
 extern "C" void roomsSeenAsm(RoomsContext* ctx);
@@ -76,6 +77,12 @@ FaceRoom* roomsJobs(uint32_t &count);
 // The fills past the draw distance the walk found (renderVoid's: x0 y0 x1
 // y1), the first ROOM_FILLS: their count.
 const int32_t (*roomsFills(int32_t &count))[4];
+
+// A portal's corner past the far plane takes its depth there, its x and y
+// scaled by the plane's depth over its own so that it projects where it lies
+// (vertices.h verticesFarScaled); off, it projects at the plane, as the
+// original game's did (the lab's checks against its captures).
+void roomsFarScaled(bool on);
 
 // The walk's context, for checks.
 RoomsContext& roomsContext();

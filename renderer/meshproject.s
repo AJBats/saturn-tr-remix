@@ -17,6 +17,8 @@
 !   +4  int32 inside            every vertex lands inside the frame and
 !                               between the planes: no clamps or clip flags
 !   +8  void (*exact)(MeshProject* mp, int32 index, Vertex* v)
+!   +16 int32 farScaled         a vertex past the far plane scaled to it
+!                               (vertices.h verticesFarScaled)
 !
 ! Vertex (render.h): int16 x, y; int16 z; uint8 g, clip.
 
@@ -125,6 +127,9 @@ _meshProjectAsm:
 1:  mov.w   .LviewDist, r1
     cmp/ge  r1, r10
     bf      2f
+    bsr     .Lfar
+    nop
+    mov.w   .LviewDist, r1
     mov     r1, r10
     mov     #CLIP_PLANE, r14
 2:
@@ -237,6 +242,36 @@ _meshProjectAsm:
     mov.l   @r15+, r9
     rts
     mov.l   @r15+, r8
+
+    ! a vertex past the far plane (z r10) unless the original's way (+16 of
+    ! the projection, r6): x and y (r12's halves) times VIEW_DIST / z, so that
+    ! projected at the far plane they land where it does; r0 .. r3
+.Lfar:
+    mov.l   @(16, r6), r0
+    tst     r0, r0
+    bt      9f
+    mov     #-1, r3
+    shll8   r3                  ! the divider at 0xFFFFFF00
+    mov.l   r10, @r3            ! DVSR: z
+    mov.w   .LviewDist, r1
+    mov     r12, r0
+    shlr16  r0
+    exts.w  r0, r0              ! x
+    muls.w  r1, r0
+    sts     macl, r0
+    mov.l   r0, @(4, r3)        ! DVDNT: divides
+    mov.l   @(4, r3), r2
+    exts.w  r12, r0             ! y
+    muls.w  r1, r0
+    sts     macl, r0
+    mov.l   r0, @(4, r3)
+    mov.l   @(4, r3), r0
+    shll16  r2
+    extu.w  r0, r0
+    or      r0, r2
+    mov     r2, r12
+9:  rts
+    nop
 
     .global _meshShadesAsm
 _meshShadesAsm:

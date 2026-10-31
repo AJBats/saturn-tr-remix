@@ -38,6 +38,8 @@ struct RectMinMax
     int32_t x0, y0, x1, y1;
 };
 
+int32_t gPortalsFarScaled;
+
 struct Portal
 {
     uint16_t roomIndex;
@@ -132,6 +134,14 @@ bool checkPortal(uint32_t index, const Portal* portal)
 
         if (z > VIEW_MAX_F)
         {
+            if (gPortalsFarScaled)
+            {
+                // rooms.s: x and y scaled to the far plane
+                x = int32_t(int64_t(x) * VIEW_MAX_F / z);
+                y = int32_t(int64_t(y) * VIEW_MAX_F / z);
+                pv[i].x = x;
+                pv[i].y = y;
+            }
             z = VIEW_MAX_F;
             zfar++;
         }

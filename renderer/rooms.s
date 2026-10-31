@@ -21,7 +21,8 @@
 ! the jobs +88 each room's RoomGeometry, +92 RGEO, +96 gVertices, +100 the
 ! jobs (FaceRoom), +104 their count, +108 RoomCaustics, +112 the caustics'
 ! table (32 int16); +116 the fills' rectangles (x0 y0 x1 y1, the first
-! ROOM_FILLS; +68 counts them all).
+! ROOM_FILLS; +68 counts them all); +120 a corner past the far plane scaled
+! to it (rooms.h roomsFarScaled).
 
     .equ    R_LEVEL,        0
     .equ    R_PORTALS,      4
@@ -48,6 +49,7 @@
     .equ    R_CAUSTICS,     108
     .equ    R_TABLE,        112
     .equ    R_FILLS,        116
+    .equ    R_FAR_SCALED,   120
     .equ    ROOM_FILLS,     64
 
     .equ    L_X,            0       ! RoomLevel
@@ -103,7 +105,8 @@
     .endif
     mov.l   r5, @(F_PV+12*\i+4*\row,r15)
     .endr
-    ! r5 the corner's z: behind the camera, or held to the far plane
+    ! r5 the corner's z: behind the camera, or held to the far plane, its x
+    ! and y scaled to it unless the original's way (64 / 32 divides)
     cmp/pl  r5
     bt      1f
     bra     9f
@@ -111,6 +114,24 @@
 1:  mov.l   @(R_VIEW_MAX,gbr), r0
     cmp/gt  r0, r5
     bf      2f
+    mov.l   @(R_FAR_SCALED,gbr), r0
+    tst     r0, r0
+    bt      7f
+    mov     #-1, r7
+    shll8   r7                      ! the divider at 0xFFFFFF00
+    mov.l   r5, @r7                 ! DVSR: z
+    mov.l   @(R_VIEW_MAX,gbr), r0
+    .irp    k, 0, 4
+    mov.l   @(F_PV+12*\i+\k,r15), r1
+    dmuls.l r0, r1
+    sts     mach, r1
+    mov.l   r1, @(16,r7)            ! DVDNTH
+    sts     macl, r1
+    mov.l   r1, @(20,r7)            ! DVDNTL: divides
+    mov.l   @(20,r7), r1
+    mov.l   r1, @(F_PV+12*\i+\k,r15)
+    .endr
+7:  mov.l   @(R_VIEW_MAX,gbr), r0
     mov     r0, r5
     add     #1, r11
 2:  mov.l   @(R_K18,gbr), r0
