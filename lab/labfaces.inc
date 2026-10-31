@@ -52,6 +52,113 @@ static void parallelogramCommand(CommandList &list, const Material &m, Shading s
     linked(list, m.w0, depth);
 }
 
+// facesMeshCardsAsm in C. A card's half width at each end in sixteenths of a
+// pixel (half * divTable[z >> 4] >> 8); the line between its ends' length L
+// from its sides' longer and shorter, (123 longer + 51 shorter) / 128 (an
+// octagon's; a line longer than divTable reaches halved until it isn't, its
+// ends' x and y with it); each width times 65536 / 8L (in eighths of a pixel
+// under 112 pixels long, else in pixels: at least the longer side, and 1),
+// times the line's dy and -dx, >> 16: the corner's offset from its end in
+// half pixels, then whole pixels rounded.
+static int32_t cardRound(int32_t r)
+{
+    return (int32_t(int16_t(uint32_t(r) >> 16)) + 1) >> 1;
+}
+
+static void cardCorner(Vertex &v, int32_t x, int32_t y, bool flagged)
+{
+    if (flagged)
+    {
+        uint32_t clip = 0;
+        if (uint32_t(x) > FRAME_WIDTH || uint32_t(y) > FRAME_HEIGHT)
+        {
+            clip = CLIP_FRAME;
+            x = coord(x);
+            y = coord(y);
+            clip |= (x < 0 ? CLIP_LEFT : 0) | (x > FRAME_WIDTH ? CLIP_RIGHT : 0) | (y < 0 ? CLIP_TOP : 0) |
+                    (y > FRAME_HEIGHT ? CLIP_BOTTOM : 0);
+        }
+        v.clip = uint8_t(clip);
+    }
+    v.x = int16_t(x);
+    v.y = int16_t(y);
+}
+
+void facesMeshCardsC(const FaceSet* set, Vertex* vertices, uint32_t mode, const uint16_t* divTable)
+{
+    const FaceQuad* q = faceQuads(set) + set->quads - set->cards;
+    for (int32_t k = 0; k < set->cards; k++, q++)
+    {
+        Vertex &a = *(Vertex*)((uint8_t*)vertices + q->corners[0]);
+        Vertex &b = *(Vertex*)((uint8_t*)vertices + q->corners[1]);
+        Vertex &c = *(Vertex*)((uint8_t*)vertices + q->corners[2]);
+        Vertex &d = *(Vertex*)((uint8_t*)vertices + q->corners[3]);
+        bool inside = mode & MESH_INSIDE;
+        if (!inside && ((a.clip | b.clip) & CLIP_PLANE))
+            continue;
+        uint32_t wa = (uint32_t(q->half) * divTable[uint16_t(a.z) >> 4]) >> 8;
+        uint32_t wb = (uint32_t(q->half) * divTable[uint16_t(b.z) >> 4]) >> 8;
+
+        // on the frame: the mesh inside it, or both ends M or more inside each
+        // edge (M = the wider half width in pixels + 1: no corner farther)
+        bool onFrame = inside;
+        if (!inside && !((a.clip | b.clip) & CLIP_FRAME))
+        {
+            int32_t m = int32_t((wa > wb ? wa : wb) >> 4) + 1;
+            int32_t w = FRAME_WIDTH - 2 * m, h = FRAME_HEIGHT - 2 * m;
+            onFrame = h >= 0 && uint32_t(a.x - m) <= uint32_t(w) && uint32_t(b.x - m) <= uint32_t(w) &&
+                      uint32_t(a.y - m) <= uint32_t(h) && uint32_t(b.y - m) <= uint32_t(h);
+        }
+
+        int32_t dx = b.x - a.x, dy = b.y - a.y;
+        uint32_t hi = uint32_t(dx < 0 ? -dx : dx), lo = uint32_t(dy < 0 ? -dy : dy);
+        if (hi < lo)
+        {
+            uint32_t t = hi;
+            hi = lo;
+            lo = t;
+        }
+        while (hi > 936)
+        {
+            dx >>= 1;
+            dy >>= 1;
+            hi >>= 1;
+            lo >>= 1;
+        }
+        uint32_t length = 123 * hi + 51 * lo;   // 128 x
+        uint32_t sa, sb;
+        if (hi < 112)
+        {
+            uint32_t l = (length + 8) >> 4;     // 8 x, rounded
+            if (l < 8 * hi) {
+                l = 8 * hi;
+            }
+            if (!l) {
+                l = 1;
+            }
+            sa = wa * divTable[l];
+            sb = wb * divTable[l];
+        }
+        else
+        {
+            uint32_t l = ((length + 64) << 1) >> 8;
+            if (l < hi) {
+                l = hi;
+            }
+            sa = (wa * divTable[l]) >> 3;
+            sb = (wb * divTable[l]) >> 3;
+        }
+        int32_t ax = cardRound(int32_t(sa * uint32_t(dy))), ay = cardRound(int32_t(sa * uint32_t(-dx)));
+        int32_t bx = cardRound(int32_t(sb * uint32_t(dy))), by = cardRound(int32_t(sb * uint32_t(-dx)));
+        int32_t x0 = a.x, y0 = a.y, x1 = b.x, y1 = b.y;
+        bool flagged = !onFrame;
+        cardCorner(a, x0 + ax, y0 + ay, flagged);
+        cardCorner(d, x0 - ax, y0 - ay, flagged);
+        cardCorner(b, x1 + bx, y1 + by, flagged);
+        cardCorner(c, x1 - bx, y1 - by, flagged);
+    }
+}
+
 void facesMeshC(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList &list)
 {
     bool inside = mode & MESH_INSIDE;
@@ -441,6 +548,140 @@ enum OtherCover
     COVER_SKIP_X, COVER_SKIP_Y, COVER_DRAWN, COVER_LEFT, COVER_TOP, COVER_RIGHT, COVER_BOTTOM,
     COVER_INSIDE, COVER_FULL, COVER_FIRST, COVER_SHARED, COVER_COUNT
 };
+
+// Made-up cards: ends anywhere from far off the frame to its middle, at any
+// depth between the planes (some past one), any half width; each card's
+// corners placed and its faces made in C (facesMeshCardsC, facesMeshC) and
+// in assembly, the mesh inside the frame or not: the vertices and commands
+// each way, against each other. A degenerate card (its ends on one pixel)
+// faces away and is left out both ways.
+#define CARD_CARDS      48
+#define CARD_PASSES     24
+
+int32_t facesCardsCheck(const Material* materials, uint32_t materialCount, const uint16_t* divTable,
+                        const uint16_t* shadeGouraud)
+{
+    struct Side
+    {
+        CommandList list;
+        Command* cmds;
+        uint32_t (*grd)[2];
+        uint16_t* heads;
+        uint16_t* tails;
+        Vertex* vertices;
+    };
+    static Side sides[2];
+    static FaceSet* set;
+    static Vertex* made;
+    if (!set)
+    {
+        for (Side &s : sides)
+        {
+            s.cmds = (Command*)sceneAllocLow((CARD_CARDS + 1) * sizeof(Command));
+            s.grd = (uint32_t (*)[2])sceneAllocLow((CARD_CARDS + 1) * 8);
+            s.heads = (uint16_t*)sceneAllocLow((OT_SIZE + 1) * sizeof(uint16_t));
+            s.tails = (uint16_t*)sceneAllocLow(OT_SIZE * sizeof(uint16_t));
+            s.vertices = (Vertex*)sceneAllocLow(4 * CARD_CARDS * sizeof(Vertex));
+        }
+        set = (FaceSet*)sceneAllocLow(sizeof(FaceSet) + CARD_CARDS * sizeof(FaceQuad));
+        made = (Vertex*)sceneAllocLow(4 * CARD_CARDS * sizeof(Vertex));
+        if (!made || !sides[1].vertices || !materialCount)
+            return 1;
+    }
+    uint32_t seed = 0x3C6EF372;
+    auto next = [&seed] { seed = seed * 1664525 + 1013904223; return seed >> 8; };
+    int32_t bad = 0;
+    for (int32_t pass = 0; pass < CARD_PASSES; pass++)
+    {
+        bool inside = pass % 3 == 2;
+        int32_t reach = inside ? 0 : pass & 1 ? 1500 : 300;
+        set->quads = set->cards = CARD_CARDS;
+        set->triangles = set->spare = 0;
+        FaceQuad* q = (FaceQuad*)(set + 1);
+        for (int32_t k = 0; k < CARD_CARDS; k++, q++)
+        {
+            for (int32_t i = 0; i < 4; i++) {
+                q->corners[i] = uint16_t((4 * k + i) * sizeof(Vertex));
+            }
+            q->material = uint16_t(next() % materialCount);
+            q->half = uint16_t(1 + next() % 255);
+            for (int32_t e = 0; e < 2; e++)
+            {
+                // an end, as the projection leaves it; inside the frame for a
+                // mesh inside it, near the middle so that its corners are too
+                Vertex &v = made[4 * k + e];
+                int32_t x, y;
+                if (inside)
+                {
+                    x = FRAME_WIDTH / 2 - 40 + int32_t(next() % 80);
+                    y = FRAME_HEIGHT / 2 - 30 + int32_t(next() % 60);
+                    q->half = uint16_t(1 + next() % 32);
+                }
+                else if (k & 1)
+                {
+                    x = int32_t(next() % (2 * reach + FRAME_WIDTH)) - reach;
+                    y = int32_t(next() % (2 * reach + FRAME_HEIGHT)) - reach;
+                }
+                else
+                {
+                    x = int32_t(next() % FRAME_WIDTH);
+                    y = int32_t(next() % FRAME_HEIGHT);
+                }
+                v.z = int16_t(64 + next() % 20416);
+                v.g = uint8_t(next() % 32);
+                v.clip = 0;
+                if (inside) {
+                    v.z = int16_t(2000 + next() % 8000);
+                }
+                else if (next() % 16 == 0) {
+                    v.clip = CLIP_PLANE;
+                }
+                cardCorner(v, x, y, !inside);
+                if (!inside && next() % 16 == 0) {
+                    v.clip |= CLIP_PLANE;
+                }
+                if (k % 7 == 0 && e) {
+                    v.x = made[4 * k].x;
+                    v.y = made[4 * k].y;
+                }
+            }
+            made[4 * k + 2] = made[4 * k + 1];
+            made[4 * k + 3] = made[4 * k];
+        }
+        uint32_t mode = inside ? MESH_INSIDE : 0;
+        for (int32_t s = 0; s < 2; s++)
+        {
+            Side &side = sides[s];
+            memcpy(side.vertices, made, 4 * CARD_CARDS * sizeof(Vertex));
+            uint32_t fill = 0x9E3779B9 * uint32_t(pass + 1);
+            for (int32_t c = 0; c <= CARD_CARDS; c++)
+            {
+                for (int32_t w = 0; w < 8; w++) {
+                    side.cmds[c].w[w] = fill + 77 * uint32_t(c * 8 + w);
+                }
+                side.grd[c][0] = side.grd[c][1] = ~fill + uint32_t(c);
+            }
+            facesListInit(side.list, side.cmds, side.grd, 0, CARD_CARDS, side.heads, side.tails, materials,
+                          shadeGouraud, nullptr, nullptr, nullptr);
+            if (s)
+            {
+                facesMeshCardsAsm(set, side.vertices, mode, divTable);
+                facesMeshAsm(set, side.vertices, mode, &side.list);
+            }
+            else
+            {
+                facesMeshCardsC(set, side.vertices, mode, divTable);
+                facesMeshC(set, side.vertices, mode, side.list);
+            }
+        }
+        const Side &c = sides[0], &a = sides[1];
+        bad += memcmp(c.vertices, a.vertices, 4 * CARD_CARDS * sizeof(Vertex)) != 0;
+        for (int32_t k = 0; k <= CARD_CARDS; k++) {
+            bad += memcmp(c.cmds[k].w, a.cmds[k].w, sizeof(Command)) != 0 || memcmp(c.grd[k], a.grd[k], 8) != 0;
+        }
+    }
+    return bad;
+}
 
 int32_t facesOtherCheck(const uint16_t* shadeGouraud)
 {

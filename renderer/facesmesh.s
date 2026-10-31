@@ -8,10 +8,10 @@
 ! for the join (tails). A draw under water (MESH_WATER) takes the loops built
 ! with its shading. faces.cpp facesMeshC does the same in C.
 !
-! FaceSet: uint16 quads, triangles; then the quads, then the triangles.
-! FaceQuad: uint16 corners[4], byte offsets into the vertices; uint16 material,
-! spare. FaceTriangle: uint16 corners[3], flags (TRI_*); uint16 material,
-! spare.
+! FaceSet: uint16 quads, triangles, cards, spare; then the quads (the last
+! 'cards' of them cards), then the triangles. FaceQuad: uint16 corners[4],
+! byte offsets into the vertices; uint16 material, half. FaceTriangle: uint16
+! corners[3], flags (TRI_*); uint16 material, spare.
 ! Vertex: int16 x, y; int16 z; uint8 g, clip.
 ! Material: uint32 w0 (control | jump << 16), w1, w2, flags (MAT_SHADEABLE 1).
 ! CommandList: +0 cmd, +4 end, +8 grd, +12 link, +16 grdLink, +20 heads,
@@ -27,6 +27,10 @@
 ! flags.
 
     .equ    CLIP_FRAME,     0x01
+    .equ    CLIP_LEFT,      0x02
+    .equ    CLIP_RIGHT,     0x04
+    .equ    CLIP_TOP,       0x08
+    .equ    CLIP_BOTTOM,    0x10
     .equ    CLIP_DISCARD,   0x3E
     .equ    CLIP_PLANE,     0x20
     .equ    MAT_SHADEABLE,  1
@@ -376,7 +380,7 @@ _facesMeshAsm:
     mov.l   r0, @(8, r15)       ! the triangles
     mov.w   @r4, r0
     extu.w  r0, r0
-    add     #4, r4              ! the first quad
+    add     #8, r4              ! the first quad
     mov     r0, r1
     add     r1, r1
     add     r0, r1
@@ -672,3 +676,371 @@ _facesMeshAsm:
     ! under water, out of the way of the loops above
     .align 2
     FACES   Water, 1
+
+! --- the cards --------------------------------------------------------------
+!
+! void facesMeshCardsAsm(const FaceSet* set, Vertex* vertices, uint32 mode, const uint16* divTable)
+!
+! Each card's corners placed in the vertices (faces.h): its ends A and B, and
+! their copies D and C, moved across the line between the ends by its half
+! width at each end, as faces.cpp facesMeshCardsC works it out. The stack:
+! +0 on the frame (corners neither flagged nor clamped), +4 .. +16 the
+! offsets of A (x, y) and of B, in pixels.
+
+    .macro  ROUND17 r           ! from half pixels and 16 bits below to pixels, rounded
+    swap.w  \r, \r
+    exts.w  \r, \r
+    add     #1, \r
+    shar    \r
+    .endm
+
+    .align 2
+    .global _facesMeshCardsAsm
+_facesMeshCardsAsm:
+    mov.l   r8, @-r15
+    mov.l   r9, @-r15
+    mov.l   r10, @-r15
+    mov.l   r11, @-r15
+    mov.l   r12, @-r15
+    mov.l   r13, @-r15
+    mov.l   r14, @-r15
+    sts.l   pr, @-r15
+    add     #-20, r15
+    mov.w   @(4, r4), r0
+    extu.w  r0, r8              ! the cards
+    tst     r8, r8
+    bf      1f
+    bra     .LcardsDone
+    nop
+1:  mov.w   @r4, r0
+    extu.w  r0, r0
+    sub     r8, r0              ! the quads before them
+    mov     r0, r1
+    add     r1, r1
+    add     r0, r1
+    shll2   r1
+    add     #8, r4
+    add     r1, r4              ! the first card
+
+.Lcard:
+    mov.w   @r4, r0
+    extu.w  r0, r9
+    add     r5, r9              ! its first end, A
+    mov.w   @(2, r4), r0
+    extu.w  r0, r10
+    add     r5, r10             ! its second, B
+    mov     r6, r0
+    tst     #MESH_INSIDE, r0
+    bf      1f
+    mov.b   @(7, r9), r0
+    mov     r0, r3
+    mov.b   @(7, r10), r0
+    or      r0, r3
+    mov     r3, r0
+    tst     #CLIP_PLANE, r0
+    bt      1f
+    bra     .LcardNext          ! an end past a plane: left
+    nop
+
+    ! the half width at each end in sixteenths of a pixel, half *
+    ! divTable[z >> 4] >> 8: A's to r1, B's to r2
+1:  mov.w   @(10, r4), r0
+    extu.w  r0, r13             ! half
+    mov.w   @(4, r9), r0
+    extu.w  r0, r0
+    shlr2   r0
+    shlr2   r0
+    add     r0, r0
+    mov.w   @(r0, r7), r0
+    extu.w  r0, r0
+    mulu.w  r0, r13
+    sts     macl, r1
+    shlr8   r1
+    mov.w   @(4, r10), r0
+    extu.w  r0, r0
+    shlr2   r0
+    shlr2   r0
+    add     r0, r0
+    mov.w   @(r0, r7), r0
+    extu.w  r0, r0
+    mulu.w  r0, r13
+    sts     macl, r2
+    shlr8   r2
+
+    ! on the frame: the mesh inside it, or both ends M or more inside each
+    ! edge, M the wider half width in pixels + 1
+    mov     #1, r3
+    mov     r6, r0
+    tst     #MESH_INSIDE, r0
+    bf      .LcardOnFrame
+    mov     #0, r3
+    mov.b   @(7, r9), r0
+    mov     r0, r14
+    mov.b   @(7, r10), r0
+    or      r0, r14
+    mov     r14, r0
+    tst     #CLIP_FRAME, r0
+    bf      .LcardOnFrame       ! (not)
+    mov     r1, r14
+    cmp/hs  r2, r14
+    bt      2f
+    mov     r2, r14
+2:  shlr2   r14
+    shlr2   r14
+    add     #1, r14             ! M
+    mov     #-32, r13
+    extu.b  r13, r13            ! FRAME_HEIGHT
+    sub     r14, r13
+    sub     r14, r13            ! FRAME_HEIGHT - 2M
+    cmp/pz  r13
+    bf      .LcardOnFrame       ! (not)
+    mov     #88, r12
+    shll2   r12                 ! FRAME_WIDTH
+    sub     r14, r12
+    sub     r14, r12            ! FRAME_WIDTH - 2M
+    mov.w   @r9, r0
+    sub     r14, r0
+    cmp/hi  r12, r0
+    bt      .LcardOnFrame
+    mov.w   @r10, r0
+    sub     r14, r0
+    cmp/hi  r12, r0
+    bt      .LcardOnFrame
+    mov.w   @(2, r9), r0
+    sub     r14, r0
+    cmp/hi  r13, r0
+    bt      .LcardOnFrame
+    mov.w   @(2, r10), r0
+    sub     r14, r0
+    cmp/hi  r13, r0
+    bt      .LcardOnFrame
+    mov     #1, r3
+.LcardOnFrame:
+    mov.l   r3, @r15
+
+    ! the line from A to B: dx to r13, dy to r14, its longer side to r3,
+    ! its shorter to r12; past 936 pixels halved until not, dx and dy with it
+    mov.w   @r10, r13
+    mov.w   @r9, r0
+    sub     r0, r13
+    mov.w   @(2, r10), r0
+    mov     r0, r14
+    mov.w   @(2, r9), r0
+    sub     r0, r14
+    mov     r13, r3
+    cmp/pz  r3
+    bt      3f
+    neg     r3, r3
+3:  mov     r14, r12
+    cmp/pz  r12
+    bt      4f
+    neg     r12, r12
+4:  cmp/hs  r12, r3
+    bt      5f
+    mov     r3, r0
+    mov     r12, r3
+    mov     r0, r12
+5:  mov.w   .LcardHalve, r0
+    cmp/hi  r0, r3
+    bf      6f
+    shar    r13
+    shar    r14
+    shlr    r3
+    bra     5b
+    shlr    r12
+
+    ! each width times 65536 / 8L: L from 128 L = 123 longer + 51 shorter, in
+    ! eighths of a pixel under 112 pixels (rounded, at least 8 x the longer
+    ! side and 1), else in pixels (rounded, at least the longer side)
+6:  mov     #123, r0
+    mulu.w  r0, r3
+    sts     macl, r11
+    mov     #51, r0
+    mulu.w  r0, r12
+    sts     macl, r0
+    add     r11, r0
+    mov     #112, r11
+    cmp/hs  r11, r3
+    bt      9f
+    add     #8, r0
+    shlr2   r0
+    shlr2   r0
+    mov     r3, r11
+    shll2   r11
+    shll    r11
+    cmp/hs  r11, r0
+    bt      7f
+    mov     r11, r0
+7:  tst     r0, r0
+    bf      8f
+    mov     #1, r0
+8:  add     r0, r0
+    mov.w   @(r0, r7), r0
+    extu.w  r0, r0
+    mulu.w  r0, r1
+    sts     macl, r1
+    mulu.w  r0, r2
+    bra     .LcardOffsets
+    sts     macl, r2
+9:  add     #64, r0
+    shll    r0
+    shlr8   r0
+    cmp/hs  r3, r0
+    bt      10f
+    mov     r3, r0
+10: add     r0, r0
+    mov.w   @(r0, r7), r0
+    extu.w  r0, r0
+    mulu.w  r0, r1
+    sts     macl, r1
+    shlr2   r1
+    shlr    r1
+    mulu.w  r0, r2
+    sts     macl, r2
+    shlr2   r2
+    shlr    r2
+
+    ! the offsets: times dy and -dx, >> 16, half pixels, then pixels rounded
+.LcardOffsets:
+    neg     r13, r13
+    mul.l   r14, r1
+    sts     macl, r0
+    ROUND17 r0
+    mov.l   r0, @(4, r15)
+    mul.l   r13, r1
+    sts     macl, r0
+    ROUND17 r0
+    mov.l   r0, @(8, r15)
+    mul.l   r14, r2
+    sts     macl, r0
+    ROUND17 r0
+    mov.l   r0, @(12, r15)
+    mul.l   r13, r2
+    sts     macl, r0
+    ROUND17 r0
+    mov.l   r0, @(16, r15)
+
+    ! A and D from the first end, B and C from the second
+    mov.w   @r9, r0
+    mov     r0, r13
+    mov.w   @(2, r9), r0
+    mov     r0, r14
+    mov.l   @(4, r15), r1
+    mov.l   @(8, r15), r2
+    mov     r13, r0
+    add     r1, r0
+    mov     r14, r3
+    add     r2, r3
+    bsr     .LcardCorner
+    mov     r9, r11
+    mov.w   @(6, r4), r0
+    extu.w  r0, r11
+    add     r5, r11
+    mov.l   @(4, r15), r1
+    mov.l   @(8, r15), r2
+    mov     r13, r0
+    sub     r1, r0
+    mov     r14, r3
+    bsr     .LcardCorner
+    sub     r2, r3
+    mov.w   @r10, r0
+    mov     r0, r13
+    mov.w   @(2, r10), r0
+    mov     r0, r14
+    mov.l   @(12, r15), r1
+    mov.l   @(16, r15), r2
+    mov     r13, r0
+    add     r1, r0
+    mov     r14, r3
+    add     r2, r3
+    bsr     .LcardCorner
+    mov     r10, r11
+    mov.w   @(4, r4), r0
+    extu.w  r0, r11
+    add     r5, r11
+    mov.l   @(12, r15), r1
+    mov.l   @(16, r15), r2
+    mov     r13, r0
+    sub     r1, r0
+    mov     r14, r3
+    bsr     .LcardCorner
+    sub     r2, r3
+
+.LcardNext:
+    dt      r8
+    bt      .LcardsDone
+    bra     .Lcard
+    add     #12, r4
+.LcardsDone:
+    add     #20, r15
+    lds.l   @r15+, pr
+    mov.l   @r15+, r14
+    mov.l   @r15+, r13
+    mov.l   @r15+, r12
+    mov.l   @r15+, r11
+    mov.l   @r15+, r10
+    mov.l   @r15+, r9
+    rts
+    mov.l   @r15+, r8
+
+! a corner x (r0), y (r3) into the vertex at r11: unless on the frame
+! (@r15), flagged and clamped as the projection does a vertex; r1, r2, r12
+.LcardCorner:
+    mov.l   @r15, r12
+    tst     r12, r12
+    bf      .LcornerXY
+    mov     #88, r1
+    shll2   r1                  ! FRAME_WIDTH
+    mov     #-32, r2
+    extu.b  r2, r2              ! FRAME_HEIGHT
+    cmp/hi  r1, r0
+    bt      1f
+    cmp/hi  r2, r3
+    bf      .LcornerFlags
+1:  mov     #CLIP_FRAME, r12
+    mov.w   .LcardCoordMax, r1
+    cmp/gt  r1, r0
+    bf      2f
+    mov     r1, r0
+2:  cmp/gt  r1, r3
+    bf      3f
+    mov     r1, r3
+3:  not     r1, r1              ! -1024
+    cmp/ge  r1, r0
+    bt      4f
+    mov     r1, r0
+4:  cmp/ge  r1, r3
+    bt      5f
+    mov     r1, r3
+5:  cmp/pz  r0
+    bt      6f
+    add     #CLIP_LEFT, r12
+6:  mov     #88, r1
+    shll2   r1
+    cmp/gt  r1, r0
+    bf      7f
+    add     #CLIP_RIGHT, r12
+7:  cmp/pz  r3
+    bt      8f
+    add     #CLIP_TOP, r12
+8:  cmp/gt  r2, r3
+    bf      .LcornerFlags
+    add     #CLIP_BOTTOM, r12
+.LcornerFlags:
+    mov.w   r0, @r11
+    mov     r12, r0
+    mov.b   r0, @(7, r11)
+    mov     r11, r1
+    add     #2, r1
+    rts
+    mov.w   r3, @r1
+.LcornerXY:
+    mov.w   r0, @r11
+    mov     r11, r1
+    add     #2, r1
+    rts
+    mov.w   r3, @r1
+
+    .align 2
+.LcardHalve:    .short  936         ! (123 + 51) * 936 >> 7 < DIV_TABLE_SIZE
+.LcardCoordMax: .short  1023        ! VDP1_COORD_MAX

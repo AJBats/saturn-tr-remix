@@ -162,7 +162,8 @@ struct LabResults
     uint32_t lowSize;
     int32_t othersBad;          // made-up sprites, rectangles, lines and voids: facesOtherAsm not as
                                 // facesOther; made-up chains of commands held and placed: not as their
-                                // model (and paths not taken)
+                                // model (and paths not taken); made-up cards: facesMeshCardsAsm and
+                                // facesMeshAsm not as their C
     uint32_t runFrames;         // the whole frame run in a row (stageRun): frames
     uint32_t runFrame;          // cycles a frame, plot to plot
     uint32_t runStages;         // ... the stages (the master, start to end)
@@ -667,6 +668,14 @@ static void newMeshes(bool c, bool water = false)
         const FaceSet* set = d.type == DRAW_SHADOW ? facesShadow()
                                                    : (const FaceSet*)(sets + ((const uint32_t*)sets)[d.mesh]);
         uint32_t mode = (d.inside ? MESH_INSIDE : 0) | (water || (d.flags & FACE_WATER) ? MESH_WATER : 0);
+        if (set->cards)
+        {
+            if (c) {
+                facesMeshCardsC(set, const_cast<Vertex*>(vertices), mode, gSplit.divTable);
+            } else {
+                facesMeshCardsAsm(set, const_cast<Vertex*>(vertices), mode, gSplit.divTable);
+            }
+        }
         if (frameMeshHinted(i, set, vertices, mode))
             continue;
         if (c) {
@@ -1149,7 +1158,9 @@ static void stageNew()
     gLab.newMeshes = measure([] { newPrepare(); }, [] { newMeshes(false); });
     gLab.meshCommands = facesSlot(gMeshList.link) - gMeshFirst;
     gLab.newAsmBad = newAsmCheck();
-    gLab.othersBad = facesOtherCheck(gameShadeGouraud()) + facesChainCheck();
+    const MeshStore* store = sceneArray<const MeshStore>("MSTO");
+    gLab.othersBad = facesOtherCheck(gameShadeGouraud()) + facesChainCheck() +
+                     facesCardsCheck(gMeshList.materials, store->materialCount, gSplit.divTable, gameShadeGouraud());
     gLab.newJoin = measure([] { newPrepare(); newRooms(false); newMeshes(false); }, [] { newJoin(false); });
     gLab.newBad = gameListCheck(gFrameCmds, gFrameGrd, gLab.newVisited, gLab.newShaded) + gRoomTexturesShort + gBottomOff +
                   texturesQueueOff(gFrameTextures, gWalkList.textures);
@@ -1504,7 +1515,7 @@ static void newPage()
     p = putNumber(p, gLab.texturesUploadOff, 0);
     put(p, " off)");
     page.add(line);
-    p = put(line, "made up sprites, holds: ");
+    p = put(line, "made up sprites, holds, cards: ");
     p = put(p, gLab.othersBad ? "OFF" : "ok");
     p = put(p, " (");
     p = putNumber(p, gLab.othersBad, 0);

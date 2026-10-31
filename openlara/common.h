@@ -1055,7 +1055,8 @@ struct Mesh {
     int16 tCount;
 #ifdef __SATURN__
     int16 bound;    // radius about the centre that every vertex lies within
-    int16 turned;   // its quads with tall textures are turned (render.cpp turnObjectQuads)
+    uint8 spare;
+    uint8 cards;    // the renderer's mesh store's alone (tools/diet.py, renderer/faces.h)
 #else
     int16 crCount;
     int16 ctCount;

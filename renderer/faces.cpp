@@ -16,6 +16,10 @@ namespace render {
 #define VDP1_COORD_MIN  -1024
 #define VDP1_COORD_MAX  1023
 #define CLIP_FRAME      0x01
+#define CLIP_LEFT       0x02
+#define CLIP_RIGHT      0x04
+#define CLIP_TOP        0x08
+#define CLIP_BOTTOM     0x10
 #define CLIP_DISCARD    0x3E
 #define CLIP_PLANE      0x20
 #define CMD_FLIP_H      0x0010
@@ -810,7 +814,7 @@ const FaceSet* facesShadow()
         FaceQuad quads[3];
     };
     static const Shadow shadow = {
-        { 3, 0 },
+        { 3, 0, 0, 0 },
         { { { 0 * 8, 1 * 8, 2 * 8, 7 * 8 }, MAT_SHADOW, 0 },
           { { 7 * 8, 2 * 8, 3 * 8, 6 * 8 }, MAT_SHADOW, 0 },
           { { 6 * 8, 3 * 8, 4 * 8, 5 * 8 }, MAT_SHADOW, 0 } }

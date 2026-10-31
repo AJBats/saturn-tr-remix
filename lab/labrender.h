@@ -187,6 +187,7 @@ int32_t verticesFallbacksCheck();
 // the join in C.
 // The same in C: what facesMeshAsm does, to check it against.
 void facesMeshC(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList &list);
+void facesMeshCardsC(const FaceSet* set, Vertex* vertices, uint32_t mode, const uint16_t* divTable);
 
 // The buckets' chains as facesMeshHinted and facesLinkHeld change them
 // (commands linked, taken back out from a chain's head, middle and end, and
@@ -205,6 +206,8 @@ void facesOther(const Face &face, const Vertex* half, int32_t depth, CommandList
 // list filling up): the commands, gouraud tables, buckets and cursors that
 // differ (and paths not taken).
 int32_t facesOtherCheck(const uint16_t* shadeGouraud);
+int32_t facesCardsCheck(const Material* materials, uint32_t materialCount, const uint16_t* divTable,
+                        const uint16_t* shadeGouraud);
 
 // The lists' buckets far to near, in each the lists' chains in turn, from the
 // command in slot first of cmds (whose link it sets) to the one in slot end;

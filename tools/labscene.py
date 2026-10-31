@@ -23,7 +23,6 @@ import meshstore        # noqa: E402
 import posepack         # noqa: E402
 import roompack         # noqa: E402
 import drawpack         # noqa: E402
-import depth_hints      # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -139,15 +138,6 @@ def mesh_inside(mem, r):
     near = cz - bound
     return (near > 64 and cz + bound < VIEW_DIST and
             cap.s32((abs(cx) + bound) << 8) < 172 * near and cap.s32((abs(cy) + bound) << 8) < 108 * near)
-
-
-def level_ids():
-    """openlara/common.h LevelID: each level's number by name."""
-    text = open(os.path.join(ROOT, 'openlara/common.h')).read()
-    body = text[text.index('enum LevelID'):]
-    body = body[body.index('{') + 1:body.index('}')]
-    names = [n.split('=')[0].strip() for n in body.split(',')]
-    return {n: i for i, n in enumerate(n for n in names if n)}
 
 
 def main():
@@ -437,13 +427,15 @@ def main():
     chunks['DTHG'] = bytes(things)
     chunks['XFRM'] = bytes(xforms)
 
-    # the draw order hints of the scene's level (saturn/depth_hints.txt), the
-    # level by its LevelID
-    levels = level_ids()
+    # the draw order hints of the scene's level as the captured game had them
+    # (its gDepthHints, made from saturn/depth_hints.txt as it then was: the
+    # faces they name are the captured meshes', which the diet has since
+    # simplified in the renderer's own mesh store)
     level_id = u32(mem, sym('_gLevelID'))
-    hints = [h for h in depth_hints.parse(os.path.join(ROOT, 'saturn/depth_hints.txt'))
-             if levels.get(h[0]) == level_id]
-    chunks['HINT'] = b''.join(HINT.pack(level_id, *h[1:]) for h in hints)
+    table, size = syms['__ZL11gDepthHints'][0]
+    records = mem.bytes(table, size)
+    chunks['HINT'] = b''.join(records[at:at + HINT.size] for at in range(0, len(records), HINT.size)
+                              if records[at] == level_id)
     # a shadow's item: its place in POSE, items in the order first drawn
     order = sorted(first_draws, key=first_draws.get)
     shadows = [(d, order.index(i), r) for d, i, r in shadows if i in first_draws]
@@ -464,7 +456,10 @@ def main():
     # level's meshes indexed as MIDX), as the level packer makes the level's
     texture_entries = [struct.unpack_from('>5H', chunks['TEXS'], 16 * i) for i in range(textures)]
     midx = struct.unpack(f'>{len(chunks["MIDX"]) // 2}H', chunks['MIDX'])
-    chunks['MSTO'] = meshstore.build([mesh_data[at:] for at in mesh_offsets], midx, texture_entries,
+    # (the captures' meshes have no cards: their header's last word was the
+    # old game's turned flag)
+    meshes = [bytes(mesh_data[at:at + 18]) + bytes(2) + bytes(mesh_data[at + 20:]) for at in mesh_offsets]
+    chunks['MSTO'] = meshstore.build(meshes, midx, texture_entries,
                                      struct.unpack('>256H', chunks['PALT']), u32(mem, sym('_gTexturePmod')))
     materials_count = struct.unpack_from('>I', chunks['MSTO'], 12)[0]
     moved = [(i, natural[i]) for i in range(master_faces) if natural[i] != mesh_bucket[i]]

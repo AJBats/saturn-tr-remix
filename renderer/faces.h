@@ -35,17 +35,25 @@ struct Material
 #define MAT_SHADEABLE   1   // a shaded copy of its colour table may stand in for gouraud
 #define MAT_SHADOW      0   // the shadows' material
 
-// A mesh's faces: its quads, then its triangles, as the game adds them.
+// A mesh's faces: its quads, then its triangles, as the game adds them. The
+// last 'cards' of its quads are cards (tools/diet.py): a quad down the line on
+// the screen from one end to the other, half wide either side of it at each
+// end's depth, so that it always faces the camera. Its corners A B C D are
+// its first end, its second, and copies of the second and the first (the
+// mesh's vertices, transformed and lit with the rest), which facesMeshCards
+// places across the line before the faces go; its texture runs along it
+// from its first end.
 struct FaceSet
 {
     uint16_t quads, triangles;
+    uint16_t cards, spare;
 };
 
 struct FaceQuad
 {
     uint16_t corners[4];    // byte offsets into the mesh's vertices
     uint16_t material;
-    uint16_t spare;
+    uint16_t half;          // a card's half width, in model units (1 .. 255); 0 else
 };
 
 // Drawn as the parallelogram v0, x, x + y - v0, y (x, y: v1, v2, or v2, v1
@@ -118,6 +126,15 @@ void facesListStart(CommandList &list, Command* cmds, uint32_t (*grd)[2], int32_
 #define MESH_INSIDE     1
 #define MESH_WATER      2
 extern "C" void facesMeshAsm(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList* list);
+
+// A mesh's cards' corners placed in its projected vertices: each corner its
+// end moved across the line between the ends by the card's half width at
+// that end's depth (half * divTable[z >> 4] / 4096 pixels), the end's depth
+// and shade kept. Off the frame, the corners are flagged and clamped as the
+// projection does a vertex (unless the mesh lies inside the frame: MESH_INSIDE,
+// whose bound takes its cards in). A card with an end past a plane is left:
+// its quad's corners carry the plane's flag.
+extern "C" void facesMeshCardsAsm(const FaceSet* set, Vertex* vertices, uint32_t mode, const uint16_t* divTable);
 
 // A face's command made but held out of its bucket (a draw order hint's):
 // where it is, its first word (unlinked), its place, its bucket, the hint.

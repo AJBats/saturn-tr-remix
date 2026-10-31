@@ -34,7 +34,7 @@ MESH_LIGHT_NORMALS, MESH_LIGHT_SHADES = 1, 2
 MATERIAL = struct.Struct('>4I')         # faces.h Material
 QUAD = struct.Struct('>4H2H')           # faces.h FaceQuad
 TRIANGLE = struct.Struct('>4H2H')       # faces.h FaceTriangle
-SET = struct.Struct('>2H')              # faces.h FaceSet
+SET = struct.Struct('>4H')              # faces.h FaceSet
 
 MAT_SHADEABLE = 1           # a shaded copy of its colour table may stand in for gouraud
 TRI_PARALLELOGRAM = 1       # FaceTriangle.flags
@@ -85,21 +85,33 @@ class Materials:
 
 
 def mesh_faces(mesh, materials):
-    """A mesh as the game keeps it (render.cpp meshParts) to its FaceSet."""
+    """A mesh as the game keeps it (tools/pack_level.py write_mesh_record:
+    the header with its cards' count in its last byte, its vertices with
+    each card's four (its ends, then copies of the second and the first)
+    last, their lighting, quads, triangles, then the cards: int16 half,
+    uint16 face flags) to its FaceSet, the cards as its last quads."""
     vcount = mesh[10]
     lighting = mesh[11]
     quads, triangles = struct.unpack_from('>hh', mesh, 12)
+    cards = mesh[19]
     at = MESH_HEADER + 6 * vcount
     if lighting == MESH_LIGHT_NORMALS:
         at += 4 * vcount
     elif lighting == MESH_LIGHT_SHADES:
         at += (vcount + 1) & ~1
-    out = bytearray(SET.pack(quads, triangles))
+    out = bytearray(SET.pack(quads + cards, triangles, cards, 0))
     for _ in range(quads):
         flags, a, b, c, d = struct.unpack_from('>H4B', mesh, at)
         at += 6
         out += QUAD.pack(a * VERTEX_BYTES, b * VERTEX_BYTES, c * VERTEX_BYTES, d * VERTEX_BYTES,
                          materials.face(flags, False), 0)
+    card_at = at + 6 * triangles
+    first = vcount - 4 * cards
+    for k in range(cards):
+        half, flags = struct.unpack_from('>hH', mesh, card_at + 4 * k)
+        v = (first + 4 * k) * VERTEX_BYTES
+        out += QUAD.pack(v, v + VERTEX_BYTES, v + 2 * VERTEX_BYTES, v + 3 * VERTEX_BYTES,
+                         materials.face(flags, False), half)
     for _ in range(triangles):
         flags, v0, v1, v2, arrangement = struct.unpack_from('>H4B', mesh, at)
         at += 6
