@@ -45,8 +45,10 @@ Caves and the ledge play at the old renderer's picture; the inventory (its
 items under the ring's matrices, the scene dimmed behind it), the title's
 text, Lara's muzzle flashes, the turned object quads (now the packer's)
 and the DSP's end interrupt are in, and the HW_LOG trace shows the frame's
-stages on both CPUs and the DSP. Left for C: every level booted and played
-(cutscenes, flip maps, LEVEL7B's low work RAM).
+stages on both CPUs and the DSP. Every level and cutscene boots and draws
+at 30 fps in Mednafen; on the Saturn the ledge holds 30 fps (33.4 ms frames,
+VDP1 28.9 ms a list, the master 27.9 ms busy, the slave 20.3; the old
+renderer's frame was 35.2 ms).
 
 **D. Checked and finished.** For the same frame of a recorded play, the
 renderer's inputs in game against a capture's scene (made with the old
@@ -56,6 +58,30 @@ maps, animated textures (issue 243). The old renderer goes from TRS, with
 the debug menu's rendering options and the polygon hunt; the lab keeps the
 game's way it compares against (faces.s, flush.s, xform.s, meshxform.s and
 the C around them, in `lab/`). Then the merge, and the Saturn.
+
+Where D stands: the old renderer is out of TRS. Its assembly is the lab's
+game way (`lab/game*.s`, bb186d0), its last files and the game code only it
+used are gone (84a7406), and so are the frame counters only it kept. The
+game was checked against the old renderer (a worktree of main) in pictures
+rather than record by record: capture.cpp read the old renderer's inputs,
+and the lab already runs the renderer exact on those. The pictures:
+- the title and its ring, the inventory, Lara's muzzle flashes: the same;
+- flip maps: Lara in the Palace Midas sand room on a flip trigger the
+  packer adds (`START_TRIGGER=flip0`, 43624a8), the map flipped by a poke:
+  the room becomes the alternate's dunes in both, within the two
+  renderers' usual few hundred pixels;
+- under water (the Vilcabamba pool dive): tint, caustics, the surface's
+  ripple and bubbles alike; the pictures differ by game timing alone (the
+  two show their frames a vblank apart);
+- animated textures (issue 243): the room materials now shift with the
+  texture entries (893462f), seen on the Gym pool's surface.
+
+RAM: the item records lost the extra's copy only the lab needs (7097ee9,
+14.6 KB), and `tools/ramaudit.py` measures the game as it loads each level
+(558510a): every level loads; LEVEL6, 7A, 7B and 10B leave some rooms'
+faces in low work RAM (issue 244); LEVEL7B has 1.2 KB of low work RAM left.
+Levels load about a second slower than with the old renderer in Mednafen
+(issue 245). Left for D: the merge, and the Saturn.
 
 ## Why this order
 

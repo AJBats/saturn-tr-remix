@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-243 | Rendering: the new renderer's open work |
+| 219-245 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3685,11 +3685,61 @@ field's vblank-in by ~2.5 ms and the frame takes three fields (50.15 ms,
   after the change as the hardware allows (when the change takes effect,
   measured on the Saturn).
 
+### 244. Some rooms' faces stay in low work RAM at four levels
+*Kind: speed · Size: LEVEL6 17 rooms of 79, LEVEL7A 44 of 139, LEVEL7B 10 of
+114, LEVEL10B 18 of 101 (tools/ramaudit.py) · Fix: medium*
+
+- The level's arena takes the rooms' faces last, room by room as they fit
+  (`os.cpp osPlaceRoomFaces`); the rest stay where the level file has them,
+  in low work RAM, which the slave reads more slowly every frame it draws
+  those rooms. The cost is unmeasured: no trace yet of a frame drawing
+  them, on the Saturn or in Mednafen.
+- **Levers:** 242's reserve (face sets in low work RAM instead, 8-byte room
+  faces, the meshes' parts folded into their headers, the draws' limit
+  measured in play, the rooms projected in place over the DSP's rotated
+  vertices), and the program's biggest buffers (ramaudit lists them:
+  OpenLara's `enemiesExtra` 64.5 KB, the frame's commands 56, the vertices
+  40, the rooms' rotated vertices 38).
+
+### 245. Levels load about a second slower than with the old renderer
+*Kind: speed · Size: Mednafen, from gNextLevel to the first frame drawn:
+LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
+12.7 (11.3); LEVEL7A 12.3 (12.7) · Fix: small to medium*
+
+- The load reads one file more (the meshes' store, .MSH), copies every
+  room's vertices and as many rooms' faces as fit to high work RAM, and
+  makes the renderer's tables; the title's first frame comes 2 s later.
+  Which of these takes the time is unmeasured, and so is the Saturn's
+  (Mednafen's CD timing is not the drive's).
+- **Levers:** the meshes' store read with the level file (one seek less),
+  the rooms' copies made by DMA.
+
+---
+
+## Decisions needed before fixing
+
+| Issue | Decision |
+|---|---|
+| **8** | Retail's 80° field of view puts about 1.5× as much world on screen; that costs CPU. Past perf comparisons with the original measured our narrower view. |
+| **88** | Retail's torso charges without turning (a retail bug). Reproduce it? |
+| **99** | Retail's gorilla sidestep turns wrongly (a retail bug). Reproduce it? |
+| **11** | Retail's CombatCamera uses a stale target_square. Reproduce it? |
+| **139** | Retail's gym counter starts at 150 and is never reset. Reproduce it? |
+| **179** | Retail's stereo pan wraps oddly just left of centre. Reproduce it? |
+| **183** | Retail restarts ambient loops every frame (a stutter), and plays loops an octave down (8-bit keyed on 16-bit data). Reproduce them? |
+| **186** | Retail's exploding deaths are silent (sound 172 is missing). Copy that, or keep 171? |
+| **194** | Retail's CD music is mono because of a driver bug. Recommendation: keep stereo. |
+| **145** | Retail's sound sliders do nothing. Ours has on/off switches. Which to keep? |
+| **161** | Keep the FPS counter on by default during development? |
+| **162** | Attract demos need deterministic logic (issue 202) and the DEMODATA format. Build them? |
+| **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
+
+## Closed
+
 ### 242. Step 8 doesn't fit high work RAM without moving three of TRS's buffers
-*Kind: coverage · Size: as the lab stands the switch is 96 KB short at
-LEVEL7B (TRS as it ships); with these moves 42 KB is left (the stack's 4 KB
-kept) and 118 KB of low work RAM; no frame reads what moves
-(tools/ramaudit.py) · Fix: medium, before step 8*
+*Closed 2026-10-30: done in step 8 (stage B, 3861082 on; stage C,
+b94b382); every level fits, four with some rooms' faces left in low work RAM
+(244)*
 
 - **Moves:** to low work RAM, the three of TRS's buffers no frame reads:
   `gTextures` (25 KB: the level's file in low work RAM holds the entries
@@ -3726,10 +3776,21 @@ kept) and 118 KB of low work RAM; no frame reads what moves
   the switch adds glue for the game's calls: give or take a few KB.
 - HW_LOG builds (the trace, the bench, the profiler) have 13 KB less free
   than the game as it ships; the audit measures the shipping build.
+- **As done:** the colour tables' other versions and the inventory's item
+  textures load into low work RAM, and the texture entries are read where
+  the level file holds them. The level's high work RAM is an arena from the
+  program's bss to the master's stack (282 KB as it ships, after the item
+  records' 14.6 KB went in 7097ee9), taken in order at load: the mesh
+  store, every room's vertices, the renderer's tables, then the rooms'
+  faces as they fit (`os.cpp`).
+- `tools/ramaudit.py` now measures the game as it loads each level (558510a):
+  the arena fills at LEVEL6 (62 of 79 rooms' faces placed), LEVEL7A (95 of
+  139), LEVEL7B (104 of 114) and LEVEL10B (83 of 101); every other level
+  places all of them, with 2.6 KB (LEVEL10A) to 271 KB left. Low work RAM is
+  tightest at LEVEL7B: 1.2 KB left.
 
 ### 243. Animated textures: the new renderer's materials are made once
-*Kind: correctness · Size: every level with an animated range (water,
-lava) · Fix: small to medium, before step 8*
+*Closed 2026-10-30: 893462f*
 
 - TRS shifts the texture entries along each animated range every few
   frames (openlara level.h `animTexturesShift`). The new renderer makes its
@@ -3739,28 +3800,16 @@ lava) · Fix: small to medium, before step 8*
 - No scene covers it: each is one captured frame. **Fix:** shift the
   materials with the entries (a mesh texture can own two materials), and a
   scene of an animated range over several frames.
-
----
-
-## Decisions needed before fixing
-
-| Issue | Decision |
-|---|---|
-| **8** | Retail's 80° field of view puts about 1.5× as much world on screen; that costs CPU. Past perf comparisons with the original measured our narrower view. |
-| **88** | Retail's torso charges without turning (a retail bug). Reproduce it? |
-| **99** | Retail's gorilla sidestep turns wrongly (a retail bug). Reproduce it? |
-| **11** | Retail's CombatCamera uses a stale target_square. Reproduce it? |
-| **139** | Retail's gym counter starts at 150 and is never reset. Reproduce it? |
-| **179** | Retail's stereo pan wraps oddly just left of centre. Reproduce it? |
-| **183** | Retail restarts ambient loops every frame (a stutter), and plays loops an octave down (8-bit keyed on 16-bit data). Reproduce them? |
-| **186** | Retail's exploding deaths are silent (sound 172 is missing). Copy that, or keep 171? |
-| **194** | Retail's CD music is mono because of a driver bug. Recommendation: keep stereo. |
-| **145** | Retail's sound sliders do nothing. Ours has on/off switches. Which to keep? |
-| **161** | Keep the FPS counter on by default during development? |
-| **162** | Attract demos need deterministic logic (issue 202) and the DEMODATA format. Build them? |
-| **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
-
-## Closed
+- **As fixed:** room textures are the only ones animated ranges hold (the
+  packer puts them first, with fixed indices; meshes use object textures),
+  so the mesh materials don't move. The room materials shift with the
+  entries (`frameTexturesShifted`, from level.h `animTexturesShift` through
+  `renderTexturesShifted`). A material is made from its texture's entry
+  alone, so shifting it is making it again, and its memo of the cache goes
+  with the texture it is of; no lab scene was needed for that.
+- Seen in the Gym, Lara above the pool: before, the surface's textures
+  stood at the step they loaded at (the same picture each time the range
+  came round, different in between); after, they follow the old renderer's.
 
 ### 239. The new renderer's RAM in TRS isn't budgeted yet
 *Closed 2026-10-30: measured (tools/ramaudit.py); what it found is 242 and
