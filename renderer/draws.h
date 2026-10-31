@@ -19,6 +19,7 @@ namespace render {
 #define MAX_DRAW_STATICS    128
 #define MAX_DRAW_SHADOWS    32
 #define MAX_DRAW_FACES      256
+#define MAX_DRAW_FLASHES    4
 
 struct DrawsContext
 {
@@ -65,6 +66,10 @@ struct DrawsContext
     uint32_t hintedCount;       // +200
     uint32_t hintOpen;          // +204 the call's, at hinted, is open
     uint32_t shown;             // +208 draws.s's own: the ItemRecord of the last item posed
+    uint32_t flashMesh;         // +212 the muzzle flash's mesh in the store (NO_MESH: none)
+    PoseFlash* flashes;         // +216
+    uint32_t flashCount;        // +220
+    uint32_t flashMax;          // +224
 };
 
 extern "C" void drawsAsm(DrawsContext* ctx);
@@ -73,7 +78,8 @@ extern "C" void drawsAsm(DrawsContext* ctx);
 // and where their frame offsets count from, the models, each level mesh's
 // index in the mesh store and each model's nodes' offset in nodes, the
 // static meshes, each room's ambient and lights, the rooms as the walk reads
-// them, the mesh store, the sprites.
+// them, the mesh store, the sprites, the muzzle flash's mesh in the store
+// (NO_MESH: none).
 struct DrawsLevel
 {
     const GameAnim* anims;
@@ -88,6 +94,7 @@ struct DrawsLevel
     const uint32_t* meshes;
     const uint8_t* meshGeometry;
     const Sprite* sprites;
+    uint16_t flashMesh;
 };
 void drawsInit(const DrawsLevel &level);
 

@@ -242,6 +242,16 @@ struct PoseStatic
     int32_t x, y, z;        // its place in the world
 };
 
+// A muzzle flash of Lara's guns (draw.h drawFlash): its draw, the draw of
+// the hand it shows at, its turn, its place along the hand and its light
+// (ExtraInfoLara::Arm::Flash), the item (POSE's) it is of.
+struct PoseFlash
+{
+    uint16_t draw, hand;
+    int16_t angle, offset, intensity;
+    uint16_t item;
+};
+
 struct PoseShadow
 {
     uint16_t draw;          // DRAW's
@@ -338,8 +348,8 @@ struct GameArm              // ExtraInfoLara::Arm
     uint8_t pad0[6];
     uint16_t animIndex;     // +12
     uint16_t frameIndex;    // +14
-    int16_t flash;          // +16 (its timer)
-    uint8_t pad1[11];
+    int16_t flash[4];       // +16 its muzzle flash: timer (0: none), turn, place along the hand, light
+    uint8_t pad1[5];
     uint8_t useBasis;       // +29
     uint8_t pad2[2];
 };
@@ -450,8 +460,8 @@ struct MeshStore
 
 // The frame's draw list: the draws in order (meshes', shadows', and sprites'
 // and rectangles' faces, made, two vertices each), the items posed (frames,
-// extras, light), each static's place, each shadow's floor, and the calls
-// whose thing may have a draw order hint.
+// extras, light), each static's place, each shadow's floor, the calls whose
+// thing may have a draw order hint, and Lara's muzzle flashes.
 struct DrawList
 {
     DrawScene* draws;
@@ -468,6 +478,8 @@ struct DrawList
     uint32_t faceCount;
     HintedCall* hinted;
     uint32_t hintedCount;
+    PoseFlash* flashes;
+    uint32_t flashCount;
 };
 
 }

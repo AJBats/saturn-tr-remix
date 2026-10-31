@@ -68,6 +68,10 @@
     .equ    D_HINTED_COUNT, 200
     .equ    D_HINT_OPEN,    204     ! the call's, at D_HINTED, is open
     .equ    D_SHOWN,        208     ! the ItemRecord of the last item posed
+    .equ    D_FLASH_MESH,   212     ! the muzzle flash's mesh in the store (0xFFFF: none)
+    .equ    D_FLASHES,      216     ! PoseFlash: draw, hand, angle, offset, intensity, item; 12 bytes
+    .equ    D_FLASH_COUNT,  220
+    .equ    D_FLASH_MAX,    224
 
     .equ    CALL_BYTES,     32      ! CallRecord
     .equ    C_INDEX,        2
@@ -813,6 +817,7 @@
     mov     r10, r0
     add     #IT_EXTRA, r0
     mov.l   @r0, r10
+    mov     r10, r8                 ! her extra
     mov     #98, r0
     shll    r0
     add     r0, r10                 ! her joints' meshes (GameLara +196)
@@ -827,8 +832,61 @@
     extu.w  r5, r5
     dt      r9
     bf      7b
-    bra     .Lmodeled
-    nop
+    ! her guns' muzzle flashes (draw.h drawFlash): a draw for each arm's that
+    ! shows, after her meshes, under its hand's (pose.cpp poseFlash)
+    mov     r8, r10
+    add     #X_ARMS+16, r10         ! the right arm's flash: timer, angle, offset, intensity
+    mov     #10, r9                 ! its hand's draw, from her first
+.Lflash:
+    mov.w   @r10, r0
+    tst     r0, r0
+    bt      2f
+    mov.l   @(D_FLASH_COUNT,gbr), r0
+    mov     r0, r1
+    mov.l   @(D_FLASH_MAX,gbr), r0
+    cmp/hs  r0, r1
+    bt      2f
+    mov.l   @(D_FLASH_MESH,gbr), r0
+    mov     r0, r5
+    mov     #-1, r2
+    extu.w  r2, r2
+    cmp/eq  r2, r5
+    bt      2f
+    mov     r1, r0
+    add     #1, r0
+    mov.l   r0, @(D_FLASH_COUNT,gbr)
+    mov     r1, r2
+    shll    r1
+    add     r2, r1
+    shll2   r1                      ! 12 bytes a PoseFlash
+    mov.l   @(D_FLASHES,gbr), r0
+    add     r0, r1
+    mov.l   @(D_DRAW_COUNT,gbr), r0
+    mov.w   r0, @r1                 ! its draw
+    mov.l   @(D_ITEM_COUNT,gbr), r0
+    add     #-1, r0
+    mov.w   r0, @(10,r1)            ! its item
+    mov     #POSE_BYTES, r2
+    mulu.w  r0, r2
+    mov.l   @(D_POSES,gbr), r0
+    sts     macl, r2
+    add     r0, r2
+    mov.w   @(2,r2), r0             ! her first draw
+    add     r9, r0
+    mov.w   r0, @(2,r1)             ! the hand's
+    mov.w   @(2,r10), r0
+    mov.w   r0, @(4,r1)             ! its turn
+    mov.w   @(4,r10), r0
+    mov.w   r0, @(6,r1)             ! its place along the hand
+    mov.w   @(6,r10), r0
+    bsr     .Lmesh
+    mov.w   r0, @(8,r1)             ! its light
+2:  mov     r9, r0
+    cmp/eq  #13, r0
+    bt      .Lmodeled
+    add     #ARM_BYTES, r10
+    bra     .Lflash
+    mov     #13, r9
 .Lnodes:
     mov.l   @(IT_VISIBLE,r10), r8   ! the visible mask
     mov     r10, r0
@@ -1357,6 +1415,7 @@ _drawsAsm:
     mov.l   r0, @(D_DRAW_COUNT,gbr)
     mov.l   r0, @(D_HINTED_COUNT,gbr)
     mov.l   r0, @(D_HINT_OPEN,gbr)
+    mov.l   r0, @(D_FLASH_COUNT,gbr)
     mov     #-1, r0
     mov.l   r0, @(D_SHOWN,gbr)
     tst     r13, r13

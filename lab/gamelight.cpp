@@ -153,6 +153,13 @@ void calcLightingStatic(int32_t intensity)
     }
 }
 
+void gameLightStatic(int32_t intensity, int32_t &ambient, int32_t &range)
+{
+    calcLightingStatic(intensity);
+    ambient = gLightAmbient;
+    range = gLightRange;
+}
+
 // drawModel's light, the item placed (its depth for the fog); the
 // inventory's, under the matrix its drawSlot set up.
 void drawModelLight(const PoseItem* item, const PoseLight* room)

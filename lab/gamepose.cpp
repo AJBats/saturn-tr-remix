@@ -410,6 +410,18 @@ void gameMatrices(const int32_t (*matrices)[12])
     gGivenMatrices = matrices;
 }
 
+void gameFlash(const int32_t hand[12], int32_t offset, int32_t angle, int32_t intensity, int32_t out[12],
+               int32_t &ambient, int32_t &range)
+{
+    matrixPush();
+    memcpy(gMatrixPtr, hand, sizeof(Matrix));
+    matrixTranslateRel(0, offset, 55);
+    matrixRotateYXZ(-0x4000, 0, angle);
+    memcpy(out, gMatrixPtr, sizeof(Matrix));
+    gameLightStatic(intensity, ambient, range);
+    matrixPop();
+}
+
 // drawModel's matrices: the item's place and turn, then its nodes'; or the
 // inventory's drawSlot's, its nodes under the matrix it set up.
 void drawModel(const PoseItem* item)

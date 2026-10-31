@@ -10,6 +10,7 @@
 // the game's own layouts (scene.h).
 #include "game.h"
 #include "gamematrix.h"
+#include "draws.h"
 #include "scene.h"
 
 #include <stddef.h>
@@ -96,6 +97,12 @@ static RectMinMax gViewport;
 static int32_t gBase;               // the next draw's first vertex
 static DrawList gList;
 static uint32_t gShown;             // the record of the last item posed: its shadow follows it
+static uint32_t gFlashMesh = 0xFFFF;    // the muzzle flash's in MESH
+
+void gameDrawsFlashMesh(uint32_t mesh)
+{
+    gFlashMesh = mesh;
+}
 
 static int32_t sphereIsVisible(int32_t sx, int32_t sy, int32_t sz, int32_t r)
 {
@@ -350,6 +357,7 @@ static void drawModel(const ItemRecord &record, uint32_t flags, uint32_t given)
 
     // drawLaraNodesLerp: each joint's mesh of hers; drawNodesLerp: the
     // model's, each its visible mask shows
+    uint32_t firstDraw = gList.drawCount;
     for (int32_t k = 0; k < model.count; k++)
     {
         if (p.lara || (item->visibleMask & (1 << k)))
@@ -357,6 +365,22 @@ static void drawModel(const ItemRecord &record, uint32_t flags, uint32_t given)
             uint16_t mesh = gMeshIndex[p.lara ? ((const GameLara*)item->extra)->meshes[k] : model.start + k];
             addDraw(DRAW_MESH, mesh, flags, meshVertices(mesh));
         }
+    }
+    // and her guns' muzzle flashes (drawFlash), after her meshes, each under
+    // its hand's: the right's (her draw 10), the left's (13)
+    for (int32_t a = 0; p.lara && a < 2; a++)
+    {
+        const int16_t* flash = ((const GameLara*)item->extra)->arms[a].flash;
+        if (!flash[0] || gList.flashCount == MAX_DRAW_FLASHES || gFlashMesh == 0xFFFF)
+            continue;
+        PoseFlash &f = gList.flashes[gList.flashCount++];
+        f.draw = gList.drawCount;
+        f.hand = firstDraw + (a ? 13 : 10);
+        f.angle = flash[1];
+        f.offset = flash[2];
+        f.intensity = flash[3];
+        f.item = gList.itemCount - 1;
+        addDraw(DRAW_MESH, gFlashMesh, flags, meshVertices(gFlashMesh));
     }
 }
 
@@ -571,8 +595,9 @@ int32_t gameDrawsInit()
         shadows += c.kind == CALL_SHADOW;
         faces += c.kind == CALL_SPRITE || c.kind == CALL_RECT;
     }
-    draws += statics + shadows + faces;
+    draws += statics + shadows + faces + MAX_DRAW_FLASHES;
     gList.draws = alloc<DrawScene>(draws);
+    gList.flashes = alloc<PoseFlash>(MAX_DRAW_FLASHES);
     gList.hinted = alloc<HintedCall>(models + statics);
     gList.items = alloc<PoseItem>(models);
     gList.lights = alloc<PoseLight>(models);
@@ -614,7 +639,7 @@ static bool hintedOpen(const CallRecord &c)
 void gameDraws(int32_t fills)
 {
     gList.drawCount = gList.itemCount = gList.staticCount = gList.shadowCount = gList.faceCount = 0;
-    gList.hintedCount = 0;
+    gList.hintedCount = gList.flashCount = 0;
     gShown = 0xFFFFFFFF;
     gBase = 2 * fills;
     for (uint32_t i = 0; i < gCallCount; i++)

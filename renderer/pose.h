@@ -85,6 +85,13 @@ void poseView(const int32_t camera[3], const int32_t view[12]);
 // The frame's matrices items are drawn under (PoseItem.matrix), or none.
 void poseMatrices(const PoseMatrix* matrices);
 
+// A muzzle flash's transform, as drawFlash sets it up under its hand's:
+// moved along the hand (matrixTranslateRel), turned (matrixRotateYXZ), lit
+// by the flash (calcLightingStatic, the hand's light's direction kept). The
+// items' pose places each of a draw list's flashes so, its item's after its
+// item.
+void poseFlash(DrawXform &out, const DrawXform &hand, const PoseFlash &flash);
+
 // The items, lights, statics and shadows to pose: a draw list's (draws.h:
 // its frames as places), or others with their frames in frames; and the
 // draws' transforms pose writes, by draw.

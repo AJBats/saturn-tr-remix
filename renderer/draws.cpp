@@ -11,11 +11,12 @@ static_assert(offsetof(DrawsContext, camera) == 60 && offsetof(DrawsContext, vie
               offsetof(DrawsContext, faceCount) == 144 && offsetof(DrawsContext, k20) == 148 &&
               offsetof(DrawsContext, frameA) == 156 && offsetof(DrawsContext, viewMin) == 176 &&
               offsetof(DrawsContext, drawCount) == 184 && offsetof(DrawsContext, hintOpen) == 204 &&
-              offsetof(DrawsContext, shown) == 208,
+              offsetof(DrawsContext, shown) == 208 && offsetof(DrawsContext, flashMax) == 224,
               "draws.s's DrawsContext");
 static_assert(sizeof(DrawScene) == 24 && sizeof(PoseItem) == 104 && sizeof(PoseLight) == 12 &&
               sizeof(PoseStatic) == 20 && sizeof(PoseShadow) == 8 && sizeof(Face) == 16 && sizeof(Vertex) == 8 &&
-              sizeof(Sprite) == 16 && sizeof(HintedCall) == 8 && offsetof(ItemRecord, index) == 78,
+              sizeof(Sprite) == 16 && sizeof(HintedCall) == 8 && offsetof(ItemRecord, index) == 78 &&
+              sizeof(PoseFlash) == 12,
               "draws.s's records");
 
 #define X_MAX(a, b)         ((a) > (b) ? (a) : (b))
@@ -31,6 +32,7 @@ static PoseStatic gStatics[MAX_DRAW_STATICS];
 static PoseShadow gShadows[MAX_DRAW_SHADOWS];
 static Face gFaces[MAX_DRAW_FACES];
 static Vertex gFaceVertices[2 * MAX_DRAW_FACES];
+static PoseFlash gFlashes[MAX_DRAW_FLASHES];
 
 void drawsOn(DrawsContext &c, const DrawList &l)
 {
@@ -41,6 +43,7 @@ void drawsOn(DrawsContext &c, const DrawList &l)
     c.floors = l.shadows;
     c.faces = l.faces;
     c.vertices = l.vertices;
+    c.flashes = l.flashes;
 }
 
 void drawsRun(DrawsContext &c, DrawList &l, int32_t fills)
@@ -54,6 +57,7 @@ void drawsRun(DrawsContext &c, DrawList &l, int32_t fills)
     l.staticCount = c.staticCount;
     l.shadowCount = c.shadowCount;
     l.faceCount = c.faceCount;
+    l.flashCount = c.flashCount;
 }
 
 void drawsInit(const DrawsLevel &level)
@@ -70,6 +74,8 @@ void drawsInit(const DrawsLevel &level)
     gCtx.meshes = level.meshes;
     gCtx.meshGeometry = level.meshGeometry;
     gCtx.sprites = level.sprites;
+    gCtx.flashMesh = level.flashMesh;
+    gCtx.flashMax = MAX_DRAW_FLASHES;
     gCtx.view = gView;
     gCtx.divTable = divTable;
     gCtx.k20 = 1 << 20;
@@ -84,6 +90,7 @@ void drawsInit(const DrawsLevel &level)
     gList.shadows = gShadows;
     gList.faces = gFaces;
     gList.vertices = gFaceVertices;
+    gList.flashes = gFlashes;
     drawsOn(gCtx, gList);
 }
 

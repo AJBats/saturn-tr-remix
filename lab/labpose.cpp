@@ -372,6 +372,23 @@ int32_t poseSeldomCheck()
         for (uint32_t k = 0; k < first; k++) {
             bad += memcmp(outGame[k].m, outNew[k].m, sizeof(outNew[k].m)) != 0;
         }
+
+        // muzzle flashes under made-up hands: the pose's against drawFlash's
+        for (int32_t k = 0; k < 8; k++)
+        {
+            DrawXform hand = {};
+            memcpy(hand.m, gGiven[k % GIVEN_MATRICES].m, sizeof(hand.m));
+            for (int32_t c = 0; c < 3; c++) {
+                hand.light[c] = rndAngle();
+            }
+            PoseFlash flash = { 0, 0, int16_t(k % 4 ? rndAngle() : 0), int16_t(rnd() % 256),
+                                int16_t((rnd() % 21) << 8), 0 };
+            DrawXform out;
+            poseFlash(out, hand, flash);
+            int32_t m[12], ambient, range;
+            gameFlash(hand.m, flash.offset, flash.angle, flash.intensity, m, ambient, range);
+            bad += memcmp(m, out.m, sizeof(m)) != 0 || ambient != out.ambient || range != out.range;
+        }
     }
     for (int32_t c = 0; c < COVER_MAX; c++) {
         bad += !cover[c];

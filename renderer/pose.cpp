@@ -43,6 +43,8 @@ static const PoseStatic* gStatics;
 static uint32_t gStaticCount;
 static const PoseShadow* gShadows;
 static uint32_t gShadowCount;
+static const PoseFlash* gFlashes;
+static uint32_t gFlashCount;
 
 int32_t poseDrawn(const PoseItem &item)
 {
@@ -107,6 +109,8 @@ void poseSet(const PoseItem* items, uint32_t count, const PoseLight* rooms, cons
     gStaticCount = staticCount;
     gShadows = shadows;
     gShadowCount = shadowCount;
+    gFlashes = nullptr;
+    gFlashCount = 0;
     PoseContext* const contexts[2] = { &gCtx, &gSlaveCtx };
     for (PoseContext* ctx : contexts)
     {
@@ -120,6 +124,82 @@ void poseUse(const DrawList &list)
 {
     poseSet(list.items, list.itemCount, list.lights, list.statics, list.staticCount, list.shadows, list.shadowCount,
             nullptr);
+    gFlashes = list.flashes;
+    gFlashCount = list.flashCount;
+}
+
+// common.cpp's arithmetic: mul16 multiplies the low halves (MULS.W), sar is
+// C's >> on a signed value, sincos reads gSinCosTable.
+static inline int32_t mul16(int32_t a, int32_t b)
+{
+    return int32_t(int16_t(a)) * int32_t(int16_t(b));
+}
+
+static inline void sincos(int32_t angle, int32_t &s, int32_t &c)
+{
+    uint32_t sc = gCtx.sines[uint32_t(angle << 16) >> 20];
+    s = int32_t(sc) >> 16;
+    c = int16_t(sc);
+}
+
+// MATRIX_ROTXY on the matrix's columns x and y.
+static void rotXY(int32_t* m, int32_t x, int32_t y, int32_t angle)
+{
+    int32_t s, c;
+    sincos(angle, s, c);
+    for (int32_t r = 0; r < 12; r += 4)
+    {
+        int32_t a = (mul16(m[r + x], c) - mul16(m[r + y], s)) >> 14;
+        int32_t b = (mul16(m[r + y], c) + mul16(m[r + x], s)) >> 14;
+        m[r + x] = a;
+        m[r + y] = b;
+    }
+}
+
+#define FOG_MIN     (1024 * 12)     // draw.h calcLightingStatic
+
+void poseFlash(DrawXform &out, const DrawXform &hand, const PoseFlash &flash)
+{
+    int32_t m[12];
+    for (int32_t k = 0; k < 12; k++) {
+        m[k] = hand.m[k];
+    }
+    // matrixTranslateRel(0, offset, 55)
+    for (int32_t r = 0; r < 12; r += 4) {
+        m[r + 3] += mul16(m[r], 0) + mul16(m[r + 1], flash.offset) + mul16(m[r + 2], 55);
+    }
+    // matrixRotateYXZ(-ANGLE_90, 0, angle): x, then z
+    rotXY(m, 2, 1, -0x4000);
+    if (flash.angle) {
+        rotXY(m, 1, 0, flash.angle);
+    }
+    for (int32_t k = 0; k < 12; k++) {
+        out.m[k] = m[k];
+    }
+    int32_t ambient = flash.intensity - 4096;
+    int32_t fog = m[11] >> 14;
+    if (fog > FOG_MIN)
+    {
+        ambient += fog - FOG_MIN;
+        ambient = ambient < 8191 ? ambient : 8191;
+    }
+    out.ambient = ambient;
+    out.range = 0;
+    for (int32_t k = 0; k < 3; k++) {
+        out.light[k] = hand.light[k];
+    }
+}
+
+// The flashes of items first .. end - 1, placed.
+static void flashesOf(uint32_t first, uint32_t end)
+{
+    for (uint32_t f = 0; f < gFlashCount; f++)
+    {
+        const PoseFlash &flash = gFlashes[f];
+        if (flash.item >= first && flash.item < end) {
+            poseFlash(gOut[flash.draw], gOut[flash.hand], flash);
+        }
+    }
 }
 
 DrawXform* poseXforms()
@@ -143,6 +223,7 @@ void poseItems(int32_t cpu, uint32_t first, uint32_t count)
     if (from < to) {
         poseShadowsAsm(gShadows + from, to - from, ctx);
     }
+    flashesOf(first, first + count);
 }
 
 void poseShare(int32_t cpu, const uint8_t* slave)
@@ -199,6 +280,12 @@ void poseDrop(uint32_t first, uint32_t count)
     shadowsOf(first, first + count, from, to);
     for (uint32_t s = from; s < to; s++) {
         cacheDrop(gCtx.out + gShadows[s].draw, sizeof(DrawXform));
+    }
+    for (uint32_t f = 0; f < gFlashCount; f++)
+    {
+        if (gFlashes[f].item >= first && gFlashes[f].item < first + count) {
+            cacheDrop(gCtx.out + gFlashes[f].draw, sizeof(DrawXform));
+        }
     }
 }
 

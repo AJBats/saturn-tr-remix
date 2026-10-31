@@ -522,6 +522,8 @@ void renderLevelInit()
     d.meshes = (const uint32_t*)(storeBytes + store->records);
     d.meshGeometry = storeBytes;
     d.sprites = (const render::Sprite*)level.sprites;
+    const Model &flash = level.models[ITEM_MUZZLE_FLASH];
+    d.flashMesh = flash.count > 0 ? d.meshIndex[flash.start] : NO_MESH;
     render::drawsInit(d);
 
     render::PoseLevel p;

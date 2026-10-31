@@ -150,6 +150,16 @@ void gamePoseRun(const PoseItem* items, uint32_t count, const uint8_t* nodes, co
 extern const int32_t (*gGivenMatrices)[12];
 void gameMatrices(const int32_t (*matrices)[12]);
 
+// draw.h drawFlash under a hand's matrix (the game's arithmetic): the
+// flash's matrix and its light (calcLightingStatic: ambient, range).
+void gameFlash(const int32_t hand[12], int32_t offset, int32_t angle, int32_t intensity, int32_t out[12],
+               int32_t &ambient, int32_t &range);
+void gameLightStatic(int32_t intensity, int32_t &ambient, int32_t &range);
+
+// The muzzle flash's mesh in MESH (draws.h DrawsContext.flashMesh) for the
+// game's way of the draw list.
+void gameDrawsFlashMesh(uint32_t mesh);
+
 // Stage 2 the game's way (gamevertices.cpp): the rooms' vertices (xform.s)
 // and the master's draws' (meshxform.s), each set up as the game sets it up,
 // into gVertices where the game put them; Prepare empties gVertices, Check

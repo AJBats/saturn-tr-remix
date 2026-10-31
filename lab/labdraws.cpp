@@ -36,7 +36,9 @@ void drawsLabInit()
     level.meshes = (const uint32_t*)((const uint8_t*)store + store->records);
     level.meshGeometry = (const uint8_t*)store;
     level.sprites = sceneArray<const Sprite>("SPRS");
+    level.flashMesh = NO_MESH;      // the scenes have none: the made-up checks give one
     drawsInit(level);
+    gameDrawsFlashMesh(NO_MESH);
     const PoseCamera* camera = sceneArray<const PoseCamera>("CAMR");
     for (int32_t r = 0; r < 3; r++)
     {
@@ -79,6 +81,7 @@ static void listArrays(DrawList &l, uint32_t draws, uint32_t models, uint32_t st
     l.shadows = lowArray<PoseShadow>(shadows);
     l.faces = lowArray<Face>(faces);
     l.vertices = lowArray<Vertex>(2 * faces);
+    l.flashes = lowArray<PoseFlash>(MAX_DRAW_FLASHES);
 }
 
 void drawsPoison()
@@ -92,7 +95,7 @@ void drawsPoison()
     memset(l.shadows, 0xA5, l.shadowCount * sizeof(PoseShadow));
     memset(l.faces, 0xA5, l.faceCount * sizeof(Face));
     memset(l.vertices, 0xA5, 2 * l.faceCount * sizeof(Vertex));
-    l.drawCount = l.itemCount = l.staticCount = l.shadowCount = l.faceCount = l.hintedCount = 0;
+    l.drawCount = l.itemCount = l.staticCount = l.shadowCount = l.faceCount = l.hintedCount = l.flashCount = 0;
 }
 
 // Two lists: their draws, items, lights, statics, shadows and faces that
@@ -101,7 +104,11 @@ void drawsPoison()
 static int32_t listsOff(const DrawList &a, const DrawList &b)
 {
     int32_t bad = (a.drawCount != b.drawCount) + (a.itemCount != b.itemCount) + (a.staticCount != b.staticCount) +
-                  (a.shadowCount != b.shadowCount) + (a.faceCount != b.faceCount) + (a.hintedCount != b.hintedCount);
+                  (a.shadowCount != b.shadowCount) + (a.faceCount != b.faceCount) + (a.hintedCount != b.hintedCount) +
+                  (a.flashCount != b.flashCount);
+    for (uint32_t i = 0; i < X_MIN(a.flashCount, b.flashCount); i++) {
+        bad += memcmp(a.flashes + i, b.flashes + i, sizeof(PoseFlash)) != 0;
+    }
     for (uint32_t i = 0; i < X_MIN(a.drawCount, b.drawCount); i++) {
         bad += memcmp(a.draws + i, b.draws + i, sizeof(DrawScene)) != 0;
     }
@@ -215,10 +222,20 @@ int32_t drawsSeldomCheck()
     }
     memcpy(madeAnims, sceneAnims, anims * sizeof(GameAnim));    // Lara's arms' own
 
+    // a mesh of the scene's standing in for the muzzle flash's
+    uint32_t meshes;
+    const uint16_t* midx = sceneArray<const uint16_t>("MIDX", &meshes);
+    uint32_t flashMesh = NO_MESH;
+    for (uint32_t i = 0; i < meshes && flashMesh == NO_MESH; i++) {
+        flashMesh = midx[i];
+    }
+
     DrawsContext ctx = gCtx;
     ctx.calls = made;
     ctx.items = madeItems;
     ctx.anims = madeAnims;
+    ctx.flashMesh = flashMesh;
+    gameDrawsFlashMesh(flashMesh);
     drawsOn(ctx, mine);
 
     // the hints' masks every other thing's, the others each pass: calls
@@ -227,6 +244,7 @@ int32_t drawsSeldomCheck()
 
     static const uint8_t kRates[] = { 0, 1, 2, 4, 3, 5, 6, 8 };
     int32_t bad = 0, models = 0, posed = 0, lerped = 0, stills = 0, lara = 0, extras = 0, walls = 0, given = 0;
+    int32_t flashes = 0;
     int32_t statics = 0, staticsDrawn = 0, hidden = 0, spritesMade = 0, spritesDrawn = 0, clamped = 0, unclamped = 0;
     int32_t early[5] = {};      // posed at a frame before their animation's: by rate 0, 1, 2, 4, another
     uint8_t rateOf[SELDOM_MODELS];
@@ -269,6 +287,20 @@ int32_t drawsSeldomCheck()
                 {
                     n--;        // none the scene holds every mesh of: no call
                     continue;
+                }
+                if (it.item.type == 0)
+                {
+                    // her guns' flashes, now and then
+                    it.item.extra = it.extra;
+                    GameLara &l = *(GameLara*)it.extra;
+                    for (int32_t k = 0; k < 2; k++)
+                    {
+                        int16_t* flash = l.arms[k].flash;
+                        flash[0] = rnd() % 3 ? 0 : int16_t(1 + rnd() % 3);
+                        flash[1] = int16_t(rnd());
+                        flash[2] = int16_t(rnd() % 256);
+                        flash[3] = int16_t((rnd() % 21) << 8);
+                    }
                 }
                 GameAnim &a = madeAnims[anims + m];
                 a = sceneAnims[it.item.animIndex];
@@ -400,6 +432,7 @@ int32_t drawsSeldomCheck()
         drawsRun(ctx, mine, 0);
         gameDrawsRun(made, n, madeItems, madeAnims, 0, game);
         bad += listsOff(mine, game);
+        flashes += game.flashCount;
         for (uint32_t i = 0; i < game.hintedCount; i++)
         {
             hintedCalls++;
@@ -442,6 +475,7 @@ int32_t drawsSeldomCheck()
         }
     }
     gameDrawsHints(&gCtx.hintItems);
+    gameDrawsFlashMesh(NO_MESH);
     bool enemies = false;
     for (uint32_t i = 0; i < items; i++) {
         enemies = enemies || (sceneItems[i].item.type != 0 && sceneItems[i].item.extra);
@@ -449,5 +483,6 @@ int32_t drawsSeldomCheck()
     return bad + !(hintedCalls - hintedStatics) + (staticsDrawn ? !hintedStatics : 0) + !posed + !(models - posed) + !lerped + !stills + !lara + (enemies && !extras) + !early[0] +
            !early[1] + !early[2] + !early[3] + !early[4] +
            (statics ? (statics > hidden ? !staticsDrawn : 0) + !(statics - staticsDrawn) + !hidden : 0) + !spritesDrawn +
-           !(spritesMade - spritesDrawn) + !clamped + !unclamped + !walls + !given;
+           !(spritesMade - spritesDrawn) + !clamped + !unclamped + !walls + !given + (lara && flashMesh != NO_MESH ?
+           !flashes : 0);
 }
