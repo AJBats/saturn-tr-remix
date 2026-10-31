@@ -93,6 +93,19 @@ VRAM_TEX_BASE = vram_tex_base()
 # VDP1 CMDCTRL direction bits, kept in texture attributes
 TEX_ATTR_FLIP_H = 0x10
 
+# Turned object textures (render.cpp turnObjectQuads before step 8): a mesh
+# quad drawn across a texture twice as tall as it is wide takes many short
+# lines. Such a texture gets a transposed copy in the blob, as long as the
+# copies fit TURNED_COPIES_MAX and the room texture cache keeps
+# TURNED_KEEP_SLOTS of full-res slots (detail.h DETAIL_MIN_FULL_SLOTS, and
+# the shaded tables' 16 KB), and an entry drawing it flipped horizontally;
+# a quad with its corners taken round by one (D A B C) through it shows the
+# same texels at its corners, its lines along its long side.
+TURNED_COPIES_MAX = 32 * 1024
+TURNED_KEEP_SLOTS = 40 + 8
+DETAIL_SLOT_SIZE = 2048
+DETAIL_MIP_BYTES = 64 * (DETAIL_SLOT_SIZE // 4 + DETAIL_SLOT_SIZE // 16)
+
 # Joints rotated by enemy AI (head tracking), from OpenLara's TR1_PC::fixHeadMask.
 HEAD_JOINTS = {
     "WOLF": [(2, NODE_FLAG_ROTY)], "BEAR": [(13, NODE_FLAG_ROTY)],
@@ -273,6 +286,56 @@ class TextureTable:
             self.entries[tex][3] |= TEX_ATTR_AKILL
         return tex
 
+    @staticmethod
+    def turnable(t):
+        return t["w"] and t["h"] >= 2 * t["w"] and t["h"] % 8 == 0
+
+    def add_turned(self, textures):
+        """Transposed copies of the object textures given (in turn, each
+        tile once), as many as fit: their segment after the sprites', the
+        cache after it."""
+        self.turned = {}    # object texture -> its copy's blob offset
+        copies = {}         # tile -> blob offset
+        data = self.lvl.object_tex_data
+        segment = bytearray()
+        start = (len(self.blob) + 31) & ~31
+        for tex in textures:
+            t = self.lvl.object_textures[tex]
+            if t["tile"] in copies:
+                self.turned[tex] = copies[t["tile"]]
+                continue
+            w, h = t["w"], t["h"]
+            pix = t["tile"] * 8
+            src = data[pix:pix + w * h // 2]
+            if len(src) < w * h // 2:
+                continue
+            size = len(segment) + w * h // 2
+            cache = 0x80000 - VRAM_TEX_BASE - ((start + size + 31) & ~31)
+            if size > TURNED_COPIES_MAX or (cache - DETAIL_MIP_BYTES) // DETAIL_SLOT_SIZE < TURNED_KEEP_SLOTS:
+                continue
+            copies[t["tile"]] = start + len(segment)
+            self.turned[tex] = copies[t["tile"]]
+            segment += transposed(src, w, h)
+        if segment:
+            self.turned_off = self.add_segment(bytes(segment))
+            self.cache_off = (len(self.blob) + 31) & ~31
+
+    def turned_entry(self, tex, attr):
+        """Object texture tex drawn through its transposed copy, flipped."""
+        key = ("turned", tex, attr)
+        if key not in self.index:
+            t = self.lvl.object_textures[tex]
+            lut = ((t["clut"] + t["tile"]) & 0xFFFF) * 8
+            base = VRAM_TEX_BASE + self.obj_off
+            pix = t["tile"] * 8
+            data = self.lvl.object_tex_data
+            self.index[key] = len(self.entries)
+            self.sources.append((data[pix:pix + t["w"] * t["h"] // 2], struct.unpack_from(">16H", data, lut),
+                                 self.obj_off + lut, False))
+            self.entries.append([(VRAM_TEX_BASE + self.turned[tex]) >> 3, (base + lut) >> 3,
+                                 ((t["h"] // 8) << 8) | t["w"], attr | TEX_ATTR_FLIP_H, 0])
+        return self.index[key]
+
     def object(self, tex, variant, attr):
         key = ("obj", tex, variant, attr)
         if key not in self.index:
@@ -433,6 +496,19 @@ class Packer:
             name = next((n for n, v in ITEM.items() if v == m["type"]), "")
             if name.startswith("INV_") and lvl.item_textures:
                 self.inventory_meshes.update(range(m["start"], m["start"] + m["count"]))
+        # the object textures quads turn through, each mesh once as written
+        turn, seen = [], set()
+        for i, (src_offset, mesh) in enumerate(zip(lvl.mesh_offsets, self.meshes)):
+            if src_offset in seen or i in self.inventory_meshes:
+                continue
+            seen.add(src_offset)
+            for ftype, idx, flags in mesh.faces:
+                tex = flags >> 4
+                if (len(idx) == 4 and ftype in (trsat.MESH_R_TEX, trsat.MESH_R_TRANSP) and
+                        tex < len(lvl.object_textures) and tex not in turn and
+                        TextureTable.turnable(lvl.object_textures[tex])):
+                    turn.append(tex)
+        self.textures.add_turned(turn)
 
     def color_index(self, color):
         if color not in self.palette:
@@ -574,7 +650,14 @@ class Packer:
             if len(mesh.intensities) & 1:
                 out.pack("B", 0)
         for ftype, idx, flags in quads:
-            out.pack("H4B", self.mesh_face_flags(index, ftype, flags), *idx)
+            face = self.mesh_face_flags(index, ftype, flags)
+            tex = flags >> 4
+            if (index not in self.inventory_meshes and ftype in (trsat.MESH_R_TEX, trsat.MESH_R_TRANSP) and
+                    tex in self.textures.turned):
+                attr = TEX_ATTR_AKILL if ftype == trsat.MESH_R_TRANSP else 0
+                face = (face & ~FACE_TEXTURE_MAX) | self.textures.turned_entry(tex, attr)
+                idx = (idx[3], idx[0], idx[1], idx[2])
+            out.pack("H4B", face, *idx)
         for ftype, idx, flags in tris:
             if ftype == trsat.MESH_T_COLOR:
                 arrangement = 0
@@ -764,6 +847,17 @@ class Packer:
 
 
 MIP_DIFFUSION = 0.75    # how much of each texel's colour error its neighbours take
+
+
+def transposed(src, w, h):
+    """The w x h 4-bit texture src transposed, h x w: texel (x, y) to (y, x)."""
+    texel = [(src[i >> 1] >> (4 if i & 1 == 0 else 0)) & 15 for i in range(w * h)]
+    out = bytearray(w * h // 2)
+    for x in range(w):
+        for y in range(h):
+            i = x * h + y
+            out[i >> 1] |= texel[y * w + x] << (4 if i & 1 == 0 else 0)
+    return bytes(out)
 
 
 def mip_texture(pixels, w, h, colors, transparent, factor):
