@@ -39,6 +39,8 @@ CMD_LOCAL_COORD = 0x000A
 CMD_SKIP = 0x4000
 CMD_END = 0x8000
 CMD_FLIP_H = 0x0010
+FACE_PARALLELOGRAM, FACE_V0_AT_D = 1 << 28, 1 << 27   # render.h, a mesh face's flags
+FACE_TYPE_SHIFT, FACE_TYPE_F = 14, 1
 PMOD_GOURAUD = 0x0004
 PMOD_LUT16 = 0x0008
 PMOD_SPD_OFF = 0x0040
@@ -182,10 +184,12 @@ def project(R, T, v4, shade, viewport, opts):
 
 
 class Face:
-    __slots__ = ('kind', 'corners', 'tex', 'level', 'turned', 'quadrant', 'bucket', 'transparent')
+    __slots__ = ('kind', 'corners', 'tex', 'level', 'turned', 'quadrant', 'bucket', 'transparent', 'flags')
 
-    def __init__(self, kind, corners, bucket, tex=None, level=0, turned=False, quadrant=None, transparent=False):
-        self.kind = kind            # 'tex', 'para' (a triangle as a parallelogram: corners v0 v1 v2) or 'void'
+    def __init__(self, kind, corners, bucket, tex=None, level=0, turned=False, quadrant=None, transparent=False,
+                 flags=0):
+        self.kind = kind            # 'tex', 'para' (a triangle as a parallelogram: corners v0 v1 v2), 'void',
+                                    # or 'mesh' (meshes.py: tex its texture or colour, flags the game's)
         self.corners = corners      # vertex indices A, B, C, D as added (before turning)
         self.bucket = bucket
         self.tex = tex
@@ -193,6 +197,7 @@ class Face:
         self.turned = turned
         self.quadrant = quadrant    # a split quarter's quadrant, 0..3 clockwise from top left
         self.transparent = transparent
+        self.flags = flags
 
 
 def span(x, y, a, b):
@@ -651,20 +656,25 @@ def off_frame(x, y):
 
 
 def build_commands(level, faces, verts, opts, store, cl=None):
-    """flush: faces far to near (each bucket's in the reverse of the order
-    they were added) into cl's commands. Returns cl."""
+    """flush: faces far to near into cl's commands, in each bucket the
+    rooms' and then the meshes' (its two ordering tables), each in the
+    reverse of the order they were added. Returns cl."""
     cl = cl or CommandList()
     cl.add([CMD_SYSTEM_CLIP] + [0] * 9 + [FRAME_W - 1, FRAME_H - 1] + [0] * 4)
     cl.add([CMD_USER_CLIP] + [0] * 9 + [FRAME_W - 1, FRAME_H - 1] + [0] * 4)
     cl.add([CMD_LOCAL_COORD] + [0] * 15)
     arrays = verts.arrays()
+    for f in ordered(faces):
+        cl.add(face_command(level, f, arrays, opts, store, cl))
+    return cl
+
+
+def ordered(faces):
+    """The faces in flush's order (build_commands)."""
     buckets = {}
     for f in faces:
-        buckets.setdefault(f.bucket, []).append(f)
-    for bucket in sorted(buckets, reverse=True):
-        for f in reversed(buckets[bucket]):
-            cl.add(face_command(level, f, arrays, opts, store, cl))
-    return cl
+        buckets.setdefault(f.bucket, ([], []))[f.kind == 'mesh'].append(f)
+    return [f for bucket in sorted(buckets, reverse=True) for table in buckets[bucket] for f in reversed(table)]
 
 
 def face_command(level, f, arrays, opts, store, cl):
@@ -680,6 +690,9 @@ def face_command(level, f, arrays, opts, store, cl):
         w[6:14] = [x0 & 0xFFFF, y0 & 0xFFFF, x1 & 0xFFFF, y0 & 0xFFFF, x1 & 0xFFFF, y1 & 0xFFFF, x0 & 0xFFFF,
                    y1 & 0xFFFF]
         return w
+
+    if f.kind == 'mesh':
+        return mesh_command(f, arrays, opts, store, cl)
 
     t = level.textures[f.tex]
     if f.kind == 'para':
@@ -704,25 +717,73 @@ def face_command(level, f, arrays, opts, store, cl):
         ctrl ^= CMD_FLIP_H
     para = f.kind == 'para'
     texels, colors = store.texels(f.tex, f.level, f.turned, f.quadrant, para)
-    th, tw = texels.shape
     srca = cl.texture((f.tex, f.level, f.turned, f.quadrant, para), texels)
 
     if opts.contrast:
         lit = sum(shade_level(v) for v in statics) / 4.0
         if lit < 16:
             colors = contrast_colors(colors, t.mean, max(4, round(lit / 2)) / 8.0)
+    return textured(w, ctrl, pts, shades, srca, texels, colors, para, f.transparent, f.level, opts, store, cl)
 
+
+def mesh_command(f, arrays, opts, store, cl):
+    """flush's command for a mesh's face (meshes.py): its object texture as
+    it lies in VRAM, or its palette colour (a polygon). A triangle drawn as
+    a parallelogram (v1 + v2 - v0 its fourth corner) isn't mirrored."""
+    x, y, z, g, clip, s = arrays
+    a, b, c, d = f.corners
+    if f.flags & FACE_PARALLELOGRAM:
+        p = para_corner(x, y, a, b, c)
+        if f.flags & FACE_V0_AT_D:
+            pts = [(int(x[b]), int(y[b])), p, (int(x[c]), int(y[c])), (int(x[a]), int(y[a]))]
+            shades = [int(g[b]), int(g[b]), int(g[c]), int(g[a])]
+        else:
+            pts = [(int(x[a]), int(y[a])), (int(x[b]), int(y[b])), p, (int(x[c]), int(y[c]))]
+            shades = [int(g[a]), int(g[b]), int(g[c]), int(g[c])]
+        offf = False
+    else:
+        pts = [(int(x[i]), int(y[i])) for i in (a, b, c, d)]
+        shades = [int(g[i]) for i in (a, b, c, d)]
+        offf = bool((clip[a] | clip[b] | clip[c] | clip[d]) & CLIP_FRAME)
+    colour = (f.flags >> FACE_TYPE_SHIFT) & 15 == FACE_TYPE_F
+    ctrl = CMD_POLYGON if colour else CMD_DISTORTED_SPRITE | f.tex.direction
+    if offf and off_frame(*pts[0]) + off_frame(*pts[3]) > off_frame(*pts[1]) + off_frame(*pts[2]):
+        pts = [pts[1], pts[0], pts[3], pts[2]]
+        shades = [shades[1], shades[0], shades[3], shades[2]]
+        ctrl ^= CMD_FLIP_H
+    w = [0] * 16
+    if colour:
+        levels = [shade_level(v) for v in shades]
+        if opts.light_scale != 1.0:
+            levels = [int(round(16 + (lv - 16) * opts.light_scale)) for lv in levels]
+        w[0], w[2], w[3] = ctrl, PMOD_NO_ECD_SPD | PMOD_GOURAUD, f.tex.color
+        for k, (px, py) in enumerate(pts):
+            w[6 + 2 * k] = px & 0xFFFF
+            w[7 + 2 * k] = py & 0xFFFF
+        w[14] = cl.gouraud([lv * 0x421 for lv in levels])
+        return w
+    t = f.tex
+    para = bool(f.flags & FACE_PARALLELOGRAM)
+    srca = cl.texture(t.key, t.texels)
+    return textured(w, ctrl, pts, shades, srca, t.texels, t.colors, para, t.transparent, 0, opts, store, cl)
+
+
+def textured(w, ctrl, pts, shades, srca, texels, colors, para, transparent, mip, opts, store, cl):
+    """A textured face's command words, shaded as flush.s shades: gouraud,
+    or a shaded copy of the colour table for one shade at every corner (a
+    mip level's face whose corners are near: their mean)."""
+    th, tw = texels.shape
     levels = [shade_level(v) for v in shades]
     if opts.light_scale != 1.0:
         levels = [int(round(16 + (lv - 16) * opts.light_scale)) for lv in levels]
     pmod = (PMOD_HSS if opts.hss else 0) | PMOD_LUT16 | (0 if para else PMOD_ECD_OFF)
-    if not f.transparent:
+    if not transparent:
         pmod |= PMOD_SPD_OFF
     if opts.flat_multiply:
         colr = cl.colors(multiplied_colors(colors, round(sum(levels) / 4.0)))
         grda = 0
     else:
-        if f.level and opts.far_shade is not None and max(levels) - min(levels) <= opts.far_shade:
+        if mip and opts.far_shade is not None and max(levels) - min(levels) <= opts.far_shade:
             levels = [(sum(levels) + 2) >> 2] * 4
         if (opts.shade_tables and levels.count(levels[0]) == 4
                 and (store.shades is None or store.shades.copy(colors, levels[0]))):

@@ -95,7 +95,7 @@ DSP_HEADERS := $(patsubst saturn/%.dsp,$(BUILD)/gen/%_dsp.h,$(wildcard saturn/*.
 HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h renderer/*.h) $(DSP_HEADERS) $(BUILD)/gen/depth_hints.h \
 	$(FLAGS_FILE)
 
-.PHONY: all disc dspbench lab extract ghidra check-toolchain
+.PHONY: all disc levels dspbench lab extract ghidra check-toolchain
 
 # keep intermediate files (0MAIN.BIN) produced through pattern rules
 .SECONDARY:
@@ -152,10 +152,19 @@ GAME_DISC += $(foreach p,$(PICTURES),BINDATA/$(p).BIN=$(DISC)/files/BINDATA/$(p)
 VIDEOS := CORELOGO CAFE MANSION SNOW LIFT VISION CANYON PYRAMID PRISON END
 GAME_DISC += $(foreach v,$(VIDEOS),FMV/$(v).CPK=$(DISC)/files/FMV/$(v).CPK)
 
+# OBJECT_ART=1: the meshes' textures reworked as the rooms' are (a test
+# build); build/data/object_art holds the setting, so the levels are packed
+# again when it changes
+OBJECT_ART ?= 0
+$(shell mkdir -p build/data && (echo $(OBJECT_ART) | cmp -s - build/data/object_art || echo $(OBJECT_ART) > build/data/object_art))
+
+levels: $(foreach l,$(LEVELS),build/data/$(l).PKD)
+
 build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%.ITX build/data/%.PAL build/data/%.MSH &: \
-		tools/pack_level.py tools/trsat.py tools/trpsx.py tools/sfx.py tools/meshstore.py tools/facepack.py \
-		openlara/common.h saturn/vram.h saturn/sound.h $(DISC)/filelist.txt $(wildcard $(PSXDATA)/*.PSX)
-	$(PY) tools/pack_level.py $(DISC)/files/DATA $* build/data/$*.PKD $(PSXDATA)
+		tools/pack_level.py tools/texart.py tools/trsat.py tools/trpsx.py tools/sfx.py tools/meshstore.py tools/facepack.py \
+		openlara/common.h saturn/vram.h saturn/sound.h $(DISC)/filelist.txt $(wildcard $(PSXDATA)/*.PSX) \
+		build/data/object_art
+	OBJECT_ART=$(OBJECT_ART) $(PY) tools/pack_level.py $(DISC)/files/DATA $* build/data/$*.PKD $(PSXDATA)
 
 disc: $(BUILD)/disc/tomb.cue
 $(eval $(call DISC_RULE,$(BUILD),$(GAME_DISC)))

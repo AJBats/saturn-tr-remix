@@ -45,7 +45,7 @@ class Server:
         if run not in self.labs:
             with open(os.path.join(RUNS, run, 'run.json')) as f:
                 meta = json.load(f)
-            self.labs[run] = Lab(meta['capture'], meta['path'], meta['frames'], run)
+            self.labs[run] = Lab(meta['capture'], meta['path'], meta['frames'], run, meta.get('bridges', False))
         return self.labs[run]
 
     def level(self, run, lab, mix, change):

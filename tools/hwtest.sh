@@ -10,6 +10,9 @@
 #   wolves      LEVEL1's snow pit below the ledge, the ledge's two wolves
 #               awake from the start and coming at her (no input needed)
 #
+# OBJECT_ART=1 in the environment reworks the meshes' textures too
+# (tools/pack_level.py), in every level.
+#
 # usage: tools/hwtest.sh [SPOT]    (ledge if none; the disc lands in
 #                                   build/disc; restore a normal level with
 #                                   make disc after touching
@@ -24,10 +27,12 @@ case "${1:-ledge}" in
     wolves)     level=LEVEL1 id=LVL_TR1_1 start=14@28262:6656:50925 yaw=0xD257 trigger=26,27 ;;
     *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves]" >&2; exit 1 ;;
 esac
+art=${OBJECT_ART:-0}
 
-LARA_START=$start START_TRIGGER=${trigger:-} python -I tools/pack_level.py \
+make levels OBJECT_ART=$art     # every level in that art, before the start's
+LARA_START=$start START_TRIGGER=${trigger:-} OBJECT_ART=$art python -I tools/pack_level.py \
     external_resources/disc/files/DATA $level build/data/$level.PKD \
     external_resources/ps1/files/files/PSXDATA
 sleep 1     # make compares seconds
 touch build/data/$level.PKD
-make disc START_LEVEL=$id START_YAW=$yaw HW_LOG=1
+make disc START_LEVEL=$id START_YAW=$yaw HW_LOG=1 OBJECT_ART=$art

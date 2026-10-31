@@ -8,7 +8,9 @@ Shading is the Saturn's, each corner's gouraud level added to every channel
 ('add'), or the PS1's, each channel times the level / 16 ('multiply'), the
 level interpolated with perspective either way. Triangles of the rooms are their texture's
 rectangle with its bottom edge pinched to the third corner, as VDP1 draws
-them; here that corner takes the bottom edge's middle.
+them; here that corner takes the bottom edge's middle. Meshes (meshes.py)
+come as triangles already, with their textures mapped as the game's
+commands map them.
 """
 import numpy as np
 
@@ -70,13 +72,20 @@ class Reference:
         self.pyramids = {}
 
     def pyramid(self, tex):
-        if tex not in self.pyramids:
-            t = self.level.textures[tex]
-            self.pyramids[tex] = TexturePyramid(t.texels(), t.colors, t.transparent)
-        return self.pyramids[tex]
+        """A room texture's (by index) or a mesh's (meshes.ObjectTexture or
+        Colour) pyramid."""
+        key = tex if isinstance(tex, int) else tex.key
+        if key not in self.pyramids:
+            if isinstance(tex, int):
+                t = self.level.textures[tex]
+                self.pyramids[key] = TexturePyramid(t.texels(), t.colors, t.transparent)
+            else:
+                self.pyramids[key] = TexturePyramid(tex.texels, tex.colors, tex.transparent)
+        return self.pyramids[key]
 
-    def render(self, jobs, shading='add'):
-        """jobs as rooms.RoomDrawer.faces takes them. RGB 0..255, FRAME_H x
+    def render(self, jobs, shading='add', meshes=()):
+        """jobs as rooms.RoomDrawer.faces takes them, and mesh triangles as
+        meshes.Bridge.reference_faces gives them. RGB 0..255, FRAME_H x
         FRAME_W."""
         self.shading = shading
         W, H = FRAME_W * SS, FRAME_H * SS
@@ -106,6 +115,8 @@ class Reference:
                 t = self.level.textures[tex]
                 self._triangle([view[t0], view[t1], view[t2]], [(0, 0), (t.w, 0), (t.w / 2, t.h)],
                                [light[t0], light[t1], light[t2]], tex)
+        for pts, uv, light, tex in meshes:
+            self._triangle(pts, uv, light, tex)
         rgb = self.color.reshape(FRAME_H, SS, FRAME_W, SS, 3).mean(axis=(1, 3))
         return np.clip(rgb * (255.0 / 31.0), 0, 255).astype(np.uint8)
 

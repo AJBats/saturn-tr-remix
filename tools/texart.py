@@ -130,19 +130,23 @@ def match_contrast(out, ref, solid, k=1.0):
     return np.clip(m + (out - m) * (k * s0 / max(s1, 1e-3)), 0, 31)
 
 
-def tidy(fit, passes=2):
+def tidy(fit, fixed=None, passes=2):
     """A pixel artist's clean-up of a fitted (texels, colours): texels unlike
-    all four neighbours take the colour three or four of them share."""
+    all four neighbours take the colour three or four of them share. Texels
+    in 'fixed' (see-through ones, a parallelogram's trim) keep theirs, and no
+    other texel takes one of their colours."""
     idx, colors = fit
+    fixed = np.zeros(idx.shape, bool) if fixed is None else fixed
+    reserved = set(np.unique(idx[fixed]).tolist())
     for _ in range(passes):
         t = idx.astype(np.int16)
         p = np.pad(t, 1, mode='edge')
         n = np.stack([p[:-2, 1:-1], p[2:, 1:-1], p[1:-1, :-2], p[1:-1, 2:]])
-        lonely = np.all(n != t, axis=0)
+        lonely = np.all(n != t, axis=0) & ~fixed
         out = idx.copy()
         for y, x in zip(*np.nonzero(lonely)):
             vals, counts = np.unique(n[:, y, x], return_counts=True)
-            if counts.max() >= 3 and not (colors[0] & 0x8000 == 0 and (vals[counts.argmax()] == 0) != (t[y, x] == 0)):
+            if counts.max() >= 3 and int(vals[counts.argmax()]) not in reserved:
                 out[y, x] = vals[counts.argmax()]
         idx = out
     return idx, colors
@@ -177,15 +181,38 @@ def reweight(rgb, gains):
     return sum(g * b for g, b in zip(gains, bands(rgb)))
 
 
+def filled(rgb, solid):
+    """rgb with each texel that isn't solid in the nearest solid texel's
+    colour, so filters see past a see-through or trimmed edge as more of the
+    texture (as they see past its border), not as colour 0's or the end
+    code's colour."""
+    if solid.all() or not solid.any():
+        return rgb
+    iy, ix = ndimage.distance_transform_edt(~solid, return_distances=False, return_indices=True)
+    return rgb[iy, ix]
+
+
 # --- the game's -------------------------------------------------------------
 
-def bands_reweighted(texels, colors, transparent):
+def bands_reweighted(texels, colors, transparent, end_codes=False):
     """(texels, colours): the finest band cut to 35%, the two middle bands
     lifted by a quarter, the texture's contrast restored, a 16-colour table
-    fitted, lonely texels tidied."""
+    fitted, lonely texels tidied. Texels that aren't solid stay as they are:
+    colour 0 where it is see-through and, with end_codes, colour 15, VDP1's
+    end code trimming a parallelogram to its triangle; no other texel takes
+    either colour."""
     rgb, solid = image(texels, colors, transparent)
-    out = match_contrast(reweight(rgb, BAND_GAINS), rgb, solid)
-    return tidy(kmeans_fit(out, solid, transparent, colors[0]))
+    if end_codes:
+        solid &= texels != 15
+    if not solid.any():
+        return texels.copy(), list(colors)
+    out = match_contrast(reweight(filled(rgb, solid), BAND_GAINS), rgb, solid)
+    first, last = int(transparent), int(end_codes)
+    fit = kmeans_colors(out[solid], 16 - first - last)
+    table = list(colors[:first]) + [from_rgb(c) for c in fit] + list(colors[16 - last:])
+    idx = nearest_colors(out, table, range(first, 16 - last))
+    idx[~solid] = texels[~solid]
+    return tidy((idx, table), ~solid)
 
 
 def own_palette(texels, colors, transparent, fx, fy):
