@@ -814,8 +814,18 @@ void flush_c()
         traceEndAt(TRACE_DSP, masterTickOnSlave(ends[1]), TR_DSP_RUN, 1);
     }
 #endif
-    if (gWalked && !gSceneClear) {
+    if (gWalked && !gSceneClear)
+    {
+#ifdef VOID_VIEW
+        // magenta where nothing draws in the scene
+        render::Command &c = render::gFrameCmds[0];
+        c.w[0] = (c.w[0] & ~(0xFu << 16)) | (CMD_POLYGON << 16);
+        c.w[1] = (PMOD_NO_ECD_SPD << 16) | RGB(31, 0, 31);
+        c.w[4] = (FRAME_WIDTH - 1) << 16;
+        c.w[6] = FRAME_HEIGHT - 1;
+#else
         render::gFrameCmds[0].w[0] |= CMD_SKIP << 16;
+#endif
     }
 
     gStats.faces = render::facesSlot(render::gRoomList.link) - 1 + render::gFrameEnd - render::gMeshFirst;
