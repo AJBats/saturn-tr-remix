@@ -58,7 +58,8 @@ enum Vdp1State
 static volatile int32_t gVdp1State;
 static volatile bool gVdp1Drawn = true;    // the last plot has finished
 static volatile bool gPlotQueued;          // a plot waits for the change
-static volatile bool gHoldNext;            // the next plot's frame is to stay in the draw buffer
+static volatile bool gHoldNext;            // the next vdp1Plot's frame is to stay in the draw buffer
+static volatile bool gHoldQueued;          // and that plot is the one queued
 static volatile bool gHolding;             // this plot's does, until vdp1Release
 static uint32_t gPlotStart;
 static void (*volatile gOnNextFrame)();
@@ -141,15 +142,14 @@ static void waitDisplayStart()
 }
 
 // From the vblank-out interrupt or the master's flush: lane is the trace's.
-static void plotStart(int32_t lane)
+static void plotStart(int32_t lane, bool hold)
 {
     gPlotsStarted++;
     gPlotStart = timerTicks();
     traceAt(lane, gPlotStart, (TR_PLOT << 8) | (gPlotsStarted & 0xFF));
     gVdp1Drawn = false;
     gVdp1State = VDP1_PLOTTING;
-    gHolding = gHoldNext;
-    gHoldNext = false;
+    gHolding = hold;
     VDP1_PTMR = 1;
 }
 
@@ -181,7 +181,7 @@ extern "C" void vblankOutHandler()
     {
         waitDisplayStart();
         gPlotQueued = false;
-        plotStart(TRACE_IRQ);
+        plotStart(TRACE_IRQ, gHoldQueued);
     }
     traceEnd(TRACE_IRQ, TR_IRQ_VBLANK_OUT);
 }
@@ -230,9 +230,15 @@ void vdp1OnShown(void (*fn)(uint32_t plot))
 void vdp1Plot()
 {
     gPlotsAsked++;
-    if (gVdp1State == VDP1_IDLE) {
-        plotStart(TRACE_MASTER);
-    } else {
+    bool hold = gHoldNext;
+    gHoldNext = false;
+    if (gVdp1State == VDP1_IDLE)
+    {
+        plotStart(TRACE_MASTER, hold);
+    }
+    else
+    {
+        gHoldQueued = hold;
         gPlotQueued = true;
     }
 }

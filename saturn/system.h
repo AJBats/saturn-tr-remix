@@ -86,8 +86,9 @@ void vdp2SetBackColor(uint16_t color);
 // screen (nullptr cancels). Call with VDP1 idle, so that frame is a new one.
 void vdp1OnNextFrame(void (*fn)());
 
-// The next plot's frame stays in VDP1's draw buffer once drawn, off the
-// screen, until vdp1Release (a plot after it waits meanwhile).
+// The frame of the next vdp1Plot (not of a plot queued before it) stays in
+// VDP1's draw buffer once drawn, off the screen, until vdp1Release (a plot
+// after it waits meanwhile).
 void vdp1Hold();
 void vdp1Release();
 
