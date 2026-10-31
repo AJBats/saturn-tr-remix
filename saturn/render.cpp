@@ -585,8 +585,8 @@ void renderLevelInit()
     f.shadeLevel = gShadeLevel;
     f.dimGouraud = gDimGouraud;
     f.dimLevel = gDimLevel;
-    f.shade[0] = &gShadeCaches[0];
-    f.shade[1] = &gShadeCaches[1];
+    f.shade[0] = vram ? &gShadeCaches[0] : nullptr;     // none without VRAM for the copies
+    f.shade[1] = vram ? &gShadeCaches[1] : nullptr;
     f.pmod = PMOD_LUT16 | PMOD_GOURAUD | PMOD_HSS;
     f.lod = TEXTURE_LOD;
     for (int32 l = 0; l < 3; l++) {
