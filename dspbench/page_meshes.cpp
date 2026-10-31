@@ -4,7 +4,7 @@
 // trace of main at a90e0f1), made up to those sizes and wholly on the frame.
 // Their lights are TR1's as the game had them in the wolves' fight (ambient
 // about 5400, range about 1350), so that no vertex's shade clamps.
-// The game's own transform (saturn/meshxform.s transformMeshAsm, its shaded
+// The game's own transform (lab/gamemeshxform.s transformMeshAsm, its shaded
 // fast path) against meshlight2.dsp and meshlight3.dsp (gen_meshlight3.py)
 // rotating and lighting them and the master projecting what comes out
 // (meshproject.s); then as a frame's work: each mesh's setup, its vertices
@@ -71,7 +71,7 @@ extern "C" void transformMeshAsm(const MeshVertex* src, int32_t count, Vertex* d
 extern "C" void meshProjectAsm(Vertex* v, int32_t count, const uint16_t* divTable);
 extern "C" void kFaces(void* p, uint32_t n);
 
-// What saturn/meshxform.s takes from the game for its renderMeshAsm, which
+// What lab/gamemeshxform.s takes from the game for its renderMeshAsm, which
 // isn't run here.
 int32_t gBenchMode;
 uint32_t gVertices[2];

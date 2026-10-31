@@ -1,6 +1,6 @@
-// The game's way, stage 2 (game.h): the rooms' vertices through saturn/xform.s,
+// The game's way, stage 2 (game.h): the rooms' vertices through lab/gamexform.s,
 // each room's RoomXform as rooms.cpp roomBegin makes it, and the master's
-// draws' through saturn/meshxform.s transformMeshAsm, set up as render.cpp
+// draws' through lab/gamemeshxform.s transformMeshAsm, set up as render.cpp
 // meshXformSetup and renderShadow set it up; from the scene's rooms and draws,
 // into gVertices where the game put them.
 #include "game.h"

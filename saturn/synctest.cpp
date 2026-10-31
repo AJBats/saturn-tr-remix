@@ -35,11 +35,11 @@ static volatile uint32_t gHead, gTail;      // the order test's ring
 static volatile uint32_t gGbrErrors[2];
 static uint32_t gOrderErrors;
 
-// the order test's ring and the claim test's marks, in gVertices: unused
-// before a level
+// the order test's ring and the claim test's marks, in the frame's command
+// buffer (renderScratch): unused before a level
 struct Message { uint32_t seq, a, b, c; };   // a cache line
-static Message* ring() { return (Message*)((uintptr_t(gVertices) + 15) & ~15); }
-static uint8_t* claimed(int32_t cpu) { return (uint8_t*)gVertices + sizeof(Message) * RING + cpu * TASKS; }
+static Message* ring() { return (Message*)((uintptr_t(renderScratch(0)) + 15) & ~15); }
+static uint8_t* claimed(int32_t cpu) { return (uint8_t*)renderScratch(0) + sizeof(Message) * (RING + 1) + cpu * TASKS; }
 
 static void tasLock()
 {

@@ -1007,13 +1007,10 @@ struct Room {
     const Sector* getWaterSector(int32 x, int32 z) const;
     Room* getRoom(int32 x, int32 y, int32 z);
     bool collideStatic(CollisionInfo &cinfo, const vec3i &p, int32 height);
-    bool checkPortal(const Portal* portal);
 
-    Room** addVisibleRoom(Room** list);
     Room** addNearRoom(Room** list, int32 x, int32 y, int32 z);
     Room** getNearRooms(const vec3i &pos, int32 radius, int32 height);
     Room** getAdjRooms();
-    Room** getVisibleRooms();
 };
 
 enum NodeFlag {
@@ -2864,8 +2861,6 @@ vec3i boxPushOut(const AABBi &a, const AABBi &b);
 #else
     #define matrixPush              matrixPush_c
     #define matrixSetIdentity       matrixSetIdentity_c
-    #define matrixSetBasis          matrixSetBasis_c
-    #define matrixLerp              matrixLerp_c
     #define matrixTranslateRel      matrixTranslateRel_c
     #define matrixTranslateAbs      matrixTranslateAbs_c
     #define matrixTranslateSet      matrixTranslateSet_c
@@ -2877,13 +2872,10 @@ vec3i boxPushOut(const AABBi &a, const AABBi &b);
     #define matrixFrame             matrixFrame_c
     #define boxTranslate            boxTranslate_c
     #define boxRotateYQ             boxRotateYQ_c
-    #define sphereIsVisible         sphereIsVisible_c
     #define flush                   flush_c
 
     void matrixPush_c();
     void matrixSetIdentity_c();
-    void matrixSetBasis_c(Matrix &dst, const Matrix &src);
-    void matrixLerp_c(const Matrix &n, int32 pmul, int32 pdiv);
     void matrixTranslateRel_c(int32 x, int32 y, int32 z);
     void matrixTranslateAbs_c(int32 x, int32 y, int32 z);
     void matrixTranslateSet_c(int32 x, int32 y, int32 z);
@@ -2896,7 +2888,6 @@ vec3i boxPushOut(const AABBi &a, const AABBi &b);
 
     void boxTranslate_c(AABBi &box, int32 x, int32 y, int32 z);
     void boxRotateYQ_c(AABBi &box, int32 quadrant);
-    int32 sphereIsVisible_c(int32 x, int32 y, int32 z, int32 r);
     void flush_c();
 #endif
 
@@ -2964,7 +2955,6 @@ X_INLINE vec3i matrixGetDir(const Matrix &m)
 }
 
 void matrixFrame_c(const void* pos, const void* angles);
-void matrixFrameLerp(const void* pos, const void* anglesA, const void* anglesB, int32 delta, int32 rate);
 void matrixSetView(const vec3i &pos, int32 angleX, int32 angleY);
 
 #if defined(__GBA__) || defined(__GBA_WIN__)
@@ -2998,7 +2988,6 @@ void renderRoomsFlipped();  // after flipMap
 void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index);
 void renderGlyph(int32 vx, int32 vy, int32 index);
 void renderFill(int32 x, int32 y, int32 width, int32 height, int32 shade, int32 z);
-void renderVoid(int32 x0, int32 y0, int32 x1, int32 y1);
 void renderBorder(int32 x, int32 y, int32 width, int32 height, int32 color1, int32 color2, int32 z);
 void renderBar(int32 x, int32 y, int32 width, int32 value, BarType type);
 void renderBackground(const void* background);

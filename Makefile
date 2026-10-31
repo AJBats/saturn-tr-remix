@@ -70,10 +70,8 @@ MAIN    := $(DISC)/files/0MAIN.BIN
 GH_OUT  := build/ghidra
 
 # The game: every platform source plus the OpenLara core and the renderer;
-# the old renderer's sources (and the tools that read its faces) are the
-# lab's, for the game's way it compares against.
-OLD_RENDER := saturn/rooms.cpp saturn/faces.s saturn/flush.s saturn/xform.s saturn/meshxform.s saturn/hunt.cpp \
-	saturn/capture.cpp
+# not the old renderer's last sources (and the tools that read its faces).
+OLD_RENDER := saturn/rooms.cpp saturn/hunt.cpp saturn/capture.cpp
 GAME_SRC := $(filter-out $(OLD_RENDER),$(wildcard saturn/*.c saturn/*.cpp saturn/*.s)) openlara/common.cpp \
 	$(wildcard renderer/*.cpp renderer/*.s)
 
@@ -167,7 +165,7 @@ $(eval $(call DISC_RULE,$(BUILD),$(GAME_DISC)))
 # The SCU DSP benchmark (dspbench/bench.cpp): a program of its own, on a disc
 # of its own: make dspbench
 BENCH := build/dspbench
-BENCH_SRC := $(wildcard dspbench/*.cpp dspbench/*.s) saturn/font.cpp saturn/dsp.cpp saturn/meshxform.s
+BENCH_SRC := $(wildcard dspbench/*.cpp dspbench/*.s) saturn/font.cpp saturn/dsp.cpp lab/gamemeshxform.s
 BENCH_DSP := $(patsubst dspbench/%.dsp,$(BENCH)/gen/%_dsp.h,$(wildcard dspbench/*.dsp))
 # and those dspbench/gen_NAME.py writes
 BENCH_DSP += $(patsubst dspbench/gen_%.py,$(BENCH)/gen/%_dsp.h,$(wildcard dspbench/gen_*.py))
@@ -208,8 +206,7 @@ $(eval $(call DISC_RULE,$(BENCH),))
 LAB ?= build/lab
 LAB_SCENE ?= ledge
 LAB_SCENE_FILE := $(LAB)/$(shell echo $(LAB_SCENE) | tr a-z A-Z).SCN
-LAB_SRC := $(wildcard renderer/*.cpp renderer/*.s lab/*.cpp lab/*.s) saturn/font.cpp saturn/cd.cpp saturn/dsp.cpp saturn/faces.s \
-	saturn/flush.s saturn/xform.s saturn/meshxform.s
+LAB_SRC := $(wildcard renderer/*.cpp renderer/*.s lab/*.cpp lab/*.s) saturn/font.cpp saturn/cd.cpp saturn/dsp.cpp
 # DSP programs renderer/gen_NAME.py writes, assembled into NAME_dsp.h; and the
 # bench's v3 mesh program
 LAB_DSP := $(patsubst renderer/gen_%.py,$(LAB)/gen/%_dsp.h,$(wildcard renderer/gen_*.py)) $(LAB)/gen/meshlight3_dsp.h

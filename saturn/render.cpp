@@ -198,13 +198,6 @@ static void renderRect(int32 x, int32 y, int32 width, int32 height, uint32 type,
     }
 }
 
-// Transparent behind everything, where nothing would draw (VDP2's back colour
-// shows): the frame isn't cleared.
-void renderVoid(int32 x0, int32 y0, int32 x1, int32 y1)
-{
-    renderRect(x0, y0, x1 - x0, y1 - y0, FACE_TYPE_LINE_H, 0, OT_SIZE - 1);
-}
-
 // Darkens the frame under the rectangle (VDP1 halves it; shade is ignored).
 void renderFill(int32 x, int32 y, int32 width, int32 height, int32 shade, int32 z)
 {

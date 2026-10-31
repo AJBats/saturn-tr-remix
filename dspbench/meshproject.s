@@ -1,9 +1,9 @@
 ! The master's half of a mesh meshlight.dsp rotated and lit, as branch
-! meshlight's saturn/meshxform.s meshProjectAsm has it (page_meshes.cpp).
+! meshlight's lab/gamemeshxform.s meshProjectAsm has it (page_meshes.cpp).
 !
 ! void meshProjectAsm(Vertex* v, int32 count, const uint16* divTable)
 !   each vertex's x >> 14 << 16 | y >> 14 projected in place, as
-!   saturn/meshxform.s's .LfsLoop does it
+!   lab/gamemeshxform.s's .LfsLoop does it
 
     .text
     .align 2

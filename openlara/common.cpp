@@ -1179,63 +1179,6 @@ void matrixSetIdentity_c()
     m.e23 = 0;
 }
 
-void matrixSetBasis_c(Matrix &dst, const Matrix &src)
-{
-    dst.e00 = src.e00;
-    dst.e01 = src.e01;
-    dst.e02 = src.e02;
-
-    dst.e10 = src.e10;
-    dst.e11 = src.e11;
-    dst.e12 = src.e12;
-
-    dst.e20 = src.e20;
-    dst.e21 = src.e21;
-    dst.e22 = src.e22;
-}
-
-#define LERP_1_2(a, b)   a = (b + a) >> 1
-#define LERP_1_3(a, b)   a = a + (b - a) / 3
-#define LERP_2_3(a, b)   a = b - (b - a) / 3
-#define LERP_1_4(a, b)   a = a + ((b - a) >> 2)
-#define LERP_3_4(a, b)   a = b - ((b - a) >> 2)
-#define LERP_1_5(a, b)   a = a + (b - a) / 5
-#define LERP_2_5(a, b)   a = a + ((b - a) << 1) / 5
-#define LERP_3_5(a, b)   a = b - ((b - a) << 1) / 5
-#define LERP_4_5(a, b)   a = b - (b - a) / 5
-#define LERP_SLOW(a, b)  a = a + ((b - a) * t >> 8)
-
-#define LERP_ROW(lerp_func, a, b, row) \
-    lerp_func(a.e##row##0, b.e##row##0); \
-    lerp_func(a.e##row##1, b.e##row##1); \
-    lerp_func(a.e##row##2, b.e##row##2); \
-    lerp_func(a.e##row##3, b.e##row##3);
-
-#define LERP_MATRIX(lerp_func) \
-    LERP_ROW(lerp_func, m, n, 0); \
-    LERP_ROW(lerp_func, m, n, 1); \
-    LERP_ROW(lerp_func, m, n, 2);
-
-void matrixLerp_c(const Matrix &n, int32 pmul, int32 pdiv)
-{
-    Matrix &m = matrixGet();
-
-    if ((pdiv == 2) || ((pdiv == 4) && (pmul == 2))) {
-        LERP_MATRIX(LERP_1_2);
-    } else if (pdiv == 4) {
-
-        if (pmul == 1) {
-            LERP_MATRIX(LERP_1_4);
-        } else {
-            LERP_MATRIX(LERP_3_4);
-        }
-
-    } else {
-        int32 t = pmul * FixedInvU(pdiv) >> 8;
-        LERP_MATRIX(LERP_SLOW);
-    }
-}
-
 #define MATRIX_TRANS(x,y,z)\
     Matrix &m = matrixGet();\
     int32 tx = DP33(m.e00, m.e01, m.e02, x, y, z);\
@@ -1424,38 +1367,6 @@ void boxRotateYQ_c(AABBi &box, int32 quadrant)
     }
 }
 #endif
-
-void matrixFrameLerp(const void* pos, const void* anglesA, const void* anglesB, int32 delta, int32 rate)
-{
-    int16 aX, aY, aZ;
-    int16 bX, bY, bZ;
-
-    DECODE_ANGLES(*(uint32*)anglesA, aX, aY, aZ);
-    DECODE_ANGLES(*(uint32*)anglesB, bX, bY, bZ);
-
-    uint32 xy = ((uint32*)pos)[0];
-    uint32 zu = ((uint32*)pos)[1];
-
-#ifdef CPU_BIG_ENDIAN
-    int32 posX = int16(xy >> 16);
-    int32 posY = int16(xy & 0xFFFF);
-    int32 posZ = int16(zu >> 16);
-#else
-    int32 posX = int16(xy & 0xFFFF);
-    int32 posY = int16(xy >> 16);
-    int32 posZ = int16(zu & 0xFFFF);
-#endif
-
-    matrixTranslateRel(posX, posY, posZ);
-    
-    matrixPush();
-    matrixRotateYXZ(bX, bY, bZ);
-    matrixPop();
-
-    matrixRotateYXZ(aX, aY, aZ);
-
-    matrixLerp(*(gMatrixPtr + 1), delta, rate);
-}
 
 void matrixSetView(const vec3i &pos, int32 angleX, int32 angleY)
 {

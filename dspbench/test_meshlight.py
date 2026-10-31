@@ -1,6 +1,6 @@
 """Runs the mesh DSP programs (meshlight.dsp, meshlight2.dsp) in tools/dspsim.py
 over page 5's meshes (page_meshes.cpp's build(), the same numbers), checks
-every vertex against the math they share with saturn/meshxform.s, and times
+every vertex against the math they share with lab/gamemeshxform.s, and times
 them as Mednafen and as the Saturn would.
 
 usage: test_meshlight.py [v1|v2 ...]
