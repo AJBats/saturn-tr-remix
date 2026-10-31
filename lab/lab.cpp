@@ -619,6 +619,8 @@ static void newRoomsInit()
     level.sprites = sceneArray<const Sprite>("SPRS");
     level.shadeGouraud = gameShadeGouraud();
     level.shadeLevel = sceneArray<const uint8_t>("SHAD");
+    level.dimGouraud = level.shadeGouraud;
+    level.dimLevel = level.shadeLevel;
     level.shade[0] = gameShadeCache(0);
     level.shade[1] = gameShadeCache(1);
     level.pmod = info.texturePmod;
@@ -705,6 +707,7 @@ static FrameTimes stagesTogether(bool posed, int32_t bias)
     calls.base = gFills;
     calls.walked = false;
     calls.matrices = nullptr;
+    calls.inventory = false;
     FrameTimes s = frameRun(calls, bias);
     poseLabUse(&drawsList(), gFills);
     return s;

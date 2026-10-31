@@ -2991,10 +2991,10 @@ void clear();
 // given (drawn if the model is), a room's static mesh.
 Room** renderWalk(Room* cameraRoom);
 void renderModel(const ItemObj* item);
+void renderModelUnder(const ItemObj* item);    // the inventory's: under the matrix on top
 void renderShadowCall(const ItemObj* item, int32 floor);
 void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index);
 void renderRoomsFlipped();  // after flipMap
-void renderMesh(const Mesh* mesh);
 void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index);
 void renderGlyph(int32 vx, int32 vy, int32 index);
 void renderFill(int32 x, int32 y, int32 width, int32 height, int32 shade, int32 z);
@@ -3016,10 +3016,7 @@ void drawSprite(const ItemObj* item);
 void drawRooms(Camera* camera);
 void drawCinematicRooms();
 void drawHUD(Lara* lara);
-void drawNodesLerp(const ItemObj* item, const AnimFrame* frameA, const AnimFrame* frameB, int32 frameDelta, int32 frameRate);
 
-void calcLightingDynamic(const Room* room, const vec3i &point);
-void calcLightingStatic(int32 intensity);
 
 void checkTrigger(const FloorData* fd, ItemObj* lara);
 void readLevel(const uint8 *data);

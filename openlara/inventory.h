@@ -1387,13 +1387,7 @@ struct Inventory
         item.animIndex   = level.models[type].animIndex;
         item.frameIndex  = level.anims[item.animIndex].frameBegin + (selected ? frameIndex : 0);
 
-        const AnimFrame *frameA, *frameB;
-    
-        int32 frameRate;
-        int32 frameDelta = item.getFrames(frameA, frameB, frameRate);
-
-        calcLightingStatic(255 << 5);
-        drawNodesLerp(&item, frameA, frameB, frameDelta, frameRate);
+        renderModelUnder(&item);
 
         if ((state == INV_STATE_READY) && current && (counts[slot] > 1))
         {

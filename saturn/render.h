@@ -13,10 +13,12 @@
 Room** renderWalk(Room* cameraRoom);
 
 // An item's model, posed and lit as drawModel would (the renderer tests its
-// sphere); its shadow, on the floor given (drawn if its model is); a room's
-// static mesh (its room, its index there), with its room's origin from the
-// camera.
+// sphere), or as the inventory's drawNodesLerp under the matrix on top of the
+// stack, lit by its intensity; its shadow, on the floor given (drawn if its
+// model is); a room's static mesh (its room, its index there), with its
+// room's origin from the camera.
 void renderModel(const ItemObj* item);
+void renderModelUnder(const ItemObj* item);
 void renderShadowCall(const ItemObj* item, int32 floor);
 void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index);
 

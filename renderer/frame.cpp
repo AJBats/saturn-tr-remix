@@ -328,6 +328,8 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         framePlan(bias, true, true);
         slaveItems = slaveShare(part);
         shared->poses = slaveItems;
+        gRoomList.shadeGouraud = calls->inventory ? gLevel.dimGouraud : gLevel.shadeGouraud;
+        gRoomList.shadeLevel = calls->inventory ? gLevel.dimLevel : gLevel.shadeLevel;
         verticesClaimMasters();
         shared->roomsReady = 1;
         stageEnd(STAGE_PLAN);
@@ -371,6 +373,20 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
     stageBegin(STAGE_DRAWS);
     const uint8_t* sets = gLevel.faceSets;
     uint32_t slaveEnd = 0;
+    uint32_t dimEnd = 0;     // the first draw not dimmed
+    if (posed && calls->inventory)
+    {
+        gMeshList.shade = nullptr;
+        dimEnd = list.drawCount;
+        for (uint32_t i = 0; i < list.itemCount && dimEnd == list.drawCount; i++)
+        {
+            if (list.items[i].matrix) {
+                dimEnd = list.items[i].firstDraw;
+            }
+        }
+        gMeshList.shadeGouraud = gLevel.dimGouraud;
+        gMeshList.shadeLevel = gLevel.dimLevel;
+    }
     const DrawScene* draws = posed ? list.draws : given->draws;
     uint32_t drawCount = posed ? list.drawCount : given->count;
     if (posed) {
@@ -401,6 +417,11 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         if (!slaveEnd && shared->roomsDone) {
             slaveEnd = ticksCycles(t0, ticks());
         }
+        if (i == dimEnd)
+        {
+            gMeshList.shadeGouraud = gLevel.shadeGouraud;
+            gMeshList.shadeLevel = gLevel.shadeLevel;
+        }
         const DrawScene &d = draws[i];
         if (d.type == DRAW_COPY)
         {
@@ -421,6 +442,9 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
     }
     frameHintsPlace(true, s.masterWait);
     frameEnds();
+    gMeshList.shadeGouraud = gLevel.shadeGouraud;
+    gMeshList.shadeLevel = gLevel.shadeLevel;
+    gMeshList.shade = gLevel.shade[0];
     shared->drawsDone = 1;
     stageEnd(STAGE_DRAWS);
     stageBegin(STAGE_SLAVE_WAIT);

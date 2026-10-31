@@ -50,6 +50,9 @@ static uint32 gCallCount;
 static render::ItemRecord gItems[MAX_DRAW_ITEMS];
 static uint32 gItemCount;
 static bool gWalked;            // the rooms are walked this frame
+#define MAX_GIVEN       16          // the inventory's items a frame
+static int32_t gGiven[MAX_GIVEN][12];   // the matrices models are drawn under
+static uint32 gGivenCount;
 static uint32 gDrawStart;       // the frame's drawing began (clear)
 
 // Meshes drawn while this is set (items in water rooms, or everything while
@@ -111,6 +114,22 @@ void renderModel(const ItemObj* item)
     r.room = uint16(item->room - rooms);
     r.index = uint16(item - items);
     c->args[0] = item - items;
+}
+
+void renderModelUnder(const ItemObj* item)
+{
+    if (gItemCount == MAX_DRAW_ITEMS || gGivenCount == MAX_GIVEN)
+        return;
+    render::CallRecord* c = call(render::CALL_MODEL, gItemCount);
+    if (!c)
+        return;
+    render::ItemRecord &r = gItems[gItemCount++];
+    memcpy(&r.item, item, sizeof(r.item));
+    r.room = 0;
+    r.index = 0xFFFF;
+    memcpy(gGiven[gGivenCount], &matrixGet(), sizeof(gGiven[0]));
+    c->args[0] = -1;
+    c->args[1] = ++gGivenCount;
 }
 
 void renderShadowCall(const ItemObj* item, int32 floor)
@@ -229,13 +248,6 @@ void renderBar(int32 x, int32 y, int32 width, int32 value, BarType type)
     renderBorder(x, y, width + 2, BAR_HEIGHT + 2, 2, 2, 0);
 }
 
-// The inventory's items, drawn by the game's own node walk: not yet the
-// renderer's.
-void renderMesh(const Mesh* mesh)
-{
-    (void)mesh;
-}
-
 // --- the view -----------------------------------------------------------------
 
 static render::RoomCaustics gRoomCaustics;
@@ -255,14 +267,17 @@ static void view(int32_t camera[3], int32_t m[12])
     }
 }
 
+// The view the frame's scene is drawn from: the walk's (the inventory sets up
+// its own after the scene behind it).
+static int32_t gSceneCamera[3], gSceneView[12];
+
 Room** renderWalk(Room* cameraRoom)
 {
     static Room* visible[ROOMS_LISTED + 1];
-    int32_t camera[3], m[12];
-    view(camera, m);
+    view(gSceneCamera, gSceneView);
     int32_t vp[4] = { viewport.x0, viewport.y0, viewport.x1, viewport.y1 };
     gRoomCaustics.phase = gCausticsFrame;
-    render::roomsView(camera, m, vp, uint32(cameraRoom - rooms));
+    render::roomsView(gSceneCamera, gSceneView, vp, uint32(cameraRoom - rooms));
     render::roomsSeen();
     gWalked = true;
 
@@ -283,9 +298,12 @@ Room** renderWalk(Room* cameraRoom)
 
 // TR shade 0 (lit) .. 31 (dark) as a gouraud level (16 = colour unchanged:
 // brighter from shade 15 down, darker from 16 up, in even steps to black, as
-// the original), and as a VDP1 gouraud entry.
+// the original), and as a VDP1 gouraud entry; and dimmed by 8 levels, for
+// the scene behind the inventory.
 static uint8 gShadeLevel[32];
 static uint16 gShadeGouraud[32];
+static uint8 gDimLevel[32];
+static uint16 gDimGouraud[32];
 
 static render::ShadeCache gShadeCaches[2] __attribute__((aligned(16)));    // the master's, the slave's
 
@@ -562,6 +580,8 @@ void renderLevelInit()
     f.sprites = (const render::Sprite*)level.sprites;
     f.shadeGouraud = gShadeGouraud;
     f.shadeLevel = gShadeLevel;
+    f.dimGouraud = gDimGouraud;
+    f.dimLevel = gDimLevel;
     f.shade[0] = &gShadeCaches[0];
     f.shade[1] = &gShadeCaches[1];
     f.pmod = PMOD_LUT16 | PMOD_GOURAUD | PMOD_HSS;
@@ -730,11 +750,13 @@ void flush_c()
     int32_t fills;
     render::roomsFills(fills);
 
-    // the view, where Lara stands for the draw order hints
-    int32_t camera[3], m[12];
-    view(camera, m);
-    render::drawsView(camera, m);
-    render::poseView(camera, m);
+    // the scene's view (none walked: the view as it stands), where Lara
+    // stands for the draw order hints
+    if (!gWalked) {
+        view(gSceneCamera, gSceneView);
+    }
+    render::drawsView(gSceneCamera, gSceneView);
+    render::poseView(gSceneCamera, gSceneView);
     const ItemObj* lara = (const ItemObj*)(const void*)players[0];
     if (lara) {
         render::hintsLara(int32(lara->room - rooms), lara->pos.x >> 10, lara->pos.z >> 10);
@@ -757,6 +779,8 @@ void flush_c()
     calls.items = gItems;
     calls.base = fills;
     calls.walked = true;
+    calls.matrices = gGiven;
+    calls.inventory = gInventoryFrame;
     render::FrameTimes s = render::frameRun(calls, gBias);
     gBias += s.late / 2;
     if (gWalked && !gSceneClear) {
@@ -777,6 +801,7 @@ void flush_c()
 
     gCallCount = 0;
     gItemCount = 0;
+    gGivenCount = 0;
     gWalked = false;
     gSceneClear = false;
     gListResume = gItemTextures && !gInventoryFrame;
@@ -818,6 +843,9 @@ void renderInit()
         uint32 c = 31 - g;
         gShadeLevel[g] = c;
         gShadeGouraud[g] = (c << 10) | (c << 5) | c;
+        uint32 d = X_MAX(int32(c) - 8, 0);
+        gDimLevel[g] = d;
+        gDimGouraud[g] = (d << 10) | (d << 5) | d;
     }
 
     // the clear's texture

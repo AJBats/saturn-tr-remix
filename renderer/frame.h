@@ -49,10 +49,11 @@ extern RoomRun gRoomRun;
 
 // The level's for the faces: the meshes' faces (an offset table, then each
 // mesh's FaceSet), the materials, the textures, palette and sprites, the
-// shades' gouraud colours and levels (0 .. 31), the CPUs' caches of shaded
-// colour tables (the master's, the slave's), the room texture cache's look
-// and pools, the room textures' count, the list's first command, and the
-// vertices the walk places the rooms' in (split corners from the top down).
+// shades' gouraud colours and levels (0 .. 31) and dimmed (the scene behind
+// the inventory), the CPUs' caches of shaded colour tables (the master's,
+// the slave's), the room texture cache's look and pools, the room textures'
+// count, the list's first command, and the vertices the walk places the
+// rooms' in (split corners from the top down).
 struct FrameLevel
 {
     const uint8_t* faceSets;
@@ -62,6 +63,8 @@ struct FrameLevel
     const Sprite* sprites;
     const uint16_t* shadeGouraud;
     const uint8_t* shadeLevel;
+    const uint16_t* dimGouraud;
+    const uint8_t* dimLevel;
     ShadeCache* shade[2];
     uint32_t pmod;              // textured faces' draw mode
     int32_t lod;                // RoomTextures.lod
@@ -122,7 +125,12 @@ struct FrameTimes
 // vertex (base: the lab's checks place them after the walk's fills, as the
 // game does), whether the rooms are walked already (roomsSeen: the game
 // walks them on the master to know whose objects to draw), else the slave
-// walks them; the matrices models are drawn under (CallRecord's), or none.
+// walks them; the matrices models are drawn under (CallRecord's), or none;
+// whether the frame draws the inventory over the scene: then the scene is
+// dimmed (the rooms, and the draws before the first model under a matrix
+// given, through the dim shades), and the master's faces take no shaded
+// copies of colour tables (the item textures' go up after the frame is
+// built).
 struct FrameCalls
 {
     const CallRecord* calls;
@@ -131,6 +139,7 @@ struct FrameCalls
     int32_t base;
     bool walked;
     const int32_t (*matrices)[12];
+    bool inventory;
 };
 FrameTimes frameRun(const FrameCalls &calls, int32_t bias);
 
