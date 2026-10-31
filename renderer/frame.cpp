@@ -294,6 +294,7 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
     uint32_t t0 = ticks();
     if (posed)
     {
+        poseMatrices((const PoseMatrix*)calls->matrices);
         slaveRun(slaveRooms, nullptr);
         draws(calls->calls, calls->count, calls->items, calls->base);
         verticesDrawsSet(list.draws, list.drawCount, poseXforms());

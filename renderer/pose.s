@@ -26,7 +26,8 @@
 ! PoseItem (scene.h): +0 lara, +1 count, +2 firstDraw, +4 nodes, +8 frameA,
 ! +12 frameB, +16 frameDelta, +20 frameRate, +24 visibleMask, +28 pos,
 ! +40 angle, +46 extraCount, +48 extra, +56 torso, +62 head, +68 weapon,
-! +72 arms (PoseArm: +0 frame, +4 frameRate, +8 angle, +14 useBasis; 16).
+! +69 matrix, +72 arms (PoseArm: +0 frame, +4 frameRate, +8 angle, +14
+! useBasis; 16).
 ! A frame (PFRM): its place at +12, its packed angles from +20; a node
 ! (PNOD): int16 x y z, flags.
 
@@ -45,6 +46,7 @@
     .equ    I_TORSO,        56
     .equ    I_HEAD,         62
     .equ    I_WEAPON,       68
+    .equ    I_MATRIX,       69
     .equ    I_ARMS,         72
     .equ    ITEM,           104
     .equ    A_FRAME,        0
@@ -75,6 +77,7 @@
     .equ    C_LIGHTS,       180
     .equ    C_LIT,          184
     .equ    C_LITNOW,       188     ! the item's PoseLit
+    .equ    C_MATRICES,     196     ! the matrices items are drawn under
 
     .equ    X_AMBIENT,      48      ! DrawXform
     .equ    X_RANGE,        52
@@ -359,6 +362,22 @@ _poseAsm:
     bra     .Ldone
     nop
 
+! an item drawn under a matrix given (drawNodesLerp's): r0 its index + 1,
+! r14 the stack's top, the matrix there
+.Lgiven:
+    add     #-1, r0
+    mov     #MATRIX, r1
+    mulu.w  r0, r1
+    mov.l   @(C_MATRICES,gbr), r0
+    sts     macl, r1
+    add     r0, r1
+    .irp    o, 0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44
+    mov.l   @(\o,r1), r2
+    mov.l   r2, @(\o,r14)
+    .endr
+    bra     .Lplaced
+    nop
+
 .Litem:
     ! its draws' DrawXforms from out + firstDraw * 72
     mov.w   @(I_FIRST,r10), r0
@@ -378,6 +397,12 @@ _poseAsm:
     mov     r0, r1
     mov     r0, r14
     add     #MATRIX, r14
+    mov     r10, r0
+    add     #I_MATRIX, r0
+    mov.b   @r0, r0
+    extu.b  r0, r0
+    tst     r0, r0
+    bf      .Lgiven
     mov.l   @(I_POS,r10), r2
     mov.l   @(C_CAMERA,gbr), r0
     sub     r0, r2
@@ -418,6 +443,7 @@ _poseAsm:
     bsr     .Lrot
     nop
 
+.Lplaced:
     ! its frames: their angles, the first node's place, the lerp
     mov.l   @(C_FRAMES,gbr), r0
     mov.l   @(I_FRAME_A,r10), r4
@@ -1102,7 +1128,24 @@ _poseLightAsm:
 .Llitem:
     stc     gbr, r14
     add     #C_LIGHT, r14
-    ! the depth: the view's third row times the place from the camera, >> 14
+    ! the depth: under a matrix given, its third row's translation (as
+    ! calcLightingStatic reads the top), else the view's third row times the
+    ! place from the camera; >> 14
+    mov     r10, r0
+    add     #I_MATRIX, r0
+    mov.b   @r0, r0
+    extu.b  r0, r0
+    tst     r0, r0
+    bt      .Lfogplaced
+    add     #-1, r0
+    mov     #48, r1
+    mulu.w  r0, r1
+    mov.l   @(C_MATRICES,gbr), r0
+    sts     macl, r1
+    add     r0, r1
+    bra     .Lfogdepth
+    mov.l   @(44,r1), r6
+.Lfogplaced:
     mov.l   @(C_STACK,gbr), r0
     mov     r0, r1
     mov.l   @(I_POS,r10), r2
@@ -1125,6 +1168,7 @@ _poseLightAsm:
     add     r7, r6
     sts     macl, r7
     add     r7, r6
+.Lfogdepth:
     mov.l   .L2p18, r7
     SAR     r6, r7
     mov.l   r6, @(L_FOG,r14)

@@ -187,7 +187,32 @@ static const int16_t LERPS[][2] = {
 #define SELDOM_PASSES   (LERPS_COUNT * 4)
 
 enum { COVER_STILL, COVER_HALF, COVER_QUARTER, COVER_THREE, COVER_SLOW, COVER_EXTRA, COVER_ARM_FRAME,
-       COVER_ARM_LERP, COVER_BASIS, COVER_SHOTGUN, COVER_PUSH, COVER_MAX };
+       COVER_ARM_LERP, COVER_BASIS, COVER_SHOTGUN, COVER_PUSH, COVER_GIVEN, COVER_MAX };
+
+// Matrices for items drawn under one given (the inventory's drawNodesLerp):
+// the view's rows, turned about y now and then, placed ahead of the camera
+// at a made-up distance.
+#define GIVEN_MATRICES  4
+static PoseMatrix gGiven[GIVEN_MATRICES];
+
+static void madeUpGiven()
+{
+    const int32_t* view = gCtx.stack[0].m;
+    for (int32_t g = 0; g < GIVEN_MATRICES; g++)
+    {
+        int32_t* m = gGiven[g].m;
+        int32_t s = int32_t(rnd() >> 18) - 8192, c = 16384 - (s < 0 ? -s : s) / 2;
+        for (int32_t r = 0; r < 3; r++)
+        {
+            const int32_t* row = view + 4 * r;
+            m[4 * r + 0] = (row[0] * c - row[2] * s) >> 14;
+            m[4 * r + 1] = row[1];
+            m[4 * r + 2] = (row[0] * s + row[2] * c) >> 14;
+            m[4 * r + 3] = (int32_t(rnd() >> 4) - (1 << 27)) >> 2;
+        }
+        m[11] = (256 << 14) + int32_t(rnd() % (20480u << 14));     // in front, up to the far plane
+    }
+}
 
 // The scene's items again, and Lara's as another's: her nodes through the
 // walk their flags push and pop, with made-up flags for extra angles.
@@ -244,8 +269,11 @@ int32_t poseSeldomCheck()
     ctx.frames = frames;
     ctx.out = outNew;
     ctx.lit = lit;
+    ctx.matrices = gGiven;
+    gameMatrices((const int32_t (*)[12])gGiven);
     for (int32_t pass = 0; pass < SELDOM_PASSES; pass++)
     {
+        madeUpGiven();
         const int16_t* lerp = LERPS[pass % LERPS_COUNT];
         int32_t variant = pass / LERPS_COUNT;
         uint32_t at = gFramesBytes, nodesAt = gNodesBytes, first = 0;
@@ -322,6 +350,9 @@ int32_t poseSeldomCheck()
                 }
                 cover[COVER_SHOTGUN] += item.weapon == 3 && item.arms[0].frame != NO_FRAME;
             }
+            // now and then under a matrix given
+            item.matrix = (pass + m) % 3 == 0 ? uint8_t(1 + m % GIVEN_MATRICES) : 0;
+            cover[COVER_GIVEN] += item.matrix != 0;
             item.firstDraw = first;
             first += poseDrawn(item);
             cover[COVER_EXTRA] += item.extraCount;
@@ -389,7 +420,8 @@ struct MadeLight
 #define MADE_LIGHTS     8
 #define LIGHT_PASSES    48
 
-enum { LIT_STILL, LIT_DARK, LIT_ROOM, LIT_RANGE, LIT_ON_POINT, LIT_DIV0, LIT_DIV1, LIT_FOG, LIT_MAX };
+enum { LIT_STILL, LIT_DARK, LIT_ROOM, LIT_RANGE, LIT_ON_POINT, LIT_DIV0, LIT_DIV1, LIT_FOG, LIT_GIVEN, LIT_GIVEN_FOG,
+       LIT_MAX };
 
 // A light at the point plus (dx, dy, dz), placed through its room's place.
 static void lightAt(MadeLight &light, PoseLight &room, const int32_t* point, int32_t dx, int32_t dy, int32_t dz)
@@ -431,8 +463,11 @@ int32_t poseLightSeldomCheck()
     ctx.rooms = rooms;
     ctx.lights = lights;
     ctx.lit = outNew;
+    ctx.matrices = gGiven;
+    gameMatrices((const int32_t (*)[12])gGiven);
     for (int32_t pass = 0; pass < LIGHT_PASSES; pass++)
     {
+        madeUpGiven();
         uint32_t at = 0;
         for (uint32_t i = 0; i < gCount; i++)
         {
@@ -508,10 +543,15 @@ int32_t poseLightSeldomCheck()
                     room.lights = 1;
                 }
             }
+            // now and then under a matrix given: its depth for the fog
+            item.matrix = (pass + i) % 4 == 0 ? uint8_t(1 + i % GIVEN_MATRICES) : 0;
             const int32_t* view = gCtx.stack[0].m;
-            int32_t depth = (view[8] * (item.pos[0] - gCtx.camera[0]) + view[9] * (item.pos[1] - gCtx.camera[1]) +
+            int32_t depth = item.matrix ? gGiven[item.matrix - 1].m[11] >> 14 :
+                            (view[8] * (item.pos[0] - gCtx.camera[0]) + view[9] * (item.pos[1] - gCtx.camera[1]) +
                              view[10] * (item.pos[2] - gCtx.camera[2])) >> 14;
-            cover[LIT_FOG] += depth > 1024 * 12;
+            cover[LIT_FOG] += !item.matrix && depth > 1024 * 12;
+            cover[LIT_GIVEN] += item.matrix != 0;
+            cover[LIT_GIVEN_FOG] += item.matrix && depth > 1024 * 12;
             cover[LIT_STILL] += room.intensity != 0;
             cover[LIT_DARK] += !room.intensity && !room.lights;
             cover[LIT_ROOM] += !room.intensity && room.lights;

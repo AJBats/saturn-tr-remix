@@ -16,11 +16,13 @@ static_assert(offsetof(PoseContext, camera) == 16 && offsetof(PoseContext, op) =
 static_assert(offsetof(PoseContext, light) == 112 && offsetof(PoseContext, rooms) == 176 &&
               offsetof(PoseContext, lit) == 184 && sizeof(PoseLit) == 16 && sizeof(PoseLight) == 12,
               "pose.s's light");
-static_assert(offsetof(PoseContext, items) == 192 && sizeof(PoseStatic) == 20 && offsetof(PoseStatic, x) == 8 &&
+static_assert(offsetof(PoseContext, items) == 192 && offsetof(PoseContext, matrices) == 196 &&
+              sizeof(PoseStatic) == 20 && offsetof(PoseStatic, x) == 8 &&
               sizeof(PoseShadow) == 8 && sizeof(DrawXform) == 72 && offsetof(DrawXform, shadow) == 62,
               "pose.s's statics and shadows");
 static_assert(sizeof(PoseItem) == 104 && offsetof(PoseItem, extraCount) == 46 && offsetof(PoseItem, torso) == 56 &&
-              offsetof(PoseItem, weapon) == 68 && offsetof(PoseItem, arms) == 72 && sizeof(PoseArm) == 16,
+              offsetof(PoseItem, weapon) == 68 && offsetof(PoseItem, matrix) == 69 &&
+              offsetof(PoseItem, arms) == 72 && sizeof(PoseArm) == 16,
               "pose.s's PoseItem");
 
 // The plan's prices, cycles at the ledge (Mednafen): an item's light, a drawn
@@ -77,6 +79,12 @@ void poseInit(const PoseLevel &level)
     // the slave's: its own stack and scratch
     gSlaveCtx = gCtx;
     gSlaveCtx.stack = gSlaveStack;
+}
+
+void poseMatrices(const PoseMatrix* matrices)
+{
+    gCtx.matrices = matrices;
+    gSlaveCtx.matrices = matrices;
 }
 
 void poseView(const int32_t camera[3], const int32_t view[12])

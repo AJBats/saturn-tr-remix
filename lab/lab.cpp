@@ -704,6 +704,7 @@ static FrameTimes stagesTogether(bool posed, int32_t bias)
     calls.items = sceneArray<ItemRecord>("OITM");
     calls.base = gFills;
     calls.walked = false;
+    calls.matrices = nullptr;
     FrameTimes s = frameRun(calls, bias);
     poseLabUse(&drawsList(), gFills);
     return s;

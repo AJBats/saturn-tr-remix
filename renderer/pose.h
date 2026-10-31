@@ -50,7 +50,8 @@ struct PoseContext
     struct PoseLit* lit;        // +184 the items' light, by item
     const struct PoseLit* litNow;   // +188 pose.s's own
     const PoseItem* items;      // +192 the shadows' items
-    int32_t pad[3];
+    const PoseMatrix* matrices; // +196 the matrices items are drawn under (PoseItem.matrix)
+    int32_t pad[2];
 };
 
 // An item's light as drawModel leaves it for its meshes (DrawXform's ambient,
@@ -80,6 +81,9 @@ struct PoseLevel
 };
 void poseInit(const PoseLevel &level);
 void poseView(const int32_t camera[3], const int32_t view[12]);
+
+// The frame's matrices items are drawn under (PoseItem.matrix), or none.
+void poseMatrices(const PoseMatrix* matrices);
 
 // The items, lights, statics and shadows to pose: a draw list's (draws.h:
 // its frames as places), or others with their frames in frames; and the

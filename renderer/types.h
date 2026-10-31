@@ -218,7 +218,10 @@ struct PoseItem
     int16_t extraCount;     // an enemy's extra angles (head, neck), as many as its nodes' ROT flags take
     int16_t extra[4];
     int16_t torso[3], head[3];  // Lara's
-    uint8_t weapon, pad[3];
+    uint8_t weapon;
+    uint8_t matrix;         // the frame's matrix it is drawn under, + 1 (draw.h drawNodesLerp's); 0: placed
+                            // and turned by its pos and angle (drawModel's)
+    uint8_t pad[2];
     PoseArm arms[2];        // Lara's right and left
 };
 
@@ -301,7 +304,8 @@ struct CallRecord
     uint32_t flags;         // the faces' at the call (FACE_WATER)
     int32_t args[6];        // a viewport's x0 y0 x1 y1; a model's item's index in the level; a static's
                             // RoomMesh (xy, zf), place from the camera and index in its room; a
-                            // shadow's floor; a sprite's x y z and shade; a rectangle's x y width
+                            // model's matrix + 1 after (FrameCalls.matrices: drawn under it, as
+                            // drawNodesLerp is, no sphere tested; 0 none); a shadow's floor; a sprite's x y z and shade; a rectangle's x y width
                             // height, colour and bucket; a glyph's left top right bottom on the frame
 };
 

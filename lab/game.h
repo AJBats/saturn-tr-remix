@@ -145,6 +145,11 @@ void gameLightRun(const PoseItem* items, const PoseLight* rooms, const void* lig
 // layouts), the matrices (12 int32 each) to out by draw.
 void gamePoseRun(const PoseItem* items, uint32_t count, const uint8_t* nodes, const uint8_t* frames, void* out);
 
+// The matrices items are drawn under (PoseItem.matrix: the inventory's
+// drawNodesLerp), for the pose's and light's runs.
+extern const int32_t (*gGivenMatrices)[12];
+void gameMatrices(const int32_t (*matrices)[12]);
+
 // Stage 2 the game's way (gamevertices.cpp): the rooms' vertices (xform.s)
 // and the master's draws' (meshxform.s), each set up as the game sets it up,
 // into gVertices where the game put them; Prepare empties gVertices, Check

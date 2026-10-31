@@ -226,7 +226,7 @@ int32_t drawsSeldomCheck()
     int32_t hintedCalls = 0, hintedStatics = 0;
 
     static const uint8_t kRates[] = { 0, 1, 2, 4, 3, 5, 6, 8 };
-    int32_t bad = 0, models = 0, posed = 0, lerped = 0, stills = 0, lara = 0, extras = 0, walls = 0;
+    int32_t bad = 0, models = 0, posed = 0, lerped = 0, stills = 0, lara = 0, extras = 0, walls = 0, given = 0;
     int32_t statics = 0, staticsDrawn = 0, hidden = 0, spritesMade = 0, spritesDrawn = 0, clamped = 0, unclamped = 0;
     int32_t early[5] = {};      // posed at a frame before their animation's: by rate 0, 1, 2, 4, another
     uint8_t rateOf[SELDOM_MODELS];
@@ -310,6 +310,8 @@ int32_t drawsSeldomCheck()
                 c.kind = CALL_MODEL;
                 c.index = m++;
                 c.flags = (rnd() & 1) << 30;
+                c.args[1] = (g % 5 == 2) ? int32_t(1 + rnd() % 4) : 0;     // now and then under a matrix given
+                given += c.args[1] != 0;
                 models++;
                 if (rnd() % 2 && n < SELDOM_CALLS)
                 {
@@ -447,5 +449,5 @@ int32_t drawsSeldomCheck()
     return bad + !(hintedCalls - hintedStatics) + (staticsDrawn ? !hintedStatics : 0) + !posed + !(models - posed) + !lerped + !stills + !lara + (enemies && !extras) + !early[0] +
            !early[1] + !early[2] + !early[3] + !early[4] +
            (statics ? (statics > hidden ? !staticsDrawn : 0) + !(statics - staticsDrawn) + !hidden : 0) + !spritesDrawn +
-           !(spritesMade - spritesDrawn) + !clamped + !unclamped + !walls;
+           !(spritesMade - spritesDrawn) + !clamped + !unclamped + !walls + !given;
 }

@@ -153,11 +153,16 @@ void calcLightingStatic(int32_t intensity)
     }
 }
 
-// drawModel's light, the item placed (its depth for the fog).
+// drawModel's light, the item placed (its depth for the fog); the
+// inventory's, under the matrix its drawSlot set up.
 void drawModelLight(const PoseItem* item, const PoseLight* room)
 {
     matrixPush();
-    matrixTranslateAbs(item->pos[0], item->pos[1], item->pos[2]);
+    if (item->matrix) {
+        memcpy(gMatrixPtr, gGivenMatrices[item->matrix - 1], sizeof(Matrix));
+    } else {
+        matrixTranslateAbs(item->pos[0], item->pos[1], item->pos[2]);
+    }
 
     int32_t intensity = room->intensity << 5;
 

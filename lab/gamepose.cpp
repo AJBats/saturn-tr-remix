@@ -403,12 +403,27 @@ void drawLaraNodesLerp(const PoseItem* lara, const AnimFrame* frameA, const Anim
     matrixPop();
 }
 
-// drawModel's matrices: the item's place and turn, then its nodes'.
+const int32_t (*gGivenMatrices)[12];
+
+void gameMatrices(const int32_t (*matrices)[12])
+{
+    gGivenMatrices = matrices;
+}
+
+// drawModel's matrices: the item's place and turn, then its nodes'; or the
+// inventory's drawSlot's, its nodes under the matrix it set up.
 void drawModel(const PoseItem* item)
 {
     matrixPush();
-    matrixTranslateAbs(item->pos[0], item->pos[1], item->pos[2]);
-    matrixRotateYXZ(item->angle[0], item->angle[1], item->angle[2]);
+    if (item->matrix)
+    {
+        memcpy(gMatrixPtr, gGivenMatrices[item->matrix - 1], sizeof(Matrix));
+    }
+    else
+    {
+        matrixTranslateAbs(item->pos[0], item->pos[1], item->pos[2]);
+        matrixRotateYXZ(item->angle[0], item->angle[1], item->angle[2]);
+    }
 
     if (item->lara) {
         drawLaraNodesLerp(item, frameAt(item->frameA), frameAt(item->frameB), item->frameDelta, item->frameRate);

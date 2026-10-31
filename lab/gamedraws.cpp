@@ -221,7 +221,7 @@ static int32_t meshVertices(uint16_t mesh)
 }
 
 // drawModel: the pose's item and light, its meshes' draws
-static void drawModel(const ItemRecord &record, uint32_t flags)
+static void drawModel(const ItemRecord &record, uint32_t flags, uint32_t given)
 {
     const GameItem* item = &record.item;
     const uint16_t *frameA, *frameB;
@@ -276,7 +276,7 @@ static void drawModel(const ItemRecord &record, uint32_t flags)
     sy += item->pos[1] - gCamera[1];
     sz += item->pos[2] - gCamera[2];
 
-    if (!sphereIsVisible(sx, sy, sz, sr))
+    if (!given && !sphereIsVisible(sx, sy, sz, sr))
         return;
 
     gShown = &record - gItems;
@@ -285,6 +285,7 @@ static void drawModel(const ItemRecord &record, uint32_t flags)
     PoseLight &l = gList.lights[gList.itemCount++];
     memset(&p, 0, sizeof(p));
     p.lara = item->type == ITEM_LARA;
+    p.matrix = given;
     p.count = model.count;
     p.firstDraw = gList.drawCount;
     p.nodes = gModelNodes[item->type];
@@ -629,7 +630,7 @@ void gameDraws(int32_t fills)
                 gViewport.y1 = c.args[3];
                 break;
             case CALL_MODEL:
-                drawModel(gItems[c.index], c.flags);
+                drawModel(gItems[c.index], c.flags, c.args[1]);
                 break;
             case CALL_SHADOW:
                 drawShadow(c);

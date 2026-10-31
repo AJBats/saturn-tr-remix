@@ -502,6 +502,9 @@
     mov.l   @(D_MODELS,gbr), r0
     bsr     .Lframes
     add     r0, r9                  ! its model
+    mov.l   @(C_ARGS+4,r14), r0
+    tst     r0, r0
+    bf      .Lshown                 ! under a matrix given (drawNodesLerp's): no sphere
 
     ! the sphere about frame A's box, turned by the item's quarter
     mov.l   @(D_FRAME_A,gbr), r0
@@ -646,6 +649,10 @@
     mov     #-1, r0
     mov.l   r0, @(32,r1)            ! the arms' frames: none
     mov.l   r0, @(48,r1)
+    mov     r3, r2
+    add     #69, r2
+    mov.l   @(C_ARGS+4,r14), r0
+    mov.b   r0, @r2                 ! the matrix it is drawn under, + 1
     mov     r10, r4
     add     #IT_EXTRA, r4
     mov.l   @r4, r4                 ! the extra (the record's)

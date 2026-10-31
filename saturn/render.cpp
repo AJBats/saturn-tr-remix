@@ -67,6 +67,7 @@ static render::CallRecord* call(uint8 kind, uint32 index)
     c.pad = 0;
     c.index = index;
     c.flags = gMeshFaceFlags;
+    memset(c.args, 0, sizeof(c.args));
     return &c;
 }
 

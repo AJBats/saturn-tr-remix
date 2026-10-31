@@ -99,7 +99,7 @@ struct FrameTimes
 // vertex (base: the lab's checks place them after the walk's fills, as the
 // game does), whether the rooms are walked already (roomsSeen: the game
 // walks them on the master to know whose objects to draw), else the slave
-// walks them.
+// walks them; the matrices models are drawn under (CallRecord's), or none.
 struct FrameCalls
 {
     const CallRecord* calls;
@@ -107,6 +107,7 @@ struct FrameCalls
     ItemRecord* items;
     int32_t base;
     bool walked;
+    const int32_t (*matrices)[12];
 };
 FrameTimes frameRun(const FrameCalls &calls, int32_t bias);
 
