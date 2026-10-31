@@ -3736,6 +3736,23 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
 
 ## Closed
 
+### 246. A switch can't be pulled after the last level left its slot a timer
+*Closed 2026-10-31: 6739a04*
+
+- **Retail:** InitialiseItem (TR1X `items.c`) sets every item's timer to 0
+  as the level loads.
+- **Ours:** the `ItemObj` constructor (`openlara/item.h`) left it, so a slot
+  kept the timer of the last level's item there. LEVEL1's item 28 is a timed
+  door (a pad opens it for 2 s) whose timer ends at -1; LEVEL2's item 28 is
+  the switch in room 21. Its first update after a pull saw -1, sent the
+  lever back to where it stood and left the switch busy: Lara pulled, the
+  lever didn't move, the trigger never fired, the door stayed shut, and the
+  switch refused every pull after. Every time on reaching LEVEL2 from
+  LEVEL1; never on a level loaded on its own (seen on the Saturn and in
+  Mednafen).
+- **Fix:** the constructor sets the timer to 0. Mednafen, slot 28's timer
+  -1 before a load: stuck before, the door opens after.
+
 ### 242. Step 8 doesn't fit high work RAM without moving three of TRS's buffers
 *Closed 2026-10-30: done in step 8 (stage B, 3861082 on; stage C,
 b94b382); every level fits, four with some rooms' faces left in low work RAM
