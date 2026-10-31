@@ -2579,103 +2579,6 @@ INV-36*
 
 ## Audio
 
-### 174. The underwater "woosh" (SFX 60) is never played (reported in play)
-*Severity: audible · Confidence: confirmed · Fix: small (needs 175) · Audit:
-SND-11*
-
-- **Retail:** at the top of CalculateCamera (`0600d128`), every frame, before
-  the cinematic branch:
-  - if the camera's room (`DAT_06074d7c`) is underwater, it calls
-    Sound_Effect(60, NULL, 2), where flags 2 means "always";
-  - otherwise it calls Sound_StopEffect(60, NULL).
-- **How retail repeats it:** SFX 60 is mode 0 (WAIT), volume 0x7FFF, with no
-  wibble, and it is on the 2971.6 Hz rate list. It isn't a hardware loop. Each
-  call is ignored while it plays, and it keys on again once it ends, so it
-  repeats with up to a one-frame gap.
-- **Ours:** `SND_UNDERWATER` is defined (`openlara/common.h:2030`) but never
-  used.
-- **Fix:**
-  - At the start of `Camera::update()` (`openlara/camera.h:488`), before the
-    cutscene and free-camera returns:
-    `if (ROOM_FLAG_WATER(view.room->info->flags)) soundPlay(SND_UNDERWATER, NULL);
-    else soundStop(SND_UNDERWATER);`
-  - The existing engine handles a call every frame correctly. `sndPlaySample`
-    finds the voice with the same index, rewrites TL and returns. `sndFrame`
-    frees it at `voice.end`, and the next call keys it on again. That is retail's
-    retrigger.
-  - Two conditions:
-    1. The sample must play at 2971.6 Hz (issue 175), and `voice.end` must use
-       that rate. Otherwise it's chipmunked and keyed off at 54%.
-    2. Opening the inventory should stop it (issue 188).
-
-### 175. About 56 sound effects play about 10.7 semitones too high and end early
-*Severity: audible · Confidence: confirmed (data read from 0MAIN) · Fix: medium
-· Audit: SND-1*
-
-- **Retail:**
-  - The sample loader (LoadSoundFX `06036ec0`) fills a per-sample table at
-    `DAT_060a0e7c` (8 bytes each: bits, rate, halve, alias) from lists built into
-    0MAIN.
-  - S_SoundPlaySample (`0603c478`) picks a base pitch word from the words at
-    `0x06063b10`:
-
-    | Word | Octave / FNS | Rate | Used for |
-    |---|---|---|---|
-    | 0x1400 | -3 / 0 | 5512.5 Hz | the default |
-    | 0x1050 | -4 / 0x50 | 2971.6 Hz | variant 0 of every sound in the rate list at `0x0606324a` |
-    | 0x1800 | -2 / 0 | 11025 Hz | SFX 58, the bat (list at `0x06063246`) |
-
-  - The rate list is 3, 11–16, 18, 60, 63, 65–76, 82, 83, 85–93, 100–102,
-    104–107, 129, 130, 132, 133, 135, 144, 145, 148–150, 154, 163–166 and 168.
-  - Only variant 0 gets the special rate; variants 1 and up stay at 5512.5.
-- **Evidence:** in LEVEL1, LEVEL2, LEVEL5 and LEVEL10B, each rate-list sample's
-  length divided by 2971.6 Hz matches its PS1 duration. For example, SFX 11 gives
-  0.72 s against the PS1's 1.66 s cut, and SFX 66 gives 0.85 s against 1.02 s.
-  At 5512.5 Hz they come out about half the PS1 length. Sounds not on the list
-  (0, 4, 8) match at 5512.5.
-- **Ours:**
-  - `tools/sfx.py:4` assumes every Saturn sample is 5512.5 Hz.
-  - Correlating against the PS1 samples at 2:1 can't match these, so they keep
-    the Saturn data.
-  - `saturn/sound.cpp:69` (`pitchOctFns`) then plays them at octave -3.
-  - The bat (58) plays an octave below retail.
-- **Effect:** chipmunked and short:
-  - creatures: the bear, T-rex, raptor, lion, gorilla, crocodile, mummy,
-    Atlanteans and the skater;
-  - the block push/pull scrape (63), chain doors, rock falls, the pendulum;
-  - lava, fire, the altar, and the underwater woosh (60).
-- **Fix:** either carry a rate in the offsets table (`sound.h`), play at 2971.6
-  or 11025 Hz, and compute `voice.end` from the real rate; or have `sfx.py` match
-  these against the PS1 samples resampled by 11025/2971.6, so they become 8-bit
-  11025 Hz PS1 samples like the rest.
-
-### 176. Retail's sample alias table isn't reproduced, so doors and others play a click
-*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-2*
-
-- **Retail:** `DAT_060631d8` redirects a sample to another sound's sample when
-  both sounds are in the level. It is applied in S_SoundPlaySample (`0603c478`)
-  before the rate and halving lookups.
-  - The redirects are 14v0 → 14v1, 117 → 153, 170 → 70, 99 → 70, 136 → 70,
-    172 → 82 and 64 → 63.
-  - Each redirected source in the level data is a 16-byte placeholder: the bytes
-    "SAMPLE  " plus an index and a size.
-- **Live aliases in the data:**
-  - 64 → 63 (door → block scrape): LEVEL2 through LEVEL10C. Doors (models 57–63)
-    use SFX 64 in their animations.
-  - 14v0 → v1 (bear snarl): LEVEL1 and 2.
-  - 99 → 70: LEVEL4, 6 and 10C.
-  - 117 → 153: LEVEL6.
-  - 136 → 70: LEVEL10C.
-- **Ours:** `tools/sfx.py:255` skips the placeholders but keeps their 16 bytes,
-  so `sound.cpp` plays 8 loud 16-bit words: a click.
-- **Effect:**
-  - Every door open and close clicks instead of scraping.
-  - Half of the bear snarls click.
-  - Earthquake/explosion 99, the Torso landing (136) and the Midas raising block
-    (117) click.
-- **Fix:** in `sfx.py`, point the source's offset entry at the target sample, but
-  only when both sounds exist in that level.
-
 ### 177. Retail's per-sample volume halving isn't reproduced
 *Severity: subtle to audible · Confidence: confirmed · Fix: small · Audit:
 SND-3*
@@ -2983,14 +2886,6 @@ Audit: SND-C9*
 - **Ours:** `saturn/sound.cpp:101-102` mixes left and right separately.
 - **Decision:** this is a retail driver bug. The recommendation is to keep our
   stereo.
-
-### 195. A zero-length sample plays several seconds of garbage
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: SND-22*
-
-- **Ours:** a zero-length sample sets LEA to 0xFFFF (`saturn/sound.cpp:173`), and
-  plays about 6–12 s of garbage. Such samples exist in CUT2's 108–115, though
-  they're unreachable today.
-- **Fix:** guard against it.
 
 ---
 
@@ -3688,6 +3583,120 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
 | **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
 
 ## Closed
+
+### 195. A zero-length sample plays several seconds of garbage
+*Closed 2026-10-31: 53ae8fa*
+
+- **Ours:** a zero-length sample sets LEA to 0xFFFF (`saturn/sound.cpp:173`), and
+  plays about 6–12 s of garbage. Such samples exist in CUT2's 108–115, though
+  they're unreachable today.
+- **Fix:** guard against it.
+- **Done:** `sndPlaySample` plays nothing for a zero-length sample.
+
+### 176. Retail's sample alias table isn't reproduced, so doors and others play a click
+*Closed 2026-10-31: 53ae8fa*
+
+- **Retail:** `DAT_060631d8` redirects a sample to another sound's sample when
+  both sounds are in the level. It is applied in S_SoundPlaySample (`0603c478`)
+  before the rate and halving lookups.
+  - The redirects are 14v0 → 14v1, 117 → 153, 170 → 70, 99 → 70, 136 → 70,
+    172 → 82 and 64 → 63.
+  - Each redirected source in the level data is a 16-byte placeholder: the bytes
+    "SAMPLE  " plus an index and a size.
+- **Live aliases in the data:**
+  - 64 → 63 (door → block scrape): LEVEL2 through LEVEL10C. Doors (models 57–63)
+    use SFX 64 in their animations.
+  - 14v0 → v1 (bear snarl): LEVEL1 and 2.
+  - 99 → 70: LEVEL4, 6 and 10C.
+  - 117 → 153: LEVEL6.
+  - 136 → 70: LEVEL10C.
+- **Ours:** `tools/sfx.py:255` skips the placeholders but keeps their 16 bytes,
+  so `sound.cpp` plays 8 loud 16-bit words: a click.
+- **Effect:**
+  - Every door open and close clicks instead of scraping.
+  - Half of the bear snarls click.
+  - Earthquake/explosion 99, the Torso landing (136) and the Midas raising block
+    (117) click.
+- **Fix:** in `sfx.py`, point the source's offset entry at the target sample, but
+  only when both sounds exist in that level.
+- **Done:** `sfx.py` gives each alias's placeholder a copy of the sample
+  it plays (the offsets table can't share one).
+
+### 175. About 56 sound effects play about 10.7 semitones too high and end early
+*Closed 2026-10-31: 53ae8fa*
+
+- **Retail:**
+  - The sample loader (LoadSoundFX `06036ec0`) fills a per-sample table at
+    `DAT_060a0e7c` (8 bytes each: bits, rate, halve, alias) from lists built into
+    0MAIN.
+  - S_SoundPlaySample (`0603c478`) picks a base pitch word from the words at
+    `0x06063b10`:
+
+    | Word | Octave / FNS | Rate | Used for |
+    |---|---|---|---|
+    | 0x1400 | -3 / 0 | 5512.5 Hz | the default |
+    | 0x1050 | -4 / 0x50 | 2971.6 Hz | variant 0 of every sound in the rate list at `0x0606324a` |
+    | 0x1800 | -2 / 0 | 11025 Hz | SFX 58, the bat (list at `0x06063246`) |
+
+  - The rate list is 3, 11–16, 18, 60, 63, 65–76, 82, 83, 85–93, 100–102,
+    104–107, 129, 130, 132, 133, 135, 144, 145, 148–150, 154, 163–166 and 168.
+  - Only variant 0 gets the special rate; variants 1 and up stay at 5512.5.
+- **Evidence:** in LEVEL1, LEVEL2, LEVEL5 and LEVEL10B, each rate-list sample's
+  length divided by 2971.6 Hz matches its PS1 duration. For example, SFX 11 gives
+  0.72 s against the PS1's 1.66 s cut, and SFX 66 gives 0.85 s against 1.02 s.
+  At 5512.5 Hz they come out about half the PS1 length. Sounds not on the list
+  (0, 4, 8) match at 5512.5.
+- **Ours:**
+  - `tools/sfx.py:4` assumes every Saturn sample is 5512.5 Hz.
+  - Correlating against the PS1 samples at 2:1 can't match these, so they keep
+    the Saturn data.
+  - `saturn/sound.cpp:69` (`pitchOctFns`) then plays them at octave -3.
+  - The bat (58) plays an octave below retail.
+- **Effect:** chipmunked and short:
+  - creatures: the bear, T-rex, raptor, lion, gorilla, crocodile, mummy,
+    Atlanteans and the skater;
+  - the block push/pull scrape (63), chain doors, rock falls, the pendulum;
+  - lava, fire, the altar, and the underwater woosh (60).
+- **Fix:** either carry a rate in the offsets table (`sound.h`), play at 2971.6
+  or 11025 Hz, and compute `voice.end` from the real rate; or have `sfx.py` match
+  these against the PS1 samples resampled by 11025/2971.6, so they become 8-bit
+  11025 Hz PS1 samples like the rest.
+- **Done:** the offsets table carries every sample's rate; `sfx.py` finds
+  the slow samples (made at 2500 Hz: the original plays them 1.19 times as
+  fast as recorded) in the PlayStation's band-limited to 2500 Hz and packs
+  the PlayStation's as 8-bit at 13103 Hz while sound RAM lasts. The bat
+  keeps its own 16-bit sample, now at 11025 Hz.
+
+### 174. The underwater "woosh" (SFX 60) is never played (reported in play)
+*Closed 2026-10-31: 53ae8fa*
+
+- **Retail:** at the top of CalculateCamera (`0600d128`), every frame, before
+  the cinematic branch:
+  - if the camera's room (`DAT_06074d7c`) is underwater, it calls
+    Sound_Effect(60, NULL, 2), where flags 2 means "always";
+  - otherwise it calls Sound_StopEffect(60, NULL).
+- **How retail repeats it:** SFX 60 is mode 0 (WAIT), volume 0x7FFF, with no
+  wibble, and it is on the 2971.6 Hz rate list. It isn't a hardware loop. Each
+  call is ignored while it plays, and it keys on again once it ends, so it
+  repeats with up to a one-frame gap.
+- **Ours:** `SND_UNDERWATER` is defined (`openlara/common.h:2030`) but never
+  used.
+- **Fix:**
+  - At the start of `Camera::update()` (`openlara/camera.h:488`), before the
+    cutscene and free-camera returns:
+    `if (ROOM_FLAG_WATER(view.room->info->flags)) soundPlay(SND_UNDERWATER, NULL);
+    else soundStop(SND_UNDERWATER);`
+  - The existing engine handles a call every frame correctly. `sndPlaySample`
+    finds the voice with the same index, rewrites TL and returns. `sndFrame`
+    frees it at `voice.end`, and the next call keys it on again. That is retail's
+    retrigger.
+  - Two conditions:
+    1. The sample must play at 2971.6 Hz (issue 175), and `voice.end` must use
+       that rate. Otherwise it's chipmunked and keyed off at 54%.
+    2. Opening the inventory should stop it (issue 188).
+- **Done:** `Camera::update()` plays it while the camera's room is water,
+  stops it out of it; with 175 it plays at the original's rate (the
+  PlayStation's sample, 8-bit, at 13103 Hz).
 
 ### 150. No fades when the inventory opens and closes
 *Closed 2026-10-31: 61534f6*
