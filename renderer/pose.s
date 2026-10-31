@@ -1716,16 +1716,18 @@ _poseShadowsAsm:
     mov.l   @(I_DELTA,r9), r1
     tst     r1, r1
     EXTENT  8
-    ! the centre and the half sizes: (max + min) >> 1, (max - min) 160 >> 10
+    ! the centre and the half sizes: (max + min) >> 1, (max - min) 160 >> 10,
+    ! kept on the stack (whole longwords: an interrupt pushes there)
+    add     #-8, r15
     mov.l   .Lh2p22, r1
     mov     r7, r0
     add     r11, r0
     shar    r0
-    mov.w   r0, @-r15               ! x
+    mov.w   r0, @(6,r15)            ! x
     mov     r3, r0
     add     r2, r0
     shar    r0
-    mov.w   r0, @-r15               ! z
+    mov.w   r0, @(4,r15)            ! z
     mov     #-96, r6
     extu.b  r6, r6                  ! 160
     sub     r11, r7
@@ -1734,14 +1736,14 @@ _poseShadowsAsm:
     dmuls.l r7, r1
     sts     mach, r7
     mov     r7, r0
-    mov.w   r0, @-r15               ! sx
+    mov.w   r0, @(2,r15)            ! sx
     sub     r2, r3
     mul.l   r6, r3
     sts     macl, r3
     dmuls.l r3, r1
     sts     mach, r3
     mov     r3, r0
-    mov.w   r0, @-r15               ! sz
+    mov.w   r0, @(0,r15)            ! sz
     ! the view placed at the item over the floor
     mov.l   @(C_STACK,gbr), r0
     mov     r0, r1
@@ -1806,14 +1808,15 @@ _poseShadowsAsm:
     add     #X_LIGHT+4, r1
     mov.w   r0, @r1
     add     #X_SHADOW-X_LIGHT-4, r1
-    mov.w   @r15+, r0
+    mov.w   @(0,r15), r0
     mov.w   r0, @(6,r1)             ! sz
-    mov.w   @r15+, r0
+    mov.w   @(2,r15), r0
     mov.w   r0, @(4,r1)             ! sx
-    mov.w   @r15+, r0
+    mov.w   @(4,r15), r0
     mov.w   r0, @(2,r1)             ! z
-    mov.w   @r15+, r0
+    mov.w   @(6,r15), r0
     mov.w   r0, @(0,r1)             ! x
+    add     #8, r15
     add     #SHADOW, r10
     dt      r12
     bt      .Lshadowsdone
