@@ -405,7 +405,7 @@ static char* appendHex(char* p, uint32 value, int32 digits)
 
 static void sceneUpdate()
 {
-    static uint32 start, frames, vdp1, cpu, drawn, roomVertices, vertices, faces, meshes, slaveMeshes;
+    static uint32 start, frames, vdp1, cpu, drawn, roomVertices, vertices, faces, meshes;
 
     frames++;
     vdp1 += gStats.vdp1Ticks;
@@ -415,7 +415,6 @@ static void sceneUpdate()
     vertices += gStats.vertices;
     faces += gStats.faces;
     meshes += gStats.meshes;
-    slaveMeshes += gStats.slaveMeshes;
 
     if (gVblankCount - start < SCENE_WINDOW)
         return;
@@ -438,13 +437,12 @@ static void sceneUpdate()
     appendStat(p, "cmds ", faces / frames);
 
     p = appendStat(gSceneRows[2], "meshes ", meshes / frames);
-    p = appendStat(p, "+", slaveMeshes / frames);
     p = appendStat(p, "vdp1 ", framePercent(vdp1 / frames));
     p = appendStat(p, "cpu ", framePercent(cpu / frames));
     appendStat(p, "fps ", frames * 60 / (gVblankCount - start));
 
     start = gVblankCount;
-    frames = vdp1 = cpu = drawn = roomVertices = vertices = faces = meshes = slaveMeshes = 0;
+    frames = vdp1 = cpu = drawn = roomVertices = vertices = faces = meshes = 0;
 }
 
 // With the bench's rows hidden, the two bottom rows show the frame on screen
@@ -460,8 +458,7 @@ struct FrameTag
     uint32 plot;
     uint32 cpu;
     uint32 update, draw, flush, wait;   // the master's stages
-    uint32 xform, faces, mesh, idle;    // the slave's
-    uint32 dsp;                         // room vertices the DSP projected, %
+    uint32 slave, idle;                 // the slave's work and waits
     int32 room, x, y, z;
     uint32 yaw;
 };
@@ -476,11 +473,8 @@ void debugFrameDone()
     t.draw = gStats.drawTicks;
     t.flush = gStats.flushTicks;
     t.wait = gStats.waitTicks + gStats.slaveWaitTicks;
-    t.xform = gStats.slaveXformTicks;
-    t.faces = gStats.slaveFaceTicks;
-    t.mesh = gStats.slaveMeshTicks;
+    t.slave = gStats.slaveXformTicks;
     t.idle = gStats.slaveIdleTicks;
-    t.dsp = gStats.roomVertices ? gStats.dspVertices * 100 / gStats.roomVertices : 0;
     const ItemObj* lara = (const ItemObj*)(const void*)players[0];
     t.room = lara ? int32(lara->room - rooms) : -1;
     t.x = lara ? lara->pos.x : 0;
@@ -515,16 +509,13 @@ static void frameShown(uint32_t plot)
         }
         overlayPin(FRAME_ROW, text);
 
-        // the slave: room transform, room faces, meshes, idle; DSP share
+        // the slave: its work in the frame, its waits there
         p = text;
         *p = 0;
         if (tagged)
         {
-            p = appendStat(p, "slv x ", framePercent(t.xform));
-            p = appendStat(p, "f ", framePercent(t.faces));
-            p = appendStat(p, "m ", framePercent(t.mesh));
-            p = appendStat(p, "i ", framePercent(t.idle));
-            appendStat(p, "dsp ", t.dsp);
+            p = appendStat(p, "slv ", framePercent(t.slave));
+            appendStat(p, "w ", framePercent(t.idle));
         }
         overlayPin(FRAME_ROW + 1, text);
         gFrameRows = true;
@@ -534,7 +525,7 @@ static void frameShown(uint32_t plot)
     if (tagged)
     {
         p = appendStat(p, "cpu ", framePercent(t.cpu));
-        p = appendStat(p, "slv ", framePercent(t.xform + t.faces + t.mesh));
+        p = appendStat(p, "slv ", framePercent(t.slave));
     }
     appendStat(p, "vdp1 ", framePercent(gStats.vdp1Ticks));
     overlayPin(FRAME_ROW, text);

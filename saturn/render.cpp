@@ -746,9 +746,14 @@ void flush_c()
         render::gFrameCmds[0].w[0] |= CMD_SKIP << 16;
     }
 
-    gStats.faces = render::gFrameEnd;
+    gStats.faces = render::facesSlot(render::gRoomList.link) - 1 + render::gFrameEnd - render::gMeshFirst;
     gStats.rooms = render::gFrameRoomCount;
     gStats.meshes = render::drawsList().drawCount;
+    gStats.roomVertices = 0;
+    for (uint32 i = 0; i < render::gFrameRoomCount; i++) {
+        gStats.roomVertices += render::gFrameRooms[i].verticesCount;
+    }
+    gStats.vertices = gStats.roomVertices + render::drawsContext().base - 2 * fills;
     gStats.slaveXformTicks = s.slaveWork / 128;
     gStats.slaveIdleTicks = s.slaveWait / 128;
     gStats.slaveWaitTicks = s.masterWait / 128;
