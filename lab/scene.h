@@ -112,7 +112,9 @@ struct RoomView
 
 // The draw list's inputs (tools/drawpack.py):
 // CALL  the frame's calls into the renderer after the walk, in order
-//       (CallRecord); OITM the items their models are drawn for (ItemRecord);
+//       (CallRecord); OITM the items their models are drawn for (ItemRecord),
+//       OEXT each one's extra's first ITEM_EXTRA_BYTES (GameLara, or an
+//       enemy's angles; the item's extra points at its copy once loaded);
 //       ANIM each item's animation (GameAnim, its own copy) and AFRM their
 //       frames: an animation's frame offset counts from AFRM_BASE uint16s
 //       before AFRM, so its frame (and the next, where getFrames reads it)
@@ -120,6 +122,7 @@ struct RoomView
 //       mesh's index in MESH (0xFFFF: not in the scene), MNOD each model's
 //       nodes in PNOD, SMSH the level's static meshes (GameStaticMesh), RLIT
 //       each room's ambient and lights (RoomLights).
+#define ITEM_EXTRA_BYTES    228     // OEXT's for an item: Lara's up to her joints' meshes' end
 
 // A command as the floor builds it: three words as the game's, the corners
 // whose positions the game's corner words hold (byte offsets in the

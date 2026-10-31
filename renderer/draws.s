@@ -84,7 +84,7 @@
     .equ    CALL_SPRITE,    5
     .equ    CALL_RECT,      6
     .equ    CALL_GLYPH,     7
-    .equ    IT_POS,         8       ! ItemRecord: the item (GameItem), its room, its extra
+    .equ    IT_POS,         8       ! ItemRecord: the item (GameItem), its room and index
     .equ    IT_ANGLE,       20
     .equ    IT_ANIM,        32
     .equ    IT_TYPE,        52
@@ -490,8 +490,7 @@
     sts.l   pr, @-r15
     mov.w   @(C_INDEX,r14), r0
     extu.w  r0, r10
-    mov     #77, r0
-    shll2   r0                      ! an ItemRecord's 308 bytes
+    mov     #80, r0                 ! an ItemRecord's bytes
     mulu.w  r0, r10
     mov.l   @(D_ITEMS,gbr), r0
     sts     macl, r10
@@ -659,7 +658,7 @@
     mov.b   r0, @r2                 ! the matrix it is drawn under, + 1
     mov     r10, r4
     add     #IT_EXTRA, r4
-    mov.l   @r4, r4                 ! the extra (the record's)
+    mov.l   @r4, r4                 ! the extra
     mov     r8, r0
     tst     r0, r0
     bt      .Llara

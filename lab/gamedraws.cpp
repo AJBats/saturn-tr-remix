@@ -64,9 +64,9 @@ static_assert(sizeof(GameItem) == 76 && offsetof(GameItem, pos) == 8 && offsetof
 static_assert(sizeof(GameArm) == 32 && offsetof(GameArm, animIndex) == 12 && offsetof(GameArm, frameIndex) == 14 &&
               offsetof(GameArm, flash) == 16 && offsetof(GameArm, useBasis) == 29, "ExtraInfoLara::Arm");
 static_assert(offsetof(GameLara, weapon) == 10 && offsetof(GameLara, head) == 12 && offsetof(GameLara, torso) == 18 &&
-              offsetof(GameLara, arms) == 24 && offsetof(GameLara, meshes) == 196 && sizeof(GameLara) <= 228,
-              "ExtraInfoLara");
-static_assert(sizeof(ItemRecord) == 76 + 4 + 228 && sizeof(CallRecord) == 32, "tools/drawpack.py's records");
+              offsetof(GameLara, arms) == 24 && offsetof(GameLara, meshes) == 196 &&
+              sizeof(GameLara) <= ITEM_EXTRA_BYTES, "ExtraInfoLara");
+static_assert(sizeof(ItemRecord) == 76 + 4 && sizeof(CallRecord) == 32, "tools/drawpack.py's records");
 static_assert(sizeof(GameAnim) == 32 && offsetof(GameAnim, frameRate) == 4 && offsetof(GameAnim, frameBegin) == 16 &&
               offsetof(GameAnim, frameEnd) == 18, "Anim");
 static_assert(sizeof(GameModel) == 8 && offsetof(GameModel, count) == 1 && offsetof(GameModel, start) == 2 &&
@@ -552,10 +552,11 @@ int32_t gameDrawsInit()
     gCalls = sceneArray<const CallRecord>("CALL", &gCallCount);
     uint32_t items;
     gItems = sceneArray<ItemRecord>("OITM", &items);
+    const uint8_t* extras = sceneArray<const uint8_t>("OEXT");
     for (uint32_t i = 0; i < items; i++)
     {
         if (gItems[i].item.extra) {
-            gItems[i].item.extra = gItems[i].extra;
+            gItems[i].item.extra = extras + i * ITEM_EXTRA_BYTES;
         }
     }
     gAnims = sceneArray<const GameAnim>("ANIM");

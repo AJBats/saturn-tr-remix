@@ -518,7 +518,8 @@ def main():
     order_ids = ['INFO', 'ORDR', 'MPOL', 'SPOL', 'VERT', 'CMDS', 'GRDS', 'TEXS', 'SHAD', 'SHCA', 'DKEY', 'DSLT',
                  'DIVT', 'ROOM', 'RGEO', 'CAUS', 'DRAW', 'XFRM', 'MESH', 'MGEO', 'MOVE', 'FLOR', 'MSTO',
                  'POSE', 'PNOD', 'PFRM', 'SINC', 'CAMR', 'PLIT', 'LGHT', 'STAT', 'SHDW', 'RLVL', 'RPRT',
-                 'RVIS', 'RLGE', 'CAUW', 'CALL', 'OITM', 'ANIM', 'AFRM', 'MODL', 'MIDX', 'MNOD', 'SMSH', 'RLIT',
+                 'RVIS', 'RLGE', 'CAUW', 'CALL', 'OITM', 'OEXT', 'ANIM', 'AFRM', 'MODL', 'MIDX', 'MNOD', 'SMSH',
+                 'RLIT',
                  'DTHG', 'HINT', 'LARA',
                  'DKY0', 'DSL0', 'DUPL', 'RTXI', 'RTEX', 'PALT', 'SPRS', 'VRAM']
     where = {'PALT': WHERE_LOW, 'SPRS': WHERE_LOW, 'VRAM': WHERE_VDP1, 'CMDS': WHERE_LOW, 'GRDS': WHERE_LOW,

@@ -15,7 +15,7 @@ static_assert(offsetof(DrawsContext, camera) == 60 && offsetof(DrawsContext, vie
               "draws.s's DrawsContext");
 static_assert(sizeof(DrawScene) == 24 && sizeof(PoseItem) == 104 && sizeof(PoseLight) == 12 &&
               sizeof(PoseStatic) == 20 && sizeof(PoseShadow) == 8 && sizeof(Face) == 16 && sizeof(Vertex) == 8 &&
-              sizeof(Sprite) == 16 && sizeof(HintedCall) == 8 && offsetof(ItemRecord, index) == 78 &&
+              sizeof(Sprite) == 16 && sizeof(HintedCall) == 8 && offsetof(ItemRecord, index) == 78 && sizeof(ItemRecord) == 80 &&
               sizeof(PoseFlash) == 12,
               "draws.s's records");
 

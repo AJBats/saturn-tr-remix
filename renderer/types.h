@@ -337,7 +337,7 @@ struct GameItem             // ItemObj
     uint8_t intensity;      // +53
     uint8_t pad2[6];
     uint32_t visibleMask;   // +60
-    const uint8_t* extra;   // +64 (the lab's: its record's)
+    const uint8_t* extra;   // +64 (the lab's: its scene's copy, OEXT)
     uint32_t nextItem;      // +68
     uint8_t pad3[4];
 };
@@ -372,7 +372,6 @@ struct ItemRecord
     GameItem item;
     uint16_t room;          // its room's index
     uint16_t index;         // the item's in the level
-    uint8_t extra[228];     // its extra's first bytes: GameLara, or an enemy's angles
 };
 
 struct GameAnim             // Anim

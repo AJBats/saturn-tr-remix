@@ -13,8 +13,8 @@ unchanged, lands on them; Lara's arms' likewise), the level's models
 (MESH's index) and each model's nodes (PNOD), and each room's ambient and
 lights (in LGHT).
 
-    pack(mem, sym, recs, mesh_index, maps) -> chunks CALL, OITM, ANIM, AFRM, MODL, MIDX, MNOD, SMSH, RLIT,
-                                              LARA
+    pack(mem, sym, recs, mesh_index, maps) -> chunks CALL, OITM, OEXT, ANIM, AFRM, MODL, MIDX, MNOD, SMSH,
+                                              RLIT, LARA
 
 mesh_index: the lab's MESH index of each mesh address; maps: posepack's
 (PNOD's offset by the level's node index, LGHT's index by room index). The
@@ -63,9 +63,9 @@ def pack(mem, sym, recs, mesh_index, maps):
     models, anims, frames = (u32(level + L[k]) for k in ('L.models', 'L.anims', 'L.frames'))
     # level.h: the level's models, each at its type's place (MAX_MODELS of them)
     models_count, rooms_count = L['MAX_MODELS'], u16(level + L['L.roomsCount'])
-    item_record = L['item'] + 4 + EXTRA_BYTES
+    item_record = L['item'] + 4
 
-    calls, item_data, anim_data, frame_data = bytearray(), bytearray(), bytearray(), bytearray()
+    calls, item_data, extra_data, anim_data, frame_data = bytearray(), bytearray(), bytearray(), bytearray(), bytearray()
     item_of = {}                # a model call's item record, by item index (for its shadow's call)
 
     def model_count(model):
@@ -129,7 +129,8 @@ def pack(mem, sym, recs, mesh_index, maps):
                                              anim_copy(arm_anim, arm_frame, count, False))
             room = (u32(it + L['i.room']) - rooms) // L['room']
             item_of[r['item']] = len(item_data) // item_record
-            item_data += record + struct.pack('>HH', room, r['item']) + extra_bytes
+            item_data += record + struct.pack('>HH', room, r['item'])
+            extra_data += extra_bytes
             calls += CALL.pack(CALL_MODEL, item_of[r['item']], r['flags'], r['item'], 0, 0, 0, 0, 0)
         elif kind == 'static call':
             room, index = room_of_mesh(r['ref'])
@@ -159,7 +160,8 @@ def pack(mem, sym, recs, mesh_index, maps):
     lara = u32(sym('_players'))
     room = (u32(lara + L['i.room']) - rooms) // L['room']
     x, y, z = mem.unpack('>3i', lara + L['i.pos'])
-    return {'LARA': struct.pack('>3i', room, x >> 10, z >> 10), 'CALL': bytes(calls), 'OITM': bytes(item_data), 'ANIM': bytes(anim_data), 'AFRM': bytes(frame_data),
+    return {'LARA': struct.pack('>3i', room, x >> 10, z >> 10), 'CALL': bytes(calls), 'OITM': bytes(item_data),
+            'OEXT': bytes(extra_data), 'ANIM': bytes(anim_data), 'AFRM': bytes(frame_data),
             'MODL': mem.bytes(models, models_count * L['model']),
             'MIDX': struct.pack(f'>{meshes_count}H', *midx), 'MNOD': struct.pack(f'>{models_count}I', *mnod),
             'SMSH': mem.bytes(statics, statics_count * L['staticMesh']), 'RLIT': bytes(rlit)}

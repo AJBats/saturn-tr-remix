@@ -208,16 +208,18 @@ int32_t drawsSeldomCheck()
 
     static CallRecord* made;
     static ItemRecord* madeItems;
+    static uint8_t* madeExtras;
     static GameAnim* madeAnims;
     static DrawList mine, game;
     if (!made)
     {
         made = lowArray<CallRecord>(SELDOM_CALLS);
         madeItems = lowArray<ItemRecord>(SELDOM_MODELS);
+        madeExtras = lowArray<uint8_t>(SELDOM_MODELS * ITEM_EXTRA_BYTES);
         madeAnims = lowArray<GameAnim>(anims + SELDOM_MODELS);
         listArrays(mine, SELDOM_MODELS * 32 + SELDOM_CALLS, SELDOM_MODELS, SELDOM_CALLS, SELDOM_CALLS, SELDOM_CALLS);
         listArrays(game, SELDOM_MODELS * 32 + SELDOM_CALLS, SELDOM_MODELS, SELDOM_CALLS, SELDOM_CALLS, SELDOM_CALLS);
-        if (!made || !madeItems || !madeAnims || !mine.vertices || !game.vertices)
+        if (!made || !madeItems || !madeExtras || !madeAnims || !mine.vertices || !game.vertices)
             return -1;
     }
     memcpy(madeAnims, sceneAnims, anims * sizeof(GameAnim));    // Lara's arms' own
@@ -291,8 +293,10 @@ int32_t drawsSeldomCheck()
                 if (it.item.type == 0)
                 {
                     // her guns' flashes, now and then
-                    it.item.extra = it.extra;
-                    GameLara &l = *(GameLara*)it.extra;
+                    uint8_t* extra = madeExtras + m * ITEM_EXTRA_BYTES;
+                    memcpy(extra, it.item.extra, ITEM_EXTRA_BYTES);
+                    it.item.extra = extra;
+                    GameLara &l = *(GameLara*)extra;
                     for (int32_t k = 0; k < 2; k++)
                     {
                         int16_t* flash = l.arms[k].flash;
