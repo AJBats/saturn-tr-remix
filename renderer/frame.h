@@ -76,6 +76,11 @@ struct FrameLevel
 };
 void frameInit(const FrameLevel &level);
 
+// The level's animated ranges of room textures shifted one along (ranges:
+// their count, then each one's length - 1 and its textures, as the level
+// holds them): their materials with them.
+void frameTexturesShifted(const uint16_t* ranges);
+
 // The lists emptied (their buckets too) on the slots the split last gave.
 void frameLists();
 

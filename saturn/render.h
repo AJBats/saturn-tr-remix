@@ -47,4 +47,7 @@ void renderPalettesSwapped();
 // After flipMap: the rooms swapped with their alternates.
 void renderRoomsFlipped();
 
+// After animTexturesShift: the animated ranges' textures shifted one along.
+void renderTexturesShifted();
+
 #endif

@@ -2985,6 +2985,7 @@ void renderModelUnder(const ItemObj* item);    // the inventory's: under the mat
 void renderShadowCall(const ItemObj* item, int32 floor);
 void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index);
 void renderRoomsFlipped();  // after flipMap
+void renderTexturesShifted();   // after animTexturesShift
 void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index);
 void renderGlyph(int32 vx, int32 vy, int32 index);
 void renderFill(int32 x, int32 y, int32 width, int32 height, int32 shade, int32 z);

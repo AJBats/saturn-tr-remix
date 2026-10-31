@@ -431,6 +431,11 @@ void renderRoomsFlipped()
     }
 }
 
+void renderTexturesShifted()
+{
+    render::frameTexturesShifted(level.animTexData);
+}
+
 // The clear: a scaled sprite of colour 0 over the frame, transparency off,
 // which writes 0 (VDP2 shows the back colour); skipped where rooms cover the
 // frame (what neither a face nor a portal of theirs would draw is filled

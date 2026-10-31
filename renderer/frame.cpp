@@ -74,6 +74,20 @@ void frameInit(const FrameLevel &level)
     frameLists();
 }
 
+void frameTexturesShifted(const uint16_t* ranges)
+{
+    int32_t count = *ranges++;
+    for (int32_t i = 0; i < count; i++)
+    {
+        int32_t length = *ranges++;
+        RoomMaterial first = gRoomMaterials[*ranges];
+        for (; length > 0; length--, ranges++) {
+            gRoomMaterials[ranges[0]] = gRoomMaterials[ranges[1]];
+        }
+        gRoomMaterials[*ranges++] = first;
+    }
+}
+
 void frameLists()
 {
     facesListInit(gRoomList, gFrameCmds, gFrameGrd, 1, gMeshFirst, gHeads[0], gTails[0], gLevel.materials,

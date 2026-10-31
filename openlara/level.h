@@ -230,6 +230,9 @@ void animTexturesShift()
         }
         level.textures[*data++] = tmp;
     }
+#ifdef __SATURN__
+    renderTexturesShifted();
+#endif
 }
 
 #define FADING_RATE_SHIFT 4
