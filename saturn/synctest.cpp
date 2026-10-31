@@ -139,7 +139,7 @@ static void __attribute__((noinline)) claim(int32_t me)
 
 // The slave writes each message (through its cache, as the renderer does),
 // then the head; the master reads the head, then the message, cached after
-// purging its line, as rooms.cpp reads what the DSP wrote.
+// purging its line, as the renderer reads what the DSP wrote.
 static void produce()
 {
     Message* r = ring();

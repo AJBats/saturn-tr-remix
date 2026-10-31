@@ -1,5 +1,6 @@
-"""Captures one frame's render inputs for the clean-room renderer's lab
-(saturn/capture.h).
+"""Captures one frame's render inputs for the clean-room renderer's lab, from
+a build of the old renderer (saturn/capture.h, which step 8 removed: a
+worktree of d10edc4 or before).
 
     capture.py CUE [--frame N] [--keys F:K,K,... | --trace FILE] [--out NAME]
 
@@ -233,7 +234,8 @@ def capture(cue, elf, frame, keys, trace, folder, wait=30):
             if header and med.word(header + 4):
                 break
         else:
-            sys.exit('the game recorded no frame (a build without capture.cpp, or no low work RAM left?)')
+            sys.exit('the game recorded no frame (a build without capture.cpp: step 8 or after; '
+                     'or no low work RAM left?)')
         at = int(med.send('status', 'status', 10).split('frame=')[1].split()[0])
         print(f'frame recorded at vblank {at}, held')
         os.makedirs(folder, exist_ok=True)

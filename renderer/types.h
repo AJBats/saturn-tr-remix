@@ -3,6 +3,11 @@
 // stages. The level's own layouts are kept: the packer and the game write
 // them as they are. The limits the game's headers define too are defined
 // once, theirs first where both are included (the same values).
+//
+// Comments name the code a part reproduces exactly: the game's before step 8
+// (openlara draw.h, saturn/render.cpp and rooms.cpp, the assembly faces.s,
+// flush.s, xform.s and meshxform.s; d10edc4 is its last), which the lab
+// keeps as the game's way it checks against (lab/game*.s, lab/game.cpp).
 #ifndef RENDER_TYPES_H
 #define RENDER_TYPES_H
 

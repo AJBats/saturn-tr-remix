@@ -3080,7 +3080,6 @@ void osJoyVibrate(int32 index, int32 L, int32 R);
 void osSetPalette(const uint16* palette);
 const void* osLoadScreen(LevelID id);
 const void* osLoadLevel(LevelID id);
-uint8* osLowRamFree(uint32 &size);  // Saturn: low work RAM the level leaves, for debug tools
 #ifdef __SATURN__
 void osPlaceRooms(); // the rooms' vertices in high work RAM, where the DSP reads them
 // High work RAM for the level, from what the program leaves: 16-byte aligned,

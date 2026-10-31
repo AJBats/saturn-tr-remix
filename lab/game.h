@@ -1,10 +1,11 @@
-// The game's way: stage 3, faces to VDP1 commands, as saturn/ does it today,
-// for the lab's baseline. faces.s and flush.s are linked as they are; the C
-// they call and the C around them (render.cpp, rooms.cpp) is copied into
-// game_faces.cpp and game_flush.cpp, for the look the lab builds (the game's
-// defaults: dark faces by gouraud alone, shaded tables, mip levels, turned
-// lines, mesh shadows, near quads split only where a plane cuts them, far
-// faces textured). The layouts here are the game's, which the assembly reads.
+// The game's way: stage 3, faces to VDP1 commands, as the game did it before
+// step 8 (d10edc4), for the lab's baseline. Its faces.s and flush.s are
+// linked as they were (gamefaces.s, gameflush.s); the C they call and the C
+// around them (saturn/render.cpp, rooms.cpp) is copied into game.cpp, for
+// the look the lab builds (the game's defaults: dark faces by gouraud alone,
+// shaded tables, mip levels, turned lines, mesh shadows, near quads split
+// only where a plane cuts them, far faces textured). The layouts here are
+// the game's, which the assembly reads.
 #ifndef GAME_H
 #define GAME_H
 

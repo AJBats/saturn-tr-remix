@@ -69,10 +69,8 @@ DISC    := $(ER)/disc
 MAIN    := $(DISC)/files/0MAIN.BIN
 GH_OUT  := build/ghidra
 
-# The game: every platform source plus the OpenLara core and the renderer;
-# not the old renderer's last sources (and the tools that read its faces).
-OLD_RENDER := saturn/rooms.cpp saturn/hunt.cpp saturn/capture.cpp
-GAME_SRC := $(filter-out $(OLD_RENDER),$(wildcard saturn/*.c saturn/*.cpp saturn/*.s)) openlara/common.cpp \
+# The game: every platform source plus the OpenLara core and the renderer
+GAME_SRC := $(wildcard saturn/*.c saturn/*.cpp saturn/*.s) openlara/common.cpp \
 	$(wildcard renderer/*.cpp renderer/*.s)
 
 DISC_TXT := ABS.TXT=disc/ABS.TXT BIB.TXT=disc/BIB.TXT CPY.TXT=disc/CPY.TXT

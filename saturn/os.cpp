@@ -261,12 +261,6 @@ void osPlaceRoomFaces()
     crashLog("ROOMS", (placed << 24) | (level.roomsCount << 16) | (highLeft() >> 10));    // KB left
 }
 
-uint8* osLowRamFree(uint32 &size)
-{
-    size = LEVEL_ADDR + LEVEL_MAX - gLowFree;
-    return gLowFree;
-}
-
 const void* osLoadLevel(LevelID id)
 {
     const char* name = (const char*)gLevelInfo[id].data;

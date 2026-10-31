@@ -1,5 +1,5 @@
-// The game's way (game.h): the C around faces.s and flush.s copied from
-// saturn/render.cpp and rooms.cpp (4174aaf), cut down to the game's defaults,
+// The game's way (game.h): the C around gamefaces.s and gameflush.s copied
+// from saturn/render.cpp and rooms.cpp (4174aaf), cut down to the game's defaults,
 // with the scene standing in for the game's level and caches.
 
 #include "game.h"

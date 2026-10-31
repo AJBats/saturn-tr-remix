@@ -85,9 +85,8 @@ enum TraceLane { TRACE_MASTER, TRACE_IRQ, TRACE_SLAVE, TRACE_DSP, TRACE_LANES };
 void traceInit();
 
 // The level's data ends at end in low work RAM: the rings record if they fit
-// above it. traceStop stops them before a level loads over them, or the
-// polygon hunt borrows that memory (osLowRamFree); traceResume starts them
-// afresh above the same level once it is given back.
+// above it. traceStop stops them before a level loads over them; traceResume
+// starts them afresh above the same level.
 void traceLevel(const void* end);
 void traceStop();
 void traceResume();
