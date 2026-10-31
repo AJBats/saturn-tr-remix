@@ -18,10 +18,12 @@
 #define VECTOR_VBLANK_OUT   0x41
 #define VECTOR_SPRITE_END   0x4D
 #define VECTOR_TIMER0       0x43
+#define VECTOR_DSP_END      0x45
 #define SCU_IMS_VBLANK_IN   0x0001
 #define SCU_IMS_VBLANK_OUT  0x0002
 #define SCU_IMS_SPRITE_END  0x2000
 #define SCU_IMS_TIMER0      0x0008
+#define SCU_IMS_DSP_END     0x0020
 #define T1MD_TENB           0x0001  // the timers run
 #define LINE_LEVEL          0xC0    // timer 0's interrupt level, in SR's I bits
 
@@ -87,6 +89,7 @@ SyncStats syncStatsTake()
 extern "C" void vblankInEntry();
 extern "C" void vblankOutEntry();
 extern "C" void spriteEndEntry();
+extern "C" void dspEndEntry();
 extern "C" void lineEntry();
 
 extern "C" void vblankInHandler(const uint32_t* irqStack)
@@ -408,7 +411,8 @@ void systemInit()
     BIOS_SET_SINT(VECTOR_VBLANK_IN, vblankInEntry);
     BIOS_SET_SINT(VECTOR_VBLANK_OUT, vblankOutEntry);
     BIOS_SET_SINT(VECTOR_SPRITE_END, spriteEndEntry);
-    BIOS_CHG_SCUIM(~(SCU_IMS_VBLANK_IN | SCU_IMS_VBLANK_OUT | SCU_IMS_SPRITE_END), 0);
+    BIOS_SET_SINT(VECTOR_DSP_END, dspEndEntry);
+    BIOS_CHG_SCUIM(~(SCU_IMS_VBLANK_IN | SCU_IMS_VBLANK_OUT | SCU_IMS_SPRITE_END | SCU_IMS_DSP_END), 0);
 
 #ifdef HW_LOG
     // vblanks over two seconds of the SMPC's clock, which runs off its own
@@ -477,12 +481,31 @@ void dmaToVdp1(const void* src, uint32_t vram, uint32_t size)
     dmaCopy(src, VDP1_VRAM + vram, size);
 }
 
-// The game takes no DSP end interrupt: the frame's DSP time reads 0.
-void dspEndsClear()
+// The DSP's ends: a renderer program ending with ENDI raises the SCU's DSP
+// end interrupt, which notes the master's tick.
+#define MAX_DSP_ENDS    4
+static volatile uint32_t gDspEnds[MAX_DSP_ENDS];
+static volatile uint32_t gDspEndCount;
+
+extern "C" void dspEndHandler()
 {
+    uint32_t n = gDspEndCount;
+    if (n < MAX_DSP_ENDS) {
+        gDspEnds[n] = timerTicks();
+    }
+    gDspEndCount = n + 1;
 }
 
-uint32_t dspEnds(uint32_t*, uint32_t)
+void dspEndsClear()
 {
-    return 0;
+    gDspEndCount = 0;
+}
+
+uint32_t dspEnds(uint32_t* ends, uint32_t max)
+{
+    uint32_t n = gDspEndCount;
+    for (uint32_t i = 0; i < n && i < max && i < MAX_DSP_ENDS; i++) {
+        ends[i] = gDspEnds[i];
+    }
+    return n;
 }

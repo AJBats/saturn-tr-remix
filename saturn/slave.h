@@ -14,6 +14,10 @@
 // master's (slaveTickOnMaster).
 void slaveInit();
 
+// A tick of the master's timer as the slave's reads at that moment
+// (slaveTickOnMaster's inverse).
+uint32_t masterTickOnSlave(uint32_t tick);
+
 // Starts this CPU's CpuState (common.h), which GBR points at: the master's
 // in main, the slave's in slaveMain.
 void cpuInit(bool slave);

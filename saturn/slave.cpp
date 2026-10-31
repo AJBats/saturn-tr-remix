@@ -176,3 +176,8 @@ uint32_t slaveTickOnMaster(uint32_t tick)
 {
     return (tick - gSlaveOffset) & 0xFFFF;
 }
+
+uint32_t masterTickOnSlave(uint32_t tick)
+{
+    return (tick + gSlaveOffset) & 0xFFFF;
+}

@@ -53,6 +53,8 @@ enum TraceId
     TR_ROOMS,           // its rooms: their chunks projected as the DSP hands them, their faces
     TR_DRAWS_WAIT,      // waiting for the master's draws
     TR_SLAVE_JOIN,      // the near half of the buckets joined
+    // the SCU DSP, on the slave's clock: its runs as they start and end
+    TR_DSP_RUN = 40,    // the rooms' vertices (arg 0), then the meshes' (arg 1)
     // the master's interrupts
     TR_IRQ_VBLANK_IN = 48,
     TR_IRQ_VBLANK_OUT,
@@ -73,7 +75,7 @@ enum TraceId
 // No two alike in the font by fewer than 6 of their 64 pixels.
 //                      0         1         2         3         4         5         6
 //                      01234567890123456789012345678901234567890123456789012345678901234567
-#define TRACE_LETTERS  ".TUGRVQLOSMIYFWABXDHNjJ.........bxfmkh..........z...............p..s"
+#define TRACE_LETTERS  ".TUGRVQLOSMIYFWABXDHNjJ.........bxfmkh..d.......z...............p..s"
 
 enum TraceLane { TRACE_MASTER, TRACE_IRQ, TRACE_SLAVE, TRACE_DSP, TRACE_LANES };
 

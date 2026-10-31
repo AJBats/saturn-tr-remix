@@ -91,6 +91,7 @@ _profileEntry:
     IRQ_ENTRY _vblankOutEntry, _vblankOutHandler
     IRQ_ENTRY _spriteEndEntry, _spriteEndHandler
     IRQ_ENTRY _lineEntry, _lineHandler
+    IRQ_ENTRY _dspEndEntry, _dspEndHandler
 
 ! CPU exceptions, on either CPU: crashException with the exception frame (PC,
 ! SR), PR, the vector and whether it is the slave. It doesn't return.

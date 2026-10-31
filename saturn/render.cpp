@@ -17,6 +17,7 @@
 #include "crash.h"
 #include "hw.h"
 #include "palettes.h"
+#include "slave.h"
 #include "system.h"
 #include "trace.h"
 #include "vram.h"
@@ -785,6 +786,19 @@ void flush_c()
     calls.inventory = gInventoryFrame;
     render::FrameTimes s = render::frameRun(calls, gBias);
     gBias += s.late / 2;
+#ifdef HW_LOG
+    // the DSP's two runs on the trace, on the slave's clock (it started the
+    // rooms'; the master the meshes', and took the ends)
+    uint32_t ends[2], roomsAt, meshesAt;
+    if (gTraceOn && dspEnds(ends, 2) == 2)
+    {
+        render::verticesDspStarts(roomsAt, meshesAt);
+        traceBeginAt(TRACE_DSP, roomsAt, TR_DSP_RUN, 0);
+        traceEndAt(TRACE_DSP, masterTickOnSlave(ends[0]), TR_DSP_RUN, 0);
+        traceBeginAt(TRACE_DSP, masterTickOnSlave(meshesAt), TR_DSP_RUN, 1);
+        traceEndAt(TRACE_DSP, masterTickOnSlave(ends[1]), TR_DSP_RUN, 1);
+    }
+#endif
     if (gWalked && !gSceneClear) {
         render::gFrameCmds[0].w[0] |= CMD_SKIP << 16;
     }
