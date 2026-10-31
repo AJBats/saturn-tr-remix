@@ -45,6 +45,7 @@ static const PoseShadow* gShadows;
 static uint32_t gShadowCount;
 static const PoseFlash* gFlashes;
 static uint32_t gFlashCount;
+static const PoseLit* gGivenLights;
 
 int32_t poseDrawn(const PoseItem &item)
 {
@@ -83,10 +84,11 @@ void poseInit(const PoseLevel &level)
     gSlaveCtx.stack = gSlaveStack;
 }
 
-void poseMatrices(const PoseMatrix* matrices)
+void poseMatrices(const PoseMatrix* matrices, const PoseLit* lights)
 {
     gCtx.matrices = matrices;
     gSlaveCtx.matrices = matrices;
+    gGivenLights = lights;
 }
 
 void poseView(const int32_t camera[3], const int32_t view[12])
@@ -215,6 +217,16 @@ void poseItems(int32_t cpu, uint32_t first, uint32_t count)
     ctx->lit = gLit + first;
     ctx->rooms = gRooms + first;
     poseLightAsm(gItems + first, count, ctx);
+    if (gGivenLights)
+    {
+        for (uint32_t i = 0; i < count; i++)
+        {
+            uint32_t matrix = gItems[first + i].matrix;
+            if (matrix) {
+                ctx->lit[i] = gGivenLights[matrix - 1];
+            }
+        }
+    }
     poseAsm(gItems + first, count, ctx);
     ctx->lit = gLit;
     ctx->rooms = gRooms;

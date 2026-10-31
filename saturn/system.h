@@ -63,6 +63,9 @@ uint32_t smpcCommands();
 // Calls fn from an interrupt at that line of every field (SCU timer 0).
 void onLine(uint32_t line, void (*fn)());
 
+// Calls fn from the vblank-in interrupt, each field (nullptr stops).
+void onVblank(void (*fn)());
+
 // Current scanline: 0 at the top of the display, counting on through vblank
 // (vertical sync lines read as higher values still).
 uint32_t vdp2Line();
@@ -83,6 +86,11 @@ void vdp2SetBackColor(uint16_t color);
 // screen (nullptr cancels). Call with VDP1 idle, so that frame is a new one.
 void vdp1OnNextFrame(void (*fn)());
 
+// The next plot's frame stays in VDP1's draw buffer once drawn, off the
+// screen, until vdp1Release (a plot after it waits meanwhile).
+void vdp1Hold();
+void vdp1Release();
+
 // Plots asked for since boot, counting this one: vdp1Plot numbers each.
 uint32_t vdp1Plots();
 
@@ -96,8 +104,8 @@ uint32_t vdp1DebugState();
 // Free-running timer at Pphi/128, 16 bits; subtract readings modulo 0x10000.
 uint32_t timerTicks();
 
-// SCU level 0 DMA from high work RAM to VDP1/VDP2 memory, started once the
-// previous transfer has finished.
+// SCU level 0 DMA from high work RAM to VDP1/VDP2 memory, or from VDP1/VDP2
+// memory to high work RAM, started once the previous transfer has finished.
 void dmaCopy(const void* src, uint32_t dst, uint32_t size);
 void dmaWait();
 

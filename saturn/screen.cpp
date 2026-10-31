@@ -2,6 +2,9 @@
 // bank B first and are copied into place line by line. During play, between
 // pictures, the debug overlay draws into the same bitmap, shown over the
 // frame: on a Saturn, layers read from bank B showed only garbage.
+//
+// VDP2's colour offsets darken the layers: A the bitmap, B VDP1's frames,
+// each fading at the vblanks (0 as drawn, -255 black).
 
 #include "screen.h"
 #include "cd.h"
@@ -21,9 +24,70 @@
 #define PICTURE_PRIORITY 1      // under the sprites
 #define OVERLAY_PRIORITY 7      // over them
 
+#define PICTURE_DIM     -64     // the paused scene behind the inventory, as the original's
+
 static volatile bool gPicture;  // NBG0 holds a picture, and shows
 static volatile bool gOverlay;  // NBG0 is the overlay, and shows
+static bool gCaptured;          // the picture is the frame screenCapture took, till released
 static uint32_t gPictures;
+
+// The colour offsets' fades, the bitmap's and the frames': each one's offset
+// << 16, its step a vblank, its target and the vblanks left.
+enum { FADE_PICTURE, FADE_FRAMES };
+static volatile int32_t gFadeValue[2];
+static volatile int32_t gFadeStep[2];
+static volatile int32_t gFadeTarget[2];
+static volatile uint32_t gFadeLeft[2];
+
+static void fadeWrite()
+{
+    uint16_t a = uint16_t(gFadeValue[FADE_PICTURE] >> 16) & 0x1FF;
+    uint16_t b = uint16_t(gFadeValue[FADE_FRAMES] >> 16) & 0x1FF;
+    VDP2_COAR = VDP2_COAG = VDP2_COAB = a;
+    VDP2_COBR = VDP2_COBG = VDP2_COBB = b;
+}
+
+static void fadeVblank()
+{
+    bool changed = false;
+    for (uint32_t i = 0; i < 2; i++)
+    {
+        uint32_t left = gFadeLeft[i];
+        if (left)
+        {
+            gFadeValue[i] = left == 1 ? gFadeTarget[i] << 16 : gFadeValue[i] + gFadeStep[i];
+            gFadeLeft[i] = left - 1;
+            changed = true;
+        }
+    }
+    if (changed) {
+        fadeWrite();
+    }
+}
+
+// The layer's offset from where it stands to target, over that many vblanks
+// (0: at once). From the vblank-out interrupt too.
+static void fade(uint32_t layer, int32_t target, uint32_t vblanks)
+{
+    gFadeLeft[layer] = 0;
+    gFadeTarget[layer] = target;
+    if (vblanks)
+    {
+        gFadeStep[layer] = ((target << 16) - gFadeValue[layer]) / int32_t(vblanks);
+        gFadeLeft[layer] = vblanks;
+    }
+    else
+    {
+        gFadeValue[layer] = target << 16;
+        fadeWrite();
+    }
+}
+
+static void fadesClear()
+{
+    fade(FADE_PICTURE, 0, 0);
+    fade(FADE_FRAMES, 0, 0);
+}
 
 static void showLayers()
 {
@@ -41,6 +105,7 @@ static void showFramesOnly()
     gPicture = false;
     showLayers();
     showFrames();
+    fadesClear();
 }
 
 static void hideFrames()
@@ -60,9 +125,10 @@ void screenFramesHidden(bool hidden)
 // The bitmap is about to take a picture.
 static void takeBitmap()
 {
-    gPicture = gOverlay = false;
+    gPicture = gOverlay = gCaptured = false;
     gPictures++;
     showLayers();
+    fadesClear();
 }
 
 void screenInit()
@@ -89,6 +155,11 @@ void screenInit()
     VDP2_SCXIN0 = VDP2_SCXDN0 = VDP2_SCYIN0 = VDP2_SCYDN0 = 0;
     VDP2_ZMXIN0 = VDP2_ZMYIN0 = 1;
     VDP2_ZMXDN0 = VDP2_ZMYDN0 = 0;
+
+    fadesClear();
+    VDP2_CLOFSL = CLOF_SP;
+    VDP2_CLOFEN = CLOF_N0 | CLOF_SP;
+    onVblank(fadeVblank);
 }
 
 void screenShow(const char* name, int32_t width)
@@ -131,6 +202,56 @@ void screenShow(const char* name, int32_t width)
     crashLogShow();
 }
 
+// The frames back over the picture, fading in.
+static void showCapturedFrames()
+{
+    showFrames();
+    fade(FADE_FRAMES, 0, 5);
+}
+
+void screenCapture(void* scratch, uint32_t scratchSize)
+{
+    vdp1WaitDrawn();
+    takeBitmap();
+
+    // whole lines at a time (the frame buffer and the bitmap are both 512
+    // pixels a line), through the scratch by the SCU's DMA
+    uint32_t lineBytes = BITMAP_WIDTH * 2;
+    uint32_t lines = scratchSize / lineBytes;
+    for (uint32_t y = 0; y < SCREEN_HEIGHT; y += lines)
+    {
+        uint32_t size = (y + lines < SCREEN_HEIGHT ? lines : SCREEN_HEIGHT - y) * lineBytes;
+        dmaCopy((const void*)(VDP1_FB + y * lineBytes), uint32_t(scratch), size);
+        dmaCopy(scratch, VDP2_VRAM + y * lineBytes, size);
+    }
+    dmaWait();
+
+    // the picture in place of the frame on the screen, which is the same,
+    // till the frames come back over it
+    gPicture = true;
+    showLayers();
+    hideFrames();
+    fade(FADE_PICTURE, PICTURE_DIM, 15);
+    fade(FADE_FRAMES, PICTURE_DIM, 0);
+    vdp1Release();
+    vdp1WaitIdle();
+    vdp1OnNextFrame(showCapturedFrames);
+    gCaptured = true;
+}
+
+bool screenCaptured()
+{
+    return gCaptured;
+}
+
+void screenClosing()
+{
+    if (!gPicture)
+        return;
+    fade(FADE_FRAMES, PICTURE_DIM, 30);
+    fade(FADE_PICTURE, 0, 30);
+}
+
 volatile uint16_t* screenBlank()
 {
     vdp1OnNextFrame(nullptr);
@@ -149,6 +270,7 @@ volatile uint16_t* screenBlank()
 
 void screenRelease(bool keepPicture)
 {
+    gCaptured = false;
     vdp1WaitIdle();
     vdp1OnNextFrame(keepPicture ? showFrames : showFramesOnly);
 }

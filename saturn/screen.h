@@ -15,6 +15,19 @@ void screenShow(const char* name, int32_t width);
 // screenRelease: the bitmap, 512 pixels a line, its top left at the screen's.
 volatile uint16_t* screenBlank();
 
+// The frame VDP1 has drawn under vdp1Hold, still in its draw buffer, as the
+// picture: the paused scene behind the inventory, as the original's
+// (0603a9dc). It goes through scratch, in high work RAM (the SCU's DMA
+// can't move from one B-bus device to another). It dims over 15 vblanks;
+// VDP1's next frame (the ring, over a transparent clear) comes on that dim
+// and brightens over 5.
+void screenCapture(void* scratch, uint32_t scratchSize);
+bool screenCaptured();  // till the picture is released or replaced
+
+// VDP1's frames dim and the picture brightens again over 30 vblanks, as the
+// original's inventory closes (0603aaf0); nothing without a picture.
+void screenClosing();
+
 // The game's frames show again from the next one VDP1 draws: over the picture
 // with keepPicture (VDP1 clears to transparent), or on black.
 void screenRelease(bool keepPicture);

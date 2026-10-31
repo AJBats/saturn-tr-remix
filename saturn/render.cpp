@@ -14,6 +14,7 @@
 
 #include "render.h"
 #include "detail.h"
+#include "screen.h"
 #include "crash.h"
 #include "hw.h"
 #include "palettes.h"
@@ -53,6 +54,7 @@ static uint32 gItemCount;
 static bool gWalked;            // the rooms are walked this frame
 #define MAX_GIVEN       16          // the inventory's items a frame
 static int32_t gGiven[MAX_GIVEN][12];   // the matrices models are drawn under
+static render::PoseLit gGivenLights[MAX_GIVEN];     // and the light each is lit by
 static uint32 gGivenCount;
 static uint32 gDrawStart;       // the frame's drawing began (clear)
 
@@ -129,6 +131,13 @@ void renderModelUnder(const ItemObj* item)
     r.room = 0;
     r.index = 0xFFFF;
     memcpy(gGiven[gGivenCount], &matrixGet(), sizeof(gGiven[0]));
+    render::PoseLit &l = gGivenLights[gGivenCount];
+    l.ambient = gLightAmbient;
+    l.range = gLightRange;
+    l.view[0] = int16(gLightView.x);
+    l.view[1] = int16(gLightView.y);
+    l.view[2] = int16(gLightView.z);
+    l.pad = 0;
     c->args[0] = -1;
     c->args[1] = ++gGivenCount;
 }
@@ -292,12 +301,9 @@ Room** renderWalk(Room* cameraRoom)
 
 // TR shade 0 (lit) .. 31 (dark) as a gouraud level (16 = colour unchanged:
 // brighter from shade 15 down, darker from 16 up, in even steps to black, as
-// the original), and as a VDP1 gouraud entry; and dimmed by 8 levels, for
-// the scene behind the inventory.
+// the original), and as a VDP1 gouraud entry.
 static uint8 gShadeLevel[32];
 static uint16 gShadeGouraud[32];
-static uint8 gDimLevel[32];
-static uint16 gDimGouraud[32];
 
 static render::ShadeCache gShadeCaches[2] __attribute__((aligned(16)));    // the master's, the slave's
 
@@ -581,8 +587,6 @@ void renderLevelInit()
     f.sprites = (const render::Sprite*)level.sprites;
     f.shadeGouraud = gShadeGouraud;
     f.shadeLevel = gShadeLevel;
-    f.dimGouraud = gDimGouraud;
-    f.dimLevel = gDimLevel;
     f.shade[0] = vram ? &gShadeCaches[0] : nullptr;     // none without VRAM for the copies
     f.shade[1] = vram ? &gShadeCaches[1] : nullptr;
     f.pmod = PMOD_LUT16 | PMOD_GOURAUD | PMOD_HSS;
@@ -610,11 +614,13 @@ void renderLevelFree()
 // --- the frame ----------------------------------------------------------------
 
 // The inventory draws over the paused game: copyBackground returns this
-// marker, and renderBackground redraws the scene behind it each frame. Its
-// item textures replace the full-res room texture cache's first slots
-// meanwhile.
+// marker, and renderBackground draws the scene alone one frame, which goes
+// behind the inventory on VDP2 (screen.cpp screenCapture), then the
+// inventory's frames only the inventory. Its item textures replace the
+// full-res room texture cache's first slots meanwhile.
 static uint8 gSceneBackground;
-static bool gInventoryFrame;    // renderBackground ran this frame
+static bool gCapture;           // this frame's scene goes behind the inventory
+static bool gInventoryFrame;    // the inventory's frame
 static bool gItemTextures;      // item textures are in VRAM
 
 bool gListPending;
@@ -700,8 +706,19 @@ void renderPalettesSwapped()
     render::frameInit(gFrameLevel);
 }
 
-void renderBackground(const void* background)
+bool renderBackground(const void* background)
 {
+    ItemObj* lara = (ItemObj*)(void*)players[0];
+    if (background == &gSceneBackground && lara && !screenCaptured())
+    {
+        Camera &camera = lara->extraL->camera;
+        matrixSetView(camera.view.pos, camera.angle.x, camera.angle.y);
+        drawRooms(&camera);
+        drawHUD(players[0]);
+        gCapture = true;
+        return false;
+    }
+
     // the cache is about to make room for the item textures: the scene's
     // last list and its uploads go first
     if (gListPending) {
@@ -713,19 +730,17 @@ void renderBackground(const void* background)
         detailSuspend();
         gItemTextures = true;
     }
-
-    ItemObj* lara = (ItemObj*)(void*)players[0];
-    if (background != &gSceneBackground || !lara)
-        return;
-
-    Camera &camera = lara->extraL->camera;
-    matrixSetView(camera.view.pos, camera.angle.x, camera.angle.y);
-    drawRooms(&camera);
+    return true;
 }
 
 void* copyBackground()
 {
     return &gSceneBackground;
+}
+
+void closeBackground()
+{
+    screenClosing();
 }
 
 void flush_c()
@@ -781,6 +796,7 @@ void flush_c()
     calls.base = fills;
     calls.walked = true;
     calls.matrices = gGiven;
+    calls.matrixLights = gGivenLights;
     calls.inventory = gInventoryFrame;
     render::FrameTimes s = render::frameRun(calls, gBias);
     gBias += s.late / 2;
@@ -814,6 +830,11 @@ void flush_c()
     gStats.slaveIdleTicks = s.slaveWait / 128;
     gStats.slaveWaitTicks = s.masterWait / 128;
 
+    // the game's frames alone from this one
+    if (gWalked && screenCaptured()) {
+        screenRelease(false);
+    }
+
     gCallCount = 0;
     gItemCount = 0;
     gGivenCount = 0;
@@ -825,10 +846,18 @@ void flush_c()
     }
 
     // the inventory's frames and the one after go up at once, as the cache
-    // changes hands
+    // changes hands; the scene to go behind it too, held till it's copied
     gListPending = true;
-    if (gInventoryFrame || gListResume || vdp1Drawn()) {
+    if (gCapture) {
+        vdp1Hold();
+    }
+    if (gInventoryFrame || gListResume || gCapture || vdp1Drawn()) {
         listUploadWaiting();
+    }
+    if (gCapture)
+    {
+        screenCapture(renderScratch(sizeof(render::gFrameCmds)), sizeof(render::gFrameCmds));
+        gCapture = false;
     }
     gInventoryFrame = false;
 
@@ -858,9 +887,6 @@ void renderInit()
         uint32 c = 31 - g;
         gShadeLevel[g] = c;
         gShadeGouraud[g] = (c << 10) | (c << 5) | c;
-        uint32 d = X_MAX(int32(c) - 8, 0);
-        gDimLevel[g] = d;
-        gDimGouraud[g] = (d << 10) | (d << 5) | d;
     }
 
     // the clear's texture

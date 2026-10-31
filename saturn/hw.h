@@ -9,6 +9,7 @@
 
 /* VDP1 */
 #define VDP1_VRAM   0x25C00000
+#define VDP1_FB     0x25C80000   /* the frame buffer being drawn, 512 pixels a line */
 #define VDP1_TVMR   REG16(0x25D00000)
 #define VDP1_FBCR   REG16(0x25D00002)
 #define VDP1_PTMR   REG16(0x25D00004)
@@ -102,6 +103,13 @@ typedef struct {
 #define VDP2_PRISD  REG16(0x25F800F6)
 #define VDP2_PRINA  REG16(0x25F800F8)
 #define VDP2_CLOFEN REG16(0x25F80110)
+#define VDP2_CLOFSL REG16(0x25F80112)
+#define VDP2_COAR   REG16(0x25F80114)
+#define VDP2_COAG   REG16(0x25F80116)
+#define VDP2_COAB   REG16(0x25F80118)
+#define VDP2_COBR   REG16(0x25F8011A)
+#define VDP2_COBG   REG16(0x25F8011C)
+#define VDP2_COBB   REG16(0x25F8011E)
 
 #define TVMD_DISP       0x8000
 #define TVMD_VRES_240   0x0010
@@ -112,6 +120,8 @@ typedef struct {
 #define CYCP_N0CG       0x4     /* cycle pattern slots: NBG0 character/bitmap read */
 #define CYCP_CPU        0xE     /* CPU access */
 #define BGON_N0ON       0x0001
+#define CLOF_N0         0x0001  /* CLOFEN/CLOFSL: NBG0 */
+#define CLOF_SP         0x0040  /* CLOFEN/CLOFSL: sprites */
 #define CHCTLA_N0BMEN   0x0002  /* NBG0 is a bitmap (512x256 with size bits 0) */
 #define CHCTLA_N0_32K   0x0030  /* NBG0 in 15-bit RGB */
 #define SPCTL_SPCLMD    0x0020

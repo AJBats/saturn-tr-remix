@@ -58,12 +58,15 @@ enum Vdp1State
 static volatile int32_t gVdp1State;
 static volatile bool gVdp1Drawn = true;    // the last plot has finished
 static volatile bool gPlotQueued;          // a plot waits for the change
+static volatile bool gHoldNext;            // the next plot's frame is to stay in the draw buffer
+static volatile bool gHolding;             // this plot's does, until vdp1Release
 static uint32_t gPlotStart;
 static void (*volatile gOnNextFrame)();
 static void (*volatile gOnShown)(uint32_t plot);
 static volatile uint32_t gPlotsAsked;      // vdp1Plot calls
 static volatile uint32_t gPlotsStarted;    // plots started: the one drawing or last drawn
 static void (*volatile gOnLine)();
+static void (*volatile gOnVblank)();
 static uint32_t gSmpcCommands;
 
 volatile uint32_t gVblankCount;
@@ -109,7 +112,7 @@ extern "C" void vblankInHandler(const uint32_t* irqStack)
     gSync.statAnd &= status;
 #endif
 
-    if (gVdp1State == VDP1_PLOTTING)
+    if (gVdp1State == VDP1_PLOTTING && !gHolding)
     {
         // CEF can still hold the last list's end for a moment after a plot
         // starts, and changing frame buffers under a plot locks VDP1 up (on
@@ -124,6 +127,9 @@ extern "C" void vblankInHandler(const uint32_t* irqStack)
         {
             gStats.vdp1Late++;
         }
+    }
+    if (gOnVblank) {
+        gOnVblank();
     }
     traceEnd(TRACE_IRQ, TR_IRQ_VBLANK_IN);
 }
@@ -142,6 +148,8 @@ static void plotStart(int32_t lane)
     traceAt(lane, gPlotStart, (TR_PLOT << 8) | (gPlotsStarted & 0xFF));
     gVdp1Drawn = false;
     gVdp1State = VDP1_PLOTTING;
+    gHolding = gHoldNext;
+    gHoldNext = false;
     VDP1_PTMR = 1;
 }
 
@@ -232,6 +240,21 @@ void vdp1Plot()
 void vdp1OnNextFrame(void (*fn)())
 {
     gOnNextFrame = fn;
+}
+
+void vdp1Hold()
+{
+    gHoldNext = true;
+}
+
+void vdp1Release()
+{
+    gHolding = false;
+}
+
+void onVblank(void (*fn)())
+{
+    gOnVblank = fn;
 }
 
 uint32_t vdp1DebugState()
@@ -454,7 +477,8 @@ void dmaCopy(const void* src, uint32_t dst, uint32_t size)
     SCU_D0R = uint32_t(src);
     SCU_D0W = dst;
     SCU_D0C = size;
-    SCU_D0AD = 0x101;   // read +4, write +4
+    // read +4; write +4, the B-bus's in 16-bit units: +2 a unit there
+    SCU_D0AD = (dst & 0x0F000000) == 0x06000000 ? 0x102 : 0x101;
     SCU_D0MD = 0x07;    // direct mode, start on CPU request
     SCU_D0EN = 0x101;   // enable + start
 }

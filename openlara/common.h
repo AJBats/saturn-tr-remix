@@ -2982,7 +2982,7 @@ void clear();
 // given (drawn if the model is), a room's static mesh.
 Room** renderWalk(Room* cameraRoom);
 void renderModel(const ItemObj* item);
-void renderModelUnder(const ItemObj* item);    // the inventory's: under the matrix on top
+void renderModelUnder(const ItemObj* item);    // the inventory's: under the matrix on top, lit by gLight*
 void renderShadowCall(const ItemObj* item, int32 floor);
 void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index);
 void renderRoomsFlipped();  // after flipMap
@@ -2992,8 +2992,9 @@ void renderGlyph(int32 vx, int32 vy, int32 index);
 void renderFill(int32 x, int32 y, int32 width, int32 height, int32 shade, int32 z);
 void renderBorder(int32 x, int32 y, int32 width, int32 height, int32 color1, int32 color2, int32 z);
 void renderBar(int32 x, int32 y, int32 width, int32 value, BarType type);
-void renderBackground(const void* background);
+bool renderBackground(const void* background);  // false: the frame is the scene's alone
 void* copyBackground();
+void closeBackground();
 
 int32 getTextWidth(const char* text);
 

@@ -82,8 +82,10 @@ struct PoseLevel
 void poseInit(const PoseLevel &level);
 void poseView(const int32_t camera[3], const int32_t view[12]);
 
-// The frame's matrices items are drawn under (PoseItem.matrix), or none.
-void poseMatrices(const PoseMatrix* matrices);
+// The frame's matrices items are drawn under (PoseItem.matrix), or none;
+// and the lights the game gave the items drawn under each, or none: then
+// they are lit by their intensity, as drawModel lights them.
+void poseMatrices(const PoseMatrix* matrices, const struct PoseLit* lights);
 
 // A muzzle flash's transform, as drawFlash sets it up under its hand's:
 // moved along the hand (matrixTranslateRel), turned (matrixRotateYXZ), lit

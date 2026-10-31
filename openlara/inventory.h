@@ -562,6 +562,7 @@ struct Inventory
 
     void close()
     {
+        closeBackground();
         setState(INV_STATE_CLOSING, INV_STATE_NONE, 16);
         setHeight(-1536);
         setRadius(0);
@@ -1379,6 +1380,10 @@ struct Inventory
             type = ITEM_INV_PASSPORT_CLOSED;
         }
 
+        // the current item brighter, unless the ring is turning (the
+        // original's g_LsAdder, 0x400 darker than the PC's)
+        gLightAmbient = (current && state != INV_STATE_SPIN) ? 0x1400 : 0x1800;
+
         ItemObj item;
         memset(&item, 0, sizeof(item));
         item.type        = type;
@@ -1423,6 +1428,15 @@ struct Inventory
         matrixSetView(pos, angleX + pitch, angleY);
         matrixTranslateAbs(0, 0, 0);
 
+        // the ring's light, as the original's (Inv_RingLight): falling along
+        // (-1536, 256, 1024), so towards it (1536, -256, -1024) as a unit
+        // << 14, turned into the view; its range the divider 0x6000's
+        const int16* r = gViewRotation;
+        gLightView.x = (r[0] * 13504 - r[1] * 2251 - r[2] * 9002) >> FIXED_SHIFT;
+        gLightView.y = (r[3] * 13504 - r[4] * 2251 - r[5] * 9002) >> FIXED_SHIFT;
+        gLightView.z = (r[6] * 13504 - r[7] * 2251 - r[8] * 9002) >> FIXED_SHIFT;
+        gLightRange = 2731;
+
         for (int32 i = itemsCount - 1; i >= 0; i--)
         {
             matrixPush();
@@ -1460,9 +1474,10 @@ struct Inventory
 
     void draw()
     {
-        //clear();
+        clear();
         ASSERT(background);
-        renderBackground(background);
+        if (!renderBackground(background))
+            return;
 
         if (page == INV_PAGE_END)
         {
