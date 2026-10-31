@@ -1040,6 +1040,7 @@ ItemObj::ItemObj(Room* room)
     goalState   = state;
     extra       = NULL;
     health      = NOT_ENEMY;
+    timer       = 0;    // as retail's InitialiseItem: the slot's item of the last level may have left one
     hitMask     = 0;
     visibleMask = 0xFFFFFFFF;
 
