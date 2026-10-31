@@ -258,7 +258,7 @@ void osPlaceRoomFaces()
         data.triangles = (const RoomTriangle*)(next + quads);
         placed++;
     }
-    crashLog("ROOMS", (placed << 16) | (level.roomsCount << 8) | (highLeft() >> 10));
+    crashLog("ROOMS", (placed << 24) | (level.roomsCount << 16) | (highLeft() >> 10));    // KB left
 }
 
 uint8* osLowRamFree(uint32 &size)
