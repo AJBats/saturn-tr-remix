@@ -67,6 +67,7 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import diet  # noqa: E402
 import sfx  # noqa: E402
 import texart  # noqa: E402
 import trpsx  # noqa: E402
@@ -365,6 +366,22 @@ class TextureTable:
             self.entries.append(self.entry(self.lvl.object_tex_data, self.obj_off, t, tile, attr, variant != 0))
         return self.index[key]
 
+    def custom(self, pixels, colors, w, h, attr):
+        """A texture made by the packer (tools/diet.py): its colour table and
+        4-bit texels in a segment of their own, before the cache."""
+        if any(k[0] == "item" for k in self.index):
+            raise ValueError("custom textures go in before the inventory's")
+        if w % 8 or not 8 <= w <= 504 or not 1 <= h <= 255:
+            raise ValueError(f"a {w} x {h} texture: VDP1 takes widths of 8 .. 504 by 8 and heights to 255")
+        seg = self.add_segment(struct.pack(">16H", *colors) + bytes(pixels))
+        self.cache_off = (len(self.blob) + 31) & ~31
+        if self.cache_off + len(self.lvl.item_tex_data) > 0x80000 - VRAM_TEX_BASE:
+            raise ValueError(f"textures need {self.cache_off + len(self.lvl.item_tex_data)} bytes of VDP1 VRAM")
+        self.sources.append((bytes(pixels), list(colors), seg, False))
+        base = VRAM_TEX_BASE + seg
+        self.entries.append([(base + 32) >> 3, base >> 3, ((w // 8) << 8) | h, attr, 0])
+        return len(self.entries) - 1
+
     def item(self, tex, attr):
         """Inventory item textures, in VRAM after the blob while the inventory is open."""
         key = ("item", tex, attr)
@@ -596,6 +613,7 @@ class Packer:
         self.textures = TextureTable(lvl)
         self.item_tex_index = {t["index"]: i for i, t in enumerate(lvl.item_textures)}
         self.inventory_meshes = set()
+        self.diet_textures = {}
         for m in lvl.models:
             name = next((n for n, v in ITEM.items() if v == m["type"]), "")
             if name.startswith("INV_") and lvl.item_textures:
@@ -727,49 +745,106 @@ class Packer:
             raise ValueError("texture index does not fit the face flags")
         return ((FACE_TYPE_FTA if transp else FACE_TYPE_FT) << FACE_TYPE_SHIFT) | index
 
+    def mesh_quad(self, index, ftype, flags, idx):
+        """A quad of mesh index: its face flags and corners, through its
+        texture's transposed copy (its corners taken round by one) where it
+        has one."""
+        face = self.mesh_face_flags(index, ftype, flags)
+        tex = flags >> 4
+        if (index not in self.inventory_meshes and ftype in (trsat.MESH_R_TEX, trsat.MESH_R_TRANSP) and
+                tex in self.textures.turned):
+            attr = TEX_ATTR_AKILL if ftype == trsat.MESH_R_TRANSP else 0
+            face = (face & ~FACE_TEXTURE_MAX) | self.textures.turned_entry(tex, attr)
+            idx = (idx[3], idx[0], idx[1], idx[2])
+        return face, idx
+
+    def mesh_triangle(self, index, ftype, flags, idx):
+        """A triangle of mesh index: its face flags, corners and arrangement."""
+        if ftype == trsat.MESH_T_COLOR:
+            arrangement = 0
+        elif index in self.inventory_meshes:
+            arrangement = TRIANGLE_PLAIN    # item textures have no triangle variants
+        else:
+            arrangement = TRIANGLE_ARRANGEMENT[flags >> 12]
+        return self.mesh_face_flags(index, ftype, flags), idx, arrangement
+
     def write_mesh(self, out, index, mesh):
-        """Vertices are followed by their lighting: normals (as 8-bit vectors)
-        for meshes lit by the room's lights, or shades for pre-lit ones."""
-        quads = [f for f in mesh.faces if len(f[1]) == 4]
-        tris = [f for f in mesh.faces if len(f[1]) == 3]
-        intensity = sum(mesh.intensities) // len(mesh.intensities) if mesh.intensities else 0
-        if len(mesh.vertices) > 255:
-            raise ValueError(f"mesh {index}: {len(mesh.vertices)} vertices")
-        lighting = MESH_LIGHT_NORMALS if mesh.normals else MESH_LIGHT_SHADES if mesh.intensities else 0
-        # the radius is for collision, and often leaves vertices out
-        cx, cy, cz = mesh.center
-        bound = math.ceil(max((math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2)
-                               for x, y, z in mesh.vertices), default=0))
-        if bound > 0x7FFF:
-            raise ValueError(f"mesh {index}: bounding radius {bound}")
-        out.pack("4hH2B4h", *mesh.center, mesh.radius, intensity, len(mesh.vertices), lighting,
-                 len(quads), len(tris), bound, 0)
-        for v in mesh.vertices:
-            out.pack("3h", *v)
-        if mesh.normals:
-            for n in mesh.normals:  # 16384 long; 127 here
-                out.pack("4b", *(max(-127, min(127, c >> 7)) for c in n), 0)
-        elif mesh.intensities:
-            out.pack(f"{len(mesh.intensities)}B", *(max(0, min(255, i >> 5)) for i in mesh.intensities))
-            if len(mesh.intensities) & 1:
-                out.pack("B", 0)
-        for ftype, idx, flags in quads:
-            face = self.mesh_face_flags(index, ftype, flags)
-            tex = flags >> 4
-            if (index not in self.inventory_meshes and ftype in (trsat.MESH_R_TEX, trsat.MESH_R_TRANSP) and
-                    tex in self.textures.turned):
-                attr = TEX_ATTR_AKILL if ftype == trsat.MESH_R_TRANSP else 0
-                face = (face & ~FACE_TEXTURE_MAX) | self.textures.turned_entry(tex, attr)
-                idx = (idx[3], idx[0], idx[1], idx[2])
-            out.pack("H4B", face, *idx)
-        for ftype, idx, flags in tris:
-            if ftype == trsat.MESH_T_COLOR:
-                arrangement = 0
-            elif index in self.inventory_meshes:
-                arrangement = TRIANGLE_PLAIN    # item textures have no triangle variants
+        quads = [self.mesh_quad(index, ftype, flags, idx) for ftype, idx, flags in mesh.faces if len(idx) == 4]
+        tris = [self.mesh_triangle(index, ftype, flags, idx) for ftype, idx, flags in mesh.faces if len(idx) == 3]
+        write_mesh_record(out, f"mesh {index}", mesh.center, mesh.radius, mesh.vertices, mesh.normals or None,
+                          mesh.intensities or None, quads, tris)
+
+    # --- the diet (tools/diet.py) -----------------------------------------
+
+    def diet(self):
+        """The simplified meshes the renderer draws instead of the originals:
+        {original index: DietMesh}. The game's own mesh table keeps the
+        originals (their collision spheres). DIET=0 in the environment packs
+        none."""
+        if os.environ.get("DIET") == "0":
+            return {}
+        lvl = self.lvl
+        atlas = diet.Atlas(lvl)
+        out = {}
+        for m in lvl.models:
+            name = next((n for n, v in ITEM.items() if v == m["type"]), "")
+            if name in ("BRIDGE_FLAT", "BRIDGE_TILT_1", "BRIDGE_TILT_2"):
+                i = m["start"]
+                groups = diet.PLANK_APART.get((lvl.name, name), [])
+                apart = {fi: k for k, group in enumerate(groups) for fi in group}
+                out[i] = diet.plank_diet(self.meshes[i], i, atlas, apart)
+        return out
+
+    def diet_texture(self, pixels, colors, w, h, transparent):
+        """The face flags of a texture made for the diet, once per texture."""
+        key = (bytes(pixels), tuple(colors), w, h, transparent)
+        if key not in self.diet_textures:
+            index = self.textures.custom(pixels, colors, w, h, TEX_ATTR_AKILL if transparent else 0)
+            if index > FACE_TEXTURE_MAX:
+                raise ValueError("texture index does not fit the face flags")
+            face_type = FACE_TYPE_FTA if transparent else FACE_TYPE_FT
+            self.diet_textures[key] = (face_type << FACE_TYPE_SHIFT) | index
+        return self.diet_textures[key]
+
+    def diet_quad(self, face):
+        """A merged quad of the diet (diet.merge_tiles): its texture made from
+        its tiles' image and its corners; a texture twice as tall as wide,
+        transposed and drawn flipped, its corners taken round by one (as
+        turned object textures are), so that VDP1 draws its long side's
+        lines."""
+        from PIL import Image   # only here: packing a level without the diet's quads needs no Pillow
+        w, h, rgba = face["image"]
+        corners = tuple(face["c"])
+        if h >= 2 * w and h % 8 == 0:
+            image = Image.frombytes("RGBA", (w, h), rgba).transpose(Image.TRANSPOSE)
+            w, h, rgba = h, w, image.tobytes()
+            corners = (corners[3], corners[0], corners[1], corners[2])
+            turned = TEX_ATTR_FLIP_H
+        else:
+            turned = 0
+        pixels, colors = diet.quantize(w, h, rgba)
+        flags = self.diet_texture(pixels, colors, w, h, face["transp"])
+        if turned:
+            index = flags & FACE_TEXTURE_MAX
+            self.textures.entries[index][3] |= turned
+        return flags, corners
+
+    def diet_mesh(self, dm):
+        """A DietMesh in the game's layout (write_mesh_record)."""
+        quads, tris = [], []
+        for f in dm.faces:
+            if isinstance(f, dict):
+                quads.append(self.diet_quad(f))
+                continue
+            ftype, idx, flags, src, _ = f
+            if len(idx) == 4:
+                quads.append(self.mesh_quad(src, ftype, flags, idx))
             else:
-                arrangement = TRIANGLE_ARRANGEMENT[flags >> 12]
-            out.pack("H4B", self.mesh_face_flags(index, ftype, flags), *idx, arrangement)
+                tris.append(self.mesh_triangle(src, ftype, flags, idx))
+        out = Out()
+        write_mesh_record(out, "a diet mesh", dm.center, dm.radius, dm.vertices, dm.normals, dm.intensities,
+                          quads, tris)
+        return bytes(out.b)
 
     # --- animation -------------------------------------------------------
 
@@ -807,6 +882,8 @@ class Packer:
 
         floors = out.align4()
         out.pack(f"{len(lvl.floors)}H", *lvl.floors)
+
+        self.diet_records = {index: self.diet_mesh(dm) for index, dm in self.diet().items()}
 
         mesh_base = out.align4()
         mesh_offsets = []
@@ -1135,19 +1212,59 @@ def report_sounds(name, lvl, sounds):
 TEXTURE_PMOD = 0x100C
 
 
-def mesh_store(data):
+def mesh_store(data, diet_records):
     """The packed level's meshes as the renderer reads them (meshstore.py):
-    each one once, the level's mesh indices to them."""
+    each one once, the level's mesh indices to them, the diet's (records in
+    the game's layout by mesh index) in place of those it simplifies."""
     counts = struct.unpack_from(">I14H", data, 0)[1:]
     offsets = struct.unpack_from(">35I", data, 32)
     mesh_base, table, meshes = offsets[5], offsets[6], counts[3]
     mesh_offsets = struct.unpack_from(f">{meshes}i", data, table)
-    unique = sorted(set(mesh_offsets))
+    unique = sorted(set(at for i, at in enumerate(mesh_offsets) if i not in diet_records))
     place = {at: i for i, at in enumerate(unique)}
+    records = [data[mesh_base + at:] for at in unique]
+    index = []
+    for i, at in enumerate(mesh_offsets):
+        if i in diet_records:
+            index.append(len(records))
+            records.append(diet_records[i])
+        else:
+            index.append(place[at])
     textures = [struct.unpack_from(">5H", data, offsets[15] + 16 * i) for i in range(counts[8])]
     palette = struct.unpack_from(">256H", data, offsets[0])
-    return meshstore.build([data[mesh_base + at:] for at in unique], [place[at] for at in mesh_offsets],
-                           textures, palette, TEXTURE_PMOD)
+    return meshstore.build(records, index, textures, palette, TEXTURE_PMOD)
+
+
+def write_mesh_record(out, name, center, radius, vertices, normals, intensities, quads, tris):
+    """A mesh as the game reads it (common.h Mesh): the header, vertices,
+    their lighting (normals as 8-bit vectors for meshes lit by the room's
+    lights, or shades for pre-lit ones, or neither), quads [(flags, idx)] and
+    triangles [(flags, idx, arrangement)]."""
+    n = len(vertices)
+    if n > 255:
+        raise ValueError(f"{name}: {n} vertices")
+    lighting = MESH_LIGHT_NORMALS if normals else MESH_LIGHT_SHADES if intensities else 0
+    intensity = sum(intensities) // len(intensities) if intensities else 0
+    # the radius is for collision, and often leaves vertices out
+    cx, cy, cz = center
+    bound = math.ceil(max((math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) for x, y, z in vertices),
+                          default=0))
+    if bound > 0x7FFF:
+        raise ValueError(f"{name}: bounding radius {bound}")
+    out.pack("4hH2B4h", cx, cy, cz, radius, intensity, n, lighting, len(quads), len(tris), bound, 0)
+    for v in vertices:
+        out.pack("3h", *v)
+    if lighting == MESH_LIGHT_NORMALS:
+        for q in normals:   # 16384 long; 127 here
+            out.pack("4b", *(max(-127, min(127, c >> 7)) for c in q), 0)
+    elif lighting == MESH_LIGHT_SHADES:
+        out.pack(f"{n}B", *(max(0, min(255, i >> 5)) for i in intensities))
+        if n & 1:
+            out.pack("B", 0)
+    for packed, idx in quads:
+        out.pack("H4B", packed, *idx)
+    for packed, idx, arrangement in tris:
+        out.pack("H4B", packed, *idx, arrangement)
 
 
 def main():
@@ -1194,7 +1311,7 @@ def main():
         f.write(struct.pack(">I", len(palettes)))
         for lut, colors in palettes:
             f.write(struct.pack(">I16H", lut, *colors))
-    store = mesh_store(data)
+    store = mesh_store(data, packer.diet_records)
     with open(os.path.splitext(out_path)[0] + ".MSH", "wb") as f:
         f.write(store)
     print(f"{name}: {len(data)} bytes -> {out_path}, {len(packer.textures.blob)} bytes -> {tex_path}, "
