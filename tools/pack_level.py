@@ -68,6 +68,8 @@ FACE_TYPE_SHIFT = 14
 TEX_ATTR_AKILL = 1
 FACE_TEXTURE_MAX = 0x3FFF
 DETAIL_UNIT = 256   # Texture.reserved: full-res offset / DETAIL_UNIT + 1
+ROOM_TABLES = 3     # a room texture's colour tables: full res, half, quarter (saturn/detail.h)
+TABLE_BYTES = 32
 ROOM_INFO_SIZE = 68 # common.h RoomInfo
 VERTEX_SIZE = 8     # render.h Vertex
 
@@ -220,16 +222,17 @@ class TextureTable:
     VRAM_TEX_BASE. Room textures come first with fixed indices (animated
     texture ranges refer to them): they have no character in the blob (srca
     0), only their colour tables, and their size is a quadrant's, half the
-    full-res texture's each way. Object texture variants are added as faces
-    use them."""
+    full-res texture's each way; their colour tables are ROOM_TABLES each,
+    one a mip level, side by side (copies of the original's). Object texture
+    variants are added as faces use them."""
 
     def __init__(self, lvl):
         self.lvl = lvl
         self.sub = whole_textures(lvl)
         self.blob = bytearray()
         self.obj_off = self.add_segment(lvl.object_tex_data)
-        self.room_off = self.add_segment(b"".join(lvl.room_tex_qtr[self.room_lut(t):self.room_lut(t) + 32]
-                                                  for t in lvl.room_textures))
+        self.room_off = self.add_segment(b"".join(lvl.room_tex_qtr[self.room_lut(t):self.room_lut(t) + TABLE_BYTES]
+                                                  * ROOM_TABLES for t in lvl.room_textures))
         self.spr_off = self.add_segment(lvl.sprite_tex_data)
         # the VRAM after the blob: full-res room texture cache, or item textures
         self.cache_off = (len(self.blob) + 31) & ~31
@@ -242,7 +245,7 @@ class TextureTable:
             pix = t["sub"][0] * 8
             n = t["w"] * t["h"] * 2  # the whole full-res texture
             lut = self.room_lut(t)
-            colr = self.room_off + i * 32
+            colr = self.room_off + i * TABLE_BYTES * ROOM_TABLES
             if pix + n > len(self.sub) or lut + 32 > len(lvl.room_tex_qtr):
                 raise ValueError(f"room texture outside the level's data: {t}")
             self.sources.append((self.sub[pix:pix + n], struct.unpack_from(">16H", lvl.room_tex_qtr, lut), colr, False))
@@ -417,6 +420,9 @@ class TextureTable:
         for e, (pixels, _, lut, _) in zip(self.entries, self.sources):
             if lut is not None:  # inventory item textures live outside the blob
                 count(pixels, lut, e[3])
+        for e, (pixels, _, lut, _) in zip(self.entries, self.sources[:len(self.lvl.room_textures)]):
+            for level in range(1, ROOM_TABLES):
+                count(pixels, lut + level * TABLE_BYTES, e[3])
         for s in self.lvl.sprite_textures:
             pix = self.spr_off + s["tile"] * 8
             count(self.blob[pix:pix + s["w"] * s["h"] // 2], self.spr_off + s["clut"] * 8, TEX_ATTR_AKILL)

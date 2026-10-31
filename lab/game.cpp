@@ -130,13 +130,15 @@ struct FlushXform
     uint32_t mipVram[2];
     ShadeCache* shade;
     int32_t farShade;
+    uint32_t mipTable;
 };
 
 static_assert(sizeof(Vertex) == 8 && sizeof(Face) == 16 && sizeof(RoomQuad) == 12 && sizeof(MeshQuad) == 6 &&
               sizeof(Texture) == 16 && sizeof(Sprite) == 16 && sizeof(DetailSlot) == 8 &&
               offsetof(FaceList, groups) == 12 && sizeof(ShadeCache) == 2064 &&
               offsetof(RoomFaces, facing) == 72 && offsetof(MeshFaces, inside) == 16 &&
-              offsetof(FlushXform, farShade) == 76, "the game's layouts, which its assembly reads");
+              offsetof(FlushXform, farShade) == 76 && offsetof(FlushXform, mipTable) == 80,
+              "the game's layouts, which its assembly reads");
 
 extern "C" void faceAddMeshQuadsAsm(const MeshQuad* polys, int32_t count, MeshFaces* mf);
 extern "C" void faceAddMeshTrianglesAsm(const MeshQuad* polys, int32_t count, MeshFaces* mf);
@@ -172,6 +174,7 @@ static const Command* gRefCmds;    // CMDS, GRDS (low work RAM: the checks')
 static const uint32_t (*gRefGrd)[2];
 static Command gClearCommand;       // the game's clear, its first command
 static const Texture* gTextures;
+uint32_t gMipTable = 4;
 static const uint16_t* gPalette;
 static const Sprite* gSprites;
 static const uint8_t* gShadeLevel;
@@ -1041,6 +1044,7 @@ static inline void faceMaterial(uint32_t* w, uint32_t flags)
             }
 
             uint32_t srca = tex->srca;
+            uint32_t colr = tex->colr;
             uint32_t size = tex->size;
             if (flags & FACE_DETAIL)
             {
@@ -1053,6 +1057,7 @@ static inline void faceMaterial(uint32_t* w, uint32_t flags)
                     {
                         level = flags & FACE_DETAIL_MIP2 ? 2 : 1;
                         srca = (gInfo->poolVram[level] + (slot & 0x3F) * (DETAIL_SLOT_SIZE >> 2 * level)) >> 3;
+                        colr += level * gMipTable; // the level's colour table, after the texture's
                     }
                     uint32_t w = (size >> 8) * 16 >> level;
                     uint32_t h = (size & 0xFF) * 2 >> level;
@@ -1071,7 +1076,7 @@ static inline void faceMaterial(uint32_t* w, uint32_t flags)
             }
 
             w[0] = (CMD_DISTORTED_SPRITE | (tex->attr & TEX_ATTR_DIR)) << 16;
-            w[1] = pair(pmod, tex->colr);
+            w[1] = pair(pmod, colr);
             w[2] = pair(srca, size);
             return;
         }
@@ -1225,6 +1230,7 @@ static void flushXformInit(FlushXform &xf, int32_t first, int32_t count, int32_t
     shade.frame = gInfo->shadeFrame;
     xf.shade = shade.vram ? &shade : nullptr;
     xf.farShade = 2;
+    xf.mipTable = gMipTable;
     xf.roomOT = gRefRoomOT + first;
     xf.meshOT = gRefMeshOT + first;
     xf.buckets = count;

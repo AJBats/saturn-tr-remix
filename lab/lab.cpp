@@ -467,6 +467,8 @@ static void stageThree()
     gLab.texturesGameOff = texturesQueueOff(gameTextureQueue(), texturesCaptured()) + texturesStateOff() +
                            texturesVramOff(gameTextureQueue());
 
+    // the game's flush against the capture, with the colour tables it had
+    gMipTable = 0;
     int32_t end = 0;
     uint32_t slave = 0;
     gLab.splitMaster = measure([] { gameFlushPrepare(); }, [&end, &slave] {
@@ -487,6 +489,7 @@ static void stageThree()
     gameFlushPrepare(FLUSH_MADE);
     end = gameFlush(false);
     gLab.flushBad += gameCommandsCheck(gCmds, gGouraud, end);
+    gMipTable = 4;
     gameFlushPrepare();
 
     // the faces given: the meshes' quads and triangles, the shadows' quads,

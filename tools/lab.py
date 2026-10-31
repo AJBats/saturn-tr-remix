@@ -120,6 +120,29 @@ def uploaded(vram, texture_set, queue):
     return bytes(image)
 
 
+def with_copies(vram, caches):
+    """VDP1 VRAM with the shaded copy of a colour table each slot of the
+    caches (two ShadeCaches) holds, made from the table it copies as the game
+    makes it (saturn/render.cpp shadeTableMiss: each channel moved by the
+    key's gouraud value less 16, clamped)."""
+    image = bytearray(vram)
+    for i in range(2):
+        cache = SHADE_CACHE.unpack_from(caches, i * SHADE_CACHE.size)
+        base, keys = cache[2], cache[4:4 + 256]
+        for index, key in enumerate(keys):
+            if not base or not key:
+                continue
+            g = key & 0x7FFF
+            moves = ((g & 31) - 16, ((g >> 5) & 31) - 16, ((g >> 10) & 31) - 16)
+            colours = struct.unpack_from('>16H', vram, (key >> 15) * 8)
+            out = []
+            for c in colours:
+                r, gr, b = (min(max(((c >> shift) & 31) + d, 0), 31) for shift, d in zip((0, 5, 10), moves))
+                out.append((c & 0x8000) | (b << 10) | (gr << 5) | r)
+            struct.pack_into('>16H', image, base + index * SHADE_TABLE_SIZE, *out)
+    return bytes(image)
+
+
 SAME_NOT, SAME, SAME_PICTURE = 0, 1, 2
 
 
@@ -439,10 +462,6 @@ def main():
     import numpy as np
     scene = chunks(os.path.join(lab_dir, args.scene.upper() + '.SCN'))
     game_cmds, game_grds = scene['CMDS'], scene['GRDS']
-    copies = lambda caches: [(c[2],) + c[4:4 + 256] for c in
-                             (SHADE_CACHE.unpack_from(caches, i * SHADE_CACHE.size) for i in range(2))]
-    if copies(walk_caches) != copies(scene['SHCA']):
-        print('the game\'s list in walk order made shaded copies the capture lacks: its picture is not exact')
     followed, moved, _, _ = follow(walk_cmds, walk_grds, game_cmds, game_grds,
                                    (cache_keys(walk_caches), cache_keys(scene['SHCA'])))
     print(f'the game\'s list, rooms in walk order: {followed} commands followed (the capture\'s '
@@ -456,10 +475,11 @@ def main():
           f'{results["newFrames"]}')
 
     # each drawn over VDP1 VRAM with its own shaded copies and room textures:
-    # the game's as the scene has them (in walk order, its own uploads made),
-    # the new way's as the lab left them
+    # the game's as the scene has them (in walk order, its own uploads and
+    # shaded copies made), the new way's as the lab left them
     game_frame, game_cycles = draw(scene['VRAM'], game_cmds, game_grds)
-    walk_frame, walk_cycles = draw(uploaded(scene['VRAM'], scene['RTEX'], walk_textures), walk_cmds, walk_grds)
+    walk_frame, walk_cycles = draw(with_copies(uploaded(scene['VRAM'], scene['RTEX'], walk_textures), walk_caches),
+                                   walk_cmds, walk_grds)
     new_frame, new_cycles = draw(vram, new_cmds[:(end + 1) * 32], new_grds[:end * 8])
     order = int(np.any(game_frame != walk_frame, axis=2).sum())
     differ = int(np.any(walk_frame != new_frame, axis=2).sum())

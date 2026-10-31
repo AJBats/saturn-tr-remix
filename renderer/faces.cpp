@@ -393,6 +393,7 @@ static void roomMaterial(const RoomTextures &t, uint32_t flags, uint32_t* w)
     {
         uint32_t pmod = t.pmod | PMOD_ECD_OFF | (tex.attr & TEX_ATTR_AKILL ? 0 : PMOD_SPD_OFF);
         uint32_t srca = tex.srca;
+        uint32_t colr = tex.colr;
         uint32_t size = tex.size;
         if (flags & FACE_DETAIL)
         {
@@ -400,6 +401,7 @@ static void roomMaterial(const RoomTextures &t, uint32_t flags, uint32_t* w)
             if (flags & FACE_DETAIL_WHOLE)
             {
                 uint32_t level = flags & FACE_DETAIL_MIP ? (flags & FACE_DETAIL_MIP2 ? 2 : 1) : 0;
+                colr += level * 4;  // the level's colour table, after the texture's
                 srca = level ? (t.pools[level] + (slot & 0x3F) * (DETAIL_SLOT_SIZE >> 2 * level)) >> 3
                              : (t.pools[0] + slot * DETAIL_SLOT_SIZE) >> 3;
                 uint32_t width = (size >> 8) * 16 >> level;
@@ -413,7 +415,7 @@ static void roomMaterial(const RoomTextures &t, uint32_t flags, uint32_t* w)
             }
         }
         w[0] = (CMD_DISTORTED_SPRITE | CMD_JUMP | (tex.attr & TEX_ATTR_DIR)) << 16;
-        w[1] = pair(pmod, tex.colr);
+        w[1] = pair(pmod, colr);
         w[2] = pair(srca, size);
         return;
     }

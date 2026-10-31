@@ -148,7 +148,8 @@ struct RoomMaterial
 {
     uint32_t w0;                // +0  from the cache: the control word (a distorted sprite, the
                                 // texture's flip, a jump to CMDLINK) << 16
-    uint32_t w1;                // +4  ... draw mode << 16 | colour table
+    uint32_t w1;                // +4  ... draw mode << 16 | colour table (a mip level's is + 4
+                                // a level: the texture's tables lie side by side)
     int16_t key;                // +8  in the cache, -1 none
     uint16_t colour;            // +10 its mean
     uint8_t mips;               // +12 the mip levels it takes: 0 .. 2

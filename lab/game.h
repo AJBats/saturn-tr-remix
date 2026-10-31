@@ -199,6 +199,12 @@ const uint16_t* gameShadeGouraud();
 enum FlushFaces { FLUSH_ALL, FLUSH_MESHES, FLUSH_ROOMS, FLUSH_MADE };
 void gameFlushPrepare(FlushFaces faces = FLUSH_ALL);
 
+// A room face drawn with a mip level takes the level's colour table, 4 a
+// level after the texture's (VDP1's 8-byte units), as the game does since the
+// crunch-test art; 0 makes it take the texture's, as the captures, which
+// predate it, do.
+extern uint32_t gMipTable;
+
 // flush: their commands into gCmds from gCmds[1], with the game's clear first
 // and the end after, the buckets shared out as the game shares them: the far
 // ones run on the slave (split; slaveCycles then its time), or on the master

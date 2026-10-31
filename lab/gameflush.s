@@ -32,6 +32,8 @@
 !   +76 int32 farShade          room faces drawn with a mip level take
 !                               one shade, their corners' mean, when the corners
 !                               are this many levels apart at most
+!   +80 uint32 mipTable         a mip level's colour table after the texture's:
+!                               4 a level (0: the tables as captured)
 !
 ! ShadeCache (render.cpp): +0 frame, +4 validFrom, +8 vram, +12 miss,
 ! +16 keys[256], +1040 frames[256].
@@ -325,7 +327,8 @@ _flushAsm:
     bra     .Lfaced
     nop
 
-    ! a room face drawn with a mip level: its slot in its pool
+    ! a room face drawn with a mip level: its slot in its pool, and the
+    ! level's colour table, which follows the texture's (r3 = w[1])
 .Lmip:
     mov     r1, r0
     shlr16  r0
@@ -339,8 +342,12 @@ _flushAsm:
     mov     r0, r4
     mov     #64, r0
     mov.l   @(r0, r8), r0       ! mipVram[0]
-    bra     .Lturned
     add     r0, r4              ! half size: the quadrant's
+    mov     #80, r0
+    mov.l   @(r0, r8), r0       ! mipTable
+    add     r0, r3              ! the half size table
+    bra     .Lturned
+    mov.l   r3, @(4, r10)       ! w[1]
 1:  shll2   r0
     shll2   r0
     shll2   r0
@@ -349,6 +356,11 @@ _flushAsm:
     mov     #68, r0
     mov.l   @(r0, r8), r0       ! mipVram[1]
     add     r0, r4
+    mov     #80, r0
+    mov.l   @(r0, r8), r0       ! mipTable
+    shll    r0
+    add     r0, r3              ! the quarter size table
+    mov.l   r3, @(4, r10)       ! w[1]
     bra     .Lturned
     shlr    r5                  ! a quarter: half the quadrant's
 

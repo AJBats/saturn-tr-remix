@@ -485,8 +485,13 @@
     bt      .Llookup\sfx
 .Lcached\sfx:
     mov.l   r8, @(8, r9)        ! w2
-    mov.l   @(4, r14), r0
-    mov.l   r0, @(4, r9)        ! w1
+    mov     r6, r0
+    add     #-36, r0            ! 4 x the variant
+    and     #0xF8, r0
+    shlr    r0                  ! 4 x its mip level: its colour table follows the texture's
+    mov.l   @(4, r14), r8
+    add     r0, r8
+    mov.l   r8, @(4, r9)        ! w1
     mov.b   @(13, r13), r0
     tst     r0, r0
     bt/s    1f
@@ -539,7 +544,8 @@
     mov.w   @(r0, r14), r0
     extu.w  r0, r0              ! the variant's size
     or      r0, r8              ! w2
-    mov.l   @(4, r15), r0
+    mov.l   @(4, r15), r6
+    mov     r6, r0
     bra     .Lcached\sfx
     mov.l   r8, @(r0, r14)      ! for the frame's other faces
 
