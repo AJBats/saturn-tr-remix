@@ -2139,42 +2139,6 @@ SND-C8*
 
 ## Inventory, HUD, saves and game flow
 
-### 140. Inventory items are lit flat; retail uses directional gouraud (reported in play)
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-1*
-
-- **Retail** (TR1X `inventry.c` Display_Inventory sets g_LsAdder; `invfunc.c`
-  Inv_RingLight sets g_LsDivider and the light). On Saturn: Display_Inventory
-  `06017420`, Inv_RingLight `0601a1e8`, and the vertex-light routine near
-  decomp.c:44310.
-  - g_LsDivider (`DAT_06063c28`) = 0x6000.
-  - The light vector is phd_GetVectorAngles(-1536, 256, 1024), then
-    phd_RotateLight (`0603ce34`), computed every frame after the view is built.
-  - Each vertex's shade = LsAdder + ((n · (Mᵀ·L)) / 0x6000 >> 16), clamped to
-    0..0x1FFF. That swings ±2731 across a mesh.
-  - g_LsAdder (`DAT_06063c24`) is set per item before it draws:
-    - 0x1400 for the current item while the ring is still (idle, selecting,
-      selected, deselecting);
-    - 0x1800 for every other item, and for the current item while the ring
-      turns.
-
-    These are 0x400 darker than PC's 0x1000/0x1400.
-- **Ours:** `openlara/inventory.h:1395` calls `calcLightingStatic(255 << 5)`.
-  That gives `gLightAmbient` 4064 and `gLightRange` 0, so every vertex gets one
-  flat shade (about 15 of 31). No directional shading, and no highlight on the
-  current item.
-- **Effect:** retail items have a lit side and a dark side, the other items sit
-  noticeably darker, and the current item stands out. Ours are uniformly bright.
-- **Fix:**
-  - In `drawPage()`, after `matrixSetView`, set
-    `gLightView = gViewRotation × (13504, -2251, -9002)`. That is
-    −unit(−1536, 256, 1024) << 14, negated because our meshxform shade is
-    `ambient − (n·l)·range >> 14`. Use the same maths as calcLightingDynamic.
-  - In `drawSlot()`, replace calcLightingStatic with
-    `gLightAmbient = (current && state != INV_STATE_SPIN) ? 0x1400 : 0x1800;
-    gLightRange = 2731;`.
-  - Inventory meshes are packed with normals (`pack_level.py:556`), so the
-    existing normal path applies.
-
 ### 141. Several items are posed wrongly when selected
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-2*
 
@@ -2312,17 +2276,6 @@ INV-9*
 - **Retail:** opens the ring on index 0 (Inv_RingInit with the current item
   reset).
 - **Ours:** `openlara/inventory.h:551-556` jumps to the matching slot.
-
-### 150. No fades when the inventory opens and closes
-*Severity: subtle · Confidence: likely (which colour-offset layer does what is
-inferred) · Fix: small · Audit: INV-13*
-
-- **Retail:** `0603a9dc`, `0603aaf0`, `0603ab38`.
-  - On open, it copies the last VDP1 frame into a VDP2 bitmap, dims it with
-    colour offset −64 over 15 vblanks, and fades the ring layer in over 5.
-  - On close, the ring dims out and the scene brightens over 30 vblanks.
-- **Ours:** `saturn/render.cpp:1515`, `2570` redraw the paused scene dimmed by
-  gouraud −8/31 instantly. The amount of dimming matches; there is no fade.
 
 ### 151. Ring motion details
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-14*
@@ -3735,6 +3688,59 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
 | **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
 
 ## Closed
+
+### 150. No fades when the inventory opens and closes
+*Closed 2026-10-31: 61534f6*
+
+- **Retail:** `0603a9dc`, `0603aaf0`, `0603ab38`.
+  - On open, it copies the last VDP1 frame into a VDP2 bitmap, dims it with
+    colour offset −64 over 15 vblanks, and fades the ring layer in over 5.
+  - On close, the ring dims out and the scene brightens over 30 vblanks.
+- **Ours:** `saturn/render.cpp:1515`, `2570` redraw the paused scene dimmed by
+  gouraud −8/31 instantly. The amount of dimming matches; there is no fade.
+- **Done:** as retail: the scene drawn once and held in VDP1's draw buffer,
+  copied into NBG0 by SCU DMA, the fades on VDP2's colour offsets A (the
+  picture) and B (the ring); the inventory's frames draw only the ring
+  (Mednafen ledge: 30 fps, render 10.6 ms, VDP1 6.7 ms).
+
+### 140. Inventory items are lit flat; retail uses directional gouraud (reported in play)
+*Closed 2026-10-31: 61534f6*
+
+- **Retail** (TR1X `inventry.c` Display_Inventory sets g_LsAdder; `invfunc.c`
+  Inv_RingLight sets g_LsDivider and the light). On Saturn: Display_Inventory
+  `06017420`, Inv_RingLight `0601a1e8`, and the vertex-light routine near
+  decomp.c:44310.
+  - g_LsDivider (`DAT_06063c28`) = 0x6000.
+  - The light vector is phd_GetVectorAngles(-1536, 256, 1024), then
+    phd_RotateLight (`0603ce34`), computed every frame after the view is built.
+  - Each vertex's shade = LsAdder + ((n · (Mᵀ·L)) / 0x6000 >> 16), clamped to
+    0..0x1FFF. That swings ±2731 across a mesh.
+  - g_LsAdder (`DAT_06063c24`) is set per item before it draws:
+    - 0x1400 for the current item while the ring is still (idle, selecting,
+      selected, deselecting);
+    - 0x1800 for every other item, and for the current item while the ring
+      turns.
+
+    These are 0x400 darker than PC's 0x1000/0x1400.
+- **Ours:** `openlara/inventory.h:1395` calls `calcLightingStatic(255 << 5)`.
+  That gives `gLightAmbient` 4064 and `gLightRange` 0, so every vertex gets one
+  flat shade (about 15 of 31). No directional shading, and no highlight on the
+  current item.
+- **Effect:** retail items have a lit side and a dark side, the other items sit
+  noticeably darker, and the current item stands out. Ours are uniformly bright.
+- **Fix:**
+  - In `drawPage()`, after `matrixSetView`, set
+    `gLightView = gViewRotation × (13504, -2251, -9002)`. That is
+    −unit(−1536, 256, 1024) << 14, negated because our meshxform shade is
+    `ambient − (n·l)·range >> 14`. Use the same maths as calcLightingDynamic.
+  - In `drawSlot()`, replace calcLightingStatic with
+    `gLightAmbient = (current && state != INV_STATE_SPIN) ? 0x1400 : 0x1800;
+    gLightRange = 2731;`.
+  - Inventory meshes are packed with normals (`pack_level.py:556`), so the
+    existing normal path applies.
+- **Done:** as the fix above, the light handed to the pose with each
+  matrix the inventory draws under (`render.cpp` renderModelUnder,
+  `pose.cpp` poseMatrices).
 
 ### 246. A switch can't be pulled after the last level left its slot a timer
 *Closed 2026-10-31: 6739a04*
