@@ -16,20 +16,22 @@ struct PaletteEntry
 
 #define MAX_PALETTES 1280  // LEVEL4 has 1112
 
-static struct
+// The level's, in low work RAM (DATA/<level>.PAL as it is).
+struct Palettes
 {
     uint32 count;
     PaletteEntry entries[MAX_PALETTES];
-} gPalettes;
+};
+static Palettes* gPalettes;     // none: the level has none
 
 static bool gRemastered = false; // the player's pick
 static bool gInVram;            // whether VRAM holds the remastered tables
 
 static void swap()
 {
-    for (uint32 i = 0; i < gPalettes.count; i++)
+    for (uint32 i = 0; gPalettes && i < gPalettes->count; i++)
     {
-        PaletteEntry &e = gPalettes.entries[i];
+        PaletteEntry &e = gPalettes->entries[i];
         volatile uint16* vram = (volatile uint16*)(VDP1_VRAM + VRAM_TEX_BASE + e.offset);
         for (int32 c = 0; c < 16; c++)
         {
@@ -41,21 +43,25 @@ static void swap()
     gInVram = !gInVram;
 }
 
-void palettesLoad(const char* level)
+uint32_t palettesLoad(const char* level, void* dst, uint32_t maxSize)
 {
     char path[32] = "DATA/";
     strcat(path, level);
     strcat(path, ".PAL");
 
-    gPalettes.count = 0;
+    gPalettes = (Palettes*)dst;
     gInVram = false;
-    if (cdLoadFile(path, &gPalettes, sizeof(gPalettes)) < 4 || gPalettes.count > MAX_PALETTES) {
-        gPalettes.count = 0;
+    int32 size = cdLoadFile(path, dst, X_MIN(uint32(maxSize), uint32(sizeof(Palettes))));
+    if (size < 4 || gPalettes->count > MAX_PALETTES)
+    {
+        gPalettes = nullptr;
+        return 0;
     }
 
     if (gRemastered) {
         swap();
     }
+    return size;
 }
 
 void palettesToggle()

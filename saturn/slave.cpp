@@ -22,7 +22,8 @@
 #define CCR_CE              0x01    // cache enable
 #define CCR_CP              0x10    // purge all lines
 
-static void (*volatile gTask)();
+static void (*volatile gTask)(void*);
+static void* volatile gTaskArg;
 static volatile bool gStarted;
 
 extern "C" uint8_t gSlaveStack[4096] __attribute__((aligned(16)));
@@ -68,7 +69,7 @@ extern "C" void slaveMain()
 
     while (1)
     {
-        void (*task)() = *uncached(&gTask);
+        void (*task)(void*) = *uncached(&gTask);
         if (!task)
         {
             busPause();
@@ -76,10 +77,12 @@ extern "C" void slaveMain()
         }
 
         cachePurge();
-        task();
+        task(*uncached(&gTaskArg));
         *uncached(&gTask) = nullptr;
     }
 }
+
+static void clockSync();
 
 void slaveInit()
 {
@@ -95,14 +98,28 @@ void slaveInit()
         wait++;
     }
     crashLog("SLAVE", *uncached(&gStarted) ? wait : 0xFFFFFFFF);
+    if (*uncached(&gStarted)) {
+        clockSync();
+    }
+}
+
+void slaveRun(void (*task)(void*), void* arg)
+{
+    *uncached(&gTaskArg) = arg;
+    *uncached(&gTask) = task;
+}
+
+static void plainTask(void* task)
+{
+    ((void (*)())task)();
 }
 
 void slaveRun(void (*task)())
 {
-    *uncached(&gTask) = task;
+    slaveRun(plainTask, (void*)task);
 }
 
-void (*slaveTask())()
+void (*slaveTask())(void*)
 {
     return *uncached(&gTask);
 }
@@ -112,4 +129,50 @@ void slaveWait()
     while (*uncached(&gTask)) {
         busPause();
     }
+}
+
+bool slaveDone()
+{
+    return !*uncached(&gTask);
+}
+
+// The slave's timer against the master's: the master pings, the slave
+// answers with its tick; the answer of the shortest round trip read as
+// taken halfway through it.
+#define CLOCK_PINGS 64
+static volatile uint32_t gPing, gPong, gPongTick;
+static uint32_t gSlaveOffset;   // the slave's tick less the master's, 16 bits
+
+static void clockPong(void*)
+{
+    for (uint32_t k = 1; k <= CLOCK_PINGS; k++)
+    {
+        while (*uncached(&gPing) != k);
+        *uncached(&gPongTick) = ticks();
+        *uncached(&gPong) = k;
+    }
+}
+
+static void clockSync()
+{
+    slaveRun(clockPong, nullptr);
+    uint32_t best = 0x10000;
+    for (uint32_t k = 1; k <= CLOCK_PINGS; k++)
+    {
+        uint32_t t0 = ticks();
+        *uncached(&gPing) = k;
+        while (*uncached(&gPong) != k);
+        uint32_t trip = (ticks() - t0) & 0xFFFF;
+        if (trip < best)
+        {
+            best = trip;
+            gSlaveOffset = (*uncached(&gPongTick) - t0 - trip / 2) & 0xFFFF;
+        }
+    }
+    slaveWait();
+}
+
+uint32_t slaveTickOnMaster(uint32_t tick)
+{
+    return (tick - gSlaveOffset) & 0xFFFF;
 }

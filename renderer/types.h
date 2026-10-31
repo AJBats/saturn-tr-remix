@@ -1,13 +1,16 @@
 // The new renderer's data: what it reads of the level and the frame, in the
 // game's own layouts where it reads the game's, and what it hands between its
 // stages. The level's own layouts are kept: the packer and the game write
-// them as they are.
+// them as they are. The limits the game's headers define too are defined
+// once, theirs first where both are included (the same values).
 #ifndef RENDER_TYPES_H
 #define RENDER_TYPES_H
 
 #include <stdint.h>
 
+#ifndef ALIGN16
 #define ALIGN16 __attribute__((aligned(16)))
+#endif
 
 // The game's divide table (common.cpp): the projection's and the pose's.
 extern uint16_t divTable[];
@@ -37,13 +40,23 @@ struct Face
     int16_t indices[4];     // corners: byte offsets in their CPU's half of gVertices
 };
 
+#ifndef MAX_VERTICES
 #define MAX_VERTICES    (5 * 1024)
+#endif
 #define MAX_DRAWS       256     // a frame's: the master's 2048 vertices hold about that many of the smallest meshes
+#ifndef MASTER_VERTICES
 #define MASTER_VERTICES 2048
+#endif
+#ifndef MAX_CMDS
 #define MAX_CMDS        1792    // VRAM_MAX_CMDS
+#endif
 
+#ifndef OT_SHIFT
 #define OT_SHIFT        4
+#endif
+#ifndef OT_SIZE
 #define OT_SIZE         1281
+#endif
 
 struct RoomQuad
 {
@@ -75,10 +88,18 @@ struct Sprite
 // The room texture cache (saturn/detail.h): slots in VDP1 VRAM holding the
 // room textures in use, whole, in quadrants for a split quad, transposed, or
 // at half or a quarter of their size; a texture's key is Texture.reserved - 1.
+#ifndef DETAIL_MAX_KEYS
 #define DETAIL_MAX_KEYS     1088
+#endif
+#ifndef DETAIL_SLOT_SIZE
 #define DETAIL_SLOT_SIZE    2048
+#endif
+#ifndef DETAIL_FULL_SLOTS
 #define DETAIL_FULL_SLOTS   128
+#endif
+#ifndef DETAIL_MIP_SLOTS
 #define DETAIL_MIP_SLOTS    64
+#endif
 enum DetailVariant { DETAIL_WHOLE, DETAIL_QUADS, DETAIL_TURNED, DETAIL_MIP1, DETAIL_MIP1_TURNED, DETAIL_MIP2,
                      DETAIL_MIP2_TURNED, DETAIL_VARIANTS };
 
@@ -102,7 +123,9 @@ struct ShadeCache
     uint32_t frames[256];   // last drawn
 };
 
+#ifndef SHADE_TABLE_SIZE
 #define SHADE_TABLE_SIZE 32
+#endif
 
 // Command words: ctrl|link, pmod|colr, srca|size, A, B, C, D, grda|0.
 union Command
@@ -110,8 +133,12 @@ union Command
     uint32_t w[8];
 };
 
+#ifndef VRAM_FRAME_CMDS
 #define VRAM_FRAME_CMDS     0x00060
+#endif
+#ifndef VRAM_GOURAUD_BASE
 #define VRAM_GOURAUD_BASE   (VRAM_FRAME_CMDS + MAX_CMDS * 32)
+#endif
 
 // A draw of the master's.
 enum DrawType
@@ -264,17 +291,18 @@ struct PoseCamera
     int16_t pad;
 };
 
-enum CallKind { CALL_VIEWPORT = 1, CALL_MODEL, CALL_STATIC, CALL_SHADOW, CALL_SPRITE, CALL_RECT };
+enum CallKind { CALL_VIEWPORT = 1, CALL_MODEL, CALL_STATIC, CALL_SHADOW, CALL_SPRITE, CALL_RECT, CALL_GLYPH };
 
 struct CallRecord
 {
     uint8_t kind, pad;
-    uint16_t index;         // a model's or shadow's ItemRecord, a static's room, a sprite's, a rectangle's type
+    uint16_t index;         // a model's or shadow's ItemRecord, a static's room, a sprite's, a rectangle's type,
+                            // a glyph's sprite
     uint32_t flags;         // the faces' at the call (FACE_WATER)
     int32_t args[6];        // a viewport's x0 y0 x1 y1; a model's item's index in the level; a static's
                             // RoomMesh (xy, zf), place from the camera and index in its room; a
                             // shadow's floor; a sprite's x y z and shade; a rectangle's x y width
-                            // height, colour and bucket
+                            // height, colour and bucket; a glyph's left top right bottom on the frame
 };
 
 #define AFRM_BASE   0x10000

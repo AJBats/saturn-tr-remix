@@ -180,50 +180,85 @@ static uint32 loadOrHalt(const char* name, const char* ext, void* dst, uint32 ma
     return size;
 }
 
-// The level's meshes, which the master reads every frame: high work RAM, as
-// the original keeps them. Read from low work RAM, the mesh code ran a
-// quarter slower on a Saturn.
-static uint8 gMeshData[96 * 1024] __attribute__((aligned(4)));   // LEVEL7B's are 88 KB
+// High work RAM the program leaves (from its bss's end to the master's
+// stack, MASTER_STACK of it kept for that): the level's, taken in order as it
+// loads (its mesh store, its rooms' vertices, the renderer's tables, the
+// rooms' faces as they fit), all of it again for the next.
+extern "C" uint8 _bss_end[], _stack_top[];     // saturn.ld's __bss_end, __stack_top
+#define MASTER_STACK    (8 * 1024)
+static uint8* gHighFree;
+static const void* gMeshStore;
 
-const void* osPlaceMeshes(const void* meshes, int32 size)
+static void highReset()
 {
-    crashLog("MESHES", size);
-    if (size > int32(sizeof(gMeshData)))
-        return meshes;
-    memcpy(gMeshData, meshes, size);
-    return gMeshData;
+    gHighFree = (uint8*)((uint32(_bss_end) + 15) & ~15);
 }
 
-// The rooms' vertices and faces, which the slave reads every frame: as many
-// rooms' as fit in high work RAM, room by room, the rest left in low work RAM.
-static uint8 gRoomData[128 * 1024] __attribute__((aligned(4)));
+static uint32 highLeft()
+{
+    return uint32(_stack_top) - MASTER_STACK - uint32(gHighFree);
+}
 
+void* osHighAlloc(uint32 bytes)
+{
+    bytes = (bytes + 15) & ~15;
+    if (bytes > highLeft())
+        return nullptr;
+    uint8* p = gHighFree;
+    gHighFree += bytes;
+    return p;
+}
+
+const void* osMeshStore()
+{
+    return gMeshStore;
+}
+
+// The rooms' vertices, which the DSP reads by DMA (from high work RAM only),
+// one after another.
 void osPlaceRooms()
 {
-    uint8* next = gRoomData;
+    uint32 bytes = 0;
+    for (int32 i = 0; i < level.roomsCount; i++) {
+        bytes += rooms[i].info->verticesCount * sizeof(RoomVertex);
+    }
+    uint8* next = (uint8*)osHighAlloc(bytes);
+    if (!next)
+    {
+        crashLog("ROOMVTX", bytes);
+        while (1);  // TODO error screen
+    }
+    for (int32 i = 0; i < level.roomsCount; i++)
+    {
+        RoomData &data = rooms[i].data;
+        uint32 size = rooms[i].info->verticesCount * sizeof(RoomVertex);
+        memcpy(next, data.vertices, size);
+        data.vertices = (const RoomVertex*)next;
+        next += size;
+    }
+}
+
+// The rooms' faces, which the slave reads every frame: as many rooms' as fit
+// in high work RAM, room by room, the rest left in low work RAM.
+void osPlaceRoomFaces()
+{
     int32 placed = 0;
     for (int32 i = 0; i < level.roomsCount; i++)
     {
         RoomData &data = rooms[i].data;
         const RoomInfo* info = rooms[i].info;
-        uint32 vertices = info->verticesCount * sizeof(RoomVertex);
         uint32 quads = info->quadsCount * sizeof(RoomQuad);
         uint32 triangles = info->trianglesCount * sizeof(RoomTriangle);
-        if (next + vertices + quads + triangles > gRoomData + sizeof(gRoomData))
+        uint8* next = (uint8*)osHighAlloc(quads + triangles);
+        if (!next)
             continue;
-
-        memcpy(next, data.vertices, vertices);
-        data.vertices = (const RoomVertex*)next;
-        next += vertices;
         memcpy(next, data.quads, quads);
         data.quads = (const RoomQuad*)next;
-        next += quads;
-        memcpy(next, data.triangles, triangles);
-        data.triangles = (const RoomTriangle*)next;
-        next += triangles;
+        memcpy(next + quads, data.triangles, triangles);
+        data.triangles = (const RoomTriangle*)(next + quads);
         placed++;
     }
-    crashLog("ROOMS", (placed << 16) | (level.roomsCount << 8) | ((next - gRoomData) >> 10));
+    crashLog("ROOMS", (placed << 16) | (level.roomsCount << 8) | (highLeft() >> 10));
 }
 
 uint8* osLowRamFree(uint32 &size)
@@ -244,15 +279,22 @@ const void* osLoadLevel(LevelID id)
 
     // textures go straight to VDP1 VRAM, where the level's texture entries point
     uint32 texSize = loadOrHalt(name, ".TEX", (void*)(VDP1_VRAM + VRAM_TEX_BASE), VRAM_TEX_SIZE);
-    palettesLoad(name);
+
+    // high work RAM: the meshes as the renderer reads them, first
+    highReset();
+    gMeshStore = gHighFree;
+    osHighAlloc(loadOrHalt(name, ".MSH", gHighFree, highLeft()));
 
     // low work RAM: the level, then the full-res room texture set, which the
-    // CPU reads only to upload; as the original lays them out
+    // CPU reads only to upload, as the original lays them out; then the
+    // colour tables' other versions and the inventory's item textures, which
+    // the CPU copies to VRAM when asked
     uint32 levelSize = (loadOrHalt(name, ".PKD", LEVEL_ADDR, LEVEL_MAX) + 15) & ~15;
     uint8* subData = LEVEL_ADDR + levelSize;
     uint32 subSize = loadOrHalt(name, ".SUB", subData, LEVEL_MAX - levelSize);
-    gLowFree = subData + ((subSize + 15) & ~15);
+    uint8* low = subData + ((subSize + 15) & ~15);
     detailInit(VRAM_TEX_BASE + texSize, subData, subSize);
+    low += (palettesLoad(name, low, LEVEL_ADDR + LEVEL_MAX - low) + 15) & ~15;
 
     // sound effects straight to sound RAM, and inventory item textures (some
     // cutscenes have neither)
@@ -263,8 +305,10 @@ const void* osLoadLevel(LevelID id)
     cdLoadFile(path, (void*)(SOUND_RAM + SOUND_SAMPLES_ADDR), SOUND_RAM_SIZE - SOUND_SAMPLES_ADDR);
 
     strcpy(path + strlen(path) - 3, "ITX");
-    detailItemInit(X_MAX(0, cdLoadFile(path, detailItemData(), detailItemDataMax())));
-    traceLevel(subData + subSize);
+    int32 itemSize = X_MAX(0, cdLoadFile(path, low, LEVEL_ADDR + LEVEL_MAX - low));
+    detailItemInit(low, itemSize);
+    gLowFree = low + ((itemSize + 15) & ~15);
+    traceLevel(gLowFree);
 
     screenRelease(false);
     crashHold(false);

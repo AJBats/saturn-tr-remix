@@ -1,6 +1,7 @@
 // Saturn system setup shared by the game and test programs.
 
 #include "system.h"
+#include "platform.h"
 #include "crash.h"
 #include "hw.h"
 #include "trace.h"
@@ -457,4 +458,31 @@ void dmaCopy(const void* src, uint32_t dst, uint32_t size)
 void dmaWait()
 {
     while (SCU_DSTA & DSTA_D0_BUSY);
+}
+
+// --- the renderer's platform (renderer/platform.h) ---------------------------
+
+uint32_t ticks()
+{
+    return timerTicks();
+}
+
+uint32_t ticksCycles(uint32_t t0, uint32_t t1)
+{
+    return ((t1 - t0) & 0xFFFF) * 128;
+}
+
+void dmaToVdp1(const void* src, uint32_t vram, uint32_t size)
+{
+    dmaCopy(src, VDP1_VRAM + vram, size);
+}
+
+// The game takes no DSP end interrupt: the frame's DSP time reads 0.
+void dspEndsClear()
+{
+}
+
+uint32_t dspEnds(uint32_t*, uint32_t)
+{
+    return 0;
 }

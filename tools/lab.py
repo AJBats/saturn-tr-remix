@@ -9,7 +9,7 @@ VDP1 does, checking it command by command against the game's own (the
 scene's CMDS and GRDS) as VDP1 reads them, and draws both with the Mednafen
 fork's VDP1 code (tools/crunch/vdp1lib) over the scene's VDP1 VRAM: the
 pixels that differ, and VDP1's time for each. With --shots, the two frame
-pages as the emulator shows them, into build/lab/shots. With --profile, each measurement's first run traced
+pages as the emulator shows them, into the disc's build's shots/. With --profile, each measurement's first run traced
 instruction by instruction (lab.cpp labTraceBegin to labTraceEnd) and its
 cycles shared out by function and, in assembly, by the label they follow:
 proportions, since tracing slows Mednafen's CPU. Mednafen's times are
@@ -380,10 +380,11 @@ def main():
     caches_at = cap.symbol(syms, '__ZL12gShadeCaches')
     walk_at = cap.symbol(syms, '__ZL9gWalkList')     # lab.cpp: game.h GameList
 
-    med = cap.Mednafen(os.path.abspath(args.cue), 'lab')
+    lab_dir = os.path.dirname(os.path.dirname(os.path.abspath(args.cue)))
+    med = cap.Mednafen(os.path.abspath(args.cue), os.path.basename(lab_dir))
     try:
         med.send('deterministic', 'deterministic', 10)
-        traces = trace(med, syms, os.path.join(ROOT, 'build/lab')) if args.profile else []
+        traces = trace(med, syms, lab_dir) if args.profile else []
         results = None
         start = time.time()
         for _ in range(100):
@@ -415,7 +416,7 @@ def main():
         walk_grds = med.read(walk_grds_at, walk_end * 8)
         vram = med.read(cap.VDP1_VRAM, cap.VDP1_BYTES)
         if args.shots:
-            shots = os.path.join(ROOT, 'build/lab/shots')
+            shots = os.path.join(lab_dir, 'shots')
             os.makedirs(shots, exist_ok=True)
             for name in ('', '', '', '', 'game', 'new'):
                 med.send('input R', 'ok input', 10)
@@ -436,7 +437,7 @@ def main():
     # the game's list with its rooms in the walk's order (the new way's)
     # against the capture's, and the new list against it, as VDP1 follows them
     import numpy as np
-    scene = chunks(os.path.join(ROOT, 'build/lab', args.scene.upper() + '.SCN'))
+    scene = chunks(os.path.join(lab_dir, args.scene.upper() + '.SCN'))
     game_cmds, game_grds = scene['CMDS'], scene['GRDS']
     copies = lambda caches: [(c[2],) + c[4:4 + 256] for c in
                              (SHADE_CACHE.unpack_from(caches, i * SHADE_CACHE.size) for i in range(2))]

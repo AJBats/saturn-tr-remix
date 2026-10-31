@@ -1,9 +1,9 @@
 // The draw list (draws.s): the renderer's side of the frame's calls after the
 // walk, exactly the game's (draw.h drawModel, drawRoomStatic, drawShadow,
-// render.cpp renderSprite, renderRect), in one call, into a DrawList: the
-// draws in order, each item posed with its frames, extras and light, each
-// static's place, each shadow's floor, each sprite's and rectangle's face
-// made.
+// render.cpp renderSprite, renderRect, renderGlyph), in one call, into a
+// DrawList: the draws in order, each item posed with its frames, extras and
+// light, each static's place, each shadow's floor, each sprite's,
+// rectangle's and glyph's face made.
 #ifndef RENDER_DRAWS_H
 #define RENDER_DRAWS_H
 
@@ -64,6 +64,7 @@ struct DrawsContext
     HintedCall* hinted;         // +196 the next
     uint32_t hintedCount;       // +200
     uint32_t hintOpen;          // +204 the call's, at hinted, is open
+    uint32_t shown;             // +208 draws.s's own: the ItemRecord of the last item posed
 };
 
 extern "C" void drawsAsm(DrawsContext* ctx);

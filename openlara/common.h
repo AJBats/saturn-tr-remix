@@ -462,7 +462,7 @@ extern uint8* vramPtr;
     #define MAX_VERTICES (1024 + 32) // for mesh (max = LEVEL10A room:58)
 #elif defined(__GBA__)
     #define MAX_VERTICES (5*1024) // for frame (max is 8191 - check the assumption in flush.s)
-#else
+#elif !defined(MAX_VERTICES)
     #define MAX_VERTICES (5*1024) // for frame
 #endif
 
@@ -584,7 +584,9 @@ X_INLINE int32 mul16(int32 a, int32 b)
 #endif
 
 #define OT_SHIFT        4
+#ifndef OT_SIZE
 #define OT_SIZE         ((VIEW_MAX_F >> (FIXED_SHIFT + OT_SHIFT)) + 1)
+#endif
 
 // system keys (keys)
 enum InputKey {
@@ -2984,27 +2986,15 @@ void setPaletteIndex(int32 index);
 void setCameraWater(bool water);
 void setSceneClear(bool clear);
 void clear();
-void renderRoom(Room* room);
-// Draw order hints (saturn/depth_hints.txt): begun for where Lara stands and
-// the rooms drawn (a NULL-ended list); the object drawn next is an item
-// (DEPTH_HINT_ITEM 0, its index) or a room's static (DEPTH_HINT_STATIC 1, its
-// room and index there).
-void depthHintsBegin(Room* const* visible);
-void depthHintsEnd();
-void depthHintObject(int32 kind, int32 owner, int32 index);
-// While a frame is captured for the render lab (saturn/capture.h): the
-// renderer's calls as the game makes them.
-extern bool gCaptureRecording;
-void captureModelCall(const ItemObj* item);
-void captureStaticCall(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz);
-void captureShadowCall(const ItemObj* item, int32 floor);
-void renderRoomsQueued();
-bool roomStaticsQueued(const Room* room);   // its static meshes go with it (to the slave)
-bool claimItem(const ItemObj* item);        // this CPU draws it: the other hasn't taken it
-void drawRoomStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz);
+// The renderer's (saturn/render.h): the rooms the camera sees, NULL-ended,
+// each with its window in clip; an item's model, its shadow on the floor
+// given (drawn if the model is), a room's static mesh.
+Room** renderWalk(Room* cameraRoom);
+void renderModel(const ItemObj* item);
+void renderShadowCall(const ItemObj* item, int32 floor);
+void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index);
+void renderRoomsFlipped();  // after flipMap
 void renderMesh(const Mesh* mesh);
-void renderStaticMesh(const Mesh* mesh);
-void renderShadow(int32 x, int32 z, int32 sx, int32 sz);
 void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index);
 void renderGlyph(int32 vx, int32 vy, int32 index);
 void renderFill(int32 x, int32 y, int32 width, int32 height, int32 shade, int32 z);
@@ -3105,8 +3095,14 @@ const void* osLoadScreen(LevelID id);
 const void* osLoadLevel(LevelID id);
 uint8* osLowRamFree(uint32 &size);  // Saturn: low work RAM the level leaves, for debug tools
 #ifdef __SATURN__
-const void* osPlaceMeshes(const void* meshes, int32 size); // where the CPU reads them fastest
-void osPlaceRooms(); // the rooms' geometry, likewise
+void osPlaceRooms(); // the rooms' vertices in high work RAM, where the DSP reads them
+// High work RAM for the level, from what the program leaves: 16-byte aligned,
+// until the next level loads; NULL if none is left. The level's mesh store
+// (DATA/<level>.MSH) is there; the rooms' faces take what the renderer's
+// tables leave, as many rooms' as fit (the rest stay in low work RAM).
+void* osHighAlloc(uint32 bytes);
+const void* osMeshStore();
+void osPlaceRoomFaces();
 #endif
 
 #ifdef PROFILING

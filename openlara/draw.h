@@ -233,30 +233,12 @@ void drawMesh(int32 meshIndex)
     renderMesh(level.meshes[meshIndex]);
 }
 
-void drawShadow(const ItemObj* item, int32 size)
+// The item's shadow (the renderer's: its size 160), on the floor under it.
+void drawShadow(const ItemObj* item)
 {
     const Sector* sector = item->room->getSector(item->pos.x, item->pos.z);
     int32 floor = sector->getFloor(item->pos.x, item->pos.y, item->pos.z);
-    if (gCaptureRecording) {
-        captureShadowCall(item, floor);
-    }
-
-    if (floor == WALL)
-        return;
-
-    const AABBs& box = item->getBoundingBox(true);
-    int32 x = (box.maxX + box.minX) >> 1;
-    int32 z = (box.maxZ + box.minZ) >> 1;
-    int32 sx = (box.maxX - box.minX) * size >> 10;
-    int32 sz = (box.maxZ - box.minZ) * size >> 10;
-
-    matrixPush();
-    matrixTranslateAbs(item->pos.x, floor, item->pos.z);
-    matrixRotateY(item->angle.y);
-
-    renderShadow(x, z, sx, sz);
-
-    matrixPop();
+    renderShadowCall(item, floor);
 }
 
 void drawSprite(const ItemObj* item)
@@ -650,176 +632,17 @@ void drawLaraNodesLerp(const ItemObj* lara, const AnimFrame* frameA, const AnimF
     matrixPop();
 }
 
+// The renderer tests the model's sphere, poses and lights it, and draws its
+// shadow if it is shown.
 void drawModel(const ItemObj* item)
 {
-    if (gCaptureRecording) {
-        captureModelCall(item);
-    }
-    const AnimFrame *frameA, *frameB;
-    
-    int32 frameRate;
-    int32 frameDelta = item->getFrames(frameA, frameB, frameRate);
-
-#ifdef NO_ANIM_LERP
-    frameDelta = 0;
-#endif
-
-    int32 sx, sy, sz, sr, smin, smax;
-    smin = frameA->box.minX;
-    smax = frameA->box.maxX;
-    sx = (smax + smin) >> 1;
-    sr = (smax - smin);
-
-    smin = frameA->box.minY;
-    smax = frameA->box.maxY;
-    sy = (smax + smin) >> 1;
-    sr = X_MAX(sr, (smax - smin));
-
-    smin = frameA->box.minZ;
-    smax = frameA->box.maxZ;
-    sz = (smax + smin) >> 1;
-    sr = X_MAX(sr, (smax - smin));
-
-    // approx. radius (TODO more precise)
-    sr = (sr >> 1) + (sr >> 2);
-
-    // rotate sphere center by quadrant
-    uint16 quadrant = uint16(item->angle.y + ANGLE_45) >> ANGLE_SHIFT_90;
-
-    if (quadrant != 0)
-    {
-        int32 ix = sx;
-        int32 iz = sz;
-
-        switch (quadrant)
-        {
-            case 1:
-                sx = iz;
-                sz = -ix;
-                break;
-            case 2:
-                sx = -ix;
-                sz = -iz;
-                break;
-            case 3: 
-                sx = -iz;
-                sz = ix;
-                break;
-        }
-    }
-
-    sx += item->pos.x - gCameraViewPos.x;
-    sy += item->pos.y - gCameraViewPos.y;
-    sz += item->pos.z - gCameraViewPos.z;
-
-    if (!sphereIsVisible(sx, sy, sz, sr))
-        return;
-
-    depthHintObject(0, 0, item - items);
-    matrixPush();
-    matrixTranslateAbs(item->pos.x, item->pos.y, item->pos.z);
-    matrixRotateYXZ(item->angle.x, item->angle.y, item->angle.z);
-
-    int32 intensity = item->intensity << 5;
-
-    if (intensity == 0) {
-        vec3i point = item->getRelative(frameA->box.getCenter());
-        calcLightingDynamic(item->room, point);
-    } else {
-        calcLightingStatic(intensity);
-    }
-
-    // skip rooms portal clipping for objects
-    if (item->type == ITEM_LARA) {
-        drawLaraNodesLerp(item, frameA, frameB, frameDelta, frameRate);
-    } else {
-        drawNodesLerp(item, frameA, frameB, frameDelta, frameRate);
-    }
-
-    matrixPop();
-
-// shadow
+    renderModel(item);
     if (item->flags & ITEM_FLAG_SHADOW) {
-        drawShadow(item, 160);  // TODO per item shadow size
+        drawShadow(item);
     }
 }
 
-void queueRoom(Room* room)
-{
-    setViewport(room->clip);
-
-    const RoomInfo* info = room->info;
-
-    matrixPush();
-    matrixTranslateAbs(info->x << 8, info->yTop, info->z << 8);
-
-    setPaletteIndex(ROOM_FLAG_WATER(info->flags) ? 1 : 0);
-
-    renderRoom(room);
-
-    matrixPop();
-}
-
-// A static mesh of a room whose origin is (rx, ry, rz) from the camera, if
-// in view, on the CPU drawing it: on the Saturn the slave draws the statics
-// of the rooms queued for it (roomStaticsQueued), after their faces.
-void drawRoomStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz)
-{
-    if (gCaptureRecording) {
-        captureStaticCall(mesh, rx, ry, rz);
-    }
-#ifdef NO_STATIC_MESH_PLANTS
-    if (STATIC_MESH_ID(mesh->zf) < 10)
-        return;
-#endif
-
-    const StaticMesh* staticMesh = level.staticMeshes + STATIC_MESH_ID(mesh->zf);
-
-    if (!(staticMesh->flags & STATIC_MESH_FLAG_VISIBLE))
-        return; // invisible
-
-    int32 px = rx + (int32(mesh->xy) >> 16);
-    int32 py = ry + (int32(mesh->xy) << 16 >> 16);
-    int32 pz = rz + (int32(mesh->zf) >> 16);
-
-    int32 sx = (int32(staticMesh->vs.xy) >> 16);
-    int32 sy = (int32(staticMesh->vs.xy) << 16 >> 16);
-    int32 sz = (int32(staticMesh->vs.zr) >> 16);
-    int32 sr = (int32(staticMesh->vs.zr) << 16 >> 16);
-
-    // rotate visible sphere offset
-    int32 q = STATIC_MESH_QUADRANT(mesh->zf);
-    if (q == 0) {
-        sx = -sx;
-        sz = -sz;
-    } else if (q == 1) {
-        int32 t = sx;
-        sx = -sz;
-        sz = t;
-    } else if (q == 3) {
-        int32 t = sz;
-        sz = -sx;
-        sx = t;
-    }
-
-    sx += px;
-    sy += py;
-    sz += pz;
-
-    if (!sphereIsVisible(sx, sy, sz, sr))
-        return;
-
-    matrixPush();
-    matrixTranslateSet(px, py, pz);
-    matrixRotateYQ(q);
-
-    calcLightingStatic(STATIC_MESH_INTENSITY(mesh->zf));
-    renderStaticMesh(level.meshes[staticMesh->meshIndex]);
-
-    matrixPop();
-}
-
-// What stands in a queued room: sprites, static meshes, items.
+// What stands in a room seen: sprites, static meshes, items.
 void drawRoomObjects(Room* room)
 {
     setViewport(room->clip);
@@ -843,21 +666,17 @@ void drawRoomObjects(Room* room)
     ry = -gCameraViewPos.y;
     rz -= gCameraViewPos.z;
 
-    if (!roomStaticsQueued(room))
-    {
-        for (int32 i = 0; i < info->meshesCount; i++)
-        {
-            traceDetailBegin(TR_STATIC);
-            depthHintObject(1, room - rooms, i);
-            drawRoomStatic(data.meshes + i, rx, ry, rz);
-            traceDetailEnd(TR_STATIC);
-        }
+#ifdef NO_STATIC_MESH_PLANTS
+    #error "the renderer draws every static mesh"
+#endif
+    for (int32 i = 0; i < info->meshesCount; i++) {
+        renderStatic(data.meshes + i, rx, ry, rz, room - rooms, i);
     }
 
     ItemObj* item = room->firstItem;
     while (item)
     {
-        if ((item->flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE && claimItem(item))
+        if ((item->flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE)
         {
             traceDetailBegin(TR_ITEM, item->type);
             item->draw();
@@ -867,34 +686,18 @@ void drawRoomObjects(Room* room)
     }
 }
 
-void drawRoom(Room* room)
-{
-    queueRoom(room);
-    drawRoomObjects(room);
-}
-
 void drawRooms(Camera* camera)
 {
     traceBegin(TRACE_MASTER, TR_VIEW);
     RectMinMax vp = viewport;
 
-    camera->view.room->clip = viewport;
     setCameraWater(ROOM_FLAG_WATER(camera->view.room->info->flags));
     // a camera pushed into a wall sees past the rooms' faces, where nothing
     // would draw this frame
     setSceneClear(checkWall(camera->view.room, camera->view.pos.x, camera->view.pos.y + camera->shift, camera->view.pos.z));
 
-    Room** visRoom = camera->view.room->getVisibleRooms();
-    depthHintsBegin(visRoom);
+    Room** visRoom = renderWalk(camera->view.room);
     traceEnd(TRACE_MASTER, TR_VIEW);
-
-    // every room for the slave first, so that it never waits on the objects
-    traceBegin(TRACE_MASTER, TR_QUEUE);
-    for (Room** room = visRoom; *room; room++) {
-        queueRoom(*room);
-    }
-    renderRoomsQueued();
-    traceEnd(TRACE_MASTER, TR_QUEUE);
 
     // Lara before the rooms' objects and whether or not her room is seen, as
     // the original draws her: climbing out of a room, she is still in it
@@ -925,7 +728,6 @@ void drawRooms(Camera* camera)
         traceDetailEnd(TR_OBJECTS, room - rooms);
         room->reset();
     }
-    depthHintsEnd();
 
     for (int32 i = 0; i < MAX_PLAYERS; i++)
     {
@@ -944,41 +746,15 @@ void drawRooms(Camera* camera)
 void drawCinematicRooms()
 {
     RectMinMax vp = viewport;
-#if 1
-    gCinematicCamera.view.room->clip = viewport;
     setCameraWater(ROOM_FLAG_WATER(gCinematicCamera.view.room->info->flags));
 
-    Room** visRoom = gCinematicCamera.view.room->getVisibleRooms();
-
-    // draw rooms and objects
+    Room** visRoom = renderWalk(gCinematicCamera.view.room);
     while (*visRoom)
     {
         Room* room = *visRoom++;
-        drawRoom(room);
+        drawRoomObjects(room);
         room->reset();
     }
-#else
-    for (int32 i = 0; i < level.roomsCount; i++)
-    {
-        rooms[i].clip = vp;
-    }
-
-    for (int32 i = 0; i < level.roomsCount; i++)
-    {
-        if (rooms[i].info->alternateRoom != NO_ROOM) {
-            rooms[rooms[i].info->alternateRoom].clip.x0 = 0xFFFF;
-        }
-    }
-
-    for (int32 i = 0; i < level.roomsCount; i++)
-    {
-        const Room* room = rooms + i;
-        if (room->clip.x0 == 0xFFFF)
-            continue;
-
-        drawRoom(room);
-    }
-#endif
 
     setCameraWater(false);
     setPaletteIndex(0);

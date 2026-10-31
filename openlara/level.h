@@ -146,7 +146,6 @@ void readLevel(const uint8* data)
     DataStream f(data, 0);
     readLevelStream(f);
 #ifdef __SATURN__
-    level.meshes = (const Mesh**)osPlaceMeshes(level.meshes, (uint8*)level.meshOffsets - (uint8*)level.meshes);
     osPlaceRooms();
 #endif
 
@@ -299,6 +298,9 @@ void flipMap()
     }
 
     gSaveGame.flipped ^= 1;
+#ifdef __SATURN__
+    renderRoomsFlipped();
+#endif
 }
 
 void shakeCamera(int32 frames, bool add)

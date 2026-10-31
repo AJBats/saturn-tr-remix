@@ -37,7 +37,7 @@ extern CommandList gRoomList, gMeshList;
 // The frame's rooms (the walk's jobs), the room texture cache as their faces
 // take it, the room textures' materials, the uploads the faces queued, where
 // quads split near the camera put their corners, the room faces' run.
-#define MAX_ROOMS           64      // with vertices, a frame
+#define MAX_FRAME_ROOMS     64      // with vertices, a frame
 #define MAX_ROOM_TEXTURES   288     // a level's (GYM has 279)
 extern FaceRoom* gFrameRooms;
 extern uint32_t gFrameRoomCount;
@@ -97,13 +97,16 @@ struct FrameTimes
 
 // A frame of the game's: its calls (their models' items), the draws' first
 // vertex (base: the lab's checks place them after the walk's fills, as the
-// game does).
+// game does), whether the rooms are walked already (roomsSeen: the game
+// walks them on the master to know whose objects to draw), else the slave
+// walks them.
 struct FrameCalls
 {
     const CallRecord* calls;
     uint32_t count;
     ItemRecord* items;
     int32_t base;
+    bool walked;
 };
 FrameTimes frameRun(const FrameCalls &calls, int32_t bias);
 

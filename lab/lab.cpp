@@ -590,8 +590,8 @@ static void newRoomsInit()
 {
     const SceneInfo &info = sceneInfo();
     gFrameRooms = roomsJobs(gFrameRoomCount);
-    if (gFrameRoomCount > MAX_ROOMS) {
-        gFrameRoomCount = MAX_ROOMS;
+    if (gFrameRoomCount > MAX_FRAME_ROOMS) {
+        gFrameRoomCount = MAX_FRAME_ROOMS;
     }
 
     // the textures the rooms' faces take
@@ -703,6 +703,7 @@ static FrameTimes stagesTogether(bool posed, int32_t bias)
     calls.calls = sceneArray<const CallRecord>("CALL", &calls.count);
     calls.items = sceneArray<ItemRecord>("OITM");
     calls.base = gFills;
+    calls.walked = false;
     FrameTimes s = frameRun(calls, bias);
     poseLabUse(&drawsList(), gFills);
     return s;
@@ -1005,7 +1006,7 @@ static int32_t roomTextureReload(uint32_t key, uint32_t, uint32_t variant)
 static int32_t newAsmCheck()
 {
     static uint32_t* hashes = (uint32_t*)sceneAllocLow(MAX_CMDS * sizeof(uint32_t));
-    static uint32_t water[MAX_ROOMS];
+    static uint32_t water[MAX_FRAME_ROOMS];
     for (uint32_t i = 0; i < gFrameRoomCount; i++) {
         water[i] = gFrameRooms[i].flags;
     }

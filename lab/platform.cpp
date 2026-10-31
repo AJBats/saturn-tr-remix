@@ -64,6 +64,11 @@ uint32_t ticks()
     return (hi << 8) | lo;
 }
 
+uint32_t ticksCycles(uint32_t t0, uint32_t t1)
+{
+    return ((t1 - t0) & 0xFFFF) * TICK_CYCLES;
+}
+
 // Must run from the cache-through mirror: the cache is off part of the time.
 static void __attribute__((noinline)) cachePurgeBody()
 {

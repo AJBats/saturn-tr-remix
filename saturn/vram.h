@@ -7,8 +7,10 @@
 
 // slots 0-2 set up clipping, the frame's commands follow
 #define VRAM_CMD_BASE       0x00000
+#ifndef VRAM_FRAME_CMDS      // renderer/types.h's too
 #define VRAM_FRAME_CMDS     0x00060
 #define VRAM_GOURAUD_BASE   (VRAM_FRAME_CMDS + VRAM_MAX_CMDS * 32)
+#endif
 
 // an 8x1 character of colour 0, which the frame's first command stretches over
 // the screen to clear it

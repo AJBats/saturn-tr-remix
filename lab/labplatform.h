@@ -12,6 +12,10 @@
 
 void platformInit();
 
+// The timer: a tick every 32 cycles, so a span up to 2M cycles (73 ms)
+// reads right.
+#define TICK_CYCLES 32
+
 // The text layer: TEXT_ROWS rows of TEXT_COLUMNS characters, inside the TV's
 // overscan, white on black. As a page it covers the frame; textFrame clears
 // it to show the frame VDP1 drew, a row's black band behind any text on it.

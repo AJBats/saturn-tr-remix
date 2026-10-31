@@ -1,8 +1,7 @@
 // The debug pad (port 2). Mednafen keys in brackets:
 //   START [Tab]       opens and closes the menu (not in HW_LOG builds)
 //   up/down [arrows]  pick an option, left/right change it
-//   A [P], B [H], C [G]  step the palette, view and dark faces options; A on
-//                     Polygon hunt starts one (hunt.h)
+//   A [P]             steps the palette
 // Changes show for a moment at the bottom of the screen. In HW_LOG builds the
 // player's pad pages the overlay with R and L, and the menu is one of its
 // pages, where its d-pad and A, B, C work the menu too (Lara stands still).
@@ -11,13 +10,11 @@
 #include "common.h"
 #include "crash.h"
 #include "dsp.h"
-#include "hunt.h"
 #include "hw.h"
 #include "slave.h"
 #include "input.h"
 #include "overlay.h"
 #include "palettes.h"
-#include "render.h"
 #include "screen.h"
 #include "system.h"
 #include "trace.h"
@@ -31,64 +28,10 @@ struct Option
     void (*set)(int32 value);
 };
 
-static const char* const kCurves[] = { "Saturn", "Soft", "Softer" };
-static const char* const kDark[] = { "Add", "Contrast steps", "Scaled" };
 static const char* const kPalette[] = { "Saturn", "Remastered" };
-static const char* const kViews[] = { "Normal", "Texture cache", "Texel size", "Wireframe", "Contrast steps" };
 static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kTrace[] = { "Off", "Stages", "Detail" };
-static const char* const kUpload[] = { "Deferred", "Blocking" };
-static const char* const kItems[] = { "Either CPU", "Master only" };
-#ifdef HW_LOG
-static const char* const kBenchNames[BENCH_COUNT] = {
-    "Base", "Fixed lines", "No LOD", "Gouraud only", "No gouraud", "No texture", "No DSP", "Master meshes",
-    "C meshes", "Clear", "Void colour", "Split shade", "Profile"
-};
-static int32 gBenchHold;    // the way every page but the bench's runs
 
-// The battery (menu, A on Battery): the same scene drawn with the work split
-// between the CPUs and the DSP each of these ways, BATTERY_SETTLE frames to
-// settle, then BATTERY_FRAMES traced and played back once (the header's C
-// number is the split's, from 1; tools/trace.py video reads the names here),
-// then the next. The game gets no pad while it runs, so that Lara stands
-// exactly where she was; L or R stops it.
-struct Split
-{
-    const char* name;
-    int32 way;
-    bool masterItems;
-};
-static const Split kSplits[] = {
-    { "Default", BENCH_BASE, false },
-    { "No DSP", BENCH_NO_DSP, false },
-    { "Master statics", BENCH_MASTER_MESHES, false },
-    { "Master items", BENCH_BASE, true },
-    { "Master piled", BENCH_MASTER_MESHES, true },
-};
-#define SPLITS          int32(sizeof(kSplits) / sizeof(kSplits[0]))
-#define BATTERY_SETTLE  30
-#define BATTERY_FRAMES  40
-static const char* const kBattery[] = { "A to start" };
-static int32 gBattery;          // the split running, from 1; 0 off
-static int32 gBatteryLeft;      // frames left settling, or recording
-static bool gBatteryRecording;
-static Split gBatterySaved;     // the menu's settings before it
-#endif
-static const char* const kShrink[] = { "Exact", "Fast" };
-static const char* const kLines[] = { "Fixed", "Turned" };
-static const char* const kLod[] = { "Full res", "1 texel a pixel", "1.5 texels", "2 texels" };
-static const char* const kShade[] = { "Gouraud", "Shaded tables", "All far faces" };
-static const char* const kShadow[] = { "Half", "Black", "Mesh" };
-static const char* const kSplit[] = { "Plane only", "Far off frame", "Steep too" };
-static const char* const kSteps[] = { "1 (7/8)", "2 (6/8)", "3 (5/8)", "4 (4/8)" };
-static const char* const kMultiply[] = { "0 (Saturn add)", "1/4", "2/4", "3/4", "4/4 (PS1)" };
-static const char* const kGrey[] = { "0 (own mean)", "1/4", "2/4", "3/4", "4/4" };
-static const char* const kHunt[] = { "A to start" };
-static const char* const kFar[] = { "Textured", "Flat past 16", "Flat past 12", "Flat past 8" };
-static const int32 kFarDist[] = { 0, 16 * 1024, 12 * 1024, 8 * 1024 };
-
-static int32 gShadeCurve;
-static int32 gFarFaces;
 static bool gShowStats;
 #ifdef HW_LOG
 static void benchUpdate();
@@ -99,77 +42,22 @@ static void sceneUpdate();
 #endif
 
 static const Option gOptions[] = {
-    { "Shading", kCurves, SHADE_CURVE_COUNT,
-        [] { return gShadeCurve; },
-        [](int32 v) { gShadeCurve = v; renderSetShadeCurve(v); } },
-    { "Dark faces", kDark, DARK_COUNT,
-        [] { return gDarkFaces; },
-        [](int32 v) { renderSetDarkFaces(v); } },
-    { "Contrast steps", kSteps, 4,
-        [] { return gContrastSteps - 1; },
-        [](int32 v) { renderSetContrastSteps(v + 1); } },
-    { "Multiply", kMultiply, 5,
-        [] { return gScaleMultiply; },
-        [](int32 v) { renderSetScaleMultiply(v); } },
-    { "Grey strength", kGrey, 5,
-        [] { return gContrastGrey; },
-        [](int32 v) { renderSetContrastGrey(v); } },
-    { "Far faces", kFar, 4,
-        [] { return gFarFaces; },
-        [](int32 v) { gFarFaces = v; gFlatDist = kFarDist[v]; } },
-    { "Shrink", kShrink, 2,
-        [] { return int32(renderFastShrink()); },
-        [](int32 v) { renderSetFastShrink(v); } },
-    { "Lines", kLines, 2,
-        [] { return gTurnLines; },
-        [](int32 v) { gTurnLines = v; } },
-    { "Texture LOD", kLod, 4,
-        [] { return gTextureLod / 2 - (gTextureLod > 0); },
-        [](int32 v) { gTextureLod = v ? v * 2 + 2 : 0; } },
-    { "Even shades", kShade, 3,
-        [] { return gShadeTables; },
-        [](int32 v) { gShadeTables = v; } },
     { "Palette", kPalette, 2,
         [] { return int32(palettesRemastered()); },
         [](int32 v) { if (v != palettesRemastered()) palettesToggle(); } },
-    { "Near split", kSplit, NEAR_SPLIT_COUNT,
-        [] { return gNearSplit; },
-        [](int32 v) { gNearSplit = v; } },
-    { "Shadows", kShadow, SHADOW_COUNT,
-        [] { return gShadowMode; },
-        [](int32 v) { gShadowMode = v; } },
-    { "View", kViews, TEXEL_VIEW_COUNT,
-        [] { return gTexelView; },
-        [](int32 v) { gTexelView = v; } },
     { "Stats", kOnOff, 2,
         [] { return int32(gShowStats); },
         [](int32 v) { gShowStats = v; } },
-    { "Upload", kUpload, 2,
-        [] { return int32(gBlockingUpload); },
-        [](int32 v) { gBlockingUpload = v; } },
-    { "Items", kItems, 2,
-        [] { return int32(gMasterItems); },
-        [](int32 v) { gMasterItems = v; } },
-    { "Polygon hunt", kHunt, 1,
-        [] { return 0; },
-        [](int32) {} },
 #ifdef HW_LOG
-    { "Way", kBenchNames, BENCH_COUNT,
-        [] { return gBenchHold; },
-        [](int32 v) { gBenchHold = v; } },
     { "Trace", kTrace, TRACE_MODES,
         [] { return int32(traceMode()); },
         [](int32 v) { traceSetMode(v); } },
-    { "Battery", kBattery, 1,
-        [] { return 0; },
-        [](int32) {} },
 #endif
 };
 
-enum { OPTION_SHADING, OPTION_DARK, OPTION_STEPS, OPTION_MULTIPLY, OPTION_GREY, OPTION_FAR, OPTION_SHRINK, OPTION_LINES, OPTION_LOD, OPTION_SHADE_TABLES,
-       OPTION_PALETTE, OPTION_SPLIT, OPTION_SHADOWS, OPTION_VIEW, OPTION_STATS, OPTION_UPLOAD, OPTION_ITEMS, OPTION_HUNT,
+enum { OPTION_PALETTE, OPTION_STATS,
 #ifdef HW_LOG
-       OPTION_WAY, OPTION_TRACE, OPTION_BATTERY,
+       OPTION_TRACE,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");
@@ -190,12 +78,6 @@ static int32 gPage;
 #endif
 
 #ifdef HW_LOG
-// The back colour the bench's way asks for.
-static uint16 benchBackColor()
-{
-    return gBenchMode == BENCH_VOID_COLOR ? RGB(31, 0, 31) : RGB(0, 0, 0);
-}
-
 // The playback page holds the game and shows the trace's frames (trace.h)
 // alone: on this colour round the overlay's text, for tools/trace.py to find.
 #define PLAYBACK_BACK   RGB(0, 16, 31)
@@ -205,13 +87,13 @@ static void playbackStart()
     crashHold(true);    // the game loop stands still
     screenFramesHidden(true);
     vdp2SetBackColor(PLAYBACK_BACK);
-    tracePlayStart(gBattery);
+    tracePlayStart(0);
 }
 
 static void playbackEnd()
 {
     tracePlayStop();
-    vdp2SetBackColor(benchBackColor());
+    vdp2SetBackColor(RGB(0, 0, 0));
     screenFramesHidden(false);
     crashHold(false);
 }
@@ -221,57 +103,9 @@ bool debugHeld()
     return gPage == PAGE_PLAYBACK;
 }
 
-static void batterySplit(const Split &s)
-{
-    gBenchHold = s.way;
-    gMasterItems = s.masterItems;
-}
-
-static void batteryNext()
-{
-    gPage = PAGE_NONE;
-    if (gBattery == SPLITS)
-    {
-        gBattery = 0;
-        batterySplit(gBatterySaved);
-        return;
-    }
-    batterySplit(kSplits[gBattery++]);
-    gBatteryLeft = BATTERY_SETTLE;
-    gBatteryRecording = false;
-}
-
-static void batteryStart()
-{
-    if (gBattery)
-        return;
-    gBatterySaved = { nullptr, gBenchHold, gMasterItems };
-    batteryNext();
-}
-
-// Once a frame while it runs: settles, records, then plays back.
-static void batteryFrame()
-{
-    if (!gBattery || gPage == PAGE_PLAYBACK || --gBatteryLeft > 0)
-        return;
-    if (!gBatteryRecording)
-    {
-        traceRestart();
-        gBatteryRecording = true;
-        gBatteryLeft = BATTERY_FRAMES;
-        return;
-    }
-    gPage = PAGE_PLAYBACK;
-    playbackStart();
-}
-
 void debugPlayFrame()
 {
-    if (tracePlayFrame() && gBattery)
-    {
-        playbackEnd();
-        batteryNext();
-    }
+    tracePlayFrame();
 }
 #endif
 
@@ -315,19 +149,11 @@ void debugUpdate()
         gPage = (gPage + PAGE_COUNT - 1) % PAGE_COUNT;
     }
     shoulders = keys & (IK_L | IK_R);
-    if (gPage != was && gBattery)
-    {
-        gBattery = 0;
-        batterySplit(gBatterySaved);
-    }
     if (gPage != was && was == PAGE_PLAYBACK) {
         playbackEnd();
     }
     if (gPage != was && gPage == PAGE_PLAYBACK) {
         playbackStart();
-    }
-    if (gBattery) {
-        keys = 0;
     }
     if (gPage == PAGE_MENU)
     {
@@ -361,32 +187,8 @@ void debugUpdate()
         }
     }
 
-#ifdef HW_LOG
-    if ((pressed & PAD_A) && menuShown() && gCursor == OPTION_BATTERY)
-    {
-        batteryStart();
-        pressed &= ~PAD_A;
-    }
-#endif
-    if ((pressed & PAD_A) && menuShown() && gCursor == OPTION_HUNT)
-    {
-        gMessageName = "Polygon hunt";
-        gMessage = huntArm() ? "freezing" : "no low work RAM left";
-        gMessageEnd = gVblankCount + 120;
-#ifdef HW_LOG
-        gFrameRows = false;
-        overlayUnpin(FRAME_ROW);
-        overlayUnpin(FRAME_ROW + 1);
-#endif
-    }
-    else if (pressed & PAD_A) {
+    if (pressed & PAD_A) {
         step(OPTION_PALETTE, 1);
-    }
-    if (pressed & PAD_B) {
-        step(OPTION_VIEW, 1);
-    }
-    if (pressed & PAD_C) {
-        step(OPTION_DARK, 1);
     }
 
 #ifdef HW_LOG
@@ -397,7 +199,6 @@ void debugUpdate()
         overlayUnpin(FRAME_ROW);
         overlayUnpin(FRAME_ROW + 1);
     }
-    batteryFrame();
     benchUpdate();
     sceneUpdate();
 #endif
@@ -430,10 +231,10 @@ static uint32 framePercent(uint32 ticks)
 }
 
 #ifdef HW_LOG
-// Hardware measurements without a second pad: every 4 seconds of play the
-// frames are built another way (gBenchMode), and a table keeps each way's
-// averages over its last 3 seconds: one photo after a full round.
-#define BENCH_WINDOW    240     // vblanks each way lasts
+// Hardware measurements without a second pad: while the bench page shows,
+// every 4 seconds of play the frame's averages over the last 3 seconds, and
+// where the master's time went then.
+#define BENCH_WINDOW    240     // vblanks a window lasts
 #define BENCH_SETTLE    60      // the first of them aren't averaged
 
 // A number right-aligned in a column of 5.
@@ -447,23 +248,21 @@ static char* appendColumn(char* p, uint32 value)
     return append(p, digits);
 }
 
-// each way's VDP1 and master CPU time, the master's drawing (rooms queued
-// and meshes, before flush), the slave's on rooms (transform and faces) and
-// the meshes it draws
-static struct { uint32 vdp1, cpu, draw, slave, fps; } gBench[BENCH_COUNT];
+// the frame's VDP1 and master CPU time, the master's drawing (its calls,
+// before flush), the slave's work in the frame
+static struct { uint32 vdp1, cpu, draw, slave, fps; } gBench;
 
-// and the base way's CPU time by stage, as gStats keeps it
-enum { SPLIT_UPDATE, SPLIT_DRAW, SPLIT_SLAVE_WAIT, SPLIT_FLUSH, SPLIT_XFORM, SPLIT_FACES, SPLIT_MESH, SPLIT_COUNT };
-static const char* const kSplitNames[SPLIT_COUNT] = { "upd ", "draw ", "swait ", "flush ", "xform ", "faces ",
-                                                      "mesh " };
-static uint32 gDspShare;    // percent of the base way's room vertices the DSP projected
+// and the CPUs' time by stage, as gStats keeps it: the master's update, calls,
+// flush (the frame's stages, the list's upload) and waits in the frame; the
+// slave's work and waits
+enum { SPLIT_UPDATE, SPLIT_DRAW, SPLIT_FLUSH, SPLIT_MASTER_WAIT, SPLIT_SLAVE, SPLIT_SLAVE_WAIT, SPLIT_COUNT };
+static const char* const kSplitNames[SPLIT_COUNT] = { "upd ", "draw ", "flush ", "wait ", "work ", "wait " };
 static uint32 gSplit[SPLIT_COUNT];
 
-// A sampling profiler for the master CPU: during the Profile way, the free-
-// running timer's compare A interrupts it every PROFILE_TICKS (128 cycles
-// each) and up to 31 more at random, and the interrupted PC counts towards
-// its 64-byte block of the program. The way draws as Base does; the other
-// ways run without the interrupt.
+// A sampling profiler for the master CPU, while the bench page measures: the
+// free-running timer's compare A interrupts it every PROFILE_TICKS (128
+// cycles each) and up to 31 more at random, and the interrupted PC counts
+// towards its 64-byte block of the program.
 #define FRT_TIER        (*(volatile uint8*)0xFFFFFE10)
 #define FRT_FTCSR       (*(volatile uint8*)0xFFFFFE11)
 #define FRT_OCRAH       (*(volatile uint8*)0xFFFFFE14)
@@ -480,7 +279,7 @@ static uint32 gSplit[SPLIT_COUNT];
 #define PROFILE_TICKS   40
 #define PROFILE_TOP     15      // three to a row, under the table
 
-static_assert(7 + BENCH_COUNT + PROFILE_TOP / 3 <= OVERLAY_ROWS, "the profile's rows fit the overlay");
+static_assert(8 + PROFILE_TOP / 3 <= OVERLAY_ROWS, "the profile's rows fit the overlay");
 
 extern "C" void profileEntry();     // irq.s
 static uint32 gProfileSamples, gProfileOther;
@@ -522,17 +321,6 @@ extern "C" void profileHandler(uint32 pc)
     {
         gProfileOther++;
     }
-}
-
-// project.dsp's whole room projection against xform.s's, 512 vertices
-void debugDspTest()
-{
-    uint32 dspTicks, cpuTicks;
-    int32 errors;
-    roomsDspTest(dspTicks, cpuTicks, errors);
-    crashLog("PJDSP", dspTicks);
-    crashLog("PJCPU", cpuTicks);
-    crashLog("PJERR", errors);
 }
 
 void debugProfileInit()
@@ -707,7 +495,7 @@ static void frameShown(uint32_t plot)
     static uint32 last;
     uint32 vblanks = gVblankCount - last;
     last = gVblankCount;
-    if (gPage == PAGE_BENCH || gPage == PAGE_NONE || gPage == PAGE_PLAYBACK || huntFrozen())
+    if (gPage == PAGE_BENCH || gPage == PAGE_NONE || gPage == PAGE_PLAYBACK)
         return;
 
     const FrameTag &t = gFrameTags[plot % FRAME_TAGS];
@@ -770,7 +558,6 @@ static void benchUpdate()
     static uint32 start;
     static uint32 frames, vdp1, cpu, draw, slave;
     static uint32 split[SPLIT_COUNT];
-    static uint32 dspVertices, roomVertices;
     static uint32 generation;
 
     // the trace's memory set up afresh: the profile counts again from empty
@@ -786,44 +573,31 @@ static void benchUpdate()
         gBenchChanged = true;
     }
 
-    // held on the menu's Way while the scene's rows show; a fresh window after
+    // a fresh window when the page shows again
     if (gPage != PAGE_BENCH)
     {
-        if (gBenchMode != gBenchHold)
-        {
-            gBenchMode = gBenchHold;
-            profileSampling(gBenchMode == BENCH_PROFILE);
-            vdp2SetBackColor(benchBackColor());
-        }
+        profileSampling(false);
         start = gVblankCount;
         frames = vdp1 = cpu = draw = slave = 0;
         memset(split, 0, sizeof(split));
-        dspVertices = roomVertices = 0;
         return;
     }
 
-    if (!start) {
-        start = gVblankCount;
-    }
-
     uint32 t = gVblankCount - start;
-    profileSampling(gBenchMode == BENCH_PROFILE && t >= BENCH_SETTLE && t < BENCH_WINDOW);
+    profileSampling(t >= BENCH_SETTLE && t < BENCH_WINDOW);
     if (t >= BENCH_SETTLE)
     {
         frames++;
         vdp1 += gStats.vdp1Ticks;
         cpu += gStats.updateTicks + gStats.renderTicks - gStats.waitTicks;
         draw += gStats.drawTicks;
-        slave += gStats.slaveXformTicks + gStats.slaveFaceTicks + gStats.slaveMeshTicks;
+        slave += gStats.slaveXformTicks;
         split[SPLIT_UPDATE] += gStats.updateTicks;
         split[SPLIT_DRAW] += gStats.drawTicks;
-        split[SPLIT_SLAVE_WAIT] += gStats.slaveWaitTicks;
         split[SPLIT_FLUSH] += gStats.flushTicks;
-        split[SPLIT_XFORM] += gStats.slaveXformTicks;
-        split[SPLIT_FACES] += gStats.slaveFaceTicks;
-        split[SPLIT_MESH] += gStats.slaveMeshTicks;
-        dspVertices += gStats.dspVertices;
-        roomVertices += gStats.roomVertices;
+        split[SPLIT_MASTER_WAIT] += gStats.slaveWaitTicks;
+        split[SPLIT_SLAVE] += gStats.slaveXformTicks;
+        split[SPLIT_SLAVE_WAIT] += gStats.slaveIdleTicks;
     }
 
     if (t < BENCH_WINDOW)
@@ -831,28 +605,18 @@ static void benchUpdate()
 
     if (frames)
     {
-        gBench[gBenchMode].vdp1 = framePercent(vdp1 / frames);
-        gBench[gBenchMode].cpu = framePercent(cpu / frames);
-        gBench[gBenchMode].draw = framePercent(draw / frames);
-        gBench[gBenchMode].slave = framePercent(slave / frames);
-        gBench[gBenchMode].fps = frames * 60 / (t - BENCH_SETTLE);
-        if (gBenchMode == BENCH_BASE)
-        {
-            for (int32 i = 0; i < SPLIT_COUNT; i++) {
-                gSplit[i] = framePercent(split[i] / frames);
-            }
-            gDspShare = roomVertices ? dspVertices * 100 / roomVertices : 0;
+        gBench.vdp1 = framePercent(vdp1 / frames);
+        gBench.cpu = framePercent(cpu / frames);
+        gBench.draw = framePercent(draw / frames);
+        gBench.slave = framePercent(slave / frames);
+        gBench.fps = frames * 60 / (t - BENCH_SETTLE);
+        for (int32 i = 0; i < SPLIT_COUNT; i++) {
+            gSplit[i] = framePercent(split[i] / frames);
         }
     }
-    if (gBenchMode == BENCH_PROFILE) {
-        profileRank();
-    }
+    profileRank();
     gBenchChanged = true;
     memset(split, 0, sizeof(split));
-    dspVertices = roomVertices = 0;
-
-    gBenchMode = (gBenchMode + 1) % BENCH_COUNT;
-    vdp2SetBackColor(benchBackColor());
     start = gVblankCount;
     frames = vdp1 = cpu = draw = slave = 0;
 }
@@ -883,39 +647,30 @@ static void benchCompose(OverlayText* rows)
     // the master's stages, then the slave's
     char* p = text;
     *p = 0;
-    for (int32 i = 0; i < SPLIT_XFORM; i++) {
+    for (int32 i = 0; i < SPLIT_SLAVE; i++) {
         p = appendStat(p, kSplitNames[i], gSplit[i]);
     }
     strncpy(rows[1], text, OVERLAY_COLUMNS);
     p = append(text, "slave ");
-    for (int32 i = SPLIT_XFORM; i < SPLIT_COUNT; i++) {
+    for (int32 i = SPLIT_SLAVE; i < SPLIT_COUNT; i++) {
         p = appendStat(p, kSplitNames[i], gSplit[i]);
     }
-    appendStat(p, "dsp ", gDspShare);
     strncpy(rows[2], text, OVERLAY_COLUMNS);
 
-    strncpy(rows[4], "   vdp1  cpu draw  slv  fps", OVERLAY_COLUMNS);
-    for (int32 i = 0; i < BENCH_COUNT; i++)
+    strncpy(rows[4], " vdp1  cpu draw  slv  fps", OVERLAY_COLUMNS);
+    p = text;
+    *p = 0;
+    if (gBench.fps)
     {
-        p = append(text, i == gBenchMode ? "> " : "  ");
-        if (gBench[i].fps)
-        {
-            p = appendColumn(p, gBench[i].vdp1);
-            p = appendColumn(p, gBench[i].cpu);
-            p = appendColumn(p, gBench[i].draw);
-            p = appendColumn(p, gBench[i].slave);
-            p = appendColumn(p, gBench[i].fps);
-        }
-        else
-        {
-            p = append(p, "                         ");
-        }
-        p = append(p, "  ");
-        append(p, kBenchNames[i]);
-        strncpy(rows[5 + i], text, OVERLAY_COLUMNS);
+        p = appendColumn(p, gBench.vdp1);
+        p = appendColumn(p, gBench.cpu);
+        p = appendColumn(p, gBench.draw);
+        p = appendColumn(p, gBench.slave);
+        appendColumn(p, gBench.fps);
     }
+    strncpy(rows[5], text, OVERLAY_COLUMNS);
 
-    int32 row = 6 + BENCH_COUNT;
+    int32 row = 7;
     p = append(text, "profile ");
     appendStat(p, "samples ", gProfileRanked);
     strncpy(rows[row++], text, OVERLAY_COLUMNS);
@@ -1093,11 +848,7 @@ static void drawDebug()
         overlayRow(row--, text, OVERLAY_CENTRE);
     }
 
-#ifdef HW_LOG
-    if (gTexelView)     // the stats change every frame: not while measuring
-#else
-    if (gShowStats || gTexelView)
-#endif
+    if (gShowStats)
     {
         // room faces drawn with cached textures; in their mean colour for want
         // of a cache slot or upload; flat for distance
@@ -1117,7 +868,6 @@ static void drawDebug()
     {
         if (gPage != PAGE_BENCH)
         {
-            overlayRow(1, kBenchNames[gBenchMode]);
             for (int32 i = 0; i < SCENE_ROWS; i++) {
                 overlayRow(2 + i, gSceneRows[i]);
             }

@@ -33,7 +33,7 @@ CC      := $(SH_PREFIX)gcc
 CXX     := $(SH_PREFIX)g++
 OBJCOPY := $(SH_PREFIX)objcopy
 # -ffunction-sections: saturn.ld places the hot functions first, in a fixed order
-CFLAGS  := -m2 -mb $(OPT) -Wall -D__SATURN__ -Isaturn -Iopenlara -I$(BUILD)/gen -ffunction-sections
+CFLAGS  := -m2 -mb $(OPT) -Wall -D__SATURN__ -Isaturn -Iopenlara -Irenderer -I$(BUILD)/gen -ffunction-sections
 ifdef START_LEVEL
 CFLAGS  += -DSTART_LEVEL=$(START_LEVEL)   # testing
 endif
@@ -56,9 +56,9 @@ CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use
 LDFLAGS := -nostdlib -T saturn/saturn.ld -Wl,--no-warn-rwx-segments
 
 # sources compiled with -O2 in place of $(OPT) (touch them when it changes):
-# the renderer's (-1 at the bench spot in Mednafen); the game's logic in
-# main.cpp would overflow high work RAM
-O2_SRC  ?= saturn/render.cpp saturn/rooms.cpp openlara/common.cpp
+# the renderer's, as the lab measures it; the game's logic in main.cpp
+# would overflow high work RAM
+O2_SRC  ?= saturn/render.cpp openlara/common.cpp $(wildcard renderer/*.cpp)
 $(patsubst %,$(BUILD)/obj/%.o,$(O2_SRC)): CXXFLAGS := $(subst $(OPT),-O2,$(CXXFLAGS))
 
 ER      := external_resources
@@ -69,8 +69,13 @@ DISC    := $(ER)/disc
 MAIN    := $(DISC)/files/0MAIN.BIN
 GH_OUT  := build/ghidra
 
-# The game: every platform source plus the OpenLara core.
-GAME_SRC := $(wildcard saturn/*.c saturn/*.cpp saturn/*.s) openlara/common.cpp
+# The game: every platform source plus the OpenLara core and the renderer;
+# the old renderer's sources (and the tools that read its faces) are the
+# lab's, for the game's way it compares against.
+OLD_RENDER := saturn/rooms.cpp saturn/faces.s saturn/flush.s saturn/xform.s saturn/meshxform.s saturn/hunt.cpp \
+	saturn/capture.cpp
+GAME_SRC := $(filter-out $(OLD_RENDER),$(wildcard saturn/*.c saturn/*.cpp saturn/*.s)) openlara/common.cpp \
+	$(wildcard renderer/*.cpp renderer/*.s)
 
 DISC_TXT := ABS.TXT=disc/ABS.TXT BIB.TXT=disc/BIB.TXT CPY.TXT=disc/CPY.TXT
 
@@ -86,11 +91,13 @@ endef
 FLAGS_FILE := $(BUILD)/gen/flags.txt
 $(shell mkdir -p $(BUILD)/gen && echo '$(CXXFLAGS)' | cmp -s - $(FLAGS_FILE) || echo '$(CXXFLAGS)' > $(FLAGS_FILE))
 
-# SCU DSP programs, assembled into headers (tools/dspasm.py): saturn/NAME.dsp
-# to NAME_dsp.h holding NAME_dsp[]
-DSP_HEADERS := $(patsubst saturn/%.dsp,$(BUILD)/gen/%_dsp.h,$(wildcard saturn/*.dsp))
+# SCU DSP programs, assembled into headers (tools/dspasm.py): saturn/NAME.dsp,
+# and those renderer/gen_NAME.py writes, to NAME_dsp.h holding NAME_dsp[]
+DSP_HEADERS := $(patsubst saturn/%.dsp,$(BUILD)/gen/%_dsp.h,$(wildcard saturn/*.dsp)) \
+	$(patsubst renderer/gen_%.py,$(BUILD)/gen/%_dsp.h,$(wildcard renderer/gen_*.py))
 # draw order hints (tools/depth_hints.py): saturn/depth_hints.txt
-HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h) $(DSP_HEADERS) $(BUILD)/gen/depth_hints.h $(FLAGS_FILE)
+HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h renderer/*.h) $(DSP_HEADERS) $(BUILD)/gen/depth_hints.h \
+	$(FLAGS_FILE)
 
 .PHONY: all disc dspbench lab extract ghidra check-toolchain
 
@@ -116,6 +123,13 @@ $(BUILD)/obj/%.s.o: %.s $(FLAGS_FILE) | check-toolchain
 
 $(BUILD)/gen/%_dsp.h: saturn/%.dsp tools/dspasm.py
 	@mkdir -p $(@D)
+	$(PY) tools/dspasm.py $< $@ $*_dsp
+
+$(BUILD)/gen/%.dsp: renderer/gen_%.py
+	@mkdir -p $(@D)
+	$(PY) $< $@
+
+$(BUILD)/gen/%_dsp.h: $(BUILD)/gen/%.dsp tools/dspasm.py
 	$(PY) tools/dspasm.py $< $@ $*_dsp
 
 $(BUILD)/gen/depth_hints.h: saturn/depth_hints.txt tools/depth_hints.py
@@ -190,8 +204,8 @@ $(eval $(call DISC_RULE,$(BENCH),))
 
 # The clean-room renderer's lab (lab/lab.cpp): a program of its own, on a disc
 # of its own with a captured frame (tools/capture.py) packed as its scene:
-# make lab [LAB_SCENE=name of build/captures/name]
-LAB := build/lab
+# make lab [LAB_SCENE=name of build/captures/name] [LAB=its build: tools/gauntlet.py's, one a scene]
+LAB ?= build/lab
 LAB_SCENE ?= ledge
 LAB_SCENE_FILE := $(LAB)/$(shell echo $(LAB_SCENE) | tr a-z A-Z).SCN
 LAB_SRC := $(wildcard renderer/*.cpp renderer/*.s lab/*.cpp lab/*.s) saturn/font.cpp saturn/cd.cpp saturn/dsp.cpp saturn/faces.s \

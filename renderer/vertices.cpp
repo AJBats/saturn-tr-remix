@@ -121,7 +121,6 @@ static const uint32_t kTails[6] = { MESHROT_DSP_COORDS, 4, 6, MESHROT_DSP_NORMAL
 static const FaceRoom* gRooms;     // the frame's (verticesRoomsSet)
 static uint32_t gRoomCount;
 static const DrawScene* gDraws;     // ... and its draws (verticesDrawsSet)
-static const DrawXform* gXforms;
 static uint32_t gDrawCount;
 static const uint8_t* gStore;       // the level's meshes (MeshStore)
 static uint32_t gMeshCount;         // ... its records

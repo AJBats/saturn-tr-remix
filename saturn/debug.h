@@ -1,5 +1,5 @@
-// The debug pad on port 2: a menu of rendering options to compare in game, and
-// lines of frame statistics.
+// The debug pad on port 2: a menu of options to compare in game, and lines of
+// frame statistics.
 #ifndef DEBUG_H
 #define DEBUG_H
 
@@ -41,10 +41,6 @@ void debugSyncTest();
 bool debugSyncKept();   // GBR still points at the master's CpuState
 #endif
 
-// Times the SCU DSP's whole room projection (project.dsp) against the
-// SH-2's and checks its results: boot log lines PJDSP and PJCPU (ticks),
-// PJERR (vertices that differ).
-void debugDspTest();
 #endif
 
 #endif

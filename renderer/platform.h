@@ -6,15 +6,10 @@
 
 #include <stdint.h>
 
-// This CPU's free-running timer: 16 bits, a tick every 32 cycles, so a span
-// up to 2M cycles (73 ms) reads right.
-#define TICK_CYCLES 32
+// This CPU's free-running timer, 16 bits at the program's rate, and the SH-2
+// cycles between two of its readings (a span shorter than its wrap).
 uint32_t ticks();
-
-inline uint32_t ticksCycles(uint32_t t0, uint32_t t1)
-{
-    return ((t1 - t0) & 0xFFFF) * TICK_CYCLES;
-}
+uint32_t ticksCycles(uint32_t t0, uint32_t t1);
 
 // The same memory through the cache-through mirror.
 template <typename T>
@@ -33,9 +28,9 @@ inline void cacheDrop(const void* p, uint32_t size)
     }
 }
 
-// size bytes from src (high work RAM: the SCU's DMA can't read low) to VDP1
-// VRAM at offset vram by the SCU's level 0 DMA, once the copy before has
-// ended; dmaWait waits for the last.
+// size bytes (not 0: the SCU's count of 0 is its most) from src (high work
+// RAM: the SCU's DMA can't read low) to VDP1 VRAM at offset vram by the SCU's
+// level 0 DMA, once the copy before has ended; dmaWait waits for the last.
 void dmaToVdp1(const void* src, uint32_t vram, uint32_t size);
 void dmaWait();
 

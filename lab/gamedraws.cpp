@@ -95,6 +95,7 @@ static Matrix gView;
 static RectMinMax gViewport;
 static int32_t gBase;               // the next draw's first vertex
 static DrawList gList;
+static uint32_t gShown;             // the record of the last item posed: its shadow follows it
 
 static int32_t sphereIsVisible(int32_t sx, int32_t sy, int32_t sz, int32_t r)
 {
@@ -278,6 +279,7 @@ static void drawModel(const ItemRecord &record, uint32_t flags)
     if (!sphereIsVisible(sx, sy, sz, sr))
         return;
 
+    gShown = &record - gItems;
     const GameModel &model = gModels[item->type];
     PoseItem &p = gList.items[gList.itemCount];
     PoseLight &l = gList.lights[gList.itemCount++];
@@ -357,12 +359,13 @@ static void drawModel(const ItemRecord &record, uint32_t flags)
     }
 }
 
-// drawShadow, the floor given: its draw
+// drawShadow, the floor given: its draw, after its item's drawModel if that
+// posed the item (drawModel calls it, once it is in view)
 static void drawShadow(const CallRecord &call)
 {
     int32_t floor = call.args[0];
 
-    if (floor == WALL)
+    if (call.index != gShown || floor == WALL)
         return;
 
     PoseShadow &s = gList.shadows[gList.shadowCount++];
@@ -611,6 +614,7 @@ void gameDraws(int32_t fills)
 {
     gList.drawCount = gList.itemCount = gList.staticCount = gList.shadowCount = gList.faceCount = 0;
     gList.hintedCount = 0;
+    gShown = 0xFFFFFFFF;
     gBase = 2 * fills;
     for (uint32_t i = 0; i < gCallCount; i++)
     {

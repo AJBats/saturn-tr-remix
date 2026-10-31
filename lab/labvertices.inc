@@ -129,7 +129,7 @@ const char* verticesLabInit(const FaceRoom* rooms, uint32_t roomCount)
     }
     roomOrder(order);
     gDraws = sceneArray<const DrawScene>("DRAW", &gDrawCount);
-    gXforms = sceneArray<const DrawXform>("XFRM");
+    const DrawXform* xforms = sceneArray<const DrawXform>("XFRM");
     gSceneVertices = sceneArray<const Vertex>("VERT");
     VerticesLevel level;
     level.store = sceneArray<const MeshStore>("MSTO");
@@ -175,7 +175,7 @@ const char* verticesLabInit(const FaceRoom* rooms, uint32_t roomCount)
         gReady[gMeshCount + s] = ready;
         ready += SHADOW_VERTICES * 6;
     }
-    verticesDrawsSet(gDraws, gDrawCount, gXforms);
+    verticesDrawsSet(gDraws, gDrawCount, xforms);
     return nullptr;
 }
 

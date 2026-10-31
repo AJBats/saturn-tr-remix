@@ -37,6 +37,22 @@ call records, and the frame runs as the lab's whole-frame run does: both
 CPUs and the DSP, then the upload and VDP1's frame change. Done when every
 level boots and plays in Mednafen.
 
+Where C stands: the game draws with the renderer (`saturn/render.cpp` records
+the calls, walks the rooms on the master for drawRooms, and runs the frame
+at flush; `saturn/detail.cpp` lays out the texture cache the renderer
+keeps; the level's high work RAM is taken in order at load, `os.cpp`). The
+Caves play at 30 fps in Mednafen, pixel for pixel the old renderer's but for
+the object quads it turned (`turnObjectQuads`, not in the mesh store yet);
+the title draws its text. Left for C:
+
+- the inventory's items (drawNodesLerp's meshes, with the inventory's own
+  matrices) and the dimmed scene behind it;
+- Lara's gun flashes (drawFlash);
+- `turnObjectQuads` in the packer's mesh store;
+- the DSP end interrupt in the game (the frame's DSP time reads 0);
+- every level booted and played (cutscenes, flip maps, LEVEL7B's low work
+  RAM).
+
 **D. Checked and finished.** For the same frame of a recorded play, the
 renderer's inputs in game against a capture's scene (made with the old
 renderer: a worktree of the last commit that has it), and the frame drawn

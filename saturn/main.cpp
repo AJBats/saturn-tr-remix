@@ -1,12 +1,10 @@
 // Saturn platform entry: hardware setup, then OpenLara's game loop.
 
 #include "game.h"
-#include "capture.h"
 #include "cd.h"
 #include "crash.h"
 #include "debug.h"
 #include "fmv.h"
-#include "hunt.h"
 #include "hw.h"
 #include "input.h"
 #include "render.h"
@@ -55,7 +53,6 @@ int main()
 #ifdef HW_LOG
     traceInit();
     debugProfileInit();
-    debugDspTest();
 #ifdef SYNC_TEST
     debugSyncTest();
 #endif
@@ -99,22 +96,6 @@ int main()
             renderPoll();
         }
         gPad = padButtons();
-
-        if (huntFrozen())
-        {
-            // the game stands still while a polygon hunt holds the frame
-            lastTick = tick;
-            huntUpdate(gPad);
-            continue;
-        }
-        if (captureFrozen())
-        {
-            // and while a capture holds it, until the debugger lets it go
-            lastTick = tick;
-            captureHold();
-            continue;
-        }
-        captureTick();
 
         int32 delta = X_MIN(int32(tick - lastTick), MAX_UPDATE_FRAMES);
         lastTick = tick;

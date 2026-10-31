@@ -14,7 +14,9 @@
 namespace render {
 
 #define TEXTURE_UPLOADS 32
+#ifndef DETAIL_SLOTS
 #define DETAIL_SLOTS    (DETAIL_FULL_SLOTS + 2 * DETAIL_MIP_SLOTS)
+#endif
 
 struct TextureUpload
 {

@@ -10,7 +10,8 @@ static_assert(offsetof(DrawsContext, camera) == 60 && offsetof(DrawsContext, vie
               offsetof(DrawsContext, viewport) == 80 && offsetof(DrawsContext, base) == 96 &&
               offsetof(DrawsContext, faceCount) == 144 && offsetof(DrawsContext, k20) == 148 &&
               offsetof(DrawsContext, frameA) == 156 && offsetof(DrawsContext, viewMin) == 176 &&
-              offsetof(DrawsContext, drawCount) == 184 && offsetof(DrawsContext, hintOpen) == 204,
+              offsetof(DrawsContext, drawCount) == 184 && offsetof(DrawsContext, hintOpen) == 204 &&
+              offsetof(DrawsContext, shown) == 208,
               "draws.s's DrawsContext");
 static_assert(sizeof(DrawScene) == 24 && sizeof(PoseItem) == 104 && sizeof(PoseLight) == 12 &&
               sizeof(PoseStatic) == 20 && sizeof(PoseShadow) == 8 && sizeof(Face) == 16 && sizeof(Vertex) == 8 &&
@@ -106,7 +107,7 @@ uint32_t drawsFitting(const CallRecord* calls, uint32_t count, const ItemRecord*
         models += c.kind == CALL_MODEL;
         statics += c.kind == CALL_STATIC;
         shadows += c.kind == CALL_SHADOW;
-        faces += c.kind == CALL_SPRITE || c.kind == CALL_RECT;
+        faces += c.kind == CALL_SPRITE || c.kind == CALL_RECT || c.kind == CALL_GLYPH;
         draws += c.kind == CALL_VIEWPORT ? 0 : meshes;
         if (draws > MAX_DRAWS || models > MAX_DRAW_ITEMS || statics > MAX_DRAW_STATICS ||
             shadows > MAX_DRAW_SHADOWS || faces > MAX_DRAW_FACES)

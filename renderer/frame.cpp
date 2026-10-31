@@ -119,7 +119,7 @@ static uint32_t gNextHinted;
 
 void frameHintsBegin()
 {
-    static uint16_t rooms[MAX_ROOMS];
+    static uint16_t rooms[MAX_FRAME_ROOMS];
     for (uint32_t i = 0; i < gFrameRoomCount; i++) {
         rooms[i] = gFrameRooms[i].room;
     }
@@ -187,8 +187,8 @@ void frameMesh(uint32_t i, const FaceSet* set, const Vertex* vertices, uint32_t 
 // done; the near half's first chain (its head, for the far half's last
 // command to link to) and the link field its last goes into; the slave's
 // work and waits; the items it poses, done; the plan made and the master's
-// chunks claimed; whether it walks the rooms and starts the DSP on them
-// first, done.
+// chunks claimed; whether it walks the rooms (or takes the master's walk)
+// and starts the DSP on them first, done.
 #define JOIN_SPLIT  (JOIN_PAIRS / 2)    // the far half's nearest pair
 
 struct SlaveStages
@@ -205,6 +205,7 @@ struct SlaveStages
     volatile uint32_t walked;
 } __attribute__((aligned(16)));
 static SlaveStages gSlaveStages;
+enum { WALK_NONE, WALK_SLAVE, WALK_MASTER };   // SlaveStages.walks
 
 // The frame's split between the CPUs, beside the rooms' chunks: the items the
 // slave poses.
@@ -217,10 +218,12 @@ static void slaveRooms(void*)
     if (shared->walks)
     {
         // the rooms seen, their jobs, laid out, the DSP started on them in order
-        roomsSeen();
+        if (shared->walks == WALK_SLAVE) {
+            roomsSeen();
+        }
         gFrameRooms = roomsJobs(gFrameRoomCount);
-        if (gFrameRoomCount > MAX_ROOMS) {
-            gFrameRoomCount = MAX_ROOMS;
+        if (gFrameRoomCount > MAX_FRAME_ROOMS) {
+            gFrameRoomCount = MAX_FRAME_ROOMS;
         }
         verticesRoomsSet(gFrameRooms, gFrameRoomCount);
         verticesRoomsStart();
@@ -282,7 +285,7 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
     SlaveStages* shared = uncached(&gSlaveStages);
     shared->roomsDone = shared->drawsDone = shared->posed = shared->walked = 0;
     shared->roomsReady = !posed;
-    shared->walks = posed;
+    shared->walks = !posed ? WALK_NONE : calls->walked ? WALK_MASTER : WALK_SLAVE;
     int32_t part = verticesJobs();
     uint32_t slaveItems = 0;
     shared->poses = 0;
@@ -490,8 +493,11 @@ uint32_t frameUpload()
     dmaToVdp1(gFrameCmds, VRAM_FRAME_CMDS, rooms * sizeof(Command));
     dmaToVdp1(gFrameCmds + gMeshFirst, VRAM_FRAME_CMDS + gMeshFirst * sizeof(Command), meshes * sizeof(Command));
     dmaToVdp1(gFrameGrd, VRAM_GOURAUD_BASE, rooms * sizeof(gFrameGrd[0]));
-    dmaToVdp1(gFrameGrd + gMeshFirst, VRAM_GOURAUD_BASE + gMeshFirst * sizeof(gFrameGrd[0]),
-              (meshes - 1) * sizeof(gFrameGrd[0]));
+    if (meshes > 1)     // (a frame without draws has the end alone, which takes no table)
+    {
+        dmaToVdp1(gFrameGrd + gMeshFirst, VRAM_GOURAUD_BASE + gMeshFirst * sizeof(gFrameGrd[0]),
+                  (meshes - 1) * sizeof(gFrameGrd[0]));
+    }
     dmaWait();
     return (rooms + meshes) * sizeof(Command) + (rooms + meshes - 1) * sizeof(gFrameGrd[0]);
 }

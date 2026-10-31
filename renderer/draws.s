@@ -67,6 +67,7 @@
     .equ    D_HINTED,       196     ! the next HintedCall
     .equ    D_HINTED_COUNT, 200
     .equ    D_HINT_OPEN,    204     ! the call's, at D_HINTED, is open
+    .equ    D_SHOWN,        208     ! the ItemRecord of the last item posed
 
     .equ    CALL_BYTES,     32      ! CallRecord
     .equ    C_INDEX,        2
@@ -78,6 +79,7 @@
     .equ    CALL_SHADOW,    4
     .equ    CALL_SPRITE,    5
     .equ    CALL_RECT,      6
+    .equ    CALL_GLYPH,     7
     .equ    IT_POS,         8       ! ItemRecord: the item (GameItem), its room, its extra
     .equ    IT_ANGLE,       20
     .equ    IT_ANIM,        32
@@ -580,6 +582,9 @@
     nop
 
 .Lshown:
+    mov.w   @(C_INDEX,r14), r0
+    extu.w  r0, r0
+    mov.l   r0, @(D_SHOWN,gbr)
     ! the pose's item at r3
     mov.l   @(D_ITEM_COUNT,gbr), r0
     mov     r0, r1
@@ -847,9 +852,17 @@
     rts
     nop
 
-! drawShadow, the floor given: the call at r14
+! drawShadow, the floor given: the call at r14, after its item's model's,
+! if that was shown
 .Lshadow:
-    mov.l   @(C_ARGS,r14), r1       ! the floor
+    mov.w   @(C_INDEX,r14), r0
+    extu.w  r0, r1
+    mov.l   @(D_SHOWN,gbr), r0
+    cmp/eq  r0, r1
+    bt      0f
+    rts
+    nop
+0:  mov.l   @(C_ARGS,r14), r1       ! the floor
     mov     #-127, r0
     shll8   r0                      ! WALL
     cmp/eq  r0, r1
@@ -1188,6 +1201,33 @@
     rts
     nop
 
+! renderGlyph: the call at r14 (left top right bottom on the frame; its
+! sprite), in the nearest bucket, its colours as they are (gouraud 16)
+.Lglyph:
+    sts.l   pr, @-r15
+    mov.w   @(C_INDEX,r14), r0
+    extu.w  r0, r5
+    mov.l   .Lglyph_type, r0
+    or      r0, r5                  ! FACE_TYPE_SPRITE << FACE_TYPE_SHIFT | its sprite
+    bsr     .Lcopy
+    mov     #0, r6
+    mov.l   @(C_ARGS,r14), r0
+    mov.w   r0, @r7
+    mov.l   @(C_ARGS+4,r14), r0
+    mov.w   r0, @(2,r7)
+    mov     #15, r0
+    mov.b   r0, @(6,r7)             ! its shade: VDP1's gouraud 16
+    mov.l   @(C_ARGS+8,r14), r0
+    mov.w   r0, @(8,r7)
+    mov.l   @(C_ARGS+12,r14), r0
+    mov.w   r0, @(10,r7)
+    lds.l   @r15+, pr
+    rts
+    nop
+
+    .align  2
+.Lglyph_type: .long  6 << 14
+
 ! setViewport: the call at r14
 .Lviewport:
     mov.l   @(C_ARGS,r14), r0
@@ -1310,6 +1350,8 @@ _drawsAsm:
     mov.l   r0, @(D_DRAW_COUNT,gbr)
     mov.l   r0, @(D_HINTED_COUNT,gbr)
     mov.l   r0, @(D_HINT_OPEN,gbr)
+    mov     #-1, r0
+    mov.l   r0, @(D_SHOWN,gbr)
     tst     r13, r13
     bt      .Lend
 .Lcall:
@@ -1347,8 +1389,14 @@ _drawsAsm:
     bra     .Lnext
     nop
 5:  cmp/eq  #CALL_RECT, r0
-    bf      .Lnext
+    bf      6f
     bsr     .Lrect
+    nop
+    bra     .Lnext
+    nop
+6:  cmp/eq  #CALL_GLYPH, r0
+    bf      .Lnext
+    bsr     .Lglyph
     nop
 .Lnext:
     mov.l   @(D_HINT_OPEN,gbr), r0
