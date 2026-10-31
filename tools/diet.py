@@ -683,6 +683,34 @@ def plank_diet(mesh, index, atlas, apart=None):
     return out
 
 
+def level_diet(lvl, meshes, model_name):
+    """The meshes the diet simplifies in lvl, {mesh index: DietMesh}: the
+    wolf's, the planks' and the rope statics' (ROPE_STATICS). model_name(type)
+    names a model's type as common.h's ITEM_TYPES does."""
+    atlas = Atlas(lvl)
+    out = {}
+    for m in lvl.models:
+        name = model_name(m["type"])
+        if name == "WOLF":
+            simplified, _ = wolf_diet(lvl, m, meshes, atlas)
+            out.update({m["start"] + j: dm for j, dm in simplified.items()})
+        elif name in ("BRIDGE_FLAT", "BRIDGE_TILT_1", "BRIDGE_TILT_2"):
+            i = m["start"]
+            groups = PLANK_APART.get((lvl.name, name), [])
+            apart = {fi: k for k, group in enumerate(groups) for fi in group}
+            out[i] = plank_diet(meshes[i], i, atlas, apart)
+    ropes = ROPE_STATICS.get(lvl.name, ())
+    for st in lvl.static_meshes:
+        if st["id"] in ropes:
+            dm = rope_diet(meshes[st["mesh"]], st["mesh"], atlas)
+            if dm is None:
+                raise ValueError(f"static {st['id']} (ROPE_STATICS) is not a rope static")
+            if st["mesh"] in out:
+                raise ValueError(f"mesh {st['mesh']} simplified twice")
+            out[st["mesh"]] = dm
+    return out
+
+
 def rope_diet(mesh, index, atlas):
     """A rope static's tubes as cards, each segment's textured with its first
     face's texture turned to run along it from the end at the face's corner

@@ -109,6 +109,7 @@ VRAM_TEX_BASE = vram_tex_base()
 
 # VDP1 CMDCTRL direction bits, kept in texture attributes
 TEX_ATTR_FLIP_H = 0x10
+TEX_ATTR_FLIP_V = 0x20
 
 # Turned object textures (render.cpp turnObjectQuads before step 8): a mesh
 # quad drawn across a texture twice as tall as it is wide takes many short
@@ -783,23 +784,13 @@ class Packer:
         none."""
         if os.environ.get("DIET") == "0":
             return {}
-        lvl = self.lvl
-        atlas = diet.Atlas(lvl)
-        out = {}
-        for m in lvl.models:
-            name = next((n for n, v in ITEM.items() if v == m["type"]), "")
-            if name in ("BRIDGE_FLAT", "BRIDGE_TILT_1", "BRIDGE_TILT_2"):
-                i = m["start"]
-                groups = diet.PLANK_APART.get((lvl.name, name), [])
-                apart = {fi: k for k, group in enumerate(groups) for fi in group}
-                out[i] = diet.plank_diet(self.meshes[i], i, atlas, apart)
-        return out
+        return diet.level_diet(self.lvl, self.meshes, lambda t: next((n for n, v in ITEM.items() if v == t), ""))
 
-    def diet_texture(self, pixels, colors, w, h, transparent):
+    def diet_texture(self, pixels, colors, w, h, transparent, attr=0):
         """The face flags of a texture made for the diet, once per texture."""
-        key = (bytes(pixels), tuple(colors), w, h, transparent)
+        key = (bytes(pixels), tuple(colors), w, h, transparent, attr)
         if key not in self.diet_textures:
-            index = self.textures.custom(pixels, colors, w, h, TEX_ATTR_AKILL if transparent else 0)
+            index = self.textures.custom(pixels, colors, w, h, attr | (TEX_ATTR_AKILL if transparent else 0))
             if index > FACE_TEXTURE_MAX:
                 raise ValueError("texture index does not fit the face flags")
             face_type = FACE_TYPE_FTA if transparent else FACE_TYPE_FT
@@ -829,8 +820,26 @@ class Packer:
             self.textures.entries[index][3] |= turned
         return flags, corners
 
+    def diet_card(self, card):
+        """A card's face flags: its texture, which runs along it from its
+        first end, drawn flipped top to bottom (its first row on the side of
+        the line the renderer's corner A goes, renderer/faces.h, which is
+        the side opposite the one tools/diet.py bakes it for)."""
+        texture = card["texture"]
+        if texture[0] == "image":
+            (w, h, rgba), transparent = texture[1:]
+            pixels, colors = diet.quantize(w, h, rgba)
+        else:
+            _, w, h, texels, colors, transparent = texture
+            pixels = bytes((texels[i] << 4) | texels[i + 1] for i in range(0, len(texels), 2))
+        return self.diet_texture(pixels, colors, w, h, transparent, TEX_ATTR_FLIP_V)
+
     def diet_mesh(self, dm):
-        """A DietMesh in the game's layout (write_mesh_record)."""
+        """A DietMesh in the game's layout (write_mesh_record): its cards after
+        its triangles, each card's four vertices last (its ends, then copies
+        of the second and the first), lit as its ends are. A mesh the diet
+        empties (a joint it holds still, merged into its parent's) keeps one
+        vertex and no faces: the renderer draws a mesh for every joint."""
         quads, tris = [], []
         for f in dm.faces:
             if isinstance(f, dict):
@@ -841,9 +850,31 @@ class Packer:
                 quads.append(self.mesh_quad(src, ftype, flags, idx))
             else:
                 tris.append(self.mesh_triangle(src, ftype, flags, idx))
+        vertices = [list(v) for v in dm.vertices]
+        normals = [list(n) for n in dm.normals] if dm.normals is not None else None
+        intensities = list(dm.intensities) if dm.intensities is not None else None
+        cards = []
+        for c in dm.cards:
+            for end in (1, 2, 2, 1):
+                vertices.append([round(q) for q in (c["e0"] if end == 1 else c["e1"])])
+                if c["light"][0] == "normals":
+                    n = c["light"][end] or [0, 0, 0]
+                    normals.append([round(16384 * diet.CARD_LIGHT * q) for q in n])
+                else:
+                    intensities.append(round(c["light"][end]))
+            half = round(c["half"])
+            if not 0 < half <= diet.CARD_HALF_MAX:
+                raise ValueError(f"a card {half} units wide either side")
+            cards.append((half, self.diet_card(c)))
+        if not vertices:
+            vertices.append([0, 0, 0])
+            if normals is not None:
+                normals.append([0, 0, 0])
+            if intensities is not None:
+                intensities.append(0)
         out = Out()
-        write_mesh_record(out, "a diet mesh", dm.center, dm.radius, dm.vertices, dm.normals, dm.intensities,
-                          quads, tris)
+        write_mesh_record(out, "a diet mesh", dm.center, dm.radius, vertices, normals, intensities, quads, tris,
+                          cards)
         return bytes(out.b)
 
     # --- animation -------------------------------------------------------
@@ -1235,23 +1266,30 @@ def mesh_store(data, diet_records):
     return meshstore.build(records, index, textures, palette, TEXTURE_PMOD)
 
 
-def write_mesh_record(out, name, center, radius, vertices, normals, intensities, quads, tris):
-    """A mesh as the game reads it (common.h Mesh): the header, vertices,
-    their lighting (normals as 8-bit vectors for meshes lit by the room's
-    lights, or shades for pre-lit ones, or neither), quads [(flags, idx)] and
-    triangles [(flags, idx, arrangement)]."""
+def write_mesh_record(out, name, center, radius, vertices, normals, intensities, quads, tris, cards=()):
+    """A mesh as the game reads it (common.h Mesh): the header (its cards'
+    count last), vertices, their lighting (normals as 8-bit vectors for
+    meshes lit by the room's lights, or shades for pre-lit ones, or
+    neither), quads [(flags, idx)], triangles [(flags, idx, arrangement)],
+    and cards [(half, flags)] whose four vertices each are the last
+    (renderer/faces.h: the renderer's mesh store's alone)."""
     n = len(vertices)
-    if n > 255:
-        raise ValueError(f"{name}: {n} vertices")
+    if n > 255 or len(cards) > 255:
+        raise ValueError(f"{name}: {n} vertices, {len(cards)} cards")
     lighting = MESH_LIGHT_NORMALS if normals else MESH_LIGHT_SHADES if intensities else 0
     intensity = sum(intensities) // len(intensities) if intensities else 0
-    # the radius is for collision, and often leaves vertices out
+    # the bound: every vertex lies within it (the radius is for collision,
+    # and often leaves vertices out); a card's corners lie no farther from
+    # its ends in x or y than half its width, so within root 2 halves
     cx, cy, cz = center
-    bound = math.ceil(max((math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) for x, y, z in vertices),
-                          default=0))
+    reach = [math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) for x, y, z in vertices]
+    for k, (half, _) in enumerate(cards):
+        end = n - 4 * len(cards) + 4 * k
+        reach += [reach[end] + 1.42 * half, reach[end + 1] + 1.42 * half]
+    bound = math.ceil(max(reach, default=0))
     if bound > 0x7FFF:
         raise ValueError(f"{name}: bounding radius {bound}")
-    out.pack("4hH2B4h", cx, cy, cz, radius, intensity, n, lighting, len(quads), len(tris), bound, 0)
+    out.pack("4hH2B3h2B", cx, cy, cz, radius, intensity, n, lighting, len(quads), len(tris), bound, 0, len(cards))
     for v in vertices:
         out.pack("3h", *v)
     if lighting == MESH_LIGHT_NORMALS:
@@ -1265,6 +1303,8 @@ def write_mesh_record(out, name, center, radius, vertices, normals, intensities,
         out.pack("H4B", packed, *idx)
     for packed, idx, arrangement in tris:
         out.pack("H4B", packed, *idx, arrangement)
+    for half, packed in cards:
+        out.pack("hH", half, packed)
 
 
 def main():
