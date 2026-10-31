@@ -487,6 +487,14 @@ void Camera::lookAt(int32 offset)
 
 void Camera::update()
 {
+    // the underwater woosh, keyed again as it ends, while the camera is in
+    // water (the original's CalculateCamera, 0600d128)
+    if (ROOM_FLAG_WATER(view.room->info->flags)) {
+        soundPlay(SND_UNDERWATER, NULL);
+    } else {
+        soundStop(SND_UNDERWATER);
+    }
+
     if (mode == CAMERA_MODE_CUTSCENE && updateCutscene())
         return;
 

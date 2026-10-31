@@ -27,10 +27,11 @@
 #define EXTS_LEFT_ONLY  0x1F
 #define EXTS_RIGHT_ONLY 0x0F
 
-// Samples are 16-bit PCM at 5512.5 Hz (44100 Hz, octave -3), as in the
-// original, or 8-bit PCM at 11025 Hz (octave -2) made from the PlayStation's;
-// either plays 11025 bytes a second. They are loaded at SOUND_SAMPLES_ADDR in
-// sound RAM (sound.h has the offsets table's format).
+// Samples are 16-bit PCM at the original's rates (5512.5 Hz, octave -3; or
+// for the sounds it lists, 2971.6 Hz, octave -4 at FNS 0x50, and 11025 Hz,
+// octave -2), or 8-bit PCM made from the PlayStation's, at 11025 Hz or
+// raised as the original raises the 2971.6 Hz ones. They are loaded at
+// SOUND_SAMPLES_ADDR in sound RAM (sound.h has the offsets table's format).
 #define VOICES          16      // slots 0-15; 16 and 17 carry the CD audio
 
 // Audio tracks on the disc
@@ -65,12 +66,34 @@ static uint32 sampleTL(int32 index, int32 volume)
     return X_MIN(gVolumeTL[X_CLAMP(volume, 0, 64)] + atten, 255u);
 }
 
-// OpenLara pitch (128 = the sample's rate) as SCSP octave and frequency
-static uint32 pitchOctFns(int32 pitch)
+// A sample's rate: its SCSP octave and frequency at OpenLara pitch 128, and
+// in Hz, by SOUND_RATE_*
+struct Rate
 {
-    if (pitch >= 128)
-        return (0xD << 11) | X_MIN((pitch - 128) * 8, 0x3FF);   // octave -3
-    return (0xC << 11) | ((X_MAX(pitch, 64) - 64) * 16);        // octave -4
+    int32 octave;
+    uint32 fns;
+    uint32 hz;
+};
+
+static const Rate gRates[4] = { { -3, 0, 5513 }, { -4, 0x50, 2972 }, { -2, 0, 11025 }, { -2, 193, 13103 } };
+
+// The rate at OpenLara pitch (128 = the sample's rate) as SCSP octave and
+// frequency: the step 1 + FNS / 1024 between 1 and 2, the octave scaling it
+static uint32 pitchOctFns(const Rate &rate, int32 pitch)
+{
+    int32 octave = rate.octave;
+    uint32 step = (1024 + rate.fns) * uint32(X_MAX(pitch, 1)) / 128;
+    while (step >= 2048)
+    {
+        step >>= 1;
+        octave++;
+    }
+    while (step < 1024)
+    {
+        step <<= 1;
+        octave--;
+    }
+    return (uint32(octave & 15) << 11) | (step - 1024);
 }
 
 // Every slot follows its KYONB: keyed-on slots start, keyed-off ones release.
@@ -170,6 +193,9 @@ void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
     bool pcm8 = (entry & SOUND_PCM8) != 0;
     uint32 addr = SOUND_SAMPLES_ADDR + offset;
     uint32 length = pcm8 ? bytes : bytes >> 1;
+    if (!length)
+        return NULL;
+    const Rate &rate = gRates[(entry >> SOUND_RATE_SHIFT) & SOUND_RATE_MASK];
     bool loop = (mode == LOOP);
 
     uint16 reg0 = (loop ? LPCTL_LOOP : 0) | (pcm8 ? PCM8B : 0) | ((addr >> 16) & 15);
@@ -181,18 +207,18 @@ void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
     SCSP_SLOT(v, 5) = 0x001F;                   // release 31
     SCSP_SLOT(v, 6) = sampleTL(index, volume);
     SCSP_SLOT(v, 7) = 0;                        // no modulation
-    SCSP_SLOT(v, 8) = pitchOctFns(pitch) + (pcm8 ? 1 << 11 : 0);   // an octave up at 11025 Hz
+    SCSP_SLOT(v, 8) = pitchOctFns(rate, pitch);
     SCSP_SLOT(v, 9) = 0;                        // no LFO
     SCSP_SLOT(v, 10) = 0;
     SCSP_SLOT(v, 11) = 7 << 13;                 // direct send, centre
     SCSP_SLOT(v, 0) = reg0 | KYONB;
     keyExecute();
 
-    // bytes per 60 Hz frame at this pitch: 11025 / 60 * pitch / 128
+    // samples per 60 Hz frame at this pitch: hz / 60 * pitch / 128
     Voice &voice = gVoices[v];
     voice.sample = index;
     voice.loop = loop;
-    voice.end = gVblankCount + (bytes * 64) / (92 * X_MAX(pitch, 1)) + 1;
+    voice.end = gVblankCount + length * 7680 / (rate.hz * X_MAX(pitch, 1)) + 1;
 
     return &voice;
 }

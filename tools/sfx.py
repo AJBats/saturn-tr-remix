@@ -1,27 +1,40 @@
 """The level's sound effects, as the game loads them into sound RAM (the .SFX
 file) and the offsets table that describes them (saturn/sound.h).
 
-The Saturn's samples are 16-bit PCM at 5512.5 Hz, made from the same
-recordings as the PlayStation's (SPU ADPCM at 11025 Hz) by keeping every other
-sample, from 70-170 samples into the PlayStation's, and shortened: cut at the
-end, or with stretches cut out of the middle. Some are other recordings.
+The Saturn's samples are 16-bit PCM, made from the same recordings as the
+PlayStation's (SPU ADPCM at 11025 Hz), from 70-170 samples into the
+PlayStation's, and shortened: cut at the end, or with stretches cut out of
+the middle. Some are other recordings. Most are at 5512.5 Hz (every other
+sample), and the original plays them so; but by its lists (LoadSoundFX
+06036ec0, S_SoundPlaySample 0603c478), variant 0 of each sound in
+SLOW_SOUNDS, a sample made at 2500 Hz, it plays at 2971.6 Hz (1.19 times as
+fast as recorded), and of each in FAST_SOUNDS, made at 11025 Hz, at 11025
+Hz. The offsets table carries each sample's rate (saturn/sound.h).
 
 A Saturn sample is replaced by the PlayStation's it was made from, as 8-bit
-PCM at 11025 Hz, which takes the same room for the same length. It is found
-among the PlayStation samples the sound map gives the same sound (the same
-sample index when it gives none) and accepted when the Saturn sample, in
-256-sample chunks, is found in it in order (an edit of it): chunks holding
-at least CHAIN_MIN of the sample's energy each correlate CHUNK_MIN or better
-with the PlayStation sample, at positions that only move forward. Another
-recording of a sound has chunks that correlate as well only by chance, and
-at scattered positions. A sample not found keeps the Saturn data.
+PCM at 11025 Hz: from 5512.5 Hz that takes the same room for the same
+length; from 2500 Hz, 2.2 times the room (while sound RAM lasts: fit()),
+played 1.19 times as fast, as the original plays it. It is found among the
+PlayStation samples the sound map gives the same sound (the same sample
+index when it gives none), seen at the Saturn sample's rate, and accepted
+when the Saturn sample, in 256-sample chunks, is found in it in order (an
+edit of it): chunks holding at least CHAIN_MIN of the sample's energy each
+correlate CHUNK_MIN or better with the PlayStation sample, at positions
+that only move forward. Another recording of a sound has chunks that
+correlate as well only by chance, and at scattered positions. A sample not
+found keeps the Saturn data, as do the fast ones (16-bit at the
+PlayStation's rate already).
 
 The 8-bit sample starts where the Saturn one does in the PlayStation's and
-is as long (twice the samples) or, with sound RAM to spare, longer, up to
-the PlayStation's end (restore()). It plays at the Saturn sample's level,
-normalised to the 8-bit range with TPDF dither and first-order noise
-shaping; the offsets table carries the attenuation that undoes the
-normalisation, in SCSP total level steps.
+is as long or, with sound RAM to spare, longer, up to the PlayStation's end
+(restore()). It plays at the Saturn sample's level, normalised to the 8-bit
+range with TPDF dither and first-order noise shaping; the offsets table
+carries the attenuation that undoes the normalisation, in SCSP total level
+steps.
+
+The original's aliases (ALIASES) give a sound's variant another's sample
+when the level has both sounds (its own is a placeholder): the offsets
+table gives it a copy of the other's.
 """
 import math
 import os
@@ -48,6 +61,22 @@ TL_STEP_DB = 0.375
 FADE = 64                   # samples faded out where a sample is cut short
 
 ADPCM_FILTERS = [(0, 0), (60, 0), (115, -52), (98, -55), (122, -60)]
+
+PS1_RATE = 11025.0
+NORMAL_MADE = 5512.5        # Hz, the rate most Saturn samples were made at
+SLOW_MADE = 2500.0          # the slow sounds'
+
+# The original's lists (0MAIN 0606324a, 06063246): the sounds whose variant 0
+# plays at 2971.6 Hz, and at 11025 Hz.
+SLOW_SOUNDS = frozenset((3, 11, 12, 13, 14, 15, 16, 18, 60, 63, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76,
+                         82, 83, 85, 86, 87, 88, 89, 90, 91, 92, 93, 100, 101, 102, 104, 105, 106, 107, 129, 130,
+                         132, 133, 135, 144, 145, 148, 149, 150, 154, 163, 164, 165, 166, 168))
+FAST_SOUNDS = frozenset((58,))
+
+# The original's aliases (0MAIN 060631d8): sound, variant -> the sound,
+# variant whose sample it plays.
+ALIASES = ((14, 0, 14, 1), (117, 0, 153, 0), (170, 0, 70, 0), (99, 0, 70, 0), (136, 0, 70, 0),
+           (172, 0, 82, 0), (64, 0, 63, 0))
 
 
 def sound_defines():
@@ -108,12 +137,46 @@ class Source:
         return self.cache[j]
 
 
-def chunk_matches(x, p):
+class Seen:
+    """A PlayStation sample p at the rate a Saturn sample was made at: its
+    phases, each with its first sample's place in p, and the PlayStation
+    samples a Saturn one spans (scale)."""
+
+    def __init__(self, p, made):
+        if made == NORMAL_MADE:
+            self.phases = [(p[0::2], 0), (p[1::2], 1)]
+            self.scale = 2
+        else:
+            # band-limited to the lower rate, by FFT
+            n = len(p)
+            m = max(1, int(round(n * made / PS1_RATE)))
+            spectrum = np.fft.rfft(p)
+            kept = np.zeros(m // 2 + 1, complex)
+            keep = min(len(spectrum), len(kept))
+            kept[:keep] = spectrum[:keep]
+            self.phases = [(np.fft.irfft(kept, m) * (m / n), 0)]
+            self.scale = PS1_RATE / made
+
+    def place(self, i, s0):
+        """Where the Saturn sample starts in p (but for the phase's place),
+        if its sample s0 lies at sample i of a phase."""
+        return int(round((i - s0) * self.scale))
+
+    def segment(self, start, n):
+        """n samples at the Saturn rate from the PlayStation's sample start."""
+        if self.scale == 2:
+            d, offset = self.phases[start & 1]
+            return d[(start - offset) // 2:][:n]
+        d = self.phases[0][0]
+        k = int(round(start / self.scale))
+        return d[max(k, 0):max(k + n, 0)]
+
+
+def chunk_matches(x, seen):
     """For each CHUNK of the Saturn sample x, its energy and the best
-    normalised correlation with the PlayStation sample p, at the start the
-    chunk gives the Saturn sample in p (PlayStation samples)."""
+    normalised correlation with the PlayStation sample (seen at x's rate), at
+    the start the chunk gives the Saturn sample in it (PlayStation samples)."""
     out = []
-    phases = [p[0::2], p[1::2]]
     for s0 in range(0, len(x), CHUNK):
         seg = x[s0:s0 + CHUNK]
         if s0 and len(seg) < CHUNK // 4:
@@ -121,7 +184,7 @@ def chunk_matches(x, p):
         n = len(seg)
         e = float(np.dot(seg, seg))
         best = (0.0, 0)
-        for ph, d in enumerate(phases):
+        for d, ph in seen.phases:
             if len(d) < n:
                 continue
             lags = len(d) - n + 1
@@ -133,15 +196,16 @@ def chunk_matches(x, p):
             k[(ed < e / LEVEL_RANGE) | (ed > e * LEVEL_RANGE)] = 0  # near-silence correlates with anything
             i = int(np.argmax(k))
             if k[i] > best[0]:
-                best = (float(k[i]), 2 * (i - s0) + ph)
+                best = (float(k[i]), seen.place(i, s0) + ph)
         out.append((e, best[0], best[1]))
     return out
 
 
-def find_in(x, p):
+def find_in(x, p, made=NORMAL_MADE):
     """(share of x's energy found in order in p, where x starts in p, gain
-    from p to x) or None."""
-    ch = chunk_matches(x, p)
+    from p to x) or None; x made at made Hz."""
+    seen = Seen(p, made)
+    ch = chunk_matches(x, seen)
     if not ch:
         return None
     emax = max(e for e, _, _ in ch)
@@ -175,19 +239,18 @@ def find_in(x, p):
     for k in ks:
         s0 = k * CHUNK
         seg = x[s0:s0 + CHUNK]
-        pos = ch[k][2] + 2 * s0
-        d = p[pos:pos + 2 * len(seg):2]
+        d = seen.segment(ch[k][2] + int(round(s0 * seen.scale)), len(seg))
         es += float(np.dot(seg, seg))
         ep += float(np.dot(d, d))
     gain = math.sqrt(es / ep) if ep > 0 else 1.0
     return weight / total, start, gain
 
 
-def find_source(x, candidates, src):
+def find_source(x, made, candidates, src):
     """The best accepted (share, PlayStation index, start, gain) or None."""
     found = None
     for j in candidates:
-        r = find_in(x, src.pcm(j))
+        r = find_in(x, src.pcm(j), made)
         if r and r[0] >= CHAIN_MIN and (found is None or r[0] > found[0]):
             found = (r[0], j, r[1], r[2])
     return found
@@ -228,12 +291,19 @@ class Sfx:
     def __init__(self, lvl, ps1):
         defs = sound_defines()
         self.flag_pcm8 = defs["SOUND_PCM8"]
+        self.rate_shift = defs["SOUND_RATE_SHIFT"]
+        self.rate_normal = defs["SOUND_RATE_NORMAL"]
+        self.rate_slow = defs["SOUND_RATE_SLOW"]
+        self.rate_fast = defs["SOUND_RATE_FAST"]
+        self.rate_raised = defs["SOUND_RATE_RAISED"]
         self.atten_shift = defs["SOUND_ATTEN_SHIFT"]
         self.atten_max = defs["SOUND_ATTEN_MASK"]
         self.offset_mask = defs["SOUND_OFFSET_MASK"]
         self.budget = SOUND_RAM_SIZE - defs["SOUND_SAMPLES_ADDR"]
         self.saturn = [lvl.samples[i] for i in range(len(lvl.samples))]
         self.ids = sample_ids(lvl.sound_map, lvl.sound_infos)
+        self.rates = [self.rate_of(i) for i in range(len(self.saturn))]
+        self.aliases = self.find_aliases(lvl)
         self.matches = {}   # Saturn index: (share, PlayStation index, start, gain)
         self.ps1_ids = {}
         self.src = None
@@ -242,8 +312,43 @@ class Sfx:
             self.ps1_ids = sample_ids(ps1.sound_map, ps1.sound_infos)
             self.match(lvl, ps1)
         # matched samples' lengths (8-bit samples), at first the Saturn's
-        self.lengths = {i: self.length_for(i, len(self.saturn[i])) for i in self.matches}
+        self.lengths = {i: self.length_for(i, self.spans(i)) for i in self.matches}
+        self.kept = []      # slow samples matched but kept, for room
         self.restored = []
+        self.fit()
+
+    def rate_of(self, i):
+        """The original's rate for sample i (SOUND_RATE_*)."""
+        firsts = {sid for sid, k in self.ids.get(i, []) if k == 0}
+        if firsts & FAST_SOUNDS:
+            return self.rate_fast
+        if firsts & SLOW_SOUNDS:
+            return self.rate_slow
+        return self.rate_normal
+
+    def made(self, i):
+        """The rate sample i was made at (Hz)."""
+        return SLOW_MADE if self.rates[i] == self.rate_slow else NORMAL_MADE
+
+    def spans(self, i):
+        """The PlayStation samples the Saturn sample i spans."""
+        return int(round(len(self.saturn[i]) // 2 * PS1_RATE / self.made(i)))
+
+    def find_aliases(self, lvl):
+        """{sample: the sample it plays}, for the aliases whose sounds are both
+        in the level (as the original's loader takes them)."""
+        def sample(sid, k):
+            m = lvl.sound_map[sid] if sid < len(lvl.sound_map) else -1
+            if not 0 <= m < len(lvl.sound_infos):
+                return None
+            i = lvl.sound_infos[m][0] + k
+            return i if i < len(self.saturn) else None
+        out = {}
+        for sid, k, tid, tk in ALIASES:
+            s, t = sample(sid, k), sample(tid, tk)
+            if s is not None and t is not None:
+                out[s] = t
+        return out
 
     def match(self, lvl, ps1):
         by_id = {}
@@ -251,13 +356,13 @@ class Sfx:
             for u in uses:
                 by_id.setdefault(u, set()).add(j)
         for i, data in enumerate(self.saturn):
-            if len(data) < 2 * CHUNK // 4:
-                continue    # placeholders
+            if len(data) < 2 * CHUNK // 4 or self.rates[i] == self.rate_fast or i in self.aliases:
+                continue    # placeholders; the fast ones are at the PlayStation's rate
             x = np.array(struct.unpack(f">{len(data) // 2}h", data), float)
             candidates = sorted(set().union(*(by_id.get(u, set()) for u in self.ids.get(i, []))))
             if not candidates:
                 candidates = [i]
-            found = find_source(x, [j for j in candidates if j < len(self.src)], self.src)
+            found = find_source(x, self.made(i), [j for j in candidates if j < len(self.src)], self.src)
             if found:
                 self.matches[i] = found
 
@@ -272,9 +377,22 @@ class Sfx:
     def size(self, lengths=None):
         lengths = self.lengths if lengths is None else lengths
         total = 0
-        for i, data in enumerate(self.saturn):
-            total += ((lengths[i] if i in lengths else len(data)) + 3) & ~3
+        for i in range(len(self.saturn)):
+            k = self.aliases.get(i, i)
+            total += ((lengths[k] if k in lengths else len(self.saturn[k])) + 3) & ~3
         return total
+
+    def fit(self):
+        """Keeps the Saturn data of matched slow samples, the costliest first,
+        till the rest fit with SPARE_MIN of sound RAM free."""
+        slow = [i for i in self.lengths if self.rates[i] == self.rate_slow]
+        slow.sort(key=lambda i: len(self.saturn[i]) - self.lengths[i])
+        for i in slow:
+            if self.size() <= self.budget - SPARE_MIN:
+                break
+            del self.lengths[i]
+            del self.matches[i]
+            self.kept.append(i)
 
     def restore(self):
         """Lengthens the matched samples the Saturn cut short, the most cut
@@ -290,27 +408,30 @@ class Sfx:
                 self.restored.append((i, self.lengths[i], new))
                 self.lengths[i] = new
 
+    def sample(self, i):
+        """Sample i's bytes and its entry's flags."""
+        if i not in self.lengths:
+            return self.saturn[i], self.rates[i] << self.rate_shift
+        _, j, start, gain = self.matches[i]
+        p = self.src.pcm(j)
+        n = self.lengths[i]
+        seg = p[start:start + n].copy()
+        if start + n < sound_end(p):
+            fade = min(FADE, n)
+            seg[n - fade:] *= np.linspace(1, 0, fade + 1)[1:]
+        pcm, steps = to_pcm8(seg, gain, self.atten_max, seed=i)
+        rate = self.rate_raised if self.rates[i] == self.rate_slow else self.rate_fast
+        return pcm, self.flag_pcm8 | (rate << self.rate_shift) | (steps << self.atten_shift)
+
     def build(self):
         """(file data, offsets table entries including the size entry)"""
         data, entries = bytearray(), []
-        for i, sat in enumerate(self.saturn):
-            entry = len(data)
-            if i in self.lengths:
-                _, j, start, gain = self.matches[i]
-                p = self.src.pcm(j)
-                n = self.lengths[i]
-                seg = p[start:start + n].copy()
-                if start + n < sound_end(p):
-                    fade = min(FADE, n)
-                    seg[n - fade:] *= np.linspace(1, 0, fade + 1)[1:]
-                pcm, steps = to_pcm8(seg, gain, self.atten_max, seed=i)
-                data += pcm
-                entry |= self.flag_pcm8 | (steps << self.atten_shift)
-            else:
-                data += sat
+        for i in range(len(self.saturn)):
+            sample, flags = self.sample(self.aliases.get(i, i))
+            entries.append(len(data) | flags)
+            data += sample
             while len(data) & 3:
                 data.append(0)
-            entries.append(entry)
         entries.append(len(data))
         assert len(data) <= self.offset_mask
         return bytes(data), entries

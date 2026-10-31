@@ -1233,6 +1233,8 @@ def report_sounds(name, lvl, sounds):
     print(f"{name}: {len(sounds.matches)} of {len(lvl.samples)} sound samples from the PlayStation's, "
           f"{original} bytes as the original's, {at_lengths} at their lengths, {size} with "
           f"{len(sounds.restored)} restored, {sounds.budget - size} bytes of sound RAM spare")
+    if sounds.kept:
+        print(f"  slow samples kept as the original's, for room: {sorted(sounds.kept)}")
     for i, old, new in sounds.restored:
         ids = ", ".join(str(sid) for sid, _ in sounds.ids.get(i, []))
         print(f"  sample {i} (sound {ids or 'unused'}): {old / 11025:.2f} s -> {new / 11025:.2f} s")
