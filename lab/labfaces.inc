@@ -174,8 +174,14 @@ void facesMeshC(const FaceSet* set, const Vertex* vertices, uint32_t mode, Comma
         const Vertex* d = corner(vertices, q->corners[3]);
         if (backface(a, b, c))
             continue;
-        if (!inside && culled(a->clip & b->clip & c->clip & d->clip, a->clip | b->clip | c->clip | d->clip))
+        MeshFace fate = inside ? MESH_FACE_DRAWN : meshFace(a, b, c, d);
+        if (fate == MESH_FACE_LEFT)
             continue;
+        if (fate == MESH_FACE_VOID)
+        {
+            faceVoid(list, a, b, c, d);
+            continue;
+        }
         int32_t depth = uint32_t(a->z + b->z + c->z + d->z) >> (2 + OT_SHIFT);
         quadCommand(list, list.materials[q->material], shading, a, b, c, d, depth);
     }
@@ -190,8 +196,15 @@ void facesMeshC(const FaceSet* set, const Vertex* vertices, uint32_t mode, Comma
         const Vertex* c = corner(vertices, t->corners[2]);
         if (backface(a, b, c))
             continue;
-        if (!inside && culled(a->clip & b->clip & c->clip, a->clip | b->clip | c->clip))
+        MeshFace fate = inside ? MESH_FACE_DRAWN : meshFace(a, b, c, c);
+        if (fate == MESH_FACE_LEFT)
             continue;
+        if (fate == MESH_FACE_VOID)
+        {
+            Vertex d = t->flags & TRI_PARALLELOGRAM ? fourthCorner(a, b, c) : *c;
+            faceVoid(list, a, b, c, &d);
+            continue;
+        }
         const Material &m = list.materials[t->material];
         if (!(t->flags & TRI_PARALLELOGRAM))
         {
@@ -367,7 +380,7 @@ static void roomQuads(const FaceRoom &room, RoomTextures &t, RoomSplit &split, C
             if (!(clipAnd & CLIP_PLANE)) {
                 roomQuadCareful(room, t, split, list, *q);  // cut by a plane
             } else if ((a->z >> OT_SHIFT) == FAR_BUCKET) {
-                roomVoid(list, a, b, c, d);                 // wholly past the far plane
+                faceVoid(list, a, b, c, d);                 // wholly past the far plane
             }
             continue;
         }
@@ -454,7 +467,7 @@ void facesRoomC(const FaceRoom &room, RoomTextures &t, RoomSplit &split, Command
             if ((clipAnd & (CLIP_DISCARD & ~CLIP_PLANE)) ||
                 ((clipAnd & CLIP_PLANE) && (a->z >> OT_SHIFT) != FAR_BUCKET) || backface(a, b, c))
                 continue;
-            roomVoid(list, a, b, c, c);
+            faceVoid(list, a, b, c, c);
             continue;
         }
         if (backface(a, b, c))
@@ -554,8 +567,11 @@ enum OtherCover
 // corners placed and its faces made in C (facesMeshCardsC, facesMeshC) and
 // in assembly, the mesh inside the frame or not: the vertices and commands
 // each way, against each other. A degenerate card (its ends on one pixel)
-// faces away and is left out both ways.
+// faces away and is left out both ways. Made-up triangles over the same
+// corners, of every kind, follow them (a plane cutting some: their fills).
 #define CARD_CARDS      48
+#define CARD_TRIANGLES  32
+#define CARD_COMMANDS   (CARD_CARDS + CARD_TRIANGLES)
 #define CARD_PASSES     24
 
 int32_t facesCardsCheck(const Material* materials, uint32_t materialCount, const uint16_t* divTable,
@@ -577,13 +593,14 @@ int32_t facesCardsCheck(const Material* materials, uint32_t materialCount, const
     {
         for (Side &s : sides)
         {
-            s.cmds = (Command*)sceneAllocLow((CARD_CARDS + 1) * sizeof(Command));
-            s.grd = (uint32_t (*)[2])sceneAllocLow((CARD_CARDS + 1) * 8);
+            s.cmds = (Command*)sceneAllocLow((CARD_COMMANDS + 1) * sizeof(Command));
+            s.grd = (uint32_t (*)[2])sceneAllocLow((CARD_COMMANDS + 1) * 8);
             s.heads = (uint16_t*)sceneAllocLow((OT_SIZE + 1) * sizeof(uint16_t));
             s.tails = (uint16_t*)sceneAllocLow(OT_SIZE * sizeof(uint16_t));
             s.vertices = (Vertex*)sceneAllocLow(4 * CARD_CARDS * sizeof(Vertex));
         }
-        set = (FaceSet*)sceneAllocLow(sizeof(FaceSet) + CARD_CARDS * sizeof(FaceQuad));
+        set = (FaceSet*)sceneAllocLow(sizeof(FaceSet) + CARD_CARDS * sizeof(FaceQuad) +
+                                      CARD_TRIANGLES * sizeof(FaceTriangle));
         made = (Vertex*)sceneAllocLow(4 * CARD_CARDS * sizeof(Vertex));
         if (!made || !sides[1].vertices || !materialCount)
             return 1;
@@ -596,7 +613,8 @@ int32_t facesCardsCheck(const Material* materials, uint32_t materialCount, const
         bool inside = pass % 3 == 2;
         int32_t reach = inside ? 0 : pass & 1 ? 1500 : 300;
         set->quads = set->cards = CARD_CARDS;
-        set->triangles = set->spare = 0;
+        set->triangles = CARD_TRIANGLES;
+        set->spare = 0;
         FaceQuad* q = (FaceQuad*)(set + 1);
         for (int32_t k = 0; k < CARD_CARDS; k++, q++)
         {
@@ -648,20 +666,33 @@ int32_t facesCardsCheck(const Material* materials, uint32_t materialCount, const
             made[4 * k + 2] = made[4 * k + 1];
             made[4 * k + 3] = made[4 * k];
         }
+        static const uint16_t kKinds[6] = { 0, TRI_PARALLELOGRAM, TRI_PARALLELOGRAM | TRI_SWAP,
+                                            TRI_PARALLELOGRAM | TRI_V0_AT_D,
+                                            TRI_PARALLELOGRAM | TRI_SWAP | TRI_V0_AT_D, 0 };
+        FaceTriangle* t = (FaceTriangle*)q;
+        for (int32_t k = 0; k < CARD_TRIANGLES; k++, t++)
+        {
+            for (int32_t i = 0; i < 3; i++) {
+                t->corners[i] = uint16_t((next() % (4 * CARD_CARDS)) * sizeof(Vertex));
+            }
+            t->flags = kKinds[next() % 6];
+            t->material = uint16_t(next() % materialCount);
+            t->spare = 0;
+        }
         uint32_t mode = inside ? MESH_INSIDE : 0;
         for (int32_t s = 0; s < 2; s++)
         {
             Side &side = sides[s];
             memcpy(side.vertices, made, 4 * CARD_CARDS * sizeof(Vertex));
             uint32_t fill = 0x9E3779B9 * uint32_t(pass + 1);
-            for (int32_t c = 0; c <= CARD_CARDS; c++)
+            for (int32_t c = 0; c <= CARD_COMMANDS; c++)
             {
                 for (int32_t w = 0; w < 8; w++) {
                     side.cmds[c].w[w] = fill + 77 * uint32_t(c * 8 + w);
                 }
                 side.grd[c][0] = side.grd[c][1] = ~fill + uint32_t(c);
             }
-            facesListInit(side.list, side.cmds, side.grd, 0, CARD_CARDS, side.heads, side.tails, materials,
+            facesListInit(side.list, side.cmds, side.grd, 0, CARD_COMMANDS, side.heads, side.tails, materials,
                           shadeGouraud, nullptr, nullptr, nullptr);
             if (s)
             {
@@ -676,9 +707,10 @@ int32_t facesCardsCheck(const Material* materials, uint32_t materialCount, const
         }
         const Side &c = sides[0], &a = sides[1];
         bad += memcmp(c.vertices, a.vertices, 4 * CARD_CARDS * sizeof(Vertex)) != 0;
-        for (int32_t k = 0; k <= CARD_CARDS; k++) {
+        for (int32_t k = 0; k <= CARD_COMMANDS; k++) {
             bad += memcmp(c.cmds[k].w, a.cmds[k].w, sizeof(Command)) != 0 || memcmp(c.grd[k], a.grd[k], 8) != 0;
         }
+        bad += memcmp(c.heads, a.heads, (OT_SIZE + 1) * sizeof(uint16_t)) != 0;
     }
     return bad;
 }

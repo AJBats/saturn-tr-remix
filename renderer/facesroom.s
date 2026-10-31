@@ -1023,7 +1023,7 @@ _facesRoomAsm:
     nop
 
     ! a transparent fill over the box on the frame of corners r1, r2, r3, r7,
-    ! behind everything (faces.cpp roomVoid); T set when the list is then
+    ! behind everything (faces.cpp faceVoid); T set when the list is then
     ! full; r0, r6, r8, r13, r14
 .Lvoid:
     mov.w   @r1, r6             ! x: least

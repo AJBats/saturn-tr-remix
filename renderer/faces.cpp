@@ -21,7 +21,10 @@ namespace render {
 #define CLIP_TOP        0x08
 #define CLIP_BOTTOM     0x10
 #define CLIP_DISCARD    0x3E
+#define CLIP_EDGES      0x1E    // beyond a frame edge
 #define CLIP_PLANE      0x20
+#define VIEW_NEAR       64      // a corner's z behind the near plane
+#define FAR_BUCKET      1280    // a corner at the far plane: VIEW_MAX_F >> FIXED_SHIFT >> OT_SHIFT
 #define CMD_FLIP_H      0x0010
 #define CMD_JUMP        0x1000  // JP 001: the next command is at CMDLINK
 #define TEX_ATTR_DIR    0x0030
@@ -70,6 +73,32 @@ static inline bool backface(const Vertex* a, const Vertex* b, const Vertex* c)
 static inline bool culled(uint32_t clipAnd, uint32_t clipOr)
 {
     return (clipAnd & CLIP_DISCARD) || (clipOr & CLIP_PLANE);
+}
+
+// A mesh face's fate (facesmesh.s CULL, .Lvoid) unless its mesh lies inside:
+// left wholly beyond a frame edge or with a corner behind the near plane;
+// filled behind everything where a plane cuts it otherwise (the far plane);
+// else drawn.
+enum MeshFace { MESH_FACE_LEFT, MESH_FACE_DRAWN, MESH_FACE_VOID };
+
+static inline MeshFace meshFace(const Vertex* a, const Vertex* b, const Vertex* c, const Vertex* d)
+{
+    if (a->clip & b->clip & c->clip & d->clip & CLIP_EDGES)
+        return MESH_FACE_LEFT;
+    if (!((a->clip | b->clip | c->clip | d->clip) & CLIP_PLANE))
+        return MESH_FACE_DRAWN;
+    bool near = a->z <= VIEW_NEAR || b->z <= VIEW_NEAR || c->z <= VIEW_NEAR || d->z <= VIEW_NEAR;
+    return near ? MESH_FACE_LEFT : MESH_FACE_VOID;
+}
+
+// A parallelogram triangle's fourth corner, x + y - v0 (its z y's), for its
+// fill (facesmesh.s .LtriVoid).
+static inline Vertex fourthCorner(const Vertex* v0, const Vertex* x, const Vertex* y)
+{
+    Vertex v = *y;
+    v.x = int16_t(x->x + y->x - v0->x);
+    v.y = int16_t(x->y + y->y - v0->y);
+    return v;
 }
 
 static inline int32_t offFrame(const Vertex* v)
@@ -291,7 +320,7 @@ void facesMeshHinted(const FaceSet* set, const Vertex* vertices, uint32_t mode, 
         uint32_t link;
         int32_t depth;
         uint32_t polygon;
-        bool taken;
+        bool taken;     // held, or a fill (which stays behind everything)
     };
     static Made made[MAX_MADE_FACES];
     const uint32_t step = sizeof(Command) >> 3;
@@ -308,11 +337,12 @@ void facesMeshHinted(const FaceSet* set, const Vertex* vertices, uint32_t mode, 
         const Vertex* b = corner(vertices, q->corners[1]);
         const Vertex* c = corner(vertices, q->corners[2]);
         const Vertex* d = corner(vertices, q->corners[3]);
-        if (backface(a, b, c) ||
-            (!inside && culled(a->clip & b->clip & c->clip & d->clip, a->clip | b->clip | c->clip | d->clip)))
+        MeshFace fate = inside ? MESH_FACE_DRAWN : meshFace(a, b, c, d);
+        if (backface(a, b, c) || fate == MESH_FACE_LEFT)
             continue;
-        made[n] = { first + n * step, int32_t(uint32_t(a->z + b->z + c->z + d->z) >> (2 + OT_SHIFT)), uint32_t(i),
-                    false };
+        bool fill = fate == MESH_FACE_VOID;
+        made[n] = { first + n * step, fill ? FAR_BUCKET : int32_t(uint32_t(a->z + b->z + c->z + d->z) >> (2 + OT_SHIFT)),
+                    uint32_t(i), fill };
         n++;
     }
     const FaceTriangle* t = faceTriangles(set);
@@ -321,10 +351,12 @@ void facesMeshHinted(const FaceSet* set, const Vertex* vertices, uint32_t mode, 
         const Vertex* a = corner(vertices, t->corners[0]);
         const Vertex* b = corner(vertices, t->corners[1]);
         const Vertex* c = corner(vertices, t->corners[2]);
-        if (backface(a, b, c) || (!inside && culled(a->clip & b->clip & c->clip, a->clip | b->clip | c->clip)))
+        MeshFace fate = inside ? MESH_FACE_DRAWN : meshFace(a, b, c, c);
+        if (backface(a, b, c) || fate == MESH_FACE_LEFT)
             continue;
-        made[n] = { first + n * step, int32_t(uint32_t(a->z + b->z + c->z + c->z) >> (2 + OT_SHIFT)),
-                    uint32_t(i) | HINT_TRIANGLE, false };
+        bool fill = fate == MESH_FACE_VOID;
+        made[n] = { first + n * step, fill ? FAR_BUCKET : int32_t(uint32_t(a->z + b->z + c->z + c->z) >> (2 + OT_SHIFT)),
+                    uint32_t(i) | HINT_TRIANGLE, fill };
         n++;
     }
 
@@ -332,6 +364,8 @@ void facesMeshHinted(const FaceSet* set, const Vertex* vertices, uint32_t mode, 
     {
         for (uint32_t k = 0; k < n; k++)
         {
+            if (made[k].taken)
+                continue;
             uint32_t* cmd = commandAt(list, made[k].link);
             unlinkCommand(list, made[k].link, made[k].depth);
             linkCommand(list, cmd, cmd[0] & 0xFFFF0000, made[k].link, hintsBucket(made[k].depth + hints.buckets));
@@ -376,8 +410,7 @@ void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth)
 #define ROOM_QUAD_FLAGS     0x00FFFFFF  // but the kept decisions
 #define TEX_ATTR_AKILL      0x0001
 
-#define FAR_BUCKET      1280    // a corner at the far plane: VIEW_MAX_F >> FIXED_SHIFT >> OT_SHIFT
-#define VIEW_FAR        20480   // ... VIEW_MAX_F >> FIXED_SHIFT
+#define VIEW_FAR        20480   // VIEW_MAX_F >> FIXED_SHIFT
 #define NEAR_SPLIT_DIST 2048    // quads whose corner A is nearer go the careful way
 #define DETAIL_DIST     4096    // quads crossing the near plane nearer than this split 2x2
 
@@ -465,8 +498,8 @@ static void roomCommand(CommandList &list, const RoomTextures &t, uint32_t flags
 }
 
 // A transparent fill behind everything over the corners' box on the frame,
-// where a plane cuts a room face away (render.cpp faceCommand's void).
-static void roomVoid(CommandList &list, const Vertex* a, const Vertex* b, const Vertex* c, const Vertex* d)
+// where a plane cuts a room's or a mesh's face away.
+static void faceVoid(CommandList &list, const Vertex* a, const Vertex* b, const Vertex* c, const Vertex* d)
 {
     if (list.cmd == list.end)
         return;
@@ -631,7 +664,7 @@ static void roomQuarter(CommandList &list, const RoomTextures &t, uint32_t flags
     if (culled(clipAnd, a->clip | b->clip | c->clip | d->clip))
     {
         if (!(clipAnd & CLIP_DISCARD)) {
-            roomVoid(list, a, b, c, d);
+            faceVoid(list, a, b, c, d);
         }
         return;
     }
@@ -703,7 +736,7 @@ static void roomQuadCareful(const FaceRoom &room, RoomTextures &t, RoomSplit &sp
     {
         if (!(min(min(a->z, b->z), min(c->z, d->z)) < DETAIL_DIST && tex.reserved &&
               roomSplit(room, t, split, list, q, a, b, c, d))) {
-            roomVoid(list, a, b, c, d);
+            faceVoid(list, a, b, c, d);
         }
         return;
     }

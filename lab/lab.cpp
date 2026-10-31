@@ -458,6 +458,8 @@ static void stageThree()
 {
     const SceneInfo &info = sceneInfo();
 
+    // the game's faces and flush against the capture, as it made them
+    gMeshFills = 0;
     gLab.facesMeshes = measure([] { gameFacesPrepare(); }, [] { gameFacesMaster(); });
     gLab.facesRooms = measure([] { gameFacesPrepare(); }, [] { gameFacesRooms(); });
     gameFacesPrepare();
@@ -491,6 +493,7 @@ static void stageThree()
     end = gameFlush(false);
     gLab.flushBad += gameCommandsCheck(gCmds, gGouraud, end);
     gMipTable = 4;
+    gMeshFills = 1;
     gameFlushPrepare();
 
     // the faces given: the meshes' quads and triangles, the shadows' quads,

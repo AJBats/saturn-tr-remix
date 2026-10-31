@@ -205,6 +205,10 @@ void gameFlushPrepare(FlushFaces faces = FLUSH_ALL);
 // predate it, do.
 extern uint32_t gMipTable;
 
+// Mesh faces the far plane cuts filled behind everything (gamefaces.s), as
+// the renderer fills them; 0 as the captured game left them.
+extern uint32_t gMeshFills;
+
 // flush: their commands into gCmds from gCmds[1], with the game's clear first
 // and the end after, the buckets shared out as the game shares them: the far
 // ones run on the slave (split; slaveCycles then its time), or on the master

@@ -175,6 +175,7 @@ static const uint32_t (*gRefGrd)[2];
 static Command gClearCommand;       // the game's clear, its first command
 static const Texture* gTextures;
 uint32_t gMipTable = 4;
+uint32_t gMeshFills = 1;
 static const uint16_t* gPalette;
 static const Sprite* gSprites;
 static const uint8_t* gShadeLevel;
@@ -685,12 +686,20 @@ static void faceHold(Face* face, const DepthHint* hint)
     gHeld[gHeldCount++] = { face, depth, hint };
 }
 
+// A mesh's fill where the far plane cut a face: it stays behind everything.
+static inline bool faceFill(const Face* f)
+{
+    return ((f->flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) == FACE_TYPE_VOID;
+}
+
 // render.cpp meshFace: the face of a mesh with these corners, in any order,
 // from first; none if it wasn't drawn (polygon k's at most k after first).
 static Face* meshFace(Face* first, int32_t k, const Vertex* base, const uint8_t* corners, int32_t n)
 {
     for (Face* f = X_MIN(first + k, gFaceList.next - 1); f >= first; f--)
     {
+        if (faceFill(f))
+            continue;
         int32_t c = 0;
         for (; c < n; c++)
         {
@@ -718,7 +727,7 @@ static void meshHinted(const HintFaces &hf, Face* first, const Vertex* base, con
         for (Face* f = first; f < gFaceList.next; f++)
         {
             int32_t depth;
-            if (faceUnlink(f, depth)) {
+            if (!faceFill(f) && faceUnlink(f, depth)) {
                 faceLink(f, depth + hf.buckets);
             }
         }
@@ -730,7 +739,9 @@ static void meshHinted(const HintFaces &hf, Face* first, const Vertex* base, con
         if (polygon == HINT_EVERY)
         {
             for (Face* f = first; f < gFaceList.next; f++) {
-                faceHold(f, hf.hints[k]);
+                if (!faceFill(f)) {
+                    faceHold(f, hf.hints[k]);
+                }
             }
             continue;
         }
@@ -1130,7 +1141,8 @@ static void faceCommand(const Face* face, uint32_t* w, uint32_t* grd, int32_t ro
 
         case FACE_TYPE_VOID:
         {
-            // the corners' box on the frame, transparent, behind everything
+            // the corners' box on the frame (a parallelogram's fourth corner
+            // x + y - v0 in it), transparent, behind everything
             int32_t x0 = v0->x, y0 = v0->y, x1 = x0, y1 = y0;
             for (int32_t i = 1; i < 4; i++)
             {
@@ -1139,6 +1151,16 @@ static void faceCommand(const Face* face, uint32_t* w, uint32_t* grd, int32_t ro
                 y0 = X_MIN(y0, int32_t(v->y));
                 x1 = X_MAX(x1, int32_t(v->x));
                 y1 = X_MAX(y1, int32_t(v->y));
+            }
+            if (flags & FACE_PARALLELOGRAM)
+            {
+                const Vertex* v1 = cornerVertex(face->indices[1], half);
+                const Vertex* v2 = cornerVertex(face->indices[2], half);
+                int32_t x = int16_t(v1->x + v2->x - v0->x), y = int16_t(v1->y + v2->y - v0->y);
+                x0 = X_MIN(x0, x);
+                y0 = X_MIN(y0, y);
+                x1 = X_MAX(x1, x);
+                y1 = X_MAX(y1, y);
             }
             x0 = X_MAX(x0, 0);
             y0 = X_MAX(y0, 0);

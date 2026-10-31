@@ -5,8 +5,11 @@
 ! Each face facing the camera and not culled has its command and gouraud
 ! table written at once into the list, chained into its depth bucket: its
 ! link is the bucket's last command added (heads), the first added recorded
-! for the join (tails). A draw under water (MESH_WATER) takes the loops built
-! with its shading. faces.cpp facesMeshC does the same in C.
+! for the join (tails). A face the far plane cuts or lies wholly past is
+! filled transparent behind everything instead, over its corners' box on
+! the frame (.Lvoid), as rooms' are: what it would have covered shows no old
+! frame. A draw under water (MESH_WATER) takes the loops built with its
+! shading. labfaces.inc facesMeshC does the same in C.
 !
 ! FaceSet: uint16 quads, triangles, cards, spare; then the quads (the last
 ! 'cards' of them cards), then the triangles. FaceQuad: uint16 corners[4],
@@ -24,7 +27,7 @@
 ! vertices; r9 its command, r10 its gouraud table, r11 its link, r12 its
 ! last word; r13 the list; r14 its material. The stack: +0 the quads' or
 ! triangles' end, +4 the mode (MESH_*), +8 the triangles, +12 a triangle's
-! flags.
+! flags, +16 a parallelogram's fourth corner for its fill (a Vertex).
 
     .equ    CLIP_FRAME,     0x01
     .equ    CLIP_LEFT,      0x02
@@ -32,7 +35,10 @@
     .equ    CLIP_TOP,       0x08
     .equ    CLIP_BOTTOM,    0x10
     .equ    CLIP_DISCARD,   0x3E
+    .equ    CLIP_EDGES,     0x1E    ! beyond a frame edge
     .equ    CLIP_PLANE,     0x20
+    .equ    VIEW_NEAR,      64      ! a corner's z behind the near plane
+    .equ    FAR_BUCKET,     1280    ! faces.cpp's: behind everything
     .equ    MAT_SHADEABLE,  1
     .equ    MESH_INSIDE,    1
     .equ    MESH_WATER,     2
@@ -131,11 +137,11 @@
     bf      \skip
     .endm
 
-! unless inside: culled wholly beyond a frame edge or with a corner behind the
-! near plane, to 'skip'; r5's low byte the corners' clip flags ored (0
+! unless inside: culled wholly beyond a frame edge, to 'skip'; with a corner
+! past a plane, to 'void'; r5's low byte the corners' clip flags ored (0
 ! inside): each corner's last longword (z, shade, clip flags) anded and ored,
 ! loaded ahead of its use; r0, r6, r14
-    .macro  CULL skip
+    .macro  CULL skip, void
     mov.l   @(4, r15), r0
     tst     #MESH_INSIDE, r0
     bf/s    1f
@@ -152,11 +158,13 @@
     and     r14, r6
     or      r14, r5
     mov     r6, r0
-    tst     #CLIP_DISCARD, r0
+    tst     #CLIP_EDGES, r0
     bf      \skip
     mov     r5, r0
     tst     #CLIP_PLANE, r0
-    bf      \skip
+    bt      1f
+    bra     \void
+    nop
 1:
     .endm
 
@@ -361,7 +369,7 @@ _facesMeshAsm:
     mov.l   r13, @-r15
     mov.l   r14, @-r15
     sts.l   pr, @-r15
-    add     #-16, r15
+    add     #-24, r15
     mov.l   r6, @(4, r15)       ! mode
     mov     r5, r8
     mov     r7, r13
@@ -413,7 +421,7 @@ _facesMeshAsm:
 .LQuadBack\sfx:
     BACKFACE .LquadNext\sfx
 .LQuadCull\sfx:
-    CULL    .LquadNext\sfx
+    CULL    .LquadNext\sfx, .LquadVoid\sfx
 .LQuadMirror\sfx:
     MIRROR
 .LQuadDepth\sfx:
@@ -459,7 +467,7 @@ _facesMeshAsm:
 .LTriBack\sfx:
     BACKFACE .LtriNext\sfx
 .LTriCull\sfx:
-    CULL    .LtriNext\sfx
+    CULL    .LtriNext\sfx, .LtriVoid\sfx
     mov.l   @(12, r15), r0
     tst     #TRI_PARALLELOGRAM, r0
     bt      1f
@@ -551,6 +559,46 @@ _facesMeshAsm:
 .LfullPara\sfx:
     bra     .Ldone
     nop
+
+.LquadVoid\sfx:
+    bsr     .Lvoid
+    nop
+    bf      1f
+    bra     .Ldone              ! full
+    nop
+1:  bra     .LquadNext\sfx
+    nop
+
+.LtriVoid\sfx:
+    mov.l   @(12, r15), r0
+    tst     #TRI_PARALLELOGRAM, r0
+    bt      1f
+    ! its fourth corner, x + y - v0, at r7 on the stack (its z C's)
+    mov.w   @r2, r5
+    mov.w   @r3, r0
+    add     r0, r5
+    mov.w   @r1, r0
+    sub     r0, r5
+    mov.w   @(2, r2), r0
+    mov     r0, r6
+    mov.w   @(2, r3), r0
+    add     r0, r6
+    mov.w   @(2, r1), r0
+    sub     r0, r6
+    mov     r15, r7
+    add     #16, r7
+    mov.w   r5, @r7
+    mov     r6, r0
+    mov.w   r0, @(2, r7)
+    mov.w   @(4, r3), r0
+    mov.w   r0, @(4, r7)
+1:  bsr     .Lvoid
+    nop
+    bf      2f
+    bra     .Ldone              ! full
+    nop
+2:  bra     .LtriNext\sfx
+    nop
     .endm
 
     FACES   , 0
@@ -560,7 +608,7 @@ _facesMeshAsm:
     mov.l   r10, @(8, r13)
     mov.l   r11, @(12, r13)
     mov.l   r12, @(16, r13)
-    add     #16, r15
+    add     #24, r15
     lds.l   @r15+, pr
     mov.l   @r15+, r14
     mov.l   @r15+, r13
@@ -676,6 +724,121 @@ _facesMeshAsm:
     ! under water, out of the way of the loops above
     .align 2
     FACES   Water, 1
+
+! lo, hi (registers) widened to take corner v's int16 at off; r0
+    .macro  RANGE v, off, lo, hi
+    mov.w   @(\off, \v), r0
+    cmp/gt  r0, \lo
+    bf      1f
+    mov     r0, \lo
+1:  cmp/gt  \hi, r0
+    bf      2f
+    mov     r0, \hi
+2:
+    .endm
+
+    ! a face a plane cuts (corners r1, r2, r3, r7), unless a corner lies
+    ! behind the near plane: a transparent fill over the corners' box on the
+    ! frame, behind everything (labfaces.inc meshVoid, as facesroom.s .Lvoid
+    ! for rooms), and on to the next command; T set when the list is then
+    ! full, else clear (a fill made or not). r0 .. r3, r5 .. r7, r14
+.Lvoid:
+    mov     #VIEW_NEAR, r5
+    mov.w   @(4, r1), r0
+    cmp/gt  r5, r0
+    bf      .LvoidNone
+    mov.w   @(4, r2), r0
+    cmp/gt  r5, r0
+    bf      .LvoidNone
+    mov.w   @(4, r3), r0
+    cmp/gt  r5, r0
+    bf      .LvoidNone
+    mov.w   @(4, r7), r0
+    cmp/gt  r5, r0
+    bt      .LvoidMade
+.LvoidNone:
+    rts
+    clrt
+.LvoidMade:
+    mov.w   @r1, r0
+    mov     r0, r6              ! x: least
+    mov     r0, r14             ! ... most
+    RANGE   r2, 0, r6, r14
+    RANGE   r3, 0, r6, r14
+    RANGE   r7, 0, r6, r14
+    mov.w   @(2, r1), r0
+    mov     r0, r5              ! y: least
+    mov     r0, r1              ! ... most
+    RANGE   r2, 2, r5, r1
+    RANGE   r3, 2, r5, r1
+    RANGE   r7, 2, r5, r1
+    cmp/pz  r6                  ! on the frame
+    bt      1f
+    mov     #0, r6
+1:  cmp/pz  r5
+    bt      2f
+    mov     #0, r5
+2:  mov     #88, r0
+    shll2   r0
+    add     #-1, r0             ! FRAME_WIDTH - 1
+    cmp/gt  r0, r14
+    bf      3f
+    mov     r0, r14
+3:  mov     #56, r0
+    shll2   r0
+    add     #-1, r0             ! FRAME_HEIGHT - 1
+    cmp/gt  r0, r1
+    bf      4f
+    mov     r0, r1
+4:  mov     #0x10, r0           ! (CMD_POLYGON | CMD_JUMP) >> 8
+    cmp/gt  r14, r6
+    bt      5f
+    cmp/gt  r1, r5
+    bf      6f
+5:  mov     #0x50, r0           ! empty: skipped
+6:  shll8   r0
+    or      #4, r0
+    shll16  r0
+    mov     r0, r2              ! w0 but its link
+    mov     #(FAR_BUCKET * 2) >> 8, r3
+    shll8   r3                  ! the far bucket's head and tail, 16 bits each
+    mov.l   @(20, r13), r0
+    add     r3, r0
+    mov.w   @r0, r7
+    extu.w  r7, r7              ! its last command
+    or      r7, r2
+    mov.l   r2, @r9             ! w0
+    mov.w   r11, @r0            ! this the bucket's last
+    tst     r7, r7
+    bf      7f
+    mov.l   @(24, r13), r0
+    add     r3, r0
+    mov.w   r11, @r0            ! and its first
+7:  mov     #-64, r0
+    extu.b  r0, r0
+    shll16  r0
+    mov.l   r0, @(4, r9)        ! w1: PMOD_NO_ECD_SPD << 16, colour 0
+    shll16  r6
+    shll16  r14
+    extu.w  r5, r5
+    extu.w  r1, r1
+    mov     r6, r0
+    or      r5, r0
+    mov.l   r0, @(12, r9)       ! x0 y0
+    mov     r14, r0
+    or      r5, r0
+    mov.l   r0, @(16, r9)       ! x1 y0
+    mov     r14, r0
+    or      r1, r0
+    mov.l   r0, @(20, r9)       ! x1 y1
+    mov     r6, r0
+    or      r1, r0
+    mov.l   r0, @(24, r9)       ! x0 y1
+    mov.l   r12, @(28, r9)      ! w7
+    NEXT
+    rts
+    nop
+
 
 ! --- the cards --------------------------------------------------------------
 !

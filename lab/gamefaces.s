@@ -1,5 +1,7 @@
 ! Faces into a CPU's ordering table: back faces and faces off the frame are
-! dropped, the rest linked into the bucket of their depth. The master adds
+! dropped, the rest linked into the bucket of their depth; a mesh face the
+! far plane cuts or lies wholly past is a transparent fill behind everything
+! instead (FACE_TYPE_VOID), as the renderer's (facesmesh.s .Lvoid). The master adds
 ! mesh faces (render.cpp faceAddMeshQuads, faceAddMeshTriangles), the slave
 ! room faces (rooms.cpp faceAddRoomQuads, faceAddRoomTriangles). Far faces
 ! drawn flat (gFlatDist) stay in C.
@@ -63,6 +65,7 @@
     .equ    CLIP_FRAME,     0x01
     .equ    CLIP_DISCARD,   0x3E
     .equ    CLIP_PLANE,     0x20
+    .equ    VIEW_NEAR,      64      ! a corner's z behind the near plane
 
     .text
     .align 2
@@ -129,6 +132,50 @@
     bf      \skip
     mov     r14, r0
     tst     #CLIP_PLANE, r0
+    bf      \skip
+    .endm
+
+! a mesh face's clip flags of r1, r2, r3 and r (r3 again for triangles):
+! wholly beyond a frame edge to 'skip', a corner past a plane to 'void'; r0,
+! r13, r14
+    .macro  MESH_CULL r, skip, void
+    mov.b   @(7, r1), r0
+    mov     r0, r13
+    mov     r0, r14
+    mov.b   @(7, r2), r0
+    and     r0, r13
+    or      r0, r14
+    mov.b   @(7, r3), r0
+    and     r0, r13
+    or      r0, r14
+    mov.b   @(7, \r), r0
+    and     r0, r13
+    or      r0, r14
+    mov     r13, r0
+    tst     #CLIP_DISCARD & ~CLIP_PLANE, r0
+    bf      \skip
+    mov     r14, r0
+    tst     #CLIP_PLANE, r0
+    bt      1f
+    bra     \void
+    nop
+1:
+    .endm
+
+! a corner of r1, r2, r3 and r behind the near plane: to 'skip'; r0, r13
+    .macro  NEAR r, skip
+    mov     #VIEW_NEAR, r13
+    mov.w   @(4, r1), r0
+    cmp/gt  r13, r0
+    bf      \skip
+    mov.w   @(4, r2), r0
+    cmp/gt  r13, r0
+    bf      \skip
+    mov.w   @(4, r3), r0
+    cmp/gt  r13, r0
+    bf      \skip
+    mov.w   @(4, \r), r0
+    cmp/gt  r13, r0
     bf      \skip
     .endm
 
@@ -216,7 +263,7 @@ _faceAddMeshQuadsBody:
     mov.l   @(16, r6), r0
     tst     r0, r0
     bf      1f
-    CULL    r7, .LquadNext
+    MESH_CULL r7, .LquadNext, .LquadVoid
 1:
     ! depth: the corners' mean z >> OT_SHIFT
     mov.w   @(4, r1), r0
@@ -256,6 +303,33 @@ _faceAddMeshQuadsBody:
     rts
     nop
 
+    ! cut by a plane: filled behind everything, unless a corner lies behind
+    ! the near plane
+.LquadVoid:
+    mov.l   .LmeshFills, r0
+    mov.l   @r0, r0
+    tst     r0, r0
+    bt      .LquadNext          ! as the captured game: left
+    NEAR    r7, .LquadNext
+    mov     #5, r13
+    shll8   r13                 ! the last bucket, OT_SIZE - 1
+    LINK
+    mov.l   .LfaceVoid, r0
+    mov.l   r0, @r10            ! flags
+    INDEX   r1, r13
+    INDEX   r2, r14
+    shll16  r13
+    or      r14, r13
+    mov.l   r13, @(8, r10)
+    INDEX   r3, r13
+    INDEX   r7, r14
+    shll16  r13
+    or      r14, r13
+    mov.l   r13, @(12, r10)
+    add     #16, r10
+    bra     .LquadNext
+    nop
+
     .global _faceAddMeshTrianglesAsm
 _faceAddMeshTrianglesAsm:
     ENTER
@@ -278,7 +352,7 @@ _faceAddMeshTrianglesBody:
     mov.l   @(16, r6), r0
     tst     r0, r0
     bf      1f
-    CULL    r3, .LtriNext
+    MESH_CULL r3, .LtriNext, .LtriVoid
 1:
     ! flags: drawn as a parallelogram unless coloured, mean-coloured or
     ! marked (0x80); v0 at corner D (1); v1 and v2 swapped (2)
@@ -351,7 +425,56 @@ _faceAddMeshTrianglesBody:
     rts
     nop
 
+    ! cut by a plane: filled behind everything (over a parallelogram's
+    ! fourth corner too, if drawn as one), unless a corner lies behind the
+    ! near plane
+.LtriVoid:
+    mov.l   .LmeshFills, r0
+    mov.l   @r0, r0
+    tst     r0, r0
+    bt      .LtriNext           ! as the captured game: left
+    NEAR    r3, .LtriNext
+    mov.l   .LfaceVoid, r7      ! flags
+    mov.w   @r4, r0
+    extu.w  r0, r13
+    mov.l   @(12, r6), r14
+    or      r14, r13
+    mov     r13, r0
+    shlr8   r0
+    shlr2   r0
+    shlr2   r0
+    shlr2   r0
+    and     #15, r0             ! type
+    cmp/eq  #1, r0
+    bt      1f
+    cmp/eq  #10, r0
+    bt      1f
+    mov.w   @(4, r4), r0
+    tst     #0x80, r0
+    bf      1f
+    mov.l   .LfacePara, r0
+    or      r0, r7
+1:  mov     #5, r13
+    shll8   r13                 ! the last bucket, OT_SIZE - 1
+    LINK
+    mov.l   r7, @r10
+    INDEX   r1, r13
+    INDEX   r2, r14
+    shll16  r13
+    or      r14, r13
+    mov.l   r13, @(8, r10)
+    INDEX   r3, r13
+    mov     r13, r14
+    shll16  r13
+    or      r14, r13
+    mov.l   r13, @(12, r10)
+    add     #16, r10
+    bra     .LtriNext
+    nop
+
     .align 2
+.LmeshFills:    .long   _gMeshFills
+.LfaceVoid:     .long   0x0002C000  ! FACE_TYPE_VOID << FACE_TYPE_SHIFT
 .LfaceTriangle: .long   0x80000000  ! FACE_TRIANGLE
 .LfacePara:     .long   0x10000000  ! FACE_PARALLELOGRAM
 .LfaceV0AtD:    .long   0x08000000  ! FACE_V0_AT_D
