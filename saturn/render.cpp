@@ -779,6 +779,7 @@ void flush_c()
     calls.inventory = gInventoryFrame;
     render::FrameTimes s = render::frameRun(calls, gBias);
     gBias += s.late / 2;
+    gStats.detailUploads = render::gFrameTextures.count;
 #ifdef HW_LOG
     // the DSP's two runs on the trace, on the slave's clock (it started the
     // rooms'; the master the meshes', and took the ends)
@@ -804,7 +805,7 @@ void flush_c()
         gStats.roomVertices += render::gFrameRooms[i].verticesCount;
     }
     gStats.vertices = gStats.roomVertices + render::drawsContext().base - 2 * fills;
-    gStats.slaveXformTicks = s.slaveWork / 128;
+    gStats.slaveWorkTicks = s.slaveWork / 128;
     gStats.slaveIdleTicks = s.slaveWait / 128;
     gStats.slaveWaitTicks = s.masterWait / 128;
 

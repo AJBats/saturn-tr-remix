@@ -27,21 +27,13 @@ struct FrameStats
     uint32_t vdp1Ticks;     // VDP1 drawing time of the last frame
     uint32_t waitTicks;     // CPU time spent waiting for VDP1 to become idle
     uint32_t slaveWaitTicks;// flush waiting for the slave to finish the rooms
-    uint32_t detailFaces;   // room faces drawn with cached textures (RoomStats)
-    uint32_t detailMisses;  // room faces drawn in their mean colour for want of a slot or upload
-    uint32_t detailUploads; // room textures copied to the cache last frame
-    uint32_t flatFaces;     // faces drawn flat for distance (rooms and meshes)
+    uint32_t detailUploads; // room textures queued for the cache last frame
     uint32_t roomVertices;  // room vertices transformed
-    uint32_t slaveXformTicks; // slave: room vertex transform
-    uint32_t slaveFaceTicks;  // slave: room face setup
-    uint32_t slaveMeshTicks;  // slave: meshes
-    uint32_t slaveIdleTicks;  // slave: waiting for rooms to be queued
-    uint32_t dspVertices;     // room vertices the DSP projected
+    uint32_t slaveWorkTicks;  // slave: its share of the frame (rooms, poses, jobs)
+    uint32_t slaveIdleTicks;  // slave: waiting on the master
     uint32_t dmaTicks;      // flush: texture uploads and command DMA
-    uint32_t farWaitTicks;  // flush: waiting for the slave's commands after building ours
-    uint32_t rooms;         // rooms drawn (HW_LOG builds)
-    uint32_t meshes;        // meshes the master drew
-    uint32_t slaveMeshes;   // ... the slave
+    uint32_t rooms;         // rooms drawn
+    uint32_t meshes;        // meshes drawn
 };
 
 extern FrameStats gStats;

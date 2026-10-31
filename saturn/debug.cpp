@@ -473,7 +473,7 @@ void debugFrameDone()
     t.draw = gStats.drawTicks;
     t.flush = gStats.flushTicks;
     t.wait = gStats.waitTicks + gStats.slaveWaitTicks;
-    t.slave = gStats.slaveXformTicks;
+    t.slave = gStats.slaveWorkTicks;
     t.idle = gStats.slaveIdleTicks;
     const ItemObj* lara = (const ItemObj*)(const void*)players[0];
     t.room = lara ? int32(lara->room - rooms) : -1;
@@ -582,12 +582,12 @@ static void benchUpdate()
         vdp1 += gStats.vdp1Ticks;
         cpu += gStats.updateTicks + gStats.renderTicks - gStats.waitTicks;
         draw += gStats.drawTicks;
-        slave += gStats.slaveXformTicks;
+        slave += gStats.slaveWorkTicks;
         split[SPLIT_UPDATE] += gStats.updateTicks;
         split[SPLIT_DRAW] += gStats.drawTicks;
         split[SPLIT_FLUSH] += gStats.flushTicks;
         split[SPLIT_MASTER_WAIT] += gStats.slaveWaitTicks;
-        split[SPLIT_SLAVE] += gStats.slaveXformTicks;
+        split[SPLIT_SLAVE] += gStats.slaveWorkTicks;
         split[SPLIT_SLAVE_WAIT] += gStats.slaveIdleTicks;
     }
 
@@ -841,14 +841,7 @@ static void drawDebug()
 
     if (gShowStats)
     {
-        // room faces drawn with cached textures; in their mean colour for want
-        // of a cache slot or upload; flat for distance
-        char* p = appendStat(text, "cached ", gStats.detailFaces);
-        p = appendStat(p, "missed ", gStats.detailMisses);
-        appendStat(p, "flat ", gStats.flatFaces);
-        overlayRow(row--, text, OVERLAY_CENTRE);
-
-        p = appendStat(text, "vdp1 ", framePercent(gStats.vdp1Ticks));
+        char* p = appendStat(text, "vdp1 ", framePercent(gStats.vdp1Ticks));
         p = appendStat(p, "cpu ", framePercent(gStats.updateTicks + gStats.renderTicks - gStats.waitTicks));
         appendStat(p, "uploads ", gStats.detailUploads);
         overlayRow(row--, text, OVERLAY_CENTRE);
