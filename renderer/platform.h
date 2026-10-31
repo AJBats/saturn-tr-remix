@@ -41,6 +41,11 @@ void dmaWait();
 void dspEndsClear();
 uint32_t dspEnds(uint32_t* ends, uint32_t max);
 
+// A stage of the frame (frame.h FrameStage) begun and ended, on the CPU that
+// runs it: for a timeline of the frame (the game's HW_LOG trace).
+void stageBegin(uint32_t stage);
+void stageEnd(uint32_t stage);
+
 // A tick of the slave's timer as the master's reads at that moment (both
 // count the same clock, started apart: the gap measured at start-up).
 uint32_t slaveTickOnMaster(uint32_t tick);

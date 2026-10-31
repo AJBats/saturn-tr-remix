@@ -85,6 +85,29 @@ void frameLists();
 void frameSplit(const DrawScene* draws, uint32_t count, int32_t fills);
 void frameListsStart();
 
+// The frame's stages for a timeline (platform.h stageBegin): the master's,
+// then the slave's.
+enum FrameStage
+{
+    STAGE_DRAW_LIST,    // the calls into the draw list
+    STAGE_WALK_WAIT,    // waiting for the slave to lay out the rooms' jobs
+    STAGE_PLAN,         // the lists split, the hints begun, the frame planned
+    STAGE_POSE,         // the master's items lit and posed, the statics placed
+    STAGE_FEED,         // the meshes fed to the DSP
+    STAGE_POSE_WAIT,    // waiting for the items the slave poses
+    STAGE_CHUNKS,       // the master's chunks of the rooms' vertices
+    STAGE_DRAWS,        // the draws' vertices and faces
+    STAGE_SLAVE_WAIT,   // waiting for the slave's rooms, then its half of the join
+    STAGE_JOIN,         // the far half of the buckets joined
+    STAGE_JOBS,         // the slave: the rooms' jobs laid out, the DSP started on them
+    STAGE_PLAN_WAIT,    // waiting for the master's plan
+    STAGE_SLAVE_POSE,   // its items lit and posed
+    STAGE_ROOMS,        // its rooms' vertices and faces
+    STAGE_DRAWS_WAIT,   // waiting for the master's draws
+    STAGE_SLAVE_JOIN,   // the near half of the buckets joined
+    STAGE_COUNT
+};
+
 // The frame's times, SH-2 cycles: start to end, each CPU's work and waits,
 // the DSP's runs (start to end each: rooms, then meshes), and how late the
 // master's draws ended after the slave's rooms (< 0: before), which the next

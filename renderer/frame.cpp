@@ -218,6 +218,7 @@ static void slaveRooms(void*)
     if (shared->walks)
     {
         // the rooms seen, their jobs, laid out, the DSP started on them in order
+        stageBegin(STAGE_JOBS);
         if (shared->walks == WALK_SLAVE) {
             roomsSeen();
         }
@@ -228,19 +229,25 @@ static void slaveRooms(void*)
         verticesRoomsSet(gFrameRooms, gFrameRoomCount);
         verticesRoomsStart();
         shared->walked = 1;
+        stageEnd(STAGE_JOBS);
     }
     if (!shared->roomsReady)
     {
+        stageBegin(STAGE_PLAN_WAIT);
         uint32_t w0 = ticks();
         while (!shared->roomsReady);
         wait += ticksCycles(w0, ticks());
         cachePurge();   // the master's draw list and plan
+        stageEnd(STAGE_PLAN_WAIT);
     }
     if (shared->poses)
     {
+        stageBegin(STAGE_SLAVE_POSE);
         poseShare(1, gPoseSlave);
         shared->posed = 1;
+        stageEnd(STAGE_SLAVE_POSE);
     }
+    stageBegin(STAGE_ROOMS);
     for (uint32_t i = 0; i < gFrameRoomCount; i++)
     {
         verticesRoom(i, wait);
@@ -249,13 +256,18 @@ static void slaveRooms(void*)
         }
         facesRoom(gFrameRooms[i], gRoomRun);
     }
+    stageEnd(STAGE_ROOMS);
     *uncached(&gSlaveStages.roomsDone) = 1;
+    stageBegin(STAGE_DRAWS_WAIT);
     uint32_t w0 = ticks();
     while (!*uncached(&gSlaveStages.drawsDone));
     wait += ticksCycles(w0, ticks());
     cachePurge();       // the master's mesh list
+    stageEnd(STAGE_DRAWS_WAIT);
+    stageBegin(STAGE_SLAVE_JOIN);
     shared->nearLast = facesJoinPairs(&gRoomList, &gMeshList, facesLinkBase(gFrameCmds),
                                       (uint16_t*)&shared->nearHead, JOIN_SPLIT - 1);
+    stageEnd(STAGE_SLAVE_JOIN);
     shared->work = ticksCycles(t0, ticks()) - wait;
     shared->wait = wait;
 }
@@ -296,13 +308,18 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
     {
         poseMatrices((const PoseMatrix*)calls->matrices);
         slaveRun(slaveRooms, nullptr);
+        stageBegin(STAGE_DRAW_LIST);
         draws(calls->calls, calls->count, calls->items, calls->base);
         verticesDrawsSet(list.draws, list.drawCount, poseXforms());
         poseUse(list);
+        stageEnd(STAGE_DRAW_LIST);
+        stageBegin(STAGE_WALK_WAIT);
         uint32_t w0 = ticks();
         while (!shared->walked);
         s.masterWait += ticksCycles(w0, ticks());
         cachePurge();   // the rooms the slave walked
+        stageEnd(STAGE_WALK_WAIT);
+        stageBegin(STAGE_PLAN);
         int32_t fills;
         roomsFills(fills);
         frameSplit(list.draws, list.drawCount, fills);
@@ -313,6 +330,7 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         shared->poses = slaveItems;
         verticesClaimMasters();
         shared->roomsReady = 1;
+        stageEnd(STAGE_PLAN);
     }
     else
     {
@@ -323,23 +341,34 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
     }
     if (posed)
     {
+        stageBegin(STAGE_POSE);
         poseShare(0, gPoseSlave);
         poseStatics();
+        stageEnd(STAGE_POSE);
     }
+    stageBegin(STAGE_FEED);
     verticesMeshesFeed(0, part);
+    stageEnd(STAGE_FEED);
     if (slaveItems)
     {
+        stageBegin(STAGE_POSE_WAIT);
         uint32_t w0 = ticks();
         while (!shared->posed);
         s.masterWait += ticksCycles(w0, ticks());
         poseDropShare(gPoseSlave);
+        stageEnd(STAGE_POSE_WAIT);
+        stageBegin(STAGE_FEED);
         verticesMeshesFeed(part);
+        stageEnd(STAGE_FEED);
     }
+    stageBegin(STAGE_CHUNKS);
     bool meshes = false;
     verticesMasterRooms(s.masterWait, meshes);
     if (!meshes) {
         verticesMeshesStart(s.masterWait);
     }
+    stageEnd(STAGE_CHUNKS);
+    stageBegin(STAGE_DRAWS);
     const uint8_t* sets = gLevel.faceSets;
     uint32_t slaveEnd = 0;
     const DrawScene* draws = posed ? list.draws : given->draws;
@@ -393,17 +422,24 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
     frameHintsPlace(true, s.masterWait);
     frameEnds();
     shared->drawsDone = 1;
+    stageEnd(STAGE_DRAWS);
+    stageBegin(STAGE_SLAVE_WAIT);
     uint32_t w0 = ticks();
     uint32_t drawsEnd = ticksCycles(t0, w0);
     while (!shared->roomsDone);
     s.masterWait += ticksCycles(w0, ticks());
     s.late = int32_t(drawsEnd) - int32_t(slaveEnd ? slaveEnd : ticksCycles(t0, ticks()));
     cachePurge();       // the slave's room list
+    stageEnd(STAGE_SLAVE_WAIT);
+    stageBegin(STAGE_JOIN);
     uint16_t* farLast = facesJoinPairs(&gRoomList, &gMeshList, facesLinkBase(gFrameCmds),
                                        facesLinkField(gFrameCmds, 0), JOIN_SPLIT << 16 | (JOIN_PAIRS - 1));
+    stageEnd(STAGE_JOIN);
+    stageBegin(STAGE_SLAVE_WAIT);
     w0 = ticks();
     slaveWait();
     s.masterWait += ticksCycles(w0, ticks());
+    stageEnd(STAGE_SLAVE_WAIT);
     cachePurge();       // the link fields the slave's half set, of commands this CPU made
     uint16_t* nearLast = shared->nearLast;
     if (nearLast == &uncached(&gSlaveStages)->nearHead || nearLast == &gSlaveStages.nearHead) {

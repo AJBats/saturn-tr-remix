@@ -259,7 +259,7 @@ static const uint8_t kGroup[TRACE_LANES] = { 0, 3, 1, 2 };
 
 static bool detailId(uint32_t id)
 {
-    return id == TR_OBJECTS || id == TR_STATIC || id == TR_MESH || id == TR_ITEM;
+    return id == TR_OBJECTS || id == TR_ITEM;
 }
 
 static uint32_t laneEvent(int32_t lane, uint32_t n)

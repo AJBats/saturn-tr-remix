@@ -61,7 +61,7 @@ END = 0x80
 # tid: name, in the order shown
 TRACK_NAMES = {1: 'Master SH-2', 2: 'Master interrupts', 3: 'Slave SH-2', 4: 'SCU DSP (rooms, slave)',
                5: 'VDP1', 6: 'Display'}
-WAITS = {'TICK_WAIT', 'ROOMS_WAIT', 'FAR_WAIT', 'VDP1_WAIT'}
+WAITS = {'TICK_WAIT', 'SLAVE_WAIT', 'POSE_WAIT', 'VDP1_WAIT', 'WALK_WAIT', 'PLAN_WAIT', 'DRAWS_WAIT'}
 
 
 def trace_ids():
@@ -137,10 +137,6 @@ def span_name(name, arg_begin, arg_end):
         return f'objects room {arg_begin}'
     if name == 'ITEM':
         return f'item type {arg_begin}'
-    if name in ('XFORM', 'FACES', 'SLAVE_MESH'):
-        return f'{name.lower().replace("_", " ")} job {arg_begin}'
-    if name == 'DSP_RUN':
-        return f'DSP run job {arg_begin}'
     if name in WAITS:
         return 'WAIT ' + name[:-5].lower().replace('_', ' ')
     return name.lower().replace('_', ' ')

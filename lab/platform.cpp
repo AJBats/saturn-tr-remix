@@ -426,6 +426,15 @@ static void clockSync()
     slaveWait();
 }
 
+// The lab draws no timeline.
+void stageBegin(uint32_t)
+{
+}
+
+void stageEnd(uint32_t)
+{
+}
+
 uint32_t slaveTickOnMaster(uint32_t tick)
 {
     return (tick - gSlaveOffset) & 0xFFFF;

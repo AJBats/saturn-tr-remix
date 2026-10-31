@@ -648,6 +648,22 @@ void renderUploadReady()
     }
 }
 
+// The frame's stages on the trace (renderer/frame.h FrameStage).
+static const uint8 kStageIds[render::STAGE_COUNT] = {
+    TR_DRAW_LIST, TR_WALK_WAIT, TR_PLAN, TR_POSE, TR_FEED, TR_POSE_WAIT, TR_CHUNKS, TR_DRAWS, TR_SLAVE_WAIT,
+    TR_JOIN, TR_JOBS, TR_PLAN_WAIT, TR_SLAVE_POSE, TR_ROOMS, TR_DRAWS_WAIT, TR_SLAVE_JOIN
+};
+
+void stageBegin(uint32_t stage)
+{
+    traceBegin(stage < render::STAGE_JOBS ? TRACE_MASTER : TRACE_SLAVE, kStageIds[stage]);
+}
+
+void stageEnd(uint32_t stage)
+{
+    traceEnd(stage < render::STAGE_JOBS ? TRACE_MASTER : TRACE_SLAVE, kStageIds[stage]);
+}
+
 void renderPalettesSwapped()
 {
     for (int32 i = 0; i < level.texturesCount; i++)

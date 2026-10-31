@@ -28,28 +28,31 @@ enum TraceId
     TR_UPDATE,          // game logic, sound, input
     TR_DEBUG,           // the overlay's own work (debugUpdate)
     TR_RENDER,          // gameRender: the stages below, the rest its own
-    TR_VIEW,            // the camera's room, the rooms its portals show
-    TR_QUEUE,           // the visible rooms queued for the slave
-    TR_LARA,            // Lara drawn
-    TR_OBJECTS,         // a room's sprites, static meshes and items (arg: room)
-    TR_STATIC,          // a static mesh: its matrix, test and lighting
-    TR_MESH,            // a static mesh drawn on the master
-    TR_ITEM,            // an item drawn (arg: its type)
+    TR_VIEW,            // the rooms the camera sees, walked (renderWalk)
+    TR_DRAW_LIST,       // the frame's calls into the draw list (draws.s)
+    TR_LARA,            // Lara's calls
+    TR_OBJECTS,         // a room's sprites', static meshes' and items' calls (arg: room)
+    TR_PLAN,            // the lists split, the hints begun, the frame planned
+    TR_POSE,            // the master's items lit and posed, the statics placed
+    TR_ITEM,            // an item's calls (arg: its type)
     TR_OVERLAY,         // the overlay's text drawn (osDrawDebug)
-    TR_FLUSH,           // flush: the stages below, the rest command building
-    TR_ROOMS_WAIT,      // waiting for the slave to finish rooms and meshes
-    TR_FAR_WAIT,        // waiting for the slave's share of the commands
+    TR_FLUSH,           // flush: the frame's stages on both CPUs and the DSP
+    TR_SLAVE_WAIT,      // waiting for the slave's rooms, then its half of the join
+    TR_POSE_WAIT,       // waiting for the items the slave poses
     TR_VDP1_WAIT,       // waiting for VDP1 to finish the last list
     TR_UPLOAD,          // textures, commands and gouraud table to VDP1
+    TR_WALK_WAIT,       // waiting for the slave to lay out the rooms' jobs
+    TR_FEED,            // the meshes fed to the DSP
+    TR_CHUNKS,          // the master's chunks of the rooms' vertices projected
+    TR_DRAWS,           // the draws: each mesh's vertices projected as the DSP hands them, its faces
+    TR_JOIN,            // the far half of the buckets joined
     // the slave
-    TR_BATCH = 32,      // rooms and meshes as the master queues them
-    TR_XFORM,           // a room's chunk of vertices (arg: its job)
-    TR_FACES,           // a room's faces (arg: its job)
-    TR_SLAVE_MESH,      // a static mesh's MeshJob (arg: its index)
-    TR_SLAVE_FLUSH,     // its share of the commands
-    TR_SLAVE_ITEM,      // an item drawn here (arg: its type)
-    // the SCU DSP, as the CPU that runs it sees it start and finish
-    TR_DSP_RUN = 40,    // a run of room chunks (arg: its job), the slave's
+    TR_JOBS = 32,       // the rooms' jobs laid out, the DSP started on them
+    TR_PLAN_WAIT,       // waiting for the master's plan
+    TR_SLAVE_POSE,      // its items lit and posed
+    TR_ROOMS,           // its rooms: their chunks projected as the DSP hands them, their faces
+    TR_DRAWS_WAIT,      // waiting for the master's draws
+    TR_SLAVE_JOIN,      // the near half of the buckets joined
     // the master's interrupts
     TR_IRQ_VBLANK_IN = 48,
     TR_IRQ_VBLANK_OUT,
@@ -70,7 +73,7 @@ enum TraceId
 // No two alike in the font by fewer than 6 of their 64 pixels.
 //                      0         1         2         3         4         5         6
 //                      01234567890123456789012345678901234567890123456789012345678901234567
-#define TRACE_LETTERS  ".TUGRVQLOSMIYFWABX..............bxfmkh..d.......z...............p..s"
+#define TRACE_LETTERS  ".TUGRVQLOSMIYFWABXDHNjJ.........bxfmkh..........z...............p..s"
 
 enum TraceLane { TRACE_MASTER, TRACE_IRQ, TRACE_SLAVE, TRACE_DSP, TRACE_LANES };
 
