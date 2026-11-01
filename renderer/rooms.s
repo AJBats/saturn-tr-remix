@@ -2,6 +2,15 @@
 ! sees them: openlara room.h's portal walk (getVisibleRooms, addVisibleRoom,
 ! checkPortal), then draw.h queueRoom's matrix for each room listed.
 !
+! The walk enters a room again only when its window grew, where the game's
+! enters it again by every way the portals lead to it. Windows only grow, so
+! a room entered with the window it was last walked with finds nothing new
+! behind its portals: the windows come out the game's, and the list and its
+! order too unless the walk comes back round to a room it is still in (of
+! 80000 random views over every level none did, but for a few that loop for
+! ever, which the game's walk can't survive). Diagonal views across the
+! Cistern's rooms took the game's walk ~300 portal checks for 33 rooms.
+!
 ! void roomsSeenAsm(RoomsContext* ctx)
 !
 ! A room's walk matrix is the view's rotation, its translation the view's
@@ -232,8 +241,8 @@
     .endm
 
 ! checkPortal: r8 the room, r9 the portal, r12 r13 r14 the room's walk
-! translation -> r0 1 when the next room's window grew to it (its fill
-! counted past the draw distance), else 0; r1 .. r7
+! translation -> r0 1 when the next room's window grew (its fill counted
+! past the draw distance), else 0; r1 .. r7
 .Lcheck:
     mov.l   r10, @-r15
     mov.l   r11, @-r15
@@ -424,23 +433,28 @@
     shll2   r7
     mov.l   @(R_CLIP,gbr), r0
     add     r0, r7                  ! the next room's clip
+    mov     #0, r5                  ! grown
     mov.l   @(0,r7), r0
     cmp/gt  r1, r0
     bf      5f
     mov.l   r1, @(0,r7)
+    mov     #1, r5
 5:  mov.l   @(8,r7), r0
     cmp/gt  r0, r3
     bf      6f
     mov.l   r3, @(8,r7)
+    mov     #1, r5
 6:  mov.l   @(4,r7), r0
     cmp/gt  r2, r0
     bf      7f
     mov.l   r2, @(4,r7)
+    mov     #1, r5
 7:  mov.l   @(12,r7), r0
     cmp/gt  r0, r4
     bf      8f
     mov.l   r4, @(12,r7)
-8:  mov     #1, r0
+    mov     #1, r5
+8:  mov     r5, r0
     add     #FRAME, r15
     mov.l   @r15+, r11
     rts

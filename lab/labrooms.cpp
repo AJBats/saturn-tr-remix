@@ -35,23 +35,55 @@ void roomsLabInit()
     roomsView(camera->pos, m, view->viewport, view->camera);
 }
 
+// Two walks' fills, the first ROOM_FILLS of each: the same rectangles,
+// however often each comes (the walk leaves out the game's repeats, from a
+// room walked again with the window it had): those of either not in the
+// other.
+static int32_t fillsOff(const int32_t (*a)[4], int32_t aCount, const int32_t (*b)[4], int32_t bCount)
+{
+    aCount = aCount < ROOM_FILLS ? aCount : ROOM_FILLS;
+    bCount = bCount < ROOM_FILLS ? bCount : ROOM_FILLS;
+    int32_t bad = 0;
+    for (int32_t pass = 0; pass < 2; pass++)
+    {
+        for (int32_t i = 0; i < aCount; i++)
+        {
+            int32_t j = 0;
+            while (j < bCount && memcmp(a[i], b[j], sizeof(a[i]))) {
+                j++;
+            }
+            bad += j == bCount;
+        }
+        const int32_t (*t)[4] = a;
+        a = b;
+        b = t;
+        int32_t n = aCount;
+        aCount = bCount;
+        bCount = n;
+    }
+    return bad;
+}
+
 // The fills the capture's master drew before its first draw (renderVoid's
 // renderRect: a face whose first corner's vertex holds x y, the next width
-// height) against the walk's: those that differ, or a count unlike.
+// height) against the walk's: those of either not in the other.
 static int32_t fillsCheck()
 {
     uint32_t draws;
     const DrawScene* draw = sceneArray<const DrawScene>("DRAW", &draws);
     const Face* faces = sceneArray<const Face>("MPOL");
     const Vertex* vertices = sceneArray<const Vertex>("VERT");
-    int32_t n = 0, bad = 0;
-    for (; n < int32_t(draws) && draw[n].type == DRAW_COPY; n++)
+    int32_t drawn[ROOM_FILLS][4];
+    int32_t n = 0;
+    for (; n < int32_t(draws) && n < ROOM_FILLS && draw[n].type == DRAW_COPY; n++)
     {
         const Vertex* v = (const Vertex*)((const uint8_t*)vertices + faces[draw[n].first].indices[0]);
-        bad += n >= ROOM_FILLS || gCtx.fills[n][0] != v[0].x || gCtx.fills[n][1] != v[0].y ||
-               gCtx.fills[n][2] != v[0].x + v[1].x || gCtx.fills[n][3] != v[0].y + v[1].y;
+        drawn[n][0] = v[0].x;
+        drawn[n][1] = v[0].y;
+        drawn[n][2] = v[0].x + v[1].x;
+        drawn[n][3] = v[0].y + v[1].y;
     }
-    return bad + (n != gCtx.voids);
+    return fillsOff(gCtx.fills, gCtx.voids, drawn, n);
 }
 
 void roomsPoison()
@@ -66,7 +98,7 @@ int32_t roomsSeenCheck()
 {
     int32_t voids;
     int32_t bad = gameRoomsCheck(gCtx.seen, gCtx.listed, voids);
-    return bad + (gCtx.voids != voids) + gameRoomJobsCheck(gCtx.jobs, gCtx.jobCount) + fillsCheck();
+    return bad + gameRoomJobsCheck(gCtx.jobs, gCtx.jobCount) + fillsCheck();
 }
 
 // Two lists of jobs: those that differ (the same caustics the same table's),
@@ -202,10 +234,7 @@ int32_t roomsSeldomCheck()
         gameRoomsRun(ctx.cameraRoom, ctx.camera, view, game, count, voids, near, gameJobs, jobCount, gameRects);
         roomsSeenAsm(&ctx);
         roomsJobsAsm(&ctx);
-        bad += count != ctx.listed || voids != ctx.voids;
-        for (int32_t i = 0; i < voids && i < ROOM_FILLS; i++) {
-            bad += memcmp(rects[i], gameRects[i], sizeof(rects[i])) != 0;
-        }
+        bad += (count != ctx.listed) + fillsOff(rects, ctx.voids, gameRects, voids);
         for (int32_t i = 0; i < count && i < ctx.listed; i++)
         {
             const RoomSeen &a = ctx.seen[i], &b = game[i];
