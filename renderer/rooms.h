@@ -16,6 +16,16 @@ namespace render {
 #define ROOMS_LISTED    128
 #define ROOM_JOBS       64      // rooms.cpp's MAX_ROOM_JOBS: those queued with vertices
 #define ROOM_FILLS      64      // the fills past the draw distance kept (all counted)
+#define ROOM_ENTRIES    128     // the portals rooms were seen by kept (all counted)
+
+// A room the walk saw through a portal: the room, the room it was seen from,
+// the portal (from's).
+struct RoomEntry
+{
+    uint8_t room, from;
+    uint16_t pad;
+    const uint8_t* portal;
+};
 
 struct RoomsContext
 {
@@ -45,6 +55,8 @@ struct RoomsContext
     int32_t (*fills)[4];        // +116 the fills' rectangles, x0 y0 x1 y1 (the first ROOM_FILLS)
     int32_t farScaled;          // +120 roomsFarScaled's
     int16_t rotation[10];       // +124 rooms.s's own: the view's rotation, its rows as 16-bit x y z
+    RoomEntry* entries;         // +144 each portal a room was seen by (the first ROOM_ENTRIES)
+    int32_t entryCount;         // +148
 };
 
 extern "C" void roomsSeenAsm(RoomsContext* ctx);
@@ -52,8 +64,9 @@ extern "C" void roomsJobsAsm(RoomsContext* ctx);
 
 // The level's rooms as the walk reads them (RoomLevel each, their portals in
 // the game's layout), their geometry (RoomGeometry: offsets in rgeo), the
-// caustics' wave (the caller moves its phase each frame), and the vertices
-// the jobs place their rooms' in.
+// caustics' wave (the caller moves its phase each frame), the vertices the
+// jobs place their rooms' in, and the game's sines (gSinCosTable: sin << 16
+// | cos, for the items' test).
 #define MAX_LEVEL_ROOMS 139     // openlara MAX_ROOMS: LEVEL7A
 struct RoomsLevel
 {
@@ -64,6 +77,7 @@ struct RoomsLevel
     uint8_t* rgeo;
     const RoomCaustics* caustics;
     Vertex* vertices;
+    const uint32_t* sines;
 };
 void roomsInit(const RoomsLevel &level);
 
@@ -78,6 +92,18 @@ FaceRoom* roomsJobs(uint32_t &count);
 // The fills past the draw distance the walk found (renderVoid's: x0 y0 x1
 // y1), the first ROOM_FILLS: their count.
 const int32_t (*roomsFills(int32_t &count))[4];
+
+// Whether an item drawn (its record, its frames A and B, its model's call:
+// a shadow's may follow) could show through the portals the walk saw its
+// room by, from the camera's room: the box holding both frames' boxes,
+// turned to its heading, or that box flat on the floor below for its
+// shadow, against the planes through the camera and each portal's edges,
+// room by room back. drawsAsm asks for a model of more than one node, not
+// Lara's, that passed the original's test; roomsItemsTest(false) answers
+// yes to all (the walk not done before the draws: the lab's).
+extern "C" int32_t roomsItemSeen(const ItemRecord* item, const int16_t* frameA, const int16_t* frameB,
+                                 const CallRecord* call);
+void roomsItemsTest(bool on);
 
 // A portal's corner past the far plane takes its depth there, its x and y
 // scaled by the plane's depth over its own so that it projects where it lies

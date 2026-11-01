@@ -548,6 +548,7 @@ void renderLevelInit()
     r.rgeo = nullptr;
     r.caustics = &gRoomCaustics;
     r.vertices = gVertices;
+    r.sines = (const uint32_t*)gSinCosTable;
     render::roomsInit(r);
 
     render::VerticesLevel v;

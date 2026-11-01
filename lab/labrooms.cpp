@@ -20,6 +20,7 @@ void roomsLabInit()
     level.rgeo = sceneArray<uint8_t>("RGEO");
     level.caustics = sceneArray<const RoomCaustics>("CAUW");
     level.vertices = gVertices;
+    level.sines = sceneArray<const uint32_t>("SINC");
     roomsInit(level);
     roomsFarScaled(false);  // as the captured game projected, for the checks against it
     const PoseCamera* camera = sceneArray<const PoseCamera>("CAMR");

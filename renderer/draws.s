@@ -583,10 +583,30 @@
     mov.l   @(D_CAMERA+8,gbr), r0
     bsr     .Lsphere
     sub     r0, r6
+    bf      .Lhidden
+    ! a model of more than one node, not Lara's: seen through the portals
+    ! the walk saw its room by too (rooms.h roomsItemSeen)
+    mov.b   @(1,r9), r0
+    cmp/eq  #1, r0
     bt      .Lshown
+    tst     r8, r8
+    bt      .Lshown
+    mov     r10, r4
+    mov.l   @(D_FRAME_A,gbr), r0
+    mov     r0, r5
+    mov.l   @(D_FRAME_B,gbr), r0
+    mov     r0, r6
+    mov.l   .LitemSeen, r0
+    jsr     @r0
+    mov     r14, r7
+    tst     r0, r0
+    bf      .Lshown
+.Lhidden:
     lds.l   @r15+, pr
     rts
     nop
+    .align  2
+.LitemSeen: .long   _roomsItemSeen
 
 .Lshown:
     mov.w   @(C_INDEX,r14), r0

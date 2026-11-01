@@ -40,7 +40,9 @@
 ! table (32 int16); +116 the fills' rectangles (x0 y0 x1 y1, the first
 ! ROOM_FILLS; +68 counts them all); +120 a corner past the far plane scaled
 ! to it (rooms.h roomsFarScaled); +124 the view's rotation, its rows as
-! 16-bit x y z (the walk's own).
+! 16-bit x y z (the walk's own); +144 the entries (RoomEntry: the room seen,
+! the room it was seen from, the portal it was seen by), +148 their count
+! (all of them: ROOM_ENTRIES kept).
 
     .equ    R_LEVEL,        0
     .equ    R_PORTALS,      4
@@ -69,6 +71,9 @@
     .equ    R_FILLS,        116
     .equ    R_FAR_SCALED,   120
     .equ    R_ROTATION,     124
+    .equ    R_ENTRIES,      144
+    .equ    R_ENTRY_COUNT,  148
+    .equ    ROOM_ENTRIES,   128
     .equ    ROOM_FILLS,     64
 
     .equ    L_X,            0       ! RoomLevel
@@ -467,7 +472,25 @@
     bf      8f
     mov.l   r4, @(12,r7)
     mov     #1, r5
-8:  mov     r5, r0
+    ! the entry, for the items' test (rooms.h roomsItemSeen)
+8:  mov.l   @(R_ENTRY_COUNT,gbr), r0
+    mov     r0, r1
+    add     #1, r0
+    mov.l   r0, @(R_ENTRY_COUNT,gbr)
+    mov     #ROOM_ENTRIES / 2, r2
+    shll    r2
+    cmp/hs  r2, r1
+    bt      9f
+    shll2   r1
+    shll    r1
+    mov.l   @(R_ENTRIES,gbr), r0
+    add     r0, r1
+    mov.w   @r9, r0
+    mov.b   r0, @r1                 ! the room seen
+    mov     r8, r0
+    mov.b   r0, @(1,r1)             ! from
+    mov.l   r9, @(4,r1)             ! by
+9:  mov     r5, r0
     add     #FRAME, r15
     mov.l   @r15+, r11
     rts
@@ -606,6 +629,7 @@ _roomsSeenAsm:
     ldc     r4, gbr
     mov     #0, r0
     mov.l   r0, @(R_VOIDS,gbr)
+    mov.l   r0, @(R_ENTRY_COUNT,gbr)
     ! the view's rotation as 16-bit rows, for the corners' MAC.W
     mov.l   @(R_VIEW,gbr), r0
     mov     r0, r6

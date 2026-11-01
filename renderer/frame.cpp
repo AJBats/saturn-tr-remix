@@ -373,6 +373,7 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
             slaveRun(slaveRooms, nullptr);
         }
         stageBegin(STAGE_DRAW_LIST);
+        roomsItemsTest(calls->walked);     // the walk's entries there to test the items by
         draws(calls->calls, calls->count, calls->items, calls->base);
         verticesDrawsSet(list.draws, list.drawCount, poseXforms());
         poseUse(list);
