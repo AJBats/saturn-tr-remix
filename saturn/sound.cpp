@@ -5,6 +5,7 @@
 
 #include "common.h"
 #include "cd.h"
+#include "crash.h"
 #include "sound.h"
 #include "system.h"
 
@@ -19,6 +20,7 @@
 #define LPCTL_LOOP      0x0020
 #define PCM8B           0x0010  // 8-bit samples
 
+#define SMPC_SNDON      0x06
 #define SMPC_SNDOFF     0x07
 
 // Effect sends of slots 16 and 17 carry the external input, CD audio left and
@@ -124,6 +126,93 @@ void sndInit()
     SCSP_SLOT_SEND(16) = EXTS_LEVEL | EXTS_LEFT_ONLY;
     SCSP_SLOT_SEND(17) = EXTS_LEVEL | EXTS_RIGHT_ONLY;
 }
+
+#ifdef SOUND_BENCH
+#include "soundbench_m68k.h"
+
+#define BENCH_COUNTER   0x0F00      // soundbench.68k's
+#define BENCH_MODE      0x0F04
+#define BENCH_RING      0x1000
+#define BENCH_VBLANKS   60
+
+// A slot reading sound RAM as a voice does, unheard: soundbench.68k's ring,
+// looped, 16-bit at 44.1 kHz, total level 255, no send.
+static void benchSlot(int32 slot)
+{
+    SCSP_SLOT(slot, 0) = LPCTL_LOOP;
+    SCSP_SLOT(slot, 1) = BENCH_RING;
+    SCSP_SLOT(slot, 2) = 0;
+    SCSP_SLOT(slot, 3) = 511;
+    SCSP_SLOT(slot, 4) = 0x001F;
+    SCSP_SLOT(slot, 5) = 0x001F;
+    SCSP_SLOT(slot, 6) = 255;
+    SCSP_SLOT(slot, 7) = 0;
+    SCSP_SLOT(slot, 8) = 0;
+    SCSP_SLOT(slot, 9) = 0;
+    SCSP_SLOT(slot, 10) = 0;
+    SCSP_SLOT(slot, 11) = 0;
+    SCSP_SLOT(slot, 0) = LPCTL_LOOP | KYONB;
+}
+
+// The bench's count, read until two reads agree (the 68000 writes it a
+// word at a time).
+static uint32 benchCount()
+{
+    volatile uint32* counter = (volatile uint32*)(SOUND_RAM + BENCH_COUNTER);
+    uint32 a = *counter, b;
+    while ((b = *counter) != a) {
+        a = b;
+    }
+    return a;
+}
+
+void sndBench()
+{
+    static const char* const kLabels[2][3] = {
+        { "68K PS1 0", "68K PS1 16", "68K PS1 30" },
+        { "68K SAT 0", "68K SAT 16", "68K SAT 30" },
+    };
+    static const int32 kSlots[3] = { 0, 16, 30 };
+
+    volatile uint16* ram = (volatile uint16*)SOUND_RAM;
+    const uint16* image = (const uint16*)soundbench_m68k;
+    for (uint32 i = 0; i < SOUNDBENCH_M68K_SIZE / 2; i++) {
+        ram[i] = image[i];
+    }
+
+    for (int32 mode = 0; mode < 2; mode++)
+    {
+        for (int32 load = 0; load < 3; load++)
+        {
+            // slots 16 and 17 carry the CD audio
+            for (int32 k = 0, slot = 0; k < kSlots[load]; k++, slot++)
+            {
+                if (slot == 16) {
+                    slot = 18;
+                }
+                benchSlot(slot);
+            }
+            keyExecute();
+
+            ram[BENCH_MODE / 2] = uint16(mode);
+            smpcCommand(SMPC_SNDON);
+            uint32 v = gVblankCount;
+            while (gVblankCount - v < 4);
+            uint32 c0 = benchCount();
+            v = gVblankCount;
+            while (gVblankCount - v < BENCH_VBLANKS);
+            uint32 c1 = benchCount();
+            smpcCommand(SMPC_SNDOFF);
+            crashLog(kLabels[mode][load], (c1 - c0) * 60 / BENCH_VBLANKS);
+
+            for (int32 slot = 0; slot < 32; slot++) {
+                SCSP_SLOT(slot, 0) = 0;
+            }
+            keyExecute();
+        }
+    }
+}
+#endif
 
 void sndInitSamples()
 {

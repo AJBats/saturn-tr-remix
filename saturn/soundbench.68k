@@ -1,0 +1,292 @@
+| The sound CPU's decoding speed (SOUND_BENCH, sound.cpp sndBench): the
+| 68000 decodes blocks of 4-bit samples without end, adding each block's
+| samples to COUNTER, which the SH-2 reads over a second. MODE picks the
+| format: 0 the PlayStation's SPU ADPCM (28 samples a block, prediction by
+| two products, saturated), 1 a format whose prediction takes shifts and
+| adds alone (30 samples a block, no saturation: its encoder keeps every
+| sample in range). The blocks below mix the predictors as LEVEL1's sounds
+| do; their timing doesn't hang on the samples' values.
+
+    .equ    TABLE,      0x0E00      | a block's 16 nibble values (words)
+    .equ    COUNTER,    0x0F00      | samples decoded (long)
+    .equ    MODE,       0x0F04      | 0 PlayStation ADPCM, 1 shifts and adds
+    .equ    RING,       0x1000      | decoded samples land here, over and over
+    .equ    RING_END,   0x1400
+    .equ    PS1_BLOCKS, 0x1400
+    .equ    SAT_BLOCKS, 0x1900
+    .equ    BLOCKS,     72
+
+    .text
+    .long   TABLE                   | initial stack, below the table
+    .long   start
+    .org    0x400
+
+start:
+    lea     COUNTER,%a5
+    clr.l   (%a5)
+    moveq   #0,%d6                  | the last sample
+    moveq   #0,%d7                  | the one before
+    move.l  #32,%a3                 | ADPCM rounding
+pass:
+    lea     RING,%a1
+    lea     PS1_BLOCKS,%a0
+    tst.w   MODE
+    beq.s   block
+    lea     SAT_BLOCKS,%a0
+block:
+    cmpa.l  #RING_END-64,%a1
+    bcs.s   1f
+    lea     RING,%a1
+1:  tst.w   MODE
+    bne.s   2f
+    bsr     ps1_block
+    moveq   #28,%d0
+    bra.s   3f
+2:  bsr     sat_block
+    moveq   #30,%d0
+3:  add.l   %d0,(%a5)
+    cmpa.l  #PS1_BLOCKS+16*BLOCKS,%a0
+    beq.s   pass
+    cmpa.l  #SAT_BLOCKS+16*BLOCKS,%a0
+    beq.s   pass
+    bra.s   block
+
+| The nibble values for shift d1 (0-12): T[n] = n << (12 - shift), n taken
+| as signed 4 bits; a2 the table, d5 the index mask (a nibble times 2).
+table:
+    lea     TABLE,%a2
+    moveq   #12,%d2
+    sub.w   %d1,%d2
+    moveq   #1,%d4
+    lsl.w   %d2,%d4                 | the step
+    moveq   #0,%d3                  | n * step, n from 0
+    move.w  %d4,%d5
+    lsl.w   #3,%d5
+    neg.w   %d5                     | ... and from -8
+    moveq   #7,%d1
+1:  move.w  %d3,(%a2)+
+    move.w  %d5,14(%a2)
+    add.w   %d4,%d3
+    add.w   %d4,%d5
+    dbra    %d1,1b
+    lea     TABLE,%a2
+    moveq   #0x1E,%d5
+    rts
+
+| --- the PlayStation's: header (filter << 4 | shift), flags, 14 bytes ------
+
+| One sample: d2 its nibble's value; s1 d6, s2 d7.
+    .macro  PS1_ONE c0, c1
+    move.w  %d6,%d3
+    muls.w  #\c0,%d3
+    .if     \c1
+    move.w  %d7,%d4
+    muls.w  #\c1,%d4
+    add.l   %d4,%d3
+    .endif
+    add.l   %a3,%d3
+    asr.l   #6,%d3
+    ext.l   %d2
+    add.l   %d2,%d3
+    move.w  %d3,%d2
+    ext.l   %d2
+    cmp.l   %d2,%d3
+    beq.s   9f
+    move.w  #0x7FFF,%d2
+    tst.l   %d3
+    bpl.s   9f
+    move.w  #0x8000,%d2
+9:  move.w  %d2,(%a1)+
+    move.w  %d6,%d7
+    move.w  %d2,%d6
+    .endm
+
+| A byte's two samples, low nibble first.
+    .macro  PS1_PAIR c0, c1
+    move.b  (%a0)+,%d0
+    move.w  %d0,%d2
+    add.w   %d2,%d2
+    and.w   %d5,%d2
+    move.w  0(%a2,%d2.w),%d2
+    PS1_ONE \c0, \c1
+    move.w  %d0,%d2
+    lsr.b   #3,%d2
+    and.w   %d5,%d2
+    move.w  0(%a2,%d2.w),%d2
+    PS1_ONE \c0, \c1
+    .endm
+
+ps1_block:
+    moveq   #0,%d0
+    move.b  (%a0)+,%d0
+    addq.l  #1,%a0
+    moveq   #15,%d1
+    and.w   %d0,%d1
+    cmp.w   #12,%d1
+    bls.s   1f
+    moveq   #9,%d1
+1:  bsr     table
+    lsr.w   #4,%d0
+    and.w   #7,%d0
+    cmp.w   #5,%d0
+    bcs.s   2f
+    moveq   #0,%d0
+2:  add.w   %d0,%d0
+    move.w  ps1_jump(%pc,%d0.w),%d0
+    jmp     ps1_jump(%pc,%d0.w)
+ps1_jump:
+    .word   pf0-ps1_jump, pf1-ps1_jump, pf2-ps1_jump, pf3-ps1_jump, pf4-ps1_jump
+
+pf0:
+    moveq   #13,%d1
+1:  move.b  (%a0)+,%d0
+    move.w  %d0,%d2
+    add.w   %d2,%d2
+    and.w   %d5,%d2
+    move.w  0(%a2,%d2.w),%d7
+    move.w  %d7,(%a1)+
+    lsr.b   #3,%d0
+    and.w   %d5,%d0
+    move.w  0(%a2,%d0.w),%d6
+    move.w  %d6,(%a1)+
+    dbra    %d1,1b
+    rts
+
+    .macro  PS1_FILTER c0, c1
+    moveq   #13,%d1
+1:  PS1_PAIR \c0, \c1
+    dbra    %d1,1b
+    rts
+    .endm
+
+pf1:
+    PS1_FILTER 60, 0
+pf2:
+    PS1_FILTER 115, -52
+pf3:
+    PS1_FILTER 98, -55
+pf4:
+    PS1_FILTER 122, -60
+
+| --- shifts and adds: header (predictor << 4 | shift), 15 bytes -----------
+
+| One sample: d2 its nibble's value; s1 d6, s2 d7; d = s1 - s2.
+    .macro  SAT_ONE p
+    .if     \p == 1                 | s1
+    add.w   %d6,%d2
+    .elseif \p == 2                 | 2 s1 - s2
+    move.w  %d6,%d3
+    add.w   %d3,%d3
+    sub.w   %d7,%d3
+    add.w   %d3,%d2
+    .elseif \p == 3                 | s1 + d / 2
+    move.w  %d6,%d3
+    sub.w   %d7,%d3
+    asr.w   #1,%d3
+    add.w   %d6,%d3
+    add.w   %d3,%d2
+    .elseif \p == 4                 | s1 + d - d / 4
+    move.w  %d6,%d3
+    sub.w   %d7,%d3
+    move.w  %d3,%d4
+    asr.w   #2,%d4
+    sub.w   %d4,%d3
+    add.w   %d6,%d3
+    add.w   %d3,%d2
+    .elseif \p == 5                 | s1 - s1 / 16
+    move.w  %d6,%d3
+    asr.w   #4,%d3
+    add.w   %d6,%d2
+    sub.w   %d3,%d2
+    .elseif \p == 6                 | s1 + d - d / 8
+    move.w  %d6,%d3
+    sub.w   %d7,%d3
+    move.w  %d3,%d4
+    asr.w   #3,%d4
+    sub.w   %d4,%d3
+    add.w   %d6,%d3
+    add.w   %d3,%d2
+    .elseif \p == 7                 | s1 / 2
+    move.w  %d6,%d3
+    asr.w   #1,%d3
+    add.w   %d3,%d2
+    .endif
+    move.w  %d2,(%a1)+
+    move.w  %d6,%d7
+    move.w  %d2,%d6
+    .endm
+
+    .macro  SAT_PREDICTOR p
+    moveq   #14,%d1
+1:  move.b  (%a0)+,%d0
+    move.w  %d0,%d2
+    add.w   %d2,%d2
+    and.w   %d5,%d2
+    move.w  0(%a2,%d2.w),%d2
+    SAT_ONE \p
+    move.w  %d0,%d2
+    lsr.b   #3,%d2
+    and.w   %d5,%d2
+    move.w  0(%a2,%d2.w),%d2
+    SAT_ONE \p
+    dbra    %d1,1b
+    rts
+    .endm
+
+sat_block:
+    moveq   #0,%d0
+    move.b  (%a0)+,%d0
+    moveq   #15,%d1
+    and.w   %d0,%d1
+    bsr     table
+    lsr.w   #4,%d0
+    add.w   %d0,%d0
+    move.w  sat_jump(%pc,%d0.w),%d0
+    jmp     sat_jump(%pc,%d0.w)
+sat_jump:
+    .word   sp0-sat_jump, sp1-sat_jump, sp2-sat_jump, sp3-sat_jump
+    .word   sp4-sat_jump, sp5-sat_jump, sp6-sat_jump, sp7-sat_jump
+
+sp0:
+    SAT_PREDICTOR 0
+sp1:
+    SAT_PREDICTOR 1
+sp2:
+    SAT_PREDICTOR 2
+sp3:
+    SAT_PREDICTOR 3
+sp4:
+    SAT_PREDICTOR 4
+sp5:
+    SAT_PREDICTOR 5
+sp6:
+    SAT_PREDICTOR 6
+sp7:
+    SAT_PREDICTOR 7
+
+| --- the blocks: LEVEL1's mix of filters (22% none, 32% one product, 46%
+| two), and a like mix of predictors -----------------------------------------
+
+    .macro  PS1_GROUP
+    .irp    f, 0, 0, 1, 1, 1, 2, 3, 3, 4
+    .byte   (\f << 4) | 10, 0
+    .byte   0x21, 0xF3, 0x1E, 0x02, 0xE1, 0x3F, 0x10, 0x0F, 0xD2, 0x2D, 0x01, 0xF0, 0x12, 0xE2
+    .endr
+    .endm
+
+    .macro  SAT_GROUP
+    .irp    p, 0, 1, 1, 5, 2, 3, 4, 6, 7
+    .byte   (\p << 4) | 10
+    .byte   0x21, 0xF3, 0x1E, 0x02, 0xE1, 0x3F, 0x10, 0x0F, 0xD2, 0x2D, 0x01, 0xF0, 0x12, 0xE2, 0x1F
+    .endr
+    .endm
+
+    .org    PS1_BLOCKS
+    .rept   BLOCKS / 9
+    PS1_GROUP
+    .endr
+
+    .org    SAT_BLOCKS
+    .rept   BLOCKS / 9
+    SAT_GROUP
+    .endr

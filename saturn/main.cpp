@@ -59,6 +59,9 @@ int main()
 #endif
     crashLog("CD", cdInit());
     sndInit();
+#if defined(HW_LOG) && defined(SOUND_BENCH)
+    sndBench();
+#endif
     crashLog("SOUND", 0);
     padInit();
 

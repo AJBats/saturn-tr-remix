@@ -27,4 +27,10 @@
 // Once per frame: frees voices whose samples have played out.
 void sndFrame();
 
+#ifdef SOUND_BENCH
+// The sound CPU's decoding speed (soundbench.68k), in the boot log: samples
+// a second for each format, with 0, 16 and 30 slots playing.
+void sndBench();
+#endif
+
 #endif

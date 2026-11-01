@@ -26,6 +26,13 @@ SH_BIN  ?= $(TOOLCHAIN)/linux/sh2eb-elf/bin
 PATHSEP := :
 endif
 
+# The sound CPU's programs: GNU binutils for the 68000 (tools/setup_toolchain.py).
+ifeq ($(OS),Windows_NT)
+M68K_PREFIX ?= toolchain/m68k/m68k-apple-macos-
+else
+M68K_PREFIX ?= m68k-linux-gnu-
+endif
+
 # Tools are found through PATH (cc1.exe also loads its DLLs from there).
 export PATH := $(abspath $(SH_BIN))$(PATHSEP)$(PATH)
 
@@ -48,6 +55,9 @@ CFLAGS  += -DSYNC_TEST  # testing, with HW_LOG: the CPUs' synchronisation test a
 endif
 ifdef VOID_VIEW
 CFLAGS  += -DVOID_VIEW  # testing: what nothing draws in the scene shows magenta
+endif
+ifdef SOUND_BENCH
+CFLAGS  += -DSOUND_BENCH    # testing, with HW_LOG: the sound CPU's decoding speed at boot (sound.cpp)
 endif
 # -fno-lifetime-dse: OpenLara sets ItemObj fields and then placement-news the
 # subclass over them (ItemObj::init); the constructors read those fields.
@@ -91,9 +101,12 @@ $(shell mkdir -p $(BUILD)/gen && echo '$(CXXFLAGS)' | cmp -s - $(FLAGS_FILE) || 
 # and those renderer/gen_NAME.py writes, to NAME_dsp.h holding NAME_dsp[]
 DSP_HEADERS := $(patsubst saturn/%.dsp,$(BUILD)/gen/%_dsp.h,$(wildcard saturn/*.dsp)) \
 	$(patsubst renderer/gen_%.py,$(BUILD)/gen/%_dsp.h,$(wildcard renderer/gen_*.py))
+# The sound CPU's programs, assembled into headers (tools/m68kasm.py):
+# saturn/NAME.68k to NAME_m68k.h holding NAME_m68k[]
+M68K_HEADERS := $(patsubst saturn/%.68k,$(BUILD)/gen/%_m68k.h,$(wildcard saturn/*.68k))
 # draw order hints (tools/depth_hints.py): saturn/depth_hints.txt
-HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h renderer/*.h) $(DSP_HEADERS) $(BUILD)/gen/depth_hints.h \
-	$(FLAGS_FILE)
+HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h renderer/*.h) $(DSP_HEADERS) $(M68K_HEADERS) \
+	$(BUILD)/gen/depth_hints.h $(FLAGS_FILE)
 
 .PHONY: all disc levels dspbench lab extract ghidra check-toolchain
 
@@ -127,6 +140,10 @@ $(BUILD)/gen/%.dsp: renderer/gen_%.py
 
 $(BUILD)/gen/%_dsp.h: $(BUILD)/gen/%.dsp tools/dspasm.py
 	$(PY) tools/dspasm.py $< $@ $*_dsp
+
+$(BUILD)/gen/%_m68k.h: saturn/%.68k tools/m68kasm.py
+	@mkdir -p $(@D)
+	$(PY) tools/m68kasm.py $< $@ $*_m68k $(M68K_PREFIX)
 
 $(BUILD)/gen/depth_hints.h: saturn/depth_hints.txt tools/depth_hints.py
 	@mkdir -p $(@D)
