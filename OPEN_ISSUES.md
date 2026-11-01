@@ -2639,7 +2639,8 @@ listen) · Fix: small to medium · Audit: SND-5*
     negative side jumps to 0x1F (full other side), returning to 0x10 (centre) at
     −180°. This is a retail quirk.
   - Pan is updated every frame for positioned sounds.
-- **Ours:** `saturn/sound.cpp:187` always writes `7 << 13` (centre).
+- **Ours:** `sndPlaySample` (`saturn/sound.cpp`) always posts pan 0 (centre),
+  which `saturn/sound.68k` writes with send level 7.
 - **Effect:** everything is centred in ours; retail pans relative to Lara's
   facing.
 - **Fix:** pass the angle to `sndPlaySample`, write DIPAN, and update it per frame
@@ -2691,14 +2692,18 @@ Audit: SND-8*
   - Every frame, volume and pan are recomputed from the stored position pointer
     for positioned sounds still playing, and finished slots are freed.
   - Up to 32 hardware voices.
-- **Ours:** `saturn/sound.cpp:134-160`.
+- **Ours:** `sndPlaySample` (`saturn/sound.cpp`), the sound CPU's voices
+  (`saturn/sound.68k`).
   - Keyed by sample index only. Two emitters of the same sound share one voice:
     for WAIT and LOOP the second call only rewrites the volume, and for REPLAY it
     cuts the first.
   - Two variants of one WAIT sound can overlap.
   - Volume is never updated after key-on (only when the sound is played again),
     and there is no pan.
-  - 16 voices; new sounds are dropped when they're all busy.
+  - 8 voices. A new sound is dropped when they're all busy, or when decoding it
+    would take the sound CPU past its budget (`DECODE_BUDGET`) and every voice
+    decoding is as loud or louder; otherwise the quietest decoding voice gives
+    way. Retail's 24 slots never decode anything.
 - **Effect:** two wolves, darts or gunmen collapse into one sound. Moving sources
   (boulders, running creatures) don't fade or pan as they move.
 - **Fix:** port the slot table into `soundPlay` and `sound.cpp`.
@@ -3666,6 +3671,12 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
   fast as recorded) in the PlayStation's band-limited to 2500 Hz and packs
   the PlayStation's as 8-bit at 13103 Hz while sound RAM lasts. The bat
   keeps its own 16-bit sample, now at 11025 Hz.
+- **A deliberate difference since bb07d5f** (the user's choice, 2026-10-31):
+  every sample is the PlayStation's, whole, which the sound CPU decodes
+  (`saturn/sound.68k`), at its own 11025 Hz: PC/PlayStation pitch, so the
+  rate-list sounds play about 3 semitones below retail Saturn. Only samples
+  the PlayStation has none of (the cutscenes) keep the original's, the
+  rate-list ones at the 2500 Hz they were made at.
 
 ### 174. The underwater "woosh" (SFX 60) is never played (reported in play)
 *Closed 2026-10-31: 53ae8fa*
@@ -3697,6 +3708,9 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
 - **Done:** `Camera::update()` plays it while the camera's room is water,
   stops it out of it; with 175 it plays at the original's rate (the
   PlayStation's sample, 8-bit, at 13103 Hz).
+- **Since bb07d5f** (the user's choice, 2026-10-31): the whole PlayStation
+  sample at its own rate (11025 Hz, PC/PlayStation pitch), as with every sound
+  (see 175).
 
 ### 150. No fades when the inventory opens and closes
 *Closed 2026-10-31: 61534f6*
