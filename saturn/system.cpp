@@ -156,17 +156,32 @@ static void plotStart(int32_t lane, bool hold)
 extern "C" void vblankOutHandler()
 {
     traceBegin(TRACE_IRQ, TR_IRQ_VBLANK_OUT);
-    if (gVdp1State == VDP1_CHANGING)
+    bool changed = gVdp1State == VDP1_CHANGING;
+    uint32_t shown = gPlotsStarted;
+    if (changed)
     {
 #ifdef HW_LOG
         gSync.edsr = VDP1_EDSR;     // the change done: the last list's end now BEF
 #endif
         waitDisplayStart();
         gVdp1State = VDP1_IDLE;
-        traceBegin(TRACE_IRQ, TR_SHOWN, gPlotsStarted);
+        traceBegin(TRACE_IRQ, TR_SHOWN, shown);
+    }
 
+    // a plot queued for the change (or just after it) starts before the
+    // callbacks: a list that fills most of two fields has little time to
+    // lose, and a late start misses the next change by a whole field
+    if (gVdp1State == VDP1_IDLE && gPlotQueued)
+    {
+        waitDisplayStart();
+        gPlotQueued = false;
+        plotStart(TRACE_IRQ, gHoldQueued);
+    }
+
+    if (changed)
+    {
         if (gOnShown) {
-            gOnShown(gPlotsStarted);
+            gOnShown(shown);
         }
 
         if (gOnNextFrame)
@@ -174,14 +189,6 @@ extern "C" void vblankOutHandler()
             gOnNextFrame();
             gOnNextFrame = nullptr;
         }
-    }
-
-    // also a plot queued just after the change
-    if (gVdp1State == VDP1_IDLE && gPlotQueued)
-    {
-        waitDisplayStart();
-        gPlotQueued = false;
-        plotStart(TRACE_IRQ, gHoldQueued);
     }
     traceEnd(TRACE_IRQ, TR_IRQ_VBLANK_OUT);
 }
