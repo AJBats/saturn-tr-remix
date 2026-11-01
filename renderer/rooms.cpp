@@ -11,7 +11,8 @@ static_assert(offsetof(RoomsContext, camera) == 12 && offsetof(RoomsContext, vie
               offsetof(RoomsContext, cameraRoom) == 64 && offsetof(RoomsContext, listEnd) == 72 &&
               offsetof(RoomsContext, viewMax) == 84 && offsetof(RoomsContext, geometry) == 88 &&
               offsetof(RoomsContext, jobs) == 100 && offsetof(RoomsContext, table) == 112 &&
-              offsetof(RoomsContext, fills) == 116 && offsetof(RoomsContext, farScaled) == 120,
+              offsetof(RoomsContext, fills) == 116 && offsetof(RoomsContext, farScaled) == 120 &&
+              offsetof(RoomsContext, rotation) == 124,
               "rooms.s's RoomsContext");
 static_assert(sizeof(RoomLevel) == 16 && offsetof(RoomLevel, first) == 12 && sizeof(RoomSeen) == 68,
               "rooms.s's RoomLevel, RoomSeen");

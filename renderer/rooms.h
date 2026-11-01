@@ -44,6 +44,7 @@ struct RoomsContext
     int16_t* table;             // +112 the caustics' table, a vertex's shade offset by its index (32)
     int32_t (*fills)[4];        // +116 the fills' rectangles, x0 y0 x1 y1 (the first ROOM_FILLS)
     int32_t farScaled;          // +120 roomsFarScaled's
+    int16_t rotation[10];       // +124 rooms.s's own: the view's rotation, its rows as 16-bit x y z
 };
 
 extern "C" void roomsSeenAsm(RoomsContext* ctx);

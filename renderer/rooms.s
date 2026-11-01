@@ -16,10 +16,18 @@
 ! A room's walk matrix is the view's rotation, its translation the view's
 ! rows times the room's origin from the camera (matrixTranslateAbs): no
 ! stack, the translation carried down the walk in r12 r13 r14. A portal's
-! corner is the rotation times it plus that translation (DP43), its >> 14
-! and the projection's >> 12 the high longword of a product by 2^18 and
-! 2^20 (DMULS.L), exact as C's for any longword; the divide table's step
-! never needs its clamp (a corner is held to the far plane first).
+! corner is the rotation times it plus that translation (DP43): MAC.W on the
+! corner's 16-bit x y z and the rotation's rows copied to 16 bits (2^14
+! fixed, they fit), whose low longword is the products' sum as C's. Its
+! >> 14 and the projection's >> 12 are the high longword of a product by
+! 2^18 and 2^20 (DMULS.L), exact as C's for any longword; the divide
+! table's step never needs its clamp (a corner is held to the far plane
+! first).
+!
+! A portal faces the camera when its normal times its first corner from the
+! camera is below 0. Every level's normals lie along one axis, +-1 (all 21
+! levels' 2600 portals), so the corner's offset on that axis and the
+! normal's sign decide it, without the products.
 !
 ! RoomsContext (rooms.h): +0 level (RoomLevel, 16 bytes each), +4 portals
 ! (32 each: room, normal, 4 corners), +8 divTable, +12 camera, +24 view
@@ -31,7 +39,8 @@
 ! jobs (FaceRoom), +104 their count, +108 RoomCaustics, +112 the caustics'
 ! table (32 int16); +116 the fills' rectangles (x0 y0 x1 y1, the first
 ! ROOM_FILLS; +68 counts them all); +120 a corner past the far plane scaled
-! to it (rooms.h roomsFarScaled).
+! to it (rooms.h roomsFarScaled); +124 the view's rotation, its rows as
+! 16-bit x y z (the walk's own).
 
     .equ    R_LEVEL,        0
     .equ    R_PORTALS,      4
@@ -59,6 +68,7 @@
     .equ    R_TABLE,        112
     .equ    R_FILLS,        116
     .equ    R_FAR_SCALED,   120
+    .equ    R_ROTATION,     124
     .equ    ROOM_FILLS,     64
 
     .equ    L_X,            0       ! RoomLevel
@@ -85,26 +95,18 @@
 
 ! A corner: its view place, into the frame; projected, the window grown to
 ! it (r10 the corners behind the camera, r11 those past the far plane;
-! r6 the view's rotation); r0 .. r5, r7
+! r6 the rotation's 16-bit rows); r0 .. r5, r7
     .macro  CORNER i
-    mov.w   @(P_CORNERS+6*\i,r9), r0
-    mov     r0, r1
-    mov.w   @(P_CORNERS+6*\i+2,r9), r0
-    mov     r0, r2
-    mov.w   @(P_CORNERS+6*\i+4,r9), r0
-    mov     r0, r3
+    mov     r9, r3
+    add     #P_CORNERS+6*\i, r3     ! its x y z
+    mov     r6, r2
     .irp    row, 0, 1, 2
-    mov.l   @(\row*16,r6), r0
-    mul.l   r0, r1
-    mov.l   @(\row*16+4,r6), r0
+    clrmac
+    mac.w   @r2+, @r3+
+    mac.w   @r2+, @r3+
+    mac.w   @r2+, @r3+
+    add     #-6, r3
     sts     macl, r5
-    mul.l   r0, r2
-    mov.l   @(\row*16+8,r6), r0
-    sts     macl, r4
-    mul.l   r0, r3
-    add     r4, r5
-    sts     macl, r4
-    add     r4, r5
     .if \row == 0
     add     r12, r5
     .elseif \row == 1
@@ -247,7 +249,12 @@
     mov.l   r10, @-r15
     mov.l   r11, @-r15
     add     #-FRAME, r15
-    ! facing the camera: its normal times its first corner from the camera
+    ! facing the camera: r4 the normal's one component, r2 the first
+    ! corner's offset from the camera on its axis
+    mov.w   @(P_NORMAL,r9), r0
+    tst     r0, r0
+    bt      2f
+    mov     r0, r4
     mov     r8, r1
     shll2   r1
     shll2   r1
@@ -256,35 +263,41 @@
     mov.w   @(L_X,r1), r0
     shll8   r0
     mov     r0, r2
-    mov.w   @(L_Z,r1), r0
-    shll8   r0
-    mov     r0, r3
     mov.w   @(P_CORNERS,r9), r0
     add     r0, r2
     mov.l   @(R_CAMERA,gbr), r0
+    bra     4f
     sub     r0, r2                  ! d.x
-    mov.w   @(P_CORNERS+2,r9), r0
+2:  mov.w   @(P_NORMAL+2,r9), r0
+    tst     r0, r0
+    bt      3f
     mov     r0, r4
+    mov.w   @(P_CORNERS+2,r9), r0
+    mov     r0, r2
     mov.l   @(R_CAMERA+4,gbr), r0
-    sub     r0, r4                  ! d.y
+    bra     4f
+    sub     r0, r2                  ! d.y
+3:  mov.w   @(P_NORMAL+4,r9), r0
+    mov     r0, r4
+    mov     r8, r1
+    shll2   r1
+    shll2   r1
+    mov.l   @(R_LEVEL,gbr), r0
+    add     r0, r1
+    mov.w   @(L_Z,r1), r0
+    shll8   r0
+    mov     r0, r2
     mov.w   @(P_CORNERS+4,r9), r0
-    add     r0, r3
+    add     r0, r2
     mov.l   @(R_CAMERA+8,gbr), r0
-    sub     r0, r3                  ! d.z
-    mov.w   @(P_NORMAL,r9), r0
-    mul.l   r0, r2
-    mov.w   @(P_NORMAL+2,r9), r0
-    sts     macl, r5
-    mul.l   r0, r4
-    mov.w   @(P_NORMAL+4,r9), r0
-    sts     macl, r4
-    mul.l   r0, r3
-    add     r4, r5
-    sts     macl, r4
-    add     r4, r5
-    cmp/pz  r5
+    sub     r0, r2                  ! d.z
+    ! their product 0 or above: away
+4:  tst     r2, r2
+    bt      5f
+    xor     r4, r2
+    cmp/pz  r2
     bf      1f
-    bra     .Lnot
+5:  bra     .Lnot
     nop
     ! the window starts empty about the frame's centre: x0 from the room's
     ! right edge, x1 from its left
@@ -310,8 +323,8 @@
     mov.l   r0, @(F_Y1,r15)
     mov     #0, r10
     mov     #0, r11
-    mov.l   @(R_VIEW,gbr), r0
-    mov     r0, r6
+    stc     gbr, r6
+    add     #R_ROTATION, r6
     CORNER  0
     CORNER  1
     CORNER  2
@@ -593,6 +606,17 @@ _roomsSeenAsm:
     ldc     r4, gbr
     mov     #0, r0
     mov.l   r0, @(R_VOIDS,gbr)
+    ! the view's rotation as 16-bit rows, for the corners' MAC.W
+    mov.l   @(R_VIEW,gbr), r0
+    mov     r0, r6
+    mov     r4, r7
+    add     #R_ROTATION, r7
+    .irp    row, 0, 1, 2
+    .irp    k, 0, 1, 2
+    mov.l   @(\row*16+4*\k,r6), r0
+    mov.w   r0, @(2*(\row*3+\k),r7)
+    .endr
+    .endr
     ! the camera's room's window: the viewport
     mov.l   @(R_CAMERA_ROOM,gbr), r0
     mov     r0, r8
