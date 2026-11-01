@@ -206,6 +206,13 @@ void debugUpdate()
         overlayUnpin(FRAME_ROW);
         overlayUnpin(FRAME_ROW + 1);
     }
+    else if (!(gPage == PAGE_BENCH || gPage == PAGE_NONE || gPage == PAGE_PLAYBACK) && !gFrameRows)
+    {
+        // the frame rows are frameShown's from the page's first frame on
+        overlayClaim(FRAME_ROW);
+        overlayClaim(FRAME_ROW + 1);
+        gFrameRows = true;
+    }
     benchUpdate();
     sceneUpdate();
 #endif
@@ -824,6 +831,9 @@ static void drawDebug()
 #ifdef HW_LOG
     if (gPage == PAGE_NONE)
     {
+        // the frame rate alone, a row the bitmap takes again once a second
+        int2str(fps, text);
+        overlayRow(0, text, OVERLAY_RIGHT);
         overlayFrame();
         return;
     }

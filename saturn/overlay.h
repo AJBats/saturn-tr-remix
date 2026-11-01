@@ -25,4 +25,8 @@ void overlayFrame();
 void overlayPin(int32_t row, const char* text);
 void overlayUnpin(int32_t row);
 
+// Row 'row' left to overlayPin from now on (an interrupt's to pin), as it
+// stands, before the first overlayPin: overlayFrame no longer draws it.
+void overlayClaim(int32_t row);
+
 #endif

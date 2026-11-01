@@ -91,7 +91,32 @@ static void drawRow(int32_t row, const Row &r)
     }
 }
 
-// One character of a pinned row, white on black, straight to the bitmap.
+// A row's text without its trailing spaces: what the bitmap shows of it.
+static int32_t textLength(const char* text)
+{
+    int32_t len = 0;
+    while (len < OVERLAY_COLUMNS && text[len]) {
+        len++;
+    }
+    while (len && text[len - 1] == ' ') {
+        len--;
+    }
+    return len;
+}
+
+// One character's cell cleared: the frame shows through.
+static void clearChar(int32_t row, int32_t column)
+{
+    for (int32_t y = 0; y < 8; y++)
+    {
+        volatile uint32_t* dst = bitmapLine((row + 1) * 8 + y) + (column + 1) * 4;
+        for (int32_t x = 0; x < 4; x++) {
+            dst[x] = 0;
+        }
+    }
+}
+
+// One character of a row, white on black, straight to the bitmap.
 static void drawChar(int32_t row, int32_t column, char ch)
 {
     int32_t c = uint8_t(ch) - FONT8_FIRST;
@@ -108,21 +133,22 @@ static void drawChar(int32_t row, int32_t column, char ch)
     }
 }
 
-// A left-aligned row drawn over another: only the characters that differ.
+// A left-aligned row drawn over another: only the cells that differ, those
+// past the new text's end cleared (as drawRow leaves them).
 static void drawChanged(int32_t row, const Row &was, const Row &now)
 {
-    bool endWas = false, endNow = false;
-    for (int32_t i = 0; i < OVERLAY_COLUMNS; i++)
+    int32_t wasLength = textLength(was.text), nowLength = textLength(now.text);
+    for (int32_t i = 0; i < wasLength || i < nowLength; i++)
     {
-        endWas = endWas || !was.text[i];
-        endNow = endNow || !now.text[i];
-        char a = endWas ? ' ' : was.text[i];
-        char b = endNow ? ' ' : now.text[i];
-        if (a != b) {
+        char a = i < wasLength ? was.text[i] : 0;
+        char b = i < nowLength ? now.text[i] : 0;
+        if (a == b)
+            continue;
+        if (b) {
             drawChar(row, i, b);
+        } else {
+            clearChar(row, i);
         }
-        if (endWas && endNow)
-            break;
     }
 }
 
@@ -132,19 +158,28 @@ void overlayPin(int32_t row, const char* text)
         return;
     gPinned |= 1u << row;
     Row &shown = gShown[row];
-    bool end = false;
-    for (int32_t i = 0; i < OVERLAY_COLUMNS; i++)
-    {
-        end = end || !text[i];
-        char c = end ? ' ' : text[i];
-        char was = shown.text[i] ? shown.text[i] : ' ';
-        if (c != was) {
-            drawChar(row, i, c);
-        }
-        shown.text[i] = c;
+    Row now = {};
+    for (int32_t i = 0; i < OVERLAY_COLUMNS && text[i]; i++) {
+        now.text[i] = text[i];
     }
-    shown.text[OVERLAY_COLUMNS] = 0;
-    shown.align = OVERLAY_LEFT;
+    now.align = OVERLAY_LEFT;
+    if (shown.align != OVERLAY_LEFT)
+    {
+        // a row drawn elsewhere on the line: every cell cleared first
+        for (int32_t i = 0; i < OVERLAY_COLUMNS; i++) {
+            clearChar(row, i);
+        }
+        shown = Row();
+    }
+    drawChanged(row, shown, now);
+    shown = now;
+}
+
+void overlayClaim(int32_t row)
+{
+    if (row >= 0 && row < OVERLAY_ROWS) {
+        gPinned |= 1u << row;
+    }
 }
 
 void overlayUnpin(int32_t row)
