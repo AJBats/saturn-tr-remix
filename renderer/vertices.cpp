@@ -684,7 +684,7 @@ void verticesClaimMasters()
     for (int32_t c = 0; c < gChunkAt[gRoomCount]; c++)
     {
         if (gChunkMaster[c]) {
-            tasClaim(uncached(gChunkClaims + c));
+            gChunkMaster[c] = tasClaim(uncached(gChunkClaims + c));    // the slave's if it came first
         }
     }
 }

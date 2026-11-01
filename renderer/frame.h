@@ -88,7 +88,7 @@ void frameLists();
 // the rest; else each as long as its share. Then the lists on to their
 // slots, their buckets empty since the join before, the split corners free.
 void frameSplit(const DrawScene* draws, uint32_t count, int32_t fills);
-void frameListsStart();
+void frameListsStart(bool rooms = true);   // rooms: the rooms' list too
 
 // The frame's stages for a timeline (platform.h stageBegin): the master's,
 // then the slave's.
@@ -131,7 +131,7 @@ struct FrameTimes
 // lights as the game gave them (pose.h poseMatrices), or none;
 // whether the frame draws the inventory: then the master's faces take no
 // shaded copies of colour tables (the item textures' go up after the frame
-// is built).
+// is built); whether frameRoomsStart has the slave on the rooms already.
 struct FrameCalls
 {
     const CallRecord* calls;
@@ -142,8 +142,19 @@ struct FrameCalls
     const int32_t (*matrices)[12];
     const struct PoseLit* matrixLights;
     bool inventory;
+    bool started = false;
 };
 FrameTimes frameRun(const FrameCalls &calls, int32_t bias);
+
+// The game's frame begins on its rooms as soon as the master has walked them
+// (render.cpp renderWalk), before the draws are known: the slave lays out
+// the rooms' jobs, starts the DSP on them and projects them, and adds their
+// faces once the last list has left the command buffer (listFree, else
+// frameListFree when it does). The rooms' commands take the slots below the
+// draws' share of the frames before, a quarter more; the slave poses no
+// items. frameRun goes on from there (FrameCalls.started).
+void frameRoomsStart(bool listFree);
+void frameListFree();
 
 // A frame of draws given (the rooms set, the draws posed, the plan made: the
 // lab's scenes): the copies' faces and their vertices, the draws whose

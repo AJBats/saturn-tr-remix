@@ -283,6 +283,7 @@ Room** renderWalk(Room* cameraRoom)
     render::roomsView(gSceneCamera, gSceneView, vp, uint32(cameraRoom - rooms));
     render::roomsSeen();
     gWalked = true;
+    render::frameRoomsStart(!gListPending);  // the slave on them at once
 
     const render::RoomsContext &walk = render::roomsContext();
     int32 n = 0;
@@ -656,6 +657,15 @@ static void listUpload()
     }
     vdp1Plot();
     gListPending = false;
+
+    // the next frame's caches' frames on by one, its uploads from none: its
+    // rooms' faces may go into the commands from now (frame.h)
+    gShadeCaches[0].frame++;
+    gShadeCaches[1].frame++;
+    render::gRoomTextures.frame++;
+    render::gFrameTextures.count = 0;
+    render::frameListFree();
+
     uint32 end = timerTicks();
     gStats.dmaTicks = (end - start) & 0xFFFF;
     traceEndAt(TRACE_MASTER, end, TR_UPLOAD);
@@ -796,12 +806,6 @@ void flush_c()
     render::hintsMasks(masks);
     render::drawsHints(masks);
 
-    // the caches' frames on by one
-    gShadeCaches[0].frame++;
-    gShadeCaches[1].frame++;
-    render::gRoomTextures.frame++;
-    render::gFrameTextures.count = 0;
-
     render::FrameCalls calls;
     calls.calls = gCalls;
     calls.count = render::drawsFitting(gCalls, gCallCount, gItems);
@@ -811,6 +815,7 @@ void flush_c()
     calls.matrices = gGiven;
     calls.matrixLights = gGivenLights;
     calls.inventory = gInventoryFrame;
+    calls.started = gWalked;
     render::FrameTimes s = render::frameRun(calls, gBias);
     gBias += s.late / 2;
     gStats.detailUploads = render::gFrameTextures.count;

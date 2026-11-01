@@ -107,12 +107,20 @@ void frameSplit(const DrawScene* draws, uint32_t count, int32_t fills)
     gMeshFirst = rooms + meshes <= slots ? MAX_CMDS - 1 - meshes : 1 + int32_t(int64_t(slots) * rooms / (rooms + meshes));
 }
 
-void frameListsStart()
+// The rooms' list on to its slots, and the split corners free.
+static void roomListStart()
 {
     facesListStart(gRoomList, gFrameCmds, gFrameGrd, 1, gMeshFirst);
-    facesListStart(gMeshList, gFrameCmds, gFrameGrd, gMeshFirst, MAX_CMDS - 1);
     gSplit.top = MAX_VERTICES;
     gSplit.bottom = roomsBottom();
+}
+
+void frameListsStart(bool rooms)
+{
+    if (rooms) {
+        roomListStart();
+    }
+    facesListStart(gMeshList, gFrameCmds, gFrameGrd, gMeshFirst, MAX_CMDS - 1);
 }
 
 int32_t frameTextureMiss(uint32_t key, uint32_t texSize, uint32_t variant)
@@ -205,7 +213,8 @@ void frameMesh(uint32_t i, const FaceSet* set, const Vertex* vertices, uint32_t 
 // command to link to) and the link field its last goes into; the slave's
 // work and waits; the items it poses, done; the plan made and the master's
 // chunks claimed; whether it walks the rooms (or takes the master's walk)
-// and starts the DSP on them first, done.
+// and starts the DSP on them first, done; whether frameRoomsStart started
+// it, and the last list gone from the commands.
 #define JOIN_SPLIT  (JOIN_PAIRS / 2)    // the far half's nearest pair
 
 struct SlaveStages
@@ -220,8 +229,20 @@ struct SlaveStages
     volatile uint32_t roomsReady;
     volatile uint32_t walks;
     volatile uint32_t walked;
+    volatile uint32_t early, listFree;
 } __attribute__((aligned(16)));
 static SlaveStages gSlaveStages;
+
+// Between polls of a flag the other CPU sets: off the bus a while.
+static inline void pause()
+{
+    for (volatile int32_t i = 0; i < 16; i++);
+}
+static int32_t gMeshesUsed = MAX_CMDS / 2;  // the draws' commands, the last frame's
+
+// The list built, as frameUpload takes it: the rooms' slots, the draws'
+// first and the end's (the next frame's rooms may start before it goes).
+static int32_t gListRooms, gListMeshFirst, gListEnd;
 enum { WALK_NONE, WALK_SLAVE, WALK_MASTER };   // SlaveStages.walks
 
 // The frame's split between the CPUs, beside the rooms' chunks: the items the
@@ -245,6 +266,9 @@ static void slaveRooms(void*)
         }
         verticesRoomsSet(gFrameRooms, gFrameRoomCount);
         verticesRoomsStart();
+        if (shared->early) {
+            roomListStart();
+        }
         shared->walked = 1;
         stageEnd(STAGE_JOBS);
     }
@@ -268,7 +292,23 @@ static void slaveRooms(void*)
     for (uint32_t i = 0; i < gFrameRoomCount; i++)
     {
         verticesRoom(i, wait);
-        if (!i) {
+        if (!i)
+        {
+            if (!shared->listFree)
+            {
+                // the last list still in the commands, VDP1 drawing the one
+                // before it
+                stageEnd(STAGE_ROOMS);
+                stageBegin(STAGE_PLAN_WAIT);
+                uint32_t w0 = ticks();
+                while (!shared->listFree) {
+                    pause();
+                }
+                wait += ticksCycles(w0, ticks());
+                cachePurge();   // the caches' frames, on as it left
+                stageEnd(STAGE_PLAN_WAIT);
+                stageBegin(STAGE_ROOMS);
+            }
             facesRoomsBegin(gRoomRun, gRoomTextures, gSplit, gRoomList);
         }
         facesRoom(gFrameRooms[i], gRoomRun);
@@ -310,21 +350,29 @@ static uint32_t slaveShare(int32_t &part)
 static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* given, int32_t bias)
 {
     bool posed = calls != nullptr;
+    bool early = posed && calls->started;   // the slave on the rooms already
     FrameTimes s = {};
     SlaveStages* shared = uncached(&gSlaveStages);
-    shared->roomsDone = shared->drawsDone = shared->posed = shared->walked = 0;
-    shared->roomsReady = !posed;
-    shared->walks = !posed ? WALK_NONE : calls->walked ? WALK_MASTER : WALK_SLAVE;
+    if (!early)
+    {
+        shared->roomsDone = shared->drawsDone = shared->posed = shared->walked = 0;
+        shared->roomsReady = !posed;
+        shared->walks = !posed ? WALK_NONE : calls->walked ? WALK_MASTER : WALK_SLAVE;
+        shared->poses = 0;
+        shared->early = 0;
+        shared->listFree = 1;
+        dspEndsClear();
+    }
     int32_t part = verticesJobs();
     uint32_t slaveItems = 0;
-    shared->poses = 0;
     const DrawList &list = drawsList();
-    dspEndsClear();
     uint32_t t0 = ticks();
     if (posed)
     {
         poseMatrices((const PoseMatrix*)calls->matrices, calls->matrixLights);
-        slaveRun(slaveRooms, nullptr);
+        if (!early) {
+            slaveRun(slaveRooms, nullptr);
+        }
         stageBegin(STAGE_DRAW_LIST);
         draws(calls->calls, calls->count, calls->items, calls->base);
         verticesDrawsSet(list.draws, list.drawCount, poseXforms());
@@ -339,10 +387,12 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         stageBegin(STAGE_PLAN);
         int32_t fills;
         roomsFills(fills);
-        frameSplit(list.draws, list.drawCount, fills);
-        frameListsStart();
+        if (!early) {
+            frameSplit(list.draws, list.drawCount, fills);
+        }
+        frameListsStart(!early);
         frameHintsBegin();
-        framePlan(bias, true, true);
+        framePlan(bias, !early, true);
         slaveItems = slaveShare(part);
         shared->poses = slaveItems;
         verticesClaimMasters();
@@ -472,6 +522,9 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         *nearLast = facesLink(gFrameEnd);
     }
     verticesEnd();
+    gListRooms = facesSlot(gRoomList.link);
+    gListMeshFirst = gMeshFirst;
+    gListEnd = gFrameEnd;
     s.wall = ticksCycles(t0, ticks());
     uint32_t ends[2], roomsAt, meshesAt;
     if (dspEnds(ends, 2) == 2)
@@ -496,9 +549,33 @@ void frameFar(int32_t far)
     drawsFar(far);
 }
 
+void frameRoomsStart(bool listFree)
+{
+    int32_t meshes = gMeshesUsed + gMeshesUsed / 4 + 32;
+    if (meshes > MAX_CMDS - 3) {
+        meshes = MAX_CMDS - 3;
+    }
+    gMeshFirst = MAX_CMDS - 1 - meshes;
+    SlaveStages* shared = uncached(&gSlaveStages);
+    shared->roomsDone = shared->drawsDone = shared->posed = shared->walked = 0;
+    shared->roomsReady = 1;
+    shared->walks = WALK_MASTER;
+    shared->poses = 0;
+    shared->early = 1;
+    shared->listFree = listFree;
+    dspEndsClear();
+    slaveRun(slaveRooms, nullptr);
+}
+
+void frameListFree()
+{
+    *uncached(&gSlaveStages.listFree) = 1;
+}
+
 void frameEnds()
 {
     gFrameEnd = facesSlot(gMeshList.link);
+    gMeshesUsed = gFrameEnd + 1 - gMeshFirst;
     gFrameCmds[0] = gClear;
     gFrameCmds[gFrameEnd].w[0] = CMD_END << 16;
 }
@@ -555,13 +632,13 @@ void framePlan(int32_t bias, bool posed, bool started)
 uint32_t frameUpload()
 {
     texturesUpload(gFrameTextures);
-    int32_t rooms = facesSlot(gRoomList.link), meshes = gFrameEnd + 1 - gMeshFirst;
+    int32_t rooms = gListRooms, first = gListMeshFirst, meshes = gListEnd + 1 - first;
     dmaToVdp1(gFrameCmds, VRAM_FRAME_CMDS, rooms * sizeof(Command));
-    dmaToVdp1(gFrameCmds + gMeshFirst, VRAM_FRAME_CMDS + gMeshFirst * sizeof(Command), meshes * sizeof(Command));
+    dmaToVdp1(gFrameCmds + first, VRAM_FRAME_CMDS + first * sizeof(Command), meshes * sizeof(Command));
     dmaToVdp1(gFrameGrd, VRAM_GOURAUD_BASE, rooms * sizeof(gFrameGrd[0]));
     if (meshes > 1)     // (a frame without draws has the end alone, which takes no table)
     {
-        dmaToVdp1(gFrameGrd + gMeshFirst, VRAM_GOURAUD_BASE + gMeshFirst * sizeof(gFrameGrd[0]),
+        dmaToVdp1(gFrameGrd + first, VRAM_GOURAUD_BASE + first * sizeof(gFrameGrd[0]),
                   (meshes - 1) * sizeof(gFrameGrd[0]));
     }
     dmaWait();
