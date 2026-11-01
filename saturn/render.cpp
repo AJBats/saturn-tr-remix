@@ -443,6 +443,14 @@ void renderTexturesShifted()
     render::frameTexturesShifted(level.animTexData);
 }
 
+static int32 gFar = 20 * 1024;  // renderFar's
+
+void renderFar(int32 far)
+{
+    gFar = far;
+    render::frameFar(far);
+}
+
 // The clear: a scaled sprite of colour 0 over the frame, transparency off,
 // which writes 0 (VDP2 shows the back colour); skipped where rooms cover the
 // frame (what neither a face nor a portal of theirs would draw is filled
@@ -559,6 +567,7 @@ void renderLevelInit()
         crashLog("VERTS", uint32(failed));
         while (1);  // TODO error screen
     }
+    render::frameFar(gFar);
 
     uint32 hints = 0;
     for (uint32 i = 0; i < sizeof(gDepthHints) / sizeof(gDepthHints[0]) && hints < MAX_LEVEL_HINTS; i++)

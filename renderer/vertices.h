@@ -68,6 +68,10 @@ struct MeshProject
 // checks against its captures).
 void verticesFarScaled(bool on);
 
+// The rooms' far plane, in world units (frame.h frameFar); the meshes keep
+// the game's.
+void verticesFar(int32_t far);
+
 extern "C" void meshProjectAsm(Vertex* v, int32_t count, MeshProject* mp);
 extern "C" void meshShadesAsm(Vertex* v, int32_t count, const uint8_t* shades, int32_t ambient);
 

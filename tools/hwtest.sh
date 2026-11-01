@@ -12,6 +12,7 @@
 #   cistern     LEVEL7A, room 99, a diagonal view across the Cistern's
 #               rooms near the start: its measurements are taken here (the
 #               user's pick, the CPU's worst they had found)
+#   cistern-straight  the same spot, Lara turned to look along the hall
 #
 # OBJECT_ART=1 in the environment reworks the meshes' textures too
 # (tools/pack_level.py), in every level.
@@ -28,7 +29,8 @@ case "${1:-ledge}" in
     pool)       level=LEVEL2 id=LVL_TR1_2 start=30@69945:1262:31077 yaw=0xC06D ;;
     wolves)     level=LEVEL1 id=LVL_TR1_1 start=14@28262:6656:50925 yaw=0xD257 trigger=26,27 ;;
     cistern)    level=LEVEL7A id=LVL_TR1_7A start=99@45157:-3328:63405 yaw=0x9965 ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern]" >&2; exit 1 ;;
+    cistern-straight) level=LEVEL7A id=LVL_TR1_7A start=99@45157:-3328:63405 yaw=0x81B6 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 

@@ -84,6 +84,9 @@ const int32_t (*roomsFills(int32_t &count))[4];
 // original game's did (the lab's checks against its captures).
 void roomsFarScaled(bool on);
 
+// The far plane's distance, in world units (frame.h frameFar).
+void roomsFar(int32_t far);
+
 // The walk's context, for checks.
 RoomsContext& roomsContext();
 

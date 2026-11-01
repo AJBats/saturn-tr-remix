@@ -15,6 +15,7 @@
 #include "input.h"
 #include "overlay.h"
 #include "palettes.h"
+#include "render.h"
 #include "screen.h"
 #include "sound.h"
 #include "system.h"
@@ -32,6 +33,8 @@ struct Option
 static const char* const kPalette[] = { "Saturn", "Remastered" };
 static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kTrace[] = { "Off", "Stages", "Detail" };
+static const char* const kFar[] = { "20 sectors", "18 sectors", "16 sectors", "14 sectors", "12 sectors" };
+static int32 gFarStep;      // kFar's
 
 static bool gShowStats;
 #ifdef HW_LOG
@@ -53,12 +56,15 @@ static const Option gOptions[] = {
     { "Trace", kTrace, TRACE_MODES,
         [] { return int32(traceMode()); },
         [](int32 v) { traceSetMode(v); } },
+    { "Far", kFar, 5,
+        [] { return gFarStep; },
+        [](int32 v) { gFarStep = v; renderFar((20 - 2 * v) * 1024); } },
 #endif
 };
 
 enum { OPTION_PALETTE, OPTION_STATS,
 #ifdef HW_LOG
-       OPTION_TRACE,
+       OPTION_TRACE, OPTION_FAR,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");

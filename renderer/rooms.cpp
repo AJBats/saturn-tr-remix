@@ -71,6 +71,11 @@ void roomsFarScaled(bool on)
     gCtx.farScaled = on;
 }
 
+void roomsFar(int32_t far)
+{
+    gCtx.viewMax = far << 14;
+}
+
 void roomsView(const int32_t camera[3], const int32_t view[12], const int32_t viewport[4], uint32_t cameraRoom)
 {
     for (int32_t k = 0; k < 3; k++) {

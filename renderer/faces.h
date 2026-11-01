@@ -217,6 +217,10 @@ struct RoomRun;
 // through facesroom.s, the run made for the frame's rooms by
 // facesRoomsBegin.
 void facesRoomsBegin(RoomRun &run, RoomTextures &textures, RoomSplit &split, CommandList &list);
+
+// The rooms' far plane, in world units (frame.h frameFar): a room face wholly
+// past it is a fill behind everything, as one a plane cuts.
+void facesFar(int32_t far);
 void facesRoom(const FaceRoom &room, RoomRun &run);
 
 // A face's shading in facesroom.s.
@@ -261,6 +265,7 @@ struct RoomRun
     RoomTextures* textures;     // +68
     RoomSplit* split;           // +72
     RoomVariant dry[6], wet[6]; // the variants in a room out of water and in it
+    int32_t farBucket;          // +268 a corner at the far plane's (facesFar)
 };
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);

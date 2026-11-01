@@ -414,6 +414,13 @@ void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth)
 #define NEAR_SPLIT_DIST 2048    // quads whose corner A is nearer go the careful way
 #define DETAIL_DIST     4096    // quads crossing the near plane nearer than this split 2x2
 
+static int32_t gViewFar = VIEW_FAR; // facesFar's
+
+void facesFar(int32_t far)
+{
+    gViewFar = far;
+}
+
 // The command words a room face's flags make (render.cpp faceMaterial); a
 // texture with see-through texels that the cache missed is left out (a skip).
 static void roomMaterial(const RoomTextures &t, uint32_t flags, uint32_t* w)
@@ -606,7 +613,7 @@ static inline int32_t asr16(int32_t v)
 static void projectRoomPoint(const FaceRoom &room, const RoomSplit &split, int32_t vx, int32_t vy, int32_t vz,
                              Vertex* res)
 {
-    const int32_t zMin = 64 << 8, zMax = VIEW_FAR << 8;
+    const int32_t zMin = 64 << 8, zMax = gViewFar << 8;
     int32_t z = dot3(room.m + 6, vx, vy, vz, room.t[2]);
     uint32_t clip = 0;
     if (z <= zMin) {
@@ -726,7 +733,7 @@ static void roomQuadCareful(const FaceRoom &room, RoomTextures &t, RoomSplit &sp
     const Vertex* d = corner(room.vertices, q.indices[3]);
     uint32_t clipAnd = a->clip & b->clip & c->clip & d->clip;
     uint32_t clipOr = a->clip | b->clip | c->clip | d->clip;
-    if ((clipAnd & (CLIP_DISCARD & ~CLIP_PLANE)) || ((clipAnd & CLIP_PLANE) && a->z < VIEW_FAR))
+    if ((clipAnd & (CLIP_DISCARD & ~CLIP_PLANE)) || ((clipAnd & CLIP_PLANE) && a->z < gViewFar))
         return;     // wholly beyond a frame edge or behind the near plane
     if (backface(a, b, c))
         return;
@@ -753,6 +760,7 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomVariant, shading) == 14 && offsetof(RoomRun, parity) == 16 &&
               offsetof(RoomRun, list) == 44 && offsetof(RoomRun, plain) == 56 &&
               offsetof(RoomRun, variants) == 60 && offsetof(RoomRun, room) == 64 &&
+              offsetof(RoomRun, farBucket) == 268 &&
               offsetof(FaceRoom, points) == 8 && offsetof(FaceRoom, quadsCount) == 16 &&
               offsetof(FaceRoom, facing) == 20 && offsetof(FaceRoom, camera) == 32 &&
               offsetof(DetailSlot, frame) == 4 && sizeof(DetailSlot) == 8, "facesroom.s's layouts");
@@ -827,6 +835,7 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     }
     run.textures = &t;
     run.split = &split;
+    run.farBucket = gViewFar >> OT_SHIFT;
 }
 
 void facesRoom(const FaceRoom &room, RoomRun &run)

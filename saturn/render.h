@@ -50,4 +50,8 @@ void renderRoomsFlipped();
 // After animTexturesShift: the animated ranges' textures shifted one along.
 void renderTexturesShifted();
 
+// The draw distance for the rooms and the items, in world units (the game's
+// 20 sectors unless the HW_LOG menu's Far moves it in), kept across levels.
+void renderFar(int32 far);
+
 #endif

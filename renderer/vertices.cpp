@@ -376,6 +376,13 @@ void verticesFarScaled(bool on)
     gFarScaled = on;
 }
 
+static int32_t gFar = VIEW_DIST;
+
+void verticesFar(int32_t far)
+{
+    gFar = far;
+}
+
 // Room i's vertices projected from the DSP's rotations.
 static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
 {
@@ -386,7 +393,7 @@ static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
     RoomProject rp;
     rp.divTable = divTable;
     rp.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
-    rp.zMax = VIEW_MAX_F >> (FIXED_SHIFT - 8);
+    rp.zMax = gFar << 8;
     rp.points = room.points + from;
     rp.x0 = room.clip[0];
     rp.y0 = room.clip[1];

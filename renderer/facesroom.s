@@ -48,6 +48,7 @@
     .equ    RUN_CAREFUL,    52
     .equ    RUN_PLAIN,      56
     .equ    RUN_VARIANTS,   60
+    .equ    RUN_FAR_BUCKET, 268
 
     .equ    ROOM_QUADS,     0
     .equ    ROOM_TRIANGLES, 4
@@ -384,11 +385,11 @@
     .else
     bt      .Lcareful\sfx
     .endif
+    mov.l   @(RUN_FAR_BUCKET, gbr), r0
+    mov     r0, r6              ! the far plane's bucket
     mov.w   @(4, r1), r0
     shlr2   r0
     shlr2   r0
-    mov     #5, r6
-    shll8   r6                  ! the far plane's bucket
     cmp/eq  r6, r0
     bf      .Lnext\sfx          ! behind the near plane
 1:  bsr     .Lvoid

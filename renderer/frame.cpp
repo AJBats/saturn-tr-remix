@@ -488,6 +488,14 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
     return s;
 }
 
+void frameFar(int32_t far)
+{
+    roomsFar(far);
+    verticesFar(far);
+    facesFar(far);
+    drawsFar(far);
+}
+
 void frameEnds()
 {
     gFrameEnd = facesSlot(gMeshList.link);

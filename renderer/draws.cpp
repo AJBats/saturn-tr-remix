@@ -146,6 +146,11 @@ void drawsHints(const uint32_t masks[2])
     gCtx.hintStatics = masks[1];
 }
 
+void drawsFar(int32_t far)
+{
+    gCtx.viewMax = far << 14;
+}
+
 void draws(const CallRecord* calls, uint32_t count, ItemRecord* items, int32_t fills)
 {
     gCtx.calls = calls;

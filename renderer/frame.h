@@ -183,6 +183,11 @@ bool frameMeshHinted(uint32_t i, const FaceSet* set, const Vertex* vertices, uin
 // The list's ends: the clear in slot 0, the end after the draws' last.
 void frameEnds();
 
+// The draw distance for the rooms and the items, in world units: the game's
+// is 20 sectors (VIEW_DIST). The fog stays the game's; the meshes keep their
+// far plane.
+void frameFar(int32_t far);
+
 // The list and the textures its faces queued into VDP1 VRAM where the game
 // keeps its own, by the SCU's DMA: the textures, the clear and the rooms'
 // commands, then the draws' and the end, and their gouraud tables. The

@@ -111,6 +111,10 @@ void drawsJointsDrawn(uint32_t* drawn, const GameModel* models, const uint32_t* 
 void drawsView(const int32_t camera[3], const int32_t view[12]);
 void drawsHints(const uint32_t masks[2]);
 
+// The far plane past which items aren't drawn, in world units (frame.h
+// frameFar).
+void drawsFar(int32_t far);
+
 // The frame's calls after the walk (a model's and a shadow's index its
 // item's, in items) into the draw list, after the walk's fills (their
 // vertices first). The calls must fit the list: drawsFitting, those that do.
