@@ -55,6 +55,16 @@ void slaveRun(void (*task)(void*), void* arg);
 void slaveWait();
 bool slaveDone();
 
+// Between polls of what another unit writes (the other CPU, the DSP): a
+// while off the bus they share. The count stays in a register: the SH-2's
+// cache writes through, so a counter in memory would be on the bus all along.
+inline void busPause()
+{
+    for (int32_t i = 0; i < 32; i++) {
+        asm volatile("nop");
+    }
+}
+
 // Claims *p (uncached) for this CPU: true if neither had (TAS.B, atomic
 // between the two on the Saturn: saturn/synctest.cpp).
 inline bool tasClaim(volatile uint8_t* p)

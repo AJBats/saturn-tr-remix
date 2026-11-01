@@ -22,19 +22,6 @@ void renderModelUnder(const ItemObj* item);
 void renderShadowCall(const ItemObj* item, int32 floor);
 void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index);
 
-// The frame's list waits in work RAM while VDP1 draws the last one: the
-// master goes on with the next frame and uploads it, with the textures its
-// faces queued, and asks for its plot as soon as VDP1 is done. The master
-// calls renderPoll between pieces of work for that.
-extern bool gListPending;
-void renderUploadReady();
-inline void renderPoll()
-{
-    if (gListPending) {
-        renderUploadReady();
-    }
-}
-
 // Memory to borrow while nothing is drawn (videos between levels): the
 // frame's command buffer, at least size bytes. The list pending in it is
 // dropped.

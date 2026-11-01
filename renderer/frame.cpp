@@ -233,11 +233,6 @@ struct SlaveStages
 } __attribute__((aligned(16)));
 static SlaveStages gSlaveStages;
 
-// Between polls of a flag the other CPU sets: off the bus a while.
-static inline void pause()
-{
-    for (volatile int32_t i = 0; i < 16; i++);
-}
 static int32_t gMeshesUsed = MAX_CMDS / 2;  // the draws' commands, the last frame's
 
 // The list built, as frameUpload takes it: the rooms' slots, the draws'
@@ -276,7 +271,9 @@ static void slaveRooms(void*)
     {
         stageBegin(STAGE_PLAN_WAIT);
         uint32_t w0 = ticks();
-        while (!shared->roomsReady);
+        while (!shared->roomsReady) {
+            busPause();
+        }
         wait += ticksCycles(w0, ticks());
         cachePurge();   // the master's draw list and plan
         stageEnd(STAGE_PLAN_WAIT);
@@ -302,7 +299,7 @@ static void slaveRooms(void*)
                 stageBegin(STAGE_PLAN_WAIT);
                 uint32_t w0 = ticks();
                 while (!shared->listFree) {
-                    pause();
+                    busPause();
                 }
                 wait += ticksCycles(w0, ticks());
                 cachePurge();   // the caches' frames, on as it left
@@ -317,7 +314,9 @@ static void slaveRooms(void*)
     *uncached(&gSlaveStages.roomsDone) = 1;
     stageBegin(STAGE_DRAWS_WAIT);
     uint32_t w0 = ticks();
-    while (!*uncached(&gSlaveStages.drawsDone));
+    while (!*uncached(&gSlaveStages.drawsDone)) {
+        busPause();
+    }
     wait += ticksCycles(w0, ticks());
     cachePurge();       // the master's mesh list
     stageEnd(STAGE_DRAWS_WAIT);
@@ -380,7 +379,9 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         stageEnd(STAGE_DRAW_LIST);
         stageBegin(STAGE_WALK_WAIT);
         uint32_t w0 = ticks();
-        while (!shared->walked);
+        while (!shared->walked) {
+            busPause();
+        }
         s.masterWait += ticksCycles(w0, ticks());
         cachePurge();   // the rooms the slave walked
         stageEnd(STAGE_WALK_WAIT);
@@ -420,7 +421,9 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
     {
         stageBegin(STAGE_POSE_WAIT);
         uint32_t w0 = ticks();
-        while (!shared->posed);
+        while (!shared->posed) {
+            busPause();
+        }
         s.masterWait += ticksCycles(w0, ticks());
         poseDropShare(gPoseSlave);
         stageEnd(STAGE_POSE_WAIT);
@@ -497,7 +500,9 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
     stageBegin(STAGE_SLAVE_WAIT);
     uint32_t w0 = ticks();
     uint32_t drawsEnd = ticksCycles(t0, w0);
-    while (!shared->roomsDone);
+    while (!shared->roomsDone) {
+        busPause();
+    }
     s.masterWait += ticksCycles(w0, ticks());
     s.late = int32_t(drawsEnd) - int32_t(slaveEnd ? slaveEnd : ticksCycles(t0, ticks()));
     cachePurge();       // the slave's room list

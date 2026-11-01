@@ -282,6 +282,7 @@ Room** renderWalk(Room* cameraRoom)
     render::roomsView(gSceneCamera, gSceneView, vp, uint32(cameraRoom - rooms));
     render::roomsSeen();
     gWalked = true;
+    renderPoll();   // the last list up if VDP1 is done: the slave's faces may follow at once
     render::frameRoomsStart(!gListPending);  // the slave on them at once
 
     const render::RoomsContext &walk = render::roomsContext();

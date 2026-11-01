@@ -240,6 +240,7 @@ void drawRooms(Camera* camera)
     while (*visRoom)
     {
         Room* room = *visRoom++;
+        renderPoll();   // the last list up as soon as VDP1 is done (render.h)
         traceDetailBegin(TR_OBJECTS, room - rooms);
         drawRoomObjects(room);
         traceDetailEnd(TR_OBJECTS, room - rooms);

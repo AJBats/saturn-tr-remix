@@ -815,7 +815,7 @@ static inline bool meshAsMade(MeshProject &mp, int32_t i, uint32_t &wait)
     volatile uint32_t* last = jobLast(gJobs[i]);
     uint32_t w0 = ticks();
     while ((*last & 0xFF) == DSP_UNWRITTEN) {
-        pause();
+        busPause();
     }
     wait += ticksCycles(w0, ticks());
     meshProject(mp, i);

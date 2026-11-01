@@ -2996,6 +2996,19 @@ bool renderBackground(const void* background);  // false: the frame is the scene
 void* copyBackground();
 void closeBackground();
 
+// The frame's list waits in work RAM while VDP1 draws the last one: the
+// master goes on with the next frame and uploads it, with the textures its
+// faces queued, and asks for its plot as soon as VDP1 is done. The master
+// calls renderPoll between pieces of work for that.
+extern bool gListPending;
+void renderUploadReady();
+inline void renderPoll()
+{
+    if (gListPending) {
+        renderUploadReady();
+    }
+}
+
 int32 getTextWidth(const char* text);
 
 void drawInit();

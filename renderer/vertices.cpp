@@ -183,13 +183,6 @@ static void roomOrder(const uint8_t* order)
     }
 }
 
-// Between polls of what the DSP writes: off the bus a while, so as not to
-// hold up the DSP's transfers.
-static inline void pause()
-{
-    for (volatile int32_t i = 0; i < 16; i++);
-}
-
 static void chunksLay();
 
 void verticesRoomsSet(const FaceRoom* rooms, uint32_t count)
@@ -327,7 +320,7 @@ static void roomTurned(uint32_t i, uint32_t &wait)
     volatile uint32_t* done = uncached(&gRoomsDone.rooms);
     uint32_t w0 = ticks();
     while (*done <= gRoomTurn[i]) {
-        pause();
+        busPause();
     }
     wait += ticksCycles(w0, ticks());
 }
@@ -723,7 +716,7 @@ void verticesRoom(uint32_t i, uint32_t &wait)
         volatile uint8_t* projected = uncached(gChunkProjected + c);
         uint32_t w0 = ticks();
         while (!*projected) {
-            pause();
+            busPause();
         }
         wait += ticksCycles(w0, ticks());
         cacheDrop(roomVertices(gRooms[i]) + (c - gChunkAt[i]) * CHUNK, chunkSize(c) * sizeof(Vertex));
@@ -737,7 +730,7 @@ void verticesRoomWait(uint32_t i, uint32_t &wait)
         volatile uint8_t* projected = uncached(gChunkProjected + c);
         uint32_t w0 = ticks();
         while (!*projected) {
-            pause();
+            busPause();
         }
         wait += ticksCycles(w0, ticks());
     }
@@ -771,7 +764,9 @@ bool verticesMeshesTryStart()
 void verticesMeshesStart(uint32_t &wait)
 {
     uint32_t w0 = ticks();
-    while (dspBusy());
+    while (dspBusy()) {
+        busPause();
+    }
     wait += ticksCycles(w0, ticks());
     meshesDspStart();
 }
@@ -782,7 +777,7 @@ const Vertex* verticesDraw(uint32_t draw, uint32_t &wait)
     volatile uint32_t* last = jobLast(gJobs[j]);
     uint32_t w0 = ticks();
     while ((*last & 0xFF) == DSP_UNWRITTEN) {
-        pause();
+        busPause();
     }
     wait += ticksCycles(w0, ticks());
     meshProject(gPiecesProject, j);
@@ -791,7 +786,9 @@ const Vertex* verticesDraw(uint32_t draw, uint32_t &wait)
 
 void verticesEnd()
 {
-    while (dspBusy());
+    while (dspBusy()) {
+        busPause();
+    }
 }
 
 }
