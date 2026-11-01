@@ -10,8 +10,7 @@ card is a quad from one end of a segment to the other that the renderer
 places on the screen to face the camera, textured with the segment seen
 from the side. Its texture runs along it, x from its first end to its
 second, so that VDP1 draws its lines along the card: a few long lines rather
-than many short ones. (The wolf and the rope statics wait for the new
-renderer's cards; the packer draws the planks' diet alone so far.)
+than many short ones.
 
 The bridges: each plank's inside faces gone and the tiles of each of its
 faces drawn as one quad, their textures placed side by side, but for tiles a
