@@ -302,6 +302,7 @@ void flipMap()
 
     gSaveGame.flipped ^= 1;
 #ifdef __SATURN__
+    osRoomFacesFlipped();
     renderRoomsFlipped();
 #endif
 }

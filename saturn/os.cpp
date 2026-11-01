@@ -251,27 +251,65 @@ void osPlaceRooms()
     }
 }
 
-// The rooms' faces, which the slave reads every frame: as many rooms' as fit
-// in high work RAM, room by room, the rest left in low work RAM.
+// The rooms' faces, which the CPUs read every frame: in high work RAM in the
+// packer's order (level.roomsHigh: the rooms of the views that see the most
+// faces first) as long as it lasts, the rest left in low work RAM, where the
+// level holds them. A room with an alternate has room there for the larger
+// of the two's faces, and holds whichever a flip map has in place.
+static uint8* gFacesHigh[MAX_ROOMS];   // a room's place in high work RAM, or none
+
+static uint32 facesSize(const RoomInfo* info)
+{
+    return info->quadsCount * sizeof(RoomQuad) + info->trianglesCount * sizeof(RoomTriangle);
+}
+
+// Room i's faces, from where they are, to its place in high work RAM.
+static void facesHigh(int32 i)
+{
+    RoomData &data = rooms[i].data;
+    const RoomInfo* info = rooms[i].info;
+    uint8* next = gFacesHigh[i];
+    uint32 quads = info->quadsCount * sizeof(RoomQuad);
+    memcpy(next, data.quads, quads);
+    memcpy(next + quads, data.triangles, info->trianglesCount * sizeof(RoomTriangle));
+    data.quads = (const RoomQuad*)next;
+    data.triangles = (const RoomTriangle*)(next + quads);
+}
+
 void osPlaceRoomFaces()
 {
     int32 placed = 0;
-    for (int32 i = 0; i < level.roomsCount; i++)
+    memset(gFacesHigh, 0, sizeof(gFacesHigh));
+    for (int32 k = 0; k < level.roomsCount && level.roomsHigh[k] != NO_ROOM; k++)
     {
-        RoomData &data = rooms[i].data;
-        const RoomInfo* info = rooms[i].info;
-        uint32 quads = info->quadsCount * sizeof(RoomQuad);
-        uint32 triangles = info->trianglesCount * sizeof(RoomTriangle);
-        uint8* next = (uint8*)osHighAlloc(quads + triangles);
-        if (!next)
+        int32 i = level.roomsHigh[k];
+        uint32 size = facesSize(rooms[i].info);
+        if (rooms[i].alternateRoom != NO_ROOM) {
+            size = X_MAX(size, facesSize(rooms[rooms[i].alternateRoom].info));
+        }
+        gFacesHigh[i] = (uint8*)osHighAlloc(size);
+        if (!gFacesHigh[i])
             continue;
-        memcpy(next, data.quads, quads);
-        data.quads = (const RoomQuad*)next;
-        memcpy(next + quads, data.triangles, triangles);
-        data.triangles = (const RoomTriangle*)(next + quads);
+        facesHigh(i);
         placed++;
     }
     crashLog("ROOMS", (placed << 24) | (level.roomsCount << 16) | (highLeft() >> 10));    // KB left
+}
+
+void osRoomFacesFlipped()
+{
+    for (int32 i = 0; i < level.roomsCount; i++)
+    {
+        int32 a = rooms[i].alternateRoom;
+        if (!gFacesHigh[i] || a == NO_ROOM)
+            continue;
+        // the faces flipped out go back to the level's copy (read_PKD
+        // relocates its offsets by its address); those flipped in move up
+        const RoomData &home = rooms[a].info->data;
+        rooms[a].data.quads = (const RoomQuad*)(LEVEL_ADDR + uint32(home.quads));
+        rooms[a].data.triangles = (const RoomTriangle*)(LEVEL_ADDR + uint32(home.triangles));
+        facesHigh(i);
+    }
 }
 
 const void* osLoadLevel(LevelID id)

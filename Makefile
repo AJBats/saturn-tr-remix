@@ -179,7 +179,7 @@ levels: $(foreach l,$(LEVELS),build/data/$(l).PKD)
 
 build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%.ITX build/data/%.MSH &: \
 		tools/pack_level.py tools/texart.py tools/diet.py tools/trsat.py tools/trpsx.py tools/sfx.py tools/meshstore.py \
-		tools/facepack.py \
+		tools/facepack.py tools/roomrank.py \
 		openlara/common.h saturn/vram.h saturn/sound.h $(DISC)/filelist.txt $(wildcard $(PSXDATA)/*.PSX) \
 		build/data/object_art
 	OBJECT_ART=$(OBJECT_ART) $(PY) tools/pack_level.py $(DISC)/files/DATA $* build/data/$*.PKD $(PSXDATA)

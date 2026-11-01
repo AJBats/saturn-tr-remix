@@ -2224,6 +2224,7 @@ struct Level
     const SoundInfo* soundsInfo;
     const uint8* soundData;
     const int32* soundOffsets;
+    const uint8* roomsHigh;     // the rooms in the order their faces take high work RAM, NO_ROOM after (os.cpp)
 };
 
 // used by enemies
@@ -3101,10 +3102,13 @@ void osPlaceRooms(); // the rooms' vertices in high work RAM, where the DSP read
 // High work RAM for the level, from what the program leaves: 16-byte aligned,
 // until the next level loads; NULL if none is left. The level's mesh store
 // (DATA/<level>.MSH) is there; the rooms' faces take what the renderer's
-// tables leave, as many rooms' as fit (the rest stay in low work RAM).
+// tables leave, in the packer's order (level.roomsHigh) as long as it lasts,
+// the rest staying in low work RAM; after a flip map, the faces flipped into
+// a room with a place there move into it (osRoomFacesFlipped).
 void* osHighAlloc(uint32 bytes);
 const void* osMeshStore();
 void osPlaceRoomFaces();
+void osRoomFacesFlipped();
 #endif
 
 #ifdef PROFILING

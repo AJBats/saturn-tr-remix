@@ -26,6 +26,10 @@ full texture's. A room texture's three tables (full res, half, quarter) lie
 side by side in the blob, so a face drawn with a mip level takes its
 texture's table + 4 or + 8 (in VDP1's 8-byte units).
 
+The rooms the walk reaches are ranked for high work RAM (tools/roomrank.py):
+the game places their faces there in that order while it lasts, the rest in
+low work RAM.
+
 Sound effects are the PlayStation's samples, its SPU ADPCM as it keeps them,
 which the sound CPU decodes; the original's (16-bit PCM) where the
 PlayStation level has none (tools/sfx.py). They go to a separate file the
@@ -69,6 +73,7 @@ import sfx  # noqa: E402
 import texart  # noqa: E402
 import trpsx  # noqa: E402
 import meshstore  # noqa: E402
+import roomrank  # noqa: E402
 import trsat  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -843,7 +848,7 @@ class Packer:
     def pack(self):
         lvl = self.lvl
         out = Out()
-        out.raw(bytes(172))     # header, written last
+        out.raw(bytes(176))     # header, written last
 
         rooms = self.write_rooms(out)
 
@@ -982,17 +987,23 @@ class Packer:
         self.sfx, offsets = self.sounds.build()
         out.pack(f"{len(offsets)}I", *offsets)
 
+        # the rooms in the order their faces take high work RAM, a byte each,
+        # NO_ROOM after the last ranked (alternates are placed with theirs)
+        rooms_high = out.align4()
+        order = roomrank.room_order(lvl)
+        out.raw(bytes(order) + bytes([0xFF]) * (len(lvl.rooms) - len(order)))
+
         header = struct.pack(">I14H", 0x53415431,     # 'SAT1'
             0, len(lvl.rooms), len(lvl.models), len(lvl.mesh_offsets), len(lvl.static_meshes),
             len(lvl.sprite_sequences), len(lvl.sound_sources), len(lvl.boxes), textures_count,
             len(lvl.sprite_textures), len(lvl.items), len(lvl.cameras), len(lvl.camera_frames), len(offsets) // 2)
-        header += struct.pack(">35I",
+        header += struct.pack(">36I",
             palette, 0, 0, rooms, floors, mesh_base, mesh_offsets_pos, anims, states, ranges,
             commands, nodes, frames, models, static_meshes, textures, sprites, sprite_sequences,
             cameras, sound_sources, boxes, overlaps, *zones, anim_tex, items,
-            camera_frames, sound_map, sound_infos, 0, sound_offsets)
-        assert len(header) == 172
-        out.b[0:172] = header
+            camera_frames, sound_map, sound_infos, 0, sound_offsets, rooms_high)
+        assert len(header) == 176
+        out.b[0:176] = header
         return bytes(out.b)
 
 
