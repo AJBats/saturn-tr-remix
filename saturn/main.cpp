@@ -61,6 +61,7 @@ int main()
     sndInit();
 #if defined(HW_LOG) && defined(SOUND_BENCH)
     sndBench();
+    sndCalibrate();
 #endif
     crashLog("SOUND", 0);
     padInit();

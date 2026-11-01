@@ -36,6 +36,9 @@
 #define DRIVER_Q_HEAD   0x0A00
 #define DRIVER_Q_TAIL   0x0A02
 #define DRIVER_DONE     0x0A08
+#define DRIVER_BLOCKS   0x0A10
+#define DRIVER_LOW      0x0A14
+#define DRIVER_SAMPLES  0x0A18
 #define DRIVER_SHARED   0x80        // bytes from Q_HEAD cleared before it starts
 #define DRIVER_QUEUE    0x0A80
 #define DRIVER_Q_SIZE   32
@@ -300,6 +303,80 @@ void sndBench()
     }
 
     driverStart();
+}
+
+// The sound CPU's clock against a slot's own position: a silent slot plays
+// at pitch from SOUND_SAMPLES_ADDR, and its call address (the position's
+// bits 15-12, by the monitor register) steps every 4096 of its samples;
+// the clock's samples between steps, the mean of 4 (0: no steps seen).
+#define SCSP_MONITOR    SCSP_REG(0x408)     // MSLC (15-11) written, CA (10-7) read
+#define CAL_SLOT        31
+
+static uint32 driverSamples()
+{
+    volatile uint32* samples = (volatile uint32*)(SOUND_RAM + DRIVER_SAMPLES);
+    uint32 a = *samples, b;
+    while ((b = *samples) != a) {
+        a = b;
+    }
+    return a;
+}
+
+static uint32 calibrate(uint16 pitch)
+{
+    SCSP_SLOT(CAL_SLOT, 0) = KYONEX;
+    for (volatile int32 i = 0; i < 200; i++);
+    SCSP_SLOT(CAL_SLOT, 0) = 0;
+    SCSP_SLOT(CAL_SLOT, 1) = SOUND_SAMPLES_ADDR;
+    SCSP_SLOT(CAL_SLOT, 2) = 0;
+    SCSP_SLOT(CAL_SLOT, 3) = 0xFFFF;
+    SCSP_SLOT(CAL_SLOT, 4) = 0x001F;
+    SCSP_SLOT(CAL_SLOT, 5) = 0x001F;
+    SCSP_SLOT(CAL_SLOT, 6) = 255;
+    SCSP_SLOT(CAL_SLOT, 7) = 0;
+    SCSP_SLOT(CAL_SLOT, 8) = pitch;
+    SCSP_SLOT(CAL_SLOT, 9) = 0;
+    SCSP_SLOT(CAL_SLOT, 10) = 0;
+    SCSP_SLOT(CAL_SLOT, 11) = 0;
+    SCSP_SLOT(CAL_SLOT, 0) = KYONB | KYONEX;
+    SCSP_MONITOR = CAL_SLOT << 11;
+
+    uint32 v = gVblankCount, steps = 0, first = 0, last = 0;
+    uint32 ca = (SCSP_MONITOR >> 7) & 15;
+    while (steps < 5 && gVblankCount - v < 240)
+    {
+        uint32 now = (SCSP_MONITOR >> 7) & 15;
+        if (now != ca)
+        {
+            last = driverSamples();
+            if (!steps) {
+                first = last;
+            }
+            ca = now;
+            steps++;
+        }
+    }
+    SCSP_SLOT(CAL_SLOT, 0) = KYONEX;
+    return steps == 5 ? (last - first) / 4 : 0;
+}
+
+void sndCalibrate()
+{
+    uint32 s0 = driverSamples(), v = gVblankCount;
+    while (gVblankCount - v < 60);
+    crashLog("SCLK", driverSamples() - s0);
+    crashLog("SCAL0", calibrate((0xE << 11) | 0));
+    crashLog("SCAL1", calibrate((0xE << 11) | 0x200));
+}
+#endif
+
+#ifdef HW_LOG
+void sndStats(int32 &low, uint32 &blocks)
+{
+    volatile int16* lowWord = (volatile int16*)(SOUND_RAM + DRIVER_LOW);
+    low = *lowWord;
+    *lowWord = 0x7FFF;
+    blocks = *(volatile uint32*)(SOUND_RAM + DRIVER_BLOCKS);
 }
 #endif
 

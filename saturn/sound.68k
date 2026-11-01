@@ -47,6 +47,7 @@
     .equ    DONE,       0x0A08      | 8 bytes: each voice's generation played out or stopped
     .equ    BLOCKS,     0x0A10      | long: ADPCM blocks decoded
     .equ    LOW,        0x0A14      | word: the fewest samples a voice was found decoded ahead
+    .equ    SAMPLES,    0x0A18      | long: CLOCK, unwrapped
     .equ    QUEUE,      0x0A80      | 32 commands
     .equ    Q_MASK,     31
 
@@ -186,6 +187,7 @@ tick:
     beq.s   6f
     add.w   #86,%d0
 6:  add.w   %d0,CLOCK
+    add.l   %d0,SAMPLES
     lea     VOICES,%a0
     moveq   #0,%d1
     moveq   #VOICE_COUNT-1,%d0

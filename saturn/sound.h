@@ -34,6 +34,18 @@ void sndFrame();
 // The sound CPU's decoding speed (soundbench.68k), in the boot log: samples
 // a second for each format (PS1, SAT), with 0, 16 and 30 slots playing.
 void sndBench();
+
+// The sound CPU's clock checked, in the boot log: SCLK its samples over 60
+// vblanks; SCAL0 and SCAL1 its samples while a slot plays 4096 samples at
+// octave -2, FNS 0 (16384 if the clock and the phase step are as
+// sound.68k takes them) and FNS 0x200 (10923).
+void sndCalibrate();
+#endif
+
+#ifdef HW_LOG
+// The sound CPU's fewest samples decoded ahead of a voice since the last
+// call, and its blocks decoded.
+void sndStats(int32 &low, uint32 &blocks);
 #endif
 
 #endif

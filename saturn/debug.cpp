@@ -16,6 +16,7 @@
 #include "overlay.h"
 #include "palettes.h"
 #include "screen.h"
+#include "sound.h"
 #include "system.h"
 #include "trace.h"
 
@@ -251,6 +252,11 @@ static char* appendColumn(char* p, uint32 value)
 // the frame's VDP1 and master CPU time, the master's drawing (its calls,
 // before flush), the slave's work in the frame
 static struct { uint32 vdp1, cpu, draw, slave, fps; } gBench;
+// the sound CPU over the window: the fewest samples it had decoded ahead of
+// a voice, ADPCM blocks decoded a second; as the bench's row 6 shows them
+// (without the trace's text too)
+static struct { int32 low; uint32 blocks, blocksAt; } gSound;
+static char gSoundRow[OVERLAY_COLUMNS + 1];
 
 // and the CPUs' time by stage, as gStats keeps it: the master's update, calls,
 // flush (the frame's stages, the list's upload) and waits in the frame; the
@@ -601,6 +607,17 @@ static void benchUpdate()
         gBench.draw = framePercent(draw / frames);
         gBench.slave = framePercent(slave / frames);
         gBench.fps = frames * 60 / (t - BENCH_SETTLE);
+        uint32 blocks;
+        sndStats(gSound.low, blocks);
+        gSound.blocks = (blocks - gSound.blocksAt) * 60 / t;
+        gSound.blocksAt = blocks;
+        char text[64];
+        char* p = appendStat(text, "snd low ", uint32(X_MAX(gSound.low, 0)));
+        if (gSound.low < 0) {
+            p = append(p - 2, " under  ");
+        }
+        appendStat(p, "blk/s ", gSound.blocks);
+        strncpy(gSoundRow, text, OVERLAY_COLUMNS);
         for (int32 i = 0; i < SPLIT_COUNT; i++) {
             gSplit[i] = framePercent(split[i] / frames);
         }
@@ -863,6 +880,7 @@ static void drawDebug()
         }
         else
         {
+            overlayRow(6, gSoundRow);
             benchDraw();
         }
     }
