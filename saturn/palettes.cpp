@@ -16,7 +16,8 @@ struct PaletteEntry
 
 #define MAX_PALETTES 1280  // LEVEL4 has 1112
 
-// The level's, in low work RAM (DATA/<level>.PAL as it is).
+// The level's, in VDP2's VRAM past the bitmap (os.cpp; DATA/<level>.PAL as
+// it is).
 struct Palettes
 {
     uint32 count;

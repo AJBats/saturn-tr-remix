@@ -33,8 +33,10 @@ struct Option
 static const char* const kPalette[] = { "Saturn", "Remastered" };
 static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kTrace[] = { "Off", "Stages", "Detail" };
+#ifdef HW_LOG
 static const char* const kFar[] = { "20 sectors", "18 sectors", "16 sectors", "14 sectors", "12 sectors" };
 static int32 gFarStep;      // kFar's
+#endif
 
 static bool gShowStats;
 #ifdef HW_LOG

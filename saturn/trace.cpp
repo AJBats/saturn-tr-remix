@@ -14,10 +14,9 @@
 #define TRACE_MAGIC     0x54524331  // "TRC1"
 
 // The rings and the rest (TraceArea, the profile's blocks): VDP2's VRAM past
-// the bitmap (banks B0 and B1), which no level uses, to its last word, the
-// back colour. Writes there cross the B-bus, against low work RAM's.
-#define TRACE_AREA      (VDP2_VRAM + 0x40000)
-#define TRACE_AREA_END  (VDP2_VRAM + 0x7FF00)
+// the bitmap (hw.h VDP2_BANK_B), to the level's extras (traceLevel's end).
+// Writes there cross the B-bus, against low work RAM's.
+#define TRACE_AREA      VDP2_BANK_B
 #define TRACE_DEPTH     8           // spans open at once on a lane
 #define FRAME_TICKS     7457        // FRT ticks in a 30 fps frame
 
@@ -216,16 +215,16 @@ void traceInit()
     crashLog("TRV2", eventCycles((uint32_t*)TRACE_AREA));
 }
 
-static bool gLevelOn;           // traceLevel's
+static uint32_t gAreaEnd;       // traceLevel's end; 0 before a level
 static uint32_t gGeneration;    // traceGeneration's
 
-void traceLevel()
+void traceLevel(const void* end)
 {
-    gLevelOn = true;
+    gAreaEnd = uintptr_t(end);
     traceStop();
     uint32_t base = TRACE_AREA;
     uint32_t profileBytes = (traceProfileCount() * sizeof(uint16_t) + 3) & ~3;
-    int32_t room = int32_t(TRACE_AREA_END - base - sizeof(TraceArea) - profileBytes) / 4;  // ring events
+    int32_t room = int32_t(gAreaEnd - base - sizeof(TraceArea) - profileBytes) / 4;  // ring events
     int32_t shift = 0;
     uint32_t total = 0;
     for (int32_t i = 0; i < TRACE_LANES; i++) {
@@ -275,8 +274,8 @@ void traceStop()
 
 void traceResume()
 {
-    if (gLevelOn) {
-        traceLevel();
+    if (gAreaEnd) {
+        traceLevel((const void*)gAreaEnd);
     }
 }
 

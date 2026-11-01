@@ -22,7 +22,15 @@
 #define LEVEL_MAX   (1024 * 1024)
 #endif
 
-static uint8* gLowFree = LEVEL_ADDR;    // past the loaded level's data
+// The size of DATA/<name><ext>, or 0 if the disc has none.
+static uint32 fileSize(const char* name, const char* ext)
+{
+    char path[32] = "DATA/";
+    strcat(path, name);
+    strcat(path, ext);
+    uint32_t lba, size;
+    return cdFind(path, &lba, &size) == 0 ? size : 0;
+}
 
 int32 osGetSystemTimeMS()
 {
@@ -286,15 +294,24 @@ const void* osLoadLevel(LevelID id)
     osHighAlloc(loadOrHalt(name, ".MSH", gHighFree, highLeft()));
 
     // low work RAM: the level, then the full-res room texture set, which the
-    // CPU reads only to upload, as the original lays them out; then the
-    // colour tables' other versions and the inventory's item textures, which
-    // the CPU copies to VRAM when asked
+    // CPU reads only to upload, as the original lays them out
     uint32 levelSize = (loadOrHalt(name, ".PKD", LEVEL_ADDR, LEVEL_MAX) + 15) & ~15;
     uint8* subData = LEVEL_ADDR + levelSize;
     uint32 subSize = loadOrHalt(name, ".SUB", subData, LEVEL_MAX - levelSize);
-    uint8* low = subData + ((subSize + 15) & ~15);
     detailInit(VRAM_TEX_BASE + texSize, subData, subSize);
-    low += (palettesLoad(name, low, LEVEL_ADDR + LEVEL_MAX - low) + 15) & ~15;
+
+    // VDP2's VRAM past the bitmap, packed down from its top (hw.h): the
+    // colour tables' other versions and the inventory's item textures, which
+    // the CPU copies to VDP1 VRAM when asked (some cutscenes have neither)
+    uint32 palSize = (fileSize(name, ".PAL") + 15) & ~15;
+    uint32 itemSize = (fileSize(name, ".ITX") + 15) & ~15;
+    uint8* extras = (uint8*)(VDP2_BANK_B_END - palSize - itemSize);
+    if (palSize + itemSize > VDP2_BANK_B_END - VDP2_BANK_B)
+    {
+        crashLog("EXTRAS", palSize + itemSize);
+        while (1);  // TODO error screen
+    }
+    palettesLoad(name, extras, palSize);
 
     // sound effects straight to sound RAM, and inventory item textures (some
     // cutscenes have neither)
@@ -305,10 +322,8 @@ const void* osLoadLevel(LevelID id)
     cdLoadFile(path, (void*)(SOUND_RAM + SOUND_SAMPLES_ADDR), SOUND_RAM_SIZE - SOUND_SAMPLES_ADDR);
 
     strcpy(path + strlen(path) - 3, "ITX");
-    int32 itemSize = X_MAX(0, cdLoadFile(path, low, LEVEL_ADDR + LEVEL_MAX - low));
-    detailItemInit(low, itemSize);
-    gLowFree = low + ((itemSize + 15) & ~15);
-    traceLevel();
+    detailItemInit(extras + palSize, X_MAX(0, cdLoadFile(path, extras + palSize, itemSize)));
+    traceLevel(extras);
 
     screenRelease(false);
     crashHold(false);

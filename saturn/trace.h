@@ -85,10 +85,11 @@ enum TraceLane { TRACE_MASTER, TRACE_IRQ, TRACE_SLAVE, TRACE_DSP, TRACE_LANES };
 void traceInit();
 
 // The rings record, afresh, once a level has loaded (traceLevel): they and
-// what goes with them are in VDP2's VRAM past the bitmap, which pictures
-// use to stage only between levels and for the title's (traceStop stops
-// them first; traceResume starts them afresh after).
-void traceLevel();
+// what goes with them are in VDP2's VRAM past the bitmap, up to end (the
+// level's extras, os.cpp), which pictures use to stage only between levels
+// and for the title's (traceStop stops them first; traceResume starts them
+// afresh after).
+void traceLevel(const void* end);
 void traceStop();
 void traceResume();
 
@@ -197,7 +198,7 @@ uint32_t traceGeneration();
 inline void traceInit() {}
 inline void traceSetMode(int32_t) {}
 inline int32_t traceMode() { return 0; }
-inline void traceLevel() {}
+inline void traceLevel(const void*) {}
 inline void traceStop() {}
 inline void traceResume() {}
 inline void traceAt(int32_t, uint32_t, uint32_t) {}

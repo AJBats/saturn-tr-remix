@@ -52,7 +52,7 @@ extern uint32_t gDetailPoolVram[DETAIL_LEVELS];
 // Faces may take mip levels: the set has them and the cache their pools.
 bool detailMips();
 
-// Inventory item textures (DATA/<level>.ITX, in low work RAM) use the
+// Inventory item textures (DATA/<level>.ITX, in VDP2's VRAM) use the
 // cache's first slots while the inventory is open: suspending empties those
 // (and drops the uploads queued into them) and puts the item textures there
 // at the next detailItemUpload, and the rest of the cache goes on serving the
@@ -62,7 +62,7 @@ void detailSuspend();
 void detailResume();
 
 // Before the frame's uploads: the item textures, if suspending asked for
-// them (the CPU copies them: the SCU's DMA can't read low work RAM).
+// them (the CPU copies them).
 void detailItemUpload();
 
 #endif
