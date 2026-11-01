@@ -300,7 +300,16 @@ static void drawModel(const ItemRecord &record, uint32_t flags, uint32_t given)
     p.frameB = uint32_t(frameB);
     p.frameDelta = frameDelta;
     p.frameRate = frameRate;
+    // its visible mask, but the joints the diet holds still (their nodes'
+    // NODE_FLAG_STILL): the renderer neither turns nor draws them
     p.visibleMask = item->visibleMask;
+    const uint8_t* node = gNodes + p.nodes;
+    for (int32_t k = 1; k < model.count && k < 32; k++, node += 8)
+    {
+        if (((node[6] << 8) | node[7]) & NODE_FLAG_STILL) {
+            p.visibleMask &= ~(1u << k);
+        }
+    }
     memcpy(p.pos, item->pos, sizeof(p.pos));
     memcpy(p.angle, item->angle, sizeof(p.angle));
     if (p.lara)
@@ -360,7 +369,7 @@ static void drawModel(const ItemRecord &record, uint32_t flags, uint32_t given)
     uint32_t firstDraw = gList.drawCount;
     for (int32_t k = 0; k < model.count; k++)
     {
-        if (p.lara || (item->visibleMask & (1 << k)))
+        if (p.lara || (p.visibleMask & (1u << k)))
         {
             uint16_t mesh = gMeshIndex[p.lara ? ((const GameLara*)item->extra)->meshes[k] : model.start + k];
             addDraw(DRAW_MESH, mesh, flags, meshVertices(mesh));
@@ -685,18 +694,20 @@ const DrawList& gameDrawList()
     return gList;
 }
 
-void gameDrawsRun(const CallRecord* calls, uint32_t count, ItemRecord* items, const GameAnim* anims, int32_t fills,
-                  DrawList &out)
+void gameDrawsRun(const CallRecord* calls, uint32_t count, ItemRecord* items, const GameAnim* anims,
+                  const uint8_t* nodes, int32_t fills, DrawList &out)
 {
     const CallRecord* sceneCalls = gCalls;
     uint32_t sceneCount = gCallCount;
     ItemRecord* sceneItems = gItems;
     const GameAnim* sceneAnims = gAnims;
+    const uint8_t* sceneNodes = gNodes;
     DrawList sceneList = gList;
     gCalls = calls;
     gCallCount = count;
     gItems = items;
     gAnims = anims;
+    gNodes = nodes;
     gList = out;
     gameDraws(fills);
     out = gList;
@@ -704,6 +715,7 @@ void gameDrawsRun(const CallRecord* calls, uint32_t count, ItemRecord* items, co
     gCallCount = sceneCount;
     gItems = sceneItems;
     gAnims = sceneAnims;
+    gNodes = sceneNodes;
     gList = sceneList;
 }
 

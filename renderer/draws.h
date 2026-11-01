@@ -70,16 +70,17 @@ struct DrawsContext
     PoseFlash* flashes;         // +216
     uint32_t flashCount;        // +220
     uint32_t flashMax;          // +224
+    const uint32_t* modelDrawn; // +228 each model's joints drawn (drawsJointsDrawn)
 };
 
 extern "C" void drawsAsm(DrawsContext* ctx);
 
 // The level's tables the calls read, in the game's layouts: the animations
 // and where their frame offsets count from, the models, each level mesh's
-// index in the mesh store and each model's nodes' offset in nodes, the
-// static meshes, each room's ambient and lights, the rooms as the walk reads
-// them, the mesh store, the sprites, the muzzle flash's mesh in the store
-// (NO_MESH: none).
+// index in the mesh store and each model's nodes' offset in nodes and
+// joints drawn (drawsJointsDrawn), the static meshes, each room's ambient
+// and lights, the rooms as the walk reads them, the mesh store, the sprites,
+// the muzzle flash's mesh in the store (NO_MESH: none).
 struct DrawsLevel
 {
     const GameAnim* anims;
@@ -87,6 +88,7 @@ struct DrawsLevel
     const GameModel* models;
     const uint16_t* meshIndex;
     const uint32_t* modelNodes;
+    const uint32_t* modelDrawn;
     const uint8_t* nodes;
     const GameStaticMesh* statics;
     const RoomLights* roomLights;
@@ -97,6 +99,12 @@ struct DrawsLevel
     uint16_t flashMesh;
 };
 void drawsInit(const DrawsLevel &level);
+
+// Each of count models' joints drawn, bit j joint j's mesh: all but those
+// held still (their node's NODE_FLAG_STILL), as the item's visible mask is
+// taken (modelNodes ~0: a model with none).
+void drawsJointsDrawn(uint32_t* drawn, const GameModel* models, const uint32_t* modelNodes, const uint8_t* nodes,
+                      uint32_t count);
 
 // The frame's view: the camera and the view's matrix (12 int32, no
 // translation); the things its hints may name (hints.h hintsMasks).

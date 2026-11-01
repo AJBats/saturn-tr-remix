@@ -368,6 +368,7 @@ static Light* gLights;
 static render::RoomGeometry* gGeometry;
 static render::RoomLights* gRoomLights;
 static uint32 gModelNodes[MAX_MODELS];
+static uint32 gModelDrawn[MAX_MODELS];
 
 static render::Vertex gVertices[MAX_VERTICES] __attribute__((aligned(16)));
 static render::FrameLevel gFrameLevel;
@@ -505,6 +506,8 @@ void renderLevelInit()
     for (int32 m = 0; m < MAX_MODELS; m++) {
         gModelNodes[m] = level.models[m].count > 0 ? level.models[m].nodeIndex * sizeof(ModelNode) : NO_INDEX;
     }
+    render::drawsJointsDrawn((uint32_t*)gModelDrawn, (const render::GameModel*)level.models,
+                             (const uint32_t*)gModelNodes, (const uint8_t*)level.nodes, MAX_MODELS);
 
     const render::MeshStore* store = (const render::MeshStore*)osMeshStore();
     if (!store || store->magic != MESH_STORE_MAGIC || store->meshCount != level.meshesCount)
@@ -520,6 +523,7 @@ void renderLevelInit()
     d.models = (const render::GameModel*)level.models;
     d.meshIndex = (const uint16_t*)(storeBytes + store->index);
     d.modelNodes = (const uint32_t*)gModelNodes;
+    d.modelDrawn = (const uint32_t*)gModelDrawn;
     d.nodes = (const uint8_t*)level.nodes;
     d.statics = (const render::GameStaticMesh*)level.staticMeshes;
     d.roomLights = gRoomLights;

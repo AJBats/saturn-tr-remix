@@ -624,8 +624,9 @@ def wolf_diet(lvl, model, meshes, atlas, states=WOLF_STATES):
         return {}, []
     parents, offsets = skeleton(lvl, model)
     frozen = sorted(j for k in WOLF_DIET_MERGES for j in WOLF_MERGES[k])
-    # a joint held still keeps its parent's matrix (draw.h drawNodes): a
-    # joint under it that moves would be drawn off it
+    # a joint held still is neither turned nor drawn (its node's
+    # NODE_FLAG_STILL, renderer/pose.s): the matrix after it stays its
+    # parent's, so a joint under it that moves would be drawn off it
     for j in range(1, model["count"]):
         if parents[j] in frozen and j not in frozen:
             raise ValueError(f"wolf joint {j} moves but its parent {parents[j]} is held still")
@@ -655,7 +656,7 @@ def wolf_diet(lvl, model, meshes, atlas, states=WOLF_STATES):
             out[k].add_mesh(mesh, start + j, M)
         else:
             out[k].add_mesh(mesh, start + j)
-    # the joints held still keep an empty mesh: they draw nothing
+    # the joints held still keep an empty mesh (never drawn)
     for j in frozen:
         out[j] = DietMesh(meshes[start + j])
     return out, frozen
@@ -685,15 +686,18 @@ def plank_diet(mesh, index, atlas, apart=None):
 
 def level_diet(lvl, meshes, model_name):
     """The meshes the diet simplifies in lvl, {mesh index: DietMesh}: the
-    wolf's, the planks' and the rope statics' (ROPE_STATICS). model_name(type)
-    names a model's type as common.h's ITEM_TYPES does."""
+    wolf's, the planks' and the rope statics' (ROPE_STATICS); and the joints
+    it holds still, {model type: joints}. model_name(type) names a model's
+    type as common.h's ITEM_TYPES does."""
     atlas = Atlas(lvl)
-    out = {}
+    out, still = {}, {}
     for m in lvl.models:
         name = model_name(m["type"])
         if name == "WOLF":
-            simplified, _ = wolf_diet(lvl, m, meshes, atlas)
+            simplified, frozen = wolf_diet(lvl, m, meshes, atlas)
             out.update({m["start"] + j: dm for j, dm in simplified.items()})
+            if frozen:
+                still[m["type"]] = frozen
         elif name in ("BRIDGE_FLAT", "BRIDGE_TILT_1", "BRIDGE_TILT_2"):
             i = m["start"]
             groups = PLANK_APART.get((lvl.name, name), [])
@@ -708,7 +712,7 @@ def level_diet(lvl, meshes, model_name):
             if st["mesh"] in out:
                 raise ValueError(f"mesh {st['mesh']} simplified twice")
             out[st["mesh"]] = dm
-    return out
+    return out, still
 
 
 def rope_diet(mesh, index, atlas):

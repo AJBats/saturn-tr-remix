@@ -8,6 +8,8 @@
 #include <string.h>
 
 #define NO_FRAME        0xFFFFFFFF
+#define NODE_FLAG_POP   1
+#define NODE_FLAG_PUSH  2
 #define NODE_FLAG_ROTS  (4 | 8 | 16)
 
 static PoseContext &gCtx = poseContext(0);
@@ -187,7 +189,7 @@ static const int16_t LERPS[][2] = {
 #define SELDOM_PASSES   (LERPS_COUNT * 4)
 
 enum { COVER_STILL, COVER_HALF, COVER_QUARTER, COVER_THREE, COVER_SLOW, COVER_EXTRA, COVER_ARM_FRAME,
-       COVER_ARM_LERP, COVER_BASIS, COVER_SHOTGUN, COVER_PUSH, COVER_GIVEN, COVER_MAX };
+       COVER_ARM_LERP, COVER_BASIS, COVER_SHOTGUN, COVER_PUSH, COVER_GIVEN, COVER_HELD, COVER_MAX };
 
 // Matrices for items drawn under one given (the inventory's drawNodesLerp):
 // the view's rows, turned about y now and then, placed ahead of the camera
@@ -215,7 +217,8 @@ static void madeUpGiven()
 }
 
 // The scene's items again, and Lara's as another's: her nodes through the
-// walk their flags push and pop, with made-up flags for extra angles.
+// walk their flags push and pop, with made-up flags for extra angles and
+// joints held still.
 static uint32_t madeUpOf(uint32_t* of)
 {
     uint32_t n = 0;
@@ -281,6 +284,7 @@ int32_t poseSeldomCheck()
         {
             PoseItem &item = items[m];
             item = gItems[of[m] & 0xFFFF];
+            uint32_t held = 0;
             if (of[m] & 0x80000000)
             {
                 // her nodes, up to 4 of them taking an extra angle about an axis
@@ -292,6 +296,31 @@ int32_t poseSeldomCheck()
                 }
                 for (int32_t e = rnd() >> 30; e >= 0; e--) {
                     made[(rnd() >> 16) % (item.count - 1) * 4 + 3] |= 4 << (rnd() >> 16) % 3;
+                }
+                // now and then a joint held still (as tools/pack_level.py
+                // holds them): one taking no extra angle, every joint under
+                // it held still too; its visible bit clear (as draws.s)
+                int32_t parent[32], stack[32], top = 0, at = 0;
+                for (int32_t k = 1; k < item.count; k++)
+                {
+                    uint16_t flags = made[(k - 1) * 4 + 3];
+                    if (flags & NODE_FLAG_POP) at = top ? stack[--top] : 0;
+                    if (flags & NODE_FLAG_PUSH) stack[top++] = at;
+                    parent[k] = at;
+                    at = k;
+                }
+                for (int32_t k = item.count - 1; k >= 1; k--)
+                {
+                    bool under = true;
+                    for (int32_t c = k + 1; c < item.count; c++) {
+                        under = under && (parent[c] != k || (held >> c & 1));
+                    }
+                    uint16_t &flags = made[(k - 1) * 4 + 3];
+                    if (under && !(flags & NODE_FLAG_ROTS) && rnd() % 3 == 0)
+                    {
+                        flags |= NODE_FLAG_STILL;
+                        held |= 1u << k;
+                    }
                 }
                 item.nodes = nodesAt;
                 nodesAt += 8 * item.count;
@@ -309,7 +338,8 @@ int32_t poseSeldomCheck()
             item.frameB = lerp[0] ? frame[1] : frame[0];
             item.frameDelta = lerp[0];
             item.frameRate = lerp[1];
-            item.visibleMask = rnd();
+            item.visibleMask = rnd() & ~held;
+            cover[COVER_HELD] += __builtin_popcount(held);
             for (int32_t k = 0; k < 3; k++)
             {
                 item.pos[k] = gCtx.camera[k] + int32_t(rnd() >> 17) - 16384;

@@ -10,6 +10,7 @@
 #define FACE_TYPE_SPRITE    6
 #define WALL                (-32512)
 #define STATIC_MESH_FLAG_VISIBLE    2
+#define NODE_FLAG_ROT       (4 | 8 | 16)    // NODE_FLAG_ROTX, ROTY, ROTZ
 #define X_MAX(a, b)         ((a) > (b) ? (a) : (b))
 #define X_MIN(a, b)         ((a) < (b) ? (a) : (b))
 
@@ -30,6 +31,14 @@ void drawsLabInit()
     level.meshIndex = (const uint16_t*)((const uint8_t*)store + store->index);
     level.modelNodes = sceneArray<const uint32_t>("MNOD");
     level.nodes = sceneArray<const uint8_t>("PNOD");
+    uint32_t models;
+    sceneArray<const GameModel>("MODL", &models);
+    static uint32_t* drawn;
+    if (!drawn) {
+        drawn = (uint32_t*)sceneAllocLow(models * sizeof(uint32_t));
+    }
+    drawsJointsDrawn(drawn, level.models, level.modelNodes, level.nodes, models);
+    level.modelDrawn = drawn;
     level.statics = sceneArray<const GameStaticMesh>("SMSH");
     level.roomLights = sceneArray<const RoomLights>("RLIT");
     level.level = sceneArray<const RoomLevel>("RLVL");
@@ -206,10 +215,16 @@ int32_t drawsSeldomCheck()
         staticCalls += scene[i].kind == CALL_STATIC;
     }
 
+    uint32_t nodeBytes, modelCount;
+    const uint8_t* sceneNodes = sceneArray<const uint8_t>("PNOD", &nodeBytes);
+    sceneArray<const GameModel>("MODL", &modelCount);
+
     static CallRecord* made;
     static ItemRecord* madeItems;
     static uint8_t* madeExtras;
     static GameAnim* madeAnims;
+    static uint8_t* madeNodes;
+    static uint32_t* madeDrawn;
     static DrawList mine, game;
     if (!made)
     {
@@ -217,9 +232,12 @@ int32_t drawsSeldomCheck()
         madeItems = lowArray<ItemRecord>(SELDOM_MODELS);
         madeExtras = lowArray<uint8_t>(SELDOM_MODELS * ITEM_EXTRA_BYTES);
         madeAnims = lowArray<GameAnim>(anims + SELDOM_MODELS);
+        madeNodes = lowArray<uint8_t>(nodeBytes);
+        madeDrawn = lowArray<uint32_t>(modelCount);
         listArrays(mine, SELDOM_MODELS * 32 + SELDOM_CALLS, SELDOM_MODELS, SELDOM_CALLS, SELDOM_CALLS, SELDOM_CALLS);
         listArrays(game, SELDOM_MODELS * 32 + SELDOM_CALLS, SELDOM_MODELS, SELDOM_CALLS, SELDOM_CALLS, SELDOM_CALLS);
-        if (!made || !madeItems || !madeExtras || !madeAnims || !mine.vertices || !game.vertices)
+        if (!made || !madeItems || !madeExtras || !madeAnims || !madeNodes || !madeDrawn || !mine.vertices ||
+            !game.vertices)
             return -1;
     }
     memcpy(madeAnims, sceneAnims, anims * sizeof(GameAnim));    // Lara's arms' own
@@ -236,6 +254,8 @@ int32_t drawsSeldomCheck()
     ctx.calls = made;
     ctx.items = madeItems;
     ctx.anims = madeAnims;
+    ctx.nodes = madeNodes;
+    ctx.modelDrawn = madeDrawn;
     ctx.flashMesh = flashMesh;
     gameDrawsFlashMesh(flashMesh);
     drawsOn(ctx, mine);
@@ -246,13 +266,25 @@ int32_t drawsSeldomCheck()
 
     static const uint8_t kRates[] = { 0, 1, 2, 4, 3, 5, 6, 8 };
     int32_t bad = 0, models = 0, posed = 0, lerped = 0, stills = 0, lara = 0, extras = 0, walls = 0, given = 0;
-    int32_t flashes = 0;
+    int32_t flashes = 0, cleared = 0;
     int32_t statics = 0, staticsDrawn = 0, hidden = 0, spritesMade = 0, spritesDrawn = 0, clamped = 0, unclamped = 0;
     int32_t early[5] = {};      // posed at a frame before their animation's: by rate 0, 1, 2, 4, another
     uint8_t rateOf[SELDOM_MODELS];
     bool earlyOf[SELDOM_MODELS];
     for (int32_t pass = 0; pass < SELDOM_PASSES; pass++)
     {
+        // the scene's nodes, every other pass with joints held still at
+        // random (those that take no extra angle)
+        memcpy(madeNodes, sceneNodes, nodeBytes);
+        for (uint32_t k = 0; (pass & 1) && k < nodeBytes / 8; k++)
+        {
+            uint16_t* flags = (uint16_t*)(madeNodes + 8 * k + 6);
+            if (!(*flags & NODE_FLAG_ROT) && rnd() % 4 == 0) {
+                *flags |= NODE_FLAG_STILL;
+            }
+        }
+        drawsJointsDrawn(madeDrawn, gCtx.models, gCtx.modelNodes, madeNodes, modelCount);
+
         int32_t n = 0, m = 0;
         int32_t reach = (pass & 3) == 3 ? 32768 : 4096;
         while (n < SELDOM_CALLS)
@@ -434,7 +466,7 @@ int32_t drawsSeldomCheck()
         gameDrawsHints(masks);
         ctx.callCount = n;
         drawsRun(ctx, mine, 0);
-        gameDrawsRun(made, n, madeItems, madeAnims, 0, game);
+        gameDrawsRun(made, n, madeItems, madeAnims, madeNodes, 0, game);
         bad += listsOff(mine, game);
         flashes += game.flashCount;
         for (uint32_t i = 0; i < game.hintedCount; i++)
@@ -462,6 +494,7 @@ int32_t drawsSeldomCheck()
             if (memcmp(p.pos, item.pos, sizeof(p.pos)) || memcmp(p.angle, item.angle, sizeof(p.angle)))
                 continue;
             j++;
+            cleared += p.visibleMask != item.visibleMask;
             if (earlyOf[made[k].index])
             {
                 uint8_t r = rateOf[made[k].index];
@@ -488,5 +521,5 @@ int32_t drawsSeldomCheck()
            !early[1] + !early[2] + !early[3] + !early[4] +
            (statics ? (statics > hidden ? !staticsDrawn : 0) + !(statics - staticsDrawn) + !hidden : 0) + !spritesDrawn +
            !(spritesMade - spritesDrawn) + !clamped + !unclamped + !walls + !given + (lara && flashMesh != NO_MESH ?
-           !flashes : 0);
+           !flashes : 0) + !cleared;
 }

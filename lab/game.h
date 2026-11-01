@@ -131,10 +131,10 @@ void gameDraws(int32_t fills);
 const DrawList& gameDrawList();
 int32_t gameDrawsCheck(const DrawList &list, int32_t fills);
 
-// The game's way on other calls, items and animations, into out's arrays
-// (room enough for them).
-void gameDrawsRun(const CallRecord* calls, uint32_t count, ItemRecord* items, const GameAnim* anims, int32_t fills,
-                  DrawList &out);
+// The game's way on other calls, items, animations and nodes, into out's
+// arrays (room enough for them).
+void gameDrawsRun(const CallRecord* calls, uint32_t count, ItemRecord* items, const GameAnim* anims,
+                  const uint8_t* nodes, int32_t fills, DrawList &out);
 
 // The game's jobs for a list of rooms, with another level, camera room and
 // camera: the jobs made.

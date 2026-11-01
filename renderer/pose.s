@@ -29,7 +29,10 @@
 ! +69 matrix, +72 arms (PoseArm: +0 frame, +4 frameRate, +8 angle, +14
 ! useBasis; 16).
 ! A frame (PFRM): its place at +12, its packed angles from +20; a node
-! (PNOD): int16 x y z, flags.
+! (PNOD): int16 x y z, flags. A joint held still (NODE_FLAG_STILL) is
+! neither turned nor drawn: its visible bit is clear (draws.s), and the
+! joints under it are held still too (tools/pack_level.py), so the matrix
+! it leaves on the stack, its parent's, is never read.
 
     .equ    I_LARA,         0
     .equ    I_COUNT,        1
@@ -102,6 +105,7 @@
     .equ    NODE_ROTX,      4
     .equ    NODE_ROTY,      8
     .equ    NODE_ROTZ,      16
+    .equ    NODE_STILL,     32
 
 ! The sine offsets of packed angles (DECODE_ANGLES, then the angle's top 12
 ! bits a longword each): r5 the angles -> r4 y, r5 x, r6 z; r0 r1 r2 r3.
@@ -716,7 +720,10 @@ _poseAsm:
 2:  tst     #NODE_PUSH, r0
     bt      3f
     PUSH
-3:  mov.l   @(C_OP,gbr), r0
+3:  mov.w   @(6,r9), r0
+    tst     #NODE_STILL, r0
+    bf      7f                      ! held still: not turned
+    mov.l   @(C_OP,gbr), r0
     jsr     @r0
     mov     r9, r4
     mov.l   @(C_EXTRA,gbr), r0

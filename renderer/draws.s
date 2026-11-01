@@ -72,6 +72,7 @@
     .equ    D_FLASHES,      216     ! PoseFlash: draw, hand, angle, offset, intensity, item; 12 bytes
     .equ    D_FLASH_COUNT,  220
     .equ    D_FLASH_MAX,    224
+    .equ    D_MODEL_DRAWN,  228     ! each model's joints drawn (bit j)
 
     .equ    CALL_BYTES,     32      ! CallRecord
     .equ    C_INDEX,        2
@@ -613,8 +614,10 @@
     mov     r8, r1
     shll2   r1
     mov.l   @(D_MODEL_NODES,gbr), r0
-    mov.l   @(r0,r1), r1
-    mov.l   r1, @(4,r3)
+    mov.l   @(r0,r1), r2
+    mov.l   r2, @(4,r3)
+    mov.l   @(D_MODEL_DRAWN,gbr), r0
+    mov.l   @(r0,r1), r1            ! its joints drawn: all but those held still
     mov.l   @(D_FRAME_A,gbr), r0
     mov.l   r0, @(8,r3)
     mov.l   @(D_FRAME_B,gbr), r0
@@ -624,6 +627,7 @@
     mov.l   @(D_RATE,gbr), r0
     mov.l   r0, @(20,r3)
     mov.l   @(IT_VISIBLE,r10), r0
+    and     r1, r0
     mov.l   r0, @(24,r3)
     mov.l   @(IT_POS,r10), r0
     mov.l   r0, @(28,r3)
@@ -806,7 +810,7 @@
     mov.l   r0, @(8,r2)
 
     ! a draw a mesh: Lara's from her joints' table, every one; another's,
-    ! each its visible mask shows
+    ! each its visible mask shows but those held still
     mov.l   @(C_FLAGS,r14), r6
     mov.b   @(1,r9), r0
     mov     r0, r9                  ! nodes left
@@ -887,15 +891,19 @@
     bra     .Lflash
     mov     #13, r9
 .Lnodes:
-    mov.l   @(IT_VISIBLE,r10), r8   ! the visible mask
     mov     r10, r0
     add     #IT_TYPE, r0
     mov.b   @r0, r0
     extu.b  r0, r0
     shll2   r0
-    shll    r0
-    mov     r0, r10
+    mov     r0, r1
+    mov.l   @(D_MODEL_DRAWN,gbr), r0
+    mov.l   @(r0,r1), r8
+    mov.l   @(IT_VISIBLE,r10), r0
+    and     r0, r8                  ! the visible mask, but the joints held still
+    shll    r1
     mov.l   @(D_MODELS,gbr), r0
+    mov     r1, r10
     add     r0, r10                 ! its model
     mov.w   @(2,r10), r0            ! its first mesh
     extu.w  r0, r10

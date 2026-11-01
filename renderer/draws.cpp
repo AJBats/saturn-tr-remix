@@ -11,7 +11,8 @@ static_assert(offsetof(DrawsContext, camera) == 60 && offsetof(DrawsContext, vie
               offsetof(DrawsContext, faceCount) == 144 && offsetof(DrawsContext, k20) == 148 &&
               offsetof(DrawsContext, frameA) == 156 && offsetof(DrawsContext, viewMin) == 176 &&
               offsetof(DrawsContext, drawCount) == 184 && offsetof(DrawsContext, hintOpen) == 204 &&
-              offsetof(DrawsContext, shown) == 208 && offsetof(DrawsContext, flashMax) == 224,
+              offsetof(DrawsContext, shown) == 208 && offsetof(DrawsContext, flashMax) == 224 &&
+              offsetof(DrawsContext, modelDrawn) == 228,
               "draws.s's DrawsContext");
 static_assert(sizeof(DrawScene) == 24 && sizeof(PoseItem) == 104 && sizeof(PoseLight) == 12 &&
               sizeof(PoseStatic) == 20 && sizeof(PoseShadow) == 8 && sizeof(Face) == 16 && sizeof(Vertex) == 8 &&
@@ -67,6 +68,7 @@ void drawsInit(const DrawsLevel &level)
     gCtx.models = level.models;
     gCtx.meshIndex = level.meshIndex;
     gCtx.modelNodes = level.modelNodes;
+    gCtx.modelDrawn = level.modelDrawn;
     gCtx.nodes = level.nodes;
     gCtx.statics = level.statics;
     gCtx.roomLights = level.roomLights;
@@ -101,6 +103,21 @@ void drawsView(const int32_t camera[3], const int32_t view[12])
     }
     for (int32_t k = 0; k < 12; k++) {
         gView[k] = view[k];
+    }
+}
+
+void drawsJointsDrawn(uint32_t* drawn, const GameModel* models, const uint32_t* modelNodes, const uint8_t* nodes,
+                      uint32_t count)
+{
+    for (uint32_t m = 0; m < count; m++)
+    {
+        drawn[m] = 0xFFFFFFFF;
+        if (modelNodes[m] == 0xFFFFFFFF)
+            continue;
+        const uint16_t* node = (const uint16_t*)(nodes + modelNodes[m]);
+        for (int32_t j = 1; j < models[m].count && j < 32; j++) {
+            if (node[(j - 1) * 4 + 3] & NODE_FLAG_STILL) drawn[m] &= ~(1u << j);
+        }
     }
 }
 

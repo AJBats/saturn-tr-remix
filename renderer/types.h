@@ -209,6 +209,11 @@ struct PoseArm
     uint8_t useBasis, pad;
 };
 
+// A node's flag (int16 x y z, then the flags): a joint the diet holds still
+// (tools/diet.py), merged into its parent's mesh, neither turned nor drawn
+// (pose.s; draws.h drawsJointsDrawn).
+#define NODE_FLAG_STILL     32
+
 struct PoseItem
 {
     uint8_t lara;           // Lara's nodes (draw.h drawLaraNodesLerp), else drawNodesLerp's

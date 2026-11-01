@@ -87,6 +87,8 @@ ROOM_INFO_SIZE = 68 # common.h RoomInfo
 VERTEX_SIZE = 8     # render.h Vertex
 
 NODE_FLAG_ROTX, NODE_FLAG_ROTY, NODE_FLAG_ROTZ = 1 << 2, 1 << 3, 1 << 4
+NODE_FLAG_ROTS = NODE_FLAG_ROTX | NODE_FLAG_ROTY | NODE_FLAG_ROTZ
+NODE_FLAG_STILL = 1 << 5    # renderer/pose.s: a joint the diet holds still
 
 
 def item_types():
@@ -780,11 +782,15 @@ class Packer:
     def diet(self):
         """The simplified meshes the renderer draws instead of the originals:
         {original index: DietMesh}. The game's own mesh table keeps the
-        originals (their collision spheres). DIET=0 in the environment packs
+        originals (their collision spheres). The joints it holds still to
+        self.still ({model type: joints}). DIET=0 in the environment packs
         none."""
+        self.still = {}
         if os.environ.get("DIET") == "0":
             return {}
-        return diet.level_diet(self.lvl, self.meshes, lambda t: next((n for n, v in ITEM.items() if v == t), ""))
+        out, self.still = diet.level_diet(self.lvl, self.meshes,
+                                          lambda t: next((n for n, v in ITEM.items() if v == t), ""))
+        return out
 
     def diet_texture(self, pixels, colors, w, h, transparent, attr=0):
         """The face flags of a texture made for the diet, once per texture."""
@@ -894,12 +900,26 @@ class Packer:
         return f
 
     def node_flags(self):
+        """The nodes' flags: the heads' extra angles; the joints the diet
+        holds still (their node's, joint - 1), neither turned nor drawn, so
+        taking no extra angle and the only model on their nodes."""
         nodes = list(self.lvl.nodes)
+        if any(f & NODE_FLAG_STILL for f in nodes[0::4]):
+            raise ValueError("a node's flags take NODE_FLAG_STILL already")
         for m in self.lvl.models:
             for name, joints in HEAD_JOINTS.items():
                 if m["type"] == ITEM[name]:
                     for joint, mask in joints:
                         nodes[m["node"] + joint * 4] |= mask
+        for m in self.lvl.models:
+            for j in self.still.get(m["type"], ()):
+                at = m["node"] + (j - 1) * 4
+                if nodes[at] & NODE_FLAG_ROTS:
+                    raise ValueError(f"model {m['type']} joint {j} is held still but takes an extra angle")
+                if any(o is not m and o["count"] > 1 and o["node"] <= at < o["node"] + (o["count"] - 1) * 4
+                       for o in self.lvl.models):
+                    raise ValueError(f"model {m['type']} joint {j} is held still on nodes another shares")
+                nodes[at] |= NODE_FLAG_STILL
         return nodes
 
     # --- level -----------------------------------------------------------
