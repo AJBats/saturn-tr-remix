@@ -9,9 +9,9 @@
 #   pool        LEVEL2, room 30, in the pool by the stone houses (water)
 #   wolves      LEVEL1's snow pit below the ledge, the ledge's two wolves
 #               awake from the start and coming at her (no input needed)
-#   cistern     LEVEL7A, room 99, the level's start: the Cistern's
-#               measurements are taken here (the user's pick, the CPU's
-#               worst they had found)
+#   cistern     LEVEL7A, room 99, a diagonal view across the Cistern's
+#               rooms near the start: its measurements are taken here (the
+#               user's pick, the CPU's worst they had found)
 #
 # OBJECT_ART=1 in the environment reworks the meshes' textures too
 # (tools/pack_level.py), in every level.
