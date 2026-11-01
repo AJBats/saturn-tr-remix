@@ -40,7 +40,7 @@
 !
 ! Face: uint32 flags; Face* next; int16 indices[4].
 ! Vertex: int16 x, y; int16 z; uint8 g, clip.
-! Texture: uint16 srca, colr, size, attr, color, reserved, altColor, contrast.
+! Texture: uint16 srca, colr, size, attr, color, reserved, pad, contrast.
 ! Room textures have no character (srca 0) but in the cache (FACE_DETAIL).
 
     .equ    FACE_WATER_BIT,     30

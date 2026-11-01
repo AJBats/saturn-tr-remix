@@ -41,7 +41,7 @@ FACE_TYPE_AVG = 10
 FACE_TEXTURE = 0x3FFF
 TEX_ATTR_AKILL = 1
 MESH_BYTES = 20                         # common.h Mesh
-TEXTURE = struct.Struct('>8H')          # Texture: srca, colr, size, attr, color, reserved, altColor, contrast
+TEXTURE = struct.Struct('>8H')          # Texture: srca, colr, size, attr, color, reserved, pad, contrast
 LEVEL_TEXTURES = 92                     # Level.textures' offset
 LEVEL_PALETTE = 32                      # Level.palette's
 

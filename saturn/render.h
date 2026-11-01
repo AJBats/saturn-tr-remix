@@ -40,10 +40,6 @@ inline void renderPoll()
 // dropped.
 void* renderScratch(uint32 size);
 
-// The colour tables have swapped between the original and remastered sets
-// (palettes.cpp): textures take the other set's mean colours.
-void renderPalettesSwapped();
-
 // After flipMap: the rooms swapped with their alternates.
 void renderRoomsFlipped();
 

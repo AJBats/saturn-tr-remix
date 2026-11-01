@@ -17,7 +17,6 @@
 #include "screen.h"
 #include "crash.h"
 #include "hw.h"
-#include "palettes.h"
 #include "slave.h"
 #include "system.h"
 #include "trace.h"
@@ -468,16 +467,6 @@ static render::Command clearCommand()
 
 void renderLevelInit()
 {
-    // the textures' mean colours under the colour tables VRAM holds
-    if (palettesRemastered())
-    {
-        for (int32 i = 0; i < level.texturesCount; i++)
-        {
-            Texture &t = level.textures[i];
-            X_SWAP(t.color, t.altColor);
-        }
-    }
-
     // the shaded copies, at the top of the cache, if it can spare them
     uint32 shadeBytes = 2 * 256 * SHADE_TABLE_SIZE;
     uint32 vram = detailSpareBytes() >= shadeBytes ? detailReserveTop(shadeBytes) : 0;
@@ -712,21 +701,6 @@ void stageBegin(uint32_t stage)
 void stageEnd(uint32_t stage)
 {
     traceEnd(stage < render::STAGE_JOBS ? TRACE_MASTER : TRACE_SLAVE, kStageIds[stage]);
-}
-
-void renderPalettesSwapped()
-{
-    for (int32 i = 0; i < level.texturesCount; i++)
-    {
-        Texture &t = level.textures[i];
-        X_SWAP(t.color, t.altColor);
-    }
-    // the room textures' materials made again, the pending list up first
-    if (gListPending) {
-        listUploadWaiting();
-    }
-    gFrameLevel.frame = render::gRoomTextures.frame;
-    render::frameInit(gFrameLevel);
 }
 
 bool renderBackground(const void* background)

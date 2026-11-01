@@ -86,9 +86,9 @@ void traceInit();
 
 // The rings record, afresh, once a level has loaded (traceLevel): they and
 // what goes with them are in VDP2's VRAM past the bitmap, up to end (the
-// level's extras, os.cpp), which pictures use to stage only between levels
-// and for the title's (traceStop stops them first; traceResume starts them
-// afresh after).
+// level's item textures, os.cpp), which pictures use to stage only between
+// levels and for the title's (traceStop stops them first; traceResume starts
+// them afresh after).
 void traceLevel(const void* end);
 void traceStop();
 void traceResume();

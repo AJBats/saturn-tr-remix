@@ -7,7 +7,6 @@
 #include "detail.h"
 #include "fmv.h"
 #include "hw.h"
-#include "palettes.h"
 #include "render.h"
 #include "screen.h"
 #include "sound.h"
@@ -300,18 +299,16 @@ const void* osLoadLevel(LevelID id)
     uint32 subSize = loadOrHalt(name, ".SUB", subData, LEVEL_MAX - levelSize);
     detailInit(VRAM_TEX_BASE + texSize, subData, subSize);
 
-    // VDP2's VRAM past the bitmap, packed down from its top (hw.h): the
-    // colour tables' other versions and the inventory's item textures, which
-    // the CPU copies to VDP1 VRAM when asked (some cutscenes have neither)
-    uint32 palSize = (fileSize(name, ".PAL") + 15) & ~15;
+    // VDP2's VRAM past the bitmap, at its top (hw.h): the inventory's item
+    // textures, which the CPU copies to VDP1 VRAM when asked (some cutscenes
+    // have none)
     uint32 itemSize = (fileSize(name, ".ITX") + 15) & ~15;
-    uint8* extras = (uint8*)(VDP2_BANK_B_END - palSize - itemSize);
-    if (palSize + itemSize > VDP2_BANK_B_END - VDP2_BANK_B)
+    uint8* items = (uint8*)(VDP2_BANK_B_END - itemSize);
+    if (itemSize > VDP2_BANK_B_END - VDP2_BANK_B)
     {
-        crashLog("EXTRAS", palSize + itemSize);
+        crashLog("ITEMS", itemSize);
         while (1);  // TODO error screen
     }
-    palettesLoad(name, extras, palSize);
 
     // sound effects straight to sound RAM, and inventory item textures (some
     // cutscenes have neither)
@@ -322,8 +319,8 @@ const void* osLoadLevel(LevelID id)
     cdLoadFile(path, (void*)(SOUND_RAM + SOUND_SAMPLES_ADDR), SOUND_RAM_SIZE - SOUND_SAMPLES_ADDR);
 
     strcpy(path + strlen(path) - 3, "ITX");
-    detailItemInit(extras + palSize, X_MAX(0, cdLoadFile(path, extras + palSize, itemSize)));
-    traceLevel(extras);
+    detailItemInit(items, X_MAX(0, cdLoadFile(path, items, itemSize)));
+    traceLevel(items);
 
     screenRelease(false);
     crashHold(false);

@@ -151,13 +151,6 @@ def with_textures(level, fn):
     return new
 
 
-def level_remastered(level):
-    """The game's own remastered colour tables (debug menu Palette)."""
-    table = level.table
-    new = dict(table.remastered_palettes())
-    return with_textures(level, lambda t: (t.texels(), new.get(table.sources[t.index][2], t.colors)))
-
-
 # --- geometry -----------------------------------------------------------
 
 def level_tessellated(level, min_edge=1024):
@@ -247,8 +240,6 @@ INGREDIENTS = {
                           'a new 16-colour table fitted: Sonic R\'s textures have TR\'s contrast but half its grain.'),
     'flatter': dict(title='Flatter art', group='art', stage=1, level=lambda lv: with_textures(lv, flatter),
                     about='Every colour table at 3/4 of its contrast about the texture\'s mean.'),
-    'remaster': dict(title='Remastered palettes', group='shading', stage=1, level=level_remastered,
-                     about='The game\'s own lifted, desaturated colour tables (debug menu option).'),
     'contrast': dict(title='Contrast by room light', group='shading', set=dict(contrast=True),
                      about='Each face\'s table at less contrast as its (static) room light falls, 8/8 to 4/8, '
                            'chosen offline: the multiply\'s look in the dark at no CPU cost.'),

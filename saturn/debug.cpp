@@ -1,7 +1,6 @@
 // The debug pad (port 2). Mednafen keys in brackets:
 //   START [Tab]       opens and closes the menu (not in HW_LOG builds)
 //   up/down [arrows]  pick an option, left/right change it
-//   A [P]             steps the palette
 // Changes show for a moment at the bottom of the screen. In HW_LOG builds the
 // player's pad pages the overlay with R and L, and the menu is one of its
 // pages, where its d-pad and A, B, C work the menu too (Lara stands still).
@@ -14,7 +13,6 @@
 #include "slave.h"
 #include "input.h"
 #include "overlay.h"
-#include "palettes.h"
 #include "render.h"
 #include "screen.h"
 #include "sound.h"
@@ -30,7 +28,6 @@ struct Option
     void (*set)(int32 value);
 };
 
-static const char* const kPalette[] = { "Saturn", "Remastered" };
 static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kTrace[] = { "Off", "Stages", "Detail" };
 #ifdef HW_LOG
@@ -48,9 +45,6 @@ static void sceneUpdate();
 #endif
 
 static const Option gOptions[] = {
-    { "Palette", kPalette, 2,
-        [] { return int32(palettesRemastered()); },
-        [](int32 v) { if (v != palettesRemastered()) palettesToggle(); } },
     { "Stats", kOnOff, 2,
         [] { return int32(gShowStats); },
         [](int32 v) { gShowStats = v; } },
@@ -64,7 +58,7 @@ static const Option gOptions[] = {
 #endif
 };
 
-enum { OPTION_PALETTE, OPTION_STATS,
+enum { OPTION_STATS,
 #ifdef HW_LOG
        OPTION_TRACE, OPTION_FAR,
 #endif
@@ -194,10 +188,6 @@ void debugUpdate()
         if (pressed & PAD_RIGHT) {
             step(gCursor, 1);
         }
-    }
-
-    if (pressed & PAD_A) {
-        step(OPTION_PALETTE, 1);
     }
 
 #ifdef HW_LOG

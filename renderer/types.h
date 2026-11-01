@@ -81,7 +81,7 @@ struct MeshVertex
 
 struct Texture
 {
-    uint16_t srca, colr, size, attr, color, reserved, altColor, contrast;
+    uint16_t srca, colr, size, attr, color, reserved, pad, contrast;
 };
 
 struct Sprite

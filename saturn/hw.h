@@ -64,9 +64,9 @@ typedef struct {
 /* VDP2 */
 #define VDP2_VRAM   0x25E00000
 // VRAM's bank B, past the bitmap (screen.cpp), to its last 256 bytes (the
-// back colour's at the end): a level's extras packed down from its top
+// back colour's at the end): a level's inventory item textures at its top
 // (os.cpp), what pictures stage between levels, the trace (HW_LOG) below
-// the extras
+// the item textures
 #define VDP2_BANK_B     (VDP2_VRAM + 0x40000)
 #define VDP2_BANK_B_END (VDP2_VRAM + 0x7FF00)
 #define VDP2_TVMD   REG16(0x25F80000)

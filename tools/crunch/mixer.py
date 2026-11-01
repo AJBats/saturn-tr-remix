@@ -54,7 +54,6 @@ ROWS = [
     ]),
     dict(id='palette', title='Colour tables', group='art', options=[
         ('original', 'Original (game)', {}),
-        ('remaster', 'Remastered', dict(stage=6, level=lambda lv, mix: variants.level_remastered(lv))),
         ('ramps', 'Ramps', dict(stage=6, level=lambda lv, mix: with_textures(lv, art.ramps))),
         ('flatter', 'Flatter (3/4)', dict(stage=6, level=lambda lv, mix: with_textures(lv, variants.flatter))),
     ]),
@@ -216,7 +215,7 @@ PRESETS = {
     'repaint': dict(repaint='on'), 'despeckle': dict(speckle='despeckle'), 'softthin': dict(thin='soften'),
     'clump': dict(grain='clump'), 'degrain': dict(grain='degrain'), 'bandpass': dict(grain='bandpass'),
     'shapes': dict(grain='shapes'), 'half': dict(size='32'),
-    'remaster': dict(palette='remaster'), 'ramps': dict(palette='ramps'), 'flatter': dict(palette='flatter'),
+    'ramps': dict(palette='ramps'), 'flatter': dict(palette='flatter'),
     'relief': dict(relief='medium'),
     'relief_lite': dict(relief='medium', relief_colours='kept'),
     'relief_soft': dict(relief='gentle', relief_colours='kept'),

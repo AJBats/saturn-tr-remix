@@ -14,7 +14,8 @@
 #define TRACE_MAGIC     0x54524331  // "TRC1"
 
 // The rings and the rest (TraceArea, the profile's blocks): VDP2's VRAM past
-// the bitmap (hw.h VDP2_BANK_B), to the level's extras (traceLevel's end).
+// the bitmap (hw.h VDP2_BANK_B), to the level's item textures (traceLevel's
+// end).
 // Writes there cross the B-bus, against low work RAM's.
 #define TRACE_AREA      VDP2_BANK_B
 #define TRACE_DEPTH     8           // spans open at once on a lane

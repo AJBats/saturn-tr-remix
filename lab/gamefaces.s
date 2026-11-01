@@ -60,7 +60,7 @@
 ! the room's vertices (pack_level.py).
 ! Vertex: int16 x, y; int16 z; uint8 g, clip. Face: flags, next, int16
 ! indices[4], its corners' offsets.
-! Texture: uint16 srca, colr, size, attr, color, reserved, altColor, contrast.
+! Texture: uint16 srca, colr, size, attr, color, reserved, pad, contrast.
 
     .equ    CLIP_FRAME,     0x01
     .equ    CLIP_DISCARD,   0x3E
