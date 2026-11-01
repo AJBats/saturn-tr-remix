@@ -14,9 +14,8 @@
 # (tools/pack_level.py), in every level.
 #
 # usage: tools/hwtest.sh [SPOT]    (ledge if none; the disc lands in
-#                                   build/disc; restore a normal level with
-#                                   make disc after touching
-#                                   tools/pack_level.py)
+#                                   build/disc; the next make disc packs the
+#                                   level as the game has it again)
 set -e
 cd "$(dirname "$0")/.."
 
@@ -36,3 +35,7 @@ LARA_START=$start START_TRIGGER=${trigger:-} OBJECT_ART=$art python -I tools/pac
 sleep 1     # make compares seconds
 touch build/data/$level.PKD
 make disc START_LEVEL=$id START_YAW=$yaw HW_LOG=1 OBJECT_ART=$art
+
+# the level packed with the test's start dated older than what it is made
+# from, so that no later build takes it for the game's
+touch -d 2000-01-01 build/data/$level.PKD
