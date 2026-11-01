@@ -11,6 +11,15 @@ the sounds of SLOW_SOUNDS, at 2500 Hz, the rate they were made at (the
 original played them 1.19 times as fast), and for FAST_SOUNDS, 11025 Hz.
 Samples no sound plays take no room.
 
+Decoding takes the sound CPU 100 to 330 cycles a sample by the block's
+filter (FILTER_CYCLES), so it keeps up with only about three voices of the
+costliest; each ADPCM sample's mean goes in its entry, for the game to
+keep the voices decoding at once within what it can (saturn/sound.cpp).
+Sound RAM left over takes samples decoded here instead, as 16-bit PCM at
+11025 Hz (the same samples, which the slot plays straight): first those
+that play on and on (the camera's underwater sound, the sound sources',
+looped ones), then the costliest to decode, while they fit.
+
 The original's aliases (ALIASES) give a sound's variant another's sample
 when the level has both sounds (its own is a placeholder). Samples played
 for more than one sound are stored once.
@@ -26,6 +35,14 @@ SOUND_RAM_SIZE = 0x80000
 
 ADPCM_FILTERS = [(0, 0), (60, 0), (115, -52), (98, -55), (122, -60)]
 ADPCM_BLOCK = 16            # bytes, 28 samples
+
+# The sound CPU's cycles a sample by the block's filter (saturn/
+# soundbench.68k over blocks of one filter, Mednafen = the Saturn when no
+# slot reads sound RAM), and its own a block besides (sound.68k decode and
+# its voice's turn)
+FILTER_CYCLES = (100, 252, 324, 328, 324)
+BLOCK_CYCLES = 500
+SND_UNDERWATER = 60         # openlara common.h: the camera plays it under water all along
 
 # The original's lists (0MAIN 0606324a, 06063246): the sounds whose variant 0
 # it plays at 2971.6 Hz (made at 2500 Hz), and at 11025 Hz.
@@ -83,6 +100,19 @@ def sample_ids(sound_map, sound_infos):
     return ids
 
 
+def decode_cycles(data):
+    """The sound CPU's mean cycles a sample decoding ADPCM data."""
+    blocks = len(data) // ADPCM_BLOCK
+    total = sum(FILTER_CYCLES[f if f < 5 else 0] * 28 + BLOCK_CYCLES
+                for f in ((data[b * ADPCM_BLOCK] >> 4) & 7 for b in range(blocks)))
+    return total // max(1, 28 * blocks)
+
+
+def pcm16(data):
+    """ADPCM data decoded to 16-bit PCM (big-endian), as the sound CPU would."""
+    return adpcm_decode(data).astype(">i2").tobytes()
+
+
 class Sfx:
     """The .SFX file of a level and its offsets table."""
 
@@ -91,6 +121,11 @@ class Sfx:
         self.budget = SOUND_RAM_SIZE - self.defs["SOUND_SAMPLES_ADDR"]
         self.saturn = [lvl.samples[i] for i in range(len(lvl.samples))]
         self.ids = sample_ids(lvl.sound_map, lvl.sound_infos)
+        # sounds that play on and on
+        self.lasting = {SND_UNDERWATER} | {s[3] for s in lvl.sound_sources}
+        for sid, m in enumerate(lvl.sound_map):
+            if 0 <= m < len(lvl.sound_infos) and lvl.sound_infos[m][3] & 3 == 3:
+                self.lasting.add(sid)
         self.aliases = self.find_aliases(lvl)
         self.ps1 = ps1.samples if ps1 is not None and ps1.samples else []
         # Saturn sample: the PlayStation's for the same sound and variant
@@ -129,37 +164,68 @@ class Sfx:
                 out[s] = t
         return out
 
-    def source(self, i):
-        """Sample i's data, its key (which data it is), and its entry's flags."""
+    def adpcm(self, j):
+        data = bytes(self.ps1[j])
+        return data[:len(data) // ADPCM_BLOCK * ADPCM_BLOCK]
+
+    def source(self, i, decoded):
+        """Sample i's data, its key (which data it is), its entry's flags and
+        its decoding's cycles a sample (0: none)."""
         d = self.defs
         k = self.aliases.get(i, i)
         if k in self.ps1_of:
             j = self.ps1_of[k]
-            data = bytes(self.ps1[j])
-            data = data[:len(data) // ADPCM_BLOCK * ADPCM_BLOCK]
+            if j in decoded:
+                return pcm16(self.adpcm(j)), ("decoded", j), (d["SOUND_FORMAT_PCM16"] << d["SOUND_FORMAT_SHIFT"] |
+                                                            d["SOUND_RATE_FAST"] << d["SOUND_RATE_SHIFT"]), 0
+            data = self.adpcm(j)
             return data, ("ps1", j), (d["SOUND_FORMAT_ADPCM"] << d["SOUND_FORMAT_SHIFT"] |
-                                      d["SOUND_RATE_FAST"] << d["SOUND_RATE_SHIFT"])
+                                      d["SOUND_RATE_FAST"] << d["SOUND_RATE_SHIFT"]), decode_cycles(data)
         data = bytes(self.saturn[k])[:2 * LENGTH_MAX]
         return data, ("saturn", k), (d["SOUND_FORMAT_PCM16"] << d["SOUND_FORMAT_SHIFT"] |
-                                     self.rate_of(k) << d["SOUND_RATE_SHIFT"])
+                                     self.rate_of(k) << d["SOUND_RATE_SHIFT"]), 0
 
-    def build(self):
-        """(file data, offsets table: two words a sample)"""
+    def layout(self, decoded):
+        """(file data, offsets table) with the PlayStation samples decoded
+        that are in decoded."""
         data, entries, placed = bytearray(), [], {}
-        self.counts = {"ps1": 0, "saturn": 0, "none": 0}
+        self.counts = {"ps1": 0, "decoded": 0, "saturn": 0, "none": 0}
         for i in range(len(self.saturn)):
             if i not in self.ids:
                 entries += [0, 0]
                 self.counts["none"] += 1
                 continue
-            sample, key, flags = self.source(i)
+            sample, key, flags, cycles = self.source(i, decoded)
             self.counts[key[0]] += 1
             if key not in placed:
                 placed[key] = len(data)
                 data += sample
                 while len(data) & 3:
                     data.append(0)
-            entries += [placed[key] | flags, len(sample)]
+            entries += [placed[key] | flags, len(sample) | (cycles >> 1) << self.defs["SOUND_COST_SHIFT"]]
+        return data, entries
+
+    def build(self):
+        """(file data, offsets table: two words a sample)"""
+        played = sorted({self.ps1_of[self.aliases.get(i, i)] for i in self.ids
+                         if self.aliases.get(i, i) in self.ps1_of})
+        lasting = {self.ps1_of[k] for k, uses in self.ids.items() if k in self.ps1_of and
+                   any(sid in self.lasting for sid, _ in uses)}
+        # decoded here while room lasts, those a slot can play straight
+        # (LENGTH_MAX samples at most)
+        def samples(j):
+            return len(self.adpcm(j)) // ADPCM_BLOCK * 28
+        order = sorted((j for j in played if samples(j) <= LENGTH_MAX),
+                       key=lambda j: (j not in lasting, -decode_cycles(self.adpcm(j)), samples(j)))
+        decoded = set()
+        data, entries = self.layout(decoded)
+        size = len(data)
+        for j in order:
+            extra = ((2 * samples(j) + 3) & ~3) - ((len(self.adpcm(j)) + 3) & ~3)
+            if size + extra <= self.budget:
+                decoded.add(j)
+                size += extra
+        data, entries = self.layout(decoded)
         if len(data) > self.budget:
             raise ValueError(f"{len(data)} bytes of sound samples, {self.budget} fit")
         assert len(data) <= self.defs["SOUND_OFFSET_MASK"]

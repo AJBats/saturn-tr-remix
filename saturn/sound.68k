@@ -48,6 +48,7 @@
     .equ    BLOCKS,     0x0A10      | long: ADPCM blocks decoded
     .equ    LOW,        0x0A14      | word: the fewest samples a voice was found decoded ahead
     .equ    SAMPLES,    0x0A18      | long: CLOCK, unwrapped
+    .equ    BEHIND,     0x0A1C      | word: times a voice was found played past its decoding
     .equ    QUEUE,      0x0A80      | 32 commands
     .equ    Q_MASK,     31
 
@@ -395,7 +396,10 @@ voices:
     cmp.w   LOW,%d0
     bge.s   3f
     move.w  %d0,LOW
-3:  cmp.l   #AHEAD,%d0
+3:  tst.l   %d0
+    bpl.s   4f
+    bsr     catchup
+4:  cmp.l   #AHEAD,%d0
     bge.s   2f
     bsr     decode
 2:  btst    #0,V_FLAGS(%a4)
@@ -406,7 +410,44 @@ voices:
     bsr     off                     | played out
 5:  lea     VOICE(%a4),%a4
     cmpa.l  #VOICES+VOICE*VOICE_COUNT,%a4
-    bcs.s   1b
+    bcs     1b
+    rts
+
+| a4's slot has played past what was decoded for it, -d0 samples (the sound
+| CPU had more to decode than it could): the blocks it played over skipped
+| (a loop's wrapping round, a one-shot's ending at its end) and one more,
+| the history cleared, so that decoding writes ahead of the slot again; d0
+| 0
+catchup:
+    neg.l   %d0
+    divu.w  #BLOCK,%d0
+    addq.w  #1,%d0                  | the blocks played over and one more, less one
+    moveq   #0,%d1
+    move.w  %d0,%d1
+    move.l  %d1,%d2
+    addq.l  #1,%d2
+    mulu.w  #BLOCK,%d2
+    add.l   %d2,V_DECODED(%a4)
+    move.w  V_RINGPOS(%a4),%d2
+    move.l  V_SRC(%a4),%a0
+1:  add.w   #BLOCK*2,%d2
+    cmp.w   #RING*2,%d2
+    bcs.s   2f
+    moveq   #0,%d2
+2:  lea     16(%a0),%a0
+    cmpa.l  V_END(%a4),%a0
+    bcs.s   3f
+    btst    #0,V_FLAGS(%a4)
+    beq.s   4f
+    move.l  V_START(%a4),%a0
+    bra.s   3f
+4:  move.l  V_END(%a4),%a0
+3:  dbra    %d1,1b
+    move.w  %d2,V_RINGPOS(%a4)
+    move.l  %a0,V_SRC(%a4)
+    clr.l   V_S1(%a4)
+    addq.w  #1,BEHIND
+    moveq   #0,%d0
     rts
 
 | --- decoding -----------------------------------------------------------------

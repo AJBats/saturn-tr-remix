@@ -12,7 +12,8 @@
 
 // level.soundOffsets (tools/sfx.py), two words a sample: its offset in the
 // .SFX file, rate, attenuation and format; then its length in bytes (0: the
-// level has none).
+// level has none) and, for ADPCM, the sound CPU's cycles a sample decoding
+// it, halved.
 #define SOUND_OFFSET_MASK   0x003FFFFF
 #define SOUND_RATE_SHIFT    22          // bits 23-22: the rate it plays at
 #define SOUND_RATE_MASK     3
@@ -26,6 +27,8 @@
 #define SOUND_FORMAT_PCM16  0
 #define SOUND_FORMAT_PCM8   1
 #define SOUND_FORMAT_ADPCM  2           // the PlayStation's SPU ADPCM, which the sound CPU decodes
+#define SOUND_LENGTH_MASK   0x00FFFFFF
+#define SOUND_COST_SHIFT    24
 
 // Once per frame: frees voices whose samples have played out.
 void sndFrame();

@@ -1244,8 +1244,9 @@ def load_ps1(psx_dir, name):
 def report_sounds(name, sounds, size):
     """Prints where the samples come from and the sound RAM they take."""
     c = sounds.counts
-    print(f"{name}: {c['ps1']} sound samples the PlayStation's, {c['saturn']} the original's, "
-          f"{c['none']} unplayed; {size} bytes, {sounds.budget - size} of sound RAM spare")
+    print(f"{name}: {c['ps1']} sound samples the PlayStation's, {c['decoded']} those decoded here, "
+          f"{c['saturn']} the original's, {c['none']} unplayed; {size} bytes, "
+          f"{sounds.budget - size} of sound RAM spare")
 
 
 # Textured faces' draw mode as the renderer draws them (render.cpp gTexturePmod:

@@ -48,10 +48,12 @@
 #define FLAG_LOOP       1
 #define VOICES          8           // slots 0-7
 
-// Voices decoding ADPCM at once: what the sound CPU keeps up with at 11025 Hz
-// (sndBench on the Saturn: 52-62 thousand samples a second as slots read
-// sound RAM), with room for pitch
-#define DECODED_MAX     4
+// The sound CPU's cycles a second for decoding ADPCM: its clock (11.29 MHz)
+// less its timer interrupts and the voices' turns, the slots' reads of sound
+// RAM (sndBench on the Saturn: 0.5% a slot) and room to spare. A voice
+// decoding takes its sample's cycles a sample (tools/sfx.py) at its rate.
+#define DECODE_BUDGET   9000000
+#define DECODE_RATE     11025
 
 // Audio tracks on the disc
 #define TRACK_FIRST     2
@@ -64,7 +66,7 @@ struct Voice
     int32 sample;   // -1 when free
     uint8 gen;      // its play's, which DONE shows when it has played out
     uint8 tl;
-    bool decoded;
+    uint32 load;    // the sound CPU's cycles a second decoding it (0: none)
 };
 
 static Voice gVoices[VOICES];
@@ -407,11 +409,13 @@ void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
         return NULL;
 
     uint32 entry = entryOf(index);
-    uint32 length = uint32(level.soundOffsets[index * 2 + 1]);
+    uint32 size = uint32(level.soundOffsets[index * 2 + 1]);
+    uint32 length = size & SOUND_LENGTH_MASK;
     if (!length)
         return NULL;
     uint32 format = (entry >> SOUND_FORMAT_SHIFT) & SOUND_FORMAT_MASK;
     bool decoded = format == SOUND_FORMAT_ADPCM;
+    uint32 load = decoded ? (size >> SOUND_COST_SHIFT) * 2 * DECODE_RATE * uint32(X_MAX(pitch, 1)) / 128 : 0;
     uint32 tl = sampleTL(index, volume);
 
     // already playing: its level updated, or restarted for REPLAY
@@ -433,27 +437,33 @@ void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
         return gVoices + v;
     }
 
-    if (v == VOICES)
+    // past what the sound CPU can decode, the quietest voices decoding give
+    // way to a louder sound, or it doesn't play
+    if (load)
     {
-        // a free voice; while the sound CPU decodes all it can, the quietest
-        // of those voices gives way to a louder sound
-        int32 busy = 0, quietest = -1;
-        for (int32 k = 0; k < VOICES; k++)
+        uint32 total = 0;
+        for (int32 k = 0; k < VOICES; k++) {
+            total += (k != v && gVoices[k].sample >= 0) ? gVoices[k].load : 0;
+        }
+        while (total + load > DECODE_BUDGET)
         {
-            if (gVoices[k].sample >= 0 && gVoices[k].decoded)
+            int32 quietest = -1;
+            for (int32 k = 0; k < VOICES; k++)
             {
-                busy++;
-                if (quietest < 0 || gVoices[k].tl > gVoices[quietest].tl) {
+                if (k != v && gVoices[k].sample >= 0 && gVoices[k].load &&
+                    (quietest < 0 || gVoices[k].tl > gVoices[quietest].tl)) {
                     quietest = k;
                 }
             }
-        }
-        if (decoded && busy >= DECODED_MAX)
-        {
-            if (gVoices[quietest].tl <= tl)
+            if (quietest < 0 || gVoices[quietest].tl <= tl)
                 return NULL;
+            total -= gVoices[quietest].load;
             voiceStop(quietest);
         }
+    }
+
+    if (v == VOICES)
+    {
         v = 0;
         while (v < VOICES && gVoices[v].sample >= 0) {
             v++;
@@ -479,7 +489,7 @@ void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
     voice.sample = index;
     voice.gen = c.gen;
     voice.tl = uint8(tl);
-    voice.decoded = decoded;
+    voice.load = load;
     return &voice;
 }
 
