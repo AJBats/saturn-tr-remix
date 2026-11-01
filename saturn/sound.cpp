@@ -169,8 +169,8 @@ static uint32 benchCount()
 void sndBench()
 {
     static const char* const kLabels[2][3] = {
-        { "68K PS1 0", "68K PS1 16", "68K PS1 30" },
-        { "68K SAT 0", "68K SAT 16", "68K SAT 30" },
+        { "PS1 0", "PS1 16", "PS1 30" },
+        { "SAT 0", "SAT 16", "SAT 30" },
     };
     static const int32 kSlots[3] = { 0, 16, 30 };
 

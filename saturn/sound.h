@@ -29,7 +29,7 @@ void sndFrame();
 
 #ifdef SOUND_BENCH
 // The sound CPU's decoding speed (soundbench.68k), in the boot log: samples
-// a second for each format, with 0, 16 and 30 slots playing.
+// a second for each format (PS1, SAT), with 0, 16 and 30 slots playing.
 void sndBench();
 #endif
 
