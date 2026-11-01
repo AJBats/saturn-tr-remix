@@ -36,7 +36,10 @@ void sndStop(); // OpenLara's (sound.cpp)
 #define LPCTL_LOOP      0x0020
 
 // A channel's ring of samples in sound RAM, played by a looping slot at
-// 22265 Hz (octave -1 + 10/1024), as near as the SCSP gets to the files' 22254.
+// 22265 Hz (octave -1 + 10/1024), as near as the SCSP gets to the files' 22254;
+// the left's slot and the right's after it, clear of the sound CPU's voices
+// (sound.68k) and the CD audio's.
+#define AUDIO_SLOT      24
 #define AUDIO_RING      32768
 #define AUDIO_LEFT      0x10000
 #define AUDIO_RIGHT     0x20000
@@ -275,10 +278,11 @@ static void audioStart()
     static const uint32_t addr[2] = { AUDIO_LEFT, AUDIO_RIGHT };
     static const uint16_t pan[2] = { 0x1F << 8, 0x0F << 8 }; // left only, right only
 
-    for (int32_t s = 0; s < 2; s++)
+    for (int32_t c = 0; c < 2; c++)
     {
-        SCSP_SLOT(s, 0) = LPCTL_LOOP | ((addr[s] >> 16) & 15);
-        SCSP_SLOT(s, 1) = addr[s];
+        int32_t s = AUDIO_SLOT + c;
+        SCSP_SLOT(s, 0) = LPCTL_LOOP | ((addr[c] >> 16) & 15);
+        SCSP_SLOT(s, 1) = addr[c];
         SCSP_SLOT(s, 2) = 0;
         SCSP_SLOT(s, 3) = AUDIO_RING - 1;
         SCSP_SLOT(s, 4) = 0x001F;
@@ -288,16 +292,16 @@ static void audioStart()
         SCSP_SLOT(s, 8) = AUDIO_PITCH;
         SCSP_SLOT(s, 9) = 0;
         SCSP_SLOT(s, 10) = 0;
-        SCSP_SLOT(s, 11) = (7 << 13) | pan[s];
+        SCSP_SLOT(s, 11) = (7 << 13) | pan[c];
     }
-    SCSP_SLOT(0, 0) = SCSP_SLOT(0, 0) | KYONB;
-    SCSP_SLOT(1, 0) = SCSP_SLOT(1, 0) | KYONB | KYONEX;
+    SCSP_SLOT(AUDIO_SLOT, 0) = SCSP_SLOT(AUDIO_SLOT, 0) | KYONB;
+    SCSP_SLOT(AUDIO_SLOT + 1, 0) = SCSP_SLOT(AUDIO_SLOT + 1, 0) | KYONB | KYONEX;
 }
 
 static void audioStop()
 {
-    SCSP_SLOT(0, 0) = SCSP_SLOT(0, 0) & ~(KYONB | KYONEX);
-    SCSP_SLOT(1, 0) = (SCSP_SLOT(1, 0) & ~KYONB) | KYONEX;
+    SCSP_SLOT(AUDIO_SLOT, 0) = SCSP_SLOT(AUDIO_SLOT, 0) & ~(KYONB | KYONEX);
+    SCSP_SLOT(AUDIO_SLOT + 1, 0) = (SCSP_SLOT(AUDIO_SLOT + 1, 0) & ~KYONB) | KYONEX;
 }
 
 // copies count samples of one channel into its ring from sample pos

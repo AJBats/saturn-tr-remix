@@ -4,25 +4,28 @@
 
 #include <stdint.h>
 
-// Sound RAM address of the level's samples (DATA/<level>.SFX).
+// Sound RAM address of the level's samples (DATA/<level>.SFX); below it the
+// sound CPU's program (sound.68k).
 #define SOUND_SAMPLES_ADDR  0x2000
 #define SOUND_RAM           0x25A00000
 #define SOUND_RAM_SIZE      0x80000
 
-// Each entry of level.soundOffsets (tools/sfx.py): the sample's offset in
-// the .SFX file, its format and rate, and the extra attenuation that undoes
-// its normalisation, in SCSP total level steps (0.375 dB). The entry after
-// the last sample holds the file's size alone.
+// level.soundOffsets (tools/sfx.py), two words a sample: its offset in the
+// .SFX file, rate, attenuation and format; then its length in bytes (0: the
+// level has none).
 #define SOUND_OFFSET_MASK   0x003FFFFF
 #define SOUND_RATE_SHIFT    22          // bits 23-22: the rate it plays at
 #define SOUND_RATE_MASK     3
 #define SOUND_RATE_NORMAL   0           // 5512.5 Hz
-#define SOUND_RATE_SLOW     1           // 2971.6 Hz: the original's for a sample made at 2500 Hz
-#define SOUND_RATE_FAST     2           // 11025 Hz
-#define SOUND_RATE_RAISED   3           // 13103 Hz: an 11025 Hz sample as the original plays its 2500 Hz one
-#define SOUND_ATTEN_SHIFT   24          // bits 30-24
-#define SOUND_ATTEN_MASK    0x7F
-#define SOUND_PCM8          0x80000000  // 8-bit PCM; else 16-bit
+#define SOUND_RATE_SLOW     1           // 2500 Hz (the rate the original made its slow sounds at)
+#define SOUND_RATE_FAST     2           // 11025 Hz: the PlayStation's
+#define SOUND_ATTEN_SHIFT   24          // bits 29-24: SCSP total level steps (0.375 dB)
+#define SOUND_ATTEN_MASK    0x3F
+#define SOUND_FORMAT_SHIFT  30          // bits 31-30
+#define SOUND_FORMAT_MASK   3
+#define SOUND_FORMAT_PCM16  0
+#define SOUND_FORMAT_PCM8   1
+#define SOUND_FORMAT_ADPCM  2           // the PlayStation's SPU ADPCM, which the sound CPU decodes
 
 // Once per frame: frees voices whose samples have played out.
 void sndFrame();

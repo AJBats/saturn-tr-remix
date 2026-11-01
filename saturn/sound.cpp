@@ -1,13 +1,17 @@
 // Saturn sound. Music is CD audio, which the SCSP mixes in through its
-// external input. Sound effects play the level's samples from sound RAM on
-// SCSP slots driven straight from the SH-2 (the sound CPU is stopped), with
-// the slot settings the original uses.
+// external input. Sound effects are the sound CPU's (sound.68k): this side
+// keeps which of its voices plays what and posts it commands in sound RAM
+// (SOUND_DRIVER_*), as the original's driver settings take them; it plays
+// the level's samples from sound RAM, decoding the PlayStation's ADPCM ahead
+// of where each voice plays.
 
 #include "common.h"
 #include "cd.h"
 #include "crash.h"
 #include "sound.h"
 #include "system.h"
+
+#include "sound_m68k.h"
 
 #define SCSP_REG(x)     (*(volatile uint16*)(0x25B00000 + (x)))
 #define SCSP_MIXER      SCSP_REG(0x400)     // MEM4MB (bit 9), DAC18B (bit 8), MVOL (bits 3-0)
@@ -18,7 +22,6 @@
 #define KYONEX          0x1000  // key execute: every slot follows its KYONB
 #define KYONB           0x0800
 #define LPCTL_LOOP      0x0020
-#define PCM8B           0x0010  // 8-bit samples
 
 #define SMPC_SNDON      0x06
 #define SMPC_SNDOFF     0x07
@@ -29,12 +32,23 @@
 #define EXTS_LEFT_ONLY  0x1F
 #define EXTS_RIGHT_ONLY 0x0F
 
-// Samples are 16-bit PCM at the original's rates (5512.5 Hz, octave -3; or
-// for the sounds it lists, 2971.6 Hz, octave -4 at FNS 0x50, and 11025 Hz,
-// octave -2), or 8-bit PCM made from the PlayStation's, at 11025 Hz or
-// raised as the original raises the 2971.6 Hz ones. They are loaded at
-// SOUND_SAMPLES_ADDR in sound RAM (sound.h has the offsets table's format).
-#define VOICES          16      // slots 0-15; 16 and 17 carry the CD audio
+// sound.68k's: its shared words, command queue and voices
+#define DRIVER_Q_HEAD   0x0A00
+#define DRIVER_Q_TAIL   0x0A02
+#define DRIVER_DONE     0x0A08
+#define DRIVER_SHARED   0x80        // bytes from Q_HEAD cleared before it starts
+#define DRIVER_QUEUE    0x0A80
+#define DRIVER_Q_SIZE   32
+#define OP_PLAY         1
+#define OP_STOP         2
+#define OP_LEVEL        3
+#define FLAG_LOOP       1
+#define VOICES          8           // slots 0-7
+
+// Voices decoding ADPCM at once: what the sound CPU keeps up with at 11025 Hz
+// (sndBench on the Saturn: 52-62 thousand samples a second as slots read
+// sound RAM), with room for pitch
+#define DECODED_MAX     4
 
 // Audio tracks on the disc
 #define TRACK_FIRST     2
@@ -45,11 +59,21 @@ extern Level level;
 struct Voice
 {
     int32 sample;   // -1 when free
-    bool loop;
-    uint32 end;     // vblank count when a one-shot sample has played out
+    uint8 gen;      // its play's, which DONE shows when it has played out
+    uint8 tl;
+    bool decoded;
 };
 
 static Voice gVoices[VOICES];
+
+struct Command
+{
+    uint8 op, voice, gen, flags;
+    uint32 addr, length;
+    uint16 pitch;
+    uint8 tl, pan;
+};
+static_assert(sizeof(Command) == 16, "sound.68k's commands");
 
 // OpenLara volume (1..64, 64 full) as SCSP total level: 16 steps per halving
 static const uint8 gVolumeTL[65] = {
@@ -60,11 +84,15 @@ static const uint8 gVolumeTL[65] = {
     5, 4, 4, 3, 3, 3, 2, 2, 1, 1, 1, 0, 0,
 };
 
-// The sample's total level at that volume, attenuated by what undoes its
-// normalisation
+static uint32 entryOf(int32 index)
+{
+    return uint32(level.soundOffsets[index * 2]);
+}
+
+// The sample's total level at that volume, with its attenuation
 static uint32 sampleTL(int32 index, int32 volume)
 {
-    uint32 atten = (uint32(level.soundOffsets[index]) >> SOUND_ATTEN_SHIFT) & SOUND_ATTEN_MASK;
+    uint32 atten = (entryOf(index) >> SOUND_ATTEN_SHIFT) & SOUND_ATTEN_MASK;
     return X_MIN(gVolumeTL[X_CLAMP(volume, 0, 64)] + atten, 255u);
 }
 
@@ -77,11 +105,11 @@ struct Rate
     uint32 hz;
 };
 
-static const Rate gRates[4] = { { -3, 0, 5513 }, { -4, 0x50, 2972 }, { -2, 0, 11025 }, { -2, 193, 13103 } };
+static const Rate gRates[3] = { { -3, 0, 5513 }, { -5, 834, 2500 }, { -2, 0, 11025 } };
 
 // The rate at OpenLara pitch (128 = the sample's rate) as SCSP octave and
 // frequency: the step 1 + FNS / 1024 between 1 and 2, the octave scaling it
-static uint32 pitchOctFns(const Rate &rate, int32 pitch)
+static uint16 pitchOctFns(const Rate &rate, int32 pitch)
 {
     int32 octave = rate.octave;
     uint32 step = (1024 + rate.fns) * uint32(X_MAX(pitch, 1)) / 128;
@@ -95,7 +123,7 @@ static uint32 pitchOctFns(const Rate &rate, int32 pitch)
         step <<= 1;
         octave--;
     }
-    return (uint32(octave & 15) << 11) | (step - 1024);
+    return uint16((uint32(octave & 15) << 11) | (step - 1024));
 }
 
 // Every slot follows its KYONB: keyed-on slots start, keyed-off ones release.
@@ -104,9 +132,67 @@ static void keyExecute()
     SCSP_SLOT(0, 0) = SCSP_SLOT(0, 0) | KYONEX;
 }
 
-static void voiceOff(int32 v)
+static volatile uint16* driverWord(uint32 addr)
 {
-    SCSP_SLOT(v, 0) = SCSP_SLOT(v, 0) & ~(KYONB | KYONEX);
+    return (volatile uint16*)(SOUND_RAM + addr);
+}
+
+// Posts a command, waiting a little for room in the queue (the sound CPU
+// takes a few milliseconds over a play); whether there was room.
+static bool post(const Command &c)
+{
+    volatile uint16* head = driverWord(DRIVER_Q_HEAD);
+    volatile uint16* tail = driverWord(DRIVER_Q_TAIL);
+    uint32 h = *head;
+    uint32 next = (h + 1) & (DRIVER_Q_SIZE - 1);
+    uint32 v = gVblankCount;
+    while (*tail == next)
+    {
+        if (gVblankCount - v > 2)
+            return false;
+    }
+    volatile uint16* dst = driverWord(DRIVER_QUEUE + h * sizeof(Command));
+    const uint16* src = (const uint16*)&c;
+    for (uint32 i = 0; i < sizeof(Command) / 2; i++) {
+        dst[i] = src[i];
+    }
+    *head = uint16(next);
+    return true;
+}
+
+static uint8 driverDone(int32 v)
+{
+    return ((volatile uint8*)(SOUND_RAM + DRIVER_DONE))[v];
+}
+
+// The sound CPU stopped, its program and cleared shared words loaded, and
+// started.
+static void driverStart()
+{
+    smpcCommand(SMPC_SNDOFF);
+    volatile uint16* ram = (volatile uint16*)SOUND_RAM;
+    const uint16* image = (const uint16*)sound_m68k;
+    for (uint32 i = 0; i < SOUND_M68K_SIZE / 2; i++) {
+        ram[i] = image[i];
+    }
+    for (uint32 i = 0; i < DRIVER_SHARED / 2; i++) {
+        driverWord(DRIVER_Q_HEAD)[i] = 0;
+    }
+    for (int32 v = 0; v < VOICES; v++)
+    {
+        gVoices[v].sample = -1;
+        gVoices[v].gen = 0;
+    }
+    smpcCommand(SMPC_SNDON);
+}
+
+static void voiceStop(int32 v)
+{
+    Command c = {};
+    c.op = OP_STOP;
+    c.voice = uint8(v);
+    c.gen = gVoices[v].gen;
+    post(c);
     gVoices[v].sample = -1;
 }
 
@@ -116,15 +202,15 @@ void sndInit()
 
     SCSP_MIXER = (1 << 9) | 0xF;
 
-    for (int32 v = 0; v < VOICES; v++)
-    {
-        SCSP_SLOT(v, 0) = 0;
-        gVoices[v].sample = -1;
+    for (int32 s = 0; s < 32; s++) {
+        SCSP_SLOT(s, 0) = 0;
     }
     keyExecute();
 
     SCSP_SLOT_SEND(16) = EXTS_LEVEL | EXTS_LEFT_ONLY;
     SCSP_SLOT_SEND(17) = EXTS_LEVEL | EXTS_RIGHT_ONLY;
+
+    driverStart();
 }
 
 #ifdef SOUND_BENCH
@@ -174,6 +260,7 @@ void sndBench()
     };
     static const int32 kSlots[3] = { 0, 16, 30 };
 
+    smpcCommand(SMPC_SNDOFF);
     volatile uint16* ram = (volatile uint16*)SOUND_RAM;
     const uint16* image = (const uint16*)soundbench_m68k;
     for (uint32 i = 0; i < SOUNDBENCH_M68K_SIZE / 2; i++) {
@@ -211,6 +298,8 @@ void sndBench()
             keyExecute();
         }
     }
+
+    driverStart();
 }
 #endif
 
@@ -223,23 +312,15 @@ void sndFreeSamples()
     sndStop();
 }
 
-// Releases voices whose one-shot sample has ended, so they can be keyed on
-// again (the SCSP restarts only slots it has seen keyed off).
+// Frees the voices whose sound has played out.
 void sndFrame()
 {
-    bool released = false;
     for (int32 v = 0; v < VOICES; v++)
     {
         Voice &voice = gVoices[v];
-        if (voice.sample >= 0 && !voice.loop && int32(gVblankCount - voice.end) >= 0)
-        {
-            voiceOff(v);
-            released = true;
+        if (voice.sample >= 0 && driverDone(v) == voice.gen) {
+            voice.sample = -1;
         }
-    }
-
-    if (released) {
-        keyExecute();
     }
 }
 
@@ -248,67 +329,80 @@ void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
     if (!gSettings.audio_sfx || index < 0 || index >= level.soundOffsetsCount)
         return NULL;
 
-    // already playing: update it, or restart it for REPLAY
-    for (int32 v = 0; v < VOICES; v++)
-    {
-        if (gVoices[v].sample != index)
-            continue;
-
-        if (mode != REPLAY)
-        {
-            SCSP_SLOT(v, 6) = sampleTL(index, volume);
-            return gVoices + v;
-        }
-
-        voiceOff(v);
-        keyExecute();
-        break;
-    }
-
-    int32 v = 0;
-    while (v < VOICES && gVoices[v].sample >= 0) {
-        v++;
-    }
-    if (v == VOICES)
-        return NULL;
-
-    // a slot keyed off this frame needs a sample period (23 us) to release
-    // before a key on restarts it
-    for (volatile int32 i = 0; i < 200; i++);
-
-    uint32 entry = level.soundOffsets[index];
-    uint32 offset = entry & SOUND_OFFSET_MASK;
-    uint32 bytes = (level.soundOffsets[index + 1] & SOUND_OFFSET_MASK) - offset;
-    bool pcm8 = (entry & SOUND_PCM8) != 0;
-    uint32 addr = SOUND_SAMPLES_ADDR + offset;
-    uint32 length = pcm8 ? bytes : bytes >> 1;
+    uint32 entry = entryOf(index);
+    uint32 length = uint32(level.soundOffsets[index * 2 + 1]);
     if (!length)
         return NULL;
-    const Rate &rate = gRates[(entry >> SOUND_RATE_SHIFT) & SOUND_RATE_MASK];
-    bool loop = (mode == LOOP);
+    uint32 format = (entry >> SOUND_FORMAT_SHIFT) & SOUND_FORMAT_MASK;
+    bool decoded = format == SOUND_FORMAT_ADPCM;
+    uint32 tl = sampleTL(index, volume);
 
-    uint16 reg0 = (loop ? LPCTL_LOOP : 0) | (pcm8 ? PCM8B : 0) | ((addr >> 16) & 15);
-    SCSP_SLOT(v, 0) = reg0;
-    SCSP_SLOT(v, 1) = addr;
-    SCSP_SLOT(v, 2) = 0;                        // loop start
-    SCSP_SLOT(v, 3) = length - 1;               // loop/sample end
-    SCSP_SLOT(v, 4) = 0x001F;                   // attack 31, no decay
-    SCSP_SLOT(v, 5) = 0x001F;                   // release 31
-    SCSP_SLOT(v, 6) = sampleTL(index, volume);
-    SCSP_SLOT(v, 7) = 0;                        // no modulation
-    SCSP_SLOT(v, 8) = pitchOctFns(rate, pitch);
-    SCSP_SLOT(v, 9) = 0;                        // no LFO
-    SCSP_SLOT(v, 10) = 0;
-    SCSP_SLOT(v, 11) = 7 << 13;                 // direct send, centre
-    SCSP_SLOT(v, 0) = reg0 | KYONB;
-    keyExecute();
+    // already playing: its level updated, or restarted for REPLAY
+    int32 v = 0;
+    while (v < VOICES && gVoices[v].sample != index) {
+        v++;
+    }
+    if (v < VOICES && mode != REPLAY)
+    {
+        if (gVoices[v].tl != tl)
+        {
+            Command c = {};
+            c.op = OP_LEVEL;
+            c.voice = uint8(v);
+            c.tl = uint8(tl);
+            post(c);
+            gVoices[v].tl = uint8(tl);
+        }
+        return gVoices + v;
+    }
 
-    // samples per 60 Hz frame at this pitch: hz / 60 * pitch / 128
+    if (v == VOICES)
+    {
+        // a free voice; while the sound CPU decodes all it can, the quietest
+        // of those voices gives way to a louder sound
+        int32 busy = 0, quietest = -1;
+        for (int32 k = 0; k < VOICES; k++)
+        {
+            if (gVoices[k].sample >= 0 && gVoices[k].decoded)
+            {
+                busy++;
+                if (quietest < 0 || gVoices[k].tl > gVoices[quietest].tl) {
+                    quietest = k;
+                }
+            }
+        }
+        if (decoded && busy >= DECODED_MAX)
+        {
+            if (gVoices[quietest].tl <= tl)
+                return NULL;
+            voiceStop(quietest);
+        }
+        v = 0;
+        while (v < VOICES && gVoices[v].sample >= 0) {
+            v++;
+        }
+        if (v == VOICES)
+            return NULL;
+    }
+
     Voice &voice = gVoices[v];
-    voice.sample = index;
-    voice.loop = loop;
-    voice.end = gVblankCount + length * 7680 / (rate.hz * X_MAX(pitch, 1)) + 1;
+    Command c = {};
+    c.op = OP_PLAY;
+    c.voice = uint8(v);
+    c.gen = uint8(voice.gen + 1);
+    c.flags = uint8((mode == LOOP ? FLAG_LOOP : 0) | (format << 1));
+    c.addr = SOUND_SAMPLES_ADDR + (entry & SOUND_OFFSET_MASK);
+    c.length = decoded ? length : (format == SOUND_FORMAT_PCM8 ? length : length >> 1);
+    c.pitch = pitchOctFns(gRates[(entry >> SOUND_RATE_SHIFT) & SOUND_RATE_MASK], pitch);
+    c.tl = uint8(tl);
+    c.pan = 0;
+    if (!post(c))
+        return NULL;
 
+    voice.sample = index;
+    voice.gen = c.gen;
+    voice.tl = uint8(tl);
+    voice.decoded = decoded;
     return &voice;
 }
 
@@ -352,27 +446,26 @@ void sndStopTrack()
 
 void sndStopSample(int32 index)
 {
-    bool released = false;
     for (int32 v = 0; v < VOICES; v++)
     {
-        if (gVoices[v].sample == index)
-        {
-            voiceOff(v);
-            released = true;
+        if (gVoices[v].sample == index) {
+            voiceStop(v);
         }
-    }
-
-    if (released) {
-        keyExecute();
     }
 }
 
+// Stops every voice and waits for the sound CPU to have (so the samples may
+// be replaced).
 void sndStop()
 {
     sndStopTrack();
 
-    for (int32 v = 0; v < VOICES; v++) {
-        voiceOff(v);
+    for (int32 v = 0; v < VOICES; v++)
+    {
+        if (gVoices[v].sample >= 0) {
+            voiceStop(v);
+        }
     }
-    keyExecute();
+    uint32 t = gVblankCount;
+    while (*driverWord(DRIVER_Q_TAIL) != *driverWord(DRIVER_Q_HEAD) && gVblankCount - t < 10);
 }

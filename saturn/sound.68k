@@ -1,0 +1,545 @@
+| The sound CPU's program (sound.cpp loads it at sound RAM 0 and starts the
+| 68000): it plays the SH-2's commands on slots 0-7, one voice each. A voice
+| plays 16- or 8-bit samples straight from sound RAM, or the PlayStation's
+| SPU ADPCM, which the SCSP can't read: this program decodes it, block by
+| block, into a ring the voice's slot loops over, ahead of where the slot
+| plays.
+|
+| Where a slot plays comes from the clock, the SCSP's samples (44.1 kHz)
+| counted by its three timers, each interrupting every 256 samples, a third
+| of the way apart (85, 85, 86 samples); each tick keys on the voices set up
+| since, so a voice has played (samples since its key on) * its step, the
+| SCSP's own phase step ((0x400 | FNS) << (OCT + 8) >> 4, in 1/16384
+| samples) for its pitch. Between ticks it plays on up to 86 steps further.
+| Decoding keeps the ring AHEAD samples past the clock's count, the most
+| that never writes where the slot may not yet have played.
+|
+| The SH-2 writes commands into QUEUE (16 bytes each, Q_HEAD the next it
+| writes, Q_TAIL the next read here) and reads DONE: each voice's last
+| generation that played out or was stopped.
+|
+| Registers kept throughout: d5 0x1E (a nibble times 2, the table index
+| mask), a3 32 (the ADPCM rounding). The interrupt keeps everything else.
+
+    .equ    SCSP,       0x100000    | slot 0's registers: slot n at + 0x20 n
+    .equ    TIMER_A,    0x100418    | TACTL (10-8), TIMA (7-0)
+    .equ    TIMER_B,    0x10041A
+    .equ    TIMER_C,    0x10041C
+    .equ    SCIEB,      0x10041E
+    .equ    SCIPD,      0x100420
+    .equ    SCIRE,      0x100422
+    .equ    SCILV0,     0x100424
+    .equ    SCILV1,     0x100426
+    .equ    SCILV2,     0x100428
+    .equ    INT_TIMERS, 0x1C0       | A, B, C
+    .equ    LV_TIMERS,  0xC0        | A; B and C (SCILV's bit 7 takes the sources above it)
+
+    .equ    KYONEX,     0x1000
+    .equ    KYONB,      0x0800
+    .equ    LPCTL_LOOP, 0x0020
+    .equ    PCM8B,      0x0010
+
+| shared with sound.cpp (SOUND_DRIVER_*)
+    .equ    Q_HEAD,     0x0A00      | word, the SH-2's
+    .equ    Q_TAIL,     0x0A02      | word, ours
+    .equ    CLOCK,      0x0A04      | word: samples, by the timers
+    .equ    ALIVE,      0x0A06      | word: main loop passes
+    .equ    DONE,       0x0A08      | 8 bytes: each voice's generation played out or stopped
+    .equ    BLOCKS,     0x0A10      | long: ADPCM blocks decoded
+    .equ    LOW,        0x0A14      | word: the fewest samples a voice was found decoded ahead
+    .equ    QUEUE,      0x0A80      | 32 commands
+    .equ    Q_MASK,     31
+
+| a command: op, voice, generation, flags (bit 0 loop, bits 2-1 format:
+| 0 16-bit, 1 8-bit, 2 ADPCM), the data's address, its length (bytes for
+| ADPCM, else samples), the slot's pitch (OCT FNS), total level, pan
+    .equ    C_OP,       0
+    .equ    C_VOICE,    1
+    .equ    C_GEN,      2
+    .equ    C_FLAGS,    3
+    .equ    C_ADDR,     4
+    .equ    C_LENGTH,   8
+    .equ    C_PITCH,    12
+    .equ    C_TL,       14
+    .equ    C_PAN,      15
+    .equ    OP_PLAY,    1
+    .equ    OP_STOP,    2
+    .equ    OP_LEVEL,   3
+
+| a voice
+    .equ    VOICES,     0x0C80
+    .equ    VOICE_COUNT, 8
+    .equ    V_MODE,     0           | byte: 0 off, 1 ADPCM, 2 samples
+    .equ    V_FLAGS,    1           | byte: bit 0 loop, bit 7 key on at the next tick
+    .equ    V_GEN,      2
+    .equ    V_STEP,     4           | word: the phase step, 1/16384 sample
+    .equ    V_LAST,     6           | word: CLOCK when played was last brought up to date
+    .equ    V_SRC,      8           | long: the next block
+    .equ    V_END,      12          | long: past the last
+    .equ    V_START,    16          | long: the first (a loop goes back there)
+    .equ    V_PLAYED,   20          | long: samples played by the clock
+    .equ    V_DECODED,  24          | long: samples in the ring
+    .equ    V_TOTAL,    28          | long: samples the sound has
+    .equ    V_RINGPOS,  32          | word: the next block's byte in the ring
+    .equ    V_FRAC,     34          | word: played's fraction, 1/16384 sample
+    .equ    V_S1,       36          | word: the last sample decoded
+    .equ    V_S2,       38          | word: the one before
+    .equ    V_RING,     40          | long
+    .equ    V_SLOT,     44          | long: its slot's registers
+    .equ    VOICE,      48
+    .equ    MODE_ADPCM, 1
+    .equ    MODE_PCM,   2
+
+    .equ    TABLES,     0x0E00      | per shift 0-12, the 16 nibbles' values (words)
+    .equ    RINGS,      0x1000      | 512 bytes a voice: RING samples and a copy of the first
+    .equ    RING,       252         | samples: 9 blocks
+    .equ    BLOCK,      28          | samples an ADPCM block
+    .equ    AHEAD,      224         | samples decoded past the clock: 8 blocks
+    .equ    STACK,      0x0A00
+
+    .text
+    .long   STACK
+    .long   start
+    .org    0x60                    | spurious, then levels 1-7
+    .long   ignore, ignore, ignore, ignore, ignore, tick, ignore, ignore
+    .org    0x100
+
+ignore:
+    rte
+
+| --- start ----------------------------------------------------------------
+
+start:
+    | the nibbles' values for each shift: n << (12 - shift), n signed 4 bits
+    lea     TABLES,%a2
+    moveq   #12,%d2                 | 12 - shift
+1:  moveq   #1,%d4
+    lsl.w   %d2,%d4                 | the step
+    moveq   #0,%d3
+    move.w  %d4,%d0
+    lsl.w   #3,%d0
+    neg.w   %d0                     | -8 steps
+    moveq   #7,%d1
+2:  move.w  %d3,(%a2)+
+    move.w  %d0,14(%a2)
+    add.w   %d4,%d3
+    add.w   %d4,%d0
+    dbra    %d1,2b
+    lea     16(%a2),%a2
+    dbra    %d2,1b
+
+    | the voices: off, their rings and slots
+    lea     VOICES,%a4
+    lea     RINGS,%a0
+    lea     SCSP,%a1
+    moveq   #VOICE_COUNT-1,%d1
+3:  moveq   #VOICE/4-1,%d0
+    move.l  %a4,%a2
+4:  clr.l   (%a2)+
+    dbra    %d0,4b
+    move.l  %a0,V_RING(%a4)
+    move.l  %a1,V_SLOT(%a4)
+    clr.w   (%a1)
+    lea     512(%a0),%a0
+    lea     0x20(%a1),%a1
+    lea     VOICE(%a4),%a4
+    dbra    %d1,3b
+    ori.w   #KYONEX,SCSP
+
+    | the timers: counting every sample from 0, 85 and 170, each
+    | interrupting at 255 (level 5)
+    move.w  #LV_TIMERS,SCILV0
+    clr.w   SCILV1
+    move.w  #LV_TIMERS,SCILV2
+    move.w  #INT_TIMERS,SCIRE
+    move.w  #INT_TIMERS,SCIEB
+    clr.w   TIMER_A
+    move.w  #85,TIMER_B
+    move.w  #170,TIMER_C
+
+    move.w  #0x7FFF,LOW
+    moveq   #0x1E,%d5
+    move.l  #32,%a3
+    move.w  #0x2000,%sr
+
+main:
+    bsr     commands
+    bsr     voices
+    addq.w  #1,ALIVE
+    bra.s   main
+
+| --- the timers: the clock, and the voices set up since keyed on ----------
+
+tick:
+    movem.l %d0-%d2/%a0-%a1,-(%sp)
+    move.w  SCIPD,%d2
+    and.w   #INT_TIMERS,%d2
+    move.w  %d2,SCIRE
+    moveq   #0,%d0
+    btst    #6,%d2                  | A, 85 after B
+    beq.s   4f
+    add.w   #85,%d0
+4:  btst    #7,%d2                  | B, 85 after C
+    beq.s   5f
+    add.w   #85,%d0
+5:  btst    #8,%d2                  | C, 86 after A
+    beq.s   6f
+    add.w   #86,%d0
+6:  add.w   %d0,CLOCK
+    lea     VOICES,%a0
+    moveq   #0,%d1
+    moveq   #VOICE_COUNT-1,%d0
+1:  tst.b   V_FLAGS(%a0)
+    bpl.s   2f
+    bclr    #7,V_FLAGS(%a0)
+    move.w  CLOCK,V_LAST(%a0)
+    move.l  V_SLOT(%a0),%a1
+    ori.w   #KYONB,(%a1)
+    moveq   #1,%d1
+2:  lea     VOICE(%a0),%a0
+    dbra    %d0,1b
+    tst.w   %d1
+    beq.s   3f
+    ori.w   #KYONEX,SCSP
+3:  movem.l (%sp)+,%d0-%d2/%a0-%a1
+    rte
+
+| --- commands ---------------------------------------------------------------
+
+commands:
+    move.w  Q_TAIL,%d0
+    cmp.w   Q_HEAD,%d0
+    bne.s   1f
+    rts
+1:  move.w  %d0,%d1
+    lsl.w   #4,%d1
+    lea     QUEUE,%a0
+    adda.w  %d1,%a0
+    moveq   #0,%d1
+    move.b  C_VOICE(%a0),%d1
+    mulu.w  #VOICE,%d1
+    lea     VOICES,%a4
+    adda.w  %d1,%a4
+    move.b  C_OP(%a0),%d1
+    cmp.b   #OP_PLAY,%d1
+    bne.s   2f
+    bsr     play
+    bra.s   4f
+2:  cmp.b   #OP_STOP,%d1
+    bne.s   3f
+    bsr     stop
+    bra.s   4f
+3:  cmp.b   #OP_LEVEL,%d1
+    bne.s   4f
+    bsr     level
+4:  move.w  Q_TAIL,%d0
+    addq.w  #1,%d0
+    and.w   #Q_MASK,%d0
+    move.w  %d0,Q_TAIL
+    bra.s   commands
+
+| a4's slot keyed off, the voice off, its generation done
+stop:
+    move.b  C_GEN(%a0),V_GEN(%a4)
+    bra     off
+
+off:
+    move.w  #0x2700,%sr
+    clr.b   V_MODE(%a4)
+    clr.b   V_FLAGS(%a4)
+    move.l  V_SLOT(%a4),%a1
+    andi.w  #0xFFFF-KYONB,(%a1)
+    ori.w   #KYONEX,SCSP
+    move.w  #0x2000,%sr
+    move.l  %a4,%d0
+    sub.l   #VOICES,%d0
+    divu.w  #VOICE,%d0
+    lea     DONE,%a1
+    move.b  V_GEN(%a4),0(%a1,%d0.w)
+    rts
+
+| a4's slot's total level and pan
+level:
+    move.l  V_SLOT(%a4),%a1
+    moveq   #0,%d0
+    move.b  C_TL(%a0),%d0
+    move.w  %d0,12(%a1)
+    move.b  C_PAN(%a0),%d0
+    and.w   #0x1F,%d0
+    lsl.w   #8,%d0
+    or.w    #0xE000,%d0             | direct send level 7
+    move.w  %d0,22(%a1)
+    rts
+
+| a0's command on a4: what plays there keyed off (its slot released by the
+| tick that keys on this one), the slot set, ADPCM decoded AHEAD, the key
+| on left to the next tick
+play:
+    tst.b   V_MODE(%a4)
+    beq.s   1f
+    bsr     off
+1:  move.b  C_GEN(%a0),V_GEN(%a4)
+    clr.l   V_PLAYED(%a4)
+    clr.l   V_DECODED(%a4)
+    clr.w   V_FRAC(%a4)
+    clr.w   V_RINGPOS(%a4)
+    clr.l   V_S1(%a4)               | and V_S2
+
+    | the phase step: (0x400 | FNS) << (OCT + 8) >> 4
+    move.w  C_PITCH(%a0),%d1
+    move.w  %d1,%d0
+    and.w   #0x3FF,%d0
+    or.w    #0x400,%d0
+    ext.l   %d0
+    rol.w   #5,%d1
+    and.w   #15,%d1                 | OCT, 4 bits
+    eor.w   #8,%d1                  | + 8
+    lsl.l   %d1,%d0
+    lsr.l   #4,%d0
+    move.w  %d0,V_STEP(%a4)
+
+    move.l  V_SLOT(%a4),%a1
+    move.w  #0x001F,8(%a1)          | attack 31, no decay
+    move.w  #0x001F,10(%a1)         | release 31
+    clr.w   14(%a1)                 | no modulation
+    move.w  C_PITCH(%a0),16(%a1)
+    clr.w   18(%a1)                 | no LFO
+    clr.w   20(%a1)
+    bsr     level
+
+    move.b  C_FLAGS(%a0),%d1
+    move.l  C_ADDR(%a0),%d2
+    move.l  C_LENGTH(%a0),%d3
+    btst    #2,%d1
+    beq.s   3f
+
+    | ADPCM: its ring looped, decoded ahead
+    move.b  #MODE_ADPCM,V_MODE(%a4)
+    move.l  %d2,V_SRC(%a4)
+    move.l  %d2,V_START(%a4)
+    add.l   %d2,%d3
+    move.l  %d3,V_END(%a4)
+    sub.l   %d2,%d3
+    lsr.l   #4,%d3                  | blocks
+    mulu.w  #BLOCK,%d3
+    move.l  %d3,V_TOTAL(%a4)
+    move.l  V_RING(%a4),%d0
+    swap    %d0
+    and.w   #15,%d0
+    or.w    #LPCTL_LOOP,%d0
+    move.w  %d0,(%a1)
+    move.l  V_RING(%a4),%d0
+    move.w  %d0,2(%a1)
+    clr.w   4(%a1)
+    move.w  #RING,6(%a1)
+    and.b   #1,%d1
+    move.b  %d1,V_FLAGS(%a4)
+2:  bsr     decode
+    cmp.l   #AHEAD,V_DECODED(%a4)
+    bcs.s   2b
+    bra.s   4f
+
+    | samples: the slot plays them
+3:  move.b  #MODE_PCM,V_MODE(%a4)
+    move.l  %d3,V_TOTAL(%a4)
+    move.l  %d2,%d0
+    swap    %d0
+    and.w   #15,%d0
+    btst    #0,%d1
+    beq.s   5f
+    or.w    #LPCTL_LOOP,%d0
+5:  btst    #1,%d1
+    beq.s   6f
+    or.w    #PCM8B,%d0
+6:  move.w  %d0,(%a1)
+    move.w  %d2,2(%a1)
+    clr.w   4(%a1)
+    subq.w  #1,%d3
+    move.w  %d3,6(%a1)
+    and.b   #1,%d1
+    move.b  %d1,V_FLAGS(%a4)
+4:  bset    #7,V_FLAGS(%a4)         | the next tick keys it on
+    rts
+
+| --- the voices: played brought up to date, ADPCM decoded ahead, sounds
+| played out keyed off -------------------------------------------------------
+
+voices:
+    lea     VOICES,%a4
+1:  tst.b   V_MODE(%a4)
+    beq.s   5f
+    tst.b   V_FLAGS(%a4)
+    bmi.s   5f                      | not keyed on yet
+
+    move.w  CLOCK,%d0
+    move.w  %d0,%d1
+    sub.w   V_LAST(%a4),%d1
+    move.w  %d0,V_LAST(%a4)
+    mulu.w  V_STEP(%a4),%d1         | 1/16384 samples
+    moveq   #0,%d0
+    move.w  V_FRAC(%a4),%d0
+    add.l   %d0,%d1
+    move.l  %d1,%d0
+    moveq   #14,%d2
+    lsr.l   %d2,%d0
+    add.l   %d0,V_PLAYED(%a4)
+    and.w   #0x3FFF,%d1
+    move.w  %d1,V_FRAC(%a4)
+
+    cmp.b   #MODE_ADPCM,V_MODE(%a4)
+    bne.s   2f
+    move.l  V_DECODED(%a4),%d0
+    sub.l   V_PLAYED(%a4),%d0
+    cmp.w   LOW,%d0
+    bge.s   3f
+    move.w  %d0,LOW
+3:  cmp.l   #AHEAD,%d0
+    bge.s   2f
+    bsr     decode
+2:  btst    #0,V_FLAGS(%a4)
+    bne.s   5f                      | loops play on
+    move.l  V_PLAYED(%a4),%d0
+    cmp.l   V_TOTAL(%a4),%d0
+    bcs.s   5f
+    bsr     off                     | played out
+5:  lea     VOICE(%a4),%a4
+    cmpa.l  #VOICES+VOICE*VOICE_COUNT,%a4
+    bcs.s   1b
+    rts
+
+| --- decoding -----------------------------------------------------------------
+
+| a4's next block into its ring: the data's, or (a loop) its first again, or
+| (the data played out) silence
+decode:
+    move.l  V_RING(%a4),%a1
+    adda.w  V_RINGPOS(%a4),%a1
+    move.l  V_SRC(%a4),%a0
+    cmpa.l  V_END(%a4),%a0
+    bcs.s   1f
+    btst    #0,V_FLAGS(%a4)
+    beq.s   3f
+    move.l  V_START(%a4),%a0
+1:  move.w  V_S1(%a4),%d6
+    move.w  V_S2(%a4),%d7
+    bsr     block
+    move.l  %a0,V_SRC(%a4)
+    move.w  %d6,V_S1(%a4)
+    move.w  %d7,V_S2(%a4)
+    addq.l  #1,BLOCKS
+    bra.s   4f
+3:  moveq   #0,%d0
+    moveq   #BLOCK/2-1,%d1
+2:  move.l  %d0,(%a1)+
+    dbra    %d1,2b
+    | the ring's first sample again past its end, which the slot reads to
+    | interpolate from its last
+4:  move.w  V_RINGPOS(%a4),%d0
+    bne.s   5f
+    move.l  V_RING(%a4),%a1
+    move.w  (%a1),RING*2(%a1)
+5:  add.w   #BLOCK*2,%d0
+    cmp.w   #RING*2,%d0
+    bcs.s   6f
+    moveq   #0,%d0
+6:  move.w  %d0,V_RINGPOS(%a4)
+    moveq   #BLOCK,%d0
+    add.l   %d0,V_DECODED(%a4)
+    rts
+
+| One SPU ADPCM block (a0, 16 bytes: filter << 4 | shift, flags, 14 bytes of
+| nibbles, the low first) into 28 samples at a1, as the PlayStation decodes
+| it (tools/sfx.py adpcm_decode): s = (n << 12 >> shift) + (s1 f0 + s2 f1 +
+| 32 >> 6), saturated to 16 bits. d6 s1, d7 s2.
+block:
+    moveq   #0,%d0
+    move.b  (%a0)+,%d0
+    addq.l  #1,%a0
+    moveq   #15,%d1
+    and.w   %d0,%d1
+    cmp.w   #12,%d1
+    bls.s   1f
+    moveq   #9,%d1
+1:  lsl.w   #5,%d1
+    lea     TABLES,%a2
+    adda.w  %d1,%a2
+    lsr.w   #4,%d0
+    and.w   #7,%d0
+    cmp.w   #5,%d0
+    bcs.s   2f
+    moveq   #0,%d0
+2:  add.w   %d0,%d0
+    move.w  filters(%pc,%d0.w),%d0
+    jmp     filters(%pc,%d0.w)
+filters:
+    .word   f0-filters, f1-filters, f2-filters, f3-filters, f4-filters
+
+f0:
+    moveq   #13,%d1
+1:  move.b  (%a0)+,%d0
+    move.w  %d0,%d2
+    add.w   %d2,%d2
+    and.w   %d5,%d2
+    move.w  0(%a2,%d2.w),%d7
+    move.w  %d7,(%a1)+
+    lsr.b   #3,%d0
+    and.w   %d5,%d0
+    move.w  0(%a2,%d0.w),%d6
+    move.w  %d6,(%a1)+
+    dbra    %d1,1b
+    rts
+
+| one sample: d2 its nibble's value
+    .macro  SAMPLE c0, c1
+    move.w  %d6,%d3
+    muls.w  #\c0,%d3
+    .if     \c1
+    move.w  %d7,%d4
+    muls.w  #\c1,%d4
+    add.l   %d4,%d3
+    .endif
+    add.l   %a3,%d3
+    asr.l   #6,%d3
+    ext.l   %d2
+    add.l   %d2,%d3
+    move.w  %d3,%d2
+    ext.l   %d2
+    cmp.l   %d2,%d3
+    beq.s   9f
+    move.w  #0x7FFF,%d2
+    tst.l   %d3
+    bpl.s   9f
+    move.w  #0x8000,%d2
+9:  move.w  %d2,(%a1)+
+    move.w  %d6,%d7
+    move.w  %d2,%d6
+    .endm
+
+    .macro  FILTER c0, c1
+    moveq   #13,%d1
+1:  move.b  (%a0)+,%d0
+    move.w  %d0,%d2
+    add.w   %d2,%d2
+    and.w   %d5,%d2
+    move.w  0(%a2,%d2.w),%d2
+    SAMPLE  \c0, \c1
+    move.w  %d0,%d2
+    lsr.b   #3,%d2
+    and.w   %d5,%d2
+    move.w  0(%a2,%d2.w),%d2
+    SAMPLE  \c0, \c1
+    dbra    %d1,1b
+    rts
+    .endm
+
+f1:
+    FILTER  60, 0
+f2:
+    FILTER  115, -52
+f3:
+    FILTER  98, -55
+f4:
+    FILTER  122, -60
+
+    | the stack's 256 bytes below STACK (an error here: the program runs into it)
+    .org    STACK - 256

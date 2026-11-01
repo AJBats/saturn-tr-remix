@@ -26,11 +26,12 @@ full texture's. A room texture's three tables (full res, half, quarter) lie
 side by side in the blob, so a face drawn with a mip level takes its
 texture's table + 4 or + 8 (in VDP1's 8-byte units).
 
-Sound effects are the original's samples (16-bit PCM at 5512.5 Hz) or,
-where the PlayStation level has the one a sample was made from, that one as
-8-bit PCM at 11025 Hz (tools/sfx.py). They go to a separate file the game
-loads into sound RAM; the PKD holds the sound map, the sound infos and each
-sample's offset in that file with its format and level (saturn/sound.h).
+Sound effects are the PlayStation's samples, its SPU ADPCM as it keeps them,
+which the sound CPU decodes; the original's (16-bit PCM) where the
+PlayStation level has none (tools/sfx.py). They go to a separate file the
+game loads into sound RAM; the PKD holds the sound map, the sound infos and
+each sample's offset in that file with its format, rate and length
+(saturn/sound.h).
 
 Inventory item textures go to another file, which the game puts in the VRAM
 after the blob (where full-res room textures are cached during play) while
@@ -1061,8 +1062,7 @@ class Packer:
         for info in lvl.sound_infos:
             out.pack("4H", *info)
 
-        # offsets of the samples in the .SFX file with their formats, and its
-        # size after the last
+        # the samples in the .SFX file: offsets with their formats, lengths
         sound_offsets = out.align4()
         self.sfx, offsets = self.sounds.build()
         out.pack(f"{len(offsets)}I", *offsets)
@@ -1070,7 +1070,7 @@ class Packer:
         header = struct.pack(">I14H", 0x53415431,     # 'SAT1'
             0, len(lvl.rooms), len(lvl.models), len(lvl.mesh_offsets), len(lvl.static_meshes),
             len(lvl.sprite_sequences), len(lvl.sound_sources), len(lvl.boxes), textures_count,
-            len(lvl.sprite_textures), len(lvl.items), len(lvl.cameras), len(lvl.camera_frames), len(offsets) - 1)
+            len(lvl.sprite_textures), len(lvl.items), len(lvl.cameras), len(lvl.camera_frames), len(offsets) // 2)
         header += struct.pack(">35I",
             palette, 0, 0, rooms, floors, mesh_base, mesh_offsets_pos, anims, states, ranges,
             commands, nodes, frames, models, static_meshes, textures, sprites, sprite_sequences,
@@ -1241,23 +1241,11 @@ def load_ps1(psx_dir, name):
     return lvl if lvl.samples else None
 
 
-def report_sounds(name, lvl, sounds):
-    """Prints the samples made from the PlayStation's and the sound RAM they
-    take, restores cut sounds, and prints those."""
-    original = sounds.size({})
-    at_lengths = sounds.size()
-    sounds.restore()
-    size = sounds.size()
-    if size > sounds.budget:
-        raise ValueError(f"{name}: {size} bytes of sound samples, {sounds.budget} fit")
-    print(f"{name}: {len(sounds.matches)} of {len(lvl.samples)} sound samples from the PlayStation's, "
-          f"{original} bytes as the original's, {at_lengths} at their lengths, {size} with "
-          f"{len(sounds.restored)} restored, {sounds.budget - size} bytes of sound RAM spare")
-    if sounds.kept:
-        print(f"  slow samples kept as the original's, for room: {sorted(sounds.kept)}")
-    for i, old, new in sounds.restored:
-        ids = ", ".join(str(sid) for sid, _ in sounds.ids.get(i, []))
-        print(f"  sample {i} (sound {ids or 'unused'}): {old / 11025:.2f} s -> {new / 11025:.2f} s")
+def report_sounds(name, sounds, size):
+    """Prints where the samples come from and the sound RAM they take."""
+    c = sounds.counts
+    print(f"{name}: {c['ps1']} sound samples the PlayStation's, {c['saturn']} the original's, "
+          f"{c['none']} unplayed; {size} bytes, {sounds.budget - size} of sound RAM spare")
 
 
 # Textured faces' draw mode as the renderer draws them (render.cpp gTexturePmod:
@@ -1351,9 +1339,9 @@ def main():
         start_trigger(lvl, [int(i) for i in triggered if not i.startswith("flip")],
                       [int(i[4:]) for i in triggered if i.startswith("flip")])
     sounds = sfx.Sfx(lvl, load_ps1(sys.argv[4] if len(sys.argv) > 4 else None, name))
-    report_sounds(name, lvl, sounds)
     packer = Packer(lvl, sounds, os.environ.get("OBJECT_ART") == "1")
     data = packer.pack()
+    report_sounds(name, sounds, len(packer.sfx))
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with open(out_path, "wb") as f:
         f.write(data)
