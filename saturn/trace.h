@@ -84,10 +84,11 @@ enum TraceLane { TRACE_MASTER, TRACE_IRQ, TRACE_SLAVE, TRACE_DSP, TRACE_LANES };
 // After slaveInit: measures the slave's counter against the master's.
 void traceInit();
 
-// The level's data ends at end in low work RAM: the rings record if they fit
-// above it. traceStop stops them before a level loads over them; traceResume
-// starts them afresh above the same level.
-void traceLevel(const void* end);
+// The rings record, afresh, once a level has loaded (traceLevel): they and
+// what goes with them are in VDP2's VRAM past the bitmap, which pictures
+// use to stage only between levels and for the title's (traceStop stops
+// them first; traceResume starts them afresh after).
+void traceLevel();
 void traceStop();
 void traceResume();
 
@@ -153,8 +154,9 @@ inline void traceDetailEnd(uint32_t id, uint32_t arg = 0)
 // number of how many, its start and length, its events shown and left out,
 // and the tag tracePlayStart was given unless 0), then the events, five a
 // row, as a letter (TRACE_LETTERS) and its begin and end from the frame's
-// start, in tenths of a millisecond; the last character of each row checks
-// the rest. tools/trace.py video reads the pages back.
+// start, in tenths of a millisecond, and last where Lara was (tracePlace);
+// the last character of each row checks the rest. tools/trace.py video reads
+// the pages back.
 void tracePlayStart(int32_t tag = 0);
 bool tracePlayFrame();
 void tracePlayStop();
@@ -163,9 +165,14 @@ void tracePlayStop();
 // next playback).
 void traceRestart();
 
-// The master's profiler samples (debug.cpp), in the same low work RAM, or
-// NULL without room for them: a count for each 64 bytes of the program's
-// code, traceProfileCount of them.
+// Where Lara is this frame (her room's index, place and heading), once a
+// frame between its update and its render: the playback page's last row
+// and tools/trace.py's frames show it, as LARA_START and START_YAW take it.
+void tracePlace(uint32_t room, int32_t x, int32_t y, int32_t z, uint16_t heading);
+
+// The master's profiler samples (debug.cpp), with the rings, or NULL while
+// they don't record: a count for each 64 bytes of the program's code,
+// traceProfileCount of them.
 #define TRACE_PROFILE_START 0x06004000  // where the BIOS loads the program
 #define TRACE_PROFILE_SHIFT 6
 extern const char gTextEnd[] asm("__text_end");    // saturn.ld (C names take a "_")
@@ -176,7 +183,8 @@ inline uint32_t traceProfileCount()
 uint16_t* traceProfileBlocks();
 
 // Room for the overlay's text there (the bench table's, the sync test's),
-// or NULL without room: high work RAM has none to spare in HW_LOG builds.
+// or NULL while they don't record: high work RAM has none to spare in HW_LOG
+// builds.
 #define TRACE_TEXT_BYTES 1616
 char* traceText();
 
@@ -189,10 +197,11 @@ uint32_t traceGeneration();
 inline void traceInit() {}
 inline void traceSetMode(int32_t) {}
 inline int32_t traceMode() { return 0; }
-inline void traceLevel(const void*) {}
+inline void traceLevel() {}
 inline void traceStop() {}
 inline void traceResume() {}
 inline void traceAt(int32_t, uint32_t, uint32_t) {}
+inline void tracePlace(uint32_t, int32_t, int32_t, int32_t, uint16_t) {}
 inline void traceBegin(int32_t, uint32_t, uint32_t = 0) {}
 inline void traceEnd(int32_t, uint32_t, uint32_t = 0) {}
 inline void traceBeginAt(int32_t, uint32_t, uint32_t, uint32_t = 0) {}

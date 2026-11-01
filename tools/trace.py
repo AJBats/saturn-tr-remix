@@ -50,6 +50,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LWRAM = 0x00200000
 LWRAM_BYTES = 0x100000
 HEADER = 0x002FFF00
+VDP2_AREA = 0x25E40000      # trace.cpp TRACE_AREA: the rings, past the VDP2 bitmap
+VDP2_AREA_BYTES = 0x40000
 MAGIC = 0x54524331
 LANES = ['master', 'irq', 'slave', 'dsp']
 SLAVE_LANES = (2, 3)     # written by the slave, on its own clock
@@ -83,22 +85,37 @@ def us(ticks):
     return ticks * TICK * 1e6 / CLOCK
 
 
-def read_lanes(data):
+class Dump:
+    """Memory dumped: low work RAM (the trace's header) from path, and the
+    VDP2 area the rings are in from path's _vdp2.bin beside it."""
+
+    def __init__(self, path):
+        self.regions = [(LWRAM, open(path, 'rb').read())]
+        vdp2 = os.path.splitext(path)[0] + '_vdp2.bin'
+        if os.path.exists(vdp2):
+            self.regions.append((VDP2_AREA, open(vdp2, 'rb').read()))
+
+    def unpack(self, fmt, addr):
+        for base, data in self.regions:
+            if base <= addr < base + len(data):
+                return struct.unpack_from(fmt, data, addr - base)
+        sys.exit(f'{addr:#x} is in no dump')
+
+
+def read_lanes(dump):
     """Each lane's events, oldest first, as (16-bit master ticks, code, arg),
     and the vblank count at each lane's last."""
-    header = HEADER - LWRAM
-    magic, offset = struct.unpack_from('>II', data, header)
+    magic, offset = dump.unpack('>II', HEADER)
     if magic != MAGIC:
         sys.exit(f'no trace in the dump (magic {magic:#x}): an HW_LOG build in a level?')
     lanes, vblanks = [], []
     for i in range(len(LANES)):
-        ring, size, nxt, vblank = struct.unpack_from('>IIII', data, header + 8 + i * 16)
+        ring, size, nxt, vblank = dump.unpack('>IIII', HEADER + 8 + i * 16)
         vblanks.append(vblank)
         count = min(nxt, size)
-        base = ring - LWRAM
         events = []
         for n in range(nxt - count, nxt):
-            e, = struct.unpack_from('>I', data, base + (n & (size - 1)) * 4)
+            e, = dump.unpack('>I', ring + (n & (size - 1)) * 4)
             t = e >> 16
             if i in SLAVE_LANES:
                 t = (t - offset) & 0xFFFF
@@ -177,9 +194,9 @@ def gaps(spans, start, end, depth, name, parent=None):
     return out
 
 
-def convert(data, out_path):
+def convert(dump, out_path):
     ids, first_moment = trace_ids()
-    lanes, vblanks, offset = read_lanes(data)
+    lanes, vblanks, offset = read_lanes(dump)
     lanes = unwrap(lanes, vblanks)
     if not lanes[0]:
         sys.exit('the master lane is empty')
@@ -209,6 +226,17 @@ def convert(data, out_path):
             if args:
                 ev['args'] = args
             events.append(ev)
+
+    # where Lara was, frame by frame (trace.cpp tracePlace): at the master's
+    # event written next after it was recorded
+    places_at, place_count = dump.unpack('>II', HEADER + 8 + len(LANES) * 16 + 8)
+    _, size0, next0, _ = dump.unpack('>IIII', HEADER + 8)
+    oldest = next0 - min(next0, size0)
+    for i in range(place_count if places_at else 0):
+        event, x0, y0, z0, room, heading = dump.unpack('>Iiiihh', places_at + i * 20)
+        k = event - 1 - oldest
+        if event and 0 <= k < len(lanes[0]):
+            moment(1, lanes[0][k][0], 'lara at', {'lara': lara_start((room, x0, y0, z0, heading & 0xFFFF))})
 
     tids = {0: 1, 1: 2, 2: 3, 3: 4}
     paired = [pair_spans(l, ids, first_moment) for l in lanes]
@@ -381,11 +409,14 @@ def capture(cue, frame, keys, name, fps_window=0, shots=0, playback=0, record=0)
         send(f'run_to_frame {frame}', 'done run_to_frame')
         dump = os.path.join(ROOT, 'build', name + '.bin')
         part = os.path.join(ipc, 'part.bin')
-        # low work RAM (the trace), and high (build/NAME_hwram.bin: stack
+        # low work RAM (the trace's header), the VDP2 area (its rings:
+        # build/NAME_vdp2.bin) and high work RAM (build/NAME_hwram.bin: stack
         # depth and the like)
-        for base, path in ((LWRAM, dump), (0x06000000, os.path.join(ROOT, 'build', name + '_hwram.bin'))):
+        for base, size, path in ((LWRAM, LWRAM_BYTES, dump),
+                                 (VDP2_AREA, VDP2_AREA_BYTES, os.path.join(ROOT, 'build', name + '_vdp2.bin')),
+                                 (0x06000000, LWRAM_BYTES, os.path.join(ROOT, 'build', name + '_hwram.bin'))):
             with open(path, 'wb') as out:
-                for at in range(base, base + LWRAM_BYTES, 0x10000):
+                for at in range(base, base + size, 0x10000):
                     if os.path.exists(part):
                         os.remove(part)
                     send(f'dump_mem_bin {at:x} 10000 {part.replace(os.sep, "/")}', 'dump_mem_bin', 30)
@@ -479,6 +510,8 @@ PAGE_ROWS, PAGE_COLUMNS = 26, 42
 PAGE_CELLS = 5
 CHECK_DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 PAGE_HEADER = re.compile(r'F(\d{3})/(\d{3}) S(\d{7}) L(\d{3}) E(\d{3}) D(\d{3})(?: C(\d{2}))? *$')
+# the page's last row: where Lara was (trace.cpp placeRow), or blank
+PAGE_PLACE = re.compile(r'P(\d{3}) X(\d{6}) Y([ -]*\d+) Z(\d{6}) H([0-9A-F]{4}) *$')
 OPEN_END = 999      # a span whose end the page couldn't hold
 
 
@@ -549,7 +582,7 @@ class PageReader:
     def __init__(self):
         import numpy as np
         letters = trace_letters().replace('.', '')
-        self.chars = sorted(set(letters + CHECK_DIGITS + 'FSLED/ '))
+        self.chars = sorted(set(letters + CHECK_DIGITS + 'FSLED/ -'))
         self.glyphs = font_glyphs(self.chars).astype(np.float32)
         self.rect = None
 
@@ -564,8 +597,13 @@ class PageReader:
                   [digits] * 3 + [' ', 'E'] + [digits] * 3 + [' ', 'D'] + [digits] * 3 +
                   [' ', 'C '] + [digits + ' '] * 2)   # the battery's split, if any
         header += [' '] * (PAGE_COLUMNS - 1 - len(header)) + [CHECK_DIGITS]
+        place = (['P '] + [digits + ' '] * 3 + [' '] + ['X '] + [digits + ' '] * 6 + [' '] + ['Y '] +
+                 [digits + ' -'] * 6 + [' '] + ['Z '] + [digits + ' '] * 6 + [' '] + ['H '] +
+                 ['0123456789ABCDEF '] * 4)
+        place += [' '] * (PAGE_COLUMNS - 1 - len(place)) + [CHECK_DIGITS]
         self.barred = bars(body)
         self.header_barred = bars(header)
+        self.place_barred = bars(place)
 
     def read(self, img):
         import cv2
@@ -586,6 +624,7 @@ class PageReader:
         misses = ((cells[:, None, :] - self.glyphs[None, :, :]) ** 2).sum(axis=2).reshape(PAGE_ROWS, PAGE_COLUMNS, -1)
         misses = misses + self.barred[None, :, :]
         misses[0] = misses[0] - self.barred + self.header_barred
+        misses[-1] = misses[-1] - self.barred + self.place_barred
         best = misses.argmin(axis=2)
         return [''.join(self.chars[i] for i in row) for row in best]
 
@@ -611,9 +650,10 @@ def video_frames(path):
 
 def read_pages(path):
     """Each frame's page: {(tag, index): (header numbers, [(letter, begin,
-    end)])}, from the pictures that hold it whole (header and every row
-    checked), the reading most of them agree on; and each tag's frame count.
-    A page without a tag (the playback page's own) has tag 0."""
+    end)], place)}, from the pictures that hold it whole (header and every
+    row checked), the reading most of them agree on; and each tag's frame
+    count. A page without a tag (the playback page's own) has tag 0. place:
+    (room, x, y, z, heading) where Lara was, or None."""
     import collections
     reader = PageReader()
     readings = collections.defaultdict(collections.Counter)
@@ -634,7 +674,7 @@ def read_pages(path):
         index, frames, start, length, count, dropped = (int(v) for v in m.groups()[:6])
         tag = int(m.group(7) or 0)
         events = []
-        for r in rows[1:]:
+        for r in rows[1:-1]:
             for c in range(PAGE_CELLS):
                 cell = r[c * 8:c * 8 + 7]
                 if cell[0] == ' ':
@@ -643,12 +683,23 @@ def read_pages(path):
         if len(events) != count:
             torn += 1
             continue
+        place = None
+        p = PAGE_PLACE.match(rows[-1][:PAGE_COLUMNS - 1])
+        if p:
+            place = (int(p.group(1)), int(p.group(2)), int(p.group(3).replace(' ', '')), int(p.group(4)),
+                     int(p.group(5), 16))
         totals[tag] = frames
-        readings[(tag, index)][((start, length, count, dropped), tuple(events))] += 1
+        readings[(tag, index)][((start, length, count, dropped), tuple(events), place)] += 1
     pages = {k: c.most_common(1)[0][0] for k, c in readings.items()}
     print(f'{path}: {pictures} pictures, {len(pages)} frames read of {sum(totals.values())}, '
           f'{torn} pictures torn or misread')
     return pages, totals
+
+
+def lara_start(place):
+    """A place (room, x, y, z, heading) as LARA_START and START_YAW take it."""
+    room, x, y, z, heading = place
+    return f'LARA_START={room}@{x}:{y}:{z} START_YAW=0x{heading:04X}'
 
 
 def nest(spans):
@@ -695,10 +746,12 @@ def page_trace(pages, out_path, title):
 
     lanes = {1: [], 2: [], 3: [], 4: []}
     vdp1, shown, vblanks, windows = [], [], [], []
+    places = {}
     opened = set()      # spans whose end the page couldn't hold
     for index in sorted(pages):
-        (start, length, count, dropped), events = pages[index]
+        (start, length, count, dropped), events, place = pages[index]
         windows.append((start, start + length, index, dropped))
+        places[index] = place
         for letter, b, e in events:
             ident = by_letter[letter]
             name = ids[ident]
@@ -724,10 +777,12 @@ def page_trace(pages, out_path, title):
 
     events = []
 
-    def x(tid, b, e, name, cat, cname=None):
+    def x(tid, b, e, name, cat, cname=None, args=None):
         ev = {'name': name, 'cat': cat, 'ph': 'X', 'pid': 1, 'tid': tid, 'ts': ms_us(b), 'dur': ms_us(e - b)}
         if cname:
             ev['cname'] = cname
+        if args:
+            ev['args'] = args
         events.append(ev)
 
     def label(name):
@@ -769,7 +824,10 @@ def page_trace(pages, out_path, title):
     for t in vblanks:
         events.append({'name': 'vblank', 'ph': 'i', 's': 't', 'pid': 1, 'tid': 6, 'ts': ms_us(t)})
     for lo, hi, index, dropped in windows:
-        x(8, lo, hi, f'frame {index}' + (f' ({dropped} events left out)' if dropped else ''), 'frame')
+        place = places.get(index)
+        x(8, lo, hi, f'frame {index}' + (f' room {place[0]}' if place else '') +
+          (f' ({dropped} events left out)' if dropped else ''), 'frame',
+          args={'lara': lara_start(place)} if place else None)
 
     # the master's items in the order it draws them each frame
     items = collections.defaultdict(list)
@@ -895,8 +953,7 @@ def main():
     else:
         dump = args.dump
         out = args.out or os.path.splitext(dump)[0] + '.json'
-    with open(dump, 'rb') as f:
-        convert(f.read(), out)
+    convert(Dump(dump), out)
 
 
 if __name__ == '__main__':

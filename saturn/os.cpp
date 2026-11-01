@@ -16,7 +16,11 @@
 
 // Packed levels load into low work RAM, which nothing else uses.
 #define LEVEL_ADDR  ((uint8*)0x00200000)
+#ifdef HW_LOG
+#define LEVEL_MAX   (1024 * 1024 - 256)     // the trace's header above (trace.cpp)
+#else
 #define LEVEL_MAX   (1024 * 1024)
+#endif
 
 static uint8* gLowFree = LEVEL_ADDR;    // past the loaded level's data
 
@@ -105,7 +109,9 @@ static uint8 gTitlePicture;
 
 const void* osLoadScreen(LevelID id)
 {
+    traceStop();    // the picture stages over the trace
     screenShow("USAOPT", 352);
+    traceResume();
     screenRelease(true);
     return &gTitlePicture;
 }
@@ -266,7 +272,7 @@ const void* osLoadLevel(LevelID id)
     const char* name = (const char*)gLevelInfo[id].data;
 
     crashHold(true);
-    traceStop();    // the level may load over the trace
+    traceStop();    // the loading picture stages over the trace
     crashLog("LEVEL", id);
     playVideos(id);
     screenShow(loadingPicture(id), id == LVL_TR1_TITLE ? 352 : 320);
@@ -302,7 +308,7 @@ const void* osLoadLevel(LevelID id)
     int32 itemSize = X_MAX(0, cdLoadFile(path, low, LEVEL_ADDR + LEVEL_MAX - low));
     detailItemInit(low, itemSize);
     gLowFree = low + ((itemSize + 15) & ~15);
-    traceLevel(gLowFree);
+    traceLevel();
 
     screenRelease(false);
     crashHold(false);

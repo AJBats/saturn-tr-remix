@@ -120,6 +120,11 @@ int main()
         gameUpdate(delta);
         renderPoll();
         sndFrame();
+#ifdef HW_LOG
+        if (const ItemObj* lara = (const ItemObj*)(const void*)players[0]) {
+            tracePlace(uint32(lara->room - rooms), lara->pos.x, lara->pos.y, lara->pos.z, uint16(lara->angle.y));
+        }
+#endif
         uint32 t1 = timerTicks();
         traceEndAt(TRACE_MASTER, t1, TR_UPDATE);
         traceBeginAt(TRACE_MASTER, t1, TR_RENDER);

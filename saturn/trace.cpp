@@ -2,6 +2,7 @@
 
 #include "trace.h"
 #include "crash.h"
+#include "hw.h"
 #include "overlay.h"
 #include "slave.h"
 
@@ -11,12 +12,17 @@
 
 #define TRACE_HEADER    0x002FFF00  // the top of low work RAM, where tools/trace.py looks
 #define TRACE_MAGIC     0x54524331  // "TRC1"
+
+// The rings and the rest (TraceArea, the profile's blocks): VDP2's VRAM past
+// the bitmap (banks B0 and B1), which no level uses, to its last word, the
+// back colour. Writes there cross the B-bus, against low work RAM's.
+#define TRACE_AREA      (VDP2_VRAM + 0x40000)
+#define TRACE_AREA_END  (VDP2_VRAM + 0x7FF00)
 #define TRACE_DEPTH     8           // spans open at once on a lane
 #define FRAME_TICKS     7457        // FRT ticks in a 30 fps frame
 
-// Events each lane's ring holds at most, powers of two: some 120 frames with
-// the detail spans. Halved together until they fit between the level and the
-// header (LEVEL1 takes them whole).
+// Events each lane's ring holds, powers of two: some 120 frames with the
+// detail spans. Halved together till they fit the area (they do whole).
 static const uint32_t kRingSize[TRACE_LANES] = { 16384, 2048, 16384, 1024 };
 #define TRACE_RING_MIN  256
 
@@ -28,7 +34,18 @@ struct TraceHeader
     // a lane that has stopped (its 16-bit times alone can't)
     struct { uint32_t ring, size, next, vblank; } lanes[TRACE_LANES];
     uint32_t profile, profileBlocks;    // the profile's blocks, how many (tools/profile_map.py)
+    uint32_t places, placeCount;        // the places (TracePlace), how many
 };
+
+// Where Lara was in a frame: the master's events written before it was
+// recorded, plus 1 (0: none), which places it among the frames.
+struct TracePlace
+{
+    uint32_t event;
+    int32_t x, y, z;
+    uint16_t room, heading;
+};
+#define TRACE_PLACES    256     // more than the rings' frames
 
 // The lanes the slave writes, which the master reads past its cache.
 static bool slaveLane(int32_t lane)
@@ -54,7 +71,7 @@ struct Shown
 
 #define PLAY_EVENTS     256     // a frame's, before the page's room
 #define PLAY_CELLS      5       // events a row
-#define PLAY_ROWS       (OVERLAY_ROWS - 1)
+#define PLAY_ROWS       (OVERLAY_ROWS - 2)  // under the header, above the place
 #define PLAY_HOLD       3       // ticks a page stays up once whole
 #define PLAY_PLOTS      8
 
@@ -80,6 +97,7 @@ struct TraceArea
 {
     TracePlay play;
     char text[TRACE_TEXT_BYTES];
+    TracePlace places[TRACE_PLACES];
 };
 
 static TraceHeader* const gHeader = (TraceHeader*)TRACE_HEADER;
@@ -94,6 +112,7 @@ struct Lane
 };
 
 static Lane gLanes[TRACE_LANES];
+static uint32_t gPlaceNext;
 static uint32_t gSlaveOffset;
 static int32_t gMode = TRACE_DETAIL;
 bool gTraceOn;
@@ -137,6 +156,26 @@ void traceAt(int32_t lane, uint32_t ticks, uint32_t code)
     asm volatile("ldc %0, sr" : : "r"(sr));
 }
 
+// Master cycles a traceBegin takes, 256 of them into ring.
+static uint32_t eventCycles(uint32_t* ring)
+{
+    Lane saved = gLanes[TRACE_MASTER];
+    bool on = gTraceOn;
+    gLanes[TRACE_MASTER].ring = ring;
+    gLanes[TRACE_MASTER].mask = 255;
+    gLanes[TRACE_MASTER].next = 0;
+    gTraceOn = true;
+    uint32_t t0 = timerTicks();
+    for (int32_t i = 0; i < 256; i++) {
+        traceBegin(TRACE_MASTER, TR_UPDATE);
+    }
+    uint32_t ticks = (timerTicks() - t0) & 0xFFFF;
+    gLanes[TRACE_MASTER] = saved;
+    gTraceOn = on;
+    memset(gHeader, 0, sizeof(TraceHeader));
+    return ticks * 128 / 256;
+}
+
 static volatile uint32_t gSyncGo, gSyncSlave;
 
 static void syncTask()
@@ -170,18 +209,23 @@ void traceInit()
     }
     gSlaveOffset = (first + least) & 0xFFFF;
     crashLog("TRSYNC", gSlaveOffset);
+
+    // what an event costs the master, its time read and stores (traceBegin):
+    // into a ring in low work RAM (empty at boot), then in the area
+    crashLog("TRLW", eventCycles((uint32_t*)0x00280000));
+    crashLog("TRV2", eventCycles((uint32_t*)TRACE_AREA));
 }
 
-static const void* gLevelEnd;   // traceLevel's
+static bool gLevelOn;           // traceLevel's
 static uint32_t gGeneration;    // traceGeneration's
 
-void traceLevel(const void* end)
+void traceLevel()
 {
-    gLevelEnd = end;
+    gLevelOn = true;
     traceStop();
-    uint32_t base = (uintptr_t(end) + 15) & ~15;
+    uint32_t base = TRACE_AREA;
     uint32_t profileBytes = (traceProfileCount() * sizeof(uint16_t) + 3) & ~3;
-    int32_t room = int32_t(TRACE_HEADER - base - sizeof(TraceArea) - profileBytes) / 4;  // ring events
+    int32_t room = int32_t(TRACE_AREA_END - base - sizeof(TraceArea) - profileBytes) / 4;  // ring events
     int32_t shift = 0;
     uint32_t total = 0;
     for (int32_t i = 0; i < TRACE_LANES; i++) {
@@ -202,6 +246,9 @@ void traceLevel(const void* end)
     gHeader->slaveOffset = gSlaveOffset;
     gHeader->profile = uint32_t(area + 1);
     gHeader->profileBlocks = traceProfileCount();
+    gHeader->places = uint32_t(area->places);
+    gHeader->placeCount = TRACE_PLACES;
+    gPlaceNext = 0;
     uint32_t* ring = (uint32_t*)(uintptr_t(area + 1) + profileBytes);
     for (int32_t i = 0; i < TRACE_LANES; i++)
     {
@@ -228,8 +275,8 @@ void traceStop()
 
 void traceResume()
 {
-    if (gLevelEnd) {
-        traceLevel(gLevelEnd);
+    if (gLevelOn) {
+        traceLevel();
     }
 }
 
@@ -456,7 +503,77 @@ static void rowCheck(char* row)
 
 // The shown frame's events, as many as the page holds (the master's detail
 // spans are left out first, the last first), and its rows.
-static void composeFrame(TracePlay &p, int32_t start, int32_t end)
+void tracePlace(uint32_t room, int32_t x, int32_t y, int32_t z, uint16_t heading)
+{
+    if (!gTraceOn)
+        return;
+    TracePlace &e = gArea->places[gPlaceNext++ & (TRACE_PLACES - 1)];
+    e.event = gLanes[TRACE_MASTER].next + 1;
+    e.x = x;
+    e.y = y;
+    e.z = z;
+    e.room = uint16_t(room);
+    e.heading = heading;
+}
+
+// The place recorded in the frame from master event first to end, or NULL.
+static const TracePlace* placeIn(uint32_t first, uint32_t end)
+{
+    for (int32_t i = 0; i < TRACE_PLACES; i++)
+    {
+        const TracePlace &e = gArea->places[i];
+        if (e.event && e.event - 1 >= first && e.event - 1 < end)
+            return &e;
+    }
+    return nullptr;
+}
+
+static char* hexDigits(char* q, uint32_t value, int32_t width)
+{
+    for (int32_t d = width - 1; d >= 0; d--) {
+        *q++ = "0123456789ABCDEF"[(value >> (d * 4)) & 15];
+    }
+    return q;
+}
+
+// The place row: P, the room, then X, Y, Z (Y signed, right-aligned) and the
+// heading in hex.
+static void placeRow(char* row, const TracePlace* place)
+{
+    memset(row, 0, OVERLAY_COLUMNS + 1);
+    char* q = row;
+    if (place)
+    {
+        *q++ = 'P';
+        q = digits(q, place->room, 3);
+        *q++ = ' ';
+        *q++ = 'X';
+        q = digits(q, uint32_t(place->x), 6);
+        *q++ = ' ';
+        *q++ = 'Y';
+        uint32_t y = uint32_t(place->y < 0 ? -place->y : place->y);
+        char field[7];
+        digits(field, y, 6);
+        int32_t lead = 0;
+        while (lead < 5 && field[lead] == '0') {
+            field[lead++] = ' ';
+        }
+        if (place->y < 0) {
+            field[lead - 1] = '-';
+        }
+        memcpy(q, field, 6);
+        q += 6;
+        *q++ = ' ';
+        *q++ = 'Z';
+        q = digits(q, uint32_t(place->z), 6);
+        *q++ = ' ';
+        *q++ = 'H';
+        hexDigits(q, place->heading, 4);
+    }
+    rowCheck(row);
+}
+
+static void composeFrame(TracePlay &p, int32_t start, int32_t end, const TracePlace* place)
 {
     p.count = p.dropped = 0;
     int32_t plots[PLAY_PLOTS], drawn[PLAY_PLOTS];
@@ -554,6 +671,7 @@ static void composeFrame(TracePlay &p, int32_t start, int32_t end)
         }
         rowCheck(row);
     }
+    placeRow(p.rows[OVERLAY_ROWS - 1], place);
 }
 
 // From the first frame: the master's first end of TR_TICK_WAIT once every
@@ -641,7 +759,7 @@ bool tracePlayFrame()
     {
         Cursor end = p.frame;
         nextFrame(end);
-        composeFrame(p, p.frame.t, end.t);
+        composeFrame(p, p.frame.t, end.t, placeIn(p.frame.n, end.n));
         p.frame = end;
     }
 

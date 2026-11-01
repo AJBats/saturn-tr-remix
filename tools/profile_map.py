@@ -1,7 +1,7 @@
 """The measurement table's sampling profile (HW_LOG builds, debug.cpp) by
 function.
 
-usage: profile_map.py ELF --dump HWRAM.bin LWRAM.bin
+usage: profile_map.py ELF --dump HWRAM.bin LWRAM.bin [VDP2.bin]
            every block, from dumps of high and low work RAM (the blocks are
            kept with the trace, below its rings: trace.py capture writes
            both dumps)
@@ -25,6 +25,7 @@ START = 0x06004000
 SHIFT = 6
 TRACE_HEADER = 0x002FFF00
 TRACE_LANES = 4                 # trace.h: the header's profile pointer and block count follow the lanes
+VDP2_AREA = 0x25E40000          # trace.cpp TRACE_AREA
 
 
 def symbols(elf):
@@ -55,8 +56,13 @@ def main():
         ram = open(sys.argv[3], "rb").read()
         low = open(sys.argv[4], "rb").read()
         hist, blocks = struct.unpack_from(">II", low, TRACE_HEADER - 0x00200000 + 8 + TRACE_LANES * 16)
-        hist -= 0x00200000
-        counts = struct.unpack_from(f">{blocks}H", low, hist)
+        if hist >= VDP2_AREA:
+            # the blocks in the VDP2 area (trace.cpp TRACE_AREA): its dump,
+            # by default trace.py capture's beside the low one
+            path = sys.argv[5] if len(sys.argv) > 5 else os.path.splitext(sys.argv[4])[0] + "_vdp2.bin"
+            counts = struct.unpack_from(f">{blocks}H", open(path, "rb").read(), hist - VDP2_AREA)
+        else:
+            counts = struct.unpack_from(f">{blocks}H", low, hist - 0x00200000)
         total = struct.unpack_from(">I", ram, data["gProfileSamples"] - 0x06000000)[0]
         other = struct.unpack_from(">I", ram, data["gProfileOther"] - 0x06000000)[0]
         print(f"{total} samples, {100 * other / max(1, total):.1f}% outside the program")
