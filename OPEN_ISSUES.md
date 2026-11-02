@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-245 | Rendering: the new renderer's open work |
+| 219-247 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3566,6 +3566,22 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
   (Mednafen's CD timing is not the drive's).
 - **Levers:** the meshes' store read with the level file (one seek less),
   the rooms' copies made by DMA.
+
+### 247. The Cistern's water room 108 holds 20 fps on VDP1
+*Kind: speed (VDP1) · Size: Saturn, scene page: VDP1 95% of a 30 fps frame
+(about 31.7 ms a list), 20 fps; the CPUs have room (master 76%, slave
+78-100%) · Fix: unknown*
+
+- Found in play on the Saturn (2026-11-01, Cistern test disc with the
+  pipelining probe, 90ceaff): LEVEL7A room 108 at 44105 -256 62852, yaw
+  0x91E7, looking across the green water. Scene page: rooms 19, room
+  vertices 1939, mesh vertices 1210, commands 950, meshes 101.
+- VDP1 needs about 31.7 ms for the list, past the 30.9 ms from a frame's
+  display start to the second field's change (issue 241), so every list
+  waits a third field.
+- Not looked at yet: which commands cost VDP1 the time there (the water's
+  faces, the 101 meshes, overdraw). `vdp1_cost_log` in Mednafen at the spot
+  would rank them.
 
 ---
 
