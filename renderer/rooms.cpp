@@ -75,6 +75,7 @@ void roomsInit(const RoomsLevel &level)
     gCtx.fills = gFills[0];
     gCtx.farScaled = 1;
     gCtx.entries = gEntries;
+    gCtx.verticesTop = MAX_VERTICES - SPLIT_VERTICES;
     gSines = level.sines;
 }
 

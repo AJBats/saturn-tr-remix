@@ -57,6 +57,7 @@ struct RoomsContext
     int16_t rotation[10];       // +124 rooms.s's own: the view's rotation, its rows as 16-bit x y z
     RoomEntry* entries;         // +144 each portal a room was seen by (the first ROOM_ENTRIES)
     int32_t entryCount;         // +148
+    int32_t verticesTop;        // +152 where the rooms' vertices must stop
 };
 
 extern "C" void roomsSeenAsm(RoomsContext* ctx);

@@ -73,6 +73,7 @@
     .equ    R_ROTATION,     124
     .equ    R_ENTRIES,      144
     .equ    R_ENTRY_COUNT,  148
+    .equ    R_VERTICES_TOP, 152
     .equ    ROOM_ENTRIES,   128
     .equ    ROOM_FILLS,     64
 
@@ -784,8 +785,9 @@ _roomsSeenAsm:
 
 ! rooms.cpp roomsQueue, placeRooms and roomBegin's caustics: each room listed
 ! with vertices (at most ROOM_JOBS), its vertices placed from MASTER_VERTICES
-! up (a room that has no place below MAX_VERTICES has no job), as a FaceRoom
-! (faces.h) for stages 2 and 3; the caustics' table once, if a room is wet.
+! up, as a FaceRoom (faces.h) for stages 2 and 3; the caustics' table once, if
+! a room is wet. Rooms wanting more vertices than there are: the first listed,
+! the deepest, have no job. The last listed is the camera's, and it must stay.
 !
 ! void roomsJobsAsm(RoomsContext* ctx)
 
@@ -834,6 +836,30 @@ _roomsJobsAsm:
     shll2   r11
     shll    r11                     ! the vertices' bottom: MASTER_VERTICES
     mov     #0, r12                 ! the rooms queued
+    ! on the stack: the vertices wanted past the top
+    mov     r8, r2
+    mov     r9, r3
+    mov     r11, r4
+    mov.l   @(R_LEVEL,gbr), r0
+    mov     r0, r5
+    mov     #-16, r6
+.Lwanted:
+    mov.w   @r2, r0
+    extu.w  r0, r1
+    shll2   r1
+    shll2   r1
+    add     r5, r1
+    mov.w   @(L_VERTICES,r1), r0
+    extu.w  r0, r1
+    add     #15, r1
+    and     r6, r1
+    add     r1, r4
+    dt      r3
+    bf/s    .Lwanted
+    add     #SEEN, r2
+    mov.l   @(R_VERTICES_TOP,gbr), r0
+    sub     r0, r4
+    mov.l   r4, @-r15
     bra     .Ljob
     mov     #0, r14                 ! any wet
 .Lnojob:
@@ -862,13 +888,13 @@ _roomsJobsAsm:
     add     #15, r4
     mov     #-16, r0
     and     r0, r4                  ! its vertices' size
-    mov     r11, r0
-    add     r4, r0
-    mov     #5, r1
-    shll8   r1
-    shll2   r1                      ! MAX_VERTICES
-    cmp/gt  r1, r0
-    bt      .Lnojob
+    mov.l   @r15, r0
+    cmp/pl  r0
+    bf      .Lfits
+    sub     r4, r0
+    bra     .Lnojob                 ! makes way for the nearer rooms
+    mov.l   r0, @r15
+.Lfits:
     ! its geometry, its vertices' place
     mov     r6, r3
     shll2   r3
@@ -977,6 +1003,7 @@ _roomsJobsAsm:
     mov.l   r0, @(R_JOB_COUNT,gbr)
 
 .Ljobsend:
+    add     #4, r15
     ! the caustics: each vertex's shade offset, the wave at its start plus
     ! the frame's phase
     tst     r14, r14

@@ -288,13 +288,17 @@ void queueRoom(uint32_t index)
 
 // rooms.cpp roomsQueue's job for each room queued with vertices (draw.h's
 // camera room's water; at most MAX_ROOM_JOBS), placeRooms' place for its
-// vertices from gBottom up (none: never drawn), roomBegin's caustics: as the
-// stages after take them.
+// vertices from gBottom up (rooms.s: the first listed go when they won't all
+// fit), roomBegin's caustics: as the stages after take them.
 static int32_t roomJobs(const RoomSeen* seen, int32_t count, uint32_t cameraRoom, FaceRoom* jobs)
 {
     bool cameraWater = gLevel[cameraRoom].flags & ROOM_FLAG_WATER;
     int32_t queued = 0, placed = 0, bottom = MASTER_VERTICES;
     bool wet = false;
+    int32_t over = bottom - (MAX_VERTICES - SPLIT_VERTICES);
+    for (int32_t i = 0; i < count; i++) {
+        over += (gLevel[seen[i].room].vertices + 15) & ~15;
+    }
     for (int32_t i = 0; i < count; i++)
     {
         uint32_t index = seen[i].room;
@@ -303,8 +307,11 @@ static int32_t roomJobs(const RoomSeen* seen, int32_t count, uint32_t cameraRoom
             continue;
         queued++;
         int32_t size = (info->vertices + 15) & ~15;
-        if (bottom + size > MAX_VERTICES)
+        if (over > 0)
+        {
+            over -= size;
             continue;
+        }
 
         const RoomGeometry &g = gGeometry[index];
         FaceRoom &job = jobs[placed++];
