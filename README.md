@@ -16,7 +16,7 @@ to differ from the retail game or to be broken.
 | | |
 |---|---|
 | Retail Saturn *Tomb Raider* (USA) | Required: levels, pictures, videos, CD audio |
-| PlayStation *Tomb Raider* (USA) (Rev 1) | Optional: better sound effects, see [below](#with-or-without-the-playstation-disc) |
+| PlayStation *Tomb Raider* (USA) (Rev 1) | Optional: sound effects at a higher sample rate, see [below](#with-or-without-the-playstation-disc) |
 | Python 3.10 or newer | The level packer and other build tools |
 | GNU Make 4.3 or newer, and a POSIX shell | |
 | Git | |
@@ -86,8 +86,8 @@ haven't been tried.
 
 ## With or without the PlayStation disc
 
-The disc changes only the sound effects. Levels, textures and everything else are
-byte for byte the same either way.
+The disc changes only the sound effects: the levels' textures and meshes are byte for
+byte the same either way.
 
 | | Sound effect samples |
 |---|---|
@@ -147,7 +147,7 @@ gmake -j8 disc
 ```
 
 That compiler is GCC 14.1.0, the release's only macOS build, not the 14.2.0 used
-everywhere else, so the program it builds will differ and hasn't been run on anything.
+everywhere else, so the program it builds may differ, and it hasn't been run on anything.
 
 ## Licence
 
