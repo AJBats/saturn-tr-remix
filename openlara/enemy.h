@@ -2417,7 +2417,12 @@ struct Larson : Gunman
 
 // Pierre can't be killed until the level means him to be (his trigger has
 // spent itself): until then he runs off at 40 health, and vanishes once out
-// of the camera's sight for a while.
+// of the camera's sight for a while, or in water. One at a time: a second
+// woken is removed, or the first if the second's trigger has spent itself
+// (TR1's PierreControl, 06028ef0).
+struct Pierre;
+static Pierre* gPierre;
+
 struct Pierre : Larson
 {
     enum {
@@ -2430,6 +2435,70 @@ struct Pierre : Larson
     Pierre(Room* room) : Larson(room)
     {
         health = 70;
+        gPierre = NULL;
+    }
+
+    void remove()
+    {
+        health = NOT_ENEMY;
+        flags &= ~ITEM_FLAG_STATUS;
+        flags |= ITEM_FLAG_STATUS_INVISIBLE;
+        if (extraE) {
+            disable();
+        }
+        deactivate();
+        if (gPierre == this) {
+            gPierre = NULL;
+        }
+    }
+
+    virtual void update()
+    {
+        // removed by the other, earlier in this frame's list
+        if (!(flags & ITEM_FLAG_ACTIVE))
+            return;
+
+        if (!gPierre)
+        {
+            gPierre = this;
+        }
+        else if (gPierre != this)
+        {
+            if (!(flags & ITEM_FLAG_ONCE))
+            {
+                remove();
+                return;
+            }
+            gPierre->remove();
+            gPierre = this;
+        }
+
+        Larson::update();
+
+        if (!extraE)
+            return;
+
+        if (turnSpeed)
+        {
+            Location from = playersExtra[0].camera.view;
+            Location to;
+            to.room = room;
+            to.pos = _vec3i(pos.x, pos.y - 1024, pos.z);
+
+            if (trace(from, to, false))
+            {
+                turnSpeed = 1;
+            }
+            else if (++turnSpeed > DISAPPEAR)
+            {
+                remove();
+                return;
+            }
+        }
+
+        if (getWaterLevel() != WALL) {
+            remove();
+        }
     }
 
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
@@ -2455,27 +2524,7 @@ struct Pierre : Larson
             mood = MOOD_ESCAPE;
         }
 
-        int32 goal = updatePerson(DAMAGE, true);
-
-        if (turnSpeed)
-        {
-            Location from = playersExtra[0].camera.view;
-            Location to;
-            to.room = room;
-            to.pos = _vec3i(pos.x, pos.y - 1024, pos.z);
-
-            if (trace(from, to, false)) {
-                turnSpeed = 1;
-            } else if (++turnSpeed > DISAPPEAR) {
-                health = NOT_ENEMY;
-                flags &= ~ITEM_FLAG_STATUS;
-                flags |= ITEM_FLAG_STATUS_INVISIBLE;
-                disable();
-                deactivate();
-            }
-        }
-
-        return goal;
+        return updatePerson(DAMAGE, true);
     }
 };
 

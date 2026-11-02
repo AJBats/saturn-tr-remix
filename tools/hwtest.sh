@@ -30,6 +30,10 @@
 #               however many rooms are hidden
 #   cistern-stamp LEVEL7A, room 103: 25 fps at Far 20, 30 at Far 16 or with the
 #               rooms that can't be seen hidden by hand
+#   cistern-mirror LEVEL7A, room 91, over the pool: holes in the picture at
+#               a view of 36 rooms
+#   cistern-pierre LEVEL7A, the mirror spot with Pierre (item 29) awake, out
+#               of the camera's sight, for his running off
 #
 # OBJECT_ART=1 in the environment reworks the meshes' textures too
 # (tools/pack_level.py), in every level.
@@ -56,7 +60,9 @@ case "${1:-ledge}" in
     cistern-balcony) level=LEVEL7A id=LVL_TR1_7A start=84@40578:-5120:49157 yaw=0x139C ;;
     cistern-steps) level=LEVEL7A id=LVL_TR1_7A start=90@38752:-5632:65724 yaw=0x4B0B ;;
     cistern-stamp) level=LEVEL7A id=LVL_TR1_7A start=103@47529:0:52129 yaw=0xDB9F ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-tunnel|cistern-look|cistern-water]" >&2; exit 1 ;;
+    cistern-mirror) level=LEVEL7A id=LVL_TR1_7A start=91@40465:-5632:65637 yaw=0x73D4 ;;
+    cistern-pierre) level=LEVEL7A id=LVL_TR1_7A start=91@40465:-5632:65637 yaw=0x73D4 trigger=29 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-tunnel|cistern-look|cistern-water]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 

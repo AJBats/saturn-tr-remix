@@ -1442,18 +1442,6 @@ AI-17*
   **linear** distance. That is a quarter of the squared distance.
 - **Effect:** at 6 sectors he hits about 57% of the time instead of 38%.
 
-### 91. Pierre: no one-at-a-time rule, and he survives water
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-19*
-
-- **Retail:** PierreControl (`06028ef0`) tracks g_PierreItemNum
-  (`DAT_06078c80`).
-  - When a second Pierre activates, one is removed: the non-one-shot one, or the
-    old one if the new one is one-shot.
-  - A Pierre in water is removed.
-- **Ours:** `openlara/enemy.h:2421-2480` has neither rule.
-- **Effect:** two Pierres can be active together in the Folly, Colosseum,
-  Cistern and Tihocan.
-
 ### 92. The puma has 40 hit points; retail's has 45
 *Severity: gameplay (subtle) · Confidence: confirmed (object table entry 14 =
 0x2D) · Fix: small · Audit: AI-20*
@@ -3630,6 +3618,37 @@ over 14.6, at most 188 · Fix: medium, parked*
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 259. A hall of mirrors where the rooms want more vertices than there are
+*Kind: visible · Fixed: smallest windows give way, filled · Found by the user, 2026-11-02*
+
+- Room 91, 40465 -5632 65637, 0x73D4 (`tools/hwtest.sh cistern-mirror`), and 40340 -5632 65637,
+  0x6EEC: 38 rooms listed want 3408 vertices of 3328. The first listed made way (issue 254's
+  fix): there, room 105, 6,289 pixels of the picture, its window unfilled, so it showed old
+  frames.
+- Now the rooms showing least make way (`renderer/rooms.cpp` roomsMakeWay), their windows filled and
+  what stands in them dropped: there, a room of 133 vertices seen through 3 pixels. Holes in
+  Mednafen, lists drawn offline over magenta: 6,289 to 5 or fewer.
+
+### 260. The game crashed when Pierre ran off
+*Kind: crash · Fixed · Found by the user, 2026-11-02*
+
+- Slave address error in `Enemy::updateLocation` (vector 9). Pierre gave back his creature data in
+  `updateState`, then the same update went on to read it. Every time he left out of the camera's
+  sight. Reproduced with `tools/hwtest.sh cistern-pierre`.
+- Now as retail: he leaves after he's animated.
+
+### 91. Pierre: no one-at-a-time rule, and he survives water
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-19*
+
+- **Retail:** PierreControl (`06028ef0`) tracks g_PierreItemNum
+  (`DAT_06078c80`).
+  - When a second Pierre activates, one is removed: the non-one-shot one, or the
+    old one if the new one is one-shot.
+  - A Pierre in water is removed.
+- **Ours:** `openlara/enemy.h:2421-2480` has neither rule.
+- **Effect:** two Pierres can be active together in the Folly, Colosseum,
+  Cistern and Tihocan.
 
 ### 254. A big view lost the camera's own room: floors and pillars gone
 *Closed 2026-11-02: e73d0d6*
