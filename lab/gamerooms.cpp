@@ -150,7 +150,15 @@ bool checkPortal(uint32_t index, const Portal* portal)
         y >>= FIXED_SHIFT;
         z >>= FIXED_SHIFT;
 
-        PERSPECTIVE(x, y, z);
+        if (z >> PROJ_SHIFT)
+        {
+            PERSPECTIVE(x, y, z);
+        }
+        else    // rooms.s: no scale this near, the frame's edges they point to
+        {
+            x = x < 0 ? -(FRAME_WIDTH >> 1) : FRAME_WIDTH >> 1;
+            y = y < 0 ? -(FRAME_HEIGHT >> 1) : FRAME_HEIGHT >> 1;
+        }
 
         if (x < x0) x0 = x;
         if (x > x1) x1 = x;

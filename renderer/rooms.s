@@ -160,10 +160,26 @@
     mov.l   @(F_PV+12*\i+4,r15), r2
     dmuls.l r2, r4
     sts     mach, r2                ! y >> 14
-    ! PERSPECTIVE: d = divTable[z >> 4], x = x d >> 12, y = y d >> 12
+    ! PERSPECTIVE: d = divTable[z >> 4], x = x d >> 12, y = y d >> 12; under
+    ! 16 units ahead there is no scale: the frame's edges x and y point to
     shlr2   r3
     shlr2   r3
-    shll    r3
+    tst     r3, r3
+    bf      6f
+    mov     #88, r0
+    shll    r0
+    cmp/pz  r1
+    bt/s    8f
+    mov     r0, r1
+    neg     r0, r1
+8:  mov     #112, r0
+    cmp/pz  r2
+    bt/s    10f
+    mov     r0, r2
+    neg     r0, r2
+10: bra     11f
+    nop
+6:  shll    r3
     mov.l   @(R_DIV,gbr), r0
     add     r0, r3
     mov.w   @r3, r3
@@ -178,7 +194,7 @@
     sts     macl, r2
     dmuls.l r2, r4
     sts     mach, r2
-    mov.l   @(F_X0,r15), r0
+11: mov.l   @(F_X0,r15), r0
     cmp/gt  r1, r0
     bf      3f
     mov.l   r1, @(F_X0,r15)
