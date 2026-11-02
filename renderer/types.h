@@ -52,6 +52,10 @@ struct Face
 #ifndef MASTER_VERTICES
 #define MASTER_VERTICES 2048
 #endif
+// Nearer than this a room vertex is divided exactly, not by the table: its steps
+// (z >> 4) move a corner up close by an eighth of its distance from the centre.
+#define VIEW_EXACT      2048
+
 #ifndef MAX_CMDS
 #define MAX_CMDS        1792    // VRAM_MAX_CMDS
 #endif

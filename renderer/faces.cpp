@@ -636,7 +636,12 @@ static void projectRoomPoint(const FaceRoom &room, const RoomSplit &split, int32
     if (dz >= 1281) {
         dz = 1280;
     }
+#ifdef RENDER_LAB
     int16_t dd = split.divTable[dz];
+#else
+    // as rooms' near vertices are (vertices.h RoomProject.zExact)
+    int16_t dd = z < VIEW_EXACT ? (1 << 20) / z : split.divTable[dz];
+#endif
     const int32_t limit = 2047 << 12;
     int32_t px = x * dd, py = y * dd;
     int32_t sx = asr16<12>(px < -limit ? -limit : px > limit ? limit : px) + (FRAME_WIDTH >> 1);

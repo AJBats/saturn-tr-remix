@@ -397,6 +397,11 @@ static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
     rp.caustics = room.caustics;
     rp.count = to;      // the caustics' index, count - vertices left: from on
     rp.farScaled = gFarScaled;
+#ifdef RENDER_LAB
+    rp.zExact = rp.zMin;    // as the captured game projected it
+#else
+    rp.zExact = VIEW_EXACT << 8;
+#endif
     roomProjectAsm(gRoomRotated + gRotatedAt[i] + from, to - from, roomVertices(room) + from, &rp);
 }
 

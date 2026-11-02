@@ -34,6 +34,7 @@ struct RoomProject
     const int16_t* caustics;    // +40 shade offsets (32) by vertex index under water, or none
     int32_t count;              // +44 the room's vertices
     int32_t farScaled;          // +48 verticesFarScaled's
+    int32_t zExact;             // +52 nearer than this << 8, divided: not the table
 };
 
 extern "C" void roomProjectAsm(const RoomRotated* src, int32_t count, Vertex* dst, RoomProject* rp);

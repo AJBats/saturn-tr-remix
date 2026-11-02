@@ -391,6 +391,7 @@ int32_t verticesRoomsSeldomCheck()
             r.y = int32_t(next() % uint32_t(2 * spread + 1)) - spread;
             gSeldomPoints[k].g = next() >> 24;
         }
+        rp.zExact = rp.zMin;
         roomProjectAsm(gSeldomRotated, SELDOM_VERTICES, gSeldomAsm, &rp);
         roomProjectModel(gSeldomRotated, SELDOM_VERTICES, gSeldomModel, rp, w == 2 ? wet : dry);
         for (int32_t k = 0; k < SELDOM_VERTICES; k++) {

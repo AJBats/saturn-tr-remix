@@ -17,6 +17,8 @@
 !   +44 int32 count                 the room's vertex count
 !   +48 int32 farScaled             a vertex past the far plane scaled to it
 !                                   (vertices.h verticesFarScaled)
+!   +52 int32 zExact                nearer than this << 8, the divider instead
+!                                   of the table, whose steps are wide up close
 !
 ! Vertex (render.h): int16 x, y; int16 z; uint8 g, clip.
 !
@@ -35,6 +37,7 @@
     .equ    CLIP_TOP,       8
     .equ    CLIP_BOTTOM,    16
     .equ    CLIP_PLANE,     32
+    .equ    DIVIDEND,       0x100000    ! divTable[z >> PROJ_SHIFT] is about this / z
 
     .text
     .align 2
@@ -68,6 +71,15 @@ _roomProjectAsm:
     mov     r0, r11             ! behind the near plane
     bra     .LzChecked
     mov     #CLIP_PLANE, r14
+.LzExact:                       ! near: d divided
+    mov     #-1, r1
+    shll8   r1                  ! the divider at 0xFFFFFF00
+    mov.l   r11, @r1            ! DVSR: z
+    mov.l   .Ldividend, r0
+    mov.l   r0, @(4, r1)        ! DVDNT: divides
+    mov.l   @(4, r1), r0
+    bra     .Ldivided
+    nop
 .LzFar:
     bra     .LzFarScaled        ! past the far plane
     nop
@@ -143,12 +155,16 @@ _roomProjectAsm:
     exts.w  r13, r13
 
     ! z >> 8; d = divTable[z >> PROJ_SHIFT] (z is at most VIEW_MAX, inside the table)
+    mov.l   @(52, r7), r0
+    cmp/gt  r11, r0
+    bt/s    .LzExact
     shlr8   r11
     mov     r11, r0
     shlr2   r0
     shlr2   r0
     add     r0, r0
     mov.w   @(r0, r10), r0
+.Ldivided:
 
     ! screen x, y = (coordinate * d) >> 12, clamped, + centre
     muls.w  r0, r12
@@ -349,6 +365,7 @@ _roomProjectAsm:
     mov     #1, r14
 
     .align 2
+.Ldividend:     .long   DIVIDEND
 .LxyMax:        .long   0x007FFF00  ! view x, y whose >> 8 fits in 16 bits
 .LpMax:         .long   0x007FF000  ! projected 2047 << 12
 .LhalfWidth:    .short  176         ! FRAME_WIDTH / 2
@@ -360,7 +377,7 @@ _roomProjectAsm:
 .LshadeMax:     .short  8191        ! shade << 8 at its darkest
 
     ! --- a dry room --------------------------------------------------------
-    ! r2 2 * the view bound, r7 zMin, r9 the view bound, GBR the projection;
+    ! r2 2 * the view bound, r7 zExact, r9 the view bound, GBR the projection;
     ! r14 the plane's flag (0 or 1) until the window's are shifted in under it
 
     .align 2
@@ -368,17 +385,16 @@ _roomProjectAsm:
     stc     gbr, r0
     mov.l   r0, @-r15
     ldc     r7, gbr
-    mov.l   @(24, r7), r7       ! zMin
+    mov.l   @(52, r7), r7       ! zExact
     mov.l   .LdXyMax, r9
     mov     r9, r2
     bra     .Ldloop
     add     r2, r2
 
     ! the loop's rare cases, here where its conditional branches reach
-.LdNear:                        ! behind the near plane
-    mov     r7, r11
-    bra     .LdZ
-    mov     #1, r14
+.LdNear:                        ! near, or behind the near plane
+    bra     .LdExact
+    nop
 .LdFar:                         ! past the far plane
     bra     .LdFarScaled
     nop
@@ -510,6 +526,7 @@ _roomProjectAsm:
     shlr2   r0
     add     r0, r0
     mov.w   @(r0, r10), r1
+.LdDivided:
 
     ! each product + the frame's near edge, unsigned, within its width
     ! (4096 a pixel) is a coordinate on the frame from a product in range
@@ -579,7 +596,48 @@ _roomProjectAsm:
     bra     .Ldone
     ldc     r0, gbr
 
+    ! nearer than zExact: the plane, x and y's bound as in the loop, d divided
+.LdExact:
+    mov.l   @(24, gbr), r0      ! zMin
+    cmp/gt  r0, r11
+    bt      1f
+    mov     r0, r11             ! behind the near plane
+    mov     #1, r14
+1:  mov     r12, r0
+    add     r9, r0
+    mov     r13, r1
+    add     r9, r1
+    or      r1, r0
+    cmp/hi  r2, r0
+    bf      6f
+    neg     r9, r1
+    cmp/gt  r9, r12
+    bf      2f
+    mov     r9, r12
+2:  cmp/ge  r1, r12
+    bt      3f
+    mov     r1, r12
+3:  cmp/gt  r9, r13
+    bf      4f
+    mov     r9, r13
+4:  cmp/ge  r1, r13
+    bt      6f
+    mov     r1, r13
+6:  shlr8   r12
+    exts.w  r12, r12
+    shlr8   r13
+    exts.w  r13, r13
+    shlr8   r11
+    mov     #-1, r1
+    shll8   r1                  ! the divider at 0xFFFFFF00
+    mov.l   r11, @r1            ! DVSR: z
+    mov.l   .LdDividend, r0
+    mov.l   r0, @(4, r1)        ! DVDNT: divides
+    bra     .LdDivided
+    mov.l   @(4, r1), r1
+
     .align 2
+.LdDividend:    .long   DIVIDEND
 .LdXyMax:       .long   0x007FFF00  ! the view bound
 .LdPMax:        .long   0x007FF000  ! projected 2047 << 12
 .LdKx:          .long   176 << 12   ! the frame's near edges: FRAME_WIDTH / 2 pixels
