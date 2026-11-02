@@ -57,6 +57,8 @@
     .equ    ROOM_FACING,    20  ! uint16 [6]
     .equ    ROOM_CAMERA,    32  ! int32 [3]
 
+    .equ    SPARSE_LINES,   64  ! faces.cpp's
+
     .equ    SHADING_FAR,    1
     .equ    SHADING_PLAIN,  2
 
@@ -159,17 +161,20 @@
 ! r13 the variant (mip level * 2 + turned) the face with corners r1, r2, r3,
 ! r7 and material r14 takes: turned when that makes fewer lines, at the
 ! first mip level with about a texel a pixel along them (faces.s TURN and
-! WHOLE); r0, r6, r8
-    .macro  DECIDE
+! WHOLE); r0, r6, r8. A sparse texture over too many lines at full res: to
+! 'drop', nothing kept for it.
+    .macro  DECIDE drop
     mov     #0, r13
     SPAN    r1, r7, r13, r8     ! AD
     SPAN    r2, r3, r13, r8     ! BC: the lines' length turned
     mov     #0, r6
     SPAN    r1, r2, r6, r8      ! AB
     SPAN    r7, r3, r6, r8      ! DC: ... as it is
+    mov     r13, r8             ! the lines: as many as AD, BC span
     cmp/gt  r6, r13
     bf/s    1f
     mov     #0, r0
+    mov     r6, r8              ! turned: as many as AB, DC span
     mov     r13, r6             ! turned: the lines as long as AD, BC
     mov     #1, r0
 1:  mov     r0, r13
@@ -184,7 +189,7 @@
     extu.w  r0, r6              ! 4 x the texels along a line
     sts     macl, r0
     cmp/hi  r0, r6
-    bf      9f                  ! about a texel a pixel at full res
+    bf      8f                  ! about a texel a pixel at full res
     mov.b   @(12, r14), r0      ! the mip levels it takes
     tst     r0, r0
     bt      9f
@@ -196,7 +201,18 @@
     mov.b   @(12, r14), r0
     cmp/eq  #1, r0
     bt      9f
+    bra     9f
     add     #2, r13             ! level 2
+8:  mov.b   @(13, r14), r0
+    tst     #2, r0
+    bt      9f
+    mov     #SPARSE_LINES, r0
+    cmp/gt  r8, r0
+    bt      9f
+    mov     #0, r0
+    mov.b   r0, @r4             ! not kept: decided again next frame
+    bra     \drop
+    nop
 9:
     .endm
 
@@ -441,7 +457,7 @@
     bf      .LtoPlain\sfx      ! a texture the cache can't take
 
     .if \tri
-    DECIDE
+    DECIDE  .Lnext\sfx
     mov     r13, r6
     .else
 .LFaceReuse\sfx:
@@ -458,7 +474,7 @@
     bra     .Lvariant\sfx
     mov     r0, r6
 .Ldecide\sfx:
-    DECIDE
+    DECIDE  .Lnext\sfx
     mov     r13, r0
     or      #8, r0
     mov.b   r0, @r4             ! kept in the flags' top byte

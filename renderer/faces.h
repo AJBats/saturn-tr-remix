@@ -170,7 +170,8 @@ struct RoomMaterial
     int16_t key;                // +8  in the cache, -1 none
     uint16_t colour;            // +10 its mean
     uint8_t mips;               // +12 the mip levels it takes: 0 .. 2
-    uint8_t skip;               // +13 see-through texels: left out without the cache
+    uint8_t skip;               // +13 see-through texels: left out without the cache; bit 1
+                                // sparse (TEX_ATTR_SPARSE)
     uint16_t lines[2];          // +14 4 x its texels along a face's lines, as it is and turned
     uint16_t sizes[6];          // +18 CMDSIZE by variant: mip level * 2 + turned
     uint16_t spare;

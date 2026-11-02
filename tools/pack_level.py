@@ -81,6 +81,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FACE_TYPE_F, FACE_TYPE_FT, FACE_TYPE_FTA = 1, 2, 3
 FACE_TYPE_SHIFT = 14
 TEX_ATTR_AKILL = 1
+TEX_ATTR_SPARSE = 2     # see-through and at least this much of it empty: dropped when large (faces.cpp)
+SPARSE_EMPTY = 0.8
 FACE_TEXTURE_MAX = 0x3FFF
 DETAIL_UNIT = 256   # Texture.reserved: full-res offset / DETAIL_UNIT + 1
 ROOM_TABLES = 3     # a room texture's colour tables: full res, half, quarter (saturn/detail.h)
@@ -233,6 +235,11 @@ def texture_average(pixels, colors, transparent, end_codes=False):
     if n == 0:
         return 0x8000
     return 0x8000 | ((b // n) << 10) | ((g // n) << 5) | (r // n)
+
+
+def empty_share(pixels):
+    """The share of 4-bit pixels that are colour 0."""
+    return sum((byte >> 4 == 0) + (byte & 15 == 0) for byte in pixels) / (2 * len(pixels))
 
 
 class TextureTable:
@@ -478,7 +485,10 @@ class TextureTable:
         out = []
         for e, (pixels, colors, lut, end_codes) in zip(self.entries, self.sources):
             mean = texture_average(pixels, colors, e[3] & TEX_ATTR_AKILL, end_codes)
-            out.append(struct.pack(">8H", *e[:4], mean, e[4], 0, 0))
+            attr = e[3]
+            if attr & TEX_ATTR_AKILL and pixels is not None and empty_share(pixels) >= SPARSE_EMPTY:
+                attr |= TEX_ATTR_SPARSE
+            out.append(struct.pack(">8H", *e[:3], attr, mean, e[4], 0, 0))
         return b"".join(out)
 
     def detail_set(self):

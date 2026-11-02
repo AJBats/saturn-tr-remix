@@ -409,6 +409,11 @@ void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth)
 #define FACE_TYPE_F         1
 #define ROOM_QUAD_FLAGS     0x00FFFFFF  // but the kept decisions
 #define TEX_ATTR_AKILL      0x0001
+#ifdef RENDER_LAB
+#define TEX_ATTR_SPARSE     0       // the lab's lists are the original's
+#else
+#define TEX_ATTR_SPARSE     0x0002  // mostly see-through: left out when large
+#endif
 
 #define VIEW_FAR        20480   // VIEW_MAX_F >> FIXED_SHIFT
 #define NEAR_SPLIT_DIST 2048    // quads whose corner A is nearer go the careful way
@@ -726,9 +731,98 @@ static bool roomSplit(const FaceRoom &room, RoomTextures &t, RoomSplit &split, C
     return true;
 }
 
+// The camera on a room quad's front side, worked out in room space: on the
+// frame, corners clamped to what VDP1 can address or held at the near plane can
+// wind a quad facing the camera the wrong way round, and it would be left out.
+static bool roomQuadFacing(const FaceRoom &room, const RoomQuad &q)
+{
+    const RoomVertex* a = room.points + q.indices[0] / sizeof(Vertex);
+    const RoomVertex* b = room.points + q.indices[1] / sizeof(Vertex);
+    const RoomVertex* c = room.points + q.indices[2] / sizeof(Vertex);
+    int32_t e1x = b->x - a->x, e1y = b->y - a->y, e1z = b->z - a->z;
+    int32_t e2x = c->x - a->x, e2y = c->y - a->y, e2z = c->z - a->z;
+    // the camera's offset in units of 32: the products, under 2^17 * 2^12,
+    // sum within 32 bits (hints.cpp)
+    const int32_t corner[3] = { a->x << 8, a->y << 8, a->z << 8 };
+    int32_t d[3];
+    for (int32_t k = 0; k < 3; k++)
+    {
+        int32_t v = room.camera[k] - corner[k];
+        v = v < -(1 << 17) ? -(1 << 17) : v > (1 << 17) ? 1 << 17 : v;
+        d[k] = int16_t(v >> 5);
+    }
+    return (e1y * e2z - e1z * e2y) * d[0] + (e1z * e2x - e1x * e2z) * d[1] + (e1x * e2y - e1y * e2x) * d[2] < 0;
+}
+
+// A sparse texture (water's flecks, 80% or more see-through) over this many lines
+// is left out: VDP1 walks the empty texels as it does the rest, so one such quad
+// near the camera can take more than the rest of the frame. As facesroom.s's.
+#define SPARSE_LINES    64
+
+// A corner this far off the frame and its quad is cut on the screen (roomQuadCut).
+#define CUT_OFF_FRAME   256
+
+// The point halfway between two of a quad's corners on the screen, or the mean
+// of two such points.
+static void cutPoint(const FaceRoom &room, const Vertex* a, const Vertex* b, Vertex* res)
+{
+    int32_t x = (a->x + b->x) >> 1, y = (a->y + b->y) >> 1;
+    uint32_t clip = 0;
+    if (uint32_t(x) > FRAME_WIDTH || uint32_t(y) > FRAME_HEIGHT) clip |= CLIP_FRAME;
+    if (x < room.clip[0]) clip |= CLIP_LEFT;
+    if (x > room.clip[2]) clip |= CLIP_RIGHT;
+    if (y < room.clip[1]) clip |= CLIP_TOP;
+    if (y > room.clip[3]) clip |= CLIP_BOTTOM;
+    res->x = x;
+    res->y = y;
+    res->z = (a->z + b->z) >> 1;
+    res->g = (a->g + b->g) >> 1;
+    res->clip = clip;
+}
+
+static inline void cutQuarter(CommandList &list, const RoomTextures &t, uint32_t flags, const Vertex* a,
+                              const Vertex* b, const Vertex* c, const Vertex* d, int32_t depth)
+{
+    if (!(a->clip & b->clip & c->clip & d->clip & CLIP_DISCARD)) {
+        roomCommand(list, t, flags, a, b, c, d, depth);
+    }
+}
+
+// A quad reaching far off the frame cut 2x2 on the screen, each quarter drawn
+// with a quadrant of its texture. VDP1 draws a quad as lines between two of its
+// edges, which lays the texture bilinearly over the screen quad, so quarters cut
+// at the corners' means draw the same picture and the cut can't be seen coming
+// or going. Quarters off the frame are left out, and the rest walk less of what
+// lies off it (VDP1 steps through every pixel before a line reaches the frame).
+// In the whole quad's bucket, as it would have been. False when there's no room
+// or no cached texture.
+static bool roomQuadCut(const FaceRoom &room, RoomTextures &t, CommandList &list, const RoomQuad &q,
+                        const Vertex* a, const Vertex* b, const Vertex* c, const Vertex* d)
+{
+    if (list.cmd + 4 * 8 > list.end)
+        return false;
+    int32_t slot = cachedSlot(t, t.textures[q.flags & FACE_TEXTURE], DETAIL_QUADS);
+    if (slot < 0)
+        return false;
+
+    Vertex ab, bc, cd, da, mid;
+    cutPoint(room, a, b, &ab);
+    cutPoint(room, b, c, &bc);
+    cutPoint(room, c, d, &cd);
+    cutPoint(room, d, a, &da);
+    cutPoint(room, &ab, &cd, &mid);
+    uint32_t flags = (q.flags & ROOM_QUAD_FLAGS) | room.flags | FACE_DETAIL | (uint32_t(slot) << FACE_DETAIL_SLOT_SHIFT);
+    int32_t depth = zMax(a, b, c, d) >> OT_SHIFT;
+    cutQuarter(list, t, flags | (0 << FACE_DETAIL_QUAD_SHIFT), a, &ab, &mid, &da, depth);
+    cutQuarter(list, t, flags | (1 << FACE_DETAIL_QUAD_SHIFT), &ab, b, &bc, &mid, depth);
+    cutQuarter(list, t, flags | (2 << FACE_DETAIL_QUAD_SHIFT), &mid, &bc, c, &cd, depth);
+    cutQuarter(list, t, flags | (3 << FACE_DETAIL_QUAD_SHIFT), &da, &mid, &cd, d, depth);
+    return true;
+}
+
 // A quad a plane cuts, or near the camera (rooms.cpp faceAddRoomQuads): split
-// or filled where the near plane cuts it, else whole, turned when that makes
-// fewer lines, at full res.
+// or filled where the near plane cuts it, cut on the screen if it reaches far off
+// the frame, else whole, turned when that makes fewer lines, at full res.
 static void roomQuadCareful(const FaceRoom &room, RoomTextures &t, RoomSplit &split, CommandList &list,
                             const RoomQuad &q)
 {
@@ -740,19 +834,36 @@ static void roomQuadCareful(const FaceRoom &room, RoomTextures &t, RoomSplit &sp
     uint32_t clipOr = a->clip | b->clip | c->clip | d->clip;
     if ((clipAnd & (CLIP_DISCARD & ~CLIP_PLANE)) || ((clipAnd & CLIP_PLANE) && a->z < gViewFar))
         return;     // wholly beyond a frame edge or behind the near plane
+#ifdef RENDER_LAB
     if (backface(a, b, c))
         return;
+#else
+    if (!roomQuadFacing(room, q))
+        return;
+#endif
     uint32_t flags = (q.flags & ROOM_QUAD_FLAGS) | room.flags;
     const Texture &tex = t.textures[flags & FACE_TEXTURE];
     if (clipOr & CLIP_PLANE)
     {
-        if (!(min(min(a->z, b->z), min(c->z, d->z)) < DETAIL_DIST && tex.reserved &&
-              roomSplit(room, t, split, list, q, a, b, c, d))) {
+        bool near = min(min(a->z, b->z), min(c->z, d->z)) < DETAIL_DIST;
+        if (near && (tex.attr & TEX_ATTR_SPARSE))
+            return;
+        if (!(near && tex.reserved && roomSplit(room, t, split, list, q, a, b, c, d))) {
             faceVoid(list, a, b, c, d);
         }
         return;
     }
-    uint32_t variant = max(span(a, b), span(d, c)) < max(span(a, d), span(b, c));
+    int32_t along = max(span(a, d), span(b, c));
+    int32_t across = max(span(a, b), span(d, c));
+    if ((tex.attr & TEX_ATTR_SPARSE) && min(along, across) >= SPARSE_LINES)
+        return;
+#ifndef RENDER_LAB
+    if ((clipOr & CLIP_FRAME) && tex.reserved &&
+        max(max(offFrame(a), offFrame(b)), max(offFrame(c), offFrame(d))) >= CUT_OFF_FRAME &&
+        roomQuadCut(room, t, list, q, a, b, c, d))
+        return;
+#endif
+    uint32_t variant = across < along;
     roomCommand(list, t, wholeTexture(t, flags, variant), a, b, c, d, zMax(a, b, c, d) >> OT_SHIFT);
 }
 
@@ -784,7 +895,7 @@ void facesRoomMaterials(const RoomTextures &t, RoomMaterial* materials, int32_t 
         m.key = cacheable(t, i) ? tex.reserved - 1 : -1;
         m.colour = tex.color;
         m.mips = tex.size & 7 ? 0 : tex.size & 0x010F ? 1 : 2;
-        m.skip = (tex.attr & TEX_ATTR_AKILL) != 0;
+        m.skip = ((tex.attr & TEX_ATTR_AKILL) != 0) | (tex.attr & TEX_ATTR_SPARSE);
         m.lines[0] = (tex.size >> 8) << 6;
         m.lines[1] = (tex.size & 0xFF) << 3;
         for (uint32_t v = 0; v < 6; v++)
