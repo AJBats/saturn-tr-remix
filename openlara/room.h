@@ -192,9 +192,20 @@ void Sector::getTriggerFloorCeiling(int32 x, int32 y, int32 z, int32* floor, int
 #if !defined(USE_ASM) || defined(__3DO__) // TODO for 3DO
 const Sector* Room::getSector(int32 x, int32 z) const
 {
-    // TODO remove clamp?
-    int32 sx = X_CLAMP((x - (info->x << 8)) >> 10, 0, info->xSectors - 1);
-    int32 sz = X_CLAMP((z - (info->z << 8)) >> 10, 0, info->zSectors - 1);
+    int32 sx = (x - (info->x << 8)) >> 10;
+    int32 sz = (z - (info->z << 8)) >> 10;
+
+    // as retail's GetFloor (0600fcc8): on the first and last rows of z the
+    // corner sectors are never read
+    if (sz <= 0) {
+        sz = 0;
+        sx = X_CLAMP(sx, 1, info->xSectors - 2);
+    } else if (sz >= info->zSectors - 1) {
+        sz = info->zSectors - 1;
+        sx = X_CLAMP(sx, 1, info->xSectors - 2);
+    } else {
+        sx = X_CLAMP(sx, 0, info->xSectors - 1);
+    }
 
     return sectors + sx * info->zSectors + sz;
 }
