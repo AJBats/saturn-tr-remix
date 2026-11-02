@@ -3457,10 +3457,18 @@ field's vblank-in by ~2.5 ms and the frame takes three fields (50.15 ms,
   list (0.84 ms, 43 KB at the ledge) and only then plots it. For 30 fps a
   list has to be drawn by the second field's vblank-in: about 30.9 ms after
   the display starts, less the upload.
-- **Levers:** two command areas in VDP1 VRAM, the next list uploaded while
-  VDP1 draws the last, plotted at once after the change; the plot as early
-  after the change as the hardware allows (when the change takes effect,
-  measured on the Saturn).
+- **Measured on the Saturn (2026-11-02, `make vdp1bench`):** the change comes
+  on line 0, and the request is taken up to the vertical blank's last line,
+  with lists ending as late as line 261 and the next plot right after: 0 hung.
+- **Done (b5d651b):** a list ending inside the vertical blank asks for the
+  change itself (`system.cpp spriteEndHandler`), so the limit is about 33.3 ms,
+  not 30.9. Mednafen, Cistern diagonal, far plane moved to size the list, fps
+  before -> after: VDP1 31.7 ms 19.98 -> 29.82, 32.6 ms 19.98 -> 28.96, 33.3 ms
+  19.98 -> 22.39. Past the upload's slack a late plot carries over to the next
+  frame, which gives 2- and 3-field frames mixed.
+- **Left:** two command areas in VDP1 VRAM, the next list uploaded while VDP1
+  draws the last, plotted at once after the change: lists of 32.5-33.3 ms would
+  then hold 30 fps.
 
 ### 244. Some rooms' faces stay in low work RAM at four levels
 *Kind: speed · Size: LEVEL6 17 rooms of 79, LEVEL7A 44 of 139, LEVEL7B 10 of
@@ -3503,9 +3511,12 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
 - VDP1 needs about 31.7 ms for the list, past the 30.9 ms from a frame's
   display start to the second field's change (issue 241), so every list
   waits a third field.
-- Not looked at yet: which commands cost VDP1 the time there (the water's
-  faces, the 101 meshes, overdraw). `vdp1_cost_log` in Mednafen at the spot
-  would rank them.
+- Which commands cost VDP1 the time (Mednafen, which reads 39.7 ms there): no
+  one face, the dearest 1.4 ms; room faces 92% of the list, 3.2 screens of
+  pixels.
+- The list now fits in two fields if the Saturn's 31.7 ms holds, as lists may
+  end inside the vertical blank (issue 241, b5d651b). `tools/hwtest.sh
+  cistern-water` is this spot; Saturn check pending.
 
 ---
 
