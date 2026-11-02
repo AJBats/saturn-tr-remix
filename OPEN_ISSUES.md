@@ -3466,9 +3466,13 @@ field's vblank-in by ~2.5 ms and the frame takes three fields (50.15 ms,
   before -> after: VDP1 31.7 ms 19.98 -> 29.82, 32.6 ms 19.98 -> 28.96, 33.3 ms
   19.98 -> 22.39. Past the upload's slack a late plot carries over to the next
   frame, which gives 2- and 3-field frames mixed.
-- **Left:** two command areas in VDP1 VRAM, the next list uploaded while VDP1
-  draws the last, plotted at once after the change: lists of 32.5-33.3 ms would
-  then hold 30 fps.
+- **Not worth it, costed 2026-11-02:** two command areas in VDP1 VRAM, the next
+  list uploaded while VDP1 draws the last, would keep the upload (0.84 ms) out of
+  the limit. A second area of 1792 commands is 70 KB: by `detail.cpp`'s rules 14
+  of 16 levels lose their mip pools and 6 can't hold the inventory's item
+  textures. Capped at 1152 (20 KB) 10 levels still lose them; 1024 is under the
+  1131 commands seen in a list. It would help 19 of 1200 Mednafen lists, and
+  those already mix 2 and 3 fields near 29 fps.
 
 ### 244. Some rooms' faces stay in low work RAM at four levels
 *Kind: speed · Size: LEVEL6 17 rooms of 79, LEVEL7A 44 of 139, LEVEL7B 10 of
