@@ -14,9 +14,9 @@
 #               user's pick, the CPU's worst they had found)
 #   cistern-straight  the same spot, Lara turned to look along the hall
 #   cistern-rim LEVEL7A, room 111, on the first pool's rim: running forward
-#               from here Lara stops at nothing (issue 249)
+#               from here Lara passes the corner of four rooms (issue 249)
 #   cistern-tunnel LEVEL7A, room 0, under water at the mouth of the 512 tall
-#               tunnel to room 51: swimming on she pops out of the water (issue 248)
+#               tunnel to room 51 (issue 248)
 #   cistern-look LEVEL7A, room 108, on the rim, the pool's two crocodiles awake:
 #               looking about with the guns out, one aimed at (issue 250)
 #

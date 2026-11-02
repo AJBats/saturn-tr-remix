@@ -661,25 +661,6 @@ LARA-4*
 - **Ours:** `openlara/lara.h:3162` clamps to ±85°, and `c_swim` (`lara.h:2057`)
   always faces forward.
 
-### 34. TR2-style wading is live in TR1, with an animation from another model
-*Severity: gameplay / visible · Confidence: confirmed in Mednafen (issue 248) ·
-Fix: small · Audit: LARA-6*
-
-- **Retail:** TR1 has no wading state (LaraControl `06020144`). Shallow water
-  rooms are swum through normally.
-- **Ours:**
-  - `c_checkWallUW` (`openlara/lara.h:1415-1431`) switches to WADE when the
-    water is 512 deep or less, and calls `animSet(ANIM_SWIM_STAND = 192)`.
-  - Lara's anims are 0–159 (model 1 starts at 160), so anim 192 belongs to
-    another model.
-  - `updateWaterState` (`lara.h:2934-3058`) has more WADE branches.
-- **Where:** water 512 deep or less is in Tihocan rooms 80, 99, 103 and 105
-  (depths 0, 256 and 512), in Atlantis room 21 (512), and in the Cistern's
-  tunnel, room 51 (512; issue 248).
-- **Effect:** swimming there flips Lara into WADE and out of the water, then
-  loops back to underwater with a splash. Issue 248 measures it.
-- **Fix:** remove every WADE path for TR1.
-
 ### 35. Surface swimming over shallow water, and climbing out, is looser than retail
 *Severity: gameplay · Confidence: confirmed · Fix: small to medium · Audit:
 LARA-7*
@@ -861,8 +842,6 @@ Audit: LARA-18*
   (`lara.h:1404-1407`); retail only stops her.
 - With guns drawn and Walk held, retail still fast-turns; ours doesn't
   (`lara.h:752`).
-- Leaving water (underwater or the surface, to air) doesn't reset the gun
-  status or head/torso (`lara.h:2994-3024`); retail does (`06020144`).
 - Air refills by 10 per frame on land (`lara.h:3954`); retail sets it full
   instantly. Not visible.
 
@@ -919,96 +898,6 @@ small · Audit: MATH-7*
   LIMIT_MIDAS. Pickups are unaffected, because their item takes Lara's heading
   first.
 - **Fix:** cast the difference to int16 before `abs`.
-
-### 248. Cistern: the first pool's tunnel blocks Lara, who keeps splashing "out" while underwater (reported in play)
-*Severity: gameplay · Confidence: confirmed in Mednafen; retail's side read from
-TR1X, not run · Fix: small (issue 34)*
-
-- **Seen:** on the Saturn (2026-11-01, main 33102ae): swimming into the tunnel
-  in the Cistern's first pool, Lara is stopped, and she keeps playing the
-  splash of leaving the water though she is still underwater.
-  `tools/hwtest.sh cistern-tunnel` starts there: LEVEL7A room 0, under water at
-  43309 1183 53339, yaw 0x7A6A; hold B. The user's save state at that spot takes
-  the same path.
-- **Ours:** this is issue 34's wading. The tunnel's first sector, world (42, 51)
-  in room 51, has its floor at 1280 and ceiling at 768, so `getWaterDepth`
-  returns 512, and `c_checkWallUW` (`openlara/lara.h:1420`) switches at 512 or
-  less. The loop, about 39 game ticks long:
-  1. She enters the tunnel and goes to WADE with anim 192, at y 1080.
-  2. Next tick that is under `LARA_WADE_MIN_DEPTH` from the tunnel's ceiling, so
-     she goes to ABOVE.
-  3. Collision puts her back in room 0, about 100 units back. Room 0's water
-     level is 0, so she is deep: `updateWaterState` puts her UNDER, 100 lower, at
-     pitch -45°, with `fxSplash`. That is the splash.
-  4. Her yaw is 5° less each time round.
-- **Retail:** TR1X's `LaraSwimCollision` (`laraswim.c:262`) has no depth check.
-  Room 51 is flagged as water, so she would stay under.
-- **Test:** with only that branch off (a test build, not committed) she swims
-  from room 0 into room 51 and on to the wall at z 51501, UNDER all the way.
-- **Not run:** builds before 33102ae. The branch has been there since the
-  vendored OpenLara, 9c4257c, and it doesn't depend on which CPU runs the update.
-- **Fix:** issue 34. Only this one branch has been tried off so far.
-
-### 249. Cistern: an invisible wall at a corner of the first pool's rim (reported in play)
-*Severity: gameplay · Confidence: confirmed in Mednafen; retail's side read
-from TR1X, not run · Fix: small*
-
-- **Seen:** on the Saturn (2026-11-01, main 33102ae): running around the rim of
-  the pool and cutting the corner, Lara appears to run into an invisible wall.
-  `tools/hwtest.sh cistern-rim` starts there: LEVEL7A room 111 at 39375 -256
-  61648, yaw 0x1732; hold forward and she stops at about 39858 62363. Both
-  frame orders do it (update on the master and on the slave), along the same
-  path.
-- **Ours:** at the hit her front probe (39936, 62543) gets WALL. Four rooms meet
-  at that corner: 111, 110, 109 and 108. The probe's sector, world (39, 61), is
-  open floor at -256 in room 108, but it is the corner sector of room 111, where
-  it is a wall with no portal. `Room::getSector` (`openlara/room.h:193`) reads
-  it as it stands.
-- **Retail:** GetFloor (`0600fcc8`; TR1X `control_util.c:32`) never reads a
-  room's corner sector: on the first or last row of z it clamps x to 1 ..
-  xSectors - 2. Here that reads world (38, 61), whose portal leads to room 110,
-  then room 108, so the floor is found.
-- **Fix:** the same clamp in `Room::getSector`. This is the room-edge half of
-  issue 137.
-
-### 250. Guns out with a creature about: Look can't tilt towards it, and her head and torso keep snapping back (reported in play)
-*Severity: visible · Confidence: confirmed in Mednafen; retail's side read from
-TR1X, not run · Fix: small*
-
-- **Seen:** in Mednafen (2026-11-01, main 53dd062), on the Cistern's first pool's
-  rim with the guns out: holding Look and forward she "can't look down" and her
-  head glitches. `tools/hwtest.sh cistern-look` starts there: LEVEL7A room 108 at
-  43468 -256 62565, yaw 0x905F, with the pool's two crocodiles awake. Draw with
-  C, then hold Z and up.
-- **Measured at that spot, Look and up held for 90 game ticks:**
-
-  | | Head and torso pitch |
-  |---|---|
-  | Crocodiles asleep | smooth to -42° and stays |
-  | Crocodiles awake | reaches -10° to -14°, snaps to 0°, about every 7 ticks |
-  | Crocodiles awake, test build (below) | smooth to -42° and stays |
-
-  Look and back, away from the crocodile, reaches +22° smoothly in all three. The
-  user's crocodiles being alive at the report is my reconstruction: their later
-  save has both dead.
-- **Ours:**
-  1. `weaponFindTargets` (`openlara/lara.h:3786`) measures a creature against
-     Lara's body plus torso. The crocodile on the pool's floor is about 70° below
-     her and the pistols' limit is 60°, so tilting the torso 10° takes it as the
-     target.
-  2. `weaponTrackTargets` measures from the body alone, so no arm aims.
-  3. `updateLook` (`lara.h:2864`) stops at any target, aimed or not, and writes
-     head = torso = half the arms' angle, which is 0°.
-  4. With the torso back at 0° the crocodile is out of range, the target goes,
-     and Look starts again from 0°.
-- **Retail:** `LaraGetNewTarget` (`larafire.c:432`) measures against the torso
-  too, but only a locked arm moves the head and torso: `PistolHandler`
-  (`lara2gun.c:172`) and the rifle's handler (`lara1gun.c:134`) leave them alone
-  otherwise.
-- **Test:** `if (R.aim || L.aim)` in place of the target test in `updateLook` (a
-  test build, not committed) gives the third row above.
-- **Fix:** that line. Issues 30 and 31 are about where and how Look runs, and 56
-  about the shotgun's torso.
 
 ---
 
@@ -1128,16 +1017,6 @@ medium · Audit: GUN-4, GUN-24*
   and the holster sound is wrong.
 - **Fix:** port the three frame machines verbatim, with absolute frame numbers.
 
-### 56. Shotgun aiming twists the torso twice as far as retail
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: GUN-5*
-
-- **Retail:** RifleHandler (`0601e9a0`) sets torso = left_arm/2 and head 0, and
-  only when the arm is locked.
-- **Ours:** `openlara/lara.h:2879` sets `T = R.angle`, the full angle, whenever a
-  target exists, locked or not.
-- **Effect:** with a target 60° to the side, retail's upper body turns 30° and
-  ours turns 60°.
-
 ### 57. The shotgun's own animation drives Lara's torso
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: GUN-6*
 
@@ -1162,20 +1041,6 @@ MATH-6*
   misses and ricochets, so fights take more shots; it shows most with pistols
   and Uzis at range.
 - **Fix:** an exact squared test.
-
-### 59. Pistol arms follow the torso when not aiming
-*Severity: visible (subtle) · Confidence: confirmed · Fix: small · Audit:
-GUN-8*
-
-- **Retail:** DrawLara (`06013438`), in every DRAW, UNDRAW and READY frame,
-  draws the pistol arms with the item's matrix copied from two levels back, plus
-  the arm rotation and the gun frame.
-- **Ours:** `openlara/lara.h:3560` sets `useBasis` only for AIM with frame > 0,
-  or for FIRE. The holster keeps whatever value was left.
-- **Effect:** when running or jumping with guns drawn but not aiming, and during
-  draw and holster, our arms bob with the torso's body animation by about 5°, or
-  more while running. Retail's arms stay fixed to Lara's heading.
-- **Fix:** always use the basis for pistol-type guns.
 
 ### 60. Selecting the current, holstered weapon in the ring draws it
 *Severity: gameplay (minor) · Confidence: likely (the decomp is unambiguous;
@@ -1290,36 +1155,6 @@ GUN-17, GFX-18*
   - The holster shows 23 down to 5, a frame longer.
   - From FIRE the holster takes two steps: frame 0, then AIM.
 - **Fix:** port with absolute frames.
-
-### 69. Torso and head while aiming: one-frame lag and different formulas
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: GUN-19*
-
-- **Retail:**
-  - PistolHandler (`0601f084`) sets the head and torso after AimWeapon, in the
-    same frame.
-  - With one arm locked it uses that arm's angle / 2. With none locked it leaves
-    them alone, and LaraAboveWater's /8 decay applies.
-  - UndrawPistols sets them to (R+L)/4. UndrawShotgun halves the torso every
-    frame.
-- **Ours:**
-  - `updateLook` (`openlara/lara.h:2852-2918`) runs before updateWeapon
-    (`lara.h:3940` against `3998`), so it uses last frame's arm angles.
-  - It uses (R+L) >> 1 when one or no arm is locked.
-  - It uses the generic /8 decay during holstering.
-
-### 70. Targeting origin and range
-*Severity: subtle · Confidence: confirmed (the overflow effect is suspected and
-rare) · Fix: small · Audit: GUN-20*
-
-- **Retail:** LaraTargetInfo and LaraGetNewTarget use a fixed origin at y - 650
-  (`-0x28A` in `0601f838` and `0601f9f4`). They measure range from that point,
-  per axis first, then squared.
-- **Ours:**
-  - `openlara/lara.h:3714` and `3756` use the gun height (500 for the shotgun).
-  - `lara.h:3770` measures range from Lara's feet, with no per-axis check, so
-    the X_SQR sums overflow int32 beyond about 45 blocks and wrap.
-- **Effect:** shotgun lock and line of sight differ slightly. In principle, very
-  distant enemies could pass the range check.
 
 ### 71. Water rats chirp when shot
 *Severity: audible · Confidence: confirmed · Fix: small · Audit: GUN-21,
@@ -2194,7 +2029,7 @@ Saturn not checked) · Fix: small · Audit: LVL-24*
   once flag.
 - **Ours:** `openlara/object.h:2111` has no collision, and adds the once flag.
 
-### 137. Slope rounding, room-edge sectors and static collision radius
+### 137. Slope rounding and static collision radius
 *Severity: subtle · Confidence: likely (TR1X GetHeight/GetCeiling; Saturn not
 checked) · Fix: small · Audit: LVL-27*
 
@@ -2202,8 +2037,6 @@ checked) · Fix: small · Audit: LVL-27*
   negative X and positive Z for ceilings), ours rounds the other way from
   retail. Heights can differ by 1 unit per axis (`openlara/room.h:46-50`,
   `82-83`).
-- **Room edges:** `getSector` clamps positions outside the room differently from
-  retail's GetFloor, which avoids the corner sectors (`room.h:196`).
 - **Statics:** static-mesh collision gathers nearby rooms with the exact radius
   and height; retail adds 50 to each (`room.h:282`).
 
@@ -3695,6 +3528,191 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
 | **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
 
 ## Closed
+
+### 250. Guns out with a creature about: Look can't tilt towards it, and her head and torso keep snapping back (reported in play)
+*Closed 2026-11-01: 030af15*
+
+- **Seen:** in Mednafen (2026-11-01, main 53dd062), on the Cistern's first pool's
+  rim with the guns out: holding Look and forward she "can't look down" and her
+  head glitches. `tools/hwtest.sh cistern-look` starts there: LEVEL7A room 108 at
+  43468 -256 62565, yaw 0x905F, with the pool's two crocodiles awake. Draw with
+  C, then hold Z and up.
+- **Measured at that spot, Look and up held for 90 game ticks:**
+
+  | | Head and torso pitch |
+  |---|---|
+  | Crocodiles asleep | smooth to -42° and stays |
+  | Crocodiles awake | reaches -10° to -14°, snaps to 0°, about every 7 ticks |
+  | Crocodiles awake, test build (below) | smooth to -42° and stays |
+
+  Look and back, away from the crocodile, reaches +22° smoothly in all three. The
+  user's crocodiles being alive at the report is my reconstruction: their later
+  save has both dead.
+- **Ours:**
+  1. `weaponFindTargets` (`openlara/lara.h:3786`) measures a creature against
+     Lara's body plus torso. The crocodile on the pool's floor is about 70° below
+     her and the pistols' limit is 60°, so tilting the torso 10° takes it as the
+     target.
+  2. `weaponTrackTargets` measures from the body alone, so no arm aims.
+  3. `updateLook` (`lara.h:2864`) stops at any target, aimed or not, and writes
+     head = torso = half the arms' angle, which is 0°.
+  4. With the torso back at 0° the crocodile is out of range, the target goes,
+     and Look starts again from 0°.
+- **Retail:** `LaraGetNewTarget` (`larafire.c:432`) measures against the torso
+  too, but only a locked arm moves the head and torso: `PistolHandler`
+  (`lara2gun.c:172`) and the rifle's handler (`lara1gun.c:134`) leave them alone
+  otherwise.
+- **Test:** `if (R.aim || L.aim)` in place of the target test in `updateLook` (a
+  test build, not committed) gives the third row above.
+- **Fix:** that line. Issues 30 and 31 are about where and how Look runs, and 56
+  about the shotgun's torso.
+- **Done:** `updateLook` no longer looks at targets. Head and torso move only
+  for a locked arm, in `weaponUpdatePistols` and `weaponUpdateShotgun`, as
+  PistolHandler and RifleHandler. At `tools/hwtest.sh cistern-look`, with the
+  crocodiles awake, Look reaches -42� smoothly. Auto-aim, on the wolves in
+  Mednafen: both wolves are found, locked and killed with Action held, with the
+  pistols and with the shotgun, and no wolf in plain reach went untargeted but
+  for the tick after readying and the tick after a kill.
+
+### 69. Torso and head while aiming: one-frame lag and different formulas
+*Closed 2026-11-01: 030af15*
+
+- **Retail:**
+  - PistolHandler (`0601f084`) sets the head and torso after AimWeapon, in the
+    same frame.
+  - With one arm locked it uses that arm's angle / 2. With none locked it leaves
+    them alone, and LaraAboveWater's /8 decay applies.
+  - UndrawPistols sets them to (R+L)/4. UndrawShotgun halves the torso every
+    frame.
+- **Ours:**
+  - `updateLook` (`openlara/lara.h:2852-2918`) runs before updateWeapon
+    (`lara.h:3940` against `3998`), so it uses last frame's arm angles.
+  - It uses (R+L) >> 1 when one or no arm is locked.
+  - It uses the generic /8 decay during holstering.
+- **Done:** ported. Head and torso are set after the arms aim, in the same tick:
+  arm / 2 with one locked, (R+L) / 4 with both, untouched with none. Holstering
+  and readying set them as UndrawPistols, UndrawShotgun and ReadyPistols. On the
+  wolves in Mednafen they matched the formula on all 161 locked ticks.
+
+### 59. Pistol arms follow the torso when not aiming
+*Closed 2026-11-01: 030af15*
+
+- **Retail:** DrawLara (`06013438`), in every DRAW, UNDRAW and READY frame,
+  draws the pistol arms with the item's matrix copied from two levels back, plus
+  the arm rotation and the gun frame.
+- **Ours:** `openlara/lara.h:3560` sets `useBasis` only for AIM with frame > 0,
+  or for FIRE. The holster keeps whatever value was left.
+- **Effect:** when running or jumping with guns drawn but not aiming, and during
+  draw and holster, our arms bob with the torso's body animation by about 5°, or
+  more while running. Retail's arms stay fixed to Lara's heading.
+- **Fix:** always use the basis for pistol-type guns.
+- **Done:** `updateWeapon` sets the basis for pistol-type guns in every DRAW,
+  HOLSTER and READY frame, so the arms no longer tilt with the torso on Look.
+
+### 56. Shotgun aiming twists the torso twice as far as retail
+*Closed 2026-11-01: 030af15*
+
+- **Retail:** RifleHandler (`0601e9a0`) sets torso = left_arm/2 and head 0, and
+  only when the arm is locked.
+- **Ours:** `openlara/lara.h:2879` sets `T = R.angle`, the full angle, whenever a
+  target exists, locked or not.
+- **Effect:** with a target 60° to the side, retail's upper body turns 30° and
+  ours turns 60°.
+- **Done:** torso = arm / 2 and head 0, only while locked (`weaponUpdateShotgun`).
+
+### 70. Targeting origin and range
+*Closed 2026-11-01: 030af15*
+
+- **Retail:** LaraTargetInfo and LaraGetNewTarget use a fixed origin at y - 650
+  (`-0x28A` in `0601f838` and `0601f9f4`). They measure range from that point,
+  per axis first, then squared.
+- **Ours:**
+  - `openlara/lara.h:3714` and `3756` use the gun height (500 for the shotgun).
+  - `lara.h:3770` measures range from Lara's feet, with no per-axis check, so
+    the X_SQR sums overflow int32 beyond about 45 blocks and wrap.
+- **Effect:** shotgun lock and line of sight differ slightly. In principle, very
+  distant enemies could pass the range check.
+- **Done:** targets are found and tracked from y - 650 for every gun (shots keep
+  the gun's height), with range tested per axis, then squared, and the nearest
+  heading chosen as retail does. Ours keeps one check retail doesn't have: the
+  item's status must be active.
+
+### 249. Cistern: an invisible wall at a corner of the first pool's rim (reported in play)
+*Closed 2026-11-01: 2994412*
+
+- **Seen:** on the Saturn (2026-11-01, main 33102ae): running around the rim of
+  the pool and cutting the corner, Lara appears to run into an invisible wall.
+  `tools/hwtest.sh cistern-rim` starts there: LEVEL7A room 111 at 39375 -256
+  61648, yaw 0x1732; hold forward and she stops at about 39858 62363. Both
+  frame orders do it (update on the master and on the slave), along the same
+  path.
+- **Ours:** at the hit her front probe (39936, 62543) gets WALL. Four rooms meet
+  at that corner: 111, 110, 109 and 108. The probe's sector, world (39, 61), is
+  open floor at -256 in room 108, but it is the corner sector of room 111, where
+  it is a wall with no portal. `Room::getSector` (`openlara/room.h:193`) reads
+  it as it stands.
+- **Retail:** GetFloor (`0600fcc8`; TR1X `control_util.c:32`) never reads a
+  room's corner sector: on the first or last row of z it clamps x to 1 ..
+  xSectors - 2. Here that reads world (38, 61), whose portal leads to room 110,
+  then room 108, so the floor is found.
+- **Fix:** the same clamp in `Room::getSector`. This is the room-edge half of
+  issue 137.
+- **Done:** `Room::getSector` clamps as GetFloor. From `tools/hwtest.sh
+  cistern-rim`, hold forward and she runs on through rooms 110 and 108 to the
+  stone block at world (39, 62).
+
+### 248. Cistern: the first pool's tunnel blocks Lara, who keeps splashing "out" while underwater (reported in play)
+*Closed 2026-11-01: d3b5617*
+
+- **Seen:** on the Saturn (2026-11-01, main 33102ae): swimming into the tunnel
+  in the Cistern's first pool, Lara is stopped, and she keeps playing the
+  splash of leaving the water though she is still underwater.
+  `tools/hwtest.sh cistern-tunnel` starts there: LEVEL7A room 0, under water at
+  43309 1183 53339, yaw 0x7A6A; hold B. The user's save state at that spot takes
+  the same path.
+- **Ours:** this is issue 34's wading. The tunnel's first sector, world (42, 51)
+  in room 51, has its floor at 1280 and ceiling at 768, so `getWaterDepth`
+  returns 512, and `c_checkWallUW` (`openlara/lara.h:1420`) switches at 512 or
+  less. The loop, about 39 game ticks long:
+  1. She enters the tunnel and goes to WADE with anim 192, at y 1080.
+  2. Next tick that is under `LARA_WADE_MIN_DEPTH` from the tunnel's ceiling, so
+     she goes to ABOVE.
+  3. Collision puts her back in room 0, about 100 units back. Room 0's water
+     level is 0, so she is deep: `updateWaterState` puts her UNDER, 100 lower, at
+     pitch -45°, with `fxSplash`. That is the splash.
+  4. Her yaw is 5° less each time round.
+- **Retail:** TR1X's `LaraSwimCollision` (`laraswim.c:262`) has no depth check.
+  Room 51 is flagged as water, so she would stay under.
+- **Test:** with only that branch off (a test build, not committed) she swims
+  from room 0 into room 51 and on to the wall at z 51501, UNDER all the way.
+- **Not run:** builds before 33102ae. The branch has been there since the
+  vendored OpenLara, 9c4257c, and it doesn't depend on which CPU runs the update.
+- **Fix:** issue 34. Only this one branch has been tried off so far.
+- **Done:** issue 34's fix. From `tools/hwtest.sh cistern-tunnel`, hold B and she
+  swims into room 51 and on to the wall at z 51501, under water all the way.
+
+### 34. TR2-style wading is live in TR1, with an animation from another model
+*Closed 2026-11-01: d3b5617*
+
+- **Retail:** TR1 has no wading state (LaraControl `06020144`). Shallow water
+  rooms are swum through normally.
+- **Ours:**
+  - `c_checkWallUW` (`openlara/lara.h:1415-1431`) switches to WADE when the
+    water is 512 deep or less, and calls `animSet(ANIM_SWIM_STAND = 192)`.
+  - Lara's anims are 0–159 (model 1 starts at 160), so anim 192 belongs to
+    another model.
+  - `updateWaterState` (`lara.h:2934-3058`) has more WADE branches.
+- **Where:** water 512 deep or less is in Tihocan rooms 80, 99, 103 and 105
+  (depths 0, 256 and 512), in Atlantis room 21 (512), and in the Cistern's
+  tunnel, room 51 (512; issue 248).
+- **Effect:** swimming there flips Lara into WADE and out of the water, then
+  loops back to underwater with a splash. Issue 248 measures it.
+- **Fix:** remove every WADE path for TR1.
+- **Done:** every WADE path is gone. `updateWaterState` follows LaraControl: the
+  room's water flag alone decides, and leaving water also resets the gun status,
+  head and torso. In Mednafen: a jump into the Cistern's pool, up to the surface
+  and climbing out all work, and she swims through Tihocan's room 103. The
+  remaining water states keep their numbers, as saved games hold them.
 
 ### 195. A zero-length sample plays several seconds of garbage
 *Closed 2026-10-31: 53ae8fa*
