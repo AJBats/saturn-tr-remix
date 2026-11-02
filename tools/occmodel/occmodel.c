@@ -7,6 +7,8 @@
 //   pvs    the rooms seen from a camera's cell over training views, baked; held-out views test it
 //   tiny   a portal showing fewer than so many pixels of window isn't entered, its window filled
 //   hot    pvs for only the camera cells and headings whose views are heavy, trained hard
+//   dark   each room its own draw distance: past where its brightest vertex fogs to near black
+//          it isn't drawn, its window filled; the walk goes on through it
 //   far    the draw distance moved in: portals and faces past it gone; pixels lost, and how
 //          many of them weren't near black already (shade + fog, 0 lit .. 31 dark)
 //   near   rooms taken nearest first: a room's window or a face wholly behind the mask is
@@ -315,6 +317,8 @@ static int maskHides(Rect w, float zmin)
 typedef struct {
     int useMask, occK, usePoly;
     float minArea;      // a window smaller is filled, its room not entered
+    int darkShade;      // a room whose portal lies past where its brightest vertex reaches this isn't drawn
+    uint8_t unlisted[MAXROOMS];
     double fills, fillPx;
     Rect clip[MAXROOMS];
     uint8_t has[MAXROOMS], listed[MAXROOMS], inStack[MAXROOMS], occDrawn[MAXROOMS];
@@ -403,6 +407,25 @@ static int checkRect(Walk* w, int room, const Portal* p, Rect* out)
         return 0;
     }
     int t = p->target;
+    if (w->darkShade)
+    {
+        int bright = 31;
+        Room* tr = &rooms[t];
+        for (int k = 0; k < tr->nv; k++)
+            if (tr->shade[k] < bright) bright = tr->shade[k];
+        float zBlack = FOG_MIN + (w->darkShade - bright) * 256.0f;
+        if (zBlack < FOG_MIN) zBlack = FOG_MIN;
+        if (!near && zmin > zBlack)
+        {
+            if (!w->unlisted[t]) {
+                w->unlisted[t] = 1;
+                w->fills += 1;
+                w->fillPx += (x1 - x0) * (y1 - y0);
+            }
+        }
+        else
+            w->unlisted[t] = 2;     // seen nearer by another way: drawn
+    }
     if (!w->has[t]) {
         w->clip[t] = win;
         w->has[t] = 1;
@@ -527,6 +550,7 @@ static void walkRun(Walk* w, int cameraRoom, int prepass)
     memset(w->listed, 0, sizeof(w->listed));
     memset(w->inStack, 0, sizeof(w->inStack));
     memset(w->occDrawn, 0, sizeof(w->occDrawn));
+    memset(w->unlisted, 0, sizeof(w->unlisted));
     if (w->useMask) {
         maskClear();
         memset(&maskCost, 0, sizeof(maskCost));
@@ -815,8 +839,8 @@ static int randomPlace(V3* pos)
 }
 
 // --- the tests ---------------------------------------------------------------------------
-enum { T_BASE, T_ORACLE, T_ORACLE_F, T_POLY, T_M8, T_M32, T_M32P1, T_W16, T_W32, T_W64, T_W128, T_W256, T_W512, T_W1024, T_PVS, T_PVS8, T_PVSF, T_PVSF8, T_HOT, T_NEAR64, T_NEAR256, T_NEAR1024, T_NEARR, T_F18, T_F16, T_F14, T_F12, T_F10, T_F8, T_COUNT };
-static const char* const kNames[T_COUNT] = { "base", "oracle", "oracle-faces", "poly", "mask8", "mask32", "mask32+1", "tiny16", "tiny32", "tiny64", "tiny128", "tiny256", "tiny512", "tiny1024", "pvs", "pvs8", "pvs-faces", "pvs8-faces", "hot", "near64", "near256", "near1024", "near-rooms", "far18", "far16", "far14", "far12", "far10", "far8" };
+enum { T_BASE, T_ORACLE, T_ORACLE_F, T_POLY, T_M8, T_M32, T_M32P1, T_W16, T_W32, T_W64, T_W128, T_W256, T_W512, T_W1024, T_PVS, T_PVS8, T_PVSF, T_PVSF8, T_HOT, T_NEAR64, T_NEAR256, T_NEAR1024, T_NEARR, T_F18, T_F16, T_F14, T_F12, T_F10, T_F8, T_D24, T_D26, T_D28, T_D30, T_COUNT };
+static const char* const kNames[T_COUNT] = { "base", "oracle", "oracle-faces", "poly", "mask8", "mask32", "mask32+1", "tiny16", "tiny32", "tiny64", "tiny128", "tiny256", "tiny512", "tiny1024", "pvs", "pvs8", "pvs-faces", "pvs8-faces", "hot", "near64", "near256", "near1024", "near-rooms", "far18", "far16", "far14", "far12", "far10", "far8", "dark24", "dark26", "dark28", "dark30" };
 
 typedef struct { double rooms, verts, statics, kept, px, cycles, vdp1, test, lost, hit, over, lit; } Sum;
 typedef struct { Sum s[T_COUNT]; double key, verts; } ViewRow;
@@ -1361,6 +1385,52 @@ static void run(const char* name, int views)
                 addRow(&row->s[farWays[n].t], &wk, 600.0 * gTry.checks, lost, gTry.nlist < gBase.nlist, 0);
                 row->s[farWays[n].t].lit = lit;
                 gFar = VIEW_MAX;
+            }
+        }
+        {
+            static const struct { int t, dark; } darkWays[] = { { T_D24, 24 }, { T_D26, 26 }, { T_D28, 28 }, { T_D30, 30 } };
+            for (unsigned n = 0; n < sizeof(darkWays) / sizeof(darkWays[0]); n++)
+            {
+                gTry.useMask = 0; gTry.usePoly = 0; gTry.minArea = 0;
+                gTry.darkShade = darkWays[n].dark;
+                walkRun(&gTry, room, 0);
+                gTry.darkShade = 0;
+                int kept = 0;
+                double lost = 0, lit = 0;
+                for (int i = 0; i < gTry.nlist; i++)
+                {
+                    int t = gTry.list[i];
+                    if (gTry.unlisted[t] == 1)
+                    {
+                        Room* r = &rooms[t];
+                        roomProject(r);
+                        for (int f = 0; f < r->nq + r->nt; f++)
+                        {
+                            int id = r->faceBase + f;
+                            if (!facePx[id])
+                                continue;
+                            int idx[4], cn;
+                            if (f < r->nq) { idx[0] = r->q[f].a; idx[1] = r->q[f].b; idx[2] = r->q[f].c; idx[3] = r->q[f].d; cn = 4; }
+                            else { idx[0] = r->t[f - r->nq][0]; idx[1] = r->t[f - r->nq][1]; idx[2] = r->t[f - r->nq][2]; cn = 3; }
+                            int dark = 1;
+                            for (int c = 0; c < cn; c++) {
+                                float z = r->vv[idx[c]].z;
+                                int sh = r->shade[idx[c]] + (z > FOG_MIN ? (int)((z - FOG_MIN) / 256) : 0);
+                                if (sh < DARK_SHADE) dark = 0;
+                            }
+                            lost += facePx[id];
+                            if (!dark) lit += facePx[id];
+                        }
+                    }
+                    else
+                        gTry.list[kept++] = t;
+                }
+                gTry.nlist = kept;
+                Work wk = listWork(&gTry);
+                wk.cycles += 300.0 * gTry.fills;
+                wk.vdp1 += 80.0 * gTry.fills + 2.0 * gTry.fillPx;
+                addRow(&row->s[darkWays[n].t], &wk, 600.0 * gTry.checks, lost, kept < gBase.nlist, 0);
+                row->s[darkWays[n].t].lit = lit;
             }
         }
         static const struct { int t; float area; } tiny[] = {
