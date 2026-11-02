@@ -12,6 +12,13 @@
 // with its window in clip. The rooms' faces go to the frame with them.
 Room** renderWalk(Room* cameraRoom);
 
+// Work for the slave in this frame's render, begun as render/frame.h
+// frameNextWork has it (main.cpp's next frame), or nullptr. In it, the next
+// frame's walk from the camera as it stands, which renderWalk then takes if
+// that frame's view is the same.
+void renderNextWork(void (*work)());
+void renderWalkAhead(Room* cameraRoom);
+
 // An item's model, posed and lit as drawModel would (the renderer tests its
 // sphere), or as the inventory's drawNodesLerp under the matrix on top of the
 // stack, lit by its intensity; its shadow, on the floor given (drawn if its
@@ -27,10 +34,11 @@ void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room
 // dropped.
 void* renderScratch(uint32 size);
 
-// After flipMap: the rooms swapped with their alternates.
+// After flipMap, at levelCommit: the rooms swapped with their alternates.
 void renderRoomsFlipped();
 
-// After animTexturesShift: the animated ranges' textures shifted one along.
+// In animTexturesShift, at levelCommit: the animated ranges' textures shifted
+// one along.
 void renderTexturesShifted();
 
 // The draw distance for the rooms and the items, in world units (the game's

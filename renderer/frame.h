@@ -156,6 +156,22 @@ FrameTimes frameRun(const FrameCalls &calls, int32_t bias);
 void frameRoomsStart(bool listFree);
 void frameListFree();
 
+// The game's next frame begun in this one (saturn/main.cpp): work the slave
+// runs once the master's draw list is made (what the frame draws of the game
+// is recorded by then), in the middle of its rooms, at the first one the
+// master has chunks of (which the master projects meanwhile), else after
+// them. If the work walked the next frame's rooms (rooms.h roomsSeen, not
+// taken, then frameNextWalked), the slave lays them out and starts the DSP on
+// them as soon as this frame's rooms are done and its hints placed, a run
+// that then overlaps this frame's end; frameNextDrop waits it out when the
+// next frame walks its own rooms or has none. With work, the slave joins the
+// near half of the buckets if the work came in its rooms (else the master
+// joins both), and the master leaves the frame without waiting for the
+// slave. nullptr: none. Set before the frame's rooms start.
+void frameNextWork(void (*work)());
+void frameNextWalked();
+void frameNextDrop();
+
 // A frame of draws given (the rooms set, the draws posed, the plan made: the
 // lab's scenes): the copies' faces and their vertices, the draws whose
 // faces hints move.

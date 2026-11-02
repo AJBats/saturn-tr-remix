@@ -33,9 +33,11 @@ static int32_t gClip[MAX_LEVEL_ROOMS][4];
 static uint8_t gVisible[MAX_LEVEL_ROOMS];
 static uint16_t gList[ROOMS_LISTED + 1];
 static RoomSeen gSeen[ROOMS_LISTED];
-static FaceRoom gJobs[ROOM_JOBS];
-static int16_t gCausticsTable[32];
-static int32_t gFills[ROOM_FILLS][4];
+static FaceRoom gJobs[2][ROOM_JOBS];        // two deep (roomsSeen)
+static int16_t gCausticsTable[2][32];
+static int32_t gFills[2][ROOM_FILLS][4];
+static int32_t gJobCounts[2], gVoids[2];
+static int32_t gWalkSet, gFrameSet;         // the last walk's set, the frame's
 static RoomEntry gEntries[ROOM_ENTRIES];
 static int16_t gEntryFirst[MAX_LEVEL_ROOMS];    // each room's first entry, then gEntryNext's
 static int16_t gEntryNext[ROOM_ENTRIES];
@@ -67,10 +69,10 @@ void roomsInit(const RoomsLevel &level)
     gCtx.geometry = level.geometry;
     gCtx.rgeo = level.rgeo;
     gCtx.vertices = level.vertices;
-    gCtx.jobs = gJobs;
+    gCtx.jobs = gJobs[0];
     gCtx.caustics = level.caustics;
-    gCtx.table = gCausticsTable;
-    gCtx.fills = gFills;
+    gCtx.table = gCausticsTable[0];
+    gCtx.fills = gFills[0];
     gCtx.farScaled = 1;
     gCtx.entries = gEntries;
     gSines = level.sines;
@@ -105,11 +107,31 @@ RoomsContext& roomsContext()
     return gCtx;
 }
 
-void roomsSeen()
+void roomsSeen(bool take)
 {
+    int32_t set = gFrameSet ^ 1;
+    gCtx.jobs = gJobs[set];
+    gCtx.fills = gFills[set];
+    gCtx.table = gCausticsTable[set];
     roomsSeenAsm(&gCtx);
     roomsJobsAsm(&gCtx);
+    gJobCounts[set] = gCtx.jobCount;
+    gVoids[set] = gCtx.voids;
+    gWalkSet = set;
     gEntriesListed = false;
+    if (take) {
+        roomsTake();
+    }
+}
+
+void roomsTake()
+{
+    gFrameSet = gWalkSet;
+}
+
+void roomsNone()
+{
+    gJobCounts[gFrameSet] = gVoids[gFrameSet] = 0;
 }
 
 void roomsItemsTest(bool on)
@@ -357,14 +379,20 @@ extern "C" int32_t roomsItemSeen(const ItemRecord* item, const int16_t* frameA, 
 
 FaceRoom* roomsJobs(uint32_t &count)
 {
-    count = gCtx.jobCount;
-    return gCtx.jobs;
+    count = gJobCounts[gFrameSet];
+    return gJobs[gFrameSet];
+}
+
+FaceRoom* roomsJobsAhead(uint32_t &count)
+{
+    count = gJobCounts[gWalkSet];
+    return gJobs[gWalkSet];
 }
 
 const int32_t (*roomsFills(int32_t &count))[4]
 {
-    count = gCtx.voids < ROOM_FILLS ? gCtx.voids : ROOM_FILLS;
-    return gCtx.fills;
+    count = gVoids[gFrameSet] < ROOM_FILLS ? gVoids[gFrameSet] : ROOM_FILLS;
+    return gFills[gFrameSet];
 }
 
 }

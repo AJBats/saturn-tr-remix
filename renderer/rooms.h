@@ -85,12 +85,19 @@ void roomsInit(const RoomsLevel &level);
 // the viewport (x0 y0 x1 y1), the camera's room.
 void roomsView(const int32_t camera[3], const int32_t view[12], const int32_t viewport[4], uint32_t cameraRoom);
 
-// The walk from the view, and the jobs: the rooms listed with vertices.
-void roomsSeen();
-FaceRoom* roomsJobs(uint32_t &count);
+// The walk from the view, and the jobs: the rooms listed with vertices. The
+// jobs, the fills and the caustics' table are kept two deep: a walk fills the
+// set the frame isn't drawing from, so that the next frame's walk may run
+// while this frame is drawn (frame.h frameNextWork). The frame draws from
+// the last walk's (take, or roomsTake later), or from none (roomsNone).
+void roomsSeen(bool take = true);
+void roomsTake();
+void roomsNone();
+FaceRoom* roomsJobs(uint32_t &count);       // the frame's
+FaceRoom* roomsJobsAhead(uint32_t &count);  // the last walk's, not yet taken
 
-// The fills past the draw distance the walk found (renderVoid's: x0 y0 x1
-// y1), the first ROOM_FILLS: their count.
+// The fills past the draw distance the frame's walk found (renderVoid's: x0
+// y0 x1 y1), the first ROOM_FILLS: their count.
 const int32_t (*roomsFills(int32_t &count))[4];
 
 // Whether an item drawn (its record, its frames A and B, its model's call:

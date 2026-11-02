@@ -8,6 +8,9 @@
 // Once a frame, before the game update: reads the debug pad.
 void debugUpdate();
 
+// The overlay's menu has the player's pad: the game gets none of it.
+bool debugOwnsPad();
+
 #ifdef HW_LOG
 // Starts the measurement table's sampling profiler (debug.cpp).
 void debugProfileInit();

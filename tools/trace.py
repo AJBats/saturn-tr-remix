@@ -63,7 +63,7 @@ END = 0x80
 # tid: name, in the order shown
 TRACK_NAMES = {1: 'Master SH-2', 2: 'Master interrupts', 3: 'Slave SH-2', 4: 'SCU DSP (rooms, then meshes)',
                5: 'VDP1', 6: 'Display'}
-WAITS = {'TICK_WAIT', 'SLAVE_WAIT', 'POSE_WAIT', 'VDP1_WAIT', 'WALK_WAIT', 'PLAN_WAIT', 'DRAWS_WAIT'}
+WAITS = {'TICK_WAIT', 'SLAVE_WAIT', 'POSE_WAIT', 'VDP1_WAIT', 'WALK_WAIT', 'PLAN_WAIT', 'DRAWS_WAIT', 'UPDATE_WAIT'}
 
 
 def trace_ids():

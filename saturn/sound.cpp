@@ -8,6 +8,7 @@
 #include "common.h"
 #include "cd.h"
 #include "crash.h"
+#include "platform.h"
 #include "sound.h"
 #include "system.h"
 
@@ -150,10 +151,12 @@ static bool post(const Command &c)
     volatile uint16* tail = driverWord(DRIVER_Q_TAIL);
     uint32 h = *head;
     uint32 next = (h + 1) & (DRIVER_Q_SIZE - 1);
-    uint32 v = gVblankCount;
+    // the slave posts too (main.cpp nextFrame): the count as the interrupt left it
+    volatile uint32_t* vblanks = uncached(&gVblankCount);
+    uint32 v = *vblanks;
     while (*tail == next)
     {
-        if (gVblankCount - v > 2)
+        if (*vblanks - v > 2)
             return false;
     }
     volatile uint16* dst = driverWord(DRIVER_QUEUE + h * sizeof(Command));

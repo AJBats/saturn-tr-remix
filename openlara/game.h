@@ -283,7 +283,28 @@ void updateItems()
     }
 }
 
-void gameUpdate(int32 frames)
+// Play, as against the inventory, the title, a cutscene or a level ending:
+// what the items' update runs in.
+bool gameInPlay()
+{
+    return inventory.page != INV_PAGE_TITLE && inventory.state == INV_STATE_NONE && gNextLevel == LVL_MAX &&
+           !isCutsceneLevel() && players[0];
+}
+
+// The items' and the level's update for frames ticks: gameUpdate's in play,
+// and on the Saturn the slave's for the next frame (saturn/main.cpp).
+void gameUpdateItems(int32 frames)
+{
+    for (int32 i = 0; i < frames; i++)
+    {
+        updateItems();
+    }
+    updateLevel(frames);
+}
+
+// The game's update for frames ticks; without the items' if they are updated
+// already (items false).
+void gameUpdate(int32 frames, bool items = true)
 {
     PROFILE(CNT_UPDATE);
 
@@ -311,13 +332,8 @@ void gameUpdate(int32 frames)
         }
     }
 
-    if ((inventory.page != INV_PAGE_TITLE) && (inventory.state == INV_STATE_NONE) && (gNextLevel == LVL_MAX))
-    {
-        for (int32 i = 0; i < frames; i++)
-        {
-            updateItems();
-        }
-        updateLevel(frames);
+    if ((inventory.page != INV_PAGE_TITLE) && (inventory.state == INV_STATE_NONE) && (gNextLevel == LVL_MAX) && items) {
+        gameUpdateItems(frames);
     }
 
     if ((gNextLevel != LVL_MAX) && (inventory.state == INV_STATE_NONE))

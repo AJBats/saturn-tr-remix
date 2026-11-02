@@ -33,6 +33,12 @@ EWRAM_DATA ItemObj* ItemObj::sFirstFree;
 
 EWRAM_DATA int32 gBrightness;
 
+// What the updates changed that the renderer reads, held for the frame's top
+// (levelCommit), where no frame is being drawn from it: the animated
+// textures' shifts, and the flips' rooms as the renderer has them.
+int32 gTexShiftsDue;
+int32 gFlipsDue;
+
 #if (USE_FMT & (LVL_FMT_PHD | LVL_FMT_PSX))
     uint8 gLevelData[2 * 1024 * 1024];
 #endif
@@ -142,6 +148,8 @@ void readLevel(const uint8* data)
     memset(&level, 0, sizeof(level));
 
     gAnimTexFrame = 0;
+    gTexShiftsDue = 0;
+    gFlipsDue = 0;
 
     DataStream f(data, 0);
     readLevelStream(f);
@@ -301,10 +309,26 @@ void flipMap()
     }
 
     gSaveGame.flipped ^= 1;
+    gFlipsDue++;
+}
+
+// The texture shifts and flips the updates made since the last call, applied
+// to what the renderer reads. The game's main loop calls it at the frame's
+// top: on the Saturn the next frame's update runs on the slave while this
+// frame is drawn (saturn/pipeline.cpp).
+void levelCommit()
+{
+    for (; gTexShiftsDue > 0; gTexShiftsDue--) {
+        animTexturesShift();
+    }
+    if (gFlipsDue)
+    {
+        gFlipsDue = 0;
 #ifdef __SATURN__
-    osRoomFacesFlipped();
-    renderRoomsFlipped();
+        osRoomFacesFlipped();
+        renderRoomsFlipped();
 #endif
+    }
 }
 
 void shakeCamera(int32 frames, bool add)
@@ -434,7 +458,7 @@ void updateLevel(int32 frames)
     gAnimTexFrame += frames;
     while (gAnimTexFrame > 5)
     {
-        animTexturesShift();
+        gTexShiftsDue++;    // levelCommit's
         gAnimTexFrame -= 5;
     }
 }

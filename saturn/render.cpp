@@ -273,14 +273,53 @@ static void view(int32_t camera[3], int32_t m[12])
 // its own after the scene behind it).
 static int32_t gSceneCamera[3], gSceneView[12];
 
+// The next frame's walk, what it walked from and that it has been: the
+// slave's, in this frame's render (main.cpp nextFrame); renderWalk takes it
+// if the frame's view is that.
+static struct { int32_t camera[3], view[12], vp[4]; uint32_t room, phase; } gAhead;
+static bool gAheadWalked;
+
+void renderNextWork(void (*work)())
+{
+    render::frameNextWork(work);
+}
+
+void renderWalkAhead(Room* cameraRoom)
+{
+    view(gAhead.camera, gAhead.view);
+    gAhead.vp[0] = 0;
+    gAhead.vp[1] = 0;
+    gAhead.vp[2] = FRAME_WIDTH;
+    gAhead.vp[3] = FRAME_HEIGHT;
+    gAhead.room = uint32(cameraRoom - rooms);
+    gAhead.phase = uint32(gCausticsFrame);
+    gRoomCaustics.phase = gCausticsFrame;
+    render::roomsView(gAhead.camera, gAhead.view, gAhead.vp, gAhead.room);
+    render::roomsSeen(false);
+    render::frameNextWalked();
+    gAheadWalked = true;
+}
+
 Room** renderWalk(Room* cameraRoom)
 {
     static Room* visible[ROOMS_LISTED + 1];
     view(gSceneCamera, gSceneView);
     int32_t vp[4] = { viewport.x0, viewport.y0, viewport.x1, viewport.y1 };
-    gRoomCaustics.phase = gCausticsFrame;
-    render::roomsView(gSceneCamera, gSceneView, vp, uint32(cameraRoom - rooms));
-    render::roomsSeen();
+    uint32_t room = uint32(cameraRoom - rooms);
+    if (gAheadWalked && gAhead.room == room && gAhead.phase == uint32(gCausticsFrame) &&
+        !memcmp(gAhead.camera, gSceneCamera, sizeof(gSceneCamera)) &&
+        !memcmp(gAhead.view, gSceneView, sizeof(gSceneView)) && !memcmp(gAhead.vp, vp, sizeof(vp)))
+    {
+        render::roomsTake();
+    }
+    else
+    {
+        render::frameNextDrop();
+        gRoomCaustics.phase = gCausticsFrame;
+        render::roomsView(gSceneCamera, gSceneView, vp, room);
+        render::roomsSeen();
+    }
+    gAheadWalked = false;
     gWalked = true;
     renderPoll();   // the last list up if VDP1 is done: the slave's faces may follow at once
     render::frameRoomsStart(!gListPending);  // the slave on them at once
@@ -631,6 +670,7 @@ static bool gItemTextures;      // item textures are in VRAM
 bool gListPending;
 static bool gListResume;        // and the item textures leave the cache with it
 static int32_t gBias;           // the frame plan's, from the frames before (frame.h frameRun)
+#define BIAS_MAX    500000      // cycles: past what the plan can move, it would only take long to come back
 
 // The list in gFrameCmds to VDP1 with the textures its faces queued, then
 // its plot. VDP1 must have drawn the last list.
@@ -759,8 +799,9 @@ void flush_c()
     if (!gWalked)
     {
         walk.listed = 0;
-        walk.jobCount = 0;
-        walk.voids = 0;
+        render::roomsNone();
+        render::frameNextDrop();
+        gAheadWalked = false;
     }
     int32_t fills;
     render::roomsFills(fills);
@@ -793,21 +834,28 @@ void flush_c()
     calls.inventory = gInventoryFrame;
     calls.started = gWalked;
     render::FrameTimes s = render::frameRun(calls, gBias);
-    gBias += s.late / 2;
+    gBias = X_MAX(X_MIN(gBias + s.late / 2, BIAS_MAX), -BIAS_MAX);
     gStats.detailUploads = render::gFrameTextures.count;
 #ifdef HW_LOG
     // the DSP's two runs on the trace, on the slave's clock (it started the
     // rooms'; the master the meshes', and took the ends)
     uint32_t ends[2], roomsAt, meshesAt;
-    if (gTraceOn && dspEnds(ends, 2) == 2)
+    if (gTraceOn && dspEnds(ends, 2) >= 2)
     {
         render::verticesDspStarts(roomsAt, meshesAt);
+        // a rooms' run later than the meshes' is the next frame's, started
+        // early: this frame's was the last one seen
+        static uint32_t lastRoomsAt;
+        uint32_t rooms = int16_t(roomsAt - masterTickOnSlave(meshesAt)) > 0 ? lastRoomsAt : roomsAt;
+        lastRoomsAt = roomsAt;
+        roomsAt = rooms;
         traceBeginAt(TRACE_DSP, roomsAt, TR_DSP_RUN, 0);
         traceEndAt(TRACE_DSP, masterTickOnSlave(ends[0]), TR_DSP_RUN, 0);
         traceBeginAt(TRACE_DSP, masterTickOnSlave(meshesAt), TR_DSP_RUN, 1);
         traceEndAt(TRACE_DSP, masterTickOnSlave(ends[1]), TR_DSP_RUN, 1);
     }
 #endif
+    dspEndsClear();     // read: from here the next frame's, whose rooms' run may be on already
     if (gWalked && !gSceneClear)
     {
 #ifdef VOID_VIEW

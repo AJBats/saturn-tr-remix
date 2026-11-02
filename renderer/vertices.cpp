@@ -704,6 +704,17 @@ void verticesMasterRooms(uint32_t &wait, bool &meshes)
     }
 }
 
+bool verticesRoomMasters(uint32_t i)
+{
+    for (int32_t c = gChunkAt[i]; c < gChunkAt[i + 1]; c++)
+    {
+        if (*uncached(gChunkClaims + c)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void verticesRoom(uint32_t i, uint32_t &wait)
 {
     for (int32_t c = gChunkAt[i]; c < gChunkAt[i + 1]; c++)
@@ -784,9 +795,9 @@ const Vertex* verticesDraw(uint32_t draw, uint32_t &wait)
     return gJobs[j].out;
 }
 
-void verticesEnd()
+void verticesEnd(const volatile uint32_t* nextRooms)
 {
-    while (dspBusy()) {
+    while (dspBusy() && !(nextRooms && *nextRooms)) {
         busPause();
     }
 }

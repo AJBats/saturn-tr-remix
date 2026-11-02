@@ -130,12 +130,16 @@ void verticesDspStarts(uint32_t &rooms, uint32_t &meshes);
 //   did), or once it has;
 // - draw i's mesh job (a mesh or a shadow) waited for and projected: its
 //   vertices;
-// - the DSP's run waited for.
+// - the DSP's run waited for, unless nextRooms (read as it waits) says the
+//   run is the next frame's rooms' (frame.h frameNextWork).
 void verticesPlan(int32_t bias, int32_t ahead = 0, bool started = false);
 void verticesRoomsBegin();
 void verticesClaimMasters();
 void verticesMasterRooms(uint32_t &wait, bool &meshes);
 void verticesRoom(uint32_t i, uint32_t &wait);
+
+// Room i has chunks claimed before the slave came to it: the master's.
+bool verticesRoomMasters(uint32_t i);
 
 // Room i's vertices all projected, by either CPU: this CPU's cached lines of
 // them dropped (the cycles waiting added to wait).
@@ -144,7 +148,7 @@ void verticesMeshesFeed(int32_t from = 0, int32_t to = -1);
 bool verticesMeshesTryStart();
 void verticesMeshesStart(uint32_t &wait);
 const Vertex* verticesDraw(uint32_t draw, uint32_t &wait);
-void verticesEnd();
+void verticesEnd(const volatile uint32_t* nextRooms = nullptr);
 
 // The work the plan's counts predict, in cycles: the master's (the draws)
 // and the slave's (the rooms), before any chunk moves; a draw's mesh job, or

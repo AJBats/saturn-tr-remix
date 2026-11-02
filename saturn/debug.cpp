@@ -136,6 +136,15 @@ static bool menuShown()
 #endif
 }
 
+bool debugOwnsPad()
+{
+#ifdef HW_LOG
+    return menuShown();
+#else
+    return false;
+#endif
+}
+
 void debugUpdate()
 {
     traceBegin(TRACE_MASTER, TR_DEBUG);
