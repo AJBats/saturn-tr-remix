@@ -1508,6 +1508,17 @@ static void region(int room, float radius, float arc, float pitchRange, int view
         done++;
     }
     if (!done) { printf("no pose\n"); return; }
+    if (getenv("OCC_ROOMS"))
+    {
+        // these rooms, one by one: the most and the mean pixels, how often listed, their cost
+        char list[512];
+        strncpy(list, getenv("OCC_ROOMS"), sizeof(list) - 1);
+        for (char* t = strtok(list, ","); t; t = strtok(NULL, ","))
+        {
+            int n = atoi(t);
+            printf("  room %3d: %3d v, most %5.0f px, mean %6.1f px, listed %3.0f%%, CPU %.2f ms, VDP1 %.2f ms\n", n, rooms[n].nv, worst[n], sum[n] / done, 100 * seen[n] / done, cost[n] / done / 28636.36, vcost[n] / done / 28636.36);
+        }
+    }
     const double MS = 1 / 28636.36;
     printf("poses %d (radius %.0f, heading +-%.0f, pitch +-%.0f): rooms %.1f verts %.0f CPU %.2f ms VDP1 %.2f ms\n", done, radius, arc * 57.3, pitchRange * 57.3, baseRooms / done, baseVerts / done, base / done * MS, basev / done * MS);
     static const double tols[] = { 0, 16, 64, 256, 1024 };
@@ -1564,6 +1575,23 @@ int main(int argc, char** argv)
         walkRun(&gBase, room, 0);
         Work w = listWork(&gBase);
         oracle(&gBase);
+        // each half-resolution pixel's room, for a picture (OCC_OWNERS names the file)
+        if (getenv("OCC_OWNERS"))
+        {
+            FILE* f = fopen(getenv("OCC_OWNERS"), "wb");
+            for (int y = 0; y < ZH; y++)
+                for (int x = 0; x < ZW; x++) {
+                    int16_t room16 = owner[y][x] >= 0 ? faceRoom(owner[y][x]) : -1;
+                    fwrite(&room16, 2, 1, f);
+                }
+            fclose(f);
+        }
+        if (getenv("OCC_FACEPX"))
+        {
+            FILE* f = fopen(getenv("OCC_FACEPX"), "wb");
+            fwrite(facePx, sizeof(uint16_t), nfaces, f);
+            fclose(f);
+        }
         printf("rooms %d verts %.0f kept %.0f dropped %.0f px %.0f list:", gBase.nlist, w.verts, w.kept, w.dropped, w.px);
         for (int i = 0; i < gBase.nlist; i++)
             printf(" %d(%ld)", gBase.list[i], ownerPx[gBase.list[i]]);
