@@ -12,6 +12,9 @@
         off, then on
     hw.py shot [--out PNG]
         saves what the capture card shows right now (build/hw_shot.png)
+    hw.py record SECONDS [--out MKV]
+        records that long as OBS is set up to, moved from OBS's folder to
+        build/hw_record.mkv; refuses if OBS is already recording
 
 Exits with 1 if the plug doesn't answer or the reading isn't what it should
 be. The plug is a Shelly Plug US Gen4 on the home network, found by its name.
@@ -41,6 +44,7 @@ DRAIN_S = 5         # the power supply's capacitors, after the reading falls
 
 OBS_CONFIG = os.path.expandvars(r'%APPDATA%\obs-studio\plugin_config\obs-websocket\config.json')
 OBS_CAPTURE_KIND = 'dshow_input'    # OBS's Video Capture Device
+RELEASE_S = 30      # how long a stopped recording's file gets to be let go
 
 
 def fail(message):
@@ -188,6 +192,30 @@ def shot(out):
     print(out)
 
 
+def record(seconds, out):
+    obs = Obs()
+    if obs.request('GetRecordStatus')['outputActive']:
+        fail('OBS is already recording')
+    obs.request('StartRecord')
+    try:
+        time.sleep(seconds)
+    finally:
+        # a new connection: a long wait doesn't answer the server's pings
+        path = Obs().request('StopRecord')['outputPath']
+
+    # OBS holds the file for a moment after it reports stopping
+    deadline = time.monotonic() + RELEASE_S
+    while True:
+        try:
+            os.replace(path, out)
+            break
+        except PermissionError:
+            if time.monotonic() > deadline:
+                fail(f'OBS still holds {path}')
+            time.sleep(0.25)
+    print(out)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='command', required=True)
@@ -195,11 +223,16 @@ def main():
     p.add_argument('action', nargs='?', choices=['on', 'off', 'cycle'])
     p = sub.add_parser('shot')
     p.add_argument('--out', default='build/hw_shot.png')
+    p = sub.add_parser('record')
+    p.add_argument('seconds', type=float)
+    p.add_argument('--out', default='build/hw_record.mkv')
     args = ap.parse_args()
     if args.command == 'power':
         power(args.action)
-    else:
+    elif args.command == 'shot':
         shot(args.out)
+    else:
+        record(args.seconds, args.out)
 
 
 if __name__ == '__main__':
