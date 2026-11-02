@@ -3446,34 +3446,6 @@ Fix: small*
   ~0.2 ms there). Both could be asm: the bit test inside the model and
   static handlers, the holding beside `facesmesh.s`.
 
-### 241. VDP1 idles between lists: the change waits for a vblank, then the upload
-*Kind: speed · Size: Mednafen ledge: VDP1 32.55 ms misses the second
-field's vblank-in by ~2.5 ms and the frame takes three fields (50.15 ms,
-19.94 fps); wolves_aim (VDP1 23.91) holds 30 fps · Fix: medium*
-
-- `stageRun` (lab.cpp): once VDP1 has drawn a list the master waits for the
-  vblank-in, asks for the frame buffers' change, waits for the display to
-  start (a plot late in the vertical blank locks VDP1 up), uploads the next
-  list (0.84 ms, 43 KB at the ledge) and only then plots it. For 30 fps a
-  list has to be drawn by the second field's vblank-in: about 30.9 ms after
-  the display starts, less the upload.
-- **Measured on the Saturn (2026-11-02, `make vdp1bench`):** the change comes
-  on line 0, and the request is taken up to the vertical blank's last line,
-  with lists ending as late as line 261 and the next plot right after: 0 hung.
-- **Done (b5d651b):** a list ending inside the vertical blank asks for the
-  change itself (`system.cpp spriteEndHandler`), so the limit is about 33.3 ms,
-  not 30.9. Mednafen, Cistern diagonal, far plane moved to size the list, fps
-  before -> after: VDP1 31.7 ms 19.98 -> 29.82, 32.6 ms 19.98 -> 28.96, 33.3 ms
-  19.98 -> 22.39. Past the upload's slack a late plot carries over to the next
-  frame, which gives 2- and 3-field frames mixed.
-- **Not worth it, costed 2026-11-02:** two command areas in VDP1 VRAM, the next
-  list uploaded while VDP1 draws the last, would keep the upload (0.84 ms) out of
-  the limit. A second area of 1792 commands is 70 KB: by `detail.cpp`'s rules 14
-  of 16 levels lose their mip pools and 6 can't hold the inventory's item
-  textures. Capped at 1152 (20 KB) 10 levels still lose them; 1024 is under the
-  1131 commands seen in a list. It would help 19 of 1200 Mednafen lists, and
-  those already mix 2 and 3 fields near 29 fps.
-
 ### 244. Some rooms' faces stay in low work RAM at four levels
 *Kind: speed · Size: LEVEL6 17 rooms of 79, LEVEL7A 44 of 139, LEVEL7B 10 of
 114, LEVEL10B 18 of 101 (tools/ramaudit.py) · Fix: medium*
@@ -3503,25 +3475,6 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
 - **Levers:** the meshes' store read with the level file (one seek less),
   the rooms' copies made by DMA.
 
-### 247. The Cistern's water room 108 holds 20 fps on VDP1
-*Kind: speed (VDP1) · Size: Saturn, scene page: VDP1 95% of a 30 fps frame
-(about 31.7 ms a list), 20 fps; the CPUs have room (master 76%, slave
-78-100%) · Fix: unknown*
-
-- Found in play on the Saturn (2026-11-01, Cistern test disc with the
-  pipelining probe, 90ceaff): LEVEL7A room 108 at 44105 -256 62852, yaw
-  0x91E7, looking across the green water. Scene page: rooms 19, room
-  vertices 1939, mesh vertices 1210, commands 950, meshes 101.
-- VDP1 needs about 31.7 ms for the list, past the 30.9 ms from a frame's
-  display start to the second field's change (issue 241), so every list
-  waits a third field.
-- Which commands cost VDP1 the time (Mednafen, which reads 39.7 ms there): no
-  one face, the dearest 1.4 ms; room faces 92% of the list, 3.2 screens of
-  pixels.
-- The list now fits in two fields if the Saturn's 31.7 ms holds, as lists may
-  end inside the vertical blank (issue 241, b5d651b). `tools/hwtest.sh
-  cistern-water` is this spot; Saturn check pending.
-
 ---
 
 ## Decisions needed before fixing
@@ -3543,6 +3496,49 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
 | **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
 
 ## Closed
+
+### 247. The Cistern's water room 108 holds 20 fps on VDP1
+*Closed 2026-11-02: b5d651b. Saturn, this spot: 30 fps (the user, in play)*
+
+- Found in play on the Saturn (2026-11-01, Cistern test disc with the
+  pipelining probe, 90ceaff): LEVEL7A room 108 at 44105 -256 62852, yaw
+  0x91E7, looking across the green water. Scene page: rooms 19, room
+  vertices 1939, mesh vertices 1210, commands 950, meshes 101.
+- VDP1 needs about 31.7 ms for the list, past the 30.9 ms from a frame's
+  display start to the second field's change (issue 241), so every list
+  waits a third field.
+- Which commands cost VDP1 the time (Mednafen, which reads 39.7 ms there): no
+  one face, the dearest 1.4 ms; room faces 92% of the list, 3.2 screens of
+  pixels.
+- The list now fits in two fields if the Saturn's 31.7 ms holds, as lists may
+  end inside the vertical blank (issue 241, b5d651b). `tools/hwtest.sh
+  cistern-water` is this spot; Saturn check pending.
+
+### 241. VDP1 idles between lists: the change waits for a vblank, then the upload
+*Closed 2026-11-02: b5d651b*
+
+- `stageRun` (lab.cpp): once VDP1 has drawn a list the master waits for the
+  vblank-in, asks for the frame buffers' change, waits for the display to
+  start (a plot late in the vertical blank locks VDP1 up), uploads the next
+  list (0.84 ms, 43 KB at the ledge) and only then plots it. For 30 fps a
+  list has to be drawn by the second field's vblank-in: about 30.9 ms after
+  the display starts, less the upload.
+- **Measured on the Saturn (2026-11-02, `make vdp1bench`):** the change comes
+  on line 0, and the request is taken up to the vertical blank's last line,
+  with lists ending as late as line 261 and the next plot right after: 0 hung.
+- **Done (b5d651b):** a list ending inside the vertical blank asks for the
+  change itself (`system.cpp spriteEndHandler`), so the limit is about 33.3 ms,
+  not 30.9. Mednafen, Cistern diagonal, far plane moved to size the list, fps
+  before -> after: VDP1 31.7 ms 19.98 -> 29.82, 32.6 ms 19.98 -> 28.96, 33.3 ms
+  19.98 -> 22.39. Past the upload's slack a late plot carries over to the next
+  frame, which gives 2- and 3-field frames mixed.
+- **Not worth it, costed 2026-11-02:** two command areas in VDP1 VRAM, the next
+  list uploaded while VDP1 draws the last, would keep the upload (0.84 ms) out of
+  the limit. A second area of 1792 commands is 70 KB: by `detail.cpp`'s rules 14
+  of 16 levels lose their mip pools and 6 can't hold the inventory's item
+  textures. Capped at 1152 (20 KB) 10 levels still lose them; 1024 is under the
+  1131 commands seen in a list. It would help 19 of 1200 Mednafen lists, and
+  those already mix 2 and 3 fields near 29 fps.
 
 ### 250. Guns out with a creature about: Look can't tilt towards it, and her head and torso keep snapping back (reported in play)
 *Closed 2026-11-01: 030af15*
