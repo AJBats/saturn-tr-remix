@@ -36,7 +36,8 @@ SH_BIN  ?= $(TOOLCHAIN)/sh2eb-elf/bin
 # make's MSYS2 and Cygwin builds keep PATH the POSIX way
 PATHSEP := $(if $(filter %msys %cygwin,$(MAKE_HOST)),:,;)
 else
-ifeq ($(shell uname -s),Darwin)
+UNAME   := $(shell uname -s)
+ifeq ($(UNAME),Darwin)
 SH_BIN  ?= $(TOOLCHAIN)/mac/sh2eb-elf/bin
 else
 SH_BIN  ?= $(TOOLCHAIN)/linux/sh2eb-elf/bin
@@ -47,6 +48,8 @@ endif
 # The sound CPU's programs: GNU binutils for the 68000 (tools/setup_toolchain.py).
 ifdef WINDOWS
 M68K_PREFIX ?= toolchain/m68k/m68k-apple-macos-
+else ifeq ($(UNAME),Darwin)
+M68K_PREFIX ?= m68k-elf-
 else
 M68K_PREFIX ?= m68k-linux-gnu-
 endif

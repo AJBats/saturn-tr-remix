@@ -4,14 +4,15 @@ GCC 14.2.0 for sh2eb-elf (big-endian SH-2, newlib, C/C++), the build
 SaturnRingLib uses, from github.com/willll/Saturn-SDK-GCC-SH2. The release
 zip holds Windows, Linux and macOS builds; only the one for this host is
 extracted. See docs/compiler-bakeoff.md for why this version. Its macOS build
-is GCC 14.1.0 for Apple silicon, which this project has never been built with.
+is GCC 14.1.0 for Apple silicon on macOS 15 or newer, wanting Homebrew's zstd,
+which this project has never been built with.
 
 The sound CPU's program (saturn/sound.68k) needs GNU binutils for the 68000.
 On Windows they come from MSYS2's package of Retro68's binutils (GPL-3,
 statically linked: the programs alone are extracted into toolchain/m68k),
 unpacked with the zstandard package (requirements.txt) or a zstd program.
-Elsewhere, install a 68000 binutils (Debian, Ubuntu: binutils-m68k-linux-gnu)
-and, if its prefix isn't m68k-linux-gnu-, pass M68K_PREFIX to make.
+Elsewhere, install them: Debian and Ubuntu's binutils-m68k-linux-gnu, or macOS's
+m68k-elf-binutils from Homebrew. Others can be named with make's M68K_PREFIX.
 
 usage: python tools/setup_toolchain.py
 """
@@ -84,9 +85,9 @@ def unzstd(path):
 
 def setup_m68k():
     if platform.system() != "Windows":
-        if not shutil.which("m68k-linux-gnu-as"):
-            print("68000 binutils: install them (Debian, Ubuntu: binutils-m68k-linux-gnu);"
-                  " with another prefix than m68k-linux-gnu-, pass M68K_PREFIX to make")
+        if not (shutil.which("m68k-linux-gnu-as") or shutil.which("m68k-elf-as")):
+            print("68000 binutils: install them (Debian, Ubuntu: binutils-m68k-linux-gnu;"
+                  " macOS: brew install m68k-elf-binutils)")
         return
     if all(os.path.exists(os.path.join(M68K_OUT, f"m68k-apple-macos-{t}.exe")) for t in M68K_TOOLS):
         print(f"68000 binutils already present: {M68K_OUT}")

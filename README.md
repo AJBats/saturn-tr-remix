@@ -25,11 +25,12 @@ The compilers come from `tools/setup_toolchain.py`, about 310 MB of downloads.
 
 **On Windows**, use Git Bash from [Git for Windows](https://git-scm.com/download/win),
 and get make with `winget install ezwinports.make`. Make won't run from PowerShell or
-`cmd` unless a `sh` is on PATH. Keep the checkout's own path to 130 characters or
-fewer: GCC can't reach its headers past that.
+`cmd` unless a `sh` is on PATH. The checkout's path can have spaces, but must be 130
+characters or fewer and fit your Windows code page: `C:\Users\you\saturn-tr-remix` is fine.
 
 **On Linux** (x86-64), `sudo apt install make python3-venv binutils-m68k-linux-gnu`
-or your system's equivalent, and use `python3` for the first `python` below.
+or your system's equivalent, and use `python3` for the first `python` below. The discs
+it builds are byte for byte those built on Windows.
 
 **On macOS**, see [Other systems](#other-systems).
 
@@ -94,8 +95,8 @@ byte for byte the same either way.
 | Without | The retail Saturn's: 5512.5 Hz, or 2500 Hz for 56 of the sounds |
 
 Every level has all its sounds either way. A few cutscene sounds stay the Saturn's in
-both, as the PlayStation disc has none for them. So far, only discs built with the
-PlayStation disc have been played on a real Saturn.
+both, as the PlayStation disc has none for them. A disc built without it has so far
+been tested only in Mednafen.
 
 ## Playing
 
@@ -112,10 +113,12 @@ PlayStation disc have been played on a real Saturn.
 | `GNU Make 4.3 or newer is needed` | Install a newer make; on macOS, Homebrew's is `gmake` |
 | `can't import numpy, scipy and PIL` | Activate the virtual environment, or `pip install -r requirements.txt`. An install outside a virtual environment has to reach Python's own packages: make runs Python with `-I`, which ignores `pip install --user` |
 | `No SH toolchain` | `python tools/setup_toolchain.py` |
-| `No 68000 binutils` | Windows: `python tools/setup_toolchain.py`. Elsewhere: install them, and if their prefix isn't `m68k-linux-gnu-`, use `make M68K_PREFIX=prefix-` |
+| `No 68000 binutils` | Windows: `python tools/setup_toolchain.py`. Elsewhere: install them, and if their prefix isn't the usual one (`m68k-linux-gnu-`, or `m68k-elf-` on macOS), use `make M68K_PREFIX=prefix-` |
 | `nothing to unpack them with` | `pip install -r requirements.txt` in the virtual environment, then run the setup again |
 | `could not download` | A pinned download has moved. The compilers' URLs and checksums are at the top of `tools/setup_toolchain.py`; `make SH_BIN=... M68K_PREFIX=...` builds with others of your own |
-| `checkout's path is too long` | Move the checkout to a shorter path. If you see `No such file or directory` for a C++ header with `SH_BIN` set, it's the same limit |
+| `checkout's path is too long`, or `No such file or directory` for a C++ header | Move the checkout to a path of 130 characters or fewer |
+| `No rule to make target 'extract-ps1'`, or `Nothing to be done` in a fresh checkout | The folder's name has characters outside your Windows code page: move it, or use MSYS2's make in MSYS2's shell |
+| `Cannot create temporary file in C:\WINDOWS\` | That's MSYS2's make in Git Bash. Use it in MSYS2's own shell, or use the make above in Git Bash |
 | `no such file` or `not a raw 2352-byte data track` | See [The discs](#the-discs). A single-file `.bin`, an `.iso`, or another name won't do |
 
 Only the build needs what's above. The tools for working on the engine, such as the
@@ -124,15 +127,27 @@ their own, and some assume Windows and the author's setup.
 
 ## Other systems
 
-**Linux** builds on x86-64: the prebuilt compiler needs a recent glibc (tested on
-Ubuntu 24.04). On other machines, build
+**Linux** on x86-64 is tested on Ubuntu 24.04. The prebuilt compiler is statically
+linked, so other distributions should work. On other machines, build
 [the compiler](https://github.com/willll/Saturn-SDK-GCC-SH2) yourself and pass
 `SH_BIN=its/bin` to make.
 
-**macOS has never been tried.** The compiler release's only macOS build is GCC 14.1.0
-for Apple silicon, not the 14.2.0 used elsewhere, so the program it builds may differ.
-macOS's own make is too old (`brew install make`, then use `gmake`), and you'd need to
-find a 68000 GNU binutils and pass `M68K_PREFIX`.
+**macOS has never been tried.** The surest way there is the Linux steps in an x86-64
+container or virtual machine, whose compiler gives the same disc as everywhere else.
+Directly, on Apple silicon with macOS 15 or newer, this should be close:
+
+```bash
+brew install make zstd m68k-elf-binutils    # macOS's own make is too old
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python tools/setup_toolchain.py
+gmake extract-ps1                           # only with the PlayStation disc
+gmake -j8 disc
+```
+
+That compiler is GCC 14.1.0, the release's only macOS build, not the 14.2.0 used
+everywhere else, so the program it builds will differ and hasn't been run on anything.
 
 ## Licence
 
