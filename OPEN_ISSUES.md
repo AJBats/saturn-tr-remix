@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-247 | Rendering: the new renderer's open work |
+| 219-247, 251-253 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3351,16 +3351,6 @@ built · Fix: medium*
 - **Levers:** load the mesh program without the CPU's hand-off; start the DSP
   earlier, overlapping pose or the previous frame's end.
 
-### 229. Vertices near the camera jitter from the divide table
-*Kind: look · Size: corner error p99 1.93 → 1.31 px with an exact divide
-(crunch lab, ledge) · Fix: medium, after a decision*
-
-- The projection uses `divTable[z >> 4]` (65536 / i in 16 bits), from
-  OpenLara's GBA build. The error grows near the camera: about 5 px at z 512,
-  176 px off centre. Retail divided each vertex with the SH-2's divider.
-- The lab's stages reproduce the game's arithmetic exactly. An exact divide
-  changes the output, so the checks would compare against a new reference.
-
 ### 230. Textures crunch and shimmer: the crunch lab's favoured look isn't in the game
 *Kind: look · Fix: large*
 
@@ -3475,6 +3465,64 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
 - **Levers:** the meshes' store read with the level file (one seek less),
   the rooms' copies made by DMA.
 
+### 251. Seam slivers show the old frame: the hall of mirrors that's left
+*Kind: look · Size: Mednafen, every move on land, frames 1800-2880, holes a list
+3.6 px Cistern look, 4.3 Cistern diagonal, 16.7 pool, 56.7 tunnel (worst 492) ·
+Fix: medium, after a decision*
+
+- What's left after 261c654 and 3a2242a: long wedges 1-4 px wide along seams,
+  100+ px long at worst. A vertex lying partway along another face's edge (a
+  T-junction; 6-12% of a room's vertices in eight levels checked, 5-20 a room,
+  85 at most, about 200 more across portals) lands off that edge's straight
+  line, and what's behind the wedge isn't drawn.
+- The ripple on rooms across the water surface from the camera moves each
+  vertex up to 2 px each way (`kWibble`, as retail), so water scenes show the
+  most. Retail has the same cracks, but its clear every frame makes them black;
+  ours have shown the old frame since fd12447 dropped the clear.
+- Repair: after a room is projected, put each T vertex back on its edge: a list
+  per room (vertex, edge's two ends), about 5 KB a level, about 70 cycles a vertex
+  by the divider, about 0.5 ms a frame at 200 visible (all estimates). It would
+  run after the ripple and close clamped corners' wedges as well. Crude test,
+  command lists moved offline, tunnel: holes 74 -> 19 px a list. Water rooms first
+  would cost less.
+- Not free elsewhere: a full clear is 3.5 ms; VDP1's vblank erase reaches 85-170
+  of 224 lines on the Saturn, varying (2d1b9da); erasing in the field before a
+  change needs the next list known finished, which heavy frames don't have.
+- Unexplained: a 565 px wedge at a wall in the pool spot, wider than the ripple
+  alone gives (`disc pool`, list 170: quads 0x80 and 0xC0 of the list).
+
+### 252. Near quads warp, and strips could cut them with no new texture memory
+*Kind: look · Size: Cistern look, Mednafen geometry, faces with 1+ px of warp
+(about 19 a list, 64 at most): worst point's error median 2.4 px, 1 face in 10
+over 14.6, at most 188 · Fix: medium, after a decision*
+
+- VDP1 maps a texture bilinearly over the screen quad, so a quad running away
+  from the camera has its texels in the wrong place. Splits with projected corners
+  fix that but pop when they turn on: 6f5f284 turned on at a depth ratio of 2, far
+  past where it could go unseen.
+- Turn a split on by the warp itself, the distance between the corners' mean and
+  the projected centre: at 2 px the picture moves 2 px when it starts. About 12
+  quads a list qualify at that spot, 32 at most.
+- VDP1 has no stride: a row of a W wide texture starts W texels after the last.
+  So any band of rows of a texture already in the cache is a texture, by address
+  alone (16 wide and up), with no copy and no new layout, and the turned copy gives
+  the other axis. Columns can't be had from the same bytes as the whole: stored as
+  two columns, each 32 x 64 reads on past its quadrants, but no 64 wide command
+  could draw it.
+- Worst error by way of cutting, same faces (commands a face; median, 90th
+  percentile, share under 2 px): whole (1; 2.4, 14.6, 39%), 2x2 (4; 0.6, 4.3, 79%),
+  4 strips (4; 0.7, 2.7, 84%), 8 strips (8; 0.7, 2.4, 85%), 4x4 (16; 0.2, 1.1, 99%).
+  Strips stop gaining at 4: what's left runs the other way.
+- Not built. Strips don't shorten lines, so far-reaching quads keep roomQuadCut.
+
+### 253. Water's flecks are left out near the camera, where retail draws them
+*Kind: look · Decision: keep it? · Built 0c367e4*
+
+- Textures 80% or more empty over 64 lines or crossing the near plane. Saves a
+  face of up to 14.7 ms (Cistern look) and more at the tunnel. Tile by tile, near
+  flecks go as the camera comes within about 1400 units. A fade before the limit
+  (gouraud) could hide the edge, untried. Not yet judged on the Saturn.
+
 ---
 
 ## Decisions needed before fixing
@@ -3493,9 +3541,18 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
 | **145** | Retail's sound sliders do nothing. Ours has on/off switches. Which to keep? |
 | **161** | Keep the FPS counter on by default during development? |
 | **162** | Attract demos need deterministic logic (issue 202) and the DEMODATA format. Build them? |
-| **229** | An exact divide changes the projection's output, so the lab's checks would compare against a new reference. Take it? |
+| **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 229. Vertices near the camera jitter from the divide table
+*Closed 2026-11-02: 3a2242a, for rooms' vertices nearer than 2048; the rest and meshes keep the table*
+
+- The projection uses `divTable[z >> 4]` (65536 / i in 16 bits), from
+  OpenLara's GBA build. The error grows near the camera: about 5 px at z 512,
+  176 px off centre. Retail divided each vertex with the SH-2's divider.
+- The lab's stages reproduce the game's arithmetic exactly. An exact divide
+  changes the output, so the checks would compare against a new reference.
 
 ### 247. The Cistern's water room 108 holds 20 fps on VDP1
 *Closed 2026-11-02: b5d651b. Saturn, this spot: 30 fps (the user, in play)*
