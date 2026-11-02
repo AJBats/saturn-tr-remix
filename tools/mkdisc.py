@@ -8,11 +8,13 @@ The data track is written as 2048-byte sectors (MODE1/2048 in the cue), which
 Mednafen reads directly. IP.BIN fills the 16-sector system area; the BIOS
 boots the first file in the root directory, so name the program 0MAIN.BIN.
 Audio tracks are hard-linked next to the cue because Mednafen on Windows
-does not follow '..' in cue FILE paths.
+does not follow '..' in cue FILE paths, or copied where a link can't reach
+them (another drive).
 """
 import argparse
 import os
 import re
+import shutil
 import struct
 import sys
 
@@ -232,7 +234,10 @@ def main():
         link = f"{args.name}_track{i:02d}.bin"
         dst = os.path.join(args.out, link)
         if not os.path.exists(dst):
-            os.link(os.path.join(cue_dir, src), dst)
+            try:
+                os.link(os.path.join(cue_dir, src), dst)
+            except OSError:
+                shutil.copyfile(os.path.join(cue_dir, src), dst)
         out.append(block.replace(f'FILE "{src}"', f'FILE "{link}"', 1))
     with open(os.path.join(args.out, f"{args.name}.cue"), "w", newline="\n") as f:
         f.write("".join(out))

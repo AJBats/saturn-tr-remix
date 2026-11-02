@@ -3,13 +3,15 @@
 GCC 14.2.0 for sh2eb-elf (big-endian SH-2, newlib, C/C++), the build
 SaturnRingLib uses, from github.com/willll/Saturn-SDK-GCC-SH2. The release
 zip holds Windows, Linux and macOS builds; only the one for this host is
-extracted. See docs/compiler-bakeoff.md for why this version.
+extracted. See docs/compiler-bakeoff.md for why this version. Its macOS build
+is GCC 14.1.0 for Apple silicon, which this project has never been built with.
 
 The sound CPU's program (saturn/sound.68k) needs GNU binutils for the 68000.
 On Windows they come from MSYS2's package of Retro68's binutils (GPL-3,
 statically linked: the programs alone are extracted into toolchain/m68k),
-unpacked with zstd (MSYS2's, or one on PATH). Elsewhere, install a 68000
-binutils (Debian: binutils-m68k-linux-gnu) and pass M68K_PREFIX to make.
+unpacked with the zstandard package (requirements.txt) or a zstd program.
+Elsewhere, install a 68000 binutils (Debian, Ubuntu: binutils-m68k-linux-gnu)
+and, if its prefix isn't m68k-linux-gnu-, pass M68K_PREFIX to make.
 
 usage: python tools/setup_toolchain.py
 """
@@ -33,6 +35,8 @@ OUT = os.path.join(DEST, "gcc-14.2.0")
 
 # zip folder holding each host's build (matches SH_BIN in the Makefile)
 HOST_DIRS = {"Windows": "sh2eb-elf/", "Linux": "linux/", "Darwin": "mac/"}
+# the machine a host's build runs on, where no other can run it
+HOST_MACHINES = {"Linux": "x86_64", "Darwin": "arm64"}
 
 M68K_URL = ("https://mirror.msys2.org/mingw/ucrt64/"
             "mingw-w64-ucrt-x86_64-m68k-apple-macos-binutils-r808.8d32c583ae-2-any.pkg.tar.zst")
@@ -50,24 +54,45 @@ def sha256(path):
     return h.hexdigest()
 
 
+def fetch(url, path, digest):
+    """The file at url, checked, at path; a download cut short leaves no file."""
+    os.makedirs(DEST, exist_ok=True)
+    if not os.path.exists(path):
+        print(f"downloading {url}")
+        part = path + ".part"
+        try:
+            urllib.request.urlretrieve(url, part)
+        except OSError as e:
+            sys.exit(f"could not download {url}: {e} (README.md, Troubleshooting)")
+        os.replace(part, path)
+    found = sha256(path)
+    if found != digest:
+        sys.exit(f"checksum mismatch for {path}: {found}")
+
+
+def unzstd(path):
+    try:
+        import zstandard
+    except ImportError:
+        zstd = shutil.which("zstd") or "C:/msys64/usr/bin/zstd.exe"
+        if not os.path.exists(zstd):
+            sys.exit("68000 binutils: nothing to unpack them with: pip install -r requirements.txt (README.md)")
+        return subprocess.run([zstd, "-d", "-c", path], capture_output=True, check=True).stdout
+    with open(path, "rb") as f, zstandard.ZstdDecompressor().stream_reader(f) as reader:
+        return reader.read()
+
+
 def setup_m68k():
     if platform.system() != "Windows":
-        print("68000 binutils: install them (Debian: binutils-m68k-linux-gnu) and pass M68K_PREFIX to make")
+        if not shutil.which("m68k-linux-gnu-as"):
+            print("68000 binutils: install them (Debian, Ubuntu: binutils-m68k-linux-gnu);"
+                  " with another prefix than m68k-linux-gnu-, pass M68K_PREFIX to make")
         return
     if all(os.path.exists(os.path.join(M68K_OUT, f"m68k-apple-macos-{t}.exe")) for t in M68K_TOOLS):
         print(f"68000 binutils already present: {M68K_OUT}")
         return
-    zstd = shutil.which("zstd") or "C:/msys64/usr/bin/zstd.exe"
-    if not os.path.exists(zstd):
-        sys.exit("68000 binutils: no zstd to unpack them with (MSYS2's, or one on PATH)")
-    os.makedirs(DEST, exist_ok=True)
-    if not os.path.exists(M68K_PKG):
-        print(f"downloading {M68K_URL}")
-        urllib.request.urlretrieve(M68K_URL, M68K_PKG)
-    digest = sha256(M68K_PKG)
-    if digest != M68K_SHA256:
-        sys.exit(f"checksum mismatch for {M68K_PKG}: {digest}")
-    tar = subprocess.run([zstd, "-d", "-c", M68K_PKG], capture_output=True, check=True).stdout
+    fetch(M68K_URL, M68K_PKG, M68K_SHA256)
+    tar = unzstd(M68K_PKG)
     os.makedirs(M68K_OUT, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(tar)) as t:
         for tool in M68K_TOOLS:
@@ -78,22 +103,18 @@ def setup_m68k():
 
 
 def main():
+    system = platform.system()
+    host_dir = HOST_DIRS.get(system)
+    machine = HOST_MACHINES.get(system)
+    if not host_dir or (machine and platform.machine() != machine):
+        sys.exit(f"no prebuilt toolchain for {system} on {platform.machine()}: "
+                 "build one (github.com/willll/Saturn-SDK-GCC-SH2) and pass SH_BIN to make")
     setup_m68k()
-    host_dir = HOST_DIRS.get(platform.system())
-    if not host_dir:
-        sys.exit(f"no prebuilt toolchain for {platform.system()}")
     if os.path.isdir(os.path.join(OUT, host_dir)):
         print(f"toolchain already present: {os.path.join(OUT, host_dir)}")
         return
 
-    os.makedirs(DEST, exist_ok=True)
-    if not os.path.exists(ZIP):
-        print(f"downloading {URL}")
-        urllib.request.urlretrieve(URL, ZIP)
-    digest = sha256(ZIP)
-    if digest != SHA256:
-        sys.exit(f"checksum mismatch for {ZIP}: {digest}")
-
+    fetch(URL, ZIP, SHA256)
     with zipfile.ZipFile(ZIP) as z:
         members = [m for m in z.infolist() if m.filename.startswith(host_dir)]
         for m in members:
