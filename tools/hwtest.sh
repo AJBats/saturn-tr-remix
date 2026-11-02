@@ -15,6 +15,10 @@
 #   cistern-straight  the same spot, Lara turned to look along the hall
 #   cistern-rim LEVEL7A, room 111, on the first pool's rim: running forward
 #               from here Lara stops at nothing (issue 249)
+#   cistern-tunnel LEVEL7A, room 0, under water at the mouth of the 512 tall
+#               tunnel to room 51: swimming on she pops out of the water (issue 248)
+#   cistern-look LEVEL7A, room 108, on the rim, the pool's two crocodiles awake:
+#               looking about with the guns out, one aimed at (issue 250)
 #
 # OBJECT_ART=1 in the environment reworks the meshes' textures too
 # (tools/pack_level.py), in every level.
@@ -33,7 +37,9 @@ case "${1:-ledge}" in
     cistern)    level=LEVEL7A id=LVL_TR1_7A start=99@45157:-3328:63405 yaw=0x9965 ;;
     cistern-straight) level=LEVEL7A id=LVL_TR1_7A start=99@45157:-3328:63405 yaw=0x81B6 ;;
     cistern-rim) level=LEVEL7A id=LVL_TR1_7A start=111@39375:-256:61648 yaw=0x1732 ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim]" >&2; exit 1 ;;
+    cistern-tunnel) level=LEVEL7A id=LVL_TR1_7A start=0@43309:1183:53339 yaw=0x7A6A ;;
+    cistern-look) level=LEVEL7A id=LVL_TR1_7A start=108@43468:-256:62565 yaw=0x905F trigger=0,1 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-tunnel|cistern-look]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 

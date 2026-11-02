@@ -35,7 +35,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 |---|---|
 | 1-7 | Progression blockers |
 | 8-28 | Camera |
-| 29-51, 248-249 | Lara: movement, collision, water, controls |
+| 29-51, 248-250 | Lara: movement, collision, water, controls |
 | 52-73 | Weapons and combat |
 | 74-112 | Creatures and AI |
 | 113-139 | Level logic, traps and objects |
@@ -662,8 +662,8 @@ LARA-4*
   always faces forward.
 
 ### 34. TR2-style wading is live in TR1, with an animation from another model
-*Severity: gameplay / visible · Confidence: likely (code path plus data; not
-seen in game) · Fix: small · Audit: LARA-6*
+*Severity: gameplay / visible · Confidence: confirmed in Mednafen (issue 248) ·
+Fix: small · Audit: LARA-6*
 
 - **Retail:** TR1 has no wading state (LaraControl `06020144`). Shallow water
   rooms are swum through normally.
@@ -674,9 +674,10 @@ seen in game) · Fix: small · Audit: LARA-6*
     another model.
   - `updateWaterState` (`lara.h:2934-3058`) has more WADE branches.
 - **Where:** water 512 deep or less is in Tihocan rooms 80, 99, 103 and 105
-  (depths 0, 256 and 512), and in Atlantis room 21 (512).
-- **Effect:** diving or swimming there should flip Lara into WADE with a garbled
-  pose, then loop back to underwater.
+  (depths 0, 256 and 512), in Atlantis room 21 (512), and in the Cistern's
+  tunnel, room 51 (512; issue 248).
+- **Effect:** swimming there flips Lara into WADE and out of the water, then
+  loops back to underwater with a splash. Issue 248 measures it.
 - **Fix:** remove every WADE path for TR1.
 
 ### 35. Surface swimming over shallow water, and climbing out, is looser than retail
@@ -920,17 +921,33 @@ small · Audit: MATH-7*
 - **Fix:** cast the difference to int16 before `abs`.
 
 ### 248. Cistern: the first pool's tunnel blocks Lara, who keeps splashing "out" while underwater (reported in play)
-*Severity: gameplay · Confidence: confirmed in play, cause unknown · Fix: not
-known yet*
+*Severity: gameplay · Confidence: confirmed in Mednafen; retail's side read from
+TR1X, not run · Fix: small (issue 34)*
 
 - **Seen:** on the Saturn (2026-11-01, main 33102ae): swimming into the tunnel
   in the Cistern's first pool, Lara is stopped, and she keeps playing the
   splash of leaving the water though she is still underwater.
-- **Not known yet:**
-  - The spot's room and coordinates.
-  - Whether builds before 33102ae do it too. That commit moved the game's update
-    to the slave.
-  - What retail does there.
+  `tools/hwtest.sh cistern-tunnel` starts there: LEVEL7A room 0, under water at
+  43309 1183 53339, yaw 0x7A6A; hold B. The user's save state at that spot takes
+  the same path.
+- **Ours:** this is issue 34's wading. The tunnel's first sector, world (42, 51)
+  in room 51, has its floor at 1280 and ceiling at 768, so `getWaterDepth`
+  returns 512, and `c_checkWallUW` (`openlara/lara.h:1420`) switches at 512 or
+  less. The loop, about 39 game ticks long:
+  1. She enters the tunnel and goes to WADE with anim 192, at y 1080.
+  2. Next tick that is under `LARA_WADE_MIN_DEPTH` from the tunnel's ceiling, so
+     she goes to ABOVE.
+  3. Collision puts her back in room 0, about 100 units back. Room 0's water
+     level is 0, so she is deep: `updateWaterState` puts her UNDER, 100 lower, at
+     pitch -45°, with `fxSplash`. That is the splash.
+  4. Her yaw is 5° less each time round.
+- **Retail:** TR1X's `LaraSwimCollision` (`laraswim.c:262`) has no depth check.
+  Room 51 is flagged as water, so she would stay under.
+- **Test:** with only that branch off (a test build, not committed) she swims
+  from room 0 into room 51 and on to the wall at z 51501, UNDER all the way.
+- **Not run:** builds before 33102ae. The branch has been there since the
+  vendored OpenLara, 9c4257c, and it doesn't depend on which CPU runs the update.
+- **Fix:** issue 34. Only this one branch has been tried off so far.
 
 ### 249. Cistern: an invisible wall at a corner of the first pool's rim (reported in play)
 *Severity: gameplay · Confidence: confirmed in Mednafen; retail's side read
@@ -953,6 +970,45 @@ from TR1X, not run · Fix: small*
   then room 108, so the floor is found.
 - **Fix:** the same clamp in `Room::getSector`. This is the room-edge half of
   issue 137.
+
+### 250. Guns out with a creature about: Look can't tilt towards it, and her head and torso keep snapping back (reported in play)
+*Severity: visible · Confidence: confirmed in Mednafen; retail's side read from
+TR1X, not run · Fix: small*
+
+- **Seen:** in Mednafen (2026-11-01, main 53dd062), on the Cistern's first pool's
+  rim with the guns out: holding Look and forward she "can't look down" and her
+  head glitches. `tools/hwtest.sh cistern-look` starts there: LEVEL7A room 108 at
+  43468 -256 62565, yaw 0x905F, with the pool's two crocodiles awake. Draw with
+  C, then hold Z and up.
+- **Measured at that spot, Look and up held for 90 game ticks:**
+
+  | | Head and torso pitch |
+  |---|---|
+  | Crocodiles asleep | smooth to -42° and stays |
+  | Crocodiles awake | reaches -10° to -14°, snaps to 0°, about every 7 ticks |
+  | Crocodiles awake, test build (below) | smooth to -42° and stays |
+
+  Look and back, away from the crocodile, reaches +22° smoothly in all three. The
+  user's crocodiles being alive at the report is my reconstruction: their later
+  save has both dead.
+- **Ours:**
+  1. `weaponFindTargets` (`openlara/lara.h:3786`) measures a creature against
+     Lara's body plus torso. The crocodile on the pool's floor is about 70° below
+     her and the pistols' limit is 60°, so tilting the torso 10° takes it as the
+     target.
+  2. `weaponTrackTargets` measures from the body alone, so no arm aims.
+  3. `updateLook` (`lara.h:2864`) stops at any target, aimed or not, and writes
+     head = torso = half the arms' angle, which is 0°.
+  4. With the torso back at 0° the crocodile is out of range, the target goes,
+     and Look starts again from 0°.
+- **Retail:** `LaraGetNewTarget` (`larafire.c:432`) measures against the torso
+  too, but only a locked arm moves the head and torso: `PistolHandler`
+  (`lara2gun.c:172`) and the rifle's handler (`lara1gun.c:134`) leave them alone
+  otherwise.
+- **Test:** `if (R.aim || L.aim)` in place of the target test in `updateLook` (a
+  test build, not committed) gives the third row above.
+- **Fix:** that line. Issues 30 and 31 are about where and how Look runs, and 56
+  about the shotgun's torso.
 
 ---
 
