@@ -19,6 +19,7 @@
 // gcc -O2 -o occmodel occmodel.c -lm; occmodel LEVEL.bin VIEWS SEED [PVS_CELL PVS_VIEWS]
 //         occmodel LEVEL.bin VIEWS SEED 0 0 HOT_GRID HOT_YAWS HOT_VERTS HOT_VIEWS
 //         occmodel LEVEL.bin one x y z room r00..r22 focal
+//         occmodel LEVEL.bin region x y z room r00..r22 focal RADIUS ARC_DEGREES PITCH_DEGREES VIEWS
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -1458,6 +1459,76 @@ static void run(const char* name, int views)
     printf("%s occluders %d\n", name, nocc);
 }
 
+// a stamp's question: poses round one camera, within its room's air
+static void region(int room, float radius, float arc, float pitchRange, int views)
+{
+    V3 centre = cam;
+    float yaw0 = atan2f(R[2][0], R[2][2]), pitch0 = asinf(R[2][1]);
+    static double sum[MAXROOMS], worst[MAXROOMS], seen[MAXROOMS], cost[MAXROOMS], vcost[MAXROOMS];
+    Room* r = &rooms[room];
+    int done = 0;
+    double base = 0, basev = 0, baseVerts = 0, baseRooms = 0;
+    uint32_t tries = 0;
+    rngState = 12345;
+    static Work* one;
+    static struct { float x, y, z, yaw, pitch; } *pose;
+    if (!pose) pose = malloc(sizeof(*pose) * views);
+    (void)one;
+    while (done < views && tries < (uint32_t)views * 200)
+    {
+        tries++;
+        V3 pos = { centre.x + urand(-radius, radius), centre.y + urand(-radius / 2, radius / 2), centre.z + urand(-radius, radius) };
+        int sx = (int)floorf((pos.x - r->x) / 1024), sz = (int)floorf((pos.z - r->z) / 1024);
+        if (sx < 0 || sz < 0 || sx >= r->xs || sz >= r->zs)
+            continue;
+        int* sector = r->s[sx * r->zs + sz];
+        if (sector[0] <= sector[1] + 200 || pos.y > sector[0] - 64 || pos.y < sector[1] + 64)
+            continue;
+        float yaw = yaw0 + urand(-arc, arc), pitch = pitch0 + urand(-pitchRange, pitchRange);
+        viewSet(pos, yaw, pitch);
+        gBase.useMask = 0; gBase.usePoly = 0; gBase.minArea = 0;
+        walkRun(&gBase, room, 0);
+        oracle(&gBase);
+        Work all;
+        memset(&all, 0, sizeof(all));
+        for (int i = 0; i < gBase.nlist; i++)
+        {
+            int t = gBase.list[i];
+            Work w;
+            memset(&w, 0, sizeof(w));
+            roomWork(t, gBase.clip[t], &w);
+            all.cycles += w.cycles; all.vdp1 += w.vdp1; all.verts += w.verts; all.rooms += 1;
+            cost[t] += w.cycles;
+            vcost[t] += w.vdp1;
+            seen[t] += 1;
+            sum[t] += ownerPx[t];
+            if (ownerPx[t] > worst[t]) worst[t] = ownerPx[t];
+        }
+        base += all.cycles; basev += all.vdp1; baseVerts += all.verts; baseRooms += all.rooms;
+        done++;
+    }
+    if (!done) { printf("no pose\n"); return; }
+    const double MS = 1 / 28636.36;
+    printf("poses %d (radius %.0f, heading +-%.0f, pitch +-%.0f): rooms %.1f verts %.0f CPU %.2f ms VDP1 %.2f ms\n", done, radius, arc * 57.3, pitchRange * 57.3, baseRooms / done, baseVerts / done, base / done * MS, basev / done * MS);
+    static const double tols[] = { 0, 16, 64, 256, 1024 };
+    for (int k = 0; k < 5; k++)
+    {
+        double saved = 0, savedv = 0, verts = 0, lost = 0;
+        int count = 0;
+        for (int t = 0; t < nrooms; t++)
+        {
+            if (!seen[t] || t == room || worst[t] > tols[k])
+                continue;
+            count++;
+            saved += cost[t] / done;
+            savedv += vcost[t] / done;
+            verts += rooms[t].nv * seen[t] / done;
+            lost += sum[t] / done;
+        }
+        printf("  rooms showing at most %5.0f px at any pose: %2d of them, %5.0f verts, CPU -%.2f ms, VDP1 -%.2f ms, %.1f px lost on average\n", tols[k], count, verts, saved * MS, savedv * MS, lost);
+    }
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 4) {
@@ -1466,6 +1537,19 @@ int main(int argc, char** argv)
     }
     loadLevel(argv[1]);
     facePx = malloc(sizeof(uint16_t) * (nfaces + 1));
+    if (!strcmp(argv[2], "region"))
+    {
+        int k = 3;
+        cam.x = atof(argv[k++]); cam.y = atof(argv[k++]); cam.z = atof(argv[k++]);
+        int room = atoi(argv[k++]);
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++)
+                R[i][j] = atof(argv[k++]);
+        F = atof(argv[k++]);
+        float radius = atof(argv[k++]), arc = atof(argv[k++]) / 57.3f, pitchRange = atof(argv[k++]) / 57.3f;
+        region(room, radius, arc, pitchRange, atoi(argv[k++]));
+        return 0;
+    }
     if (!strcmp(argv[2], "one"))
     {
         int k = 3;
