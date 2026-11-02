@@ -110,6 +110,7 @@
 #define LARA_SWIM_SPEED_MIN     133
 #define LARA_SWIM_SPEED_MAX     200
 #define LARA_SWIM_TIMER         10  // 1/3 sec
+#define LARA_AIM_HEIGHT         650 // of every gun's targeting, not its shots
 #define LARA_SURF_FRICTION      4
 #define LARA_SURF_ACCEL         8
 #define LARA_SURF_SPEED_MAX     60
@@ -2781,35 +2782,11 @@ struct Lara : ItemObj
 
     void updateLook()
     {
-        ExtraInfoLara::Arm &R = extraL->armR;
-        ExtraInfoLara::Arm &L = extraL->armL;
         vec3s &H = extraL->head.angle;
         vec3s &T = extraL->torso.angle;
 
         if (health <= 0) {
             H = T = _vec3s(0, 0, 0);
-            return;
-        }
-
-        if (R.target || L.target)
-        {
-            if (extraL->weapon < WEAPON_SHOTGUN)
-            {
-                int32 aX = R.angle.x + L.angle.x;
-                int32 aY = R.angle.y + L.angle.y;
-
-                if (R.aim && L.aim) {
-                    H.x = T.x = aX >> 2;
-                    H.y = T.y = aY >> 2;
-                } else {
-                    H.x = T.x = aX >> 1;
-                    H.y = T.y = aY >> 1;
-                }
-            } else {
-                T.x = R.angle.x;
-                T.y = R.angle.y;
-                H.x = H.y = 0;
-            }
             return;
         }
 
@@ -3154,6 +3131,13 @@ struct Lara : ItemObj
             R.frameIndex = L.frameIndex = 0;
         }
 
+        if (weaponState == WEAPON_STATE_READY)
+        {
+            R.aim = L.aim = false;
+            R.target = L.target = NULL;
+            extraL->head.angle = extraL->torso.angle = _vec3s(0, 0, 0);
+        }
+
         if (weaponState == WEAPON_STATE_HOLSTER)
         {
             R.target = L.target = NULL;
@@ -3263,6 +3247,10 @@ struct Lara : ItemObj
             arm->frameIndex = frame;
         }
 
+        // the head and torso go with the arms (retail's UndrawPistols, 0601ecf4)
+        extraL->head.angle.x = extraL->torso.angle.x = (extraL->armR.angle.x + extraL->armL.angle.x) / 4;
+        extraL->head.angle.y = extraL->torso.angle.y = (extraL->armR.angle.y + extraL->armL.angle.y) / 4;
+
         if (!extraL->armR.animIndex && !extraL->armL.animIndex) {
             setWeaponState(WEAPON_STATE_FREE);
         }
@@ -3298,6 +3286,11 @@ struct Lara : ItemObj
     void weaponHolsterShotgun()
     {
         const WeaponParams &params = weaponParams[extraL->weapon];
+
+        // the torso comes back to the front (retail's UndrawShotgun, 0601e76c)
+        extraL->head.angle.x = extraL->head.angle.y = 0;
+        extraL->torso.angle.x -= extraL->torso.angle.x / 2;
+        extraL->torso.angle.y -= extraL->torso.angle.y / 2;
 
         ExtraInfoLara::Arm &arm = extraL->armR;
 
@@ -3379,6 +3372,19 @@ struct Lara : ItemObj
         weaponAim(R);
         weaponAim(L);
 
+        // only a locked arm moves the head and torso (retail's PistolHandler, 0601f084)
+        vec3s &H = extraL->head.angle;
+        vec3s &T = extraL->torso.angle;
+
+        if (R.aim && L.aim) {
+            H.x = T.x = (R.angle.x + L.angle.x) / 4;
+            H.y = T.y = (R.angle.y + L.angle.y) / 4;
+        } else if (R.aim || L.aim) {
+            const ExtraInfoLara::Arm &arm = R.aim ? R : L;
+            H.x = T.x = arm.angle.x / 2;
+            H.y = T.y = arm.angle.y / 2;
+        }
+
         const WeaponParams &params = weaponParams[extraL->weapon];
 
         for (int32 i = 0; i < LARA_ARM_MAX; i++)
@@ -3431,7 +3437,6 @@ struct Lara : ItemObj
 
             arm->animIndex = anim + level.models[params.animType].animIndex;
             arm->frameIndex = frame;
-            arm->useBasis = (anim == ANIM_PISTOLS_AIM && frame) || (anim == ANIM_PISTOLS_FIRE);
         }
     }
 
@@ -3441,6 +3446,13 @@ struct Lara : ItemObj
         ExtraInfoLara::Arm &L = extraL->armL;
 
         weaponAim(R);
+
+        // only the locked gun turns the torso, by half (retail's RifleHandler, 0601e9a0)
+        if (R.aim) {
+            extraL->torso.angle.x = R.angle.x / 2;
+            extraL->torso.angle.y = R.angle.y / 2;
+            extraL->head.angle.x = extraL->head.angle.y = 0;
+        }
 
         const WeaponParams &params = weaponParams[extraL->weapon];
 
@@ -3509,7 +3521,6 @@ struct Lara : ItemObj
             }
         }
 
-        R.useBasis = L.useBasis = false;
         R.animIndex = L.animIndex = anim + level.models[params.animType].animIndex;
         R.frameIndex = L.frameIndex = frame;
     }
@@ -3585,7 +3596,7 @@ struct Lara : ItemObj
 
         Location from;
         from.pos.x = pos.x;
-        from.pos.y = pos.y - params.height;
+        from.pos.y = pos.y - LARA_AIM_HEIGHT;
         from.pos.z = pos.z;
         from.room = room;
 
@@ -3615,6 +3626,8 @@ struct Lara : ItemObj
         extraL->armR.angleAim = extraL->armL.angleAim = angleAim;
     }
 
+    // retail's LaraGetNewTarget (0601f9f4): of those in reach of her torso, the
+    // nearest to its heading
     void weaponFindTargets()
     {
         if (!ItemObj::sFirstActive)
@@ -3623,11 +3636,11 @@ struct Lara : ItemObj
         const WeaponParams &params = weaponParams[extraL->weapon];
         int32 range = params.range;
         int32 rangeQ = X_SQR(range);
-        int32 minAimY = params.aimY;
+        int32 bestY = 0x7FFF;
 
         Location from;
         from.pos.x = pos.x;
-        from.pos.y = pos.y - params.height;
+        from.pos.y = pos.y - LARA_AIM_HEIGHT;
         from.pos.z = pos.z;
         from.room = room;
 
@@ -3640,10 +3653,12 @@ struct Lara : ItemObj
             if ((item->flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_ACTIVE)
                 continue;
 
-            vec3i d = item->pos - pos;
-            int32 distQ = X_SQR(d.x) + X_SQR(d.y) + X_SQR(d.z);
+            vec3i d = item->pos - from.pos;
 
-            if (distQ > rangeQ)
+            if (abs(d.x) > range || abs(d.y) > range || abs(d.z) > range)
+                continue;
+
+            if (X_SQR(d.x) + X_SQR(d.y) + X_SQR(d.z) >= rangeQ)
                 continue;
 
             Location to;
@@ -3660,13 +3675,13 @@ struct Lara : ItemObj
             angleAim.x -= angle.x + extraL->torso.angle.x;
             angleAim.y -= angle.y + extraL->torso.angle.y;
 
-            angleAim.x = abs(angleAim.x);
-            angleAim.y = abs(angleAim.y);
+            int32 aimX = abs(angleAim.x);
+            int32 aimY = abs(angleAim.y);
 
-            if (angleAim.x > params.aimX || angleAim.y > params.aimY || angleAim.y > minAimY)
+            if (aimX > params.aimX || aimY > params.aimY || aimY >= bestY)
                 continue;
 
-            minAimY = angleAim.y;
+            bestY = aimY;
             extraL->armR.target = item;
         } while ((item = item->nextActive) != NULL);
     }
@@ -3710,6 +3725,11 @@ struct Lara : ItemObj
         }
 
         weaponUpdateState();
+
+        // whenever they're out the pistols' arms turn from her basis, not her
+        // torso (retail's DrawLara, 06013438)
+        extraL->armR.useBasis = extraL->armL.useBasis = (extraL->weapon < WEAPON_SHOTGUN) &&
+            (extraL->weaponState == WEAPON_STATE_DRAW || extraL->weaponState == WEAPON_STATE_HOLSTER || extraL->weaponState == WEAPON_STATE_READY);
 
         switch (extraL->weaponState)
         {
