@@ -41,7 +41,9 @@
 // finishes, or as it finishes if that is inside a vertical blank, a frame
 // buffer change is requested; at the first line of the display the change
 // happens and VDP1 can take the next list. The Saturn takes the request up to
-// the vertical blank's last line (make vdp1bench).
+// the vertical blank's last line (make vdp1bench). A frame stays on screen for
+// two fields at least, the game's 30 Hz tick: a list drawn early waits, or lists
+// ending either side of a change's deadline would show for one field and three.
 //
 // On hardware the vblank-out interrupt and the vblank flag come a few lines
 // before that line: a plot started then is aborted and VDP1 locks up, never
@@ -66,6 +68,7 @@ static volatile bool gHolding;             // this plot's does, until vdp1Releas
 static uint32_t gPlotStart;
 static void (*volatile gOnNextFrame)();
 static void (*volatile gOnShown)(uint32_t plot);
+static volatile uint32_t gFieldsShown = 2; // vblank-ins since the last change
 static volatile uint32_t gPlotsAsked;      // vdp1Plot calls
 static volatile uint32_t gPlotsStarted;    // plots started: the one drawing or last drawn
 static void (*volatile gOnLine)();
@@ -98,8 +101,13 @@ extern "C" void spriteEndEntry();
 extern "C" void dspEndEntry();
 extern "C" void lineEntry();
 
+#define MIN_FIELDS_SHOWN    2
+
+// The last list's frame buffers changed, if it has been on screen long enough.
 static void changeRequest()
 {
+    if (gFieldsShown < MIN_FIELDS_SHOWN)
+        return;
     VDP1_FBCR = FBCR_FCM | FBCR_FCT;
     gVdp1State = VDP1_CHANGING;
     traceBegin(TRACE_IRQ, TR_CHANGE);
@@ -108,6 +116,7 @@ static void changeRequest()
 extern "C" void vblankInHandler(const uint32_t* irqStack)
 {
     gVblankCount++;
+    gFieldsShown++;
     traceBegin(TRACE_IRQ, TR_IRQ_VBLANK_IN, gVblankCount);
     crashWatchdog(irqStack);
 #ifdef HW_LOG
@@ -172,6 +181,7 @@ extern "C" void vblankOutHandler()
 #endif
         waitDisplayStart();
         gVdp1State = VDP1_IDLE;
+        gFieldsShown = 0;
         traceBegin(TRACE_IRQ, TR_SHOWN, shown);
     }
 
