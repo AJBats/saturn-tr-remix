@@ -3855,7 +3855,7 @@ struct Lara : ItemObj
 
         switch (waterState)
         {
-            case WATER_STATE_ABOVE   :
+            case WATER_STATE_ABOVE   : updateAbove(); break;
             case WATER_STATE_SURFACE : updateSurface(); break;
             case WATER_STATE_UNDER   : updateUnder(); break;
         }
