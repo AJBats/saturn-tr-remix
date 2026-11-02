@@ -29,8 +29,10 @@
 ! run, +20 its quads.
 
     .equ    CLIP_FRAME,     0x01
-    .equ    CLIP_DISCARD,   0x3E
+    .equ    CLIP_DISCARD,   0x7E
+    .equ    CLIP_EDGES,     0x1E
     .equ    CLIP_PLANE,     0x20
+    .equ    CLIP_BLACK,     0x40    ! at the fog's floor (vertices.h verticesBlack)
 
     .equ    RUN_VERTICES,   0
     .equ    RUN_MATERIALS,  4
@@ -389,12 +391,15 @@
 ! done, on to 'done'.
     .macro  FACES sfx, tri, facing, done
 
-    ! culled: wholly past the far plane, filled; a quad cut by a plane, to C;
-    ! a triangle cut by one, filled (back faces gone before)
+    ! culled: wholly at the fog's floor or past the far plane, filled; a quad
+    ! cut by a plane, to C; a triangle cut by one, filled (back faces gone
+    ! before)
 .Lculled\sfx:                   ! r6 the corners' clip flags anded
     mov     r6, r0
-    tst     #CLIP_DISCARD & ~CLIP_PLANE, r0
+    tst     #CLIP_EDGES, r0
     bf      .Lnext\sfx          ! wholly beyond a frame edge
+    tst     #CLIP_BLACK, r0
+    bf      1f
     tst     #CLIP_PLANE, r0
     .if \tri
     bt      1f

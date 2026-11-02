@@ -30,6 +30,7 @@ namespace render {
 #define CLIP_TOP        0x08
 #define CLIP_BOTTOM     0x10
 #define CLIP_PLANE      0x20
+#define CLIP_BLACK      0x40    // at the fog's floor (verticesBlack)
 #define MESH_LIGHT_NORMALS  1
 #define MESH_LIGHT_SHADES   2
 #define SHADOW_VERTICES 8
@@ -376,6 +377,13 @@ void verticesFar(int32_t far)
     gFar = far;
 }
 
+static int32_t gBlack;
+
+void verticesBlack(bool on)
+{
+    gBlack = on ? CLIP_BLACK : 0;
+}
+
 // Room i's vertices projected from the DSP's rotations.
 static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
 {
@@ -397,6 +405,7 @@ static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
     rp.caustics = room.caustics;
     rp.count = to;      // the caustics' index, count - vertices left: from on
     rp.farScaled = gFarScaled;
+    rp.black = gBlack;
 #ifdef RENDER_LAB
     rp.zExact = rp.zMin;    // as the captured game projected it
 #else

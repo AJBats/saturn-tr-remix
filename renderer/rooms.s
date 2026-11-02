@@ -42,7 +42,13 @@
 ! to it (rooms.h roomsFarScaled); +124 the view's rotation, its rows as
 ! 16-bit x y z (the walk's own); +144 the entries (RoomEntry: the room seen,
 ! the room it was seen from, the portal it was seen by), +148 their count
-! (all of them: ROOM_ENTRIES kept).
+! (all of them: ROOM_ENTRIES kept); +152 where the vertices stop; +156 by room,
+! hidden; +160 by room, seen nearer than where it is all at the fog's floor.
+!
+! A point seen through a portal is no nearer than the portal's nearest corner,
+! so a room seen by no portal with a corner nearer than RoomLevel.black shows
+! nothing but the fog's floor: it is dropped. No job, no objects, its window
+! filled; the walk goes on through it to what may be bright beyond.
 
     .equ    R_LEVEL,        0
     .equ    R_PORTALS,      4
@@ -75,6 +81,7 @@
     .equ    R_ENTRY_COUNT,  148
     .equ    R_VERTICES_TOP, 152
     .equ    R_HIDDEN,       156
+    .equ    R_SEEN_NEAR,    160
     .equ    ROOM_ENTRIES,   128
     .equ    ROOM_FILLS,     64
 
@@ -82,6 +89,7 @@
     .equ    L_Z,            2
     .equ    L_TOP,          4
     .equ    L_PORTALS,      7
+    .equ    L_BLACK,        10
     .equ    L_FIRST,        12
     .equ    PORTAL,         32
     .equ    P_NORMAL,       2
@@ -490,8 +498,36 @@
     bf      8f
     mov.l   r4, @(12,r7)
     mov     #1, r5
+    ! a corner nearer than where the next room is all at the fog's floor
+8:  mov.w   @r9, r0
+    extu.w  r0, r3
+    mov     r3, r7
+    shll2   r7
+    shll2   r7
+    mov.l   @(R_LEVEL,gbr), r0
+    add     r0, r7
+    mov.w   @(L_BLACK,r7), r0
+    tst     r10, r10
+    bf      12f
+    tst     r0, r0
+    bt      12f
+    shll8   r0
+    shll2   r0
+    shll2   r0
+    shll2   r0
+    .irp    i, 0, 1, 2
+    mov.l   @(F_PV+12*\i+8,r15), r1
+    cmp/gt  r1, r0
+    bt      12f
+    .endr
+    mov.l   @(F_PV+12*3+8,r15), r1
+    cmp/gt  r1, r0
+    bf      13f
+12: mov.l   @(R_SEEN_NEAR,gbr), r0
+    mov     #1, r1
+    mov.b   r1, @(r0,r3)
     ! the entry, for the items' test (rooms.h roomsItemSeen)
-8:  mov.l   @(R_ENTRY_COUNT,gbr), r0
+13: mov.l   @(R_ENTRY_COUNT,gbr), r0
     mov     r0, r1
     add     #1, r0
     mov.l   r0, @(R_ENTRY_COUNT,gbr)
@@ -706,6 +742,45 @@ _roomsSeenAsm:
     mov.l   r0, @(12,r10)
     mov.l   @(12,r7), r0
     mov.l   r0, @(16,r10)
+    ! dropped: hidden, or not the camera's and seen nowhere nearer than its
+    ! floor; its window a fill
+    mov.l   @(R_HIDDEN,gbr), r0
+    mov     r0, r1
+    mov     r8, r0
+    mov.b   @(r0,r1), r1
+    tst     r1, r1
+    bf      14f
+    mov.l   @(R_CAMERA_ROOM,gbr), r0
+    cmp/eq  r0, r8
+    bt      15f
+    mov.l   @(R_SEEN_NEAR,gbr), r0
+    mov     r0, r1
+    mov     r8, r0
+    mov.b   @(r0,r1), r1
+    tst     r1, r1
+    bf      15f
+14: mov     #1, r0
+    mov.w   r0, @(2,r10)
+    mov.l   @(R_VOIDS,gbr), r0
+    mov     #ROOM_FILLS, r1
+    cmp/hs  r1, r0
+    bt      16f
+    shll2   r0
+    shll2   r0
+    mov     r0, r1
+    mov.l   @(R_FILLS,gbr), r0
+    add     r0, r1
+    .irp    k, 0, 4, 8, 12
+    mov.l   @(4+\k,r10), r0
+    mov.l   r0, @(\k,r1)
+    .endr
+16: mov.l   @(R_VOIDS,gbr), r0
+    add     #1, r0
+    bra     17f
+    mov.l   r0, @(R_VOIDS,gbr)
+15: mov     #0, r0
+    mov.w   r0, @(2,r10)
+17:
     mov     r8, r7
     shll2   r7
     shll2   r7
@@ -742,8 +817,10 @@ _roomsSeenAsm:
     mov.l   r14, @(44,r7)
     add     #SEEN, r10
     dt      r11
-    bf      .Lqueue
-
+    bt      18f
+    bra     .Lqueue
+    nop
+18:
     ! the listed rooms' windows and listings reset for the next frame, once
     ! all are queued (a room listed twice is queued with its window twice)
     mov.l   @(R_LIST,gbr), r0
@@ -754,6 +831,8 @@ _roomsSeenAsm:
     mov     r0, r5
     mov.l   @(R_VISIBLE,gbr), r0
     mov     r0, r6
+    mov.l   @(R_SEEN_NEAR,gbr), r0
+    mov     r0, r4
     mov     #88, r1
     shll2   r1                      ! FRAME_WIDTH
     mov     #112, r2
@@ -763,6 +842,7 @@ _roomsSeenAsm:
     mov.w   @r9+, r0
     extu.w  r0, r0
     mov.b   r3, @(r0,r6)
+    mov.b   r3, @(r0,r4)
     shll2   r0
     shll2   r0
     add     r5, r0
@@ -789,7 +869,7 @@ _roomsSeenAsm:
 ! up, as a FaceRoom (faces.h) for stages 2 and 3; the caustics' table once, if
 ! a room is wet. Rooms wanting more vertices than there are: the first listed,
 ! the deepest, have no job. The last listed is the camera's, and it must stay.
-! Rooms hidden (ctx hidden, by room) have none either.
+! Rooms dropped (RoomSeen.dropped) have none either.
 !
 ! void roomsJobsAsm(RoomsContext* ctx)
 
@@ -845,17 +925,14 @@ _roomsJobsAsm:
     mov.l   @(R_LEVEL,gbr), r0
     mov     r0, r5
     mov     #-16, r6
-    mov.l   @(R_HIDDEN,gbr), r0
-    mov     r0, r7
 .Lwanted:
-    mov.w   @r2, r0
-    extu.w  r0, r0
-    mov     r0, r1
-    shll2   r1
-    shll2   r1
-    mov.b   @(r0,r7), r0
+    mov.w   @(2,r2), r0
     tst     r0, r0
     bf      .LwantedNext
+    mov.w   @r2, r0
+    extu.w  r0, r1
+    shll2   r1
+    shll2   r1
     add     r5, r1
     mov.w   @(L_VERTICES,r1), r0
     extu.w  r0, r1
@@ -889,10 +966,7 @@ _roomsJobsAsm:
     extu.w  r0, r5
     tst     r5, r5
     bt      .Lnojob
-    mov.l   @(R_HIDDEN,gbr), r0
-    mov     r0, r1
-    mov     r6, r0
-    mov.b   @(r0,r1), r0
+    mov.w   @(2,r8), r0
     tst     r0, r0
     bf      .Lnojob
     mov     r12, r0

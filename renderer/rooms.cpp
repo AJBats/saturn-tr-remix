@@ -31,11 +31,13 @@ static_assert(sizeof(FaceRoom) == 112 && offsetof(FaceRoom, quadsCount) == 16 &&
 
 static RoomsContext gCtx;
 static uint8_t gHidden[MAX_LEVEL_ROOMS];
+static uint8_t gSeenNear[MAX_LEVEL_ROOMS];
 static RoomsHide gHide;
 static uint16_t gListCopy[ROOMS_LISTED];
 static int32_t gListCopied;
 
-static_assert(offsetof(RoomsContext, verticesTop) == 152 && offsetof(RoomsContext, hidden) == 156,
+static_assert(offsetof(RoomsContext, verticesTop) == 152 && offsetof(RoomsContext, hidden) == 156 &&
+              offsetof(RoomsContext, seenNear) == 160,
               "rooms.s's RoomsContext");
 static int32_t gView[12];
 static int32_t gClip[MAX_LEVEL_ROOMS][4];
@@ -86,6 +88,7 @@ void roomsInit(const RoomsLevel &level)
     gCtx.entries = gEntries;
     gCtx.verticesTop = MAX_VERTICES - SPLIT_VERTICES;
     gCtx.hidden = uncached(gHidden);
+    gCtx.seenNear = uncached(gSeenNear);
     gSines = level.sines;
 }
 

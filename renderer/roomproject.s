@@ -19,6 +19,8 @@
 !                                   (vertices.h verticesFarScaled)
 !   +52 int32 zExact                nearer than this << 8, the divider instead
 !                                   of the table, whose steps are wide up close
+!   +56 int32 black                 ored into the clip flags of a vertex the fog
+!                                   has at its floor
 !
 ! Vertex (render.h): int16 x, y; int16 z; uint8 g, clip.
 !
@@ -286,6 +288,11 @@ _roomProjectAsm:
     cmp/pl  r0
     bf      20f
     add     r0, r3
+    mov.w   .LshadeFloor, r1
+    cmp/ge  r1, r3
+    bf      20f
+    mov.l   @(56, r7), r0
+    or      r0, r14
     mov.w   .LshadeMax, r1
     cmp/gt  r1, r3
     bf      20f
@@ -374,6 +381,7 @@ _roomProjectAsm:
 .LframeHeight:  .short  224         ! FRAME_HEIGHT
 .LcoordMax:     .short  1023        ! VDP1_COORD_MAX
 .LfogMin:       .short  12288       ! FOG_MIN
+.LshadeFloor:   .short  7936        ! the fog's floor: shade 31 << 8
 .LshadeMax:     .short  8191        ! shade << 8 at its darkest
 
     ! --- a dry room --------------------------------------------------------
@@ -575,9 +583,11 @@ _roomProjectAsm:
     shlr8   r0
     add     r0, r3
     mov     #31, r1
-    cmp/gt  r1, r3
+    cmp/ge  r1, r3
     bf      1f
     mov     r1, r3
+    mov.l   @(56, gbr), r0
+    or      r0, r14
 1:  ! store x|y, z|g|clip
     shll16  r12
     extu.w  r13, r13

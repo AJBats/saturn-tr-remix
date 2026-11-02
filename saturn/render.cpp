@@ -329,6 +329,8 @@ Room** renderWalk(Room* cameraRoom)
     for (int32 i = 0; i < walk.listed; i++)
     {
         const render::RoomSeen &s = walk.seen[i];
+        if (s.dropped)
+            continue;
         Room* room = rooms + s.room;
         room->clip = RectMinMax(s.window[0], s.window[1], s.window[2], s.window[3]);
         visible[n++] = room;
@@ -429,6 +431,22 @@ static void* highAllocDsp(uint32_t bytes)
     return osHighAlloc(bytes);
 }
 
+static int32 gBlack = 2;     // renderBlack's
+
+// Where a room's brightest vertex has reached the fog's floor (shade 31, one
+// step a 256 units from FOG_MIN), water's caustics lifting it up to 3 steps.
+static uint16 roomBlack(const Room &room)
+{
+    int32 brightest = 31;
+    for (int32 i = 0; i < room.info->verticesCount; i++) {
+        brightest = X_MIN(brightest, int32(room.data.vertices[i].g));
+    }
+    if (ROOM_FLAG_WATER(room.info->flags)) {
+        brightest = X_MAX(brightest - 3, 0);
+    }
+    return uint16(FOG_MIN + (31 - brightest) * 256);
+}
+
 // The rooms' tables from rooms[] as they stand (again after a flip map).
 static void roomTables()
 {
@@ -444,7 +462,7 @@ static void roomTables()
         r.flags = info->flags;
         r.portals = info->portalsCount;
         r.vertices = info->verticesCount;
-        r.pad = 0;
+        r.black = gBlack ? roomBlack(room) : 0;
         r.first = portals;
         memcpy(gPortals + portals, room.data.portals, info->portalsCount * sizeof(Portal));
         portals += info->portalsCount;
@@ -489,6 +507,15 @@ void renderFar(int32 far)
 {
     gFar = far;
     render::frameFar(far);
+}
+
+void renderBlack(int32 mode)
+{
+    gBlack = mode;
+    render::verticesBlack(mode == 2);
+    for (int32 i = 0; gRoomLevel && i < level.roomsCount; i++) {
+        gRoomLevel[i].black = mode ? roomBlack(rooms[i]) : 0;
+    }
 }
 
 #ifdef HW_LOG
@@ -623,6 +650,7 @@ void renderLevelInit()
         while (1);  // TODO error screen
     }
     render::frameFar(gFar);
+    render::verticesBlack(gBlack == 2);
 
     uint32 hints = 0;
     for (uint32 i = 0; i < sizeof(gDepthHints) / sizeof(gDepthHints[0]) && hints < MAX_LEVEL_HINTS; i++)

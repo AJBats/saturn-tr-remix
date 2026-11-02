@@ -58,7 +58,8 @@ struct RoomsContext
     RoomEntry* entries;         // +144 each portal a room was seen by (the first ROOM_ENTRIES)
     int32_t entryCount;         // +148
     int32_t verticesTop;        // +152 where the rooms' vertices must stop
-    const uint8_t* hidden;      // +156 by room: listed, but no job (roomsHideWith)
+    const uint8_t* hidden;      // +156 by room: listed, but dropped (roomsHideWith)
+    uint8_t* seenNear;          // +160 by room: seen nearer than RoomLevel.black (0 between frames)
 };
 
 extern "C" void roomsSeenAsm(RoomsContext* ctx);

@@ -35,6 +35,7 @@ struct RoomProject
     int32_t count;              // +44 the room's vertices
     int32_t farScaled;          // +48 verticesFarScaled's
     int32_t zExact;             // +52 nearer than this << 8, divided: not the table
+    int32_t black;              // +56 ored into the clip flags of a vertex at the fog's floor
 };
 
 extern "C" void roomProjectAsm(const RoomRotated* src, int32_t count, Vertex* dst, RoomProject* rp);
@@ -72,6 +73,9 @@ void verticesFarScaled(bool on);
 // The rooms' far plane, in world units (frame.h frameFar); the meshes keep
 // the game's.
 void verticesFar(int32_t far);
+
+// A face all of whose vertices are at the fog's floor filled, not drawn.
+void verticesBlack(bool on);
 
 extern "C" void meshProjectAsm(Vertex* v, int32_t count, MeshProject* mp);
 extern "C" void meshShadesAsm(Vertex* v, int32_t count, const uint8_t* shades, int32_t ambient);

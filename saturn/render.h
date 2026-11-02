@@ -45,6 +45,11 @@ void renderTexturesShifted();
 // 20 sectors unless the HW_LOG menu's Far moves it in), kept across levels.
 void renderFar(int32 far);
 
+// What the fog has at its floor, past which nothing shows but the texels the
+// floor's -16 leaves: 0 all drawn, 1 rooms wholly there dropped (RoomLevel.black)
+// with what stands in them, 2 faces wholly there filled too.
+void renderBlack(int32 mode);
+
 #ifdef HW_LOG
 // The debug page's stamps (renderer/rooms.h roomsHideWith, roomsListCopy, frame.h
 // framePaintRoom).

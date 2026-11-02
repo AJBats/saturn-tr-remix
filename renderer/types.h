@@ -286,7 +286,8 @@ struct RoomLevel
     int16_t yTop;
     uint8_t flags;          // ROOM_FLAG_WATER
     uint8_t portals;
-    uint16_t vertices, pad;
+    uint16_t vertices;
+    uint16_t black;         // past this z the whole room is at the fog's floor (0: no such test)
     uint32_t first;         // its first portal in RPRT
 };
 
@@ -294,7 +295,8 @@ struct RoomLevel
 // room, Matrix's 12 int32).
 struct RoomSeen
 {
-    uint16_t room, pad;
+    uint16_t room;
+    uint16_t dropped;       // listed, not drawn: nothing of it, its window filled
     int32_t window[4];
     int32_t m[12];
 };

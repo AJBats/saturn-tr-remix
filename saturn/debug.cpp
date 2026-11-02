@@ -38,6 +38,8 @@ static const char* const kTrace[] = { "Off", "Stages", "Detail" };
 #ifdef HW_LOG
 static const char* const kFar[] = { "20 sectors", "18 sectors", "16 sectors", "14 sectors", "12 sectors" };
 static int32 gFarStep;      // kFar's
+static const char* const kBlack[] = { "Off", "Rooms", "Rooms, faces" };
+static int32 gBlackStep = 2;    // kBlack's
 #endif
 
 static bool gShowStats;
@@ -62,12 +64,15 @@ static const Option gOptions[] = {
     { "Far", kFar, 5,
         [] { return gFarStep; },
         [](int32 v) { gFarStep = v; renderFar((20 - 2 * v) * 1024); } },
+    { "Black", kBlack, 3,
+        [] { return gBlackStep; },
+        [](int32 v) { gBlackStep = v; renderBlack(v); } },
 #endif
 };
 
 enum { OPTION_STATS,
 #ifdef HW_LOG
-       OPTION_TRACE, OPTION_FAR,
+       OPTION_TRACE, OPTION_FAR, OPTION_BLACK,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");
