@@ -1490,7 +1490,20 @@ struct Camera {
     void lookAt(int32 offset);
     void update();
     void toCombat();
+
+    void smartShift(Location &ideal, bool look);
+    void moveRetail(Location &ideal, int32 speed);
+    void chaseRetail(ItemObj* item);
+    void combatRetail(ItemObj* item);
+    void lookRetail(ItemObj* item);
+    void fixedRetail();
+    void updateRetail();
 };
+
+// The original's camera and field of view rather than ours (camera.h), and the
+// view from where the camera is, with that field of view.
+extern bool gCameraRetail;
+void cameraView(const vec3i &pos, int32 angleX, int32 angleY);
 
 enum ZoneType
 {

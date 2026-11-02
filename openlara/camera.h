@@ -485,6 +485,573 @@ void Camera::lookAt(int32 offset)
     mode = CAMERA_MODE_LOOK;
 }
 
+// --- the original's camera -------------------------------------------------
+// CalculateCamera and what it calls (retail 0600c054 .. 0600d128), with its
+// field of view: a choice beside ours while the two are compared (the HW_LOG
+// menu's Camera).
+
+#define CHASE_SPEED         12
+#define COMBAT_SPEED        8
+#define LOOK_SPEED          4
+#define COMBAT_DISTANCE     2560
+#define GROUND_SHIFT        256
+#define MIN_SQUARE          (256 * 256)
+#define FOV_SCALE           13424   // 209.75 / 256, 2^14: the view's x and y rows make the 256 px focal length retail's
+
+bool gCameraRetail;
+static int32 targetSquare;  // the chase's distance on the ground, squared
+
+void cameraView(const vec3i &pos, int32 angleX, int32 angleY)
+{
+    matrixSetView(pos, angleX, angleY);
+    if (!gCameraRetail)
+        return;
+    Matrix &m = matrixGet();
+    m.e00 = m.e00 * FOV_SCALE >> 14;
+    m.e01 = m.e01 * FOV_SCALE >> 14;
+    m.e02 = m.e02 * FOV_SCALE >> 14;
+    m.e10 = m.e10 * FOV_SCALE >> 14;
+    m.e11 = m.e11 * FOV_SCALE >> 14;
+    m.e12 = m.e12 * FOV_SCALE >> 14;
+    for (int32 i = 0; i < 6; i++) {
+        gViewRotation[i] = int16(gViewRotation[i] * FOV_SCALE >> 14);
+    }
+}
+
+static bool badPosition(Room* room, int32 x, int32 y, int32 z)
+{
+    const Sector* sector = room->getRoom(x, y, z)->getSector(x, z);
+    return y >= sector->getFloor(x, y, z) || y <= sector->getCeiling(x, y, z);
+}
+
+static void clipCamera(int32* x, int32* y, int32 targetSquare, int32 tx, int32 ty, int32 left, int32 top, int32 right, int32 bottom)
+{
+    if ((right > left) != (tx < left))
+    {
+        *y = ty + (*y - ty) * (left - tx) / (*x - tx);
+        *x = left;
+    }
+
+    if ((bottom > top && ty > top && *y < top) || (bottom < top && ty < top && *y > top))
+    {
+        *x = tx + (*x - tx) * (top - ty) / (*y - ty);
+        *y = top;
+    }
+}
+
+static void shiftCamera(int32* x, int32* y, int32 targetSquare, int32 tx, int32 ty, int32 left, int32 top, int32 right, int32 bottom)
+{
+    int32 shift;
+
+    int32 tlSquare = X_SQR(tx - left) + X_SQR(ty - top);
+    int32 blSquare = X_SQR(tx - left) + X_SQR(ty - bottom);
+    int32 trSquare = X_SQR(tx - right) + X_SQR(ty - top);
+
+    if (targetSquare < tlSquare)
+    {
+        *x = left;
+        shift = targetSquare - X_SQR(tx - left);
+        if (shift < 0)
+            return;
+        shift = phd_sqrt(shift);
+        *y = ty + ((top < bottom) ? -shift : shift);
+    }
+    else if (tlSquare > MIN_SQUARE)
+    {
+        *x = left;
+        *y = top;
+    }
+    else if (targetSquare < blSquare)
+    {
+        *x = left;
+        shift = targetSquare - X_SQR(tx - left);
+        if (shift < 0)
+            return;
+        shift = phd_sqrt(shift);
+        *y = ty + ((top < bottom) ? shift : -shift);
+    }
+    else if (blSquare > MIN_SQUARE)
+    {
+        *x = left;
+        *y = bottom;
+    }
+    else if (targetSquare < trSquare)
+    {
+        shift = targetSquare - X_SQR(ty - top);
+        if (shift < 0)
+            return;
+        shift = phd_sqrt(shift);
+        *x = tx + ((left < right) ? shift : -shift);
+        *y = top;
+    }
+    else
+    {
+        *x = right;
+        *y = top;
+    }
+}
+
+// The box index of a room's sector by its row and column, as the original
+// reads r->floor[], but in the room.
+static uint16 sectorBox(const Room* room, int32 sz, int32 sx)
+{
+    if (sx < 0 || sz < 0 || sx >= room->info->xSectors || sz >= room->info->zSectors)
+        return NO_BOX;
+    return room->sectors[sx * room->info->zSectors + sz].boxIndex;
+}
+
+// SmartShift (0600c50c): the ideal spot's line of sight from the target, then
+// kept within the target's box and those beside it the camera could stand in.
+void Camera::smartShift(Location &ideal, bool look)
+{
+    trace(target, ideal, true);
+
+    void (*shift)(int32*, int32*, int32, int32, int32, int32, int32, int32, int32) = look ? clipCamera : shiftCamera;
+
+    const Room* r = target.room;
+    uint16 itemBox = sectorBox(r, (target.pos.z - (r->info->z << 8)) >> 10, (target.pos.x - (r->info->x << 8)) >> 10);
+    if (itemBox == NO_BOX)
+        return;
+    const Box* box = level.boxes + itemBox;
+
+    r = ideal.room;
+    int32 sz = (ideal.pos.z - (r->info->z << 8)) >> 10;
+    int32 sx = (ideal.pos.x - (r->info->x << 8)) >> 10;
+
+    uint16 cameraBox = sectorBox(r, sz, sx);
+    if (cameraBox != NO_BOX && (ideal.pos.z < (box->minZ << 10) || ideal.pos.z > (box->maxZ << 10) - 1 ||
+                                ideal.pos.x < (box->minX << 10) || ideal.pos.x > (box->maxX << 10) - 1)) {
+        box = level.boxes + cameraBox;
+    }
+
+    int32 left = box->minZ << 10;
+    int32 right = (box->maxZ << 10) - 1;
+    int32 top = box->minX << 10;
+    int32 bottom = (box->maxX << 10) - 1;
+
+    int32 test = (ideal.pos.z - 1024) | 1023;
+    bool badLeft = badPosition(ideal.room, ideal.pos.x, ideal.pos.y, test);
+    if (!badLeft)
+    {
+        cameraBox = sectorBox(r, sz - 1, sx);
+        if (cameraBox != NO_BOX && (level.boxes[cameraBox].minZ << 10) < left) {
+            left = level.boxes[cameraBox].minZ << 10;
+        }
+    }
+
+    test = (ideal.pos.z + 1024) & ~1023;
+    bool badRight = badPosition(ideal.room, ideal.pos.x, ideal.pos.y, test);
+    if (!badRight)
+    {
+        cameraBox = sectorBox(r, sz + 1, sx);
+        if (cameraBox != NO_BOX && (level.boxes[cameraBox].maxZ << 10) - 1 > right) {
+            right = (level.boxes[cameraBox].maxZ << 10) - 1;
+        }
+    }
+
+    test = (ideal.pos.x - 1024) | 1023;
+    bool badTop = badPosition(ideal.room, test, ideal.pos.y, ideal.pos.z);
+    if (!badTop)
+    {
+        cameraBox = sectorBox(r, sz, sx - 1);
+        if (cameraBox != NO_BOX && (level.boxes[cameraBox].minX << 10) < top) {
+            top = level.boxes[cameraBox].minX << 10;
+        }
+    }
+
+    test = (ideal.pos.x + 1024) & ~1023;
+    bool badBottom = badPosition(ideal.room, test, ideal.pos.y, ideal.pos.z);
+    if (!badBottom)
+    {
+        cameraBox = sectorBox(r, sz, sx + 1);
+        if (cameraBox != NO_BOX && (level.boxes[cameraBox].maxX << 10) - 1 > bottom) {
+            bottom = (level.boxes[cameraBox].maxX << 10) - 1;
+        }
+    }
+
+    left += 256;
+    right -= 256;
+    top += 256;
+    bottom -= 256;
+
+    bool noclip = true;
+    int32 &iz = ideal.pos.z, &ix = ideal.pos.x;
+    if (iz < left && badLeft)
+    {
+        noclip = false;
+        if (ix < target.pos.x) {
+            shift(&iz, &ix, targetSquare, target.pos.z, target.pos.x, left, top, right, bottom);
+        } else {
+            shift(&iz, &ix, targetSquare, target.pos.z, target.pos.x, left, bottom, right, top);
+        }
+    }
+    else if (iz > right && badRight)
+    {
+        noclip = false;
+        if (ix < target.pos.x) {
+            shift(&iz, &ix, targetSquare, target.pos.z, target.pos.x, right, top, left, bottom);
+        } else {
+            shift(&iz, &ix, targetSquare, target.pos.z, target.pos.x, right, bottom, left, top);
+        }
+    }
+
+    if (noclip)
+    {
+        if (ix < top && badTop)
+        {
+            noclip = false;
+            if (iz < target.pos.z) {
+                shift(&ix, &iz, targetSquare, target.pos.x, target.pos.z, top, left, bottom, right);
+            } else {
+                shift(&ix, &iz, targetSquare, target.pos.x, target.pos.z, top, right, bottom, left);
+            }
+        }
+        else if (ix > bottom && badBottom)
+        {
+            noclip = false;
+            if (iz < target.pos.z) {
+                shift(&ix, &iz, targetSquare, target.pos.x, target.pos.z, bottom, left, top, right);
+            } else {
+                shift(&ix, &iz, targetSquare, target.pos.x, target.pos.z, bottom, right, top, left);
+            }
+        }
+    }
+
+    if (!noclip) {
+        ideal.room = ideal.room->getRoom(ideal.pos.x, ideal.pos.y, ideal.pos.z);
+    }
+}
+
+// MoveCamera (0600c054): a speedth of the way there, out of the floor and
+// ceiling by a shift of the height it looks from.
+void Camera::moveRetail(Location &ideal, int32 speed)
+{
+    view.pos.x += (ideal.pos.x - view.pos.x) / speed;
+    view.pos.z += (ideal.pos.z - view.pos.z) / speed;
+    view.pos.y += (ideal.pos.y - view.pos.y) / speed;
+    view.room = ideal.room->getRoom(view.pos.x, view.pos.y, view.pos.z);
+
+    const Sector* sector = view.room->getSector(view.pos.x, view.pos.z);
+    int32 height = sector->getFloor(view.pos.x, view.pos.y, view.pos.z) - GROUND_SHIFT;
+
+    if (view.pos.y >= height && ideal.pos.y >= height)
+    {
+        trace(target, view, true);
+        view.room = view.room->getRoom(view.pos.x, view.pos.y, view.pos.z);
+        sector = view.room->getSector(view.pos.x, view.pos.z);
+        height = sector->getFloor(view.pos.x, view.pos.y, view.pos.z) - GROUND_SHIFT;
+    }
+
+    int32 ceiling = sector->getCeiling(view.pos.x, view.pos.y, view.pos.z) + GROUND_SHIFT;
+    shift = 0;
+    if (height != WALL - GROUND_SHIFT && ceiling != WALL + GROUND_SHIFT)
+    {
+        if (height < ceiling) {
+            ceiling = (height + ceiling) >> 1;
+            height = ceiling;
+        }
+
+        if (view.pos.y > height) {
+            shift = height - view.pos.y;
+        } else if (view.pos.y < ceiling) {
+            shift = ceiling - view.pos.y;
+        }
+    }
+
+    view.room = view.room->getRoom(view.pos.x, view.pos.y + shift, view.pos.z);
+}
+
+// ShiftClamp (0600cb20): a place kept clamp off walls of its box; the height
+// to shift it by off the floor and ceiling.
+static int32 shiftClamp(Location &loc, int32 clamp)
+{
+    int32 x = loc.pos.x, y = loc.pos.y, z = loc.pos.z;
+
+    loc.room = loc.room->getRoom(x, y, z);
+    const Sector* sector = loc.room->getSector(x, z);
+
+    if (sector->boxIndex != NO_BOX)
+    {
+        const Box &box = level.boxes[sector->boxIndex];
+        if (z < (box.minZ << 10) + clamp && badPosition(loc.room, x, y, z - clamp)) {
+            loc.pos.z = (box.minZ << 10) + clamp;
+        } else if (z > (box.maxZ << 10) - 1 - clamp && badPosition(loc.room, x, y, z + clamp)) {
+            loc.pos.z = (box.maxZ << 10) - 1 - clamp;
+        }
+
+        if (x < (box.minX << 10) + clamp && badPosition(loc.room, x - clamp, y, z)) {
+            loc.pos.x = (box.minX << 10) + clamp;
+        } else if (x > (box.maxX << 10) - 1 - clamp && badPosition(loc.room, x + clamp, y, z)) {
+            loc.pos.x = (box.maxX << 10) - 1 - clamp;
+        }
+    }
+
+    int32 height = sector->getFloor(x, y, z) - clamp;
+    int32 ceiling = sector->getCeiling(x, y, z) + clamp;
+
+    if (height < ceiling) {
+        ceiling = (height + ceiling) >> 1;
+        height = ceiling;
+    }
+
+    if (y > height)
+        return height - y;
+    if (loc.pos.y < ceiling)
+        return ceiling - y;
+    return 0;
+}
+
+// ChaseCamera (0600ca08)
+void Camera::chaseRetail(ItemObj* item)
+{
+    targetAngle.x = X_CLAMP(targetAngle.x + item->angle.x, -CAM_ANGLE_MAX, CAM_ANGLE_MAX);
+
+    int32 s, c;
+    sincos(targetAngle.x, s, c);
+    int32 distance = targetDist * c >> FIXED_SHIFT;
+
+    Location ideal;
+    ideal.pos.y = target.pos.y + (targetDist * s >> FIXED_SHIFT);
+
+    targetSquare = X_SQR(distance);
+
+    sincos(int16(item->angle.y + targetAngle.y), s, c);
+    ideal.pos.x = target.pos.x - (distance * s >> FIXED_SHIFT);
+    ideal.pos.z = target.pos.z - (distance * c >> FIXED_SHIFT);
+    ideal.room = view.room;
+
+    smartShift(ideal, false);
+    moveRetail(ideal, lastFixed ? speed : CHASE_SPEED);
+}
+
+// CombatCamera (0600cd34)
+void Camera::combatRetail(ItemObj* item)
+{
+    target.pos.x = item->pos.x;
+    target.pos.z = item->pos.z;
+
+    targetAngle.x = item->angle.x;
+    targetAngle.y = item->angle.y;
+
+    ExtraInfoLara* extra = item->extraL;
+    if (extra->armR.target || extra->armL.target)
+    {
+        int32 aX = extra->armR.angleAim.x + extra->armL.angleAim.x;
+        int32 aY = extra->armR.angleAim.y + extra->armL.angleAim.y;
+        if (extra->armR.target && extra->armL.target) {
+            targetAngle.x += aX >> 1;
+            targetAngle.y += aY >> 1;
+        } else {
+            targetAngle.x += aX;
+            targetAngle.y += aY;
+        }
+    }
+    else
+    {
+        targetAngle.x += extra->head.angle.x + extra->torso.angle.x;
+        targetAngle.y += extra->head.angle.y + extra->torso.angle.y;
+    }
+
+    targetDist = COMBAT_DISTANCE;
+
+    int32 s, c;
+    sincos(targetAngle.x, s, c);
+    int32 distance = targetDist * c >> FIXED_SHIFT;
+
+    Location ideal;
+    ideal.pos.y = target.pos.y + (targetDist * s >> FIXED_SHIFT);
+
+    targetSquare = X_SQR(distance);
+
+    sincos(targetAngle.y, s, c);
+    ideal.pos.x = target.pos.x - (distance * s >> FIXED_SHIFT);
+    ideal.pos.z = target.pos.z - (distance * c >> FIXED_SHIFT);
+    ideal.room = view.room;
+
+    smartShift(ideal, false);
+    moveRetail(ideal, speed);
+}
+
+// LookCamera (0600ce74)
+void Camera::lookRetail(ItemObj* item)
+{
+    vec3i old = target.pos;
+
+    target.pos.x = item->pos.x;
+    target.pos.z = item->pos.z;
+
+    ExtraInfoLara* extra = item->extraL;
+    targetAngle.y = item->angle.y + extra->torso.angle.y + extra->head.angle.y;
+    targetAngle.x = item->angle.x + extra->torso.angle.x + extra->head.angle.x;
+    targetDist = CAM_DIST_FOLLOW;
+
+    int32 s, c;
+    sincos(targetAngle.x, s, c);
+    int32 distance = targetDist * c >> FIXED_SHIFT;
+    int32 sinElevation = s;
+
+    int32 sy, cy;
+    sincos(item->angle.y, sy, cy);
+    shift = -512 * sinElevation >> FIXED_SHIFT;
+    target.pos.z += shift * cy >> FIXED_SHIFT;
+    target.pos.x += shift * sy >> FIXED_SHIFT;
+
+    if (badPosition(target.room, target.pos.x, target.pos.y, target.pos.z))
+    {
+        target.pos.x = item->pos.x;
+        target.pos.z = item->pos.z;
+    }
+
+    target.pos.y += shiftClamp(target, 256 + 50);
+
+    Location ideal;
+    ideal.pos.y = target.pos.y + (targetDist * sinElevation >> FIXED_SHIFT);
+    sincos(targetAngle.y, s, c);
+    ideal.pos.x = target.pos.x - (distance * s >> FIXED_SHIFT);
+    ideal.pos.z = target.pos.z - (distance * c >> FIXED_SHIFT);
+    ideal.room = view.room;
+
+    smartShift(ideal, true);
+
+    target.pos.z = old.z + (target.pos.z - old.z) / speed;
+    target.pos.x = old.x + (target.pos.x - old.x) / speed;
+
+    moveRetail(ideal, speed);
+}
+
+// FixedCamera (0600d090)
+void Camera::fixedRetail()
+{
+    const FixedCamera* cam = level.cameras + index;
+
+    Location ideal;
+    ideal.pos = cam->pos;
+    ideal.room = rooms + cam->roomIndex;
+
+    if (!trace(target, ideal, true)) {
+        shiftClamp(ideal, 256);
+    }
+
+    lastFixed = true;
+    moveRetail(ideal, speed);
+
+    if (timer != 0)
+    {
+        timer--;
+        if (timer == 0) {
+            timer = -1;
+        }
+    }
+}
+
+// CalculateCamera (0600d128), past the underwater sound, a cutscene and our
+// free camera.
+void Camera::updateRetail()
+{
+    bool isFixed = lookAtItem && (mode == CAMERA_MODE_FIXED || mode == CAMERA_MODE_OBJECT);
+    ItemObj* item = isFixed ? lookAtItem : laraItem;
+
+    const AABBs &box = item->getBoundingBox(true);
+
+    int32 y = item->pos.y;
+    if (isFixed) {
+        y += (box.minY + box.maxY) / 2;
+    } else {
+        y += box.maxY + ((box.minY - box.maxY) * 3 >> 2);
+    }
+
+    if (!isFixed && lookAtItem) {
+        lookAt(y);
+    }
+
+    if (mode == CAMERA_MODE_LOOK || mode == CAMERA_MODE_COMBAT)
+    {
+        y -= 256;
+        target.room = item->room;
+
+        if (lastFixed) {
+            target.pos.y = y;
+            speed = 1;
+        } else {
+            target.pos.y += (y - target.pos.y) >> 2;
+            speed = (mode == CAMERA_MODE_LOOK) ? LOOK_SPEED : COMBAT_SPEED;
+        }
+
+        lastFixed = false;
+
+        if (mode == CAMERA_MODE_LOOK) {
+            lookRetail(item);
+        } else {
+            combatRetail(item);
+        }
+    }
+    else
+    {
+        target.pos.x = item->pos.x;
+        target.pos.z = item->pos.z;
+
+        if (center)
+        {
+            int32 s, c;
+            sincos(item->angle.y, s, c);
+            int32 dz = (box.minZ + box.maxZ) / 2;
+            target.pos.z += c * dz >> FIXED_SHIFT;
+            target.pos.x += s * dz >> FIXED_SHIFT;
+        }
+
+        target.room = item->room;
+
+        if (lastFixed != isFixed)
+        {
+            target.pos.y = y;
+            lastFixed = true;
+            speed = 1;
+        }
+        else
+        {
+            target.pos.y += (y - target.pos.y) / 4;
+            lastFixed = false;
+        }
+
+        target.room = target.room->getRoom(target.pos.x, target.pos.y, target.pos.z);
+
+        if (mode == CAMERA_MODE_FOLLOW) {
+            chaseRetail(item);
+        } else {
+            fixedRetail();
+        }
+    }
+
+    lastIndex = index;
+    lastFixed = isFixed;
+
+    if (mode != CAMERA_MODE_OBJECT || timer == -1)
+    {
+        mode = CAMERA_MODE_FOLLOW;
+        index = -1;
+        lastItem = lookAtItem;
+        lookAtItem = NULL;
+        targetAngle.x = 0;
+        targetAngle.y = 0;
+        targetDist = CAM_DIST_FOLLOW;
+        center = false;
+    }
+
+    vec3i pos = view.pos;
+    pos.y += shift;
+
+    vec3i dir = target.pos - pos;
+    anglesFromVector(dir.x, dir.y, dir.z, angle.x, angle.y);
+
+    if (shake > 0)
+    {
+        pos.y += (sin(shake * (7 * ANGLE_180 / 30)) * shake * 48 / 30) >> FIXED_SHIFT;
+        shake--;
+    }
+
+    cameraView(pos, angle.x, angle.y);
+}
+
 void Camera::update()
 {
     // the underwater woosh, keyed again as it ends, while the camera is in
@@ -502,6 +1069,12 @@ void Camera::update()
     {
         updateFree();
         matrixSetView(view.pos, angle.x, angle.y);
+        return;
+    }
+
+    if (gCameraRetail)
+    {
+        updateRetail();
         return;
     }
 

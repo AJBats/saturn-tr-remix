@@ -803,7 +803,7 @@ bool renderBackground(const void* background)
     if (background == &gSceneBackground && lara && !screenCaptured())
     {
         Camera &camera = lara->extraL->camera;
-        matrixSetView(camera.view.pos, camera.angle.x, camera.angle.y);
+        cameraView(camera.view.pos, camera.angle.x, camera.angle.y);
         drawRooms(&camera);
         drawHUD(players[0]);
         gCapture = true;
