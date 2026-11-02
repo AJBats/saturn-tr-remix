@@ -59,8 +59,7 @@ again, packs the levels again with its sounds.
 
 ## The discs
 
-Images must be raw, one `.bin` per track, with these names (those of
-[Redump](http://redump.org) dumps):
+Rip your own discs as raw images, one `.bin` per track, and give them these names:
 
 ```
 external_resources/
@@ -73,11 +72,11 @@ external_resources/
         Tomb Raider (USA) (Rev 1) (Track 01).bin
 ```
 
-Only the PlayStation disc's first track is read. Another dump of it can be named
-with `make extract-ps1 PS1TRACK="path/to/track01.bin"`.
+Only the PlayStation disc's first track is read. If yours has another name, use
+`make extract-ps1 PS1TRACK="path/to/track01.bin"`.
 
-The build has been tested with these data tracks; other regions and revisions
-haven't been tried.
+The build has been tested with discs whose data tracks have these checksums; other
+regions and revisions haven't been tried.
 
 | Track 01 | SHA-1 |
 |---|---|
