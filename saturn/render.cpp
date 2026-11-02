@@ -491,6 +491,30 @@ void renderFar(int32 far)
     render::frameFar(far);
 }
 
+#ifdef HW_LOG
+void renderHideWith(RenderHide hide)
+{
+    render::roomsHideWith(hide);
+}
+
+int32 renderListCopy(uint16_t* out, int32 max)
+{
+    return render::roomsListCopy(out, max);
+}
+
+void renderPaintRoom(int32 room)
+{
+    render::framePaintRoom(room);
+}
+
+static bool gHolesShown;
+
+void renderHolesShown(bool shown)
+{
+    gHolesShown = shown;
+}
+#endif
+
 // The clear: a scaled sprite of colour 0 over the frame, transparency off,
 // which writes 0 (VDP2 shows the back colour); skipped where rooms cover the
 // frame (what neither a face nor a portal of theirs would draw is filled
@@ -866,6 +890,17 @@ void flush_c()
         c.w[4] = (FRAME_WIDTH - 1) << 16;
         c.w[6] = FRAME_HEIGHT - 1;
 #else
+#ifdef HW_LOG
+        if (gHolesShown)
+        {
+            render::Command &c = render::gFrameCmds[0];
+            c.w[0] = (c.w[0] & ~(0xFu << 16)) | (CMD_POLYGON << 16);
+            c.w[1] = (PMOD_NO_ECD_SPD << 16) | RGB(0, 31, 0);
+            c.w[4] = (FRAME_WIDTH - 1) << 16;
+            c.w[6] = FRAME_HEIGHT - 1;
+        }
+        else
+#endif
         render::gFrameCmds[0].w[0] |= CMD_SKIP << 16;
 #endif
     }

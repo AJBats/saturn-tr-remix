@@ -74,6 +74,7 @@
     .equ    R_ENTRIES,      144
     .equ    R_ENTRY_COUNT,  148
     .equ    R_VERTICES_TOP, 152
+    .equ    R_HIDDEN,       156
     .equ    ROOM_ENTRIES,   128
     .equ    ROOM_FILLS,     64
 
@@ -788,6 +789,7 @@ _roomsSeenAsm:
 ! up, as a FaceRoom (faces.h) for stages 2 and 3; the caustics' table once, if
 ! a room is wet. Rooms wanting more vertices than there are: the first listed,
 ! the deepest, have no job. The last listed is the camera's, and it must stay.
+! Rooms hidden (ctx hidden, by room) have none either.
 !
 ! void roomsJobsAsm(RoomsContext* ctx)
 
@@ -843,17 +845,24 @@ _roomsJobsAsm:
     mov.l   @(R_LEVEL,gbr), r0
     mov     r0, r5
     mov     #-16, r6
+    mov.l   @(R_HIDDEN,gbr), r0
+    mov     r0, r7
 .Lwanted:
     mov.w   @r2, r0
-    extu.w  r0, r1
+    extu.w  r0, r0
+    mov     r0, r1
     shll2   r1
     shll2   r1
+    mov.b   @(r0,r7), r0
+    tst     r0, r0
+    bf      .LwantedNext
     add     r5, r1
     mov.w   @(L_VERTICES,r1), r0
     extu.w  r0, r1
     add     #15, r1
     and     r6, r1
     add     r1, r4
+.LwantedNext:
     dt      r3
     bf/s    .Lwanted
     add     #SEEN, r2
@@ -880,6 +889,12 @@ _roomsJobsAsm:
     extu.w  r0, r5
     tst     r5, r5
     bt      .Lnojob
+    mov.l   @(R_HIDDEN,gbr), r0
+    mov     r0, r1
+    mov     r6, r0
+    mov.b   @(r0,r1), r0
+    tst     r0, r0
+    bf      .Lnojob
     mov     r12, r0
     cmp/eq  #ROOM_JOBS, r0
     bt      .Lnojob

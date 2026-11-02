@@ -4,6 +4,11 @@
 // Changes show for a moment at the bottom of the screen. In HW_LOG builds the
 // player's pad pages the overlay with R and L, and the menu is one of its
 // pages, where its d-pad and A, B, C work the menu too (Lara stands still).
+//
+// Also in HW_LOG builds: Z held, a tap of R or L freezes the view, on any page,
+// whatever it's turned to the page after; Lara holds still with her look held, the
+// game runs on, the numbers are its own. A tap of Z lets go. Z held, START freezes
+// it and opens the page of occlusion stamps; START again goes back and lets go.
 
 #include "debug.h"
 #include "common.h"
@@ -38,6 +43,8 @@ static int32 gFarStep;      // kFar's
 static bool gShowStats;
 #ifdef HW_LOG
 static void benchUpdate();
+static void occludeUpdate(uint16 pressed);
+static void occludeDraw();
 static void frameShown(uint32_t plot);
 #define FRAME_ROW   (OVERLAY_ROWS - 2)  // and the row under it (frameShown)
 static volatile bool gFrameRows;    // they are pinned
@@ -74,10 +81,13 @@ static bool gMenuOpen;
 // R and L page through the overlay: the bench's table, then (held on the
 // menu's Way, Base unless changed) the scene's rows with each frame's CPU,
 // slave and VDP1 time, each frame's time by stage, the menu over each frame's
-// times, nothing at all, and the trace's playback (trace.h), which holds the
-// game.
-enum OverlayPage { PAGE_BENCH, PAGE_FRAME, PAGE_STAGES, PAGE_MENU, PAGE_NONE, PAGE_PLAYBACK, PAGE_COUNT };
+// times, nothing at all, the trace's playback (trace.h), which holds the game,
+// and the occlusion stamps.
+enum OverlayPage { PAGE_BENCH, PAGE_FRAME, PAGE_STAGES, PAGE_MENU, PAGE_NONE, PAGE_PLAYBACK, PAGE_OCCLUDE, PAGE_COUNT };
 static int32 gPage;
+static int32 gPageBack;             // the page Z and START left
+static bool gFrozen;                // the view: the game has only look held
+static bool gStartSwallowed;        // START opened or left the page: the game never sees it
 #endif
 
 #ifdef HW_LOG
@@ -136,13 +146,25 @@ static bool menuShown()
 #endif
 }
 
-bool debugOwnsPad()
+uint32_t debugGameKeys(uint32_t pressed)
 {
 #ifdef HW_LOG
-    return menuShown();
-#else
-    return false;
+    if (gStartSwallowed)
+    {
+        if (!(pressed & IK_SELECT)) {
+            gStartSwallowed = false;
+        }
+        pressed &= ~IK_SELECT;
+    }
+    if (pressed & IK_Z) {
+        pressed &= ~IK_SELECT;      // look and START is the page's
+    }
+    if (gFrozen)
+        return IK_Z;
+    if (menuShown() || gPage == PAGE_OCCLUDE)
+        return 0;
 #endif
+    return pressed;
 }
 
 void debugUpdate()
@@ -152,9 +174,34 @@ void debugUpdate()
 
 #ifdef HW_LOG
     // the player's pad: Lara has no use for its shoulder buttons
-    static uint32 shoulders;
+    static uint32 shoulders, held;
     uint32 pressed2 = keys & (IK_L | IK_R) & ~shoulders;
+    uint32 rising = keys & ~held;
+    held = keys;
     int32 was = gPage;
+    if ((keys & IK_Z) && (pressed2 & (IK_L | IK_R))) {
+        gFrozen = true;
+    } else if (gFrozen && (rising & IK_Z)) {
+        gFrozen = false;
+    }
+    if (rising & IK_SELECT)
+    {
+        if (keys & IK_Z)
+        {
+            gFrozen = true;
+            if (gPage != PAGE_OCCLUDE) {
+                gPageBack = gPage;
+            }
+            gPage = PAGE_OCCLUDE;
+            gStartSwallowed = true;
+        }
+        else if (gPage == PAGE_OCCLUDE)
+        {
+            gFrozen = false;
+            gPage = gPageBack;
+            gStartSwallowed = true;
+        }
+    }
     if (pressed2 & IK_R) {
         gPage = (gPage + 1) % PAGE_COUNT;
     } else if (pressed2 & IK_L) {
@@ -167,11 +214,10 @@ void debugUpdate()
     if (gPage != was && gPage == PAGE_PLAYBACK) {
         playbackStart();
     }
-    if (gPage == PAGE_MENU)
-    {
-        pad |= padButtons() & ~(PAD_START | PAD_L | PAD_R);
-        keys = 0;
+    if (gPage == PAGE_MENU || gPage == PAGE_OCCLUDE) {
+        pad |= padButtons() & ~(PAD_START | PAD_L | PAD_R | PAD_Z);
     }
+    keys = debugGameKeys(keys);
 #endif
 
     uint16 pressed = pad & ~gPad;
@@ -200,6 +246,7 @@ void debugUpdate()
     }
 
 #ifdef HW_LOG
+    occludeUpdate(pressed);
     vdp1OnShown(frameShown);
     if ((gPage == PAGE_BENCH || gPage == PAGE_NONE || gPage == PAGE_PLAYBACK) && gFrameRows)
     {
@@ -407,7 +454,7 @@ static bool gBenchChanged = true;   // the bench's rows to compose again
 // With the bench's rows hidden: where Lara stands (room, x, y, z, heading, as
 // LARA_START and START_YAW take them) and what the scene costs, averaged
 // over half a second, so that two views can be compared and reproduced.
-#define SCENE_ROWS      3
+#define SCENE_ROWS      4
 #define SCENE_WINDOW    30      // vblanks averaged
 static char gSceneRows[SCENE_ROWS][OVERLAY_COLUMNS + 1];
 
@@ -461,8 +508,299 @@ static void sceneUpdate()
     p = appendStat(p, "cpu ", framePercent(cpu / frames));
     appendStat(p, "fps ", frames * 60 / (gVblankCount - start));
 
+    // the camera, as the room row has Lara, its pitch and heading after
+    p = gSceneRows[3];
+    *p = 0;
+    if (lara)
+    {
+        const Camera &camera = lara->extraL->camera;
+        p = appendStat(p, "cam ", uint32(camera.view.room - rooms));
+        p = appendStat(p, "", uint32(camera.view.pos.x));
+        p = appendStat(p, "", uint32(camera.view.pos.y));
+        p = appendStat(p, "", uint32(camera.view.pos.z));
+        p = appendHex(p, uint16(camera.angle.x), 4);
+        p = append(p, " ");
+        appendHex(p, uint16(camera.angle.y), 4);
+    }
+
     start = gVblankCount;
     frames = vdp1 = cpu = drawn = roomVertices = vertices = faces = meshes = 0;
+}
+
+// --- occlusion stamps, by hand ---------------------------------------------------
+// The rooms the walk lists, largest first: the one picked flashes magenta, so
+// what it adds to the picture shows. A leaves it out of this view (its faces and
+// vertices: what stands in it still draws), B puts it back, C clears the view's
+// stamp, left and right set how far the stamp reaches, X shows them all, for a
+// photo, Y shows what nothing draws in green (with the view still, the frames
+// before look just like a room left out). A stamp holds for the camera in its room
+// and within reach blocks of its own, heading within an eighth of a circle either
+// way, pitched alike (up, level, down). A trial: they last until the level changes.
+#define STAMPS          48
+#define STAMP_ROOMS     18
+#define STAMP_PITCH     3277    // of 16384: a view past it looks up or down
+
+struct Stamp
+{
+    int16 bx, bz;
+    uint8 room, heading, pitch, reach, count;
+    uint8 rooms[STAMP_ROOMS];
+};
+
+static Stamp gStamps[STAMPS];
+static int32 gStampCount;
+static int32 gStampLevel = -1;
+static int32 gStampReach = 1;
+static bool gStampsShown, gHolesShown;
+static uint16 gOccRooms[128];
+static int32 gOccCount, gOccRoom = -1;
+static struct { int32 bx, bz, room, heading, pitch; } gHere;    // the walk's view
+
+static void stampsHide(const int32_t camera[3], const int32_t view[12], uint32_t cameraRoom, uint8_t* hidden)
+{
+    for (int32 i = 0; i < level.roomsCount; i++) {
+        hidden[i] = 0;
+    }
+    // of eight around the circle, the forward's x and z
+    int32 fx = view[8], fy = view[9], fz = view[10];
+    int32 ax = fx < 0 ? -fx : fx, az = fz < 0 ? -fz : fz;
+    int32 heading;
+    if (fx >= 0) {
+        heading = fz >= 0 ? (ax < az ? 0 : 1) : (ax < az ? 3 : 2);
+    } else {
+        heading = fz >= 0 ? (ax < az ? 7 : 6) : (ax < az ? 4 : 5);
+    }
+    int32 pitch = fy < -STAMP_PITCH ? 0 : fy > STAMP_PITCH ? 2 : 1;
+    int32 bx = camera[0] >> 10, bz = camera[2] >> 10;
+    auto* here = uncached(&gHere);
+    here->bx = bx;
+    here->bz = bz;
+    here->room = cameraRoom;
+    here->heading = heading;
+    here->pitch = pitch;
+    int32 count = *uncached(&gStampCount);
+    for (int32 i = 0; i < count; i++)
+    {
+        const Stamp* s = uncached(&gStamps[i]);
+        if (s->room != cameraRoom || s->pitch != pitch || ((heading - s->heading + 9) & 7) > 2)
+            continue;
+        int32 dx = bx - s->bx, dz = bz - s->bz;
+        if (dx < -s->reach || dx > s->reach || dz < -s->reach || dz > s->reach)
+            continue;
+        for (int32 k = 0; k < s->count; k++) {
+            hidden[s->rooms[k]] = 1;
+        }
+    }
+}
+
+// The stamp of the view exactly, made if asked for and there's room.
+static Stamp* stampHere(bool make)
+{
+    for (int32 i = 0; i < gStampCount; i++)
+    {
+        Stamp &s = gStamps[i];
+        if (s.room == gHere.room && s.bx == gHere.bx && s.bz == gHere.bz && s.heading == gHere.heading && s.pitch == gHere.pitch)
+            return &s;
+    }
+    if (!make || gStampCount == STAMPS)
+        return nullptr;
+    Stamp &s = gStamps[gStampCount];
+    s.room = gHere.room;
+    s.bx = gHere.bx;
+    s.bz = gHere.bz;
+    s.heading = gHere.heading;
+    s.pitch = gHere.pitch;
+    s.reach = gStampReach;
+    s.count = 0;
+    gStampCount++;
+    return &s;
+}
+
+static bool stampHolds(const Stamp* s, int32 room)
+{
+    for (int32 k = 0; s && k < s->count; k++)
+    {
+        if (s->rooms[k] == room)
+            return true;
+    }
+    return false;
+}
+
+static void stampRemove(Stamp* s)
+{
+    *s = gStamps[gStampCount - 1];
+    gStampCount--;
+}
+
+static void occludeUpdate(uint16 pressed)
+{
+    static bool hooked;
+    if (!hooked)
+    {
+        renderHideWith(stampsHide);
+        hooked = true;
+    }
+    if (gStampLevel != int32(gLevelID))
+    {
+        gStampLevel = gLevelID;
+        gStampCount = 0;
+        gOccRoom = -1;
+    }
+    if (gPage != PAGE_OCCLUDE)
+    {
+        renderPaintRoom(-1);
+        renderHolesShown(false);
+        return;
+    }
+    gHere = *uncached(&gHere);
+
+    // the walk's rooms, largest first
+    gOccCount = renderListCopy(gOccRooms, 128);
+    for (int32 i = 1; i < gOccCount; i++)
+    {
+        uint16 r = gOccRooms[i];
+        int32 v = rooms[r].info->verticesCount, k = i - 1;
+        for (; k >= 0 && rooms[gOccRooms[k]].info->verticesCount < v; k--) {
+            gOccRooms[k + 1] = gOccRooms[k];
+        }
+        gOccRooms[k + 1] = r;
+    }
+    int32 at = 0;
+    for (int32 i = 0; i < gOccCount; i++)
+    {
+        if (gOccRooms[i] == gOccRoom)
+            at = i;
+    }
+    if (gOccCount)
+    {
+        if (pressed & PAD_UP) {
+            at = (at + gOccCount - 1) % gOccCount;
+        }
+        if (pressed & PAD_DOWN) {
+            at = (at + 1) % gOccCount;
+        }
+        gOccRoom = gOccRooms[at];
+    }
+
+    Stamp* s = stampHere(false);
+    if (pressed & (PAD_LEFT | PAD_RIGHT))
+    {
+        gStampReach = (gStampReach + (pressed & PAD_RIGHT ? 1 : 3)) & 3;
+        if (s) {
+            s->reach = gStampReach;
+        }
+    }
+    if ((pressed & PAD_A) && gOccRoom >= 0)
+    {
+        const ItemObj* lara = (const ItemObj*)(const void*)players[0];
+        if (gOccRoom == gHere.room || (lara && gOccRoom == lara->room - rooms))
+        {
+            gMessageName = "Stamp";
+            gMessage = "not the camera's or Lara's room";
+            gMessageEnd = gVblankCount + 120;
+        }
+        else
+        {
+            s = stampHere(true);
+            if (s && !stampHolds(s, gOccRoom) && s->count < STAMP_ROOMS) {
+                s->rooms[s->count++] = gOccRoom;
+            }
+        }
+    }
+    if ((pressed & PAD_B) && s)
+    {
+        for (int32 k = 0; k < s->count; k++)
+        {
+            if (s->rooms[k] == gOccRoom)
+            {
+                s->rooms[k] = s->rooms[--s->count];
+                break;
+            }
+        }
+        if (!s->count) {
+            stampRemove(s);
+            s = nullptr;
+        }
+    }
+    if ((pressed & PAD_C) && s) {
+        stampRemove(s);
+        s = nullptr;
+    }
+    if (pressed & PAD_X) {
+        gStampsShown = !gStampsShown;
+    }
+    if (pressed & PAD_Y) {
+        gHolesShown = !gHolesShown;
+    }
+    renderHolesShown(gHolesShown);
+    renderPaintRoom((gVblankCount & 16) && !stampHolds(stampHere(false), gOccRoom) ? gOccRoom : -1);
+}
+
+static void occludeDraw()
+{
+    char text[64];
+    const Stamp* s = stampHere(false);
+    int32 at = 0;
+    for (int32 i = 0; i < gOccCount; i++)
+    {
+        if (gOccRooms[i] == gOccRoom)
+            at = i;
+    }
+    // over the frame rows, what's picked, what's left out, the buttons
+    char* p = appendStat(text, "> room ", uint32(gOccRoom < 0 ? 0 : gOccRoom));
+    p = appendStat(p, "", uint32(at + 1));
+    p = appendStat(p, "of ", uint32(gOccCount));
+    if (gOccRoom >= 0) {
+        p = appendStat(p, "v ", uint32(rooms[gOccRoom].info->verticesCount));
+    }
+    append(p, stampHolds(s, gOccRoom) ? "HIDDEN" : "shown");
+    overlayRow(OVERLAY_ROWS - 5, text);
+
+    p = append(text, "here");
+    for (int32 k = 0; s && k < s->count && p - text < OVERLAY_COLUMNS - 4; k++)
+    {
+        *p++ = ' ';
+        int2str(int32(s->rooms[k]), p);
+        while (*p) {
+            p++;
+        }
+    }
+    overlayRow(OVERLAY_ROWS - 4, text);
+
+    p = append(text, "A hide B show C clear Y holes r");
+    int2str(gStampReach, p);
+    while (*p) {
+        p++;
+    }
+    p = append(p, " n");
+    int2str(gStampCount, p);
+    overlayRow(OVERLAY_ROWS - 3, text);
+
+    if (gStampsShown)
+    {
+        // all of them, as a photo would be typed up: room, block, heading, pitch, reach, rooms
+        for (int32 i = 0; i < gStampCount && i < 14; i++)
+        {
+            const Stamp &t = gStamps[i];
+            p = appendStat(text, "", uint32(t.room));
+            p = appendStat(p, "", uint32(t.bx));
+            p = appendStat(p, "", uint32(t.bz));
+            *p++ = '0' + t.heading;
+            *p++ = '0' + t.pitch;
+            *p++ = '0' + t.reach;
+            *p++ = ':';
+            *p = 0;
+            for (int32 k = 0; k < t.count && p - text < OVERLAY_COLUMNS - 4; k++)
+            {
+                *p++ = ' ';
+                int2str(int32(t.rooms[k]), p);
+                while (*p) {
+                    p++;
+                }
+            }
+            overlayRow(6 + i, text);
+        }
+    }
 }
 
 // With the bench's rows hidden, the two bottom rows show the frame on screen
@@ -894,6 +1232,9 @@ static void drawDebug()
                 syncRows(3 + SCENE_ROWS);
             }
 #endif
+            if (gPage == PAGE_OCCLUDE) {
+                occludeDraw();
+            }
         }
         else
         {

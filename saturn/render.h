@@ -45,4 +45,16 @@ void renderTexturesShifted();
 // 20 sectors unless the HW_LOG menu's Far moves it in), kept across levels.
 void renderFar(int32 far);
 
+#ifdef HW_LOG
+// The debug page's stamps (renderer/rooms.h roomsHideWith, roomsListCopy, frame.h
+// framePaintRoom).
+typedef void (*RenderHide)(const int32_t camera[3], const int32_t view[12], uint32_t cameraRoom, uint8_t* hidden);
+void renderHideWith(RenderHide hide);
+int32 renderListCopy(uint16_t* out, int32 max);
+void renderPaintRoom(int32 room);
+// What nothing draws in the scene shows green, not the frames before: VDP1 pays for a
+// polygon over the frame.
+void renderHolesShown(bool shown);
+#endif
+
 #endif

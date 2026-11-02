@@ -1,6 +1,8 @@
 // The rooms seen (rooms.h): the walk and the jobs through rooms.s.
 #include "rooms.h"
 
+#include "platform.h"
+
 #include <stddef.h>
 #include <string.h>
 
@@ -28,6 +30,13 @@ static_assert(sizeof(FaceRoom) == 112 && offsetof(FaceRoom, quadsCount) == 16 &&
 #define FRAME_HEIGHT    224
 
 static RoomsContext gCtx;
+static uint8_t gHidden[MAX_LEVEL_ROOMS];
+static RoomsHide gHide;
+static uint16_t gListCopy[ROOMS_LISTED];
+static int32_t gListCopied;
+
+static_assert(offsetof(RoomsContext, verticesTop) == 152 && offsetof(RoomsContext, hidden) == 156,
+              "rooms.s's RoomsContext");
 static int32_t gView[12];
 static int32_t gClip[MAX_LEVEL_ROOMS][4];
 static uint8_t gVisible[MAX_LEVEL_ROOMS];
@@ -76,6 +85,7 @@ void roomsInit(const RoomsLevel &level)
     gCtx.farScaled = 1;
     gCtx.entries = gEntries;
     gCtx.verticesTop = MAX_VERTICES - SPLIT_VERTICES;
+    gCtx.hidden = uncached(gHidden);
     gSines = level.sines;
 }
 
@@ -114,8 +124,18 @@ void roomsSeen(bool take)
     gCtx.jobs = gJobs[set];
     gCtx.fills = gFills[set];
     gCtx.table = gCausticsTable[set];
+    if (gHide) {
+        gHide(gCtx.camera, gView, gCtx.cameraRoom, uncached(gHidden));
+    }
     roomsSeenAsm(&gCtx);
     roomsJobsAsm(&gCtx);
+    if (gHide)
+    {
+        for (int32_t i = 0; i < gCtx.listed && i < ROOMS_LISTED; i++) {
+            uncached(gListCopy)[i] = gList[i];
+        }
+        *uncached(&gListCopied) = gCtx.listed;
+    }
     gJobCounts[set] = gCtx.jobCount;
     gVoids[set] = gCtx.voids;
     gWalkSet = set;
@@ -376,6 +396,21 @@ extern "C" int32_t roomsItemSeen(const ItemRecord* item, const int16_t* frameA, 
         return boxSeen(room, s);
     }
     return 0;
+}
+
+void roomsHideWith(RoomsHide hide)
+{
+    gHide = hide;
+}
+
+int32_t roomsListCopy(uint16_t* out, int32_t max)
+{
+    int32_t n = *uncached(&gListCopied);
+    n = n < max ? n : max;
+    for (int32_t i = 0; i < n; i++) {
+        out[i] = uncached(gListCopy)[i];
+    }
+    return n;
 }
 
 FaceRoom* roomsJobs(uint32_t &count)

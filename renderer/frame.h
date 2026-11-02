@@ -34,6 +34,10 @@ extern int32_t gFrameEnd;
 extern int32_t gMeshFirst;
 extern CommandList gRoomList, gMeshList;
 
+// A room's commands drawn flat and bright from the next list on, to see what it
+// adds to the picture (-1 none): HW_LOG builds.
+void framePaintRoom(int32_t room);
+
 // The frame's rooms (the walk's jobs), the room texture cache as their faces
 // take it, the room textures' materials, the uploads the faces queued, where
 // quads split near the camera put their corners, the room faces' run.

@@ -58,6 +58,7 @@ struct RoomsContext
     RoomEntry* entries;         // +144 each portal a room was seen by (the first ROOM_ENTRIES)
     int32_t entryCount;         // +148
     int32_t verticesTop;        // +152 where the rooms' vertices must stop
+    const uint8_t* hidden;      // +156 by room: listed, but no job (roomsHideWith)
 };
 
 extern "C" void roomsSeenAsm(RoomsContext* ctx);
@@ -96,6 +97,14 @@ void roomsTake();
 void roomsNone();
 FaceRoom* roomsJobs(uint32_t &count);       // the frame's
 FaceRoom* roomsJobsAhead(uint32_t &count);  // the last walk's, not yet taken
+
+// Rooms to leave without jobs from a view (the debug page's stamps): called before
+// each walk with the camera, the view's matrix, the camera's room and a byte for
+// each room, to set. They stay listed: the walk goes through them, what stands in
+// them still draws. And the last walk's list while there is such a call.
+typedef void (*RoomsHide)(const int32_t camera[3], const int32_t view[12], uint32_t cameraRoom, uint8_t* hidden);
+void roomsHideWith(RoomsHide hide);
+int32_t roomsListCopy(uint16_t* out, int32_t max);
 
 // The fills past the draw distance the frame's walk found (renderVoid's: x0
 // y0 x1 y1), the first ROOM_FILLS: their count.

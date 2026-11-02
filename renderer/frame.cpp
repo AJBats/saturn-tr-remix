@@ -108,6 +108,38 @@ void frameSplit(const DrawScene* draws, uint32_t count, int32_t fills)
     gMeshFirst = rooms + meshes <= slots ? MAX_CMDS - 1 - meshes : 1 + int32_t(int64_t(slots) * rooms / (rooms + meshes));
 }
 
+#ifdef HW_LOG
+static int16_t gRoomSlots[MAX_FRAME_ROOMS][2];  // each room's first command's slot, and past its last
+static volatile int32_t gPaintRoom = -1;
+
+void framePaintRoom(int32_t room)
+{
+    gPaintRoom = room;
+}
+
+static void paintRoom()
+{
+    int32_t room = gPaintRoom;
+    if (room < 0)
+        return;
+    for (uint32_t i = 0; i < gFrameRoomCount; i++)
+    {
+        if (gFrameRooms[i].room != room)
+            continue;
+        for (int32_t s = gRoomSlots[i][0]; s < gRoomSlots[i][1]; s++)
+        {
+            Command &c = gFrameCmds[s];
+            if (c.w[0] & (0x4000u << 16))
+                continue;               // skipped
+            c.w[0] = (c.w[0] & 0xFFFF) | (0x1004u << 16);   // a polygon, jumping as it did
+            c.w[1] = (0x00C0u << 16) | 0xFC1F;              // magenta, nothing else
+        }
+    }
+}
+#else
+void framePaintRoom(int32_t) {}
+#endif
+
 // The rooms' list on to its slots, and the split corners free.
 static void roomListStart()
 {
@@ -397,7 +429,13 @@ static void slaveRooms(void*)
             }
             facesRoomsBegin(gRoomRun, gRoomTextures, gSplit, gRoomList);
         }
+#ifdef HW_LOG
+        gRoomSlots[i][0] = facesSlot(gRoomList.link);
+#endif
         facesRoom(gFrameRooms[i], gRoomRun);
+#ifdef HW_LOG
+        gRoomSlots[i][1] = facesSlot(gRoomList.link);
+#endif
     }
     stageEnd(STAGE_ROOMS);
     if (*uncached(&gNextWork))
@@ -685,6 +723,9 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         *farLast = shared->nearHead;
         *nearLast = facesLink(gFrameEnd);
     }
+#ifdef HW_LOG
+    paintRoom();
+#endif
     verticesEnd(uncached(&gNextRooms));
     gListRooms = facesSlot(gRoomList.link);
     gListMeshFirst = gMeshFirst;

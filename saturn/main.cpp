@@ -62,9 +62,7 @@ static void nextFrame()
     cachePurge();       // the game as the master left it
     traceBegin(TRACE_SLAVE, TR_SLAVE_UPDATE);
     updateInput();
-    if (debugOwnsPad()) {
-        keys = 0;
-    }
+    keys = debugGameKeys(keys);
     uint32 tick = gVblankCount >> 1;
     int32 delta = X_MAX(X_MIN(int32(tick - gNextTick), MAX_UPDATE_FRAMES), 1);
     gNextTick = tick;
