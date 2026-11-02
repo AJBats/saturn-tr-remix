@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-247, 251-253 | Rendering: the new renderer's open work |
+| 219-247, 251-255 | Rendering: the new renderer's open work |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -3523,6 +3523,25 @@ over 14.6, at most 188 · Fix: medium, after a decision*
   flecks go as the camera comes within about 1400 units. A fade before the limit
   (gouraud) could hide the edge, untried. Not yet judged on the Saturn.
 
+### 255. The Cistern's long views put the CPUs and VDP1 over budget together
+*Kind: speed · Size: Saturn photos below, 20-27 fps · Fix: unknown, not traced*
+
+- Found in play on the Saturn (2026-11-02). Lara's room, position and heading;
+  what the bench showed:
+  - Room 84, 40578 -5120 49157, 0x139C, guns out: rooms 31, room vertices 2821,
+    mesh vertices 1229, commands 1184, meshes 98; VDP1 93, master 123, slave 107,
+    24 fps.
+  - Room 102, 34112 -3328 55667, 0x3962: rooms 32, 2790, 828, 1059, 53; VDP1 82,
+    master 110, slave 93, 27 fps.
+  - Room 103, 47729 0 50939, 0xE4BF, looking up: rooms 30, 2547, 1405, 905, 115;
+    VDP1 77, master 118, slave 108, 25 fps.
+- Holding look changes the load by the view alone. Room 84, 40542 -5120 49808,
+  0xFA5E: not looking, rooms 28, 2583, 1169, 1129, 86, VDP1 102, slave 115, 20 fps;
+  looking up, rooms 24, 2070, 835, 796, 61, VDP1 71, slave 94, 30 fps. The camera
+  drops behind her head and the balconies leave the frame.
+- These numbers come from before issue 254's fix: a room was missing from some of
+  them, so the full views cost more than this.
+
 ---
 
 ## Decisions needed before fixing
@@ -3544,6 +3563,24 @@ over 14.6, at most 188 · Fix: medium, after a decision*
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 254. A big view lost the camera's own room: floors and pillars gone
+*Closed 2026-11-02: e73d0d6*
+
+- Found in play on the Saturn (2026-11-02): at about 2800 room vertices on the bench,
+  the pillar beside Lara, then the floor under her, then the whole platform she
+  stood on went, for as long as the view lasted. Meshes stayed: a plant in its urn
+  floating on nothing.
+- The jobs placed 3072 room vertices (each room's rounded up to 16) and a room past
+  that had no job. The walk lists the camera's room last, so it went first.
+  Reproduced at `tools/hwtest.sh cistern-pillar` looking up: 34 rooms wanting 3088,
+  room 106, the camera's, out for that list.
+- Now 3328, with 128 more kept for the corners of quads the near plane splits (7.7
+  KB of high work RAM, taken from what the rooms' faces get). Past that the first
+  listed, the deepest, make way, and the camera's room can't go. Forced with the top
+  poked to 2800 of the same view: the 4 deepest rooms of 34 leave, 4161 pixels
+  undrawn in the distance, the game carries on. Lab exact on ledge and pool.
+- Drunk walk over the Cistern, 1176 lists: 2928 at most. Not seen past 3088 yet.
 
 ### 229. Vertices near the camera jitter from the divide table
 *Closed 2026-11-02: 3a2242a, for rooms' vertices nearer than 2048; the rest and meshes keep the table*
