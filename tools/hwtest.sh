@@ -13,6 +13,8 @@
 #               rooms near the start: its measurements are taken here (the
 #               user's pick, the CPU's worst they had found)
 #   cistern-straight  the same spot, Lara turned to look along the hall
+#   cistern-rim LEVEL7A, room 111, on the first pool's rim: running forward
+#               from here Lara stops at nothing (issue 249)
 #
 # OBJECT_ART=1 in the environment reworks the meshes' textures too
 # (tools/pack_level.py), in every level.
@@ -30,7 +32,8 @@ case "${1:-ledge}" in
     wolves)     level=LEVEL1 id=LVL_TR1_1 start=14@28262:6656:50925 yaw=0xD257 trigger=26,27 ;;
     cistern)    level=LEVEL7A id=LVL_TR1_7A start=99@45157:-3328:63405 yaw=0x9965 ;;
     cistern-straight) level=LEVEL7A id=LVL_TR1_7A start=99@45157:-3328:63405 yaw=0x81B6 ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight]" >&2; exit 1 ;;
+    cistern-rim) level=LEVEL7A id=LVL_TR1_7A start=111@39375:-256:61648 yaw=0x1732 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 

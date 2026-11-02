@@ -933,15 +933,26 @@ known yet*
   - What retail does there.
 
 ### 249. Cistern: an invisible wall at a corner of the first pool's rim (reported in play)
-*Severity: gameplay · Confidence: confirmed in play, cause unknown · Fix: not
-known yet*
+*Severity: gameplay · Confidence: confirmed in Mednafen; retail's side read
+from TR1X, not run · Fix: small*
 
 - **Seen:** on the Saturn (2026-11-01, main 33102ae): running around the rim of
   the pool and cutting the corner, Lara appears to run into an invisible wall.
-- **Not known yet:**
-  - The corner's room and coordinates.
-  - Whether builds before 33102ae do it too.
-  - What retail does there.
+  `tools/hwtest.sh cistern-rim` starts there: LEVEL7A room 111 at 39375 -256
+  61648, yaw 0x1732; hold forward and she stops at about 39858 62363. Both
+  frame orders do it (update on the master and on the slave), along the same
+  path.
+- **Ours:** at the hit her front probe (39936, 62543) gets WALL. Four rooms meet
+  at that corner: 111, 110, 109 and 108. The probe's sector, world (39, 61), is
+  open floor at -256 in room 108, but it is the corner sector of room 111, where
+  it is a wall with no portal. `Room::getSector` (`openlara/room.h:193`) reads
+  it as it stands.
+- **Retail:** GetFloor (`0600fcc8`; TR1X `control_util.c:32`) never reads a
+  room's corner sector: on the first or last row of z it clamps x to 1 ..
+  xSectors - 2. Here that reads world (38, 61), whose portal leads to room 110,
+  then room 108, so the floor is found.
+- **Fix:** the same clamp in `Room::getSector`. This is the room-edge half of
+  issue 137.
 
 ---
 
