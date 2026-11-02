@@ -10,13 +10,22 @@
         its own power button pressed in)
     hw.py power cycle
         off, then on
+    hw.py shot [--out PNG]
+        saves what the capture card shows right now (build/hw_shot.png)
 
 Exits with 1 if the plug doesn't answer or the reading isn't what it should
 be. The plug is a Shelly Plug US Gen4 on the home network, found by its name.
+OBS holds the capture card, so pictures come through its WebSocket server
+(Tools > WebSocket Server Settings, on), with the password from OBS's config.
 """
 
 import argparse
+import base64
+import hashlib
 import json
+import os
+import socket
+import struct
 import sys
 import time
 import urllib.error
@@ -29,6 +38,9 @@ OFF_WATTS = 1.0     # less than this is nothing drawn
 ON_WATTS = 2.0      # more than this is the Saturn running
 READING_S = 5       # how long the plug's reading gets to reach either
 DRAIN_S = 5         # the power supply's capacitors, after the reading falls
+
+OBS_CONFIG = os.path.expandvars(r'%APPDATA%\obs-studio\plugin_config\obs-websocket\config.json')
+OBS_CAPTURE_KIND = 'dshow_input'    # OBS's Video Capture Device
 
 
 def fail(message):
@@ -91,13 +103,103 @@ def power(action):
         print(f"{'on' if s['output'] else 'off'}: {s['apower']} W")
 
 
+def b64_sha256(text):
+    return base64.b64encode(hashlib.sha256(text.encode()).digest()).decode()
+
+
+class Obs:
+    """A connection to OBS's WebSocket server (protocol 5, JSON)."""
+
+    def __init__(self):
+        with open(OBS_CONFIG, encoding='utf-8') as f:
+            config = json.load(f)
+        try:
+            self.sock = socket.create_connection(('127.0.0.1', config['server_port']), timeout=10)
+        except OSError as e:
+            fail(f'OBS does not answer (is it running, with its WebSocket server on?): {e}')
+        self.file = self.sock.makefile('rb')
+        key = base64.b64encode(os.urandom(16)).decode()
+        self.sock.sendall((
+            'GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+            f'Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n'
+            'Sec-WebSocket-Protocol: obswebsocket.json\r\n\r\n').encode())
+        status = self.file.readline()
+        if b' 101 ' not in status:
+            fail(f'OBS refused the WebSocket: {status!r}')
+        while self.file.readline().strip():
+            pass
+
+        identify = {'rpcVersion': 1, 'eventSubscriptions': 0}
+        auth = self.receive()['d'].get('authentication')
+        if auth:
+            secret = b64_sha256(config['server_password'] + auth['salt'])
+            identify['authentication'] = b64_sha256(secret + auth['challenge'])
+        self.send(1, identify)
+        self.receive()
+
+    def frame(self, opcode, payload):
+        mask = os.urandom(4)
+        n = len(payload)
+        length = bytes([0x80 | n]) if n < 126 else bytes([0x80 | 126]) + struct.pack('>H', n)
+        masked = bytes(b ^ mask[i & 3] for i, b in enumerate(payload))
+        self.sock.sendall(bytes([0x80 | opcode]) + length + mask + masked)
+
+    def send(self, op, data):
+        self.frame(1, json.dumps({'op': op, 'd': data}).encode())
+
+    def receive(self):
+        message = b''
+        while True:
+            head = self.file.read(2)
+            if len(head) < 2:
+                fail('OBS closed the connection')
+            size = head[1] & 0x7F
+            if size == 126:
+                size = struct.unpack('>H', self.file.read(2))[0]
+            elif size == 127:
+                size = struct.unpack('>Q', self.file.read(8))[0]
+            payload = self.file.read(size)
+            opcode = head[0] & 0x0F
+            if opcode == 8:
+                fail(f'OBS closed the connection: {payload[:2].hex()} {payload[2:].decode(errors="replace")}')
+            if opcode == 9:
+                self.frame(10, payload)
+            elif opcode <= 2:
+                message += payload
+                if head[0] & 0x80:
+                    return json.loads(message)
+
+    def request(self, kind, **data):
+        self.send(6, {'requestType': kind, 'requestId': kind, 'requestData': data})
+        reply = self.receive()['d']
+        if not reply['requestStatus']['result']:
+            fail(f"OBS refused {kind}: {reply['requestStatus']}")
+        return reply.get('responseData', {})
+
+
+def shot(out):
+    obs = Obs()
+    inputs = obs.request('GetInputList', inputKind=OBS_CAPTURE_KIND)['inputs']
+    if len(inputs) != 1:
+        fail(f'expected one capture source in OBS, found {[i["inputName"] for i in inputs]}')
+    image = obs.request('GetSourceScreenshot', sourceName=inputs[0]['inputName'], imageFormat='png')['imageData']
+    with open(out, 'wb') as f:
+        f.write(base64.b64decode(image.split(',', 1)[1]))
+    print(out)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='command', required=True)
     p = sub.add_parser('power')
     p.add_argument('action', nargs='?', choices=['on', 'off', 'cycle'])
+    p = sub.add_parser('shot')
+    p.add_argument('--out', default='build/hw_shot.png')
     args = ap.parse_args()
-    power(args.action)
+    if args.command == 'power':
+        power(args.action)
+    else:
+        shot(args.out)
 
 
 if __name__ == '__main__':
