@@ -3468,8 +3468,10 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
 ### 251. Seam slivers show the old frame: the hall of mirrors that's left
 *Kind: look · Size: Mednafen, every move on land, frames 1800-2880, holes a list
 3.6 px Cistern look, 4.3 Cistern diagonal, 16.7 pool, 56.7 tunnel (worst 492) ·
-Fix: medium, after a decision*
+Fix: medium, parked*
 
+- Parked 2026-11-02: the owner saw no slivers on the Saturn in play, the water
+  tunnel included. Holes this size count on Mednafen's magenta, not on the TV.
 - What's left after 261c654 and 3a2242a: long wedges 1-4 px wide along seams,
   100+ px long at worst. A vertex lying partway along another face's edge (a
   T-junction; 6-12% of a room's vertices in eight levels checked, 5-20 a room,
@@ -3494,8 +3496,10 @@ Fix: medium, after a decision*
 ### 252. Near quads warp, and strips could cut them with no new texture memory
 *Kind: look · Size: Cistern look, Mednafen geometry, faces with 1+ px of warp
 (about 19 a list, 64 at most): worst point's error median 2.4 px, 1 face in 10
-over 14.6, at most 188 · Fix: medium, after a decision*
+over 14.6, at most 188 · Fix: medium, parked*
 
+- Parked 2026-11-02: with the bugs gone the owner reads the warp as the Saturn norm
+  they know. The strips stay here as the owner's idea worked through, unbuilt.
 - VDP1 maps a texture bilinearly over the screen quad, so a quad running away
   from the camera has its texels in the wrong place. Splits with projected corners
   fix that but pop when they turn on: 6f5f284 turned on at a depth ratio of 2, far
