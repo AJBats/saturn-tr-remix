@@ -119,9 +119,10 @@ def main():
         members = [m for m in z.infolist() if m.filename.startswith(host_dir)]
         for m in members:
             path = z.extract(m, OUT)
-            mode = m.external_attr >> 16
-            if mode and not m.is_dir():
-                os.chmod(path, mode)
+            # The zip was made on Windows and records no usable modes: its Linux
+            # programs say execute-only for the group, its macOS ones nothing
+            if not m.is_dir():
+                os.chmod(path, 0o755)
     print(f"extracted {len(members)} entries to {os.path.join(OUT, host_dir)}")
 
 
