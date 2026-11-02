@@ -150,8 +150,10 @@ everywhere else, so the program it builds may differ, and it hasn't been run on 
 
 ## Licence
 
-The engine is GPL-3.0-or-later ([LICENSE](LICENSE)). It builds on
+The engine is GPL-3.0-only ([LICENSE](LICENSE)). It builds on
 [OpenLara](https://github.com/XProger/OpenLara) (BSD-2-Clause, [openlara/LICENSE](openlara/LICENSE))
-and the [SlaveDriver engine](https://github.com/Lobotomy-Software/SlaveDriver-Engine)
-(GPL-3.0-or-later). Tomb Raider's game data is © Core Design / Eidos, and comes
-from your own disc.
+and [libyaul](https://github.com/yaul-org/libyaul) (MIT, notices in `saturn/cd.cpp` and
+`saturn/font.cpp`). Its creature AI and traps follow [TR1X/TRX](https://github.com/LostArtefacts/TRX)
+(GPL-3). The [SlaveDriver engine](https://github.com/Lobotomy-Software/SlaveDriver-Engine)
+was studied for ideas; none of its code is used. Tomb Raider's game data is © Core Design /
+Eidos, and comes from your own disc.
