@@ -30,7 +30,7 @@ def main():
         for way, r in d.items():
             ways.setdefault(way, []).append((level, r))
     print(f'{band} views, mean over the levels weighted by views; ms are Mednafen cycles of room work (faces + projection), VDP1 modelled')
-    print(f'{"way":14}{"views":>7}{"rooms":>7}{"verts":>7}{"kept":>6}{"CPU ms":>8}{"VDP1 ms":>8}{"walk ms":>8}{"net CPU":>8}{"lost px":>8}{"views lost>0":>13}{"lost>=64":>9}{"worst":>7}')
+    print(f'{"way":14}{"views":>7}{"rooms":>7}{"verts":>7}{"kept":>6}{"CPU ms":>8}{"VDP1 ms":>8}{"walk ms":>8}{"net CPU":>8}{"lost px":>8}{"views lost>0":>13}{"lost>=64":>9}{"worst":>7}{"lit lost":>9}')
     base = None
     for way in ways:
         t = defaultdict(float)
@@ -41,6 +41,7 @@ def main():
             for k in ('rooms', 'verts', 'kept', 'cycles', 'vdp1', 'test', 'lost'):
                 t[k] += r[k] * r['views']
             t['lostviews'] += r['lostviews']
+            t['lit'] += r.get('lit', 0) * r['views']
             t['lost64'] += r['lost64']
             worst = max(worst, r['worst'])
         if n == 0:
@@ -50,7 +51,7 @@ def main():
         if way == 'base':
             base = dict(t)
         net = (t['cycles'] + t['test'] - base['cycles'] - base['test']) * MS if base else 0
-        print(f'{way:14}{n:7.0f}{t["rooms"]:7.1f}{t["verts"]:7.0f}{t["kept"]:6.0f}{t["cycles"] * MS:8.2f}{t["vdp1"] * MS:8.2f}{t["test"] * MS:8.2f}{net:8.2f}{t["lost"]:8.1f}{t["lostviews"]:13.0f}{t["lost64"]:9.0f}{worst:7.0f}')
+        print(f'{way:14}{n:7.0f}{t["rooms"]:7.1f}{t["verts"]:7.0f}{t["kept"]:6.0f}{t["cycles"] * MS:8.2f}{t["vdp1"] * MS:8.2f}{t["test"] * MS:8.2f}{net:8.2f}{t["lost"]:8.1f}{t["lostviews"]:13.0f}{t["lost64"]:9.0f}{worst:7.0f}{t["lit"] / n:9.1f}')
     if hot:
         print('hot data, bytes:', ' '.join(f"{k.split('.')[0]} {v['bytes']:.0f}" for k, v in sorted(hot.items())))
     if extra:

@@ -7,6 +7,8 @@
 //   pvs    the rooms seen from a camera's cell over training views, baked; held-out views test it
 //   tiny   a portal showing fewer than so many pixels of window isn't entered, its window filled
 //   hot    pvs for only the camera cells and headings whose views are heavy, trained hard
+//   far    the draw distance moved in: portals and faces past it gone; pixels lost, and how
+//          many of them weren't near black already (shade + fog, 0 lit .. 31 dark)
 //   near   rooms taken nearest first: a room's window or a face wholly behind the mask is
 //          skipped, each big opaque face made goes in it: nothing baked, the faces themselves
 // A test that leaves out a room the oracle saw shows as lost pixels. Costs are Mednafen's cycles
@@ -30,6 +32,8 @@
 #define H 224
 #define NEAR 64.0f
 #define VIEW_MAX 20480.0f
+#define FOG_MIN 12288.0f
+#define DARK_SHADE 26       // past it, near black: gouraud adds 16 - shade to 5-bit texels
 #define MAXROOMS 256
 #define CELLW 44
 #define CELLH 28
@@ -37,6 +41,7 @@
 #define ZW (W / 2)
 #define ZH (H / 2)
 
+static float gFar = VIEW_MAX;
 static float F = 256.0f;      // the game's: x 256 / z
 
 typedef struct { float x, y, z; } V3;
@@ -46,6 +51,7 @@ typedef struct { int a, b, c, d, transp; } Quad;
 typedef struct {
     int x, z, ytop, ybot, xs, zs, alt, nv, nq, nt, np, ns, nocc, nstatic;
     V3* v;
+    uint8_t* shade;
     Quad* q;
     int (*t)[3];
     Portal* p;
@@ -75,13 +81,15 @@ static void loadLevel(const char* path)
         Room* r = &rooms[i];
         fread(&r->x, 4, 14, f);
         r->v = malloc(sizeof(V3) * (r->nv + 1));
+        r->shade = malloc(r->nv + 1);
         r->vv = malloc(sizeof(V3) * (r->nv + 1));
         r->sx = malloc(4 * (r->nv + 1));
         r->sy = malloc(4 * (r->nv + 1));
         for (int k = 0; k < r->nv; k++) {
-            int c[3];
-            fread(c, 4, 3, f);
+            int c[4];
+            fread(c, 4, 4, f);
             r->v[k] = (V3){ c[0], c[1], c[2] };
+            r->shade[k] = c[3];
         }
         r->q = malloc(sizeof(Quad) * (r->nq + 1));
         fread(r->q, sizeof(Quad), r->nq, f);
@@ -346,7 +354,7 @@ static int checkRect(Walk* w, int room, const Portal* p, Rect* out)
         V3 v = toView(p->c[i]);
         pv[i] = v;
         if (v.z <= 0) { near++; continue; }
-        if (v.z > VIEW_MAX) far++;
+        if (v.z > gFar) far++;
         if (v.z < zmin) zmin = v.z;
         float sx, sy;
         if (v.z < 16) {
@@ -590,7 +598,7 @@ static inline int faceCulled(const Room* r, const int* idx, int n, Rect w)
         if (y >= w.y0) t = 0;
         if (y <= w.y1) b = 0;
         if (z >= NEAR) nz = 0;
-        if (z <= VIEW_MAX) fz = 0;
+        if (z <= gFar) fz = 0;
     }
     return l || rr || t || b || nz || fz;
 }
@@ -807,10 +815,10 @@ static int randomPlace(V3* pos)
 }
 
 // --- the tests ---------------------------------------------------------------------------
-enum { T_BASE, T_ORACLE, T_ORACLE_F, T_POLY, T_M8, T_M32, T_M32P1, T_W16, T_W32, T_W64, T_W128, T_W256, T_W512, T_W1024, T_PVS, T_PVS8, T_PVSF, T_PVSF8, T_HOT, T_NEAR64, T_NEAR256, T_NEAR1024, T_NEARR, T_COUNT };
-static const char* const kNames[T_COUNT] = { "base", "oracle", "oracle-faces", "poly", "mask8", "mask32", "mask32+1", "tiny16", "tiny32", "tiny64", "tiny128", "tiny256", "tiny512", "tiny1024", "pvs", "pvs8", "pvs-faces", "pvs8-faces", "hot", "near64", "near256", "near1024", "near-rooms" };
+enum { T_BASE, T_ORACLE, T_ORACLE_F, T_POLY, T_M8, T_M32, T_M32P1, T_W16, T_W32, T_W64, T_W128, T_W256, T_W512, T_W1024, T_PVS, T_PVS8, T_PVSF, T_PVSF8, T_HOT, T_NEAR64, T_NEAR256, T_NEAR1024, T_NEARR, T_F18, T_F16, T_F14, T_F12, T_F10, T_F8, T_COUNT };
+static const char* const kNames[T_COUNT] = { "base", "oracle", "oracle-faces", "poly", "mask8", "mask32", "mask32+1", "tiny16", "tiny32", "tiny64", "tiny128", "tiny256", "tiny512", "tiny1024", "pvs", "pvs8", "pvs-faces", "pvs8-faces", "hot", "near64", "near256", "near1024", "near-rooms", "far18", "far16", "far14", "far12", "far10", "far8" };
 
-typedef struct { double rooms, verts, statics, kept, px, cycles, vdp1, test, lost, hit, over; } Sum;
+typedef struct { double rooms, verts, statics, kept, px, cycles, vdp1, test, lost, hit, over, lit; } Sum;
 typedef struct { Sum s[T_COUNT]; double key, verts; } ViewRow;
 
 static void addRow(Sum* s, const Work* w, double test, double lost, int hit, int over)
@@ -1308,6 +1316,53 @@ static void run(const char* name, int views)
             Work wk = listWork(&gTry);
             addRow(&row->s[tests[n].t], &wk, test, lost, removed > 0, 0);
         }
+        {
+            static const struct { int t; float far; } farWays[] = {
+                { T_F18, 18432 }, { T_F16, 16384 }, { T_F14, 14336 }, { T_F12, 12288 }, { T_F10, 10240 }, { T_F8, 8192 },
+            };
+            for (unsigned n = 0; n < sizeof(farWays) / sizeof(farWays[0]); n++)
+            {
+                gFar = farWays[n].far;
+                gTry.useMask = 0; gTry.usePoly = 0; gTry.minArea = 0;
+                walkRun(&gTry, room, 0);
+                Work wk = listWork(&gTry);
+                uint8_t keep[MAXROOMS];
+                memset(keep, 0, sizeof(keep));
+                for (int i = 0; i < gTry.nlist; i++)
+                    keep[gTry.list[i]] = 1;
+                // the pixels of faces wholly past it or in rooms not entered, and those not near black
+                double lost = 0, lit = 0;
+                for (int i = 0; i < gBase.nlist; i++)
+                {
+                    int t = gBase.list[i];
+                    Room* r = &rooms[t];
+                    roomProject(r);
+                    for (int f = 0; f < r->nq + r->nt; f++)
+                    {
+                        int id = r->faceBase + f;
+                        if (!facePx[id])
+                            continue;
+                        int idx[4], cn;
+                        if (f < r->nq) { idx[0] = r->q[f].a; idx[1] = r->q[f].b; idx[2] = r->q[f].c; idx[3] = r->q[f].d; cn = 4; }
+                        else { idx[0] = r->t[f - r->nq][0]; idx[1] = r->t[f - r->nq][1]; idx[2] = r->t[f - r->nq][2]; cn = 3; }
+                        int past = 1, dark = 1;
+                        for (int c = 0; c < cn; c++) {
+                            float z = r->vv[idx[c]].z;
+                            if (z <= gFar) past = 0;
+                            int sh = r->shade[idx[c]] + (z > FOG_MIN ? (int)((z - FOG_MIN) / 256) : 0);
+                            if (sh < DARK_SHADE) dark = 0;
+                        }
+                        if (!keep[t] || past) {
+                            lost += facePx[id];
+                            if (!dark) lit += facePx[id];
+                        }
+                    }
+                }
+                addRow(&row->s[farWays[n].t], &wk, 600.0 * gTry.checks, lost, gTry.nlist < gBase.nlist, 0);
+                row->s[farWays[n].t].lit = lit;
+                gFar = VIEW_MAX;
+            }
+        }
         static const struct { int t; float area; } tiny[] = {
             { T_W16, 16 }, { T_W32, 32 }, { T_W64, 64 }, { T_W128, 128 }, { T_W256, 256 }, { T_W512, 512 }, { T_W1024, 1024 },
         };
@@ -1413,7 +1468,7 @@ static void run(const char* name, int views)
                 continue;
             Sum a;
             memset(&a, 0, sizeof(a));
-            double n = 0, lostViews = 0, lost16 = 0, worst = 0;
+            double n = 0, lostViews = 0, lost16 = 0, worst = 0, lit = 0;
             for (int v = 0; v < views; v++)
             {
                 if (band == 1 && rows[v].key < cut)
@@ -1424,15 +1479,16 @@ static void run(const char* name, int views)
                 a.rooms += s->rooms; a.verts += s->verts; a.statics += s->statics; a.kept += s->kept; a.px += s->px;
                 a.cycles += s->cycles; a.vdp1 += s->vdp1; a.test += s->test; a.lost += s->lost; a.hit += s->hit; a.over += s->over;
                 lostViews += s->lost > 0;
+                lit += s->lit;
                 lost16 += s->lost >= 64;
                 if (s->lost > worst) worst = s->lost;
                 n++;
             }
             if (n == 0)
                 continue;
-            printf("%s %s %s views %.0f rooms %.2f verts %.1f statics %.1f kept %.1f px %.0f cycles %.0f vdp1 %.0f test %.0f lost %.2f lostviews %.0f lost64 %.0f worst %.0f hit %.0f over %.0f\n",
+            printf("%s %s %s views %.0f rooms %.2f verts %.1f statics %.1f kept %.1f px %.0f cycles %.0f vdp1 %.0f test %.0f lost %.2f lostviews %.0f lost64 %.0f worst %.0f hit %.0f over %.0f lit %.2f\n",
                    name, kBands[band], kNames[t], n, a.rooms / n, a.verts / n, a.statics / n, a.kept / n, a.px / n,
-                   a.cycles / n, a.vdp1 / n, a.test / n, a.lost / n, lostViews, lost16, worst, a.hit, a.over);
+                   a.cycles / n, a.vdp1 / n, a.test / n, a.lost / n, lostViews, lost16, worst, a.hit, a.over, lit / n);
         }
     }
     if (pvsCell)

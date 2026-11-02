@@ -10,6 +10,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT + '/tools')
 import trsat  # noqa: E402
+from pack_level import shade_from_color16  # noqa: E402
 
 MIN_AREA = 512 * 512    # smaller rectangles hide nothing worth a test
 MAX_OCCLUDERS = 32      # a room's, kept
@@ -116,8 +117,8 @@ def main():
         b += struct.pack('<14i', r.x, r.z, r.y_top, r.y_bottom, r.x_sectors, r.z_sectors, int(i in alternates),
                          len(world), len(r.quads), len(r.triangles), len(r.portals), len(r.sectors), len(occ),
                          len(r.static_meshes))
-        for v in world:
-            b += struct.pack('<3i', *v)
+        for v, raw in zip(world, r.vertices):
+            b += struct.pack('<4i', *v, shade_from_color16(raw[3]))
         for q in r.quads:
             b += struct.pack('<5i', q[0], q[1], q[2], q[3], int(bool(q[5])))
         for t in r.triangles:
