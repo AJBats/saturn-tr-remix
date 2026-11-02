@@ -614,7 +614,7 @@ struct Pickup : Object
         angle.y = lara->angle.y;
         angle.z = 0;
 
-        if (lara->waterState == WATER_STATE_ABOVE || lara->waterState == WATER_STATE_WADE)
+        if (lara->waterState == WATER_STATE_ABOVE)
         {
             angle.x = 0;
 

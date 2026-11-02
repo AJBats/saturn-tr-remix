@@ -751,25 +751,8 @@ vec3i ItemObj::getRelative(const vec3i &point) const
 int32 ItemObj::getWaterLevel() const
 {
     const Sector* sector = room->getWaterSector(pos.x, pos.z);
-    if (sector) {
-        if (sector->roomAbove == NO_ROOM) {
-            return sector->getCeiling(pos.x, pos.y, pos.z);
-        } else {
-            return sector->ceiling << 8;
-        }
-    }
 
-    return WALL;
-}
-
-int32 ItemObj::getWaterDepth() const
-{
-    const Sector* sector = room->getWaterSector(pos.x, pos.z);
-
-    if (sector)
-        return sector->getFloor(pos.x, pos.y, pos.z) - (sector->ceiling * 256);
-
-    return WALL;
+    return sector ? (sector->ceiling << 8) : WALL;
 }
 
 int32 ItemObj::getBridgeFloor(int32 x, int32 z) const

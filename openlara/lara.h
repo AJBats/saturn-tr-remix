@@ -72,7 +72,6 @@
     E( STATE_UNUSED_1     ) \
     E( STATE_UNUSED_2     ) \
     E( STATE_UNUSED_3     ) \
-    E( STATE_WADE         ) \
     E( STATE_ROLL_UW      ) \
     E( STATE_PICKUP_FLARE ) \
     E( STATE_ROLL_AIR     ) \
@@ -115,9 +114,6 @@
 #define LARA_SURF_ACCEL         8
 #define LARA_SURF_SPEED_MAX     60
 #define LARA_DIVE_SPEED         80
-#define LARA_WADE_MIN_DEPTH     384
-#define LARA_WADE_MAX_DEPTH     730
-#define LARA_SWIM_MIN_DEPTH     512
 
 enum {
     JOINT_MASK_HIPS       = 1 << JOINT_HIPS,
@@ -316,14 +312,7 @@ struct Lara : ItemObj
 
         ANIM_CLIMB_START        = 164,
 
-        ANIM_WADE_SWIM          = 176,
-        ANIM_WADE               = 177,
-        ANIM_WADE_RUN_LEFT      = 178,
-        ANIM_WADE_RUN_RIGHT     = 179,
-        ANIM_WADE_STAND         = 186,
-        ANIM_WADE_ASCEND        = 190,
         ANIM_SURF_OUT           = 191,
-        ANIM_SWIM_STAND         = 192,
         ANIM_SURF_STAND         = 193,
 
         ANIM_SWITCH_BIG_DOWN    = 195,
@@ -500,7 +489,7 @@ struct Lara : ItemObj
         cinfo.stopOnSlant = true;
         cinfo.gapCeiling  = 0;
 
-        if ((angleDelta == ANGLE_180) && ((input & IN_WALK) || (waterState == WATER_STATE_WADE))) {
+        if ((angleDelta == ANGLE_180) && (input & IN_WALK)) {
             cinfo.gapPos = LARA_STEP_HEIGHT;
             cinfo.stopOnLava = true;
         }
@@ -749,7 +738,7 @@ struct Lara : ItemObj
 
         turnSpeed += LARA_TURN_ACCEL;
 
-        if ((turnSpeed > LARA_TURN_SLOW || extraL->weaponState == WEAPON_STATE_READY) && (waterState != WATER_STATE_WADE) && !(input & IN_WALK))
+        if ((turnSpeed > LARA_TURN_SLOW || extraL->weaponState == WEAPON_STATE_READY) && !(input & IN_WALK))
         {
             goalState = STATE_TURN_FAST;
         }
@@ -774,7 +763,7 @@ struct Lara : ItemObj
 
         turnSpeed -= LARA_TURN_ACCEL;
 
-        if ((turnSpeed < -LARA_TURN_SLOW || extraL->weaponState == WEAPON_STATE_READY) && (waterState != WATER_STATE_WADE) && !(input & IN_WALK))
+        if ((turnSpeed < -LARA_TURN_SLOW || extraL->weaponState == WEAPON_STATE_READY) && !(input & IN_WALK))
         {
             goalState = STATE_TURN_FAST;
         }
@@ -1318,7 +1307,6 @@ struct Lara : ItemObj
     S_HANDLER( STATE_UNUSED_1     ) {}
     S_HANDLER( STATE_UNUSED_2     ) {}
     S_HANDLER( STATE_UNUSED_3     ) {}
-    S_HANDLER( STATE_WADE         ) {}
     S_HANDLER( STATE_ROLL_UW      ) {}
     S_HANDLER( STATE_PICKUP_FLARE ) {}
     S_HANDLER( STATE_ROLL_AIR     ) {}
@@ -1412,24 +1400,6 @@ struct Lara : ItemObj
             angle.x += ANGLE(2);
         }
 
-        int32 waterDepth = getWaterDepth();
-
-        if (waterDepth == WALL) {
-            vSpeed = 0;
-            pos = cinfo.pos;
-        } else if (waterDepth <= 512) {
-            waterState = WATER_STATE_WADE;
-
-            animSet(ANIM_SWIM_STAND, true);
-            goalState = STATE_STOP;
-
-            angle.x = 0;
-            angle.z = 0;
-            hSpeed = 0;
-            vSpeed = 0;
-            flags &= ~ITEM_FLAG_GRAVITY;
-        }
-
         return false;
     }
 
@@ -1449,9 +1419,6 @@ struct Lara : ItemObj
 
     bool c_checkSlide()
     {
-        if (waterState == WATER_STATE_WADE)
-            return false;
-
         if (cinfo.m.slantType != SLANT_HIGH)
             return false;
 
@@ -1488,9 +1455,6 @@ struct Lara : ItemObj
 
     bool c_checkFall(int32 height, int32 fallAnimIndex = ANIM_FALL_FORTH)
     {
-        if (waterState == WATER_STATE_WADE)
-            return false;
-
         if (cinfo.m.floor <= height)
             return false;
 
@@ -1614,7 +1578,7 @@ struct Lara : ItemObj
             extraL->vSpeedHack = int32(phd_sqrt(-2 * GRAVITY * (cinfo.f.floor + 800)) + 3);
             animProcess();
         /*} TODO climb 
-          else if ((waterState != WATER_STATE_WADE) && (cinfo.f.floor <= -1920) && (cinfo.l.floor <= -1920) && (cinfo.r.floor <= -1920) && (cinfo.m.ceiling <= -1158)) {
+          else if ((cinfo.f.floor <= -1920) && (cinfo.l.floor <= -1920) && (cinfo.r.floor <= -1920) && (cinfo.m.ceiling <= -1158)) {
             animSet(ANIM_STAND, true);
             goalState = STATE_JUMP_UP;
             vSpeedHack = 116;
@@ -1759,7 +1723,7 @@ struct Lara : ItemObj
 
     void c_step()
     {
-        cinfo.gapPos      = (waterState == WATER_STATE_WADE) ? -WALL : 128;
+        cinfo.gapPos      = 128;
         cinfo.gapNeg      = -128;
         cinfo.gapCeiling  = 0;
         cinfo.stopOnSlant = true;
@@ -2087,39 +2051,6 @@ struct Lara : ItemObj
             s_dive();
             return;
         }
-
-        /* TODO
-        if (level->version & TR::VER_TR1) {
-            return;
-        }
-
-        if ((cinfo.type == CT_FRONT) || (cinfo.m.slantType == TR::SLANT_HIGH) || (cinfo.m.floor >= 0)) {
-            return;
-        }
-
-        if (cinfo.m.floor >= -128) {
-            if (targetState == STATE_SURF_LEFT) {
-                targetState = STATE_STEP_LEFT;
-            } else if (targetState == STATE_SURF_RIGHT) {
-                targetState = STATE_STEP_RIGHT;
-            } else {
-                setAnimV2(ANIM_WADE, true);
-            }
-        } else {
-            setAnimV2(ANIM_WADE_ASCEND, true);
-            targetState = STATE_STOP;
-        }
-
-        v2pos.y += cinfo.f.floor + LARA_HEIGHT - 5;
-        updateRoomV2(-LARA_HEIGHT / 2);
-
-        gravity = false;
-        v2rot.x = 0;
-        v2rot.z = 0;
-        hSpeed  = 0;
-        vSpeed  = 0;
-        waterState = WATER_STATE_WADE;
-        */
     }
 
     C_HANDLER( STATE_WALK )
@@ -2408,7 +2339,7 @@ struct Lara : ItemObj
 
         c_angle(ANGLE_180);
 
-        cinfo.gapPos      = (waterState == WATER_STATE_WADE) ? -WALL : LARA_STEP_HEIGHT;
+        cinfo.gapPos      = LARA_STEP_HEIGHT;
         cinfo.gapNeg      = -LARA_STEP_HEIGHT;
         cinfo.gapCeiling  = 0;
         cinfo.stopOnSlant = true;
@@ -2684,7 +2615,6 @@ struct Lara : ItemObj
     C_HANDLER( STATE_UNUSED_1     ) {}
     C_HANDLER( STATE_UNUSED_2     ) {}
     C_HANDLER( STATE_UNUSED_3     ) {}
-    C_HANDLER( STATE_WADE         ) {}
     C_HANDLER( STATE_ROLL_UW      ) {}
     C_HANDLER( STATE_PICKUP_FLARE ) {}
     C_HANDLER( STATE_ROLL_AIR     ) {}
@@ -2917,143 +2847,87 @@ struct Lara : ItemObj
         H.y = T.y = angleDec(H.y, abs(H.y) >> 3);
     }
 
+    // out of the water into the air, falling
+    void leaveWater()
+    {
+        waterState = WATER_STATE_ABOVE;
+        setWeaponState(WEAPON_STATE_FREE);
+        animSet(ANIM_FALL_FORTH, true);
+        hSpeed = vSpeed / 4;
+        vSpeed = 0;
+        flags |= ITEM_FLAG_GRAVITY;
+        angle.x = angle.z = 0;
+        extraL->head.angle = extraL->torso.angle = _vec3s(0, 0, 0);
+    }
+
+    // retail's LaraControl (06020144): the room alone says whether she is in water
     void updateWaterState()
     {
-        int32 waterLevel = getWaterLevel();
-        int32 waterDist  = WALL;
+        bool roomWater = ROOM_FLAG_WATER(room->info->flags);
 
-        if (waterLevel != WALL) {
-            waterDist = pos.y - waterLevel;
-        }
-
-    // change water state
         switch (waterState)
         {
             case WATER_STATE_ABOVE:
             {
-                if (waterDist == WALL || waterDist < LARA_WADE_MIN_DEPTH) {
+                if (!roomWater)
                     break;
+
+                waterState = WATER_STATE_UNDER;
+                flags &= ~ITEM_FLAG_GRAVITY;
+                oxygen = LARA_MAX_OXYGEN;
+
+                pos.y += 100;
+                updateRoom(0);
+                stopScreaming();
+
+                if (state == STATE_SWAN_DIVE) {
+                    angle.x = ANGLE(-45);
+                    goalState = STATE_UW_DIVE;
+                    animProcess();
+                    vSpeed *= 2;
+                } else if (state == STATE_FAST_DIVE) {
+                    angle.x = ANGLE(-85);
+                    goalState = STATE_UW_DIVE;
+                    animProcess();
+                    vSpeed *= 2;
+                } else {
+                    angle.x = ANGLE(-45);
+                    animSet(ANIM_WATER_FALL, true);
+                    state = STATE_UW_DIVE; // TODO check necessary
+                    goalState = STATE_UW_SWIM;
+                    vSpeed = vSpeed * 3 / 2;
                 }
 
-                int32 waterDepth = getWaterDepth();
-                if (waterDepth > LARA_WADE_MAX_DEPTH - 256)
-                {
-                    if (!ROOM_FLAG_WATER(room->info->flags)) // go dive
-                        break;
-
-                    waterState = WATER_STATE_UNDER;
-                    flags &= ~ITEM_FLAG_GRAVITY;
-                    oxygen = LARA_MAX_OXYGEN;
-
-                    pos.y += 100;
-                    updateRoom(0);
-                    stopScreaming();
-
-                    if (state == STATE_SWAN_DIVE) {
-                        angle.x = ANGLE(-45);
-                        goalState = STATE_UW_DIVE;
-                        animProcess();
-                        vSpeed *= 2;
-                        //game->waterDrop(pos, 128.0f, 0.2f);
-                    } else if (state == STATE_FAST_DIVE) {
-                        angle.x = ANGLE(-85);
-                        goalState = STATE_UW_DIVE;
-                        animProcess();
-                        vSpeed *= 2;
-                        //game->waterDrop(pos, 128.0f, 0.2f);
-                    } else {
-                        angle.x = ANGLE(-45);
-                        animSet(ANIM_WATER_FALL, true);
-                        state = STATE_UW_DIVE; // TODO check necessary
-                        goalState = STATE_UW_SWIM;
-                        vSpeed = vSpeed * 3 / 2;
-                        //game->waterDrop(pos, 256.0f, 0.2f);
-                    }
-
-                    fxSplash();
-                } else if (waterDist > LARA_WADE_MIN_DEPTH) {
-                    waterState = WATER_STATE_WADE;
-                    if (!(flags & ITEM_FLAG_GRAVITY)) {
-                        goalState = STATE_STOP;
-                    }
-                }
+                extraL->head.angle = extraL->torso.angle = _vec3s(0, 0, 0);
+                fxSplash();
                 break;
             }
 
             case WATER_STATE_SURFACE:
             {
-                if (ROOM_FLAG_WATER(room->info->flags))
-                    break;
-
-                if (waterDist > LARA_WADE_MIN_DEPTH) {
-                    waterState = WATER_STATE_WADE;
-                    animSet(ANIM_STAND_NORMAL, true);
-                    goalState = STATE_WADE;
-                    animProcess();
-                } else {
-                    waterState = WATER_STATE_ABOVE;
-                    animSet(ANIM_FALL_FORTH, true);
-                    hSpeed = vSpeed / 4;
-                    flags |= ITEM_FLAG_GRAVITY;
+                if (!roomWater) {
+                    leaveWater();
                 }
-
-                vSpeed = 0;
-                angle.x = angle.z = 0;
                 break;
             }
 
             case WATER_STATE_UNDER:
             {
-                if (ROOM_FLAG_WATER(room->info->flags) || extraL->dozy)
+                if (roomWater || extraL->dozy)
                     break;
 
-                if ((getWaterDepth() != WALL) && abs(waterDist) < 256) {
+                int32 waterLevel = getWaterLevel();
+                if ((waterLevel != WALL) && abs(waterLevel - pos.y) < 256) {
                     waterState = WATER_STATE_SURFACE;
-                    pos.y -= (waterDist - 1);
+                    pos.y = waterLevel + 1;
                     animSet(ANIM_SURF, true);
                     vSpeed = 0;
                     extraL->swimTimer = LARA_SWIM_TIMER + 1; // block dive before we press jump button again
-                    updateRoom(-LARA_HEIGHT / 2);
-                    //game->playSound(TR::SND_BREATH, pos, Sound::PAN | Sound::UNIQUE);
-                } else {
-                    waterState = WATER_STATE_ABOVE;
-                    animSet(ANIM_FALL_FORTH, true);
-                    hSpeed = vSpeed / 4;
-                    vSpeed = 0;
-                    flags |= ITEM_FLAG_GRAVITY;
-                }
-
-                angle.x = angle.z = 0;
-                break;
-            }
-
-            case WATER_STATE_WADE:
-            {
-                if (waterDist < LARA_WADE_MIN_DEPTH)
-                {
-                    waterState = WATER_STATE_ABOVE;
-                    if (state == STATE_WADE) {
-                        goalState = STATE_RUN;
-                    }
-                } else if (waterDist > LARA_WADE_MAX_DEPTH) {
-                    waterState = WATER_STATE_SURFACE;
-                    pos.y -= (waterDist - 1);
-
-                    if (state == STATE_BACK) {
-                        animSet(ANIM_SURF_BACK, true);
-                    } else if (state == STATE_STEP_RIGHT) {
-                        animSet(ANIM_SURF_RIGHT, true);
-                    } else if (state == STATE_STEP_LEFT) {
-                        animSet(ANIM_SURF_LEFT, true);
-                    } else {
-                        animSet(ANIM_SURF_SWIM, true);
-                    }
-
-                    extraL->swimTimer = 0;
-                    vSpeed = 0;
-                    flags &= ~ITEM_FLAG_GRAVITY;
                     angle.x = angle.z = 0;
-                    updateRoom(0);
+                    extraL->head.angle = extraL->torso.angle = _vec3s(0, 0, 0);
+                    updateRoom(-LARA_HEIGHT / 2);
+                } else {
+                    leaveWater();
                 }
                 break;
             }
@@ -3643,7 +3517,7 @@ struct Lara : ItemObj
     void weaponUpdateState()
     {
         bool change = false;
-        if (waterState == WATER_STATE_ABOVE || waterState == WATER_STATE_WADE)
+        if (waterState == WATER_STATE_ABOVE)
         {
             if (extraL->weapon != extraL->goalWeapon)
             {
@@ -3962,7 +3836,6 @@ struct Lara : ItemObj
         switch (waterState)
         {
             case WATER_STATE_ABOVE   :
-            case WATER_STATE_WADE    : updateAbove(); break;
             case WATER_STATE_SURFACE : updateSurface(); break;
             case WATER_STATE_UNDER   : updateUnder(); break;
         }

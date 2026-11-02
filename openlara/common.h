@@ -1791,7 +1791,6 @@ struct ItemObj
     vec3i getRelative(const vec3i &point) const;
 
     int32 getWaterLevel() const;
-    int32 getWaterDepth() const;
     int32 getBridgeFloor(int32 x, int32 z) const;
     int32 getTrapDoorFloor(int32 x, int32 z) const;
     int32 getDrawBridgeFloor(int32 x, int32 z) const;
@@ -1936,8 +1935,7 @@ enum SlantType
 enum WaterState
 {
     WATER_STATE_ABOVE,
-    WATER_STATE_WADE,
-    WATER_STATE_SURFACE,
+    WATER_STATE_SURFACE = 2, // saved games hold these numbers
     WATER_STATE_UNDER
 };
 
