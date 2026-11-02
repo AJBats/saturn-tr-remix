@@ -35,7 +35,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 |---|---|
 | 1-7 | Progression blockers |
 | 8-28 | Camera |
-| 29-51 | Lara: movement, collision, water, controls |
+| 29-51, 248-249 | Lara: movement, collision, water, controls |
 | 52-73 | Weapons and combat |
 | 74-112 | Creatures and AI |
 | 113-139 | Level logic, traps and objects |
@@ -918,6 +918,30 @@ small · Audit: MATH-7*
   LIMIT_MIDAS. Pickups are unaffected, because their item takes Lara's heading
   first.
 - **Fix:** cast the difference to int16 before `abs`.
+
+### 248. Cistern: the first pool's tunnel blocks Lara, who keeps splashing "out" while underwater (reported in play)
+*Severity: gameplay · Confidence: confirmed in play, cause unknown · Fix: not
+known yet*
+
+- **Seen:** on the Saturn (2026-11-01, main 33102ae): swimming into the tunnel
+  in the Cistern's first pool, Lara is stopped, and she keeps playing the
+  splash of leaving the water though she is still underwater.
+- **Not known yet:**
+  - The spot's room and coordinates.
+  - Whether builds before 33102ae do it too. That commit moved the game's update
+    to the slave.
+  - What retail does there.
+
+### 249. Cistern: an invisible wall at a corner of the first pool's rim (reported in play)
+*Severity: gameplay · Confidence: confirmed in play, cause unknown · Fix: not
+known yet*
+
+- **Seen:** on the Saturn (2026-11-01, main 33102ae): running around the rim of
+  the pool and cutting the corner, Lara appears to run into an invisible wall.
+- **Not known yet:**
+  - The corner's room and coordinates.
+  - Whether builds before 33102ae do it too.
+  - What retail does there.
 
 ---
 
