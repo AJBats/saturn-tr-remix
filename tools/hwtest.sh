@@ -28,6 +28,8 @@
 #               together (issue 255)
 #   cistern-steps LEVEL7A, room 90, above the pool: the master over on its meshes
 #               however many rooms are hidden
+#   cistern-stamp LEVEL7A, room 103: 25 fps at Far 20, 30 at Far 16 or with the
+#               rooms that can't be seen hidden by hand
 #
 # OBJECT_ART=1 in the environment reworks the meshes' textures too
 # (tools/pack_level.py), in every level.
@@ -53,7 +55,8 @@ case "${1:-ledge}" in
     cistern-platform) level=LEVEL7A id=LVL_TR1_7A start=102@34112:-3328:55667 yaw=0x3962 ;;
     cistern-balcony) level=LEVEL7A id=LVL_TR1_7A start=84@40578:-5120:49157 yaw=0x139C ;;
     cistern-steps) level=LEVEL7A id=LVL_TR1_7A start=90@38752:-5632:65724 yaw=0x4B0B ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-tunnel|cistern-look|cistern-water]" >&2; exit 1 ;;
+    cistern-stamp) level=LEVEL7A id=LVL_TR1_7A start=103@47529:0:52129 yaw=0xDB9F ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-tunnel|cistern-look|cistern-water]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 
