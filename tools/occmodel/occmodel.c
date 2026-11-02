@@ -47,6 +47,8 @@
 
 static float gFar = VIEW_MAX;
 static int gBlackFaces;     // a face wholly at the fog's floor culled
+static int gFrom[MAXROOMS];         // one's: the room each was first entered from
+static float gNearest[MAXROOMS];    // ... the nearest corner of a portal it was seen by
 static double gListedRooms, gWholePast;     // the walk's rooms, and those wholly past the far plane
 static float F = 256.0f;      // the game's: x 256 / z
 
@@ -411,6 +413,12 @@ static int checkRect(Walk* w, int room, const Portal* p, Rect* out)
         return 0;
     }
     int t = p->target;
+    if (zmin < gNearest[t] || near) {
+        gNearest[t] = near ? 0 : zmin;
+    }
+    if (!w->has[t]) {
+        gFrom[t] = room;
+    }
     if (w->darkShade)
     {
         int bright = 31;
@@ -1722,9 +1730,24 @@ int main(int argc, char** argv)
         F = atof(argv[k++]);
         viewStamp++;
         gBase.useMask = 0; gBase.usePoly = 0;
+        for (int i = 0; i < MAXROOMS; i++) {
+            gNearest[i] = 1e30f;
+            gFrom[i] = -1;
+        }
         walkRun(&gBase, room, 0);
         Work w = listWork(&gBase);
         oracle(&gBase);
+        if (getenv("OCC_WINDOWS"))
+        {
+            FILE* f = fopen(getenv("OCC_WINDOWS"), "w");
+            for (int i = 0; i < gBase.nlist; i++)
+            {
+                int t = gBase.list[i];
+                Rect c = gBase.clip[t];
+                fprintf(f, "%d %d %.0f %.0f %.0f %.0f %.0f\n", t, gFrom[t], gNearest[t], c.x0, c.y0, c.x1, c.y1);
+            }
+            fclose(f);
+        }
         // each half-resolution pixel's room, for a picture (OCC_OWNERS names the file)
         if (getenv("OCC_OWNERS"))
         {
