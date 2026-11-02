@@ -3319,6 +3319,20 @@ to win (estimated) · Fix: medium*
 - A DSP outcode pass plus a face pre-pass nets about 0.8 ms.
 - Skipped vertices would take made-up clip flags, and faces would keep the
   game's order (an exact list needs it).
+- Modelled whole-room and face culling 2026-11-02 (`tools/occmodel`: 8000 random views a
+  level, the game's walk, a depth buffer as the oracle; its walk matches the game's list at
+  two real views). Views of 2000+ room vertices, Cistern then all levels, Mednafen ms of
+  room work and walk together, both CPUs (about half reaches the frame); VDP1 modelled:
+  - Perfect knowledge, rooms: -3.7, -5.1. Faces too: -5.0, -5.8, VDP1 -25%.
+  - True portal shapes: +9.7, +3.3 (-0.7, -1.2 before the walk's own cost).
+  - Baked big faces in a coarse mask: +5.9, +3.5 (-0.4 before its cost). Dead.
+  - Rooms baked by camera sector: -0.7, -1.8, 5-37 KB a level, rare misses (worst 10276 px).
+    By heading too, trained hard, the heavy places alone: -0.8 at the Cistern, 63 KB or more.
+    A room hidden from one camera isn't hidden half a sector along.
+  - Nearest room first, the frame's own big faces as the mask: +1.0, +0.6, VDP1 -8%, nothing
+    lost, needs rooms' order reversed.
+  - A window under 128 px not entered, filled: -0.87, -0.61, mean 10 and 3 px lost, worst 268.
+    Under 256: -1.62, -1.07, mean 112 and 26 px, worst 836. Free, no data. Not tried in game.
 
 ### 223. Mesh back faces are found after the transform
 *Kind: speed · Size: at most ~1.1 ms, about what the test costs; measured, not
