@@ -38,8 +38,10 @@
 
 // VDP1 frame sequencing (after libyaul's variable-interval mode): a plot is
 // started once the command list is uploaded; at the vblank-in after VDP1
-// finishes, a frame buffer change is requested; by the first line of the
-// display the change has happened and VDP1 can take the next list.
+// finishes, or as it finishes if that is inside a vertical blank, a frame
+// buffer change is requested; at the first line of the display the change
+// happens and VDP1 can take the next list. The Saturn takes the request up to
+// the vertical blank's last line (make vdp1bench).
 //
 // On hardware the vblank-out interrupt and the vblank flag come a few lines
 // before that line: a plot started then is aborted and VDP1 locks up, never
@@ -96,6 +98,13 @@ extern "C" void spriteEndEntry();
 extern "C" void dspEndEntry();
 extern "C" void lineEntry();
 
+static void changeRequest()
+{
+    VDP1_FBCR = FBCR_FCM | FBCR_FCT;
+    gVdp1State = VDP1_CHANGING;
+    traceBegin(TRACE_IRQ, TR_CHANGE);
+}
+
 extern "C" void vblankInHandler(const uint32_t* irqStack)
 {
     gVblankCount++;
@@ -120,9 +129,7 @@ extern "C" void vblankInHandler(const uint32_t* irqStack)
         // hardware): this plot's sprite-end interrupt must have come too
         if (gVdp1Drawn && (VDP1_EDSR & EDSR_CEF))
         {
-            VDP1_FBCR = FBCR_FCM | FBCR_FCT;
-            gVdp1State = VDP1_CHANGING;
-            traceBegin(TRACE_IRQ, TR_CHANGE);
+            changeRequest();
         }
         else
         {
@@ -207,6 +214,17 @@ extern "C" void spriteEndHandler()
     gStats.vdp1Ticks = (t - gPlotStart) & 0xFFFF;
     traceAt(TRACE_IRQ, t, TR_DRAWN << 8);
     gVdp1Drawn = true;
+
+    // past this vertical blank's vblank-in, in time for its change: with the
+    // interrupts off, so that the vblank-out handler sees the request or the
+    // flag is already down
+    uint32_t sr;
+    asm volatile("stc sr, %0" : "=r"(sr));
+    asm volatile("ldc %0, sr" : : "r"(sr | 0xF0));
+    if (gVdp1State == VDP1_PLOTTING && !gHolding && (VDP2_TVSTAT & TVSTAT_VBLANK)) {
+        changeRequest();
+    }
+    asm volatile("ldc %0, sr" : : "r"(sr));
 }
 
 void vdp1WaitIdle()

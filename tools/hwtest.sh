@@ -19,6 +19,8 @@
 #               tunnel to room 51 (issue 248)
 #   cistern-look LEVEL7A, room 108, on the rim, the pool's two crocodiles awake:
 #               looking about with the guns out, one aimed at (issue 250)
+#   cistern-water LEVEL7A, room 108, looking across the green water: VDP1 just
+#               over its budget, the CPUs with room (issue 247)
 #
 # OBJECT_ART=1 in the environment reworks the meshes' textures too
 # (tools/pack_level.py), in every level.
@@ -39,7 +41,8 @@ case "${1:-ledge}" in
     cistern-rim) level=LEVEL7A id=LVL_TR1_7A start=111@39375:-256:61648 yaw=0x1732 ;;
     cistern-tunnel) level=LEVEL7A id=LVL_TR1_7A start=0@43309:1183:53339 yaw=0x7A6A ;;
     cistern-look) level=LEVEL7A id=LVL_TR1_7A start=108@43468:-256:62565 yaw=0x905F trigger=0,1 ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-tunnel|cistern-look]" >&2; exit 1 ;;
+    cistern-water) level=LEVEL7A id=LVL_TR1_7A start=108@44105:-256:62852 yaw=0x91E7 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-tunnel|cistern-look|cistern-water]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 

@@ -65,7 +65,7 @@ enum TraceId
     // moments rather than spans
     TR_PLOT = 64,       // VDP1 starts on a list (arg: the plot's number)
     TR_DRAWN,           // VDP1 finished it
-    TR_CHANGE,          // frame buffer change asked for, at a vblank-in
+    TR_CHANGE,          // frame buffer change asked for, at a vblank-in or VDP1's end
     TR_SHOWN,           // the change is on screen (arg: the plot's number)
     TR_ID_COUNT
 };
