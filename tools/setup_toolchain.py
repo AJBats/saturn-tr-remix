@@ -103,6 +103,7 @@ def setup_m68k():
 
 
 def main():
+    sys.stdout.reconfigure(errors="backslashreplace")   # the paths printed may not fit the console's code page
     system = platform.system()
     host_dir = HOST_DIRS.get(system)
     machine = HOST_MACHINES.get(system)
