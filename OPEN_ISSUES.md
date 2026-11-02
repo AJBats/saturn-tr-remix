@@ -3512,7 +3512,7 @@ LEVEL1 10.8 s (old 10.2), LEVEL2 12.7 (11.8), LEVEL4 13.3 (11.8), LEVEL10B
   pixels.
 - The list now fits in two fields if the Saturn's 31.7 ms holds, as lists may
   end inside the vertical blank (issue 241, b5d651b). `tools/hwtest.sh
-  cistern-water` is this spot; Saturn check pending.
+  cistern-water` is this spot.
 
 ### 241. VDP1 idles between lists: the change waits for a vblank, then the upload
 *Closed 2026-11-02: b5d651b*
