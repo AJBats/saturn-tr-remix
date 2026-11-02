@@ -117,7 +117,7 @@ been tested only in Mednafen.
 | `nothing to unpack them with` | `pip install -r requirements.txt` in the virtual environment, then run the setup again |
 | `could not download` | A pinned download has moved. The compilers' URLs and checksums are at the top of `tools/setup_toolchain.py`; `make SH_BIN=... M68K_PREFIX=...` builds with others of your own |
 | `checkout's path is too long`, or `No such file or directory` for a C++ header | Move the checkout to a path of 130 characters or fewer |
-| `No rule to make target 'extract-ps1'`, or `Nothing to be done` in a fresh checkout | The folder's name has characters outside your Windows code page: move it, or use MSYS2's make in MSYS2's shell |
+| `No rule to make target 'extract-ps1'`, `Nothing to be done` in a fresh checkout, or `cannot find 'ld'` | The folder's name has characters outside your Windows code page: move it |
 | `Cannot create temporary file in C:\WINDOWS\` | That's MSYS2's make in Git Bash. Use it in MSYS2's own shell, or use the make above in Git Bash |
 | `no such file` or `not a raw 2352-byte data track` | See [The discs](#the-discs). A single-file `.bin`, an `.iso`, or another name won't do |
 
