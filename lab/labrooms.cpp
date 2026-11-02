@@ -272,6 +272,7 @@ int32_t roomsSeldomCheck()
         for (int32_t i = 0; i < count; i++)
         {
             seen[i].room = (rnd() >> 16) % gRoomCount;
+            seen[i].dropped = 0;
             for (int32_t k = 0; k < 4; k++) {
                 seen[i].window[k] = int32_t(rnd());
             }

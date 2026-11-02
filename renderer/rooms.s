@@ -867,9 +867,9 @@ _roomsSeenAsm:
 ! rooms.cpp roomsQueue, placeRooms and roomBegin's caustics: each room listed
 ! with vertices (at most ROOM_JOBS), its vertices placed from MASTER_VERTICES
 ! up, as a FaceRoom (faces.h) for stages 2 and 3; the caustics' table once, if
-! a room is wet. Rooms wanting more vertices than there are: the first listed,
-! the deepest, have no job. The last listed is the camera's, and it must stay.
-! Rooms dropped (RoomSeen.dropped) have none either.
+! a room is wet. Rooms dropped (RoomSeen.dropped) have none; rooms wanting more
+! vertices than there are, those showing least are dropped first (rooms.cpp
+! roomsMakeWay).
 !
 ! void roomsJobsAsm(RoomsContext* ctx)
 
@@ -945,9 +945,20 @@ _roomsJobsAsm:
     add     #SEEN, r2
     mov.l   @(R_VERTICES_TOP,gbr), r0
     sub     r0, r4
-    mov.l   r4, @-r15
+    cmp/pl  r4
+    bf      .LwantedFit
+    mov     r4, r5
+    stc     gbr, r4
+    sts.l   pr, @-r15
+    mov.l   .LmakeWay, r0
+    jsr     @r0
+    nop
+    lds.l   @r15+, pr
+.LwantedFit:
     bra     .Ljob
     mov     #0, r14                 ! any wet
+    .align  2
+.LmakeWay:  .long   _roomsMakeWay
 .Lnojob:
     dt      r9
     bf/s    .Ljob
@@ -977,13 +988,6 @@ _roomsJobsAsm:
     add     #15, r4
     mov     #-16, r0
     and     r0, r4                  ! its vertices' size
-    mov.l   @r15, r0
-    cmp/pl  r0
-    bf      .Lfits
-    sub     r4, r0
-    bra     .Lnojob                 ! makes way for the nearer rooms
-    mov.l   r0, @r15
-.Lfits:
     ! its geometry, its vertices' place
     mov     r6, r3
     shll2   r3
@@ -1092,7 +1096,6 @@ _roomsJobsAsm:
     mov.l   r0, @(R_JOB_COUNT,gbr)
 
 .Ljobsend:
-    add     #4, r15
     ! the caustics: each vertex's shade offset, the wave at its start plus
     ! the frame's phase
     tst     r14, r14

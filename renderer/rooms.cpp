@@ -401,6 +401,47 @@ extern "C" int32_t roomsItemSeen(const ItemRecord* item, const int16_t* frameA, 
     return 0;
 }
 
+extern "C" void roomsMakeWay(RoomsContext* ctx, int32_t over)
+{
+    RoomSeen* seen = ctx->seen;
+    while (over > 0)
+    {
+        RoomSeen* least = nullptr;
+        int32_t leastArea = 0;
+        for (int32_t i = 0; i < ctx->listed; i++)
+        {
+            RoomSeen &s = seen[i];
+            if (s.dropped || s.room == ctx->cameraRoom || !ctx->level[s.room].vertices)
+                continue;
+            int32_t area = (s.window[2] - s.window[0]) * (s.window[3] - s.window[1]);
+            if (!least || area < leastArea)
+            {
+                least = &s;
+                leastArea = area;
+            }
+        }
+        if (!least)
+            return;
+        uint32_t room = least->room;
+        if (ctx->voids < ROOM_FILLS)
+        {
+            for (int32_t k = 0; k < 4; k++) {
+                ctx->fills[ctx->voids][k] = least->window[k];
+            }
+        }
+        ctx->voids++;
+        int32_t size = (ctx->level[room].vertices + 15) & ~15;
+        for (int32_t i = 0; i < ctx->listed; i++)
+        {
+            if (seen[i].room == room && !seen[i].dropped)
+            {
+                seen[i].dropped = 1;
+                over -= size;
+            }
+        }
+    }
+}
+
 void roomsHideWith(RoomsHide hide)
 {
     gHide = hide;

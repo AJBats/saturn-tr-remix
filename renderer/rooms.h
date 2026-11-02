@@ -65,6 +65,10 @@ struct RoomsContext
 extern "C" void roomsSeenAsm(RoomsContext* ctx);
 extern "C" void roomsJobsAsm(RoomsContext* ctx);
 
+// The rooms want over more vertices than there are: those showing least, by
+// their windows' size, dropped until they fit (roomsJobsAsm's); never the camera's.
+extern "C" void roomsMakeWay(RoomsContext* ctx, int32_t over);
+
 // The level's rooms as the walk reads them (RoomLevel each, their portals in
 // the game's layout), their geometry (RoomGeometry: offsets in rgeo), the
 // caustics' wave (the caller moves its phase each frame), the vertices the

@@ -288,8 +288,9 @@ void queueRoom(uint32_t index)
 
 // rooms.cpp roomsQueue's job for each room queued with vertices (draw.h's
 // camera room's water; at most MAX_ROOM_JOBS), placeRooms' place for its
-// vertices from gBottom up (rooms.s: the first listed go when they won't all
-// fit), roomBegin's caustics: as the stages after take them.
+// vertices from gBottom up (rooms.cpp roomsMakeWay: those showing least go when
+// they won't all fit, never the camera's), roomBegin's caustics: as the stages
+// after take them.
 static int32_t roomJobs(const RoomSeen* seen, int32_t count, uint32_t cameraRoom, FaceRoom* jobs)
 {
     bool cameraWater = gLevel[cameraRoom].flags & ROOM_FLAG_WATER;
@@ -299,19 +300,42 @@ static int32_t roomJobs(const RoomSeen* seen, int32_t count, uint32_t cameraRoom
     for (int32_t i = 0; i < count; i++) {
         over += (gLevel[seen[i].room].vertices + 15) & ~15;
     }
+    static bool gone[128];      // rooms.h ROOMS_LISTED
+    memset(gone, 0, sizeof(gone));
+    while (over > 0)
+    {
+        int32_t least = -1, leastArea = 0;
+        for (int32_t i = 0; i < count; i++)
+        {
+            if (gone[i] || seen[i].room == cameraRoom || !gLevel[seen[i].room].vertices)
+                continue;
+            int32_t area = (seen[i].window[2] - seen[i].window[0]) * (seen[i].window[3] - seen[i].window[1]);
+            if (least < 0 || area < leastArea)
+            {
+                least = i;
+                leastArea = area;
+            }
+        }
+        if (least < 0)
+            break;
+        uint32_t room = seen[least].room;
+        for (int32_t i = 0; i < count; i++)
+        {
+            if (seen[i].room == room && !gone[i])
+            {
+                gone[i] = true;
+                over -= (gLevel[room].vertices + 15) & ~15;
+            }
+        }
+    }
     for (int32_t i = 0; i < count; i++)
     {
         uint32_t index = seen[i].room;
         const RoomLevel* info = gLevel + index;
-        if (info->vertices == 0 || queued == MAX_ROOM_JOBS)
+        if (info->vertices == 0 || gone[i] || queued == MAX_ROOM_JOBS)
             continue;
         queued++;
         int32_t size = (info->vertices + 15) & ~15;
-        if (over > 0)
-        {
-            over -= size;
-            continue;
-        }
 
         const RoomGeometry &g = gGeometry[index];
         FaceRoom &job = jobs[placed++];
