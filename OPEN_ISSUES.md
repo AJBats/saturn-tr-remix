@@ -3560,6 +3560,55 @@ over 14.6, at most 188 · Fix: medium, parked*
 - These numbers come from before issue 254's fix: a room was missing from some of
   them, so the full views cost more than this.
 
+### 256. Lighter rats and crocodiles, as the wolf got
+*Kind: speed · Size: 4.1 ms a rat, 3.5 ms a crocodile, Mednafen · Fix: the diet, choices the user's*
+
+- The Cistern places 17 land rats (26 joints, 235 vertices), and water crocodiles
+  (21 joints, 164 vertices). Atlantis, Palace Midas, Khamoon, Colosseum and Lost
+  Valley have many-jointed animals of their own (`tools/diet.py`'s survey).
+- Master mesh work at the room 90 spot (`tools/hwtest.sh cistern-steps`, Mednafen, DRAWS +
+  DRAW_LIST + POSE + FEED a frame): 21.09 ms; rat hidden 16.95; both crocodiles
+  hidden 14.16; all three 9.64.
+- Fix: merge and hold joints with `tools/diet.py`, the user choosing the merges in
+  `tools/model_view.py`, as for the wolf. The animals stay; only their meshes change, and
+  every state pays less, awake or asleep.
+
+### 257. Creatures that paint nothing cost as much as those that do
+*Kind: speed · Size: 6.9 ms at one spot, Mednafen · Fix: open*
+
+- Room 90 spot: both crocodiles of room 0, 12,165 and 16,922 units away, paint no
+  pixel (8 paired pictures against hiding them, within 4 degrees of the user's camera).
+  Room 0 itself shows 8,380 pixels, so nothing by the room catches them.
+- They pass `roomsItemSeen` (`renderer/rooms.cpp`), which already tests a creature against
+  each chain of portals its room was seen by: nearer rooms' own walls hide them, not
+  portals.
+- Ideas: hand stamps that list items as well as rooms (`saturn/debug.cpp`), or fewer
+  joints past a distance.
+
+### 258. The draw distance: what's past where anything can be seen
+*Kind: speed · Size: see below · Fix: built, the default the user's call on the Saturn*
+
+- A room wholly past the far plane was never drawn: a portal with all four corners past it
+  isn't entered (`renderer/rooms.s` .Lcheck). What the far plane leaves is rooms with a corner
+  inside it, whose every vertex is then turned.
+- Far 16 on the Saturn, room 103 area, poses differing slightly: 25 fps to 30, VDP1 77 to 66,
+  master 118 to 101, slave 108 to 85, no change seen in the picture. In Lara's Home, bright, 16
+  pops in a little and 18 is mostly fine (the user, 2026-11-02). A cap that suits a dark
+  level doesn't suit a bright one.
+- The black test (menu row Black): a room seen by no portal with a corner nearer than where its
+  brightest vertex reaches the fog's floor is dropped, with what stands in it, its window
+  filled, the walk going on through it (`RoomLevel.black`); a face wholly at the floor is
+  filled, not drawn (`CLIP_BLACK`). Creatures in a dropped room go on being simulated.
+- It costs a compare a portal, and on a vertex at the floor two instructions. Modelled, views of
+  2000+ room vertices, Cistern then all levels: rooms -0.65, -0.82 ms; faces -1.22, -0.92 ms,
+  with fills not counted, so read low; lit pixels lost 0.
+- Measured, Mednafen, one held view each. Room 103 spot's own camera: one room and a 26-joint
+  creature gone, DRAWS 10.07 to 6.53 ms, 73 meshes to 46. Room 90 camera: 3 rooms, windows of
+  3 to 256 pixels; the frame there is still over on meshes (256, 257).
+- Open: Far 16 against the black test on the Saturn, in Lara's Home and at both spots; the stamps'
+  hall of mirrors (the user, turning back to a stamped view): hidden rooms' windows are now
+  filled too, to be looked at again.
+
 ---
 
 ## Decisions needed before fixing

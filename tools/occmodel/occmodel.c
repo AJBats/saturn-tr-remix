@@ -7,6 +7,8 @@
 //   pvs    the rooms seen from a camera's cell over training views, baked; held-out views test it
 //   tiny   a portal showing fewer than so many pixels of window isn't entered, its window filled
 //   hot    pvs for only the camera cells and headings whose views are heavy, trained hard
+//   faces31 a face all of whose vertices are at the fog's floor isn't drawn
+//   both31 that and dark31
 //   dark   each room its own draw distance: past where its brightest vertex fogs to near black
 //          it isn't drawn, its window filled; the walk goes on through it
 //   far    the draw distance moved in: portals and faces past it gone; pixels lost, and how
@@ -44,6 +46,8 @@
 #define ZH (H / 2)
 
 static float gFar = VIEW_MAX;
+static int gBlackFaces;     // a face wholly at the fog's floor culled
+static double gListedRooms, gWholePast;     // the walk's rooms, and those wholly past the far plane
 static float F = 256.0f;      // the game's: x 256 / z
 
 typedef struct { float x, y, z; } V3;
@@ -613,10 +617,11 @@ static inline int faceFacing(const Room* r, const int* idx)
 // wholly past one side of the window, behind the near plane or past the far one
 static inline int faceCulled(const Room* r, const int* idx, int n, Rect w)
 {
-    int l = 1, rr = 1, t = 1, b = 1, nz = 1, fz = 1;
+    int l = 1, rr = 1, t = 1, b = 1, nz = 1, fz = 1, bk = gBlackFaces;
     for (int i = 0; i < n; i++)
     {
         float x = r->sx[idx[i]], y = r->sy[idx[i]], z = r->vv[idx[i]].z;
+        if (bk && r->shade[idx[i]] + (z > FOG_MIN ? (int)((z - FOG_MIN) / 256) : 0) < 31) bk = 0;
         if (x >= w.x0) l = 0;
         if (x <= w.x1) rr = 0;
         if (y >= w.y0) t = 0;
@@ -624,7 +629,7 @@ static inline int faceCulled(const Room* r, const int* idx, int n, Rect w)
         if (z >= NEAR) nz = 0;
         if (z <= gFar) fz = 0;
     }
-    return l || rr || t || b || nz || fz;
+    return l || rr || t || b || nz || fz || bk;
 }
 
 static const uint8_t* gFaceSet;     // the faces drawn, if not all of them
@@ -839,8 +844,8 @@ static int randomPlace(V3* pos)
 }
 
 // --- the tests ---------------------------------------------------------------------------
-enum { T_BASE, T_ORACLE, T_ORACLE_F, T_POLY, T_M8, T_M32, T_M32P1, T_W16, T_W32, T_W64, T_W128, T_W256, T_W512, T_W1024, T_PVS, T_PVS8, T_PVSF, T_PVSF8, T_HOT, T_NEAR64, T_NEAR256, T_NEAR1024, T_NEARR, T_F18, T_F16, T_F14, T_F12, T_F10, T_F8, T_D24, T_D26, T_D28, T_D30, T_COUNT };
-static const char* const kNames[T_COUNT] = { "base", "oracle", "oracle-faces", "poly", "mask8", "mask32", "mask32+1", "tiny16", "tiny32", "tiny64", "tiny128", "tiny256", "tiny512", "tiny1024", "pvs", "pvs8", "pvs-faces", "pvs8-faces", "hot", "near64", "near256", "near1024", "near-rooms", "far18", "far16", "far14", "far12", "far10", "far8", "dark24", "dark26", "dark28", "dark30" };
+enum { T_BASE, T_ORACLE, T_ORACLE_F, T_POLY, T_M8, T_M32, T_M32P1, T_W16, T_W32, T_W64, T_W128, T_W256, T_W512, T_W1024, T_PVS, T_PVS8, T_PVSF, T_PVSF8, T_HOT, T_NEAR64, T_NEAR256, T_NEAR1024, T_NEARR, T_F18, T_F16, T_F14, T_F12, T_F10, T_F8, T_D24, T_D26, T_D28, T_D30, T_D31, T_B31, T_DB31, T_COUNT };
+static const char* const kNames[T_COUNT] = { "base", "oracle", "oracle-faces", "poly", "mask8", "mask32", "mask32+1", "tiny16", "tiny32", "tiny64", "tiny128", "tiny256", "tiny512", "tiny1024", "pvs", "pvs8", "pvs-faces", "pvs8-faces", "hot", "near64", "near256", "near1024", "near-rooms", "far18", "far16", "far14", "far12", "far10", "far8", "dark24", "dark26", "dark28", "dark30", "dark31", "faces31", "both31" };
 
 typedef struct { double rooms, verts, statics, kept, px, cycles, vdp1, test, lost, hit, over, lit; } Sum;
 typedef struct { Sum s[T_COUNT]; double key, verts; } ViewRow;
@@ -1388,7 +1393,17 @@ static void run(const char* name, int views)
             }
         }
         {
-            static const struct { int t, dark; } darkWays[] = { { T_D24, 24 }, { T_D26, 26 }, { T_D28, 28 }, { T_D30, 30 } };
+            for (int i = 0; i < gBase.nlist; i++)
+            {
+                Room* r = &rooms[gBase.list[i]];
+                roomProject(r);
+                int inside = 0;
+                for (int k = 0; k < r->nv && !inside; k++)
+                    if (r->vv[k].z <= VIEW_MAX) inside = 1;
+                gListedRooms += 1;
+                if (!inside) gWholePast += 1;
+            }
+            static const struct { int t, dark; } darkWays[] = { { T_D24, 24 }, { T_D26, 26 }, { T_D28, 28 }, { T_D30, 30 }, { T_D31, 31 }, { T_DB31, 31 } };
             for (unsigned n = 0; n < sizeof(darkWays) / sizeof(darkWays[0]); n++)
             {
                 gTry.useMask = 0; gTry.usePoly = 0; gTry.minArea = 0;
@@ -1426,12 +1441,18 @@ static void run(const char* name, int views)
                         gTry.list[kept++] = t;
                 }
                 gTry.nlist = kept;
+                gBlackFaces = darkWays[n].t == T_DB31;
                 Work wk = listWork(&gTry);
+                gBlackFaces = 0;
                 wk.cycles += 300.0 * gTry.fills;
                 wk.vdp1 += 80.0 * gTry.fills + 2.0 * gTry.fillPx;
                 addRow(&row->s[darkWays[n].t], &wk, 600.0 * gTry.checks, lost, kept < gBase.nlist, 0);
                 row->s[darkWays[n].t].lit = lit;
             }
+            gBlackFaces = 1;
+            Work wk = listWork(&gBase);
+            gBlackFaces = 0;
+            addRow(&row->s[T_B31], &wk, 600.0 * gBase.checks, 0, 0, 0);
         }
         static const struct { int t; float area; } tiny[] = {
             { T_W16, 16 }, { T_W32, 32 }, { T_W64, 64 }, { T_W128, 128 }, { T_W256, 256 }, { T_W512, 512 }, { T_W1024, 1024 },
@@ -1583,6 +1604,7 @@ static void run(const char* name, int views)
         printf("%s hotdata bins %ld distinct %ld setbytes %d bytes %ld trained %ld\n", name, n, d, setBytes, d * setBytes + n * 5, hotViews);
     }
     printf("%s occluders %d\n", name, nocc);
+    printf("%s whole listed %.0f past %.0f\n", name, gListedRooms, gWholePast);
 }
 
 // a stamp's question: poses round one camera, within its room's air
@@ -1672,6 +1694,8 @@ int main(int argc, char** argv)
         fprintf(stderr, "usage: occmodel LEVEL.bin VIEWS SEED [PVS_CELL PVS_VIEWS [HOT_GRID HOT_YAWS HOT_VERTS HOT_VIEWS]]\n");
         return 2;
     }
+    if (getenv("OCC_FOCAL"))
+        F = atof(getenv("OCC_FOCAL"));
     loadLevel(argv[1]);
     facePx = malloc(sizeof(uint16_t) * (nfaces + 1));
     if (!strcmp(argv[2], "region"))
