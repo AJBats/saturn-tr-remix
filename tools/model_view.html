@@ -320,6 +320,20 @@ function card(e0, e1, w, cam, col, t, uAlong, b, tint, off) {
   b.quad(P, [n, n, n, n], [c, c, c, c], t, false, t ? 4 : 1, null, false, o);
 }
 
+// A card that turns round its own line goes thin when that line points at the
+// camera: an upright ear, seen from above. These ends keep its whole length
+// across the view, from the end at its joint, the way it points on the screen
+// or, as it comes to point at the camera, up the screen.
+function facingEnds(c, e0, e1, cam, screenUp) {
+  const nearFirst = Math.hypot(...c.e0) < Math.hypot(...c.e1);
+  const base = nearFirst ? e0 : e1;
+  const d = sub(nearFirst ? e1 : e0, base), length = Math.hypot(...d);
+  const v = nrm(sub(cam, base));
+  const way = nrm(add(sub(d, scl(v, dot(d, v))), scl(screenUp, 0.3 * length)));
+  const tip = add(base, scl(way, length));
+  return nearFirst ? [base, tip] : [tip, base];
+}
+
 // the texels with VDP1's gouraud added
 function gameMaterial(side) {
   return new THREE.ShaderMaterial({
@@ -546,6 +560,9 @@ function buildAnimal(simplified) {
   const M = animalPose(simplified);
   const cam = camTR();
   const b = { game: new Builder(), gameCard: new Builder() };
+  camera.updateMatrixWorld();
+  const camAxes = camera.matrixWorld.elements;
+  const screenUp = [camAxes[4], -camAxes[5], -camAxes[6]];    // the game's coordinates, as camTR
   const flat = ui('cardLook').value === 'flat';
   // a card end's light: its box's corners' mean, baked as a normal CARD_LIGHT
   // long (tools/diet.py), and if asked the side the camera sees: one term for
@@ -590,7 +607,9 @@ function buildAnimal(simplified) {
     if (opt.cardsOnly && !W.cards[j]) continue;
     if (isCard(j) && !(ribbonOn && ribbonJoints.has(j))) {
       const c = W.cards[j];
-      card(apply(M[j], c.e0), apply(M[j], c.e1), c.w, cam, flat ? c.col.map(x => x / 255) : WHITE, flat ? 0 : c.t, true,
+      const placedEnds = [apply(M[j], c.e0), apply(M[j], c.e1)];
+      const [e0, e1] = c.face ? facingEnds(c, placedEnds[0], placedEnds[1], cam, screenUp) : placedEnds;
+      card(e0, e1, c.w, cam, flat ? c.col.map(x => x / 255) : WHITE, flat ? 0 : c.t, true,
            b.gameCard, true, [endLight(c.n0, M[j]), endLight(c.n1, M[j])]);
       nCards++; sent++; faces++; verts += 4;    // its ends and their copies (renderer/faces.h)
       meshOwner[keptOf(j)] = true;

@@ -412,6 +412,8 @@ def animal_json(lvl, meshes, atlas, type_, title, states, names, fuses, choices,
             else:
                 card = pin_card(diet.card_of(meshes[start + j], atlas), out["parents"], out["offsets"], j)
             out["cards"][str(j)] = card_json(card, atlas)
+            if j in flat_cards:
+                out["cards"][str(j)]["face"] = 1
     copies = {str(j): inside_copies(meshes[start + j]) for j in range(model["count"])}
     out["insideCopies"] = {j: fis for j, fis in copies.items() if fis}
     out["join"] = join_rings(meshes, start, out["parents"], out["offsets"], no_join, wide_join)
