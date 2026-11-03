@@ -421,7 +421,7 @@
 1:  bsr     .Lvoid
     nop
     bf      .Lnext\sfx
-    bra     .Ldone
+    bra     .LdoneNear
     nop
 
 .Lwithin\sfx:                   ! left out, unless C splits what's near
@@ -439,7 +439,7 @@
     bsr     .LcarefulTri
     nop
     bf      .Lnext\sfx
-    bra     .Ldone
+    bra     .LdoneNear
     nop
     .else
 .Lcut\sfx:
@@ -447,7 +447,7 @@
     bsr     .Lcareful
     nop
     bf      .Lnext\sfx
-    bra     .Ldone
+    bra     .LdoneNear
     nop
     .endif
 
@@ -458,6 +458,42 @@
     ! wound the wrong way on the frame: it is, unless the near plane holds a
     ! corner, which can turn a quad over (the original tests only those with
     ! none near); then C asks in room space
+.LfaceClose\sfx:                 ! r0 corner A's z >> 8
+    mov     r0, r6
+    mov.l   @(RUN_NEAR, gbr), r0
+    tst     r0, r0
+    bt      .LfaceOurs\sfx
+    jsr     @r0
+    nop
+    tst     r0, r0
+    bf      1f
+    bra     .Lnext\sfx          ! split
+    nop
+1:  cmp/pz  r0
+    bt      2f
+    bra     .LdoneNear          ! and the list is full
+    nop
+2:  cmp/eq  #1, r0
+    bf      3f
+    bra     .LFaceMaterial\sfx
+    nop
+3:
+    .if \tri
+    bra     .LcarefulTri\sfx
+    nop
+    .else
+    bra     .Lcareful\sfx
+    nop
+    .endif
+.LfaceOurs\sfx:
+    .ifeq \tri
+    mov     r6, r0
+    tst     #0xF8, r0
+    bt      .Lcareful\sfx       ! corner A nearer than 2048: C decides on a split
+    .endif
+    bra     .LFaceMaterial\sfx
+    nop
+
 .LfaceWound\sfx:
     mov.l   @(RUN_NEAR, gbr), r0
     tst     r0, r0
@@ -499,36 +535,7 @@
     mov.w   @(4, r1), r0
     shlr8   r0
     tst     #0xF0, r0
-    bf      .LFaceMaterial\sfx  ! corner A past the most faces.cpp splits at
-    mov     r0, r6
-    mov.l   @(RUN_NEAR, gbr), r0
-    tst     r0, r0
-    bt      .LfaceOurs\sfx
-    jsr     @r0
-    nop
-    tst     r0, r0
-    bf      1f
-    bra     .Lnext\sfx          ! split
-    nop
-1:  cmp/pz  r0
-    bt      2f
-    bra     .Ldone              ! and the list is full
-    nop
-2:  cmp/eq  #1, r0
-    bt      .LFaceMaterial\sfx
-    .if \tri
-    bra     .LcarefulTri\sfx
-    nop
-    .else
-    bra     .Lcareful\sfx
-    nop
-    .endif
-.LfaceOurs\sfx:
-    .ifeq \tri
-    mov     r6, r0
-    tst     #0xF8, r0
-    bt      .Lcareful\sfx       ! corner A nearer than 2048: C decides on a split
-    .endif
+    bt      .LfaceClose\sfx     ! corner A within the most faces.cpp splits at
 .LFaceMaterial\sfx:
     MATERIAL
     mov.w   @(8, r14), r0
@@ -714,7 +721,7 @@
     bra     .Lnext\sfx
     nop
 .Lfull\sfx:
-    bra     .Ldone
+    bra     .LdoneNear
     nop
 
 .LfarOrPlain\sfx:
@@ -1277,9 +1284,17 @@ _facesRoomAsm:
     FACES   Any, 0, 0, .LrunDone
 
     .align 2
+.LdoneNear:                     ! .Ldone in reach of all three
+    bra     .Ldone
+    nop
+    .align 2
     FACES   Tri, 1, 0, .Ldone
 
 ! --- near the camera, as the original (faces.cpp, issue 263) --------------------
+
+    ! out of the hot code's fixed order (saturn.ld), so that it doesn't move what
+    ! follows in the cache
+    .section .text.facesnear, "ax"
 
     ! A quad every corner of it within RoomRun.nearSplit, none nearer than the plane:
     ! split here. A new corner lies where the view's midpoint does, from the

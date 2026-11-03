@@ -903,6 +903,7 @@ static void roomQuadCareful(const FaceRoom &room, RoomTextures &t, RoomSplit &sp
 // and depths. This takes the rest, whose corners only room space can place.
 
 #define NEAR_PLANE      80      // phd_InitWindow's
+#define NEAR_CODE       __attribute__((section(".text.facesnear")))   // out of the hot code's order (saturn.ld)
 #define OFF_FRAME_MAX   128     // new corners are held this close to the frame
 
 // A piece's corner's clip flags: the frame's and edges' as a vertex's, and
@@ -959,7 +960,7 @@ static inline void nearHold(const FaceRoom &room, int32_t &x, int32_t &y, uint32
 }
 
 // A corner on to the frame from where it lies (06040d58).
-static void nearProject(const FaceRoom &room, const RoomSplit &split, NearPoint &p)
+NEAR_CODE static void nearProject(const FaceRoom &room, const RoomSplit &split, NearPoint &p)
 {
     int32_t z = p.z;
     uint32_t clip = 0;
@@ -1003,7 +1004,7 @@ static void nearProject(const FaceRoom &room, const RoomSplit &split, NearPoint 
 
 // A corner of the quad itself: as the rooms' projection left it unless nearer
 // than the plane.
-static void nearCorner(const FaceRoom &room, const RoomSplit &split, uint32_t index, NearPoint &p)
+NEAR_CODE static void nearCorner(const FaceRoom &room, const RoomSplit &split, uint32_t index, NearPoint &p)
 {
     const RoomVertex* r = room.points + index / sizeof(Vertex);
     const Vertex* v = corner(room.vertices, index);
@@ -1037,7 +1038,7 @@ static inline void nearMid(const FaceRoom &room, const RoomSplit &split, const N
 
 // The four edges' midpoints and the centre (06040b08): m[0 .. 4] AB, BC, CD,
 // DA, centre.
-static void nearMids(const FaceRoom &room, const RoomSplit &split, const NearPoint &a, const NearPoint &b,
+NEAR_CODE static void nearMids(const FaceRoom &room, const RoomSplit &split, const NearPoint &a, const NearPoint &b,
                      const NearPoint &c, const NearPoint &d, NearPoint* m)
 {
     nearMid(room, split, a, b, m[0]);
@@ -1052,7 +1053,7 @@ static void nearMids(const FaceRoom &room, const RoomSplit &split, const NearPoi
 }
 
 // What's to be done with a piece (060408a4).
-static NearTest nearTest(const Vertex &a, const Vertex &b, const Vertex &c, const Vertex &d)
+NEAR_CODE static NearTest nearTest(const Vertex &a, const Vertex &b, const Vertex &c, const Vertex &d)
 {
     uint32_t clipAnd = a.clip & b.clip & c.clip & d.clip;
     uint32_t clipOr = a.clip | b.clip | c.clip | d.clip;
@@ -1064,7 +1065,7 @@ static NearTest nearTest(const Vertex &a, const Vertex &b, const Vertex &c, cons
 }
 
 // A piece's command (06040a60, 060409a6): its material w, its texture at srca, this size.
-static void nearCommand(CommandList &list, const uint32_t* w, uint32_t flags, uint32_t srca, uint32_t size,
+NEAR_CODE static void nearCommand(CommandList &list, const uint32_t* w, uint32_t flags, uint32_t srca, uint32_t size,
                         const NearPoint &a, const NearPoint &b, const NearPoint &c, const NearPoint &d)
 {
     if (list.cmd == list.end)
@@ -1076,7 +1077,7 @@ static void nearCommand(CommandList &list, const uint32_t* w, uint32_t flags, ui
 }
 
 // Quadrant 'quarter' in tiles (0604011c); false when there's no having them.
-static bool nearTiles(const FaceRoom &room, RoomTextures &t, const RoomSplit &split, CommandList &list,
+NEAR_CODE static bool nearTiles(const FaceRoom &room, RoomTextures &t, const RoomSplit &split, CommandList &list,
                       const Texture &tex, const uint32_t* w, uint32_t flags, int32_t quarter, const NearPoint &a,
                       const NearPoint &b, const NearPoint &c, const NearPoint &d)
 {
@@ -1108,7 +1109,7 @@ static bool nearTiles(const FaceRoom &room, RoomTextures &t, const RoomSplit &sp
 }
 
 // The quad in quadrants (06040038); false when its texture can't have them.
-static bool nearSplit(const FaceRoom &room, RoomTextures &t, const RoomSplit &split, CommandList &list,
+NEAR_CODE static bool nearSplit(const FaceRoom &room, RoomTextures &t, const RoomSplit &split, CommandList &list,
                       const RoomQuad &q, bool triangle)
 {
     const Texture &tex = t.textures[q.flags & FACE_TEXTURE];
@@ -1148,7 +1149,7 @@ static bool nearSplit(const FaceRoom &room, RoomTextures &t, const RoomSplit &sp
 
 // A room face near the camera: split, filled where the far plane cuts it, or
 // whole as facesroom.s DECIDE would have drawn it.
-static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const RoomSplit &split, CommandList &list,
+NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const RoomSplit &split, CommandList &list,
                          const RoomQuad &q, bool triangle)
 {
     const Vertex* a = corner(room.vertices, q.indices[0]);
@@ -1265,12 +1266,12 @@ static void roomCareful(RoomRun* run, const RoomQuad* q)
 }
 
 #ifndef RENDER_LAB
-static void roomCarefulTri(RoomRun* run, const RoomQuad* q)
+NEAR_CODE static void roomCarefulTri(RoomRun* run, const RoomQuad* q)
 {
     roomQuadNear(*run->room, *run->textures, *run->split, *run->list, *q, true);
 }
 
-static int32_t roomTiles(RoomRun* run, uint32_t key, uint32_t size)
+NEAR_CODE static int32_t roomTiles(RoomRun* run, uint32_t key, uint32_t size)
 {
     RoomTextures &t = *run->textures;
     int32_t slot = int32_t(t.keys[DETAIL_TILES][key]) - 1;
