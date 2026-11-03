@@ -6,14 +6,13 @@
 /* The camera's view is the page; what's proposed and where it leaks sit beside it. Single dark look, as the stepwise page. */
 :root {
   color-scheme: dark;
-  --bg: #0f1218; --panel: #171b24; --line: #2b3242; --text: #e2e6ef; --muted: #939cb0; --accent: #ffb000;
-  --hole: #ff00ff; --ceiling: #4fc3f7; --side: #6fcf97; --other: #f2994a; --gap: #e05eb0;
+  --bg: #0f1218; --panel: #171b24; --line: #2b3242; --text: #e2e6ef; --muted: #939cb0; --accent: #ffb000; --hole: #ff00ff;
   --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
 }
 html, body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.45; }
 body { padding-block: 18px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
-main { max-width: 1320px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+main { max-width: 1560px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 h1 { font-size: 21px; margin: 0; font-weight: 600; }
 h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
 .note { color: var(--muted); font-size: 13px; max-width: 75ch; margin: 2px 0 0; }
@@ -21,53 +20,61 @@ button { font: inherit; color: var(--text); background: var(--panel); border: 1p
 button:hover { border-color: var(--muted); }
 button:focus-visible, input:focus-visible, tr:focus-visible, canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #17130a; font-weight: 600; }
-.work { display: grid; grid-template-columns: minmax(0, 704px) minmax(0, 1fr); gap: 22px; align-items: start; }
-@media (max-width: 1020px) { .work { grid-template-columns: minmax(0, 1fr); } }
+.work { display: grid; grid-template-columns: minmax(0, 1040px) minmax(0, 1fr); gap: 22px; align-items: start; }
+@media (max-width: 1100px) { .work { grid-template-columns: minmax(0, 1fr); } }
 .stage { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
-#view { width: 100%; max-width: 704px; aspect-ratio: 352 / 224; background: #000; display: block; touch-action: none; cursor: grab; }
+.wrap { position: relative; width: 100%; aspect-ratio: 352 / 224; background: #000; }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+#labels { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.label { color: var(--muted); font-size: 12.5px; margin-right: 4px; }
+.label { color: var(--muted); font-size: 12.5px; min-width: 3.2em; }
 .readout { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; min-height: 3.1em; overflow-wrap: anywhere; }
 .readout b { color: var(--accent); font-weight: 600; }
+.keys { font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; }
+.keys kbd { font-family: var(--mono); font-size: 12px; color: var(--accent); }
 .side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--muted); }
 .legend i { display: inline-block; width: 11px; height: 11px; margin-right: 5px; vertical-align: -1px; }
-.table { overflow-x: auto; max-height: 440px; overflow-y: auto; border-top: 1px solid var(--line); }
+.table { overflow-x: auto; max-height: 460px; overflow-y: auto; border-top: 1px solid var(--line); }
 table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
 th { text-align: left; color: var(--muted); font-weight: 600; padding: 5px 7px; position: sticky; top: 0; background: var(--bg); white-space: nowrap; }
 td { padding: 3px 7px; border-top: 1px solid #1e2430; font-family: var(--mono); white-space: nowrap; }
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: var(--panel); }
 tr.on { background: #3a2c08; }
-.swatch { display: inline-block; width: 9px; height: 9px; margin-right: 6px; }
+.swatch { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; }
 #sweepState { font-size: 13px; color: var(--muted); margin: 8px 0; max-width: 60ch; }
 </style>
 
 <main>
   <header>
     <h1>Lost Valley Ceilings</h1>
-    <p class="note">The level closed by flat quads over the open sky, proposed by rule, for you to review. Magenta is what nothing covers: in the game that shows the last frame. Rooms are drawn in their textures' mean colours, through a portal walk like the game's. Statics, doors and other items aren't drawn, so a door's opening shows magenta too. Nothing here is in the game.</p>
+    <p class="note">The level closed by flat quads over the open sky, proposed by rule, for you to review. Each quad has its own colour and number, listed on the right. Magenta is what nothing covers: in the game that shows the last frame. Rooms are drawn in their textures' mean colours. Statics, doors and other items aren't drawn, so a door's opening shows magenta too. Nothing here is in the game.</p>
   </header>
   <div class="work">
     <section class="stage">
-      <canvas id="view" width="704" height="448" tabindex="0" aria-label="The view from the camera. Drag to look, W A S D to move, Q and E to go up and down."></canvas>
-      <div class="row" id="spots" role="group" aria-label="Places to look from"></div>
+      <div class="wrap">
+        <canvas id="view" tabindex="0" aria-label="The view from the camera. Click to take the mouse, W A S D to fly."></canvas>
+        <canvas id="labels" aria-hidden="true"></canvas>
+      </div>
+      <div class="keys" id="keys"><b>Click the picture</b> to fly: mouse looks, <kbd>W A S D</kbd> move, <kbd>Q</kbd> up, <kbd>E</kbd> down, <kbd>Shift</kbd> faster, wheel sets the speed, <kbd>Esc</kbd> lets the mouse go.</div>
+      <div class="row" id="spots" role="group" aria-label="Places to look from"><span class="label">Go to</span></div>
+      <div class="row" id="viewModes" role="group" aria-label="How the level is drawn"><span class="label">View</span></div>
       <div class="row" id="quadModes" role="group" aria-label="How the quads are drawn"><span class="label">Quads</span></div>
       <div class="row" id="roomModes" role="group" aria-label="Which rooms are drawn"><span class="label">Rooms</span></div>
       <div class="legend" id="legend"></div>
       <div class="readout" id="readout" aria-live="off"></div>
-      <p class="note">Click the picture, then W A S D to move, Q and E for up and down, Shift to go faster. Drag or the arrow keys to look.</p>
     </section>
     <aside class="side">
+      <section>
+        <h2>Proposed quads (click to go look, tick to leave out)</h2>
+        <div class="table"><table id="quads"></table></div>
+      </section>
       <section>
         <h2>Leak sweep</h2>
         <div class="row"><button id="sweep">Sweep the level from every room</button></div>
         <p id="sweepState">Looks along 8 headings, level and up, from a spot above every third sector of real floor, with the quads as they stand, and lists the views where the most stays magenta.</p>
-        <div class="table" style="max-height:260px"><table id="leaks"></table></div>
-      </section>
-      <section>
-        <h2>Proposed quads (click to look at one, tick to leave it out)</h2>
-        <div class="table"><table id="quads"></table></div>
+        <div class="table" style="max-height:240px"><table id="leaks"></table></div>
       </section>
     </aside>
   </div>
@@ -76,13 +83,23 @@ tr.on { background: #3a2c08; }
 <script>
 const LEVEL = /*LEVEL*/null;
 const $ = id => document.getElementById(id);
-const KIND = { ceiling: ['Ceiling', [0.31, 0.76, 0.97]], side: ['Side', [0.44, 0.81, 0.59]], other: ['Other open patch', [0.95, 0.60, 0.29]], gap: ['Gap in the rock', [0.88, 0.37, 0.69]] };
+const KIND = { ceiling: 'Ceiling', side: 'Side', other: 'Open patch', gap: 'Gap in rock' };
 const FRAME_W = 352, FRAME_H = 224, K = 209.75, NEAR = 16, FAR = 400000, FOG_FROM = 8192, FOG_TO = 20480;
-const TURN = Math.PI * 2 / 65536;
-const gl = $('view').getContext('webgl', { antialias: false, preserveDrawingBuffer: true });
+const TURN = Math.PI * 2 / 65536, MAGENTA = [1, 0, 1], DARK = [0.05, 0.06, 0.08];
+const canvas = $('view');
+const gl = canvas.getContext('webgl', { antialias: true, preserveDrawingBuffer: true });
+const labels = $('labels').getContext('2d');
 const cam = { x: 0, y: 0, z: 0, pitch: 0, yaw: 0 };
-let quadMode = 'tint', walkOn = true, dirty = true, selected = -1;
+let viewMode = 'both', quadMode = 'color', walkOn = false, dirty = true, selected = -1, speed = 4000;
 const off = new Set();      // quads left out
+
+// A colour for each quad, by the golden angle, keeping away from the magenta that marks holes.
+function colourOf(i) {
+  const h = (i * 137.508) % 250, s = 0.9, l = [0.5, 0.62, 0.4][i % 3];
+  const f = n => { const k = (n + h / 30) % 12; return l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+  return [f(0), f(8), f(4)];
+}
+const css = c => `rgb(${c.map(x => Math.round(x * 255)).join(',')})`;
 
 // ---- geometry
 function compile(vs, fs) {
@@ -105,48 +122,64 @@ void main() {
   float f = fogOn * clamp((v.z - ${FOG_FROM}.0) / ${FOG_TO - FOG_FROM}.0, 0.0, 1.0);
   col = c * (1.0 - f);
   gl_Position = vec4(v.x * scale.x, -v.y * scale.y, depth.x * v.z + depth.y, v.z);
-}`, `precision mediump float; varying vec3 col; uniform vec4 tint; uniform float sides;
+}`, `precision mediump float; varying vec3 col; uniform vec4 tint; uniform float sides; uniform float backDim;
 void main() {
   if (sides > 0.0) gl_FragColor = gl_FrontFacing ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
-  else gl_FragColor = tint.a > 0.0 ? tint : vec4(col, 1.0);
+  else if (tint.a > 0.0) gl_FragColor = tint;
+  else gl_FragColor = vec4(backDim > 0.0 && !gl_FrontFacing ? col * 0.55 : col, 1.0);
 }`);
 gl.useProgram(prog);
-const U = {}; for (const n of ['r', 'eye', 'scale', 'fogOn', 'depth', 'tint', 'sides']) U[n] = gl.getUniformLocation(prog, n);
+const U = {}; for (const n of ['r', 'eye', 'scale', 'fogOn', 'depth', 'tint', 'sides', 'backDim']) U[n] = gl.getUniformLocation(prog, n);
 const A = { p: gl.getAttribLocation(prog, 'p'), c: gl.getAttribLocation(prog, 'c') };
 gl.enableVertexAttribArray(A.p); gl.enableVertexAttribArray(A.c);
 gl.uniform2f(U.scale, K / (FRAME_W / 2), K / (FRAME_H / 2));
 gl.uniform2f(U.depth, (FAR + NEAR) / (FAR - NEAR), -2 * FAR * NEAR / (FAR - NEAR));
 
-function buffer(tris) {
+function buffer(data) {
   const b = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, b);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tris), gl.STATIC_DRAW);
-  return { b, n: tris.length / 6 };
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+  return { b, n: data.length / 6 };
 }
-function draw(m) {
+function draw(m, mode = gl.TRIANGLES) {
   if (!m.n) return;
   gl.bindBuffer(gl.ARRAY_BUFFER, m.b);
   gl.vertexAttribPointer(A.p, 3, gl.FLOAT, false, 24, 0);
   gl.vertexAttribPointer(A.c, 3, gl.FLOAT, false, 24, 12);
-  gl.drawArrays(gl.TRIANGLES, 0, m.n);
+  gl.drawArrays(mode, 0, m.n);
 }
 const rooms = LEVEL.rooms.map(r => {
-  const solid = [], clear = [];
+  const solid = [], clear = [], edges = [], seen = new Set();
   const put = (out, i, mean) => {
     const s = Math.min(r.s[i], 2);
     out.push(r.v[i * 3], r.v[i * 3 + 1], r.v[i * 3 + 2], mean[0] / 255 * s, mean[1] / 255 * s, mean[2] / 255 * s);
   };
+  const edge = (a, b) => {
+    const k = a < b ? a * 65536 + b : b * 65536 + a;
+    if (seen.has(k)) return;
+    seen.add(k);
+    for (const i of [a, b]) edges.push(r.v[i * 3], r.v[i * 3 + 1], r.v[i * 3 + 2], 0, 0, 0);
+  };
   for (const q of r.q) {
     const out = q[5] ? clear : solid, mean = LEVEL.means[q[4]] || [128, 128, 128];
     for (const i of [q[0], q[1], q[2], q[0], q[2], q[3]]) put(out, i, mean);
+    for (let k = 0; k < 4; k++) edge(q[k], q[(k + 1) & 3]);
   }
-  for (const t of r.t) { const mean = LEVEL.means[t[3]] || [128, 128, 128]; for (const i of [t[0], t[1], t[2]]) put(solid, i, mean); }
-  return { d: r, solid: buffer(solid), clear: buffer(clear), quads: [] };
+  for (const t of r.t) {
+    const mean = LEVEL.means[t[3]] || [128, 128, 128];
+    for (const i of [t[0], t[1], t[2]]) put(solid, i, mean);
+    for (let k = 0; k < 3; k++) edge(t[k], t[(k + 1) % 3]);
+  }
+  return { d: r, solid: buffer(solid), clear: buffer(clear), edges: buffer(edges), quads: [] };
 });
 LEVEL.quads.forEach((q, i) => {
-  const c = KIND[q.kind][1], t = [];
-  for (const k of [0, 1, 2, 0, 2, 3]) t.push(q.v[k][0], q.v[k][1], q.v[k][2], c[0], c[1], c[2]);
-  q.mesh = buffer(t); q.index = i;
+  q.index = i;
+  q.colour = colourOf(i);
+  const t = [], e = [];
+  for (const k of [0, 1, 2, 0, 2, 3]) t.push(q.v[k][0], q.v[k][1], q.v[k][2], ...q.colour);
+  for (const k of [0, 1, 1, 2, 2, 3, 3, 0]) e.push(q.v[k][0], q.v[k][1], q.v[k][2], ...q.colour);
+  q.mesh = buffer(t); q.lines = buffer(e);
+  q.centre = [0, 1, 2].map(k => q.v.reduce((a, p) => a + p[k], 0) / 4);
   rooms[q.room].quads.push(q);
 });
 
@@ -217,37 +250,68 @@ function setView(m) {
   gl.uniformMatrix3fv(U.r, false, [m.r[0], m.d[0], m.f[0], m.r[1], m.d[1], m.f[1], m.r[2], m.d[2], m.f[2]]);
   gl.uniform3f(U.eye, cam.x, cam.y, cam.z);
 }
+function tint(r, g, b, a) { gl.uniform4f(U.tint, r, g, b, a); }
 
-// What a frame draws: 'tint' shows the quads where they stand, over the rooms; 'game' draws them first, black, behind everything, as
-// the game would; 'off' leaves them out. The quads of the rooms listed only.
-function scene(list, mode, background) {
-  gl.clearColor(background[0], background[1], background[2], 1);
+// A frame. Quads: 'color' each in its own colour where it stands, dimmer from behind; 'game' first, black, behind everything, from the
+// front only, as the game would; 'off' left out. View: 'solid', 'both' with every edge drawn, or 'wire' with nothing hiding anything.
+function scene(list, quads, view, fog) {
+  const bg = view === 'wire' ? DARK : MAGENTA;
+  gl.clearColor(bg[0], bg[1], bg[2], 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); gl.frontFace(gl.CW);
-  gl.uniform4f(U.tint, 0, 0, 0, 0);
-  if (mode === 'game') {
-    gl.disable(gl.DEPTH_TEST);
-    gl.uniform4f(U.tint, 0, 0, 0, 1);
-    for (const i of list) for (const q of rooms[i].quads) if (!off.has(q.index)) draw(q.mesh);
-    gl.uniform4f(U.tint, 0, 0, 0, 0);
+  gl.disable(gl.BLEND); gl.disable(gl.POLYGON_OFFSET_FILL);
+  gl.depthMask(true);
+  tint(0, 0, 0, 0);
+  gl.uniform1f(U.backDim, 0);
+  const shown = [];
+  if (quads !== 'off') for (const i of list) for (const q of rooms[i].quads) if (!off.has(q.index)) shown.push(q);
+  if (view === 'wire') {
+    gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    tint(0.62, 0.68, 0.8, 0.28);
+    for (const i of list) draw(rooms[i].edges, gl.LINES);
+    for (const q of shown) { const c = q.colour; tint(c[0], c[1], c[2], q.index === selected ? 0.5 : 0.22); draw(q.mesh); }
+    for (const q of shown) { const c = q.colour, on = q.index === selected; tint(on ? 1 : c[0], on ? 1 : c[1], on ? 1 : c[2], 1); draw(q.lines, gl.LINES); }
+    gl.disable(gl.BLEND);
+    tint(0, 0, 0, 0);
+    return;
   }
-  gl.enable(gl.DEPTH_TEST); gl.depthMask(true);
-  gl.uniform1f(U.fogOn, 1);
+  if (quads === 'game') {
+    gl.disable(gl.DEPTH_TEST);
+    tint(0, 0, 0, 1);
+    for (const q of shown) draw(q.mesh);
+    tint(0, 0, 0, 0);
+  }
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
+  gl.uniform1f(U.fogOn, fog ? 1 : 0);
   for (const i of list) draw(rooms[i].solid);
   gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
-  gl.uniform4f(U.tint, 0.55, 0.55, 0.55, 0.35);
+  tint(0.55, 0.55, 0.55, 0.35);
   for (const i of list) draw(rooms[i].clear);
-  if (mode === 'tint') {
-    gl.disable(gl.CULL_FACE);
-    for (const i of list) for (const q of rooms[i].quads) {
-      if (off.has(q.index)) continue;
-      const c = KIND[q.kind][1], on = q.index === selected;
-      gl.uniform4f(U.tint, on ? 1 : c[0], on ? 0.8 : c[1], on ? 0 : c[2], on ? 0.7 : 0.4);
-      draw(q.mesh);
-    }
-  }
   gl.disable(gl.BLEND); gl.depthMask(true);
-  gl.uniform4f(U.tint, 0, 0, 0, 0);
+  tint(0, 0, 0, 0);
+  if (quads === 'color') {
+    gl.disable(gl.CULL_FACE);
+    gl.uniform1f(U.fogOn, 0); gl.uniform1f(U.backDim, 1);
+    for (const q of shown) draw(q.mesh);
+    gl.uniform1f(U.backDim, 0);
+  }
+  gl.disable(gl.POLYGON_OFFSET_FILL);
+  if (view === 'both') {
+    gl.disable(gl.CULL_FACE);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+    tint(0, 0, 0, 0.5);
+    for (const i of list) draw(rooms[i].edges, gl.LINES);
+    if (quads === 'color') for (const q of shown) { const on = q.index === selected; tint(1, 1, on ? 0.2 : 1, on ? 1 : 0.8); draw(q.lines, gl.LINES); }
+    gl.disable(gl.BLEND); gl.depthMask(true);
+  } else if (selected >= 0 && quads === 'color') {
+    gl.disable(gl.DEPTH_TEST);
+    tint(1, 1, 1, 1);
+    for (const q of shown) if (q.index === selected) draw(q.lines, gl.LINES);
+    gl.enable(gl.DEPTH_TEST);
+  }
+  tint(0, 0, 0, 0);
 }
 
 // Off screen at the frame's own size: how much stays magenta as the game would draw it, and the box round the quads on the frame.
@@ -262,69 +326,96 @@ gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex
 gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
 gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 const pixels = new Uint8Array(FRAME_W * FRAME_H * 4);
-const MAGENTA = [1, 0, 1];
 
-function listed() {
-  const m = matrix();
-  const start = walkOn ? roomAt(cam.x, cam.y, cam.z) : -1;
-  return { m, start, list: start >= 0 ? walk(start, m) : rooms.filter(r => !r.d.alt).map(r => r.d.i) };
+const allRooms = rooms.filter(r => !r.d.alt).map(r => r.d.i);
+// As the game would see it: by the walk, whatever the picture shows.
+function gameList() {
+  const m = matrix(), start = roomAt(cam.x, cam.y, cam.z);
+  return { m, start, list: start >= 0 ? walk(start, m) : allRooms };
 }
+function toFrame() { gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, FRAME_W, FRAME_H); }
+function toScreen() { gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight); }
 
 function measure(l, quadsDrawn) {
-  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-  gl.viewport(0, 0, FRAME_W, FRAME_H);
+  toFrame();
   setView(l.m);
-  scene(l.list, quadsDrawn ? 'game' : 'off', MAGENTA);
+  scene(l.list, quadsDrawn ? 'game' : 'off', 'solid', false);
   gl.readPixels(0, 0, FRAME_W, FRAME_H, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
   let holes = 0;
   for (let p = 0; p < pixels.length; p += 4) if (pixels[p] === 255 && pixels[p + 1] === 0 && pixels[p + 2] === 255) holes++;
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+  toScreen();
   return holes;
 }
 
 function quadBox(l) {
-  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-  gl.viewport(0, 0, FRAME_W, FRAME_H);
+  toFrame();
   setView(l.m);
   gl.clearColor(0, 0, 0, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  gl.disable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); gl.frontFace(gl.CW);
-  gl.uniform4f(U.tint, 1, 1, 1, 1);
+  gl.disable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); gl.frontFace(gl.CW); gl.disable(gl.BLEND);
+  tint(1, 1, 1, 1);
   for (const i of l.list) for (const q of rooms[i].quads) if (!off.has(q.index)) draw(q.mesh);
-  gl.uniform4f(U.tint, 0, 0, 0, 0);
+  tint(0, 0, 0, 0);
   gl.readPixels(0, 0, FRAME_W, FRAME_H, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
   let x0 = FRAME_W, y0 = FRAME_H, x1 = -1, y1 = -1, n = 0;
   for (let y = 0, p = 0; y < FRAME_H; y++) for (let x = 0; x < FRAME_W; x++, p += 4) if (pixels[p]) { n++; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+  toScreen();
   return { n, w: x1 < 0 ? 0 : x1 - x0 + 1, h: x1 < 0 ? 0 : y1 - y0 + 1 };
 }
 
 function hex(v) { return (v & 0xFFFF).toString(16).padStart(4, '0'); }
 
+function drawLabels(list, m) {
+  const c = $('labels'), w = c.clientWidth, h = c.clientHeight, dpr = window.devicePixelRatio || 1;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  labels.setTransform(dpr, 0, 0, dpr, 0, 0);
+  labels.clearRect(0, 0, w, h);
+  if (quadMode !== 'color' && viewMode !== 'wire') return;
+  labels.font = '600 12px Consolas, monospace';
+  labels.textAlign = 'center'; labels.textBaseline = 'middle';
+  for (const i of list) for (const q of rooms[i].quads) {
+    if (off.has(q.index) || quadMode === 'off') continue;
+    const x = q.centre[0] - cam.x, y = q.centre[1] - cam.y, z = q.centre[2] - cam.z;
+    const vz = dot(m.f, x, y, z);
+    if (vz < 64) continue;
+    const sx = (dot(m.r, x, y, z) * K / vz + FRAME_W / 2) / FRAME_W * w, sy = (dot(m.d, x, y, z) * K / vz + FRAME_H / 2) / FRAME_H * h;
+    if (sx < 8 || sy < 8 || sx > w - 8 || sy > h - 8) continue;
+    const text = String(q.index + 1), tw = labels.measureText(text).width + 6;
+    labels.fillStyle = 'rgba(0,0,0,0.75)';
+    labels.fillRect(sx - tw / 2, sy - 8, tw, 16);
+    labels.fillStyle = q.index === selected ? '#ffff33' : css(q.colour.map(v => Math.min(1, v + 0.25)));
+    labels.fillText(text, sx, sy);
+  }
+}
+
 function render() {
   dirty = false;
-  const l = listed();
-  const holesWith = measure(l, true), holesWithout = measure(l, false), box = quadBox(l);
-  setView(l.m);
-  scene(l.list, quadMode, quadMode === 'game' ? MAGENTA : MAGENTA);
+  const g = gameList();
+  const holesWith = measure(g, true), holesWithout = measure(g, false), box = quadBox(g);
+  const list = walkOn ? g.list : allRooms;
+  setView(g.m);
+  scene(list, quadMode, viewMode, walkOn);
+  drawLabels(list, g.m);
   const area = box.w * box.h;
   $('readout').innerHTML = '';
   const b = document.createElement('b');
   b.textContent = `${holesWith} px left magenta`;
-  $('readout').append(`Room ${l.start >= 0 ? l.start : 'none, all drawn'}, ${l.list.length} rooms listed. Camera ${Math.round(cam.x)} ${Math.round(cam.y)} ${Math.round(cam.z)}, pitch ${hex(cam.pitch)} yaw ${hex(cam.yaw)}.`, document.createElement('br'), b,
-    ` with the quads, ${holesWithout} without.`, document.createElement('br'),
-    area ? `The quads cover ${box.n} px; one box round them, ${box.w} x ${box.h} = ${area} px, about ${(area * 3.49 / (FRAME_W * FRAME_H)).toFixed(2)} ms VDP1 as its own fill.` : 'No quads on the frame.');
+  $('readout').append(g.start >= 0 ? `In room ${g.start}, the walk lists ${g.list.length} rooms. ` : 'Outside the rooms. ',
+    `Camera ${Math.round(cam.x)} ${Math.round(cam.y)} ${Math.round(cam.z)}, pitch ${hex(cam.pitch)} yaw ${hex(cam.yaw)}, speed ${speed}.`, document.createElement('br'));
+  if (g.start >= 0) {
+    $('readout').append('As the game would draw it: ', b, ` with the quads, ${holesWithout} without.`, document.createElement('br'),
+      area ? `The quads cover ${box.n} px; one box round them, ${box.w} x ${box.h} = ${area} px, about ${(area * 3.49 / (FRAME_W * FRAME_H)).toFixed(2)} ms VDP1 as its own fill.` : 'No quads on the frame.');
+  }
 }
 
 function legend() {
   const lg = $('legend');
   lg.innerHTML = '';
   const add = (color, text) => { const s = document.createElement('span'); s.innerHTML = `<i style="background:${color}"></i>`; s.append(text); lg.append(s); };
-  add('#ff00ff', 'Nothing covers it');
-  if (quadMode === 'tint') for (const k of Object.keys(KIND)) if (LEVEL.quads.some(q => q.kind === k)) add(`rgb(${KIND[k][1].map(x => Math.round(x * 255)).join(',')})`, KIND[k][0]);
+  if (viewMode !== 'wire') add('#ff00ff', 'Nothing covers it');
+  if (quadMode === 'color') lg.append('Each quad in its own colour, numbered as in the list. Dimmer means you see it from behind: from outside the valley.');
   if (quadMode === 'game') add('#000000', 'Quads, black, behind everything');
+  if (viewMode === 'wire') lg.append(' Nothing hides anything: grey lines are the rooms, coloured ones the quads.');
 }
 
 function setMode(group, attr, value, set) {
@@ -336,50 +427,52 @@ function goTo(s) { cam.x = s.pos[0]; cam.y = s.pos[1]; cam.z = s.pos[2]; cam.pit
 
 function lookAt(q) {
   selected = q.index;
-  const c = [0, 1, 2].map(k => q.v.reduce((a, p) => a + p[k], 0) / 4);
-  const back = q.n[1] ? 4096 : 5120;
+  const c = q.centre;
+  const back = q.n[1] ? 6144 : 5120;
   cam.x = c[0] + q.n[0] * back; cam.y = c[1] + q.n[1] * back + (q.n[1] ? 0 : 512); cam.z = c[2] + q.n[2] * back;
   const dx = c[0] - cam.x, dy = c[1] - cam.y, dz = c[2] - cam.z;
-  cam.yaw = (Math.atan2(dx, dz) / TURN) & 0xFFFF;
-  cam.pitch = Math.round(Math.atan2(-dy, Math.hypot(dx, dz)) / TURN * 0.97) & 0xFFFF;
+  cam.yaw = q.n[1] ? 0 : (Math.atan2(dx, dz) / TURN) & 0xFFFF;
+  cam.pitch = Math.max(-0x3F00, Math.min(0x3F00, Math.round(Math.atan2(-dy, Math.hypot(dx, dz)) / TURN))) & 0xFFFF;
   dirty = true;
   quadTable();
 }
 
 function quadTable() {
   const t = $('quads');
-  t.innerHTML = '<thead><tr><th>Leave out</th><th>Kind</th><th>Room</th><th>Size</th></tr></thead>';
+  const keep = t.parentElement.scrollTop;
+  t.innerHTML = '<thead><tr><th>#</th><th>Kind</th><th>Room</th><th>Size</th><th>Leave out</th></tr></thead>';
   const body = document.createElement('tbody');
   for (const q of LEVEL.quads) {
     const tr = document.createElement('tr');
     tr.tabIndex = 0;
     if (q.index === selected) tr.className = 'on';
-    const box = document.createElement('input');
-    box.type = 'checkbox'; box.id = 'q' + q.index; box.checked = off.has(q.index);
-    box.setAttribute('aria-label', `Leave out ${KIND[q.kind][0]} of room ${q.room}`);
-    box.onclick = e => { e.stopPropagation(); if (box.checked) off.add(q.index); else off.delete(q.index); dirty = true; };
-    const a = document.createElement('td'); a.append(box);
-    const b = document.createElement('td'); b.innerHTML = `<span class="swatch" style="background:rgb(${KIND[q.kind][1].map(x => Math.round(x * 255)).join(',')})"></span>`; b.append(KIND[q.kind][0]);
+    const n = document.createElement('td'); n.innerHTML = `<span class="swatch" style="background:${css(q.colour)}"></span>`; n.append(q.index + 1);
+    const b = document.createElement('td'); b.textContent = KIND[q.kind];
     const c = document.createElement('td'); c.textContent = q.room;
     const d = document.createElement('td'); d.textContent = q.label;
-    tr.append(a, b, c, d);
+    const box = document.createElement('input');
+    box.type = 'checkbox'; box.id = 'q' + q.index; box.checked = off.has(q.index);
+    box.setAttribute('aria-label', `Leave out quad ${q.index + 1}`);
+    box.onclick = e => { e.stopPropagation(); if (box.checked) off.add(q.index); else off.delete(q.index); dirty = true; };
+    const a = document.createElement('td'); a.append(box);
+    tr.append(n, b, c, d, a);
     tr.onclick = () => lookAt(q);
     tr.onkeydown = e => { if (e.key === 'Enter') lookAt(q); };
     body.append(tr);
   }
   t.append(body);
+  t.parentElement.scrollTop = keep;
 }
 
 // Whether a spot stands inside the rock: looking all round, it sees more backs of faces than fronts.
 function inRock() {
   const keep = { yaw: cam.yaw, pitch: cam.pitch };
   let front = 0, back = 0;
-  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-  gl.viewport(0, 0, FRAME_W, FRAME_H);
+  toFrame();
   gl.uniform1f(U.sides, 1);
   for (const [yaw, pitch] of [[0, 0], [0x4000, 0], [0x8000, 0], [0xC000, 0], [0, 0x3800], [0, 0xC800]]) {
     cam.yaw = yaw; cam.pitch = pitch;
-    const l = listed();
+    const l = gameList();
     setView(l.m);
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -389,8 +482,7 @@ function inRock() {
     for (let p = 0; p < pixels.length; p += 4) { if (pixels[p]) back++; else if (pixels[p + 1]) front++; }
   }
   gl.uniform1f(U.sides, 0);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+  toScreen();
   Object.assign(cam, keep);
   return back > front;
 }
@@ -419,7 +511,7 @@ async function sweepRun(onDone) {
     const at = c.x + ' ' + c.y + ' ' + c.z;
     if (at !== spot) { spot = at; rock = inRock(); }
     if (rock) { rockViews++; continue; }
-    const l = listed();
+    const l = gameList();
     if (l.start >= 0) {
       const holes = measure(l, true);
       if (holes >= 40) { leaking++; found.push({ ...c, holes }); worst = Math.max(worst, holes); }
@@ -439,7 +531,7 @@ async function sweepRun(onDone) {
     const tr = document.createElement('tr');
     tr.tabIndex = 0;
     tr.innerHTML = `<td>${f.holes}</td><td>${f.room}</td><td>${f.x} ${f.y} ${f.z}</td><td>${hex(f.pitch)} ${hex(f.yaw)}</td>`;
-    tr.onclick = () => { Object.assign(cam, { x: f.x, y: f.y, z: f.z, yaw: f.yaw, pitch: f.pitch }); dirty = true; };
+    tr.onclick = () => { Object.assign(cam, { x: f.x, y: f.y, z: f.z, yaw: f.yaw, pitch: f.pitch }); setMode('roomModes', 'r', 'walk', x => { walkOn = x === 'walk'; }); setMode('viewModes', 'v', 'solid', x => { viewMode = x; }); setMode('quadModes', 'q', 'game', x => { quadMode = x; }); };
     body.append(tr);
   }
   t.append(body);
@@ -447,57 +539,91 @@ async function sweepRun(onDone) {
   if (onDone) onDone({ views: cams.length, leaking, worst, inRock: rockViews, found });
 }
 
-// ---- controls
+// ---- flying: the mouse once the picture has it, or by dragging where the frame won't give it up; keys wherever the page has focus
 const held = new Set();
-const canvas = $('view');
-canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); canvas.focus(); canvas.style.cursor = 'grabbing'; });
-canvas.addEventListener('pointerup', () => { canvas.style.cursor = 'grab'; });
-canvas.addEventListener('pointermove', e => {
-  if (!e.buttons) return;
-  cam.yaw = (cam.yaw + e.movementX * 40) & 0xFFFF;
-  const p = (cam.pitch < 0x8000 ? cam.pitch : cam.pitch - 0x10000) - e.movementY * 40;
+let dragging = false;
+const look = (dx, dy) => {
+  cam.yaw = (cam.yaw + dx * 28) & 0xFFFF;
+  const p = (cam.pitch < 0x8000 ? cam.pitch : cam.pitch - 0x10000) - dy * 28;
   cam.pitch = Math.max(-0x3F00, Math.min(0x3F00, p)) & 0xFFFF;
   dirty = true;
+};
+canvas.addEventListener('pointerdown', e => {
+  canvas.focus();
+  dragging = true;
+  try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (err) { /* dragging still works */ }
 });
-canvas.addEventListener('keydown', e => { if (e.key.startsWith('Arrow')) e.preventDefault(); held.add(e.key.toLowerCase()); });
-canvas.addEventListener('keyup', e => held.delete(e.key.toLowerCase()));
-canvas.addEventListener('blur', () => held.clear());
+window.addEventListener('pointerup', () => { dragging = false; });
+window.addEventListener('mousemove', e => {
+  if (document.pointerLockElement === canvas || dragging) look(e.movementX, e.movementY);
+});
+canvas.addEventListener('wheel', e => { e.preventDefault(); speed = Math.max(250, Math.min(32000, Math.round(speed * (e.deltaY < 0 ? 1.25 : 0.8)))); dirty = true; }, { passive: false });
+document.addEventListener('pointerlockchange', () => {
+  $('keys').firstChild.textContent = document.pointerLockElement === canvas ? 'Flying:' : 'Click the picture';
+});
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (e.target.tagName === 'INPUT' && k === ' ') return;
+  if (k.startsWith('arrow')) e.preventDefault();
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  held.add(k);
+});
+window.addEventListener('keyup', e => held.delete(e.key.toLowerCase()));
+window.addEventListener('blur', () => held.clear());
 let lastTime = 0;
 function frame(t) {
   const dt = Math.min((t - lastTime) / 1000, 0.1); lastTime = t;
-  const m = matrix(), speed = (held.has('shift') ? 9000 : 3000) * dt;
+  const m = matrix(), step = (held.has('shift') ? speed * 4 : speed) * dt;
   const move = (a, s) => { cam.x += a[0] * s; cam.y += a[1] * s; cam.z += a[2] * s; dirty = true; };
-  if (held.has('w')) move(m.f, speed);
-  if (held.has('s')) move(m.f, -speed);
-  if (held.has('d')) move(m.r, speed);
-  if (held.has('a')) move(m.r, -speed);
-  if (held.has('q')) move([0, -1, 0], speed);
-  if (held.has('e')) move([0, 1, 0], speed);
+  if (held.has('w')) move(m.f, step);
+  if (held.has('s')) move(m.f, -step);
+  if (held.has('d')) move(m.r, step);
+  if (held.has('a')) move(m.r, -step);
+  if (held.has('q')) move([0, -1, 0], step);
+  if (held.has('e')) move([0, 1, 0], step);
   const turn = 12000 * dt;
-  if (held.has('arrowleft')) { cam.yaw = (cam.yaw - turn) & 0xFFFF; dirty = true; }
-  if (held.has('arrowright')) { cam.yaw = (cam.yaw + turn) & 0xFFFF; dirty = true; }
-  if (held.has('arrowup') || held.has('arrowdown')) {
-    const p = (cam.pitch < 0x8000 ? cam.pitch : cam.pitch - 0x10000) + (held.has('arrowup') ? turn : -turn);
-    cam.pitch = Math.max(-0x3F00, Math.min(0x3F00, p)) & 0xFFFF;
-    dirty = true;
-  }
+  if (held.has('arrowleft')) look(-turn / 28, 0);
+  if (held.has('arrowright')) look(turn / 28, 0);
+  if (held.has('arrowup')) look(0, -turn / 28);
+  if (held.has('arrowdown')) look(0, turn / 28);
   if (dirty) render();
   requestAnimationFrame(frame);
 }
 
+function fit() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2), w = canvas.clientWidth, h = canvas.clientHeight;
+  if (w && (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr))) {
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    dirty = true;
+  }
+}
+window.addEventListener('resize', fit);
+
+// the whole sky from above, for a start
+const skies = LEVEL.quads.filter(q => q.kind === 'ceiling').flatMap(q => q.v);
+if (skies.length) {
+  const xs = skies.map(p => p[0]), zs = skies.map(p => p[2]), span = Math.max(Math.max(...xs) - Math.min(...xs), (Math.max(...zs) - Math.min(...zs)) * FRAME_W / FRAME_H);
+  LEVEL.spots.push({ name: 'The whole valley from above', pos: [(Math.min(...xs) + Math.max(...xs)) / 2, Math.min(...skies.map(p => p[1])) - span * 0.62 * K / (FRAME_W / 2), (Math.min(...zs) + Math.max(...zs)) / 2], pitch: 0xC100, yaw: 0 });
+}
 for (const s of LEVEL.spots) {
   const b = document.createElement('button'); b.textContent = s.name; b.onclick = () => goTo(s); $('spots').append(b);
 }
-for (const [v, n] of [['tint', 'Tinted, where they stand'], ['game', 'Black, as the game would'], ['off', 'Left out']]) {
+for (const [v, n] of [['solid', 'Solid'], ['both', 'Solid with wireframe'], ['wire', 'Wireframe only']]) {
+  const b = document.createElement('button'); b.textContent = n; b.dataset.v = v; b.onclick = () => setMode('viewModes', 'v', v, x => { viewMode = x; }); $('viewModes').append(b);
+}
+for (const [v, n] of [['color', 'One colour each'], ['game', 'Black, as the game would'], ['off', 'Left out']]) {
   const b = document.createElement('button'); b.textContent = n; b.dataset.q = v; b.onclick = () => setMode('quadModes', 'q', v, x => { quadMode = x; }); $('quadModes').append(b);
 }
-for (const [v, n] of [['walk', 'Those the walk lists'], ['all', 'All of them']]) {
+for (const [v, n] of [['all', 'All of them'], ['walk', 'Those the walk lists, with fog']]) {
   const b = document.createElement('button'); b.textContent = n; b.dataset.r = v; b.onclick = () => setMode('roomModes', 'r', v, x => { walkOn = x === 'walk'; }); $('roomModes').append(b);
 }
 $('sweep').onclick = () => sweepRun();
 quadTable();
-setMode('quadModes', 'q', 'tint', x => { quadMode = x; });
-setMode('roomModes', 'r', 'walk', x => { walkOn = x === 'walk'; });
-goTo(LEVEL.spots[0]);
+setMode('viewModes', 'v', 'both', x => { viewMode = x; });
+setMode('quadModes', 'q', 'color', x => { quadMode = x; });
+setMode('roomModes', 'r', 'all', x => { walkOn = x === 'walk'; });
+goTo(LEVEL.spots[LEVEL.spots.length - 1]);
+fit();
 requestAnimationFrame(frame);
 </script>
