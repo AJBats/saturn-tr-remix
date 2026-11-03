@@ -470,7 +470,21 @@ CAM-22*
   `EnemySave` or `LaraSave`), over `level.itemsCount`. Size it from the levels, checked by the packer.
 
 ### 267. Open skies and gaps in the rock show the last frame: Lost Valley's hall of mirrors
-*Kind: visible · Size: most of the frame looking up in Lost Valley · Fix: medium, the approach the user's call*
+*Kind: visible, fix built, the Saturn to confirm*
+- **Fix built, 2026-11-03, on the Saturn to confirm.** `tools/levelgaps.py` lists, at pack time, each room mostly
+  open: interior sectors with air, no room above and no face over them, half or more of the room's (a closed
+  room's odd such sector is rock no camera gets under). Each cluster becomes a box in room space, from the
+  ceiling down to the highest face at its corners or, with no face at a corner, the floor. The cave's gap is by
+  hand (`GAPS`). `renderer/rooms.s` `roomsOpeningsAsm` projects a listed room's boxes, cuts them to its window,
+  and adds one fill round them all, behind everything. The 16 levels' tables take 20-512 bytes each.
+- Mednafen, `tools/stepwise.py`, pixels never written before -> after, VDP1 ms before -> after: looking up
+  33,887 -> 0, 17.54 -> 20.61; plants 3,100 -> 0, 42.71 -> 43.74; walking in 2,013 -> 0, 37.18 -> 38.56; the cave
+  265 -> 0, 25.66 -> 25.78; Cistern room 103 unchanged, its same 4 fills. Slave: 0.19 ms at the plants (5 boxes),
+  0.04 ms at the Cistern (26 rooms looked at, none open); levels with no open room skip it.
+- What it lacks: it is a box, not the hole's shape, so it paints black under faces (at the plants 77% of the
+  fill's pixels end up covered). Standing in a room with no top, looking anywhere, can fill the whole frame:
+  retail's clear, about 3.5 ms VDP1 in Mednafen. Gaps in the rock other than the one listed stay until found; the
+  Holes menu row paints every fill magenta, and `tools/stepwise.py` counts what stays unwritten.
 
 - Reported on the Saturn, 2026-11-03: room 56 looking up (`tools/hwtest.sh valley-sky`), and a smaller
   one at room 27 (`valley-cave`). Retail clears its frame, so what no face covers is black there. We
@@ -479,7 +493,7 @@ CAM-22*
   line 170), among the plants 3,100 (down to line 30), walking in 2,013 (line 27), T-rex 1,846, the cave
   265 in one triangle. Costing nothing, they are what isn't drawn.
 - Whole rooms have no top: LEVEL3A 6, 32, 39, 52, 53, 54, 64, 65, 66 and others. LEVEL5 19, 74, 78 and LEVEL8C 3
-  look the same on a first scan; other levels' counts may be false positives, not checked.
+  look the same; `python -I tools/levelgaps.py` lists every level's.
 - **Plan to cost:** rooms flagged open at packing; a rectangle of colour 0 behind everything, over the
   box of each listed open room's top on the screen. A whole-frame clear is 3.49 ms, so about 0.5 ms among
   the plants and 2.7 ms looking up, where VDP1 has room. What it lacks: a gap that isn't a room's top, as in the

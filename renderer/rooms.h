@@ -61,10 +61,17 @@ struct RoomsContext
     const uint8_t* hidden;      // +156 by room: listed, but dropped (roomsHideWith)
     uint8_t* seenNear;          // +160 by room: seen nearer than RoomLevel.black (0 between frames)
     int32_t tiny;               // +164 roomsTiny's
+    const uint8_t* gaps;        // +168 the rooms standing open (RoomsLevel.gaps), null if the level has none
+    const int16_t* gapBoxes;    // +172 their boxes
 };
 
 extern "C" void roomsSeenAsm(RoomsContext* ctx);
 extern "C" void roomsJobsAsm(RoomsContext* ctx);
+
+// The frame isn't cleared, so what no face covers shows the last frame, and a
+// room standing open has such places by design: one more fill, round each
+// listed room's boxes as they fall on the frame, cut to its window.
+extern "C" void roomsOpeningsAsm(RoomsContext* ctx);
 
 // The rooms want over more vertices than there are: those showing least, by
 // their windows' size, dropped until they fit (roomsJobsAsm's); never the camera's.
@@ -73,8 +80,11 @@ extern "C" void roomsMakeWay(RoomsContext* ctx, int32_t over);
 // The level's rooms as the walk reads them (RoomLevel each, their portals in
 // the game's layout), their geometry (RoomGeometry: offsets in rgeo), the
 // caustics' wave (the caller moves its phase each frame), the vertices the
-// jobs place their rooms' in, and the game's sines (gSinCosTable: sin << 16
-// | cos, for the items' test).
+// jobs place their rooms' in, the game's sines (gSinCosTable: sin << 16 |
+// cos, for the items' test), and the rooms standing open (tools/levelgaps.py:
+// each room's first box, a byte each, one more for the last's end; on a
+// halfword, the boxes, x0 y0 z0 x1 y1 z1 in the room, y from the world's), or
+// null.
 #define MAX_LEVEL_ROOMS 139     // openlara MAX_ROOMS: LEVEL7A
 struct RoomsLevel
 {
@@ -86,6 +96,7 @@ struct RoomsLevel
     const RoomCaustics* caustics;
     Vertex* vertices;
     const uint32_t* sines;
+    const uint8_t* gaps;
 };
 void roomsInit(const RoomsLevel &level);
 
@@ -113,7 +124,7 @@ void roomsHideWith(RoomsHide hide);
 int32_t roomsListCopy(uint16_t* out, int32_t max);
 
 // The fills past the draw distance the frame's walk found (renderVoid's: x0
-// y0 x1 y1), the first ROOM_FILLS: their count.
+// y0 x1 y1) and the one over the open rooms, the first ROOM_FILLS: their count.
 const int32_t (*roomsFills(int32_t &count))[4];
 
 // Whether an item drawn (its record, its frames A and B, its model's call:

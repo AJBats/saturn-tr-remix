@@ -12,7 +12,7 @@ bool read_PKD(DataStream &f)
 
     { // fix level data offsets
         uint32* ptr = (uint32*)&level.palette;
-        while (ptr <= (uint32*)&level.roomsHigh)
+        while (ptr <= (uint32*)&level.roomGaps)
         {
             *ptr++ += (uint32)data;
         }

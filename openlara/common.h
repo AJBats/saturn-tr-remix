@@ -2244,6 +2244,7 @@ struct Level
     const uint8* soundData;
     const int32* soundOffsets;
     const uint8* roomsHigh;     // the rooms in the order their faces take high work RAM, NO_ROOM after (os.cpp)
+    const uint8* roomGaps;      // the rooms standing open: each room's first box, one more, then the boxes (rooms.h)
 };
 
 // used by enemies

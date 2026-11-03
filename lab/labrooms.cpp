@@ -21,6 +21,7 @@ void roomsLabInit()
     level.caustics = sceneArray<const RoomCaustics>("CAUW");
     level.vertices = gVertices;
     level.sines = sceneArray<const uint32_t>("SINC");
+    level.gaps = nullptr;
     roomsInit(level);
     roomsFarScaled(false);  // as the captured game projected, for the checks against it
     const PoseCamera* camera = sceneArray<const PoseCamera>("CAMR");

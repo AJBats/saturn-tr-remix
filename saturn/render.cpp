@@ -654,6 +654,7 @@ void renderLevelInit()
     r.caustics = &gRoomCaustics;
     r.vertices = gVertices;
     r.sines = (const uint32_t*)gSinCosTable;
+    r.gaps = level.roomGaps;
     render::roomsInit(r);
 
     render::VerticesLevel v;
