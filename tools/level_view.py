@@ -30,8 +30,8 @@ NO_ROOM = 255
 ALL_SKY = 0.9       # of a room's sectors with air: open this much, it has no top at all
 
 # Where to look from: the user's reports, as their HUD gave them (x y z pitch yaw), and two places near Lara's spots.
-# The side of a listed gap a camera sees it from.
-GAP_INWARD = {('LEVEL3A', 27): (0, 0, -1)}
+# The sides of a listed gap a camera sees it from.
+GAP_INWARD = {('LEVEL3A', 27): ((0, 0, -1), (0, 0, 1))}
 
 SPOTS = {
     'LEVEL3A': [
@@ -152,9 +152,9 @@ def proposals(lvl, name):
         room = lvl.rooms[index]
         for x0, y0, z0, x1, y1, z1 in boxes:
             plane = (z0 + z1) // 2
-            inward = GAP_INWARD[(name, index)]
             points = [(x0, y0, plane), (x1, y0, plane), (x1, y1, plane), (x0, y1, plane)]
-            add(room, 'gap', orient(points, inward), inward, f'{(x1 - x0) // 1024} sector wide, y {y0} to {y1}')
+            for inward in GAP_INWARD[(name, index)]:
+                add(room, 'gap', orient(points, inward), inward, f'{(x1 - x0) / 1024:.1f} sectors wide, y {y0} to {y1}')
     return quads
 
 

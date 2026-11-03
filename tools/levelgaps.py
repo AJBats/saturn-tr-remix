@@ -21,7 +21,7 @@ MOSTLY_OPEN = 0.5   # of a room's sectors with air
 
 # Gaps in a room's own rock, found in play: level, room, a box in room space.
 GAPS = {
-    'LEVEL3A': {27: [(7168, -768, 3840, 8192, 0, 4352)]},   # the triangle beside the way in
+    'LEVEL3A': {27: [(6656, -768, 3840, 8192, 0, 4352)]},   # the triangle beside the way in
 }
 
 
