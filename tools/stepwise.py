@@ -177,6 +177,61 @@ CREATURES = {'WOLF', 'BEAR', 'BAT', 'CROCODILE_LAND', 'CROCODILE_WATER', 'LION_M
              'NATLA', 'GIANT_MUTANT', 'DOPPELGANGER'}
 
 
+def final_frame(commands, runs, run_at, colours, drop, box):
+    """What the frame ends as, a colour per pixel and a mask of those written, with the commands in drop left out
+    and a rectangle of colour 0 under the rest."""
+    col = np.zeros((H, W), np.uint16)
+    written = np.zeros((H, W), bool)
+    if box:
+        written[box[1]:box[3] + 1, box[0]:box[2] + 1] = True
+    at = 0
+    for i, c in enumerate(commands):
+        n = c['written']
+        if i not in drop:
+            k = at
+            for r in range(run_at[i], run_at[i + 1]):
+                y, x, m = runs[r * 3], runs[r * 3 + 1], runs[r * 3 + 2]
+                col[y, x:x + m] = colours[k:k + m]
+                written[y, x:x + m] = True
+                k += m
+        at += n
+    # 0x8000 and colour 0 both show black
+    return np.where(col & 0x8000, col & 0x7FFF, 0), written
+
+
+def black_lists(v, commands, runs, run_at, colours):
+    """Two lists to set against today's. 'run': the black commands before the first with colour as one fill behind
+    everything. 'all': every black command so but Lara's and the objects', whose black is their own (her shadow, her
+    dark parts, a bridge's underside) and not the fog's; one over something bright would let it show, which
+    final_frame's difference finds. The fill's box is round the pixels they write; its time, VDP1's own for it."""
+    black = []
+    at = 0
+    for c in commands:
+        n = c['written']
+        black.append(n > 0 and not np.any(colours[at:at + n] & 0x7FFF))
+        at += n
+    first_lit = next((i for i, c in enumerate(commands) if c['written'] and not black[i]), len(commands))
+    out = {}
+    now, now_written = final_frame(commands, runs, run_at, colours, set(), None)
+    for mode, drop in (('run', [i for i in range(first_lit) if black[i]]),
+                       ('all', [i for i, b in enumerate(black) if b and commands[i]['cat'] not in ('lara', 'object')])):
+        box = None
+        if drop:
+            spans = [(runs[r * 3], runs[r * 3 + 1], runs[r * 3 + 2]) for i in drop for r in range(run_at[i], run_at[i + 1])]
+            box = [min(s[1] for s in spans), min(s[0] for s in spans), max(s[1] + s[2] for s in spans) - 1, max(s[0] for s in spans)]
+        cycles = 0
+        if box:
+            at = 0x3FFF0
+            keep = v.vram[at:at + 0x10].copy()
+            v.vram[at:at + 0x10] = [4, 0, 0xC0, 0, 0, 0, box[0], box[1], box[2], box[1], box[2], box[3], box[0], box[3], 0, 0]
+            cycles = v.step(at, ctypes.c_int32(-1))[1].cycles
+            v.vram[at:at + 0x10] = keep
+        col, written = final_frame(commands, runs, run_at, colours, set(drop), box)
+        out[mode] = {'drop': drop, 'box': box, 'cycles': int(cycles), 'differ': int(((col != now) & now_written).sum()),
+                     'never': int((~written).sum())}
+    return out
+
+
 def analyze(name):
     out = f'{OUT}/{name}'
     cap = json.load(open(f'{out}/capture.json'))
@@ -252,6 +307,7 @@ def analyze(name):
         t['cycles'] += c['cycles']
         t['plotted'] += c['plotted']
     colours = np.concatenate(colors) if colors else np.zeros(0, '<u2')
+    black = black_lists(v, commands, runs, run_at, colours)
     open(f'{out}/writes.bin', 'wb').write(colours.tobytes())
     open(f'{out}/runs.bin', 'wb').write(np.array(runs, '<u2').tobytes())
     open(f'{out}/run_at.bin', 'wb').write(np.array(run_at, '<u4').tobytes())
@@ -262,7 +318,7 @@ def analyze(name):
     wasted = sum(c['cycles'] * (1 - c['seen'] / c['written']) if c['written'] else c['cycles'] for c in commands)
     gone = sum(c['cycles'] for c in commands if c['written'] and not c['seen'])
     frame = {'title': cap['title'], 'name': name, 'width': W, 'height': H, 'commands': commands, 'owners': table, 'never': never, 'hist': hist,
-             'cycles': total, 'wasted': wasted, 'gone': gone, 'ms': MS, 'plottedTotal': sum(c['plotted'] for c in commands)}
+             'cycles': total, 'wasted': wasted, 'gone': gone, 'ms': MS, 'plottedTotal': sum(c['plotted'] for c in commands), 'black': black}
     json.dump(frame, open(f'{out}/frame.json', 'w'))
     report(frame)
 
@@ -284,6 +340,11 @@ def report(f):
         s[3] += c['seen']
     for k, s in sorted(cats.items(), key=lambda a: -a[1][1]):
         print(f'  {k:9s} {s[0]:5d} commands {s[1] * MS:7.2f} ms  written {s[2]:7d}  seen {s[3]:6d} ({s[3] * 100 / max(s[2], 1):3.0f}%)')
+    for mode, label in (('run', 'black before the first colour'), ('all', 'all black but Lara and objects')):
+        b = f['black'][mode]
+        gone = sum(cmds[i]['cycles'] for i in b['drop'])
+        print(f'  {label}: {len(b["drop"])} commands {gone * MS:.2f} ms -> one fill {b["box"]} {b["cycles"] * MS:.2f} ms; list {f["cycles"] * MS:.2f} -> '
+              f'{(f["cycles"] - gone + b["cycles"]) * MS:.2f} ms; {b["differ"]} pixels look different; never written {f["never"]} -> {b["never"]}')
     print('  by owner, dearest:')
     for o in sorted(f['owners'], key=lambda o: -o['cycles'])[:14]:
         print(f'    {o["name"][:24]:24s} {o["commands"]:4d} cmds {o["cycles"] * MS:6.2f} ms  written {o["written"]:6d}  seen {o["seen"]:6d} ({o["seen"] * 100 / max(o["written"], 1):3.0f}%)')
