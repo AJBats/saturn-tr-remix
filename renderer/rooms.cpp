@@ -37,8 +37,7 @@ static uint16_t gListCopy[ROOMS_LISTED];
 static int32_t gListCopied;
 
 static_assert(offsetof(RoomsContext, verticesTop) == 152 && offsetof(RoomsContext, hidden) == 156 &&
-              offsetof(RoomsContext, seenNear) == 160 && offsetof(RoomsContext, tiny) == 164 &&
-              offsetof(RoomsContext, gaps) == 168 && offsetof(RoomsContext, gapBoxes) == 172,
+              offsetof(RoomsContext, seenNear) == 160 && offsetof(RoomsContext, tiny) == 164,
               "rooms.s's RoomsContext");
 static int32_t gView[12];
 static int32_t gClip[MAX_LEVEL_ROOMS][4];
@@ -91,8 +90,6 @@ void roomsInit(const RoomsLevel &level)
     gCtx.hidden = uncached(gHidden);
     gCtx.seenNear = uncached(gSeenNear);
     gSines = level.sines;
-    gCtx.gaps = level.gaps && level.gaps[level.count] ? level.gaps : nullptr;
-    gCtx.gapBoxes = (const int16_t*)(level.gaps + ((level.count + 2) & ~1u));
 }
 
 void roomsFarScaled(bool on)
@@ -140,9 +137,6 @@ void roomsSeen(bool take)
     }
     roomsSeenAsm(&gCtx);
     roomsJobsAsm(&gCtx);
-    if (gCtx.gaps) {
-        roomsOpeningsAsm(&gCtx);
-    }
     if (gHide)
     {
         for (int32_t i = 0; i < gCtx.listed && i < ROOMS_LISTED; i++) {

@@ -74,7 +74,6 @@ import texart  # noqa: E402
 import trpsx  # noqa: E402
 import meshstore  # noqa: E402
 import roomrank  # noqa: E402
-import levelgaps  # noqa: E402
 import trsat  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -859,7 +858,7 @@ class Packer:
     def pack(self):
         lvl = self.lvl
         out = Out()
-        out.raw(bytes(180))     # header, written last
+        out.raw(bytes(176))     # header, written last
 
         rooms = self.write_rooms(out)
 
@@ -1004,30 +1003,17 @@ class Packer:
         order = roomrank.room_order(lvl)
         out.raw(bytes(order) + bytes([0xFF]) * (len(lvl.rooms) - len(order)))
 
-        # the rooms standing open (tools/levelgaps.py): each room's first box, a
-        # byte each, one more for the last's end, then the boxes in room space
-        gaps = levelgaps.level_gaps(lvl, lvl.name)
-        room_gaps = out.align4()
-        first = [0]
-        for r in range(len(lvl.rooms)):
-            first.append(first[-1] + len(gaps.get(r, [])))
-        assert first[-1] < 128
-        out.raw(bytes(first) + bytes(len(first) & 1))
-        for r in range(len(lvl.rooms)):
-            for box in gaps.get(r, []):
-                out.pack("6h", *box)
-
         header = struct.pack(">I14H", 0x53415431,     # 'SAT1'
             0, len(lvl.rooms), len(lvl.models), len(lvl.mesh_offsets), len(lvl.static_meshes),
             len(lvl.sprite_sequences), len(lvl.sound_sources), len(lvl.boxes), textures_count,
             len(lvl.sprite_textures), len(lvl.items), len(lvl.cameras), len(lvl.camera_frames), len(offsets) // 2)
-        header += struct.pack(">37I",
+        header += struct.pack(">36I",
             palette, 0, 0, rooms, floors, mesh_base, mesh_offsets_pos, anims, states, ranges,
             commands, nodes, frames, models, static_meshes, textures, sprites, sprite_sequences,
             cameras, sound_sources, boxes, overlaps, *zones, anim_tex, items,
-            camera_frames, sound_map, sound_infos, 0, sound_offsets, rooms_high, room_gaps)
-        assert len(header) == 180
-        out.b[0:180] = header
+            camera_frames, sound_map, sound_infos, 0, sound_offsets, rooms_high)
+        assert len(header) == 176
+        out.b[0:176] = header
         return bytes(out.b)
 
 

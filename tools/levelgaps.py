@@ -1,10 +1,9 @@
 """Where a level's rooms stand open to the sky, which retail's clear hid and which, with no clear, shows the last frame (issue 267).
 
 A sector with air in it, no room above and no face over it has nothing for a camera looking up. A room with most of its sectors so
-has no top: the box of those is kept in room space, and the game fills the screen box of a listed room's openings behind
-everything (renderer/rooms.cpp). A closed room's odd such sector doesn't count: it is rock no camera gets under, and filling
-for it would cost every frame that lists it. Places these rules can't see, a gap in the rock between two faces, are listed by
-hand in GAPS.
+has no top: the box of those is kept in room space. A closed room's odd such sector doesn't count: it is rock no camera gets
+under. Places these rules can't see, a gap in the rock between two faces, are listed by hand in GAPS. Nothing in the game reads
+this now: a fill built on it was taken out (issue 267), and it stays as the list of where a level stands open.
 
     python -I tools/levelgaps.py [LEVEL ...]    what each level's rooms have
 """
