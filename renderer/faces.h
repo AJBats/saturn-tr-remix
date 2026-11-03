@@ -223,9 +223,10 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &textures, RoomSplit &split, Com
 // past it is a fill behind everything, as one a plane cuts.
 void facesFar(int32_t far);
 
-// Near the camera room faces are split as the original split them (faces.cpp
-// roomQuadNear), or only where the near plane cuts them.
-void facesNear(bool retail);
+// Room faces with every corner within this are split as the original split them
+// (faces.cpp roomQuadNear; at most 4096, its own); 0, only where the near plane
+// cuts them.
+void facesNear(int32_t split);
 void facesRoom(const FaceRoom &room, RoomRun &run);
 
 // A face's shading in facesroom.s.
@@ -282,6 +283,7 @@ struct RoomRun
     int32_t (*tiles)(RoomRun* run, uint32_t key, uint32_t size);    // +328 the texture's tiles'
                                 // character / 8, 0 when the cache can't have them
     void (*near)();             // +332 facesRoomNear, or none: only what the near plane cuts splits
+    int32_t nearSplit;          // +336 a quad with every corner within this splits (facesNear)
 };
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);

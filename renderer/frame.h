@@ -227,7 +227,7 @@ void frameFar(int32_t far);
 void frameTexels(int32_t lod);
 
 // How room faces near the camera split (faces.h facesNear).
-void frameNear(bool retail);
+void frameNear(int32_t split);
 
 // The list and the textures its faces queued into VDP1 VRAM where the game
 // keeps its own, by the SCU's DMA: the textures, the clear and the rooms'

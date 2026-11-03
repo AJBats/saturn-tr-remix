@@ -38,7 +38,7 @@ static_assert(sizeof(ItemObj) == sizeof(render::GameItem) && sizeof(Texture) == 
 #define FACE_TYPE_LINE_H    8
 #define FACE_TYPE_LINE_V    9
 #define BAR_HEIGHT      5
-static int32 gTexels = 4;       // room faces' mip level: 1 texel a pixel (renderTexels)
+static int32 gTexels = 6;       // room faces' mip level: 1.5 texels a pixel (renderTexels)
 #define MAX_CALLS       384         // a frame's: its draws, and a viewport for each room seen
 #define NO_INDEX        0xFFFFFFFF
 
@@ -515,9 +515,9 @@ void renderTexels(int32 lod)
     render::frameTexels(lod);
 }
 
-void renderNear(bool retail)
+void renderNear(int32 split)
 {
-    render::frameNear(retail);
+    render::frameNear(split);
 }
 
 static int32 gTiny = 256;     // renderTiny's

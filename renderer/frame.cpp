@@ -766,10 +766,10 @@ void frameTexels(int32_t lod)
     gRoomTextures.lod = lod;
 }
 
-void frameNear(bool retail)
+void frameNear(int32_t split)
 {
 #ifndef RENDER_LAB
-    facesNear(retail);
+    facesNear(split);
 #endif
 }
 

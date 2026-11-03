@@ -55,6 +55,7 @@
     .equ    RUN_FAR_BUCKET, 268
     .equ    RUN_CAREFUL_TRI, 272
     .equ    RUN_NEAR,       332
+    .equ    RUN_NEAR_SPLIT, 336
     .equ    CLIP_LEFT,      2
     .equ    CLIP_RIGHT,     4
     .equ    CLIP_TOP,       8
@@ -498,7 +499,7 @@
     mov.w   @(4, r1), r0
     shlr8   r0
     tst     #0xF0, r0
-    bf      .LFaceMaterial\sfx  ! corner A past NEAR_SPLIT
+    bf      .LFaceMaterial\sfx  ! corner A past the most faces.cpp splits at
     mov     r0, r6
     mov.l   @(RUN_NEAR, gbr), r0
     tst     r0, r0
@@ -1280,7 +1281,7 @@ _facesRoomAsm:
 
 ! --- near the camera, as the original (faces.cpp, issue 263) --------------------
 
-    ! A quad every corner of it within NEAR_SPLIT, none nearer than the plane:
+    ! A quad every corner of it within RoomRun.nearSplit, none nearer than the plane:
     ! split here. A new corner lies where the view's midpoint does, from the
     ! ends' screen places and depths alone: a + (b - a) zb / (za + zb), one
     ! divide for x and y, ends in address order so that two quads sharing an
@@ -1367,18 +1368,20 @@ _facesRoomAsm:
     .global _facesRoomNear
 _facesRoomNear:
     sts.l   pr, @-r15
-    mov.w   @(4, r1), r0
+    mov.l   @(RUN_NEAR_SPLIT, gbr), r0
     mov     r0, r6
+    mov.w   @(4, r1), r0
+    cmp/gt  r6, r0
+    bt      .LnearWhole
     mov.w   @(4, r2), r0
-    or      r0, r6
+    cmp/gt  r6, r0
+    bt      .LnearWhole
     mov.w   @(4, r3), r0
-    or      r0, r6
+    cmp/gt  r6, r0
+    bt      .LnearWhole
     mov.w   @(4, r7), r0
-    or      r0, r6
-    mov     r6, r0
-    shlr8   r0
-    tst     #0xF0, r0
-    bf      .LnearWhole
+    cmp/gt  r6, r0
+    bt      .LnearWhole
     mov     #NEAR_PLANE, r6
     mov.w   @(4, r1), r0
     cmp/gt  r0, r6

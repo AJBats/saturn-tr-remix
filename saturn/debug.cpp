@@ -45,8 +45,10 @@ static const char* const kTiny[] = { "Off", "64 px", "128 px", "256 px" };
 static int32 gTinyStep = 3;     // kTiny's
 static bool gHolesShown;        // what rooms' fills fill and what nothing draws, magenta
 static const char* const kTexels[] = { "1 a pixel", "1.5 a pixel" };
-static int32 gTexelStep;        // kTexels'
-static int32 gNearStep = 1;     // kCamera's: room faces near the camera
+static int32 gTexelStep = 1;    // kTexels'
+static const char* const kNear[] = { "Ours", "4096", "3072", "2048" };
+static const int16 kNearSplit[] = { 0, 4096, 3072, 2048 };
+static int32 gNearStep = 1;     // kNear's: how far off room faces split
 #endif
 
 static bool gShowStats;
@@ -83,9 +85,9 @@ static const Option gOptions[] = {
     { "Texels", kTexels, 2,
         [] { return gTexelStep; },
         [](int32 v) { gTexelStep = v; renderTexels(4 + 2 * v); } },
-    { "Near", kCamera, 2,
+    { "Near", kNear, 4,
         [] { return gNearStep; },
-        [](int32 v) { gNearStep = v; renderNear(v); } },
+        [](int32 v) { gNearStep = v; renderNear(kNearSplit[v]); } },
     { "Camera", kCamera, 2,
         [] { return int32(gCameraRetail); },
         [](int32 v) { gCameraRetail = v; } },
