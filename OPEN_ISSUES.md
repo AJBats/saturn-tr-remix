@@ -3301,8 +3301,13 @@ Fix: small*
 - **It has grown:** LEVEL7A's faces got 37,296 bytes of high work RAM at 33102ae (48 rooms) and get
   6,832 now (11 rooms), on an HW_LOG build at both: the program grew 30,448 bytes between them, which
   is all of the loss. That view's rooms need 22 KB. Any more growth takes the rest.
-- **What grew:** 17.9 KB of code (near faces 9.1, retail's camera 3.8, debug 2.5, FMV 1.0, the rest
-  1.5) and 12.5 KB of buffers and tables (3,328 room vertices 7.7, the stamps page 1.3, sort keys 1.1).
+- **What grew:** 17.9 KB of code (near faces 7.7, retail's camera 3.8, debug 2.5, FMV 1.0, the rest
+  2.9) and 12.5 KB of buffers and tables (3,328 room vertices 7.7, the stamps page 1.3, sort keys 1.1).
+- **Against retail:** the code isn't the problem: retail's is 380 KB and ours 212 KB, and our port of
+  its camera 3.8 KB against its 5.4 KB. Buffers are: about 270 KB of data in retail, 570 KB of bss in
+  ours. Retail's one room vertex buffer is 48,000 bytes (1,500 of 32 bytes at `06094564`), overwritten
+  room by room; ours hold the frame's rooms, 88 KB. Its near faces are 4.9 KB against our 9.0, of which
+  2.6 is the old path behind the menu's Near Ours, which a build without the menu can't reach.
 - **Test discs read worse than the game:** a build without HW_LOG ends 19,632 bytes lower, which would
   leave LEVEL7A's faces about 26.5 KB (by subtraction, not run).
 - **Candidates:** the save and backup buffers, 40 KB used only when saving or loading (`gLibrary` 16,
