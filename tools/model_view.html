@@ -64,7 +64,7 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
 <body>
 <header>
   <h1>Asset Diet Viewer</h1>
-  <div class="tabs"><button data-tab="wolf" class="on">Wolf</button><button data-tab="rat">Rat</button><button data-tab="bridge">Bridges</button></div>
+  <div class="tabs"><button data-tab="wolf" class="on">Wolf</button><button data-tab="rat">Rat</button><button data-tab="croc">Crocodile</button><button data-tab="gorilla">Gorilla</button><button data-tab="bear">Bear</button><button data-tab="bridge">Bridges</button></div>
   <span class="note">left: as the Saturn data has it · right: simplified · drag to orbit, wheel to zoom</span>
 </header>
 <main>
@@ -75,6 +75,7 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
     <div class="row"><button class="small" id="play">Pause</button><span><input type="range" id="speed" min="0.1" max="2" step="0.05" value="1"></span></div>
     <div class="row"><input type="range" id="frame" min="0" max="100" step="0.01" value="0"></div>
     <span class="sub" id="frameInfo"></span>
+    <label><input type="checkbox" id="playAll"><span>Every animation in turn</span></label>
     <h2>Bones fused into their parent</h2>
     <span class="sub">A fused joint holds one pose relative to its parent: its mesh would be built into the parent's in that pose.</span>
     <div class="row"><select id="hold"><option value="stand">Hold the standing pose</option><option value="typical">Hold each joint's most typical awake pose</option></select></div>
@@ -82,14 +83,20 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
     <h2>Cards</h2>
     <span class="sub">Flat polygons that turn round the bone to face the camera, in place of the bone's mesh.</span>
     <div id="cardGroups"></div>
-    <label><input type="checkbox" id="ribbon"><span>Tail as one ribbon<span class="sub">one strip down the tail's middle facing the camera, narrowing with it, each piece's end shared with the next: no gaps or steps at the bends</span></span></label>
-    <div class="row"><select id="cardLight"><option value="ends">Card ends lit as the mean of their box's corners (as the game)</option><option value="view">Card lit as if facing the camera</option></select></div>
+    <label id="ribbonRow"><input type="checkbox" id="ribbon"><span>Tail as one ribbon<span class="sub">one strip down the tail's middle facing the camera, narrowing with it, each piece's end shared with the next: no gaps or steps at the bends</span></span></label>
+    <div class="row"><select id="cardLight"><option value="camera">Card light: with the side facing the camera</option><option value="ends">Card light: as the game has it now</option></select></div>
     <div class="row"><select id="cardLook"><option value="baked">Card texture: the segment from the side</option><option value="flat">Card texture: none, one colour</option></select></div>
     <span class="sub">The card textures, 8 texels across, a texel every 5 units along:</span>
     <canvas id="cardTex" height="1" style="width:100%;image-rendering:pixelated;margin-top:4px"></canvas>
     <h2>Geometry</h2>
     <label><input type="checkbox" id="insideCopies"><span>Drop the inside copies<span class="sub" id="insideInfo"></span></span></label>
     <label><input type="checkbox" id="join"><span>Join the segments<span class="sub" id="joinInfo"></span></span></label>
+    <h2>Light, as the game's</h2>
+    <span class="sub">Shade per vertex from the room's ambient and one light, added to the texels as VDP1's gouraud does. In shade steps of 31, 16 neutral, more is darker. Placed rats in the Cistern: ambient 20 to 28, range 2 to 8.</span>
+    <div class="row"><span>Ambient <b id="ambientV"></b></span><input type="range" id="ambient" min="0" max="31" step="1" value="16"></div>
+    <div class="row"><span>Range <b id="rangeV"></b></span><input type="range" id="lightRange" min="0" max="16" step="1" value="8"></div>
+    <div class="row"><span>Light round</span><input type="range" id="lightAz" min="0" max="360" step="5" value="40"></div>
+    <div class="row"><span>Light up</span><input type="range" id="lightEl" min="-90" max="90" step="5" value="50"></div>
     <h2>View</h2>
     <div class="row"><button class="small" id="animalClose">Close up</button><button class="small" id="animalFar">About 7 blocks off</button></div>
   </div>
@@ -187,8 +194,8 @@ img.src = 'data:image/png;base64,' + D.atlas.png;
 // ---- triangles out of faces, each face a grid so the texture lands on the quad as VDP1 puts it;
 // the face's own edges kept apart for the edge view (the grid is only for drawing)
 class Builder {
-  constructor() { this.p = []; this.n = []; this.uv = []; this.c = []; this.e = []; }
-  quad(P, N, col, t, fh, div, outline, reverse) {
+  constructor() { this.p = []; this.n = []; this.uv = []; this.c = []; this.o = []; this.e = []; }
+  quad(P, N, col, t, fh, div, outline, reverse, off) {
     const o = outline || P;
     for (let k = 0; k < o.length; k++) {
       const a = o[k], b = o[(k + 1) % o.length];
@@ -210,7 +217,8 @@ class Builder {
       g.push({ p: T3(p), n: T3(nrm(n)), uv: [(r[0] + tu * r[2]) / AW, (r[1] + v * r[3]) / AH],
                c: [col[0][0]*w[0]+col[1][0]*w[1]+col[2][0]*w[2]+col[3][0]*w[3],
                    col[0][1]*w[0]+col[1][1]*w[1]+col[2][1]*w[2]+col[3][1]*w[3],
-                   col[0][2]*w[0]+col[1][2]*w[1]+col[2][2]*w[2]+col[3][2]*w[3]] });
+                   col[0][2]*w[0]+col[1][2]*w[1]+col[2][2]*w[2]+col[3][2]*w[3]],
+               o: off ? off[0]*w[0]+off[1]*w[1]+off[2]*w[2]+off[3]*w[3] : 0 });
     }
     const at = (i, j) => g[j * (div + 1) + i];
     for (let j = 0; j < div; j++) for (let i = 0; i < div; i++) {
@@ -224,13 +232,14 @@ class Builder {
       }
     }
   }
-  tri(...vs) { for (const v of vs) { this.p.push(...v.p); this.n.push(...v.n); this.uv.push(...v.uv); this.c.push(...v.c); } }
+  tri(...vs) { for (const v of vs) { this.p.push(...v.p); this.n.push(...v.n); this.uv.push(...v.uv); this.c.push(...v.c); this.o.push(v.o); } }
   geometry() {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
+    g.setAttribute('gouraud', new THREE.Float32BufferAttribute(this.o, 1));
     return g;
   }
 }
@@ -242,7 +251,7 @@ const opt = { tint: false };
 
 // a mesh's face with its vertices placed: corners, normals, colours; true when it faces the camera.
 // weld: the vertices it shares with its parent's mesh, map (its vertex to the parent's), M and mesh the parent's
-function meshFace(mesh, f, place, rotate, shadeOf, cam, b, tint, weld) {
+function meshFace(mesh, f, place, rotate, shadeOf, cam, b, tint, weld, gouraud) {
   const welded = (i) => weld && weld.map[i] !== undefined;
   const vp = (i) => {
     if (welded(i)) { const k = weld.map[i], w = weld.mesh.v; return apply(weld.M, [w[k*3], w[k*3+1], w[k*3+2]]); }
@@ -270,33 +279,43 @@ function meshFace(mesh, f, place, rotate, shadeOf, cam, b, tint, weld) {
   const isTri = !f.p && f.c[2] === f.c[3];
   // a textured triangle is drawn as a parallelogram whose end codes trim it to v0 v1 v2
   const outline = f.p ? f.p.map(vp) : isTri ? P.slice(0, 3) : P;
-  b.quad(P, N, col, f.t, f.fh, f.col || isTri ? 1 : 4, outline, f.s);
+  b.quad(P, N, col, f.t, f.fh, f.col || isTri ? 1 : 4, outline, f.s, gouraud && N ? N.map(gouraud) : null);
   // facing as the game tests it: a triangle by its corners as stored
   const T = f.p ? (f.s ? [f.p[0], f.p[2], f.p[1]] : f.p).map(vp) : P;
   return dot(cross(sub(T[1], T[0]), sub(T[2], T[0])), sub(cam, T[0])) < 0;
 }
 
-// The sun as the views light (makeView), in TR's space (T3 turns it), and
-// the light a normal there gets from it and the ambient light.
-const SUN_TR = nrm([0.45, -1, -0.55]);
-const lambert = (n) => 0.62 + 0.75 * Math.max(0, dot(n, SUN_TR));
+// The game's light on a normal (meshxform: ambient - range * n . l, within 0 .. 31,
+// the normal as long as it is), as what VDP1's gouraud adds to a texel: g 15 adds nothing.
+const lighting = { ambient: 16, range: 8, l: [0, -1, 0] };
+function gouraudOf(n) {
+  const g = Math.max(0, Math.min(31, Math.floor(lighting.ambient - lighting.range * dot(n, lighting.l))));
+  return (15 - g) / 31;
+}
 
 // a card: a polygon from e0 to e1, w wide, turned round that line to the camera.
-// shades: each end's light, drawn prelit (b a prelit builder); else lit as
-// facing the camera
-function card(e0, e1, w, cam, col, t, uAlong, b, tint, shades) {
+// off: each end's gouraud; else none (the bridges': drawn prelit by col)
+function card(e0, e1, w, cam, col, t, uAlong, b, tint, off) {
   const mid = scl(add(e0, e1), 0.5);
   let s = cross(sub(e1, e0), sub(cam, mid));
   s = scl(nrm(s), w / 2);
   const n = nrm(sub(cam, mid));
-  // corners in the order that faces the camera, so that a lit card is lit by
-  // its normals rather than as a back face
   const P = uAlong ? [sub(e0, s), sub(e1, s), add(e1, s), add(e0, s)]
                    : [add(e0, s), sub(e0, s), sub(e1, s), add(e1, s)];
   const c = tint && opt.tint ? [col[0]*TINT[0], col[1]*TINT[1], col[2]*TINT[2]] : col;
-  const at = (k) => shades ? c.map(q => q * shades[k]) : c;
-  const C = uAlong ? [at(0), at(1), at(1), at(0)] : [at(0), at(0), at(1), at(1)];
-  b.quad(P, [n, n, n, n], C, t, false, t ? 4 : 1);
+  const o = off ? (uAlong ? [off[0], off[1], off[1], off[0]] : [off[0], off[0], off[1], off[1]]) : null;
+  b.quad(P, [n, n, n, n], [c, c, c, c], t, false, t ? 4 : 1, null, false, o);
+}
+
+// the texels with VDP1's gouraud added
+function gameMaterial(side) {
+  return new THREE.ShaderMaterial({
+    side, vertexColors: true, uniforms: { map: { value: atlasTex } },
+    vertexShader: `attribute float gouraud; varying vec2 vUv; varying vec3 vC; varying float vG;
+      void main() { vUv = uv; vC = color; vG = gouraud; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform sampler2D map; varying vec2 vUv; varying vec3 vC; varying float vG;
+      void main() { vec4 t = texture2D(map, vUv); if (t.a < 0.5) discard; gl_FragColor = vec4(clamp(t.rgb * vC + vG, 0.0, 1.0), 1.0); }`,
+  });
 }
 
 // ---- three.js views: left and right, each a scene with lit, prelit and card meshes
@@ -311,6 +330,8 @@ function makeView() {
     pre: new THREE.MeshBasicMaterial({ map: atlasTex, vertexColors: true, alphaTest: 0.5, side: THREE.FrontSide }),
     card: new THREE.MeshLambertMaterial({ map: atlasTex, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide }),
     cardPre: new THREE.MeshBasicMaterial({ map: atlasTex, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide }),
+    game: gameMaterial(THREE.FrontSide),
+    gameCard: gameMaterial(THREE.DoubleSide),
   };
   for (const k in mats) Object.assign(mats[k], { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   const meshes = {};
@@ -367,10 +388,11 @@ function makeAnimal(W, name) {
   const standR = [];
   for (let j = 0; j < NJ; j++) standR.push(rotYXZ(W.ref[j*3], W.ref[j*3+1], W.ref[j*3+2]));
   return { W, name, NJ, awake, standR, typicalR: null, typical: false,
-           state: { anim: W.anims.findIndex(a => a.state === 'RUN' && a.kf.length > 4), time: 0, playing: true, speed: 1 },
-           fused: new Set(), choice: {}, cards: new Set(), merged: new Set() };
+           state: { anim: Math.max(0, W.anims.findIndex(a => a.state === 'RUN' && a.kf.length > 4)), time: 0, playing: true, speed: 1 },
+           fused: new Set(W.defaults.fuses), choice: {}, cards: new Set(W.defaults.cards), merged: new Set() };
 }
-const ANIMALS = { wolf: makeAnimal(D.wolf, 'wolf'), rat: makeAnimal(D.rat, 'rat') };
+const ANIMALS = {};
+for (const k of ['wolf', 'rat', 'croc', 'gorilla', 'bear']) ANIMALS[k] = makeAnimal(D[k], D[k].title);
 let A = ANIMALS.wolf;
 
 // per joint, the awake keyframe's turn closest to all the others (the medoid)
@@ -452,6 +474,7 @@ function fillAnimal() {
   ui('insideInfo').textContent = `${copies} faces: closed boxes have some sides drawn twice, once each way round; the copy facing in can never be seen`;
   const rings = Object.values(W.join);
   const shared = rings.reduce((n, r) => n + Object.keys(r.map).length, 0), caps = rings.reduce((n, r) => n + r.caps.length + r.pcaps.length, 0);
+  ui('ribbonRow').style.display = W.ribbon ? '' : 'none';
   ui('joinInfo').textContent = `${rings.length} joints where a segment's end meets its parent's: ${shared} vertices shared with the parent, up to ${caps} end faces gone. The faces stretch across the bend instead of two boxes pivoting through each other`;
   drawCardTextures();
 }
@@ -473,37 +496,47 @@ function animalPose(simplified) {
 }
 
 // a chain of segments as one strip facing the camera, each point moved across
-// the line through its neighbours; its quads
-function ribbon(R, M, cam, b) {
+// the line through its neighbours; its quads. light: a point's gouraud, from
+// its normal (or null) and the matrix of its joint
+function ribbon(R, M, cam, b, light) {
   const last = R.seg[R.seg.length - 1];
   const pts = R.seg.map(s => apply(M[s.j], s.p)).concat([apply(M[last.j], R.tip)]);
   const half = R.seg.map(s => s.h).concat([R.tipH]);
   const n = R.seg.length;
   const across = pts.map((p, k) => scl(nrm(cross(sub(pts[Math.min(k + 1, n)], pts[Math.max(k - 1, 0)]), sub(cam, p))), half[k]));
-  const mean = (ns, m) => ns.length ? ns.reduce((a, q) => a + lambert(rv(m.R, q)), 0) / ns.length : 1;
-  const light = R.seg.map(s => mean(s.ns, M[s.j])).concat([mean(R.tipNs, M[last.j])]);
+  const g = R.seg.map(s => light(s.n, M[s.j])).concat([light(R.tipN, M[last.j])]);
   R.seg.forEach((s, k) => {
     const base = s.col ? s.col.map(x => x / 255) : WHITE;
     const c = opt.tint ? [base[0]*TINT[0], base[1]*TINT[1], base[2]*TINT[2]] : base;
-    const at = (q) => c.map(x => x * light[q]);
     const a0 = across[k], a1 = across[k + 1], p0 = pts[k], p1 = pts[k + 1];
     const P = s.u ? [sub(p0, a0), sub(p1, a1), add(p1, a1), add(p0, a0)] : [add(p0, a0), sub(p0, a0), sub(p1, a1), add(p1, a1)];
-    const C = s.u ? [at(k), at(k + 1), at(k + 1), at(k)] : [at(k), at(k), at(k + 1), at(k + 1)];
+    const O = s.u ? [g[k], g[k + 1], g[k + 1], g[k]] : [g[k], g[k], g[k + 1], g[k + 1]];
     const f = nrm(sub(cam, p0));
-    b.quad(P, [f, f, f, f], C, s.t, false, s.t ? 4 : 1);
+    b.quad(P, [f, f, f, f], [c, c, c, c], s.t, false, s.t ? 4 : 1, null, false, O);
   });
   return n;
 }
+
+const CARD_LIGHT = 0.58;     // tools/diet.py's
+// fitted over the rat's card joints: what a box's visible side adds to its
+// corners' mean, the light being linear in the normal
+const CARD_FACING = 0.36;
 
 function buildAnimal(simplified) {
   const W = A.W, NJ = A.NJ, merged = A.merged;
   const M = animalPose(simplified);
   const cam = camTR();
-  const b = { lit: new Builder(), card: new Builder(), cardPre: new Builder() };
+  const b = { game: new Builder(), gameCard: new Builder() };
   const flat = ui('cardLook').value === 'flat';
+  // a card end's light: its box's corners' mean, baked as a normal CARD_LIGHT
+  // long (tools/diet.py), and if asked the side the camera sees: one term for
+  // the whole animal (CARD_FACING of the direction to the camera)
+  const toCam = nrm(sub(cam, M[0].t));
+  const facing = simplified && ui('cardLight').value === 'camera' ? scl(toCam, CARD_FACING) : [0, 0, 0];
+  const endLight = (n, m) => gouraudOf(add(n ? scl(rv(m.R, n), CARD_LIGHT) : [0, 0, 0], facing));
   const isCard = (j) => simplified && W.cards[j] && W.cardGroups.some(g => A.cards.has(g.key) && g.joints.includes(j));
-  const ribbonOn = simplified && ui('ribbon').checked;
-  const ribbonJoints = new Set(W.ribbon.seg.map(s => s.j));
+  const ribbonOn = simplified && W.ribbon && ui('ribbon').checked;
+  const ribbonJoints = new Set(W.ribbon ? W.ribbon.seg.map(s => s.j) : []);
   const joinOn = simplified && ui('join').checked;
   const joined = (j) => joinOn && W.join[j] && !isCard(j) && !isCard(W.join[j].p) && !(ribbonOn && (ribbonJoints.has(j) || ribbonJoints.has(W.join[j].p)));
   const dropped = W.meshes.map(() => new Set());
@@ -520,12 +553,8 @@ function buildAnimal(simplified) {
     if (opt.cardsOnly && !W.cards[j]) continue;
     if (isCard(j) && !(ribbonOn && ribbonJoints.has(j))) {
       const c = W.cards[j];
-      // the game lights each end as the mean of its box's corners there
-      // (tools/diet.py CARD_LIGHT): here the mean of their light
-      const mean = (ns) => ns.reduce((a, q) => a + lambert(rv(M[j].R, q)), 0) / ns.length;
-      const shades = ui('cardLight').value === 'ends' && c.ns0.length && c.ns1.length ? [mean(c.ns0), mean(c.ns1)] : null;
       card(apply(M[j], c.e0), apply(M[j], c.e1), c.w, cam, flat ? c.col.map(x => x / 255) : WHITE, flat ? 0 : c.t, true,
-           shades ? b.cardPre : b.card, true, shades);
+           b.gameCard, true, [endLight(c.n0, M[j]), endLight(c.n1, M[j])]);
       nCards++; sent++; faces++; verts += 4;    // its ends and their copies (renderer/faces.h)
       meshOwner[keptOf(j)] = true;
       continue;
@@ -539,13 +568,13 @@ function buildAnimal(simplified) {
       faces++;
       (f.p || f.c).forEach(i => { if (i >= 0 && !(weld && weld.map[i] !== undefined)) used.add(i); });
       const tint = simplified && (merged.has(j) || (weld && (f.p || f.c).some(i => weld.map[i] !== undefined)));
-      if (meshFace(mesh, f, place, rotate, () => 1, cam, b.lit, tint, weld)) sent++;
+      if (meshFace(mesh, f, place, rotate, () => 1, cam, b.game, tint, weld, gouraudOf)) sent++;
     });
     verts += used.size;
     if (used.size || mesh.f.length > dropped[j].size) meshOwner[keptOf(j)] = true;
   }
   if (ribbonOn) {
-    const n = ribbon(W.ribbon, M, cam, b.cardPre);
+    const n = ribbon(W.ribbon, M, cam, b.gameCard, endLight);
     nCards += n; sent += n; faces += n; verts += 2 * (n + 1);
     W.ribbon.seg.forEach(s => { meshOwner[keptOf(s.j)] = true; });
   }
@@ -710,6 +739,7 @@ ui('speed').oninput = (e) => A.state.speed = +e.target.value;
 ui('hold').onchange = (e) => { A.typical = e.target.value === 'typical'; dirty = true; };
 ui('anim').onchange = (e) => { A.state.anim = +e.target.value; A.state.time = 0; dirty = true; };
 ui('frame').oninput = (e) => { const a = A.W.anims[A.state.anim]; A.state.time = +e.target.value / 100 * animLength(a); dirty = true; };
+['ambient', 'lightRange', 'lightAz', 'lightEl'].forEach(id => ui(id).addEventListener('input', () => dirty = true));
 ['insideCopies', 'join', 'ribbon', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
 controls.addEventListener('change', () => { dirty = true; syncDist(); });
 
@@ -728,7 +758,13 @@ function frame(now) {
   controls.update();
   if (ANIMALS[tab] && A.state.playing) {
     const a = A.W.anims[A.state.anim];
+    const was = A.state.time;
     A.state.time = (A.state.time + dt * 30 * A.state.speed) % (animLength(a) + a.rate);
+    if (A.state.time < was && ui('playAll').checked) {
+      A.state.anim = (A.state.anim + 1) % A.W.anims.length;
+      ui('anim').value = A.state.anim;
+      A.state.time = 0;
+    }
     ui('frame').value = Math.min(100, A.state.time / animLength(a) * 100);
     dirty = true;
   }
@@ -764,6 +800,12 @@ function update() {
   if (atlasTex.magFilter !== filter) { atlasTex.magFilter = atlasTex.minFilter = filter; atlasTex.needsUpdate = true; }
   for (const v of views) v.lines.visible = wire;
   if (ANIMALS[tab]) {
+    const az = +ui('lightAz').value * Math.PI / 180, el = +ui('lightEl').value * Math.PI / 180;
+    lighting.ambient = +ui('ambient').value;
+    lighting.range = +ui('lightRange').value;
+    lighting.l = [Math.cos(el) * Math.sin(az), -Math.sin(el), Math.cos(el) * Math.cos(az)];
+    ui('ambientV').textContent = lighting.ambient;
+    ui('rangeV').textContent = lighting.range;
     const L = buildAnimal(false), R = buildAnimal(true);
     views[0].set(L.b); views[1].set(R.b);
     ui('labelL').innerHTML = animalLabel('Original', L.stats);
@@ -771,7 +813,7 @@ function update() {
     const a = A.W.anims[A.state.anim];
     ui('frameInfo').textContent = `game frame ${Math.floor(A.state.time)} of ${animLength(a)}, a keyframe every ${a.rate}`;
     ui('foot').textContent = A.W.foot;
-    const [pw, ph] = saturnSize(L.b.lit.p);
+    const [pw, ph] = saturnSize(L.b.game.p);
     sizeText = pw ? ` · the ${A.name} is about ${pw}×${ph} px on the Saturn's 352×224 screen` : '';
   } else {
     const L = buildBridge(false), R = buildBridge(true);
@@ -818,8 +860,9 @@ function draw() {
 function fromHash() {
   const tokens = decodeURIComponent(location.hash.slice(1)).split(',').filter(Boolean);
   const kv = Object.fromEntries(tokens.map(t => t.split('=')).map(([k, v]) => [k, v === undefined ? true : v]));
-  const start = kv.bridge ? 'bridge' : kv.rat ? 'rat' : 'wolf';
+  const start = ['bridge', 'rat', 'croc', 'gorilla', 'bear'].find(k => kv[k]) || 'wolf';
   if (ANIMALS[start]) A = ANIMALS[start];
+  if (kv.none) { A.fused.clear(); A.cards.clear(); }    // none of the animal's chosen toggles
   for (const f of A.W.fuses) if (kv[f.key]) A.fused.add(f.key);
   for (const g of A.W.cardGroups) if (kv[g.key]) A.cards.add(g.key);
   for (const c of A.W.choices) if (kv[c.key]) A.choice[c.key] = +kv[c.key];
@@ -828,9 +871,9 @@ function fromHash() {
   if (kv.t) A.state.time = +kv.t * animLength(A.W.anims[A.state.anim]);
   if (kv.pause) A.state.playing = false;
   document.querySelector(`[data-tab=${start}]`).click();
-  for (const id of ['insideCopies', 'join', 'ribbon', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
+  for (const id of ['playAll', 'insideCopies', 'join', 'ribbon', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
     if (id in kv) ui(id).checked = kv[id] !== '0';
-  for (const id of ['cardLight', 'cardLook']) if (kv[id]) ui(id).value = kv[id];
+  for (const id of ['cardLight', 'cardLook', 'ambient', 'lightRange', 'lightAz', 'lightEl']) if (kv[id]) ui(id).value = kv[id];
   opt.cardsOnly = !!kv.cardsOnly;      // debugging: only the joints that can be cards
   if (kv.far) animalFar();
   // debugging: both sides of every face, and/or no see-through texels

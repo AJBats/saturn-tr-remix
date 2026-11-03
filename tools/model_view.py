@@ -3,10 +3,10 @@ simplifications being considered for them (build/geo/model_view.html, a page
 with the assets inside: game data, so it stays in build/). For judging what a
 change does to an asset before trying it on the Saturn.
 
-The animals: every animation, with toggles that fuse joints to one held pose
-(what merging them into their parent's mesh would draw), draw segments as
-cards that turn to the camera, drop the inside copies of faces drawn both ways
-and join each segment's end to its parent's. The bridges: the twelve plank
+The animals: every animation, under the game's own light, with toggles that
+fuse joints to one held pose (what merging them into their parent's mesh would
+draw), draw segments as cards that turn to the camera, drop the inside copies
+of faces drawn both ways and join each segment's end to its parent's. The bridges: the twelve plank
 items, the rope statics and the rooms around them (in their textures' mean
 colours), with toggles that drop the planks' inside faces, draw each plank
 face as one quad with its tiles combined, and draw the ropes as cards.
@@ -19,7 +19,7 @@ triangle variant whose end codes (colour 15) trim it.
 usage: python tools/model_view.py <DATA dir> <out.html>
 
 The page's address sets its toggles, e.g. model_view.html#jaw,ears,cards,
-hold=typical,anim=7,t=0.5,pause, #rat,lower,tailCards,earCards,join,tail=2 or
+hold=typical,anim=7,t=0.5,pause, #rat,lower,tailCards,earCards,join,tail=2, #croc,playAll or
 #bridge,tiles,ropes,pixels, and cam=x:y:z:tx:ty:tz places the camera (game
 coordinates).
 """
@@ -60,7 +60,10 @@ RAT_WATER_STATES = "NONE SWIM BITE DEATH".split()
 RAT_FUSES = [("ears", "Ears into the head", [4, 5]),
              ("jaw", "Jaw into the head", [3]),
              ("paws", "Paws into the lower legs", [8, 18, 22, 25]),
-             ("hocks", "Hocks into the shins", [17, 21])]
+             ("hocks", "Hocks into the shins", [17, 21]),
+             ("neck", "Neck into the body", [1]),
+             ("head", "Head into the neck", [2]),
+             ("haunch", "Haunch into the body", [9])]
 RAT_TAIL = ("tail", [("Tail: 5 pieces, as it is", []),
                      ("Tail: 3 pieces (tail 2 and 4 fused)", [11, 13]),
                      ("Tail: 2 pieces (tail 2, 3 and 5 fused)", [11, 12, 14]),
@@ -72,6 +75,57 @@ RAT_CARDS = [("lower", "Lower limbs as cards", [7, 8, 16, 17, 18, 20, 21, 22, 24
 RAT_EAR_CARDS = [4, 5]      # upright, seen from the front
 RAT_TAIL_JOINTS = [10, 11, 12, 13, 14]
 RAT_NO_JOIN = [3]           # the jaw opens: its top and the head's underside are the mouth
+RAT_CHOSEN = (["ears"], ["lower", "upper", "tailCards", "earCards"])    # the user's, 2026-11-03
+
+# The crocodile (the land's and the water's have the same meshes and joints)
+CROC_JOINTS = ["body", "chest", "upper foreleg L", "lower foreleg L", "fore paw L",
+               "upper foreleg R", "lower foreleg R", "fore paw R", "snout", "lower jaw", "rear body",
+               "tail 1", "tail 2", "tail 3", "tail 4",
+               "thigh R", "shin R", "hind paw R", "thigh L", "shin L", "hind paw L"]
+CROC_STATES = "NONE STOP RUN WALK FAST_TURN ATTACK ATTACK_2 DEATH".split()
+CROC_WATER_STATES = "NONE SWIM ATTACK DEATH".split()
+CROC_FUSES = [("jaw", "Jaw into the snout", [9]),
+              ("paws", "Paws into the lower legs", [4, 7, 17, 20]),
+              ("chest", "Chest into the body", [1]),
+              ("rear", "Rear body into the body", [10])]
+CROC_TAIL = ("tail", [("Tail: 4 pieces, as it is", []),
+                      ("Tail: 2 pieces (tail 2 and 4 fused)", [12, 14]),
+                      ("Tail: 1 piece", [12, 13, 14])])
+CROC_CARDS = [("lower", "Lower limbs as cards", [3, 4, 6, 7, 16, 17, 19, 20]),
+              ("upper", "Upper limbs as cards", [2, 5, 15, 18]),
+              ("tailEnd", "End of the tail as cards", [13, 14]),
+              ("tailCards", "Start of the tail as cards", [11, 12])]
+CROC_TAIL_JOINTS = [11, 12, 13, 14]
+
+# The gorilla
+GORILLA_JOINTS = ["hips", "thigh L", "shin L", "foot L", "thigh R", "shin R", "foot R", "chest",
+                  "upper arm R", "forearm R", "hand R", "upper arm L", "forearm L", "hand L", "head", "jaw"]
+GORILLA_STATES = "NONE STOP WALK RUN ATTACK DEATH WARNING_1 WARNING_2 RUN_LEFT RUN_RIGHT JUMP".split()
+GORILLA_FUSES = [("jaw", "Jaw into the head", [15]),
+                 ("hands", "Hands into the forearms", [10, 13]),
+                 ("feet", "Feet into the shins", [3, 6]),
+                 ("head", "Head into the chest", [14]),
+                 ("chest", "Chest into the hips", [7])]
+GORILLA_CARDS = [("lower", "Shins, feet, forearms, hands as cards", [2, 3, 5, 6, 9, 10, 12, 13]),
+                 ("upper", "Thighs and upper arms as cards", [1, 4, 8, 11])]
+
+# The bear
+BEAR_JOINTS = ["body", "upper foreleg L", "lower foreleg L", "fore paw L",
+               "upper foreleg R", "lower foreleg R", "fore paw R",
+               "thigh R", "shin R", "hind paw R", "thigh L", "shin L", "hind paw L",
+               "neck", "head", "ear R", "ear L", "jaw"]
+BEAR_STATES = "WALK STOP HIND RUN HOWL GROWL BITE ATTACK EAT DEATH".split()
+BEAR_FUSES = [("ears", "Ears into the head", [15, 16]),
+              ("jaw", "Jaw into the head", [17]),
+              ("paws", "Paws into the lower legs", [3, 6, 9, 12]),
+              ("neck", "Neck into the body", [13]),
+              ("head", "Head into the neck", [14])]
+BEAR_CARDS = [("lower", "Lower limbs as cards", [2, 3, 5, 6, 8, 9, 11, 12]),
+              ("upper", "Upper limbs as cards", [1, 4, 7, 10]),
+              ("earCards", "Ears as cards", [15, 16])]
+BEAR_EAR_CARDS = [15, 16]
+
+ANIMAL_FOOT = "Counts of what each side gives the renderer; for milliseconds, run it in the game."
 
 JOIN_REACH = 15             # units a segment's end may lie from its parent's to be joined to it
 JOIN_RING = 3               # the fewest corners that make an end
@@ -249,19 +303,49 @@ def ribbon_json(meshes, start, chain, faces):
         u_along = len(idx) == 4 and diet.norm(diet.sub(v[1], v[0])) > diet.norm(diet.sub(v[3], v[0]))
         f = faces[j]["f"][best]
         p, h, ns = end(near)
-        seg.append({"j": j, "p": p, "h": h, "ns": [[round(c, 3) for c in n] for n in ns], "t": f["t"],
-                    "col": f.get("col"), "u": u_along})
+        seg.append({"j": j, "p": p, "h": h, "n": end_normal(ns), "t": f["t"], "col": f.get("col"), "u": u_along})
         tip, tip_h, tip_ns = end(far)
-    return {"seg": seg, "tip": tip, "tipH": tip_h, "tipNs": [[round(c, 3) for c in n] for n in tip_ns]}
+    return {"seg": seg, "tip": tip, "tipH": tip_h, "tipN": end_normal(tip_ns)}
 
 
-def animal_json(lvl, meshes, atlas, type_, states, names, fuses, choices, card_groups, flat_cards, no_join, foot, tail):
+def end_normal(normals):
+    """As diet.card_of takes an end's: its corners' normals averaged, a unit
+    vector; None when they cancel out."""
+    s = [sum(n[k] for n in normals) for k in range(3)]
+    return [round(c, 3) for c in diet.unit(s)] if diet.norm(s) > 0.2 else None
+
+
+def pin_card(card, parents, offsets, j):
+    """A card's ends on its joint's pivot and its child's, where those lie
+    near them: the next card along then starts where this one ends, however
+    the joint bends."""
+    line = diet.sub(card["e1"], card["e0"])
+    axis = max(range(3), key=lambda k: abs(line[k]))
+    length = abs(line[axis])
+    # e0 lies at the low end of the axis: which end is the near one?
+    near, far = ("e0", "e1") if abs(card["e0"][axis]) < abs(card["e1"][axis]) else ("e1", "e0")
+    if abs(card[near][axis]) < 0.3 * length:
+        card[near] = [0, 0, 0]
+    kids = [k for k in range(len(parents)) if parents[k] == j]
+    for k in kids:
+        if abs(offsets[k][axis] - card[far][axis]) < 0.3 * length:
+            card[far] = list(offsets[k])
+            break
+    return card
+
+
+def animal_json(lvl, meshes, atlas, type_, title, states, names, fuses, choices, card_groups, flat_cards, no_join, tail,
+                chosen=([], []), foot=ANIMAL_FOOT):
     """model_json with what the viewer offers for an animal; tail: its joints,
-    which may be drawn as one ribbon."""
+    which may be drawn as one ribbon; chosen: the fuses and card groups on to
+    begin with."""
     out = model_json(lvl, meshes, atlas, ITEM[type_], states)
     model = next(m for m in lvl.models if m["type"] == ITEM[type_])
     start = model["start"]
-    stop = next(i for i, a in enumerate(out["anims"]) if a["state"] == "STOP" and len(a["kf"]) == 1)
+    stops = [i for i, a in enumerate(out["anims"]) if a["state"] == "STOP"]
+    stop = next((i for i in stops if len(out["anims"][i]["kf"]) == 1), stops[0])
+    out["title"] = title
+    out["defaults"] = {"fuses": chosen[0], "cards": chosen[1]}
     out["names"] = names
     out["ref"] = out["anims"][stop]["kf"][0]["r"]
     out["fuses"] = [{"key": k, "label": label, "joints": joints} for k, label, joints in fuses]
@@ -271,20 +355,34 @@ def animal_json(lvl, meshes, atlas, type_, states, names, fuses, choices, card_g
     out["cards"] = {}
     for _, _, joints in card_groups:
         for j in joints:
-            kw = {"axis": 1, "view": 2} if j in flat_cards else {}
-            out["cards"][str(j)] = card_json(diet.card_of(meshes[start + j], atlas, **kw), atlas)
+            if j in flat_cards:
+                card = diet.card_of(meshes[start + j], atlas, axis=1, view=2)
+            else:
+                card = pin_card(diet.card_of(meshes[start + j], atlas), out["parents"], out["offsets"], j)
+            out["cards"][str(j)] = card_json(card, atlas)
     copies = {str(j): inside_copies(meshes[start + j]) for j in range(model["count"])}
     out["insideCopies"] = {j: fis for j, fis in copies.items() if fis}
     out["join"] = join_rings(meshes, start, out["parents"], out["offsets"], no_join)
-    out["ribbon"] = ribbon_json(meshes, start, tail, out["meshes"])
+    out["ribbon"] = ribbon_json(meshes, start, tail, out["meshes"]) if tail else None
     out["foot"] = foot
     return out
 
 
+def add_water(animal, lvl, meshes, atlas, type_, states):
+    """The water model's animations after the land model's: same meshes and joints."""
+    water = model_json(lvl, meshes, atlas, ITEM[type_], states)
+    if water["parents"] != animal["parents"] or water["offsets"] != animal["offsets"]:
+        raise ValueError(f"{type_}'s skeleton isn't the land model's")
+    first = len(animal["anims"])
+    for a in water["anims"]:
+        a["name"] = "water " + a["name"]
+        a["next"] += first
+    animal["anims"] += water["anims"]
+
+
 def card_json(card, atlas):
-    r = lambda ns: [[round(c, 3) for c in n] for n in ns]
     return {"e0": card["e0"], "e1": card["e1"], "w": 2 * card["half"], "col": card["col"],
-            "t": atlas.add_image(*card["image"]), "ns0": r(card["ns0"]), "ns1": r(card["ns1"])}
+            "t": atlas.add_image(*card["image"]), "n0": card["n0"], "n1": card["n1"]}
 
 
 def plank_json(mesh, atlas, mj, apart):
@@ -334,28 +432,28 @@ def main():
 
     labels = {"ears": "Ears into the head", "jaw": "Jaw into the head", "paws": "Paws into the lower legs",
               "tail": "Tail as one piece", "chest": "Chest into the hips"}
-    wolf = animal_json(lvl, meshes, atlas, "WOLF", WOLF_STATES, WOLF_JOINTS,
-                       [(k, labels[k], joints) for k, joints in WOLF_MERGES.items()], [],
+    wolf = animal_json(lvl, meshes, atlas, "WOLF", "wolf", WOLF_STATES, WOLF_JOINTS,
+                       [(k, labels[k], joints) for k, joints in WOLF_MERGES.items()] +
+                       [("neck", "Neck into the chest", [2]), ("head", "Head into the neck", [3])], [],
                        [("cards", "Lower legs as cards", WOLF_LEG_CARDS), ("tailCards", "Tail as cards", WOLF_TAIL_CARDS),
-                        ("earCards", "Ears as cards", WOLF_EAR_CARDS)], WOLF_EAR_CARDS, WOLF_MERGES["jaw"],
-                       "Counts of what each side gives the renderer; for milliseconds, run it in the game.", WOLF_TAIL_CARDS)
+                        ("earCards", "Ears as cards", WOLF_EAR_CARDS)], WOLF_EAR_CARDS, WOLF_MERGES["jaw"], WOLF_TAIL_CARDS)
+    bear = animal_json(lvl, meshes, atlas, "BEAR", "bear", BEAR_STATES, BEAR_JOINTS, BEAR_FUSES, [], BEAR_CARDS,
+                       BEAR_EAR_CARDS, [17], None)
 
     # the rat: the Cistern's, with the water rat's animations after the land rat's
     rat_level = trsat.load(data_dir, "LEVEL7A")
     rat_meshes = trsat.meshes(rat_level)
     atlas.level(rat_level)
-    rat = animal_json(rat_level, rat_meshes, atlas, "RAT_LAND", RAT_STATES, RAT_JOINTS, RAT_FUSES, [RAT_TAIL], RAT_CARDS,
-                      RAT_EAR_CARDS, RAT_NO_JOIN,
-                      "Counts of what each side gives the renderer; for milliseconds, run it in the game. Today, Cistern room 90 "
-                      "spot, Mednafen: 4.1 ms of master mesh work for the rat seen there (issue 256).", RAT_TAIL_JOINTS)
-    water = model_json(rat_level, rat_meshes, atlas, ITEM["RAT_WATER"], RAT_WATER_STATES)
-    if water["parents"] != rat["parents"] or water["offsets"] != rat["offsets"]:
-        raise ValueError("the water rat's skeleton isn't the land rat's")
-    for a in water["anims"]:
-        a["name"] = "water " + a["name"]
-    rat["anims"] += water["anims"]
-    for a in rat["anims"][-len(water["anims"]):]:
-        a["next"] += len(rat["anims"]) - len(water["anims"])
+    rat = animal_json(rat_level, rat_meshes, atlas, "RAT_LAND", "rat", RAT_STATES, RAT_JOINTS, RAT_FUSES, [RAT_TAIL], RAT_CARDS,
+                      RAT_EAR_CARDS, RAT_NO_JOIN, RAT_TAIL_JOINTS, RAT_CHOSEN,
+                      ANIMAL_FOOT + " Today, Cistern room 90 spot, Mednafen: 4.1 ms of master mesh work for the rat seen there (issue 256).")
+    add_water(rat, rat_level, rat_meshes, atlas, "RAT_WATER", RAT_WATER_STATES)
+    croc = animal_json(rat_level, rat_meshes, atlas, "CROCODILE_LAND", "crocodile", CROC_STATES, CROC_JOINTS, CROC_FUSES,
+                       [CROC_TAIL], CROC_CARDS, [], [9], CROC_TAIL_JOINTS,
+                       foot=ANIMAL_FOOT + " Today, Cistern room 90 spot, Mednafen: 3.5 ms of master mesh work a crocodile (issue 256).")
+    add_water(croc, rat_level, rat_meshes, atlas, "CROCODILE_WATER", CROC_WATER_STATES)
+    gorilla = animal_json(rat_level, rat_meshes, atlas, "GORILLA", "gorilla", GORILLA_STATES, GORILLA_JOINTS, GORILLA_FUSES, [],
+                          GORILLA_CARDS, [], [15], None)
     atlas.level(lvl)
 
     # the bridges: plank items with their model's first frame, rope statics
@@ -403,7 +501,7 @@ def main():
     camera = {"pos": [30156, 3496, 49293],      # the game's view at the ledge (build ea032c9)
               "rot": [6455, 0, 15059, 2710, 16116, -1162, -14813, 2949, 6349]}
     data = {"atlas": {"png": png, "w": aw, "h": ah, "rects": rects},
-            "wolf": wolf, "rat": rat,
+            "wolf": wolf, "rat": rat, "croc": croc, "gorilla": gorilla, "bear": bear,
             "bridge": {"planks": planks, "meshes": plank_out, "simple": plank_simple, "statics": statics,
                        "staticMeshes": static_out, "ropes": ropes, "rooms": rooms, "camera": camera}}
     template = open(os.path.join(HERE, "model_view.html"), encoding="utf-8").read()
@@ -411,7 +509,8 @@ def main():
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(template.replace("/*DATA*/null", json.dumps(data, separators=(",", ":"))))
     print(f"{out_path}: {os.path.getsize(out_path) // 1024} KB, atlas {aw}x{ah}, {len(atlas.images)} images, "
-          f"wolf {len(wolf['anims'])} anims, rat {len(rat['anims'])} anims, {len(planks)} planks, {len(statics)} statics")
+          f"{len(planks)} planks, {len(statics)} statics; anims: wolf {len(wolf['anims'])}, rat {len(rat['anims'])}, "
+          f"crocodile {len(croc['anims'])}, gorilla {len(gorilla['anims'])}, bear {len(bear['anims'])}")
 
 
 def quadrant_yaw(rotation):
