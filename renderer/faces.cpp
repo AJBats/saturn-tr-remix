@@ -1097,7 +1097,9 @@ static bool nearTiles(const FaceRoom &room, RoomTextures &t, const RoomSplit &sp
     {
         const NearPoint* const* p = tile[i];
         NearTest test = nearTest(p[0]->v, p[1]->v, p[2]->v, p[3]->v);
-        if (test == NEAR_FLIPPED) {
+        // the original leaves out a tile with a corner behind the camera, over a
+        // cleared frame; held at the plane it still covers what shows of it
+        if (test == NEAR_FLIPPED && backface(&p[0]->v, &p[1]->v, &p[2]->v)) {
             faceVoid(list, &p[0]->v, &p[1]->v, &p[2]->v, &p[3]->v);     // no old pixels where it was
         } else if (test != NEAR_OFF) {
             nearCommand(list, w, flags, srca, size, *p[0], *p[1], *p[2], *p[3]);

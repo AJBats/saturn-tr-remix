@@ -454,6 +454,30 @@
     bra     .Lplain\sfx
     nop
 
+    ! wound the wrong way on the frame: it is, unless the near plane holds a
+    ! corner, which can turn a quad over (the original tests only those with
+    ! none near); then C asks in room space
+.LfaceWound\sfx:
+    mov.l   @(RUN_NEAR, gbr), r0
+    tst     r0, r0
+    bt      .Lnext\sfx
+    mov.l   @(4, r1), r6
+    mov.l   @(4, r2), r0
+    or      r0, r6
+    mov.l   @(4, r3), r0
+    or      r0, r6
+    mov.l   @(4, r7), r0
+    or      r6, r0
+    tst     #CLIP_PLANE, r0
+    bt      .Lnext\sfx
+    .if \tri
+    bra     .LcarefulTri\sfx
+    nop
+    .else
+    bra     .Lcareful\sfx
+    nop
+    .endif
+
 .Lnext\sfx:
     dt      r5
     bf/s    .Lface\sfx
@@ -465,7 +489,7 @@
     CORNERS \tri
     .ifeq \facing
 .LFaceBack\sfx:
-    BACKFACE .Lnext\sfx
+    BACKFACE .LfaceWound\sfx
     .endif
 .LFaceCull\sfx:
     CULL    \tri, .Lculled\sfx
