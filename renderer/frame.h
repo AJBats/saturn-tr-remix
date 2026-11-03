@@ -38,6 +38,9 @@ extern CommandList gRoomList, gMeshList;
 // adds to the picture (-1 none): HW_LOG builds.
 void framePaintRoom(int32_t room);
 
+// The colour rooms' fills are drawn in, to see them: 0, transparent, as played.
+void frameFillColour(uint16_t colour);
+
 // The frame's rooms (the walk's jobs), the room texture cache as their faces
 // take it, the room textures' materials, the uploads the faces queued, where
 // quads split near the camera put their corners, the room faces' run.

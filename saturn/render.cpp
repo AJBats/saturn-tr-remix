@@ -509,6 +509,14 @@ void renderFar(int32 far)
     render::frameFar(far);
 }
 
+static int32 gTiny = 128;     // renderTiny's
+
+void renderTiny(int32 pixels)
+{
+    gTiny = pixels;
+    render::roomsTiny(pixels);
+}
+
 void renderBlack(int32 mode)
 {
     gBlack = mode;
@@ -539,6 +547,7 @@ static bool gHolesShown;
 void renderHolesShown(bool shown)
 {
     gHolesShown = shown;
+    render::frameFillColour(shown ? RGB(31, 0, 31) : 0);
 }
 #endif
 
@@ -651,6 +660,7 @@ void renderLevelInit()
     }
     render::frameFar(gFar);
     render::verticesBlack(gBlack == 2);
+    render::roomsTiny(gTiny);
 
     uint32 hints = 0;
     for (uint32 i = 0; i < sizeof(gDepthHints) / sizeof(gDepthHints[0]) && hints < MAX_LEVEL_HINTS; i++)
@@ -923,7 +933,7 @@ void flush_c()
         {
             render::Command &c = render::gFrameCmds[0];
             c.w[0] = (c.w[0] & ~(0xFu << 16)) | (CMD_POLYGON << 16);
-            c.w[1] = (PMOD_NO_ECD_SPD << 16) | RGB(0, 31, 0);
+            c.w[1] = (PMOD_NO_ECD_SPD << 16) | RGB(31, 0, 31);
             c.w[4] = (FRAME_WIDTH - 1) << 16;
             c.w[6] = FRAME_HEIGHT - 1;
         }

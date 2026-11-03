@@ -60,6 +60,7 @@ struct RoomsContext
     int32_t verticesTop;        // +152 where the rooms' vertices must stop
     const uint8_t* hidden;      // +156 by room: listed, but dropped (roomsHideWith)
     uint8_t* seenNear;          // +160 by room: seen nearer than RoomLevel.black (0 between frames)
+    int32_t tiny;               // +164 roomsTiny's
 };
 
 extern "C" void roomsSeenAsm(RoomsContext* ctx);
@@ -135,6 +136,11 @@ void roomsFarScaled(bool on);
 
 // The far plane's distance, in world units (frame.h frameFar).
 void roomsFar(int32_t far);
+
+// A portal, none of it behind the camera, whose window comes to under this many
+// pixels isn't entered: its window filled transparent, or under 16 pixels left
+// as it is. 0: every window entered.
+void roomsTiny(int32_t pixels);
 
 // The walk's context, for checks.
 RoomsContext& roomsContext();

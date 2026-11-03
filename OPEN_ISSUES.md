@@ -3593,6 +3593,12 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Measured, Mednafen, one held view each. Room 103 spot's own camera: one room and a 26-joint
   creature gone, DRAWS 10.07 to 6.53 ms, 73 meshes to 46. Room 90 camera: 3 rooms, windows of
   3 to 256 pixels; the frame there is still over on meshes (256, 257).
+- The tiny window test (menu row Tiny, 128 px unless changed): a portal, none of it behind the
+  camera, whose window comes to under so many pixels isn't entered; its window filled
+  transparent, or under 16 pixels left as it is. Modelled, net ms, Cistern then all levels: 64 px
+  -0.55, -0.32; 128 px -0.87, -0.61; 256 px -1.62, -1.07. Mednafen near the stamped camera: rooms 3, 9
+  and 10 gone, 2853 room vertices to 2423, 5 pixels of fill left showing at 256 px.
+- Menu row Holes paints fills and whatever nothing draws magenta, at about 3.5 ms of VDP1.
 - Open: Far 16 against the black test on the Saturn, in Lara's Home and at both spots; the stamps'
   hall of mirrors (the user, turning back to a stamped view): hidden rooms' windows are now
   filled too, to be looked at again.

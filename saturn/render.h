@@ -50,6 +50,9 @@ void renderFar(int32 far);
 // with what stands in them, 2 faces wholly there filled too.
 void renderBlack(int32 mode);
 
+// A portal's window under so many pixels: not entered (renderer/rooms.h roomsTiny).
+void renderTiny(int32 pixels);
+
 #ifdef HW_LOG
 // The debug page's stamps (renderer/rooms.h roomsHideWith, roomsListCopy, frame.h
 // framePaintRoom).

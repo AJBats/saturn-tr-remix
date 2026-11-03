@@ -43,7 +43,8 @@
 ! 16-bit x y z (the walk's own); +144 the entries (RoomEntry: the room seen,
 ! the room it was seen from, the portal it was seen by), +148 their count
 ! (all of them: ROOM_ENTRIES kept); +152 where the vertices stop; +156 by room,
-! hidden; +160 by room, seen nearer than where it is all at the fog's floor.
+! hidden; +160 by room, seen nearer than where it is all at the fog's floor;
+! +164 windows under so many pixels aren't entered (rooms.h roomsTiny).
 !
 ! A point seen through a portal is no nearer than the portal's nearest corner,
 ! so a room seen by no portal with a corner nearer than RoomLevel.black shows
@@ -82,6 +83,8 @@
     .equ    R_VERTICES_TOP, 152
     .equ    R_HIDDEN,       156
     .equ    R_SEEN_NEAR,    160
+    .equ    R_TINY,         164
+    .equ    TINY_UNFILLED,  16      ! a window under these pixels isn't even filled
     .equ    ROOM_ENTRIES,   128
     .equ    ROOM_FILLS,     64
 
@@ -468,10 +471,46 @@
     bf      4f
     mov     r0, r4
 4:  cmp/gt  r1, r3
-    bf      .Lnot
-    cmp/gt  r2, r4
-    bf      .Lnot
-    mov.w   @r9, r0
+    bt      19f
+20: bra     .Lnot
+    nop
+19: cmp/gt  r2, r4
+    bf      20b
+    ! too small to matter: nothing behind it, its window filled if it's worth it
+    mov.l   @(R_TINY,gbr), r0
+    tst     r0, r0
+    bt      21f
+    tst     r10, r10
+    bf      21f
+    mov     r3, r5
+    sub     r1, r5
+    mov     r4, r6
+    sub     r2, r6
+    mulu.w  r5, r6
+    sts     macl, r5
+    cmp/hs  r0, r5
+    bt      21f
+    mov     #TINY_UNFILLED, r0
+    cmp/hs  r0, r5
+    bf      20b
+    mov.l   @(R_VOIDS,gbr), r0
+    mov     #ROOM_FILLS, r5
+    cmp/hs  r5, r0
+    bt      22f
+    shll2   r0
+    shll2   r0
+    mov     r0, r5
+    mov.l   @(R_FILLS,gbr), r0
+    add     r0, r5
+    mov.l   r1, @r5
+    mov.l   r2, @(4,r5)
+    mov.l   r3, @(8,r5)
+    mov.l   r4, @(12,r5)
+22: mov.l   @(R_VOIDS,gbr), r0
+    add     #1, r0
+    bra     20b
+    mov.l   r0, @(R_VOIDS,gbr)
+21: mov.w   @r9, r0
     extu.w  r0, r7
     shll2   r7
     shll2   r7

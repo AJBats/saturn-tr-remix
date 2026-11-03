@@ -37,7 +37,7 @@ static uint16_t gListCopy[ROOMS_LISTED];
 static int32_t gListCopied;
 
 static_assert(offsetof(RoomsContext, verticesTop) == 152 && offsetof(RoomsContext, hidden) == 156 &&
-              offsetof(RoomsContext, seenNear) == 160,
+              offsetof(RoomsContext, seenNear) == 160 && offsetof(RoomsContext, tiny) == 164,
               "rooms.s's RoomsContext");
 static int32_t gView[12];
 static int32_t gClip[MAX_LEVEL_ROOMS][4];
@@ -100,6 +100,11 @@ void roomsFarScaled(bool on)
 void roomsFar(int32_t far)
 {
     gCtx.viewMax = far << 14;
+}
+
+void roomsTiny(int32_t pixels)
+{
+    gCtx.tiny = pixels;
 }
 
 void roomsView(const int32_t camera[3], const int32_t view[12], const int32_t viewport[4], uint32_t cameraRoom)

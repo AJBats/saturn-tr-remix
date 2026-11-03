@@ -108,6 +108,13 @@ void frameSplit(const DrawScene* draws, uint32_t count, int32_t fills)
     gMeshFirst = rooms + meshes <= slots ? MAX_CMDS - 1 - meshes : 1 + int32_t(int64_t(slots) * rooms / (rooms + meshes));
 }
 
+static uint16_t gFillColour;
+
+void frameFillColour(uint16_t colour)
+{
+    gFillColour = colour;
+}
+
 #ifdef HW_LOG
 static int16_t gRoomSlots[MAX_FRAME_ROOMS][2];  // each room's first command's slot, and past its last
 static volatile int32_t gPaintRoom = -1;
@@ -637,6 +644,7 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
             Vertex v[2] = {};
             v[0].x = fill[k][0];
             v[0].y = fill[k][1];
+            v[0].z = int16_t(gFillColour);
             v[1].x = fill[k][2] - fill[k][0];
             v[1].y = fill[k][3] - fill[k][1];
             const Face face = { FACE_LINE_H, nullptr, { 0 } };

@@ -41,6 +41,9 @@ static int32 gFarStep;      // kFar's
 static const char* const kCamera[] = { "Ours", "Retail" };
 static const char* const kBlack[] = { "Off", "Rooms", "Rooms, faces" };
 static int32 gBlackStep = 2;    // kBlack's
+static const char* const kTiny[] = { "Off", "64 px", "128 px", "256 px" };
+static int32 gTinyStep = 2;     // kTiny's
+static bool gHolesShown;        // what rooms' fills fill and what nothing draws, magenta
 #endif
 
 static bool gShowStats;
@@ -68,6 +71,12 @@ static const Option gOptions[] = {
     { "Black", kBlack, 3,
         [] { return gBlackStep; },
         [](int32 v) { gBlackStep = v; renderBlack(v); } },
+    { "Tiny", kTiny, 4,
+        [] { return gTinyStep; },
+        [](int32 v) { gTinyStep = v; renderTiny(v ? 32 << v : 0); } },
+    { "Holes", kOnOff, 2,
+        [] { return int32(gHolesShown); },
+        [](int32 v) { gHolesShown = v; renderHolesShown(v); } },
     { "Camera", kCamera, 2,
         [] { return int32(gCameraRetail); },
         [](int32 v) { gCameraRetail = v; } },
@@ -76,7 +85,7 @@ static const Option gOptions[] = {
 
 enum { OPTION_STATS,
 #ifdef HW_LOG
-       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_CAMERA,
+       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_HOLES, OPTION_CAMERA,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");
@@ -560,7 +569,7 @@ static Stamp gStamps[STAMPS];
 static int32 gStampCount;
 static int32 gStampLevel = -1;
 static int32 gStampReach = 1;
-static bool gStampsShown, gHolesShown;
+static bool gStampsShown;
 static uint16 gOccRooms[128];
 static int32 gOccCount, gOccRoom = -1;
 static struct { int32 bx, bz, room, heading, pitch; } gHere;    // the walk's view
@@ -658,7 +667,6 @@ static void occludeUpdate(uint16 pressed)
     if (gPage != PAGE_OCCLUDE)
     {
         renderPaintRoom(-1);
-        renderHolesShown(false);
         return;
     }
     gHere = *uncached(&gHere);
