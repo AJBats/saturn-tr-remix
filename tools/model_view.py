@@ -62,7 +62,7 @@ RAT_FUSES = [("ears", "Ears into the head", [4, 5]),
              ("paws", "Paws into the lower legs", [8, 18, 22, 25]),
              ("hocks", "Hocks into the shins", [17, 21]),
              ("neck", "Neck into the body", [1]),
-             ("head", "Head into the neck", [2]),
+             ("head", "Head into the neck (the game turns it towards Lara; it would stop)", [2]),
              ("haunch", "Haunch into the body", [9])]
 RAT_TAIL = ("tail", [("Tail: 5 pieces, as it is", []),
                      ("Tail: 3 pieces (tail 2 and 4 fused)", [11, 13]),
@@ -104,7 +104,7 @@ GORILLA_STATES = "NONE STOP WALK RUN ATTACK DEATH WARNING_1 WARNING_2 RUN_LEFT R
 GORILLA_FUSES = [("jaw", "Jaw into the head", [15]),
                  ("hands", "Hands into the forearms", [10, 13]),
                  ("feet", "Feet into the shins", [3, 6]),
-                 ("head", "Head into the chest", [14]),
+                 ("head", "Head into the chest (the game turns it towards Lara; it would stop)", [14]),
                  ("chest", "Chest into the hips", [7])]
 GORILLA_CARDS = [("lower", "Shins, feet, forearms, hands as cards", [2, 3, 5, 6, 9, 10, 12, 13]),
                  ("upper", "Thighs and upper arms as cards", [1, 4, 8, 11])]
@@ -119,7 +119,7 @@ BEAR_FUSES = [("ears", "Ears into the head", [15, 16]),
               ("jaw", "Jaw into the head", [17]),
               ("paws", "Paws into the lower legs", [3, 6, 9, 12]),
               ("neck", "Neck into the body", [13]),
-              ("head", "Head into the neck", [14])]
+              ("head", "Head into the neck (the game turns it towards Lara; it would stop)", [14])]
 BEAR_CARDS = [("lower", "Lower limbs as cards", [2, 3, 5, 6, 8, 9, 11, 12]),
               ("upper", "Upper limbs as cards", [1, 4, 7, 10]),
               ("earCards", "Ears as cards", [15, 16])]
