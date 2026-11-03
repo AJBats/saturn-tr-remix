@@ -26,6 +26,7 @@
 //         occmodel LEVEL.bin VIEWS SEED 0 0 HOT_GRID HOT_YAWS HOT_VERTS HOT_VIEWS
 //         occmodel LEVEL.bin one x y z room r00..r22 focal
 //         occmodel LEVEL.bin region x y z room r00..r22 focal RADIUS ARC_DEGREES PITCH_DEGREES VIEWS
+//         occmodel LEVEL.bin cameras VIEWS SEED
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -1696,6 +1697,87 @@ static void region(int room, float radius, float arc, float pitchRange, int view
     }
 }
 
+// The chase cameras at the same places and headings, a camera standing over a room's floor: OpenLara's
+// (849 up, looking 10 degrees down, focal 256) and retail's (581 up, level, focal 209.75, the game's own
+// figures at room 103), and the two halves of the change between them. Tiny 256 as the game has it.
+static void cameras(const char* name, int views)
+{
+    static const struct { float up, pitch, focal; const char* name; } ways[] = {
+        { 849, 10.1f / 57.3f, 256.0f, "old" },
+        { 849, 10.1f / 57.3f, 209.75f, "old-wide" },
+        { 581, 0, 256.0f, "level" },
+        { 581, 0, 209.75f, "retail" },
+    };
+    enum { WAYS = 4 };
+    Work* rows = malloc(sizeof(Work) * WAYS * views);
+    double (*order)[2] = malloc(sizeof(double) * 2 * views);
+    for (int v = 0; v < views; v++)
+    {
+        int room, sector, floor, ceil;
+        for (;;)
+        {
+            room = rng() % nrooms;
+            Room* r = &rooms[room];
+            if (r->alt || r->ns == 0 || !r->np)
+                continue;
+            sector = rng() % r->ns;
+            floor = r->s[sector][0];
+            ceil = r->s[sector][1];
+            if (floor != -127 * 256 && ceil != -127 * 256 && floor - 849 - 40 > ceil)
+                break;
+        }
+        Room* r = &rooms[room];
+        V3 pos;
+        pos.x = r->x + (sector / r->zs + urand(0.02f, 0.98f)) * 1024;
+        pos.z = r->z + (sector % r->zs + urand(0.02f, 0.98f)) * 1024;
+        float yaw = urand(0, 6.2832f);
+        for (int k = 0; k < WAYS; k++)
+        {
+            pos.y = floor - ways[k].up;
+            F = ways[k].focal;
+            viewSet(pos, yaw, ways[k].pitch);
+            gBase.useMask = 0; gBase.usePoly = 0; gBase.minArea = 256;
+            walkRun(&gBase, room, 0);
+            rows[v * WAYS + k] = listWork(&gBase);
+        }
+        order[v][0] = rows[v * WAYS + 3].verts;
+        order[v][1] = v;
+    }
+    // heaviest tenth, by retail's vertices
+    for (int i = 1; i < views; i++)
+    {
+        double a = order[i][0], b = order[i][1];
+        int j = i - 1;
+        while (j >= 0 && order[j][0] < a) {
+            order[j + 1][0] = order[j][0];
+            order[j + 1][1] = order[j][1];
+            j--;
+        }
+        order[j + 1][0] = a;
+        order[j + 1][1] = b;
+    }
+    for (int part = 0; part < 2; part++)
+    {
+        int n = part ? views / 10 : views;
+        for (int k = 0; k < WAYS; k++)
+        {
+            Work t;
+            memset(&t, 0, sizeof(t));
+            int over = 0;
+            for (int i = 0; i < n; i++)
+            {
+                const Work* w = &rows[(int)order[i][1] * WAYS + k];
+                t.rooms += w->rooms; t.verts += w->verts; t.statics += w->statics; t.kept += w->kept;
+                t.dropped += w->dropped; t.px += w->px; t.cycles += w->cycles; t.vdp1 += w->vdp1;
+                over += w->verts >= 2000;
+            }
+            printf("%s %s %s rooms %.1f verts %.0f statics %.1f kept %.0f dropped %.0f px %.0f ms %.2f vdp1ms %.2f over2000 %.1f\n",
+                   name, part ? "heavy" : "all", ways[k].name, t.rooms / n, t.verts / n, t.statics / n, t.kept / n, t.dropped / n,
+                   t.px / n, t.cycles / n / 28636.36, t.vdp1 / n / 28636.36, 100.0 * over / n);
+        }
+    }
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 4) {
@@ -1730,6 +1812,7 @@ int main(int argc, char** argv)
         F = atof(argv[k++]);
         viewStamp++;
         gBase.useMask = 0; gBase.usePoly = 0;
+        gBase.minArea = getenv("OCC_TINY") ? atof(getenv("OCC_TINY")) : 0;
         for (int i = 0; i < MAXROOMS; i++) {
             gNearest[i] = 1e30f;
             gFrom[i] = -1;
@@ -1745,6 +1828,44 @@ int main(int argc, char** argv)
                 int t = gBase.list[i];
                 Rect c = gBase.clip[t];
                 fprintf(f, "%d %d %.0f %.0f %.0f %.0f %.0f\n", t, gFrom[t], gNearest[t], c.x0, c.y0, c.x1, c.y1);
+            }
+            fclose(f);
+        }
+        // each listed room's work (OCC_ROOMS names the file): room, vertices, those its kept faces
+        // use, faces kept, dropped by the window, facing away, pixels shown
+        if (getenv("OCC_ROOMS"))
+        {
+            FILE* f = fopen(getenv("OCC_ROOMS"), "w");
+            for (int i = 0; i < gBase.nlist; i++)
+            {
+                int t = gBase.list[i];
+                Room* r = &rooms[t];
+                Rect c = gBase.clip[t];
+                static uint8_t used[65536];
+                memset(used, 0, r->nv + 1);
+                int kept = 0, dropped = 0, away = 0, verts = 0;
+                for (int q = 0; q < r->nq + r->nt; q++)
+                {
+                    int quad = q < r->nq, n = quad ? 4 : 3;
+                    int idx[4];
+                    if (quad) {
+                        idx[0] = r->q[q].a; idx[1] = r->q[q].b; idx[2] = r->q[q].c; idx[3] = r->q[q].d;
+                    } else {
+                        memcpy(idx, r->t[q - r->nq], 12);
+                    }
+                    if (!faceFacing(r, idx)) {
+                        away++;
+                    } else if (faceCulled(r, idx, n, c)) {
+                        dropped++;
+                    } else {
+                        kept++;
+                        for (int j = 0; j < n; j++)
+                            used[idx[j]] = 1;
+                    }
+                }
+                for (int k = 0; k < r->nv; k++)
+                    verts += used[k];
+                fprintf(f, "%d %d %d %d %d %d %ld\n", t, r->nv, verts, kept, dropped, away, ownerPx[t]);
             }
             fclose(f);
         }
@@ -1769,6 +1890,13 @@ int main(int argc, char** argv)
         for (int i = 0; i < gBase.nlist; i++)
             printf(" %d(%ld)", gBase.list[i], ownerPx[gBase.list[i]]);
         printf("\n");
+        return 0;
+    }
+    if (!strcmp(argv[2], "cameras"))
+    {
+        rngState = (uint32_t)atoi(argv[4]) * 2654435761u + 12345u;
+        const char* name = strrchr(argv[1], '/');
+        cameras(name ? name + 1 : argv[1], atoi(argv[3]));
         return 0;
     }
     int views = atoi(argv[2]);

@@ -386,6 +386,16 @@ CAM-22*
 - The user's idea (2026-11-02): retail's camera is now the game's, and it would be fun to let the
   player switch to OpenLara's in the game's options. Both are in `openlara/camera.h`; `gCameraRetail`
   and the HW_LOG menu's Camera row switch them today.
+- OpenLara's follow camera has the shape of TR3 and TR4's, not TR1's (found 2026-11-03). Their PS1
+  chase cameras open with `if (elevation == 0) elevation = -1820` (-10 degrees): TR3 `TOMB3.EXE`
+  `00023e4c`, TR4 `SLUS_008.85` `00026740`, as `updateFollow` does. TR1 on the Saturn and PS1 and TR2
+  on PS1 have no such line; on the TR1 Saturn the chase sits level with Lara's shoulders. After it
+  come five tries at a place and a 768 squared test, as `getBestLocation` has; TR1 follows the
+  pathfinding boxes instead. TRX has the same split as its Camera mode setting (`box_camera.c` TR1
+  and TR2, `los_camera.c` TR3 and TR4), so the option could carry those names.
+- What separates them: 10 degrees of tilt and the field of view. Heaviest tenth of views over all
+  levels (`tools/occmodel` `cameras`): FOV 80 adds 8% room vertices and 25% faces kept, the level
+  view 2% and 1%. Room 103 is the exception with rooms overhead, where the tilt counts about as much.
 
 ### 262. The near plane is 64 where retail's is 80
 *Kind: visible · Size: small · Fix: decide with the near-face work*
