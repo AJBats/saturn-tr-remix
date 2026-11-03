@@ -237,8 +237,9 @@ bool frameMeshHinted(uint32_t i, const FaceSet* set, const Vertex* vertices, uin
 
 void frameMesh(uint32_t i, const FaceSet* set, const Vertex* vertices, uint32_t mode)
 {
+    vertices = (const Vertex*)((const uint8_t*)vertices - set->back);
     if (set->cards) {
-        facesMeshCardsAsm(set, const_cast<Vertex*>(vertices), mode, gSplit.divTable);
+        facesMeshCardsAsm(set, const_cast<Vertex*>(vertices), mode, gSplit.divTable, verticesCardShade(i));
     }
     if (!frameMeshHinted(i, set, vertices, mode)) {
         facesMeshAsm(set, vertices, mode, &gMeshList);

@@ -100,6 +100,12 @@ void verticesRoomsSet(const FaceRoom* rooms, uint32_t count);
 void verticesDrawsSet(const DrawScene* draws, uint32_t count, const DrawXform* xforms);
 int32_t verticesInsideOf(uint32_t draw);
 
+// What a draw's cards' shades take for the side of their segments the camera
+// sees: a box's visible side's normals lean to the camera by 0.36 of a whole
+// normal (fitted, tools/model_view.py CARD_FACING), which the light turns into
+// range * 0.36 * (to the camera . the light), the camera being along -z.
+int32_t verticesCardShade(uint32_t draw);
+
 // The faces of the draws' meshes and shadows: their commands at most; the
 // rooms' faces.
 int32_t verticesFaces();

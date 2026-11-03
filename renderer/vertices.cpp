@@ -254,6 +254,12 @@ int32_t verticesInsideOf(uint32_t draw)
     return gJobs[gJobOfDraw[draw]].inside;
 }
 
+int32_t verticesCardShade(uint32_t draw)
+{
+    const DrawXform &x = *gJobs[gJobOfDraw[draw]].xform;
+    return (((x.range * x.light[2]) >> 14) * 23) >> 14;     // 23 / 64 of the range, in shades (<< 8)
+}
+
 const char* verticesInit(const VerticesLevel &level)
 {
     gStore = (const uint8_t*)level.store;

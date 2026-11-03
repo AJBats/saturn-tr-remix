@@ -669,12 +669,13 @@ static void newMeshes(bool c, bool water = false)
         const FaceSet* set = d.type == DRAW_SHADOW ? facesShadow()
                                                    : (const FaceSet*)(sets + ((const uint32_t*)sets)[d.mesh]);
         uint32_t mode = (d.inside ? MESH_INSIDE : 0) | (water || (d.flags & FACE_WATER) ? MESH_WATER : 0);
+        vertices = (const Vertex*)((const uint8_t*)vertices - set->back);
         if (set->cards)
         {
             if (c) {
-                facesMeshCardsC(set, const_cast<Vertex*>(vertices), mode, gSplit.divTable);
+                facesMeshCardsC(set, const_cast<Vertex*>(vertices), mode, gSplit.divTable, 0);
             } else {
-                facesMeshCardsAsm(set, const_cast<Vertex*>(vertices), mode, gSplit.divTable);
+                facesMeshCardsAsm(set, const_cast<Vertex*>(vertices), mode, gSplit.divTable, 0);
             }
         }
         if (frameMeshHinted(i, set, vertices, mode))

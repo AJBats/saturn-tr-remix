@@ -43,17 +43,28 @@ struct Material
 // mesh's vertices, transformed and lit with the rest), which facesMeshCards
 // places across the line before the faces go; its texture runs along it
 // from its first end.
+//
+// A segment joined to its parent (tools/diet.py join_rings) has corners on its
+// parent's vertices, whose job lies back bytes before its own: its corners
+// count from there, its own vertices from back on.
 struct FaceSet
 {
     uint16_t quads, triangles;
-    uint16_t cards, spare;
+    uint16_t cards, back;
 };
+
+// What a card takes above its half width, in FaceQuad.half: a facing card's
+// length / 2, in model units, its first end placed that far from its second on
+// the screen whichever way the line between them points at the camera.
+#define CARD_HALF(half)     ((half) & 0xFF)
+#define CARD_LENGTH(half)   ((half) >> 8)
 
 struct FaceQuad
 {
-    uint16_t corners[4];    // byte offsets into the mesh's vertices
+    uint16_t corners[4];    // byte offsets from the mesh's vertices (FaceSet.back)
     uint16_t material;
-    uint16_t half;          // a card's half width, in model units (1 .. 255); 0 else
+    uint16_t half;          // a card's half width, in model units (1 .. 255), and
+                            // CARD_LENGTH; 0 else
 };
 
 // Drawn as the parallelogram v0, x, x + y - v0, y (x, y: v1, v2, or v2, v1
@@ -130,11 +141,14 @@ extern "C" void facesMeshAsm(const FaceSet* set, const Vertex* vertices, uint32_
 // A mesh's cards' corners placed in its projected vertices: each corner its
 // end moved across the line between the ends by the card's half width at
 // that end's depth (half * divTable[z >> 4] / 4096 pixels), the end's depth
-// and shade kept. Off the frame, the corners are flagged and clamped as the
-// projection does a vertex (unless the mesh lies inside the frame: MESH_INSIDE,
-// whose bound takes its cards in). A card with an end past a plane is left:
-// its quad's corners carry the plane's flag.
-extern "C" void facesMeshCardsAsm(const FaceSet* set, Vertex* vertices, uint32_t mode, const uint16_t* divTable);
+// and shade kept but for shade added to each (within 0 .. 31: the side of the
+// segment the camera sees, verticesCardShade). Off the frame, the corners are
+// flagged and clamped as the projection does a vertex (unless the mesh lies
+// inside the frame: MESH_INSIDE, whose bound takes its cards in). A card with
+// an end past a plane is left: its quad's corners carry the plane's flag.
+// vertices: as the mesh's corners count from (FaceSet.back).
+extern "C" void facesMeshCardsAsm(const FaceSet* set, Vertex* vertices, uint32_t mode, const uint16_t* divTable,
+                                  int32_t shade);
 
 // A face's command made but held out of its bucket (a draw order hint's):
 // where it is, its first word (unlinked), its place, its bucket, the hint.

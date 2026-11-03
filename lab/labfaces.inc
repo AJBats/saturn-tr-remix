@@ -84,7 +84,49 @@ static void cardCorner(Vertex &v, int32_t x, int32_t y, bool flagged)
     v.y = int16_t(y);
 }
 
-void facesMeshCardsC(const FaceSet* set, Vertex* vertices, uint32_t mode, const uint16_t* divTable)
+// A facing card's first end placed from its second, which stays: its length
+// at the second's depth, in sixteenths of a pixel (s), the way the line from
+// the second points on the screen, lifted up the screen by about 0.3 s so that
+// it never comes to nothing; that line's length as a card's is worked out.
+static void cardFacing(Vertex &a, const Vertex &b, uint32_t length, const uint16_t* divTable)
+{
+    uint32_t s = (2 * length * divTable[uint16_t(b.z) >> 4]) >> 8;
+    int32_t dx = a.x - b.x, dy = a.y - b.y - int32_t((s * 5) >> 8);
+    uint32_t hi = uint32_t(dx < 0 ? -dx : dx), lo = uint32_t(dy < 0 ? -dy : dy);
+    if (hi < lo)
+    {
+        uint32_t t = hi;
+        hi = lo;
+        lo = t;
+    }
+    while (hi > 936)
+    {
+        dx >>= 1;
+        dy >>= 1;
+        hi >>= 1;
+        lo >>= 1;
+    }
+    uint32_t l = ((123 * hi + 51 * lo + 64) << 1) >> 8;
+    if (l < hi) {
+        l = hi;
+    }
+    if (!l)
+    {
+        l = 1;
+        dy = -1;
+    }
+    uint32_t m = (s * divTable[l]) >> 4;
+    int16_t ox = int16_t((uint32_t(dx) * m) >> 16), oy = int16_t((uint32_t(dy) * m) >> 16);
+    a.x = int16_t(b.x + ox);
+    a.y = int16_t(b.y + oy);
+}
+
+static uint8_t cardShade(int32_t g)
+{
+    return uint8_t(g < 0 ? 0 : g > 31 ? 31 : g);
+}
+
+void facesMeshCardsC(const FaceSet* set, Vertex* vertices, uint32_t mode, const uint16_t* divTable, int32_t shade)
 {
     const FaceQuad* q = faceQuads(set) + set->quads - set->cards;
     for (int32_t k = 0; k < set->cards; k++, q++)
@@ -96,8 +138,17 @@ void facesMeshCardsC(const FaceSet* set, Vertex* vertices, uint32_t mode, const 
         bool inside = mode & MESH_INSIDE;
         if (!inside && ((a.clip | b.clip) & CLIP_PLANE))
             continue;
-        uint32_t wa = (uint32_t(q->half) * divTable[uint16_t(a.z) >> 4]) >> 8;
-        uint32_t wb = (uint32_t(q->half) * divTable[uint16_t(b.z) >> 4]) >> 8;
+        if (shade)
+        {
+            a.g = d.g = cardShade(a.g + shade);
+            b.g = c.g = cardShade(b.g + shade);
+        }
+        if (CARD_LENGTH(q->half)) {
+            cardFacing(a, b, CARD_LENGTH(q->half), divTable);
+        }
+        uint32_t half = CARD_HALF(q->half);
+        uint32_t wa = (half * divTable[uint16_t(a.z) >> 4]) >> 8;
+        uint32_t wb = (half * divTable[uint16_t(b.z) >> 4]) >> 8;
 
         // on the frame: the mesh inside it, or both ends M or more inside each
         // edge (M = the wider half width in pixels + 1: no corner farther)
@@ -563,10 +614,10 @@ enum OtherCover
 };
 
 // Made-up cards: ends anywhere from far off the frame to its middle, at any
-// depth between the planes (some past one), any half width; each card's
-// corners placed and its faces made in C (facesMeshCardsC, facesMeshC) and
-// in assembly, the mesh inside the frame or not: the vertices and commands
-// each way, against each other. A degenerate card (its ends on one pixel)
+// depth between the planes (some past one), any half width, some facing, any
+// shade to add; each card's corners placed and its faces made in C
+// (facesMeshCardsC, facesMeshC) and in assembly, the mesh inside the frame or
+// not: the vertices and commands each way, against each other. A degenerate card (its ends on one pixel)
 // faces away and is left out both ways. Made-up triangles over the same
 // corners, of every kind, follow them (a plane cutting some: their fills).
 #define CARD_CARDS      48
@@ -614,7 +665,8 @@ int32_t facesCardsCheck(const Material* materials, uint32_t materialCount, const
         int32_t reach = inside ? 0 : pass & 1 ? 1500 : 300;
         set->quads = set->cards = CARD_CARDS;
         set->triangles = CARD_TRIANGLES;
-        set->spare = 0;
+        set->back = 0;
+        int32_t shade = pass % 4 == 0 ? 0 : int32_t(next() % 13) - 6;
         FaceQuad* q = (FaceQuad*)(set + 1);
         for (int32_t k = 0; k < CARD_CARDS; k++, q++)
         {
@@ -663,6 +715,9 @@ int32_t facesCardsCheck(const Material* materials, uint32_t materialCount, const
                     v.y = made[4 * k].y;
                 }
             }
+            if (k % 3 == 0) {
+                q->half |= uint16_t((1 + next() % 255) << 8);
+            }
             made[4 * k + 2] = made[4 * k + 1];
             made[4 * k + 3] = made[4 * k];
         }
@@ -696,12 +751,12 @@ int32_t facesCardsCheck(const Material* materials, uint32_t materialCount, const
                           shadeGouraud, nullptr, nullptr, nullptr);
             if (s)
             {
-                facesMeshCardsAsm(set, side.vertices, mode, divTable);
+                facesMeshCardsAsm(set, side.vertices, mode, divTable, shade);
                 facesMeshAsm(set, side.vertices, mode, &side.list);
             }
             else
             {
-                facesMeshCardsC(set, side.vertices, mode, divTable);
+                facesMeshCardsC(set, side.vertices, mode, divTable, shade);
                 facesMeshC(set, side.vertices, mode, side.list);
             }
         }

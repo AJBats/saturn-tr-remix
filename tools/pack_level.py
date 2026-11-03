@@ -776,13 +776,16 @@ class Packer:
         its triangles, each card's four vertices last (its ends, then copies
         of the second and the first), lit as its ends are. A mesh the diet
         empties (a joint it holds still, merged into its parent's) keeps one
-        vertex and no faces: the renderer draws a mesh for every joint."""
+        vertex and no faces: the renderer draws a mesh for every joint. A
+        corner on its parent's vertex k is its vertex count + k."""
+        count = dm.vertex_count()
         quads, tris = [], []
         for f in dm.faces:
             if isinstance(f, dict):
                 quads.append(self.diet_quad(f))
                 continue
             ftype, idx, flags, src, _ = f
+            idx = tuple(i if i >= 0 else count - 1 - i for i in idx)
             if len(idx) == 4:
                 quads.append(self.mesh_quad(src, ftype, flags, idx))
             else:
@@ -802,7 +805,10 @@ class Packer:
             half = round(c["half"])
             if not 0 < half <= diet.CARD_HALF_MAX:
                 raise ValueError(f"a card {half} units wide either side")
-            cards.append((half, self.diet_card(c)))
+            length = round(diet.norm(diet.sub(c["e1"], c["e0"]))) if c.get("facing") else 0
+            if length > 2 * diet.CARD_HALF_MAX:
+                raise ValueError(f"a facing card {length} units long")
+            cards.append((half, self.diet_card(c), length))
         if not vertices:
             vertices.append([0, 0, 0])
             if normals is not None:
@@ -811,7 +817,7 @@ class Packer:
                 intensities.append(0)
         out = Out()
         write_mesh_record(out, "a diet mesh", dm.center, dm.radius, vertices, normals, intensities, quads, tris,
-                          cards)
+                          cards, dm.back, dm.seam_reach)
         return bytes(out.b)
 
     # --- animation -------------------------------------------------------
@@ -1193,7 +1199,8 @@ TEXTURE_PMOD = 0x100C
 def mesh_store(data, diet_records):
     """The packed level's meshes as the renderer reads them (meshstore.py):
     each one once, the level's mesh indices to them, the diet's (records in
-    the game's layout by mesh index) in place of those it simplifies."""
+    the game's layout by mesh index) in place of those it simplifies, each
+    different one once (a land and a water animal's meshes are the same)."""
     counts = struct.unpack_from(">I14H", data, 0)[1:]
     offsets = struct.unpack_from(">35I", data, 32)
     mesh_base, table, meshes = offsets[5], offsets[6], counts[3]
@@ -1202,10 +1209,13 @@ def mesh_store(data, diet_records):
     place = {at: i for i, at in enumerate(unique)}
     records = [data[mesh_base + at:] for at in unique]
     index = []
+    diet_places = {}
     for i, at in enumerate(mesh_offsets):
         if i in diet_records:
-            index.append(len(records))
-            records.append(diet_records[i])
+            if diet_records[i] not in diet_places:
+                diet_places[diet_records[i]] = len(records)
+                records.append(diet_records[i])
+            index.append(diet_places[diet_records[i]])
         else:
             index.append(place[at])
     textures = [struct.unpack_from(">5H", data, offsets[15] + 16 * i) for i in range(counts[8])]
@@ -1213,16 +1223,20 @@ def mesh_store(data, diet_records):
     return meshstore.build(records, index, textures, palette, TEXTURE_PMOD)
 
 
-def write_mesh_record(out, name, center, radius, vertices, normals, intensities, quads, tris, cards=()):
-    """A mesh as the game reads it (common.h Mesh): the header (its cards'
-    count last), vertices, their lighting (normals as 8-bit vectors for
-    meshes lit by the room's lights, or shades for pre-lit ones, or
-    neither), quads [(flags, idx)], triangles [(flags, idx, arrangement)],
-    and cards [(half, flags)] whose four vertices each are the last
-    (renderer/faces.h: the renderer's mesh store's alone)."""
+def write_mesh_record(out, name, center, radius, vertices, normals, intensities, quads, tris, cards=(), back=0,
+                      seam_reach=0):
+    """A mesh as the game reads it (common.h Mesh): the header (how far back
+    its parent's job lies, in groups of 4 vertices, and its cards' count last),
+    vertices, their lighting (normals as 8-bit vectors for meshes lit by the
+    room's lights, or shades for pre-lit ones, or neither), quads
+    [(flags, idx)], triangles [(flags, idx, arrangement)], and cards
+    [(half, flags, length)] whose four vertices each are the last (length: a
+    facing card's, else 0; renderer/faces.h: the renderer's mesh store's
+    alone). seam_reach: how far from its centre its corners on its parent's
+    can lie."""
     n = len(vertices)
-    if n > 255 or len(cards) > 255:
-        raise ValueError(f"{name}: {n} vertices, {len(cards)} cards")
+    if n > 255 or len(cards) > 255 or back % 4 or back > 255 * 4:
+        raise ValueError(f"{name}: {n} vertices, {len(cards)} cards, {back} vertices back")
     lighting = MESH_LIGHT_NORMALS if normals else MESH_LIGHT_SHADES if intensities else 0
     intensity = sum(intensities) // len(intensities) if intensities else 0
     # the bound: every vertex lies within it (the radius is for collision,
@@ -1230,13 +1244,14 @@ def write_mesh_record(out, name, center, radius, vertices, normals, intensities,
     # its ends in x or y than half its width, so within root 2 halves
     cx, cy, cz = center
     reach = [math.sqrt((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) for x, y, z in vertices]
-    for k, (half, _) in enumerate(cards):
+    for k, (half, _, length) in enumerate(cards):
         end = n - 4 * len(cards) + 4 * k
-        reach += [reach[end] + 1.42 * half, reach[end + 1] + 1.42 * half]
+        reach += [reach[end] + 1.42 * half, reach[end + 1] + length + 1.42 * half]
+    reach.append(seam_reach)
     bound = math.ceil(max(reach, default=0))
     if bound > 0x7FFF:
         raise ValueError(f"{name}: bounding radius {bound}")
-    out.pack("4hH2B3h2B", cx, cy, cz, radius, intensity, n, lighting, len(quads), len(tris), bound, 0, len(cards))
+    out.pack("4hH2B3h2B", cx, cy, cz, radius, intensity, n, lighting, len(quads), len(tris), bound, back // 4, len(cards))
     for v in vertices:
         out.pack("3h", *v)
     if lighting == MESH_LIGHT_NORMALS:
@@ -1250,8 +1265,8 @@ def write_mesh_record(out, name, center, radius, vertices, normals, intensities,
         out.pack("H4B", packed, *idx)
     for packed, idx, arrangement in tris:
         out.pack("H4B", packed, *idx, arrangement)
-    for half, packed in cards:
-        out.pack("hH", half, packed)
+    for half, packed, length in cards:
+        out.pack("HH", half | (length + 1) // 2 << 8, packed)
 
 
 def main():
@@ -1271,6 +1286,10 @@ def main():
         if len(start) == 4:
             lara = next(it for it in lvl.items if it["type"] == ITEM["LARA"])
             lara["rotation"] = (round(start[3] / 90) * 0x4000) & 0xFFFF
+    for placed in filter(None, os.environ.get("ITEMS_AT", "").split(",")):     # a test's: item@room:x:y:z
+        item, at = placed.split("@")
+        room, x, y, z = (int(v) for v in at.split(":"))
+        lvl.items[int(item)].update(room=room, x=x, y=y, z=z)
     triggered = list(filter(None, os.environ.get("START_TRIGGER", "").split(",")))
     if triggered:
         start_trigger(lvl, [int(i) for i in triggered if not i.startswith("flip")],

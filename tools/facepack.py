@@ -11,7 +11,8 @@ keeps its end codes, so it takes a material of its own). Material 0 is the
 shadow's.
 
 A mesh's faces are its quads, then its triangles, as the game adds them:
-each with its corners as byte offsets into the mesh's vertices and its
+each with its corners as byte offsets, from its parent's job's first vertex
+where it has corners on its parent's (FaceSet.back), else from its own, and its
 material. A triangle is drawn as the parallelogram v0, x, x + y - v0, y, its
 v0 at corner A or D, where x, y are v1, v2 or (swapped) v2, v1; or, coloured
 or marked so, as a quad with D = C. Its corners are kept as given: its back
@@ -86,30 +87,35 @@ class Materials:
 
 def mesh_faces(mesh, materials):
     """A mesh as the game keeps it (tools/pack_level.py write_mesh_record:
-    the header with its cards' count in its last byte, its vertices with
-    each card's four (its ends, then copies of the second and the first)
-    last, their lighting, quads, triangles, then the cards: int16 half,
-    uint16 face flags) to its FaceSet, the cards as its last quads."""
+    the header ending in how far back its parent's job lies and its cards'
+    count, its vertices with each card's four (its ends, then copies of the
+    second and the first) last, their lighting, quads, triangles, then the
+    cards: uint16 half (a facing card's length / 2 above it), uint16 face
+    flags) to its FaceSet, the cards as its last quads. A corner past its
+    vertices is its parent's."""
     vcount = mesh[10]
     lighting = mesh[11]
     quads, triangles = struct.unpack_from('>hh', mesh, 12)
+    back = mesh[18] * 4 * VERTEX_BYTES
     cards = mesh[19]
+
+    def corner(i):
+        return i * VERTEX_BYTES + back if i < vcount else (i - vcount) * VERTEX_BYTES
     at = MESH_HEADER + 6 * vcount
     if lighting == MESH_LIGHT_NORMALS:
         at += 4 * vcount
     elif lighting == MESH_LIGHT_SHADES:
         at += (vcount + 1) & ~1
-    out = bytearray(SET.pack(quads + cards, triangles, cards, 0))
+    out = bytearray(SET.pack(quads + cards, triangles, cards, back))
     for _ in range(quads):
         flags, a, b, c, d = struct.unpack_from('>H4B', mesh, at)
         at += 6
-        out += QUAD.pack(a * VERTEX_BYTES, b * VERTEX_BYTES, c * VERTEX_BYTES, d * VERTEX_BYTES,
-                         materials.face(flags, False), 0)
+        out += QUAD.pack(corner(a), corner(b), corner(c), corner(d), materials.face(flags, False), 0)
     card_at = at + 6 * triangles
     first = vcount - 4 * cards
     for k in range(cards):
-        half, flags = struct.unpack_from('>hH', mesh, card_at + 4 * k)
-        v = (first + 4 * k) * VERTEX_BYTES
+        half, flags = struct.unpack_from('>HH', mesh, card_at + 4 * k)
+        v = corner(first + 4 * k)
         out += QUAD.pack(v, v + VERTEX_BYTES, v + 2 * VERTEX_BYTES, v + 3 * VERTEX_BYTES,
                          materials.face(flags, False), half)
     for _ in range(triangles):
@@ -118,10 +124,8 @@ def mesh_faces(mesh, materials):
         kind = (flags >> FACE_TYPE_SHIFT) & 15
         # render.cpp faceAddMeshTriangles
         if kind in (FACE_TYPE_F, FACE_TYPE_AVG) or arrangement & 0x80:
-            out += TRIANGLE.pack(v0 * VERTEX_BYTES, v1 * VERTEX_BYTES, v2 * VERTEX_BYTES, 0,
-                                 materials.face(flags, False), 0)
+            out += TRIANGLE.pack(corner(v0), corner(v1), corner(v2), 0, materials.face(flags, False), 0)
             continue
         tri = TRI_PARALLELOGRAM | (TRI_V0_AT_D if arrangement & 1 else 0) | (TRI_SWAP if arrangement & 2 else 0)
-        out += TRIANGLE.pack(v0 * VERTEX_BYTES, v1 * VERTEX_BYTES, v2 * VERTEX_BYTES, tri,
-                             materials.face(flags, True), 0)
+        out += TRIANGLE.pack(corner(v0), corner(v1), corner(v2), tri, materials.face(flags, True), 0)
     return bytes(out)

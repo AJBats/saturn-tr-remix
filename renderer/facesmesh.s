@@ -11,10 +11,11 @@
 ! frame. A draw under water (MESH_WATER) takes the loops built with its
 ! shading. labfaces.inc facesMeshC does the same in C.
 !
-! FaceSet: uint16 quads, triangles, cards, spare; then the quads (the last
+! FaceSet: uint16 quads, triangles, cards, back; then the quads (the last
 ! 'cards' of them cards), then the triangles. FaceQuad: uint16 corners[4],
-! byte offsets into the vertices; uint16 material, half. FaceTriangle: uint16
-! corners[3], flags (TRI_*); uint16 material, spare.
+! byte offsets from the vertices given (frame.cpp frameMesh takes back off);
+! uint16 material, half. FaceTriangle: uint16 corners[3], flags (TRI_*); uint16
+! material, spare.
 ! Vertex: int16 x, y; int16 z; uint8 g, clip.
 ! Material: uint32 w0 (control | jump << 16), w1, w2, flags (MAT_SHADEABLE 1).
 ! CommandList: +0 cmd, +4 end, +8 grd, +12 link, +16 grdLink, +20 heads,
@@ -842,13 +843,14 @@ _facesMeshAsm:
 
 ! --- the cards --------------------------------------------------------------
 !
-! void facesMeshCardsAsm(const FaceSet* set, Vertex* vertices, uint32 mode, const uint16* divTable)
+! void facesMeshCardsAsm(const FaceSet* set, Vertex* vertices, uint32 mode, const uint16* divTable, int32 shade)
 !
 ! Each card's corners placed in the vertices (faces.h): its ends A and B, and
 ! their copies D and C, moved across the line between the ends by its half
-! width at each end, as faces.cpp facesMeshCardsC works it out. The stack:
-! +0 on the frame (corners neither flagged nor clamped), +4 .. +16 the
-! offsets of A (x, y) and of B, in pixels.
+! width at each end, as labfaces.inc facesMeshCardsC works it out; shade added
+! to each end's and its copy's; a facing card's A first placed from B
+! (.LcardFacing). The stack: +0 on the frame (corners neither flagged nor
+! clamped), +4 .. +16 the offsets of A (x, y) and of B, in pixels, +52 shade.
 
     .macro  ROUND17 r           ! from half pixels and 16 bits below to pixels, rounded
     swap.w  \r, \r
@@ -905,10 +907,21 @@ _facesMeshCardsAsm:
     bra     .LcardNext          ! an end past a plane: left
     nop
 
+1:  mov.l   @(52, r15), r0
+    tst     r0, r0
+    bt      2f
+    bsr     .LcardShade
+    nop
+2:  mov.b   @(10, r4), r0       ! a facing card's length / 2
+    tst     r0, r0
+    bt      3f
+    bsr     .LcardFacing
+    nop
+
     ! the half width at each end in sixteenths of a pixel, half *
     ! divTable[z >> 4] >> 8: A's to r1, B's to r2
-1:  mov.w   @(10, r4), r0
-    extu.w  r0, r13             ! half
+3:  mov.w   @(10, r4), r0
+    extu.b  r0, r13             ! half
     mov.w   @(4, r9), r0
     extu.w  r0, r0
     shlr2   r0
@@ -1220,3 +1233,138 @@ _facesMeshCardsAsm:
 .LcardCoordMax: .short  1023        ! VDP1_COORD_MAX
     .align  2
 .LcardFocal:    .long   _gFocalScale
+
+! shade (r0) added to each end's and its copy's, within 0 .. 31; r1, r2, r3
+.LcardShade:
+    mov     r0, r1
+    mov     #31, r2
+    mov.w   @(6, r4), r0
+    extu.w  r0, r3
+    add     r5, r3              ! D
+    mov.b   @(6, r9), r0
+    extu.b  r0, r0
+    add     r1, r0
+    cmp/pz  r0
+    bt      1f
+    mov     #0, r0
+1:  cmp/gt  r2, r0
+    bf      2f
+    mov     r2, r0
+2:  mov.b   r0, @(6, r9)
+    mov.b   r0, @(6, r3)
+    mov.w   @(4, r4), r0
+    extu.w  r0, r3
+    add     r5, r3              ! C
+    mov.b   @(6, r10), r0
+    extu.b  r0, r0
+    add     r1, r0
+    cmp/pz  r0
+    bt      3f
+    mov     #0, r0
+3:  cmp/gt  r2, r0
+    bf      4f
+    mov     r2, r0
+4:  mov.b   r0, @(6, r10)
+    rts
+    mov.b   r0, @(6, r3)
+
+! a facing card's first end (r9) placed from its second (r10), which stays:
+! its length at the second's depth (length / 2 in r0), in sixteenths of a pixel
+! (s), the way the line from the second points on the screen, lifted up the
+! screen by about 0.3 s so that it never comes to nothing. r0 .. r3, r11, r13, r14
+.LcardFacing:
+    extu.b  r0, r1
+    add     r1, r1
+    mov.w   @(4, r10), r0
+    extu.w  r0, r0
+    shlr2   r0
+    shlr2   r0
+    add     r0, r0
+    mov.w   @(r0, r7), r0
+    extu.w  r0, r0
+    mulu.w  r0, r1
+    sts     macl, r1
+    shlr8   r1
+    mov.l   .LfacingFocal, r3
+    mov.l   @r3, r3
+    mulu.w  r1, r3
+    sts     macl, r1
+    shll2   r1
+    shlr16  r1                  ! s
+    mov.w   @r9, r13
+    mov.w   @r10, r0
+    sub     r0, r13             ! dx
+    mov.w   @(2, r9), r0
+    mov     r0, r14
+    mov.w   @(2, r10), r0
+    sub     r0, r14
+    mov     r1, r0
+    shll2   r0
+    add     r1, r0
+    shlr8   r0
+    sub     r0, r14             ! dy, less s * 5 / 256
+    mov     r13, r2
+    cmp/pz  r2
+    bt      1f
+    neg     r2, r2
+1:  mov     r14, r3
+    cmp/pz  r3
+    bt      2f
+    neg     r3, r3
+2:  cmp/hs  r3, r2
+    bt      3f
+    mov     r2, r0
+    mov     r3, r2
+    mov     r0, r3              ! the longer side in r2, the shorter in r3
+3:  mov.w   .LfacingHalve, r0
+    cmp/hi  r0, r2
+    bf      4f
+    shar    r13
+    shar    r14
+    shlr    r2
+    bra     3b
+    shlr    r3
+4:  mov     #123, r0
+    mulu.w  r0, r2
+    sts     macl, r11
+    mov     #51, r0
+    mulu.w  r0, r3
+    sts     macl, r0
+    add     r11, r0
+    add     #64, r0
+    shll    r0
+    shlr8   r0                  ! its length L, in pixels
+    cmp/hs  r2, r0
+    bt      5f
+    mov     r2, r0
+5:  tst     r0, r0
+    bf      6f
+    mov     #1, r0
+    mov     #-1, r14            ! no way at all: up the screen
+6:  add     r0, r0
+    mov.w   @(r0, r7), r0
+    extu.w  r0, r0
+    mulu.w  r0, r1
+    sts     macl, r1
+    shlr2   r1
+    shlr2   r1                  ! s * 4096 / L
+    mul.l   r13, r1
+    sts     macl, r13
+    swap.w  r13, r13
+    exts.w  r13, r13
+    mul.l   r14, r1
+    sts     macl, r14
+    swap.w  r14, r14
+    exts.w  r14, r14
+    mov.w   @r10, r0
+    add     r13, r0
+    mov.w   r0, @r9
+    mov.w   @(2, r10), r0
+    add     r14, r0
+    rts
+    mov.w   r0, @(2, r9)
+
+    .align  2
+.LfacingHalve:  .short  936
+    .align  2
+.LfacingFocal:  .long   _gFocalScale

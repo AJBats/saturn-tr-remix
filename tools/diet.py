@@ -4,13 +4,19 @@ store; the game's own mesh table keeps the originals, whose collision
 spheres stay as they were), drawn side by side with the originals by the HD
 viewer (tools/model_view.py).
 
-The wolf: its ears merged into its head and the last two tail joints into the
-first, held in the standing pose; its lower legs and tail drawn as cards. A
-card is a quad from one end of a segment to the other that the renderer
-places on the screen to face the camera, textured with the segment seen
-from the side. Its texture runs along it, x from its first end to its
-second, so that VDP1 draws its lines along the card: a few long lines rather
-than many short ones.
+The animals (ANIMALS, the user's choices in the viewer): each joined into one
+shell, a segment's end sharing its parent's corners where the two meet in the
+model's rest pose (join_rings), the faces that closed those ends and the stubs
+that hid the bend gone, as are the inside copies of faces drawn both ways.
+
+The wolf's ears are merged into its head and the last two tail joints into the
+first, held in the standing pose; its lower legs and tail, and the rat's limbs,
+tail and ears, are drawn as cards. A card is a quad from one end of a segment
+to the other that the renderer places on the screen to face the camera,
+textured with the segment seen from the side. Its texture runs along it, x from
+its first end to its second, so that VDP1 draws its lines along the card: a few
+long lines rather than many short ones. An upright card (an ear) would go thin
+seen from above, so it keeps its whole length across the view.
 
 The bridges: each plank's inside faces gone and the tiles of each of its
 faces drawn as one quad, their textures placed side by side, but for the tiles
@@ -48,7 +54,6 @@ WOLF_JOINTS = ["hips", "chest", "neck", "head", "ear R", "ear L", "jaw",
                "thigh R", "shin R", "hind lower R", "hind paw R",
                "thigh L", "shin L", "hind lower L", "hind paw L",
                "tail 1", "tail 2", "tail 3"]
-WOLF_STANDING = "STOP"
 WOLF_STATES = "NONE STOP WALK RUN JUMP STALK ATTACK HOWL SLEEP GROWL TURN DEATH BITE".split()
 # joints that can be merged into their parent, held in one pose
 WOLF_MERGES = {"ears": [4, 5], "jaw": [6], "paws": [10, 14, 18, 22], "tail": [24, 25], "chest": [1]}
@@ -58,6 +63,38 @@ WOLF_EAR_CARDS = [4, 5]         # upright, seen from the front
 # what the game's diet draws (the user's choice, 2026-10-28)
 WOLF_DIET_MERGES = ["ears", "tail"]
 WOLF_DIET_CARDS = WOLF_LEG_CARDS + WOLF_TAIL_CARDS
+
+# Where a segment's end meets its parent's: how far a corner may lie from the
+# parent's to be joined to it, and the fewest corners that make an end. A joint
+# of an animal's "wide" has its own reach: a seam the user asked for that the
+# model's corners miss by more.
+JOIN_REACH = 15
+JOIN_RING = 3
+
+# The rat's card joints, as the viewer groups them: lower limbs, upper limbs,
+# tail, ears (upright, seen from the front)
+RAT_LOWER_CARDS = [7, 8, 16, 17, 18, 20, 21, 22, 24, 25]
+RAT_UPPER_CARDS = [6, 23, 15, 19]
+RAT_TAIL_CARDS = [10, 11, 12, 13, 14]
+RAT_EAR_CARDS = [4, 5]
+_RAT = {"held": RAT_EAR_CARDS, "cards": RAT_LOWER_CARDS + RAT_UPPER_CARDS + RAT_TAIL_CARDS + RAT_EAR_CARDS,
+        "facing": RAT_EAR_CARDS, "apart": [3], "wide": {1: 20, 2: 25, 8: 25, 18: 25, 22: 25, 25: 25}}
+# What the game's diet does to each animal, by model (the user's choices,
+# 2026-11-03; the wolf's cards from 2026-10-28): joints held still and merged
+# into their parent ("held": a leaf chain's, renderer/pose.s), joints drawn as
+# cards ("cards"), those of them that keep their length across the view
+# ("facing"), segments left apart though they meet ("apart": a jaw, which
+# opens) and seams reaching further than JOIN_REACH ("wide").
+ANIMALS = {
+    "WOLF": {"held": [j for k in WOLF_DIET_MERGES for j in WOLF_MERGES[k]], "cards": WOLF_DIET_CARDS,
+             "apart": WOLF_MERGES["jaw"], "wide": {2: 35, 3: 32}},
+    "RAT_LAND": _RAT,
+    "RAT_WATER": _RAT,
+    "CROCODILE_LAND": {"apart": [9]},
+    "CROCODILE_WATER": {"apart": [9]},
+    "GORILLA": {"apart": [15], "wide": {14: 50}},
+    "BEAR": {"apart": [17], "wide": {3: 25, 6: 25, 9: 25, 12: 25, 14: 36}},
+}
 
 CARD_UNITS = 5      # model units a texel along a card, about the wolf's own textures
 # A card end's normal, as long as this: a box's corner normals lean out as
@@ -221,13 +258,14 @@ def skeleton(lvl, model):
     return parents, offsets
 
 
-def standing_pose(lvl, model, states):
-    """Each joint's rotation in the model's standing animation (one frame)."""
+def standing_pose(lvl, model):
+    """Each joint's rotation in the model's standing animation (state 1, one
+    frame); a model without one (a water rat), its first frame."""
     for ai in model_anims(lvl, model):
         a = lvl.anims[ai]
-        if a["state"] < len(states) and states[a["state"]] == WOLF_STANDING and a["frame_begin"] == a["frame_end"]:
+        if a["state"] == 1 and a["frame_begin"] == a["frame_end"]:
             return keyframes(lvl, model, ai)[0]["r"]
-    return None
+    return keyframes(lvl, model, model["anim"])[0]["r"]
 
 
 def rot(ax, ay, az):
@@ -597,11 +635,23 @@ class DietMesh:
         self.intensities = [] if source.intensities else None
         self.faces = []     # (ftype, idx, flags, source mesh, source face) or {"merged": ...}
         self.cards = []
+        self.back = 0       # the vertices from its parent's job's first to its own (a seam's)
+        self.seam_reach = 0     # how far a corner on its parent's can lie from its centre
 
-    def add_mesh(self, mesh, index, M=None, skip=()):
+    def vertex_count(self):
+        """As the packer writes it: its cards' four each, one for none."""
+        return max(1, len(self.vertices) + 4 * len(self.cards))
+
+    def add_mesh(self, mesh, index, M=None, skip=(), seam=None, pull=None, keep=()):
         """mesh's faces but those in skip, its vertices placed by M (into
-        this mesh's space) when given."""
-        used = sorted({i for fi, (_, idx, _) in enumerate(mesh.faces) if fi not in skip for i in idx})
+        this mesh's space) when given. seam: its vertices that are its
+        parent's, {vertex: the parent's in its own DietMesh}, a face's corner
+        there being -1 - that. pull: vertices that take another's place. keep:
+        vertices kept whether a face uses them or not (a child's seam's)."""
+        seam = seam or {}
+        pull = pull or {}
+        used = {pull.get(i, i) for fi, (_, idx, _) in enumerate(mesh.faces) if fi not in skip for i in idx}
+        used = sorted({i for i in used if i not in seam} | set(keep))
         remap = {}
         for i in used:
             remap[i] = len(self.vertices)
@@ -614,52 +664,190 @@ class DietMesh:
                 self.intensities.append(mesh.intensities[i])
         for fi, (ftype, idx, flags) in enumerate(mesh.faces):
             if fi not in skip:
-                self.faces.append((ftype, tuple(remap[i] for i in idx), flags, index, fi))
+                corners = (pull.get(i, i) for i in idx)
+                self.faces.append((ftype, tuple(-1 - seam[i] if i in seam else remap[i] for i in corners),
+                                   flags, index, fi))
         return remap
 
 
-def wolf_diet(lvl, model, meshes, atlas, states=WOLF_STATES):
-    """The wolf's simplified meshes by joint, and the joints held still."""
-    pose = standing_pose(lvl, model, states)
-    if pose is None:
-        return {}, []
+def inside_copies(mesh):
+    """The faces drawn twice, once each way round, whose copy faces into the
+    mesh's middle: a closed box's, which nothing can ever see. A thin shape's
+    copies (an ear) lie about through the middle, and a face joined to nothing
+    (a row of teeth) can be seen from behind: both stay."""
+    centre = [sum(c) / len(mesh.vertices) for c in zip(*mesh.vertices)]
+    sets = {}
+    for fi, (ftype, idx, flags) in enumerate(mesh.faces):
+        sets.setdefault(tuple(sorted(idx)), []).append(fi)
+    out = []
+    for fis in sets.values():
+        if len(fis) < 2:
+            continue
+        corners = set(mesh.faces[fis[0]][1])
+        if not any(corners & set(f[1]) for fi, f in enumerate(mesh.faces) if fi not in fis):
+            continue
+        for fi in fis:
+            v = [mesh.vertices[i] for i in mesh.faces[fi][1]]
+            n = unit(cross(sub(v[1], v[0]), sub(v[2], v[0])))     # away from the side drawn
+            if dot(sub(centre, v[0]), [-c for c in n]) > 1:
+                out.append(fi)
+    return out
+
+
+def mean(vs):
+    return [sum(c) / len(vs) for c in zip(*vs)]
+
+
+def in_box(v, vs):
+    return all(min(c) <= x <= max(c) for x, c in zip(v, zip(*vs)))
+
+
+def join_rings(meshes, start, parents, offsets, skip=(), wide=None):
+    """Where a segment's end meets its parent's in the model's rest pose (no
+    joint turned): {joint: {p: parent, map: {vertex: the parent's}, caps: its
+    faces that go, pcaps: the parent's, pull: the parent's vertices moved to a
+    corner, gap: how far a corner moves}}. Each corner of the end goes to the
+    nearest of the parent's, each of those taken once, within JOIN_REACH; a
+    joint in wide has its own reach, and a corner over shares one when the end
+    has more than the parent's. What goes: the faces on those corners alone, and
+    the stubs that hid the bend, a thigh's knee or a chest's cone: faces on
+    those corners and vertices lying past them inside the other segment. A face
+    that stays on such a vertex takes it to the nearest corner."""
+    out = {}
+    for j in range(1, len(parents)):
+        if j in skip:
+            continue
+        p = parents[j]
+        child, parent = meshes[start + j], meshes[start + p]
+        placed = [[c + o for c, o in zip(v, offsets[j])] for v in child.vertices]
+        reach = (wide or {}).get(j, JOIN_REACH)
+        pairs = sorted((norm(sub(v, pv)), i, k) for i, v in enumerate(placed) for k, pv in enumerate(parent.vertices))
+        taken, ring, gap = set(), {}, 0
+        for d, i, k in pairs:
+            if d > reach:
+                break
+            if i not in ring and k not in taken:
+                taken.add(k)
+                ring[i] = k
+                gap = max(gap, d)
+        if len(ring) < JOIN_RING:
+            continue
+        if j in (wide or {}):
+            for d, i, k in pairs:
+                if d > reach:
+                    break
+                if i not in ring and k in taken:
+                    ring[i] = k
+                    gap = max(gap, d)
+        centre = mean([placed[i] for i in ring])
+        others = [v for i, v in enumerate(placed) if i not in ring]
+        along = sub(mean(others), centre) if others else [0, 0, 0]
+
+        def ahead(v):
+            return dot(sub(v, centre), along)
+        behind = {i for i, v in enumerate(placed) if i not in ring and ahead(v) < 0 and in_box(v, parent.vertices)}
+        past = {k for k, v in enumerate(parent.vertices) if k not in taken and ahead(v) > 0 and in_box(v, placed)}
+        caps = [fi for fi, f in enumerate(child.faces)
+                if all(i in ring or i in behind for i in f[1]) or len({ring.get(i, -1 - i) for i in f[1]}) < 3]
+        pcaps = [fi for fi, f in enumerate(parent.faces) if all(k in taken or k in past for k in f[1])]
+
+        def nearest(v):
+            return min(taken, key=lambda k: norm(sub(v, parent.vertices[k])))
+        for fi, f in enumerate(child.faces):
+            if fi not in caps:
+                for i in f[1]:
+                    if i in behind:
+                        ring[i] = nearest(placed[i])
+        pull = {}
+        for fi, f in enumerate(parent.faces):
+            if fi not in pcaps:
+                for k in f[1]:
+                    if k in past:
+                        pull[str(k)] = nearest(parent.vertices[k])
+        out[j] = {"p": p, "map": {str(i): k for i, k in ring.items()}, "gap": round(gap), "caps": caps, "pcaps": pcaps,
+                  "pull": pull}
+    return out
+
+
+def pin_card(card, parents, offsets, j):
+    """A card's ends on its joint's pivot and its child's, where those lie
+    near them: the next card along then starts where this one ends, however
+    the joint bends."""
+    line = sub(card["e1"], card["e0"])
+    axis = max(range(3), key=lambda k: abs(line[k]))
+    length = abs(line[axis])
+    # e0 lies at the low end of the axis: which end is the near one?
+    near, far = ("e0", "e1") if abs(card["e0"][axis]) < abs(card["e1"][axis]) else ("e1", "e0")
+    if abs(card[near][axis]) < 0.3 * length:
+        card[near] = [0, 0, 0]
+    kids = [k for k in range(len(parents)) if parents[k] == j]
+    for k in kids:
+        if abs(offsets[k][axis] - card[far][axis]) < 0.3 * length:
+            card[far] = list(offsets[k])
+            break
+    return card
+
+
+def animal_diet(lvl, model, meshes, atlas, spec):
+    """An animal's simplified meshes by joint (ANIMALS), and the joints held
+    still. The joints between a seam's two segments are known here, so each
+    child's job's distance from its parent's is too: jobs lie one after another
+    in joint order, whole groups of 4 vertices each (renderer/vertices.cpp), a
+    joint held still having none."""
+    start, count = model["start"], model["count"]
     parents, offsets = skeleton(lvl, model)
-    frozen = sorted(j for k in WOLF_DIET_MERGES for j in WOLF_MERGES[k])
+    frozen = sorted(spec.get("held", ()))
+    cards, facing = set(spec.get("cards", ())), set(spec.get("facing", ()))
     # a joint held still is neither turned nor drawn (its node's
     # NODE_FLAG_STILL, renderer/pose.s): the matrix after it stays its
     # parent's, so a joint under it that moves would be drawn off it
-    for j in range(1, model["count"]):
+    for j in range(1, count):
         if parents[j] in frozen and j not in frozen:
-            raise ValueError(f"wolf joint {j} moves but its parent {parents[j]} is held still")
+            raise ValueError(f"model {model['type']} joint {j} moves but its parent {parents[j]} is held still")
     if 0 in frozen:
-        raise ValueError("the wolf's root joint can't be held still")
+        raise ValueError(f"model {model['type']}: the root joint can't be held still")
+    pose = standing_pose(lvl, model) if frozen else None
     kept = lambda j: j if j not in frozen else kept(parents[j])
-    start = model["start"]
-    out = {}
-    for j in range(model["count"]):
-        if j in frozen:
-            continue
-        out[j] = DietMesh(meshes[start + j])
-    for j in range(model["count"]):
+    # seams between segments drawn whole, each joint's parent drawn too
+    whole = cards | set(frozen)
+    no_seam = set(spec.get("apart", ())) | whole | {j for j in range(1, count) if parents[j] in whole}
+    rings = join_rings(meshes, start, parents, offsets, no_seam, spec.get("wide"))
+    out = {j: DietMesh(meshes[start + j]) for j in range(count)}
+    remaps = {}
+    for j in range(count):
         k = kept(j)
         M = held(parents, offsets, pose, j, k) if j != k else None
         mesh = meshes[start + j]
-        if j in WOLF_DIET_CARDS:
-            c = card_of(mesh, atlas)
+        if j in cards:
+            c = card_of(mesh, atlas, axis=1, view=2) if j in facing else pin_card(card_of(mesh, atlas), parents, offsets, j)
+            if j in facing and norm(c["e1"]) > norm(c["e0"]):
+                raise ValueError(f"model {model['type']} joint {j}: a facing card's second end is its base")
             e0, e1 = (apply(M, c["e0"]), apply(M, c["e1"])) if M else (c["e0"], c["e1"])
             n0, n1 = c["n0"], c["n1"]
             if M:
                 n0 = rotate(M, n0) if n0 else None
                 n1 = rotate(M, n1) if n1 else None
-            out[k].cards.append({"e0": e0, "e1": e1, "half": c["half"],
+            out[k].cards.append({"e0": e0, "e1": e1, "half": c["half"], "facing": j in facing,
                                  "texture": ("image", c["image"], True), "light": ("normals", n0, n1)})
-        elif j != k:
-            out[k].add_mesh(mesh, start + j, M)
-        else:
-            out[k].add_mesh(mesh, start + j)
-    # the joints held still keep an empty mesh (never drawn)
-    for j in frozen:
-        out[j] = DietMesh(meshes[start + j])
+            continue
+        ring = rings.get(j)
+        skip = set(inside_copies(mesh)) | set(ring["caps"] if ring else ())
+        pull, keep = {}, set()
+        for r in rings.values():
+            if r["p"] == j:
+                skip |= set(r["pcaps"])
+                pull.update({int(v): q for v, q in r["pull"].items()})
+                keep |= set(r["map"].values())
+        seam = {int(i): remaps[ring["p"]][q] for i, q in ring["map"].items()} if ring else None
+        remap = out[k].add_mesh(mesh, start + j, M, skip, seam, pull, keep)
+        if j == k:
+            remaps[j] = remap
+    for j, r in rings.items():
+        out[j].back = sum((out[m].vertex_count() + 3) & ~3 for m in range(r["p"], j) if m not in frozen)
+        # a parent's corner keeps its distance from the joint the segment turns
+        # about, the mesh's own origin
+        corners = meshes[start + r["p"]].vertices
+        out[j].seam_reach = norm(out[j].center) + max(norm(sub(corners[q], offsets[j])) for q in r["map"].values())
     return out, frozen
 
 
@@ -687,15 +875,15 @@ def plank_diet(mesh, index, atlas, apart=None):
 
 def level_diet(lvl, meshes, model_name):
     """The meshes the diet simplifies in lvl, {mesh index: DietMesh}: the
-    wolf's, the planks' and the rope statics' (ROPE_STATICS); and the joints
-    it holds still, {model type: joints}. model_name(type) names a model's
-    type as common.h's ITEM_TYPES does."""
+    animals' (ANIMALS), the planks' and the rope statics' (ROPE_STATICS); and
+    the joints it holds still, {model type: joints}. model_name(type) names a
+    model's type as common.h's ITEM_TYPES does."""
     atlas = Atlas(lvl)
     out, still = {}, {}
     for m in lvl.models:
         name = model_name(m["type"])
-        if name == "WOLF":
-            simplified, frozen = wolf_diet(lvl, m, meshes, atlas)
+        if name in ANIMALS:
+            simplified, frozen = animal_diet(lvl, m, meshes, atlas, ANIMALS[name])
             out.update({m["start"] + j: dm for j, dm in simplified.items()})
             if frozen:
                 still[m["type"]] = frozen
@@ -713,6 +901,15 @@ def level_diet(lvl, meshes, model_name):
             if st["mesh"] in out:
                 raise ValueError(f"mesh {st['mesh']} simplified twice")
             out[st["mesh"]] = dm
+    # a seam's corners lie in the job its model's draws put before the mesh's:
+    # nothing else may draw it
+    seams = {i for i, dm in out.items() if dm.back}
+    for st in lvl.static_meshes:
+        if st["mesh"] in seams:
+            raise ValueError(f"static {st['id']} draws mesh {st['mesh']}, which has a seam")
+    for m in lvl.models:
+        if model_name(m["type"]) not in ANIMALS and seams & set(range(m["start"], m["start"] + m["count"])):
+            raise ValueError(f"model {m['type']} draws a mesh with a seam")
     return out, still
 
 

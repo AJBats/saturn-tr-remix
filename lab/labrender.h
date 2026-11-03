@@ -192,7 +192,7 @@ int32_t verticesFallbacksCheck();
 // the join in C.
 // The same in C: what facesMeshAsm does, to check it against.
 void facesMeshC(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList &list);
-void facesMeshCardsC(const FaceSet* set, Vertex* vertices, uint32_t mode, const uint16_t* divTable);
+void facesMeshCardsC(const FaceSet* set, Vertex* vertices, uint32_t mode, const uint16_t* divTable, int32_t shade);
 
 // The buckets' chains as facesMeshHinted and facesLinkHeld change them
 // (commands linked, taken back out from a chain's head, middle and end, and
