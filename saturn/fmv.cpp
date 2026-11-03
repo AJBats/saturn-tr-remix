@@ -4,12 +4,16 @@
 //
 // The file streams from the CD into a ring in low work RAM. Audio chunks go
 // to two looping SCSP slots, one per channel, ahead of where they play; the
-// sound's play position is the clock, and each frame is decoded straight into
-// the VDP2 bitmap once its time comes.
+// sound's play position is the clock. Once its time comes each frame is decoded
+// over the last in work RAM (Cinepak keeps blocks from frame to frame) and
+// copied to the VDP2 bitmap whole, while the beam is elsewhere.
 
 #include "fmv.h"
 #include "render.h"
 #include "cd.h"
+#ifdef HW_LOG
+#include "font.h"
+#endif
 #include "hw.h"
 #include "input.h"
 #include "screen.h"
@@ -23,11 +27,13 @@ void sndStop(); // OpenLara's (sound.cpp)
 
 // low work RAM, free between levels
 #define RING            ((uint8_t*)0x00200000)
-#define RING_SIZE       (896 * 1024)
+#define RING_SIZE       (768 * 1024)
+#define PICTURE         ((uint32_t*)0x002C0000)     // 128 KB: the largest video's 320 x 200
 #define HEADER          ((uint8_t*)0x002E0000)
 #define HEADER_MAX      (64 * 1024)
 #define SCRATCH         ((uint8_t*)0x002F0000)  // a chunk that wraps the ring
 #define SCRATCH_MAX     (64 * 1024)
+#define PREROLL         (128 * 1024)    // in the ring before the sound starts
 
 #define SCSP_REG(x)     (*(volatile uint16_t*)(0x25B00000 + (x)))
 #define SCSP_SLOT(slot, reg) SCSP_REG((slot) * 0x20 + (reg) * 2)
@@ -139,16 +145,15 @@ static void decodeCodebook(Codebooks* books, uint32_t id, const uint8_t* data, c
 
 // Chunks 0x30 (every block coded, a bit each for V1 or V4), 0x31 (a bit for
 // coded or kept first) and 0x32 (V1 only). dst is the strip's top left in
-// the bitmap, in pixel pairs.
+// the picture, stride its pixel pairs a line.
 static void decodeVectors(const Codebooks* books, uint32_t id, const uint8_t* data, const uint8_t* end,
-                          volatile uint32_t* dst, int32_t width, int32_t height)
+                          uint32_t* dst, int32_t stride, int32_t width, int32_t height)
 {
-    const int32_t stride = 256; // pixel pairs per bitmap line
     uint32_t flag = 0, mask = 0;
 
     for (int32_t y = 0; y < height; y += 4, dst += stride * 4)
     {
-        volatile uint32_t* row = dst;
+        uint32_t* row = dst;
 
         for (int32_t x = 0; x < width; x += 4, row += 2)
         {
@@ -201,7 +206,7 @@ static void decodeVectors(const Codebooks* books, uint32_t id, const uint8_t* da
     }
 }
 
-static void decodeFrame(const uint8_t* data, uint32_t size, volatile uint32_t* dst)
+static void decodeFrame(const uint8_t* data, uint32_t size, uint32_t* dst, int32_t stride)
 {
     if (size < 12)
         return;
@@ -251,7 +256,8 @@ static void decodeFrame(const uint8_t* data, uint32_t size, volatile uint32_t* d
             if (id >= 0x20 && id <= 0x27) {
                 decodeCodebook(gBooks + i, id, body, bodyEnd);
             } else if (id >= 0x30 && id <= 0x32) {
-                decodeVectors(gBooks + i, id, body, bodyEnd, dst + top * 256 + (left >> 1), right - left, bottom - top);
+                decodeVectors(gBooks + i, id, body, bodyEnd, dst + top * stride + (left >> 1), stride, right - left,
+                              bottom - top);
                 break;
             }
             chunk = bodyEnd;
@@ -315,6 +321,133 @@ static void audioWrite(uint32_t ring, uint32_t pos, const uint8_t* src, uint32_t
     }
 }
 
+// The picture to the bitmap, begun as the beam passes below it: copied before
+// the beam comes round to it again.
+static void showPicture(volatile uint32_t* dst, int32_t width, int32_t height, int32_t top)
+{
+    const int32_t below = top + height;
+    const uint32_t start = gVblankCount;
+    for (;;)
+    {
+        int32_t line = VDP2_VCNT & 0x1FF;
+        if ((line >= below && line < below + 8) || gVblankCount - start > 1)
+            break;
+    }
+    const uint32_t* src = PICTURE;
+    const int32_t pairs = width / 2;
+    for (int32_t y = 0; y < height; y++, dst += 256, src += pairs)
+    {
+        for (int32_t x = 0; x < pairs; x++) {
+            dst[x] = src[x];
+        }
+    }
+}
+
+#ifdef HW_LOG
+
+// Every sector of a video summed as it arrives (kept in VDP2's second bank, which
+// nothing else uses between levels), again as a frame is decoded from it, and
+// again read a second time when the video ends: what the boxes in frames on the
+// Saturn come from. The counts show over the picture.
+#define SUMS            ((volatile uint32_t*)VDP2_BANK_B)
+#define SUMS_MAX        (0x3FF00 / 4)
+
+static uint32_t gArrived;       // sectors summed
+static uint32_t gChanged, gChangedAt;   // differing when decoded; the first
+static uint32_t gMisread, gMisreadAt;   // differing when read again; the first
+
+static uint32_t sectorSum(const uint8_t* sector)
+{
+    const uint32_t* p = (const uint32_t*)sector;
+    uint32_t sum = 0;
+    for (int32_t i = 0; i < CD_SECTOR_SIZE / 4; i++) {
+        sum = (sum << 1) + (sum >> 31) + p[i];
+    }
+    return sum;
+}
+
+static void checkArrived(const uint8_t* sectors, int32_t count)
+{
+    for (int32_t i = 0; i < count && gArrived < SUMS_MAX; i++) {
+        SUMS[gArrived++] = sectorSum(sectors + i * CD_SECTOR_SIZE);
+    }
+}
+
+// The chunk at ring offset .. offset + size, sectors counted from the ring's first.
+static void checkDecoded(uint32_t offset, uint32_t size)
+{
+    for (uint32_t k = offset / CD_SECTOR_SIZE; k <= (offset + size - 1) / CD_SECTOR_SIZE && k < gArrived; k++)
+    {
+        if (sectorSum(RING + (k * CD_SECTOR_SIZE) % RING_SIZE) != SUMS[k])
+        {
+            if (!gChanged++) {
+                gChangedAt = k;
+            }
+        }
+    }
+}
+
+static void checkText(volatile uint16_t* bitmap, int32_t x, int32_t y, const char* text)
+{
+    for (; *text; text++, x += 8)
+    {
+        const uint8_t* glyph = gFont8[*text - FONT8_FIRST];
+        for (int32_t r = 0; r < 8; r++)
+        {
+            for (int32_t c = 0; c < 8; c++) {
+                bitmap[(y + r) * 512 + x + c] = (glyph[r] >> c) & 1 ? 0xFFFF : 0x8000;
+            }
+        }
+    }
+}
+
+static void checkNumber(char* at, uint32_t value)
+{
+    for (int32_t i = 5; i >= 0; i--, value /= 10) {
+        at[i] = '0' + value % 10;
+    }
+}
+
+// Reads what arrived again, and shows the counts: until START if anything differed.
+static void checkEnd(volatile uint16_t* bitmap, uint32_t lba)
+{
+    static char changed[] = "CHANGED IN RAM 000000 AT 000000";
+    static char misread[] = "MISREAD ON CD  000000 AT 000000";
+    static char checked[] = "CHECKED        000000";
+    gMisread = 0;
+    gPad = 0xFFFF;
+    checkText(bitmap, 16, 8, "CHECKING... START SKIPS");
+    uint32_t k = 0;
+    while (k < gArrived && !skipPressed())
+    {
+        uint32_t n = gArrived - k < 64 ? gArrived - k : 64;
+        if (cdRead(lba + k, n * CD_SECTOR_SIZE, RING) != 0)
+            break;
+        for (uint32_t i = 0; i < n; i++)
+        {
+            if (sectorSum(RING + i * CD_SECTOR_SIZE) != SUMS[k + i])
+            {
+                if (!gMisread++) {
+                    gMisreadAt = k + i;
+                }
+            }
+        }
+        k += n;
+    }
+    checkNumber(changed + 15, gChanged);
+    checkNumber(changed + 25, gChangedAt);
+    checkNumber(misread + 15, gMisread);
+    checkNumber(misread + 25, gMisreadAt);
+    checkNumber(checked + 15, k);
+    checkText(bitmap, 16, 8, changed);
+    checkText(bitmap, 16, 16, misread);
+    checkText(bitmap, 16, 24, checked);
+    gPad = 0xFFFF;
+    const uint32_t start = gVblankCount;
+    while (!skipPressed() && ((gChanged || gMisread) || gVblankCount - start < 180));
+}
+#endif
+
 void fmvPlay(const char* name)
 {
     gBooks = (Codebooks*)renderScratch(sizeof(Codebooks) * MAX_STRIPS);
@@ -349,8 +482,9 @@ void fmvPlay(const char* name)
 
     // the picture area, centred
     volatile uint16_t* bitmap = screenBlank();
-    volatile uint32_t* frameDst = (volatile uint32_t*)bitmap +
-        ((SCREEN_HEIGHT - height) / 2) * 256 + ((SCREEN_WIDTH - width) / 2) / 2;
+    const int32_t pictureTop = (SCREEN_HEIGHT - height) / 2;
+    volatile uint32_t* frameDst = (volatile uint32_t*)bitmap + pictureTop * 256 + ((SCREEN_WIDTH - width) / 2) / 2;
+    memset(PICTURE, 0, width * height * 2);
 
     // sound
     sndStop();
@@ -372,8 +506,12 @@ void fmvPlay(const char* name)
     uint32_t written = 0;       // samples per channel sent to the sound rings
     uint32_t audioStartVbl = 0;
     bool audioOn = false;
+    bool started = false;
 
     gPad = 0xFFFF; // a START still held from before doesn't skip
+#ifdef HW_LOG
+    gArrived = gChanged = gMisread = 0;
+#endif
 
     for (uint32_t index = 0; index < count; )
     {
@@ -402,9 +540,17 @@ void fmvPlay(const char* name)
             int32_t got = cdStreamRead(RING + pos, want);
             if (got <= 0)
                 break;
+#ifdef HW_LOG
+            checkArrived(RING + pos, got);
+#endif
             received += got * CD_SECTOR_SIZE;
             sectorsLeft -= got;
         }
+
+        // a start the sound won't outrun
+        if (!started && received < PREROLL && sectorsLeft > 0)
+            continue;
+        started = true;
 
         if (offset + size > received)
         {
@@ -449,7 +595,11 @@ void fmvPlay(const char* name)
             uint32_t due = (time & 0x7FFFFFFF) * FILE_RATE / TIME_BASE;
             if (audioOn && played < due)
                 continue;
-            decodeFrame(data, size, frameDst);
+#ifdef HW_LOG
+            checkDecoded(offset, size);
+#endif
+            decodeFrame(data, size, PICTURE, width / 2);
+            showPicture(frameDst, width, height, pictureTop);
         }
 
         index++;
@@ -466,6 +616,9 @@ void fmvPlay(const char* name)
     if (audioOn) {
         audioStop();
     }
+#ifdef HW_LOG
+    checkEnd(bitmap, lba + firstSector);
+#endif
 }
 
 void fmvPicture(const char* name, int width, int frames)
