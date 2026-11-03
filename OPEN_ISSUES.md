@@ -469,6 +469,54 @@ CAM-22*
 - The exact worst case isn't worked out: the item data's size goes by each item's kind (`ItemSave`, plus
   `EnemySave` or `LaraSave`), over `level.itemsCount`. Size it from the levels, checked by the packer.
 
+### 267. Open skies and gaps in the rock show the last frame: Lost Valley's hall of mirrors
+*Kind: visible · Size: most of the frame looking up in Lost Valley · Fix: medium, the approach the user's call*
+
+- Reported on the Saturn, 2026-11-03: room 56 looking up (`tools/hwtest.sh valley-sky`), and a smaller
+  one at room 27 (`valley-cave`). Retail clears its frame, so what no face covers is black there. We
+  have no clear (fd12447), which is fine in closed rooms: Cistern and the ledge have 0 pixels unwritten.
+- Pixels no command writes, Mednafen, `tools/stepwise.py`: looking up 33,887 (43% of the frame, down to
+  line 170), among the plants 3,100 (down to line 30), walking in 2,013 (line 27), T-rex 1,846, the cave
+  265 in one triangle. Costing nothing, they are what isn't drawn.
+- Whole rooms have no top: LEVEL3A 6, 32, 39, 52, 53, 54, 64, 65, 66 and others. LEVEL5 19, 74, 78 and LEVEL8C 3
+  look the same on a first scan; other levels' counts may be false positives, not checked.
+- **Plan to cost:** rooms flagged open at packing; a rectangle of colour 0 behind everything, over the
+  box of each listed open room's top on the screen. A whole-frame clear is 3.49 ms, so about 0.5 ms among
+  the plants and 2.7 ms looking up, where VDP1 has room. What it lacks: a gap that isn't a room's top, as in the
+  cave's rock, which needs its own patch of colour 0 in the level's data.
+
+### 268. A mesh's face near the camera can walk thousands of lines off the frame
+*Kind: speed (VDP1) · Size: 9.97 ms of one list, Mednafen, one face that drew nothing · Fix: to be costed*
+
+- `tools/hwtest.sh valley-trex`, frame 1960: static 26, a tree: corners (319,-404) (998,-1024) (896,1023)
+  (315,301), 2,048 lines, 103,395 pixels walked, 0 written. Coordinates are clamped at +-1024.
+  The next dearest in that list is 2.04 ms. Room faces got retail's near pieces (issue 263); meshes didn't.
+- Only when a near mesh face reaches far off the frame, so this is a spike and not the level's steady cost.
+
+### 269. Flat floors and ceilings on a VDP2 plane
+*Kind: speed, look · Size: see below · Fix: large, only if it pays*
+
+- The user's idea (2026-11-03): one big flat floor, Lost Valley's or the Cistern's, drawn by a VDP2 rotation
+  plane under VDP1's frame, with correct perspective and no VDP1 warp.
+- What the biggest plane holds (`occmodel one` with OCC_PLANES, priced at each view's VDP1 time a pixel;
+  Mednafen): among the plants 134 faces, 33,435 px, about 8.0 of 42.7 ms; Cistern room 103 floor 107 faces,
+  26,011 px, about 5.3 of 35.5 ms, its ceiling at -7168 95 faces, about 1.5 ms. At about 570 cycles a kept
+  face that is also about 2.7 and 4.0 ms of slave work. Floors elsewhere at other heights stay on VDP1.
+- **What it lacks that VDP1 floors have:** each vertex's light and the moving caustics, so light is baked or
+  per line; a floor hides what VDP1 drew behind it, and a plane under the frame can't, so rooms below the
+  floor would show until those pixels are written colour 0, which gives back part of the saving; VDP2
+  VRAM and cycles for the plane's cells, map and coefficients.
+- **First test on the Saturn, not in Mednafen:** no display read from VDP2 bank B has ever worked on this
+  Saturn (mednafen-vdp2 notes), and new layouts have looked right in Mednafen and broken on the console.
+
+### 270. Plants walk far more pixels than they write
+*Kind: speed (VDP1) · Size: among the plants, statics 12.7 of 42.7 ms for 17% of the frame's pixels · Fix: assets*
+
+- `tools/stepwise.py`, `valley-plants`, Mednafen: statics walk 68,897 pixels to write 26,727, 0.47 ms a 1000 px
+  written against the rooms' 0.24. VDP1 walks see-through texels as it does the rest. Static 21's 40x56 face walks
+  5,356 for 1,884.
+- For the asset study: crop see-through borders from plant textures and their quads, fewer overlapping leaves.
+
 ## Lara: movement, collision, water, controls
 
 ### 29. The button layout and control model differ from retail
@@ -3485,6 +3533,8 @@ over 14.6, at most 188 Â· Fix: medium, parked*
   master 118 to 101, slave 108 to 85, no change seen in the picture. In Lara's Home, bright, 16
   pops in a little and 18 is mostly fine (the user, 2026-11-02). A cap that suits a dark
   level doesn't suit a bright one.
+- The user again, 2026-11-03: Far 16 once the Tiny and Black rules were in showed no real
+  improvement, those rules already doing this work. Far stays 20.
 - The black test (menu row Black): a room seen by no portal with a corner nearer than where its
   brightest vertex reaches the fog's floor is dropped, with what stands in it, its window
   filled, the walk going on through it (`RoomLevel.black`); a face wholly at the floor is
