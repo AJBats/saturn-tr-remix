@@ -204,7 +204,8 @@ function listNote() {
   if (listMode === 'now') { el.textContent = 'The list as the game draws it today. The B key flips to the list last picked and back.'; return; }
   if (!m || !m.box) { el.textContent = 'No black commands to replace in this scene.'; return; }
   const was = m.drop.reduce((a, i) => a + b.commands[i].cycles, 0), [x0, y0, x1, y1] = m.box;
-  el.textContent = `${m.drop.length} black commands, ${msOf(was).toFixed(2)} ms, become one rectangle ${x1 - x0 + 1} x ${y1 - y0 + 1} at (${x0}, ${y0}), ${msOf(m.cycles).toFixed(2)} ms: ${msOf(was - m.cycles).toFixed(2)} ms saved on VDP1. Their CPU time isn't counted either way.${listMode === 'all' ? ' Lara\'s and the objects\' black faces stay: that black is their own, not the fog\'s.' : ''}`;
+  const byPixels = m.drop.filter(i => b.commands[i].kind !== 4).length;
+  el.textContent = `${m.drop.length} black commands, ${msOf(was).toFixed(2)} ms, become one rectangle ${x1 - x0 + 1} x ${y1 - y0 + 1} at (${x0}, ${y0}), ${msOf(m.cycles).toFixed(2)} ms: ${msOf(was - m.cycles).toFixed(2)} ms saved on VDP1. CPU isn't counted.${listMode === 'run' ? ' These are the rectangles the game already writes, one for each face at the fog\'s floor, merged.' : ` Lara's and the objects' black faces stay: that black is their own, not the fog's. ${byPixels} of these are textured faces black only by their pixels, which the game can't tell without a new test.`}`;
 }
 
 function setList(mode) {
