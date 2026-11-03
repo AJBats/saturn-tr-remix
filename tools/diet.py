@@ -13,8 +13,9 @@ second, so that VDP1 draws its lines along the card: a few long lines rather
 than many short ones.
 
 The bridges: each plank's inside faces gone and the tiles of each of its
-faces drawn as one quad, their textures placed side by side, but for tiles a
-draw order hint (saturn/depth_hints.txt) needs apart (PLANK_APART); the rope
+faces drawn as one quad, their textures placed side by side, but for the tiles
+of its top, each sorting apart so that what stands on it isn't painted over, and
+tiles a draw order hint (saturn/depth_hints.txt) needs apart (PLANK_APART); the rope
 statics' three-sided tubes (ropes and posts) drawn as cards, for the statics
 the user has looked over (ROPE_STATICS).
 
@@ -424,8 +425,9 @@ def plank_parts(mesh, atlas, apart=None):
     """A plank's inside faces (sides drawn facing its middle, which only show
     through the gaps between boards) and the rest in groups sharing a plane
     and a facing; a group of tiles comes with its quad (corners A B C D) and
-    its textures side by side as one RGBA image. Faces with different keys
-    in apart (by face index; the draw order hints naming them) never share a
+    its textures side by side as one RGBA image. The tiles of its top, seen
+    from above, each stay a group of their own. Faces with different keys in
+    apart (by face index; the draw order hints naming them) never share a
     group, so that each hint still names faces of its own."""
     apart = apart or {}
     centre = [sum(c) / len(mesh.vertices) for c in zip(*mesh.vertices)]
@@ -438,7 +440,7 @@ def plank_parts(mesh, atlas, apart=None):
             inside.append(fi)
             continue
         # tilted planks' tiles miss their plane by a unit or two
-        key = apart.get(fi)
+        key = ("top", fi) if n[1] > 0.7 else apart.get(fi)  # n points away from the side drawn; y is down
         for g in groups:
             if g["key"] == key and dot(g["n"], n) > 0.995 and abs(dot(g["n"], v[0]) - g["d"]) < 8:
                 g["faces"].append(fi)
