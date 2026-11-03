@@ -55,7 +55,6 @@
     .equ    RUN_FAR_BUCKET, 268
     .equ    RUN_CAREFUL_TRI, 272
     .equ    RUN_NEAR,       332
-    .equ    RUN_NEAR_SPLIT, 336
     .equ    CLIP_LEFT,      2
     .equ    CLIP_RIGHT,     4
     .equ    CLIP_TOP,       8
@@ -425,16 +424,20 @@
     nop
 
 .Lwithin\sfx:                   ! left out, unless C splits what's near
+    .ifdef RENDER_LAB
     mov.l   @(RUN_CAREFUL_TRI, gbr), r0
     tst     r0, r0
     bt      .Lnext\sfx
+    .endif
     .if \tri
     bra     .LcarefulTri\sfx
     nop
 .Lcut\sfx:                      ! filled, unless C splits it
+    .ifdef RENDER_LAB
     mov.l   @(RUN_CAREFUL_TRI, gbr), r0
     tst     r0, r0
     bt      1b
+    .endif
 .LcarefulTri\sfx:
     bsr     .LcarefulTri
     nop
@@ -459,10 +462,14 @@
     ! corner, which can turn a quad over (the original tests only those with
     ! none near); then C asks in room space
 .LfaceClose\sfx:                 ! r0 corner A's z >> 8
+    .ifdef RENDER_LAB
     mov     r0, r6
+    .endif
     mov.l   @(RUN_NEAR, gbr), r0
+    .ifdef RENDER_LAB
     tst     r0, r0
     bt      .LfaceOurs\sfx
+    .endif
     jsr     @r0
     nop
     tst     r0, r0
@@ -485,6 +492,7 @@
     bra     .Lcareful\sfx
     nop
     .endif
+    .ifdef RENDER_LAB
 .LfaceOurs\sfx:
     .ifeq \tri
     mov     r6, r0
@@ -493,11 +501,14 @@
     .endif
     bra     .LFaceMaterial\sfx
     nop
+    .endif
 
 .LfaceWound\sfx:
+    .ifdef RENDER_LAB
     mov.l   @(RUN_NEAR, gbr), r0
     tst     r0, r0
     bt      .Lnext\sfx
+    .endif
     mov.l   @(4, r1), r6
     mov.l   @(4, r2), r0
     or      r0, r6
@@ -535,7 +546,7 @@
     mov.w   @(4, r1), r0
     shlr8   r0
     tst     #0xF0, r0
-    bt      .LfaceClose\sfx     ! corner A within the most faces.cpp splits at
+    bt      .LfaceClose\sfx     ! corner A within the distance faces.cpp splits at
 .LFaceMaterial\sfx:
     MATERIAL
     mov.w   @(8, r14), r0
@@ -1296,7 +1307,7 @@ _facesRoomAsm:
     ! follows in the cache
     .section .text.facesnear, "ax"
 
-    ! A quad every corner of it within RoomRun.nearSplit, none nearer than the plane:
+    ! A quad every corner of it within 4096 (faces.cpp NEAR_SPLIT), none nearer than the plane:
     ! split here. A new corner lies where the view's midpoint does, from the
     ! ends' screen places and depths alone: a + (b - a) zb / (za + zb), one
     ! divide for x and y, ends in address order so that two quads sharing an
@@ -1383,8 +1394,8 @@ _facesRoomAsm:
     .global _facesRoomNear
 _facesRoomNear:
     sts.l   pr, @-r15
-    mov.l   @(RUN_NEAR_SPLIT, gbr), r0
-    mov     r0, r6
+    mov     #16, r6
+    shll8   r6                  ! NEAR_SPLIT
     mov.w   @(4, r1), r0
     cmp/gt  r6, r0
     bt      .LnearWhole

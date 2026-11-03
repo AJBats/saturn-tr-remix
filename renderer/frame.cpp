@@ -34,6 +34,7 @@ static uint16_t gTails[2][OT_SIZE];
 static FrameLevel gLevel;
 static Command gClear;          // the list's first command, jumping to the first bucket's
 
+#ifdef RENDER_LAB
 // The rooms' vertices' top: the walk places them from MASTER_VERTICES up, a
 // room's rounded up to 16 (rooms.cpp placeRooms' gBottom).
 static int32_t roomsBottom()
@@ -47,6 +48,7 @@ static int32_t roomsBottom()
     }
     return bottom;
 }
+#endif
 
 void frameInit(const FrameLevel &level)
 {
@@ -69,7 +71,9 @@ void frameInit(const FrameLevel &level)
     facesRoomMaterials(t, gRoomMaterials, level.roomTextures < MAX_ROOM_TEXTURES ? level.roomTextures
                                                                                   : MAX_ROOM_TEXTURES);
     t.materials = gRoomMaterials;
+#ifdef RENDER_LAB
     gSplit.vertices = level.vertices;
+#endif
     gSplit.divTable = divTable;
     gMeshFirst = 1;
     frameLists();
@@ -95,8 +99,10 @@ void frameLists()
                   gLevel.shadeGouraud, gLevel.shadeLevel, gLevel.shade[1], gLevel.sprites);
     facesListInit(gMeshList, gFrameCmds, gFrameGrd, gMeshFirst, MAX_CMDS - 1, gHeads[1], gTails[1], gLevel.materials,
                   gLevel.shadeGouraud, gLevel.shadeLevel, gLevel.shade[0], gLevel.sprites);
+#ifdef RENDER_LAB
     gSplit.top = MAX_VERTICES;
     gSplit.bottom = roomsBottom();
+#endif
 }
 
 void frameSplit(const DrawScene* draws, uint32_t count, int32_t fills)
@@ -151,8 +157,10 @@ void framePaintRoom(int32_t) {}
 static void roomListStart()
 {
     facesListStart(gRoomList, gFrameCmds, gFrameGrd, 1, gMeshFirst);
+#ifdef RENDER_LAB
     gSplit.top = MAX_VERTICES;
     gSplit.bottom = roomsBottom();
+#endif
 }
 
 void frameListsStart(bool rooms)
@@ -764,13 +772,6 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
 void frameTexels(int32_t lod)
 {
     gRoomTextures.lod = lod;
-}
-
-void frameNear(int32_t split)
-{
-#ifndef RENDER_LAB
-    facesNear(split);
-#endif
 }
 
 void frameFar(int32_t far)

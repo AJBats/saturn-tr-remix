@@ -631,6 +631,8 @@ static inline int32_t asr16(int32_t v)
     return int16_t(uint32_t(v) >> N);
 }
 
+#ifdef RENDER_LAB
+
 // A point in room space (vertex units times 4) projected as the room's own
 // vertices are (rooms.cpp projectRoomPoint), but for the shade.
 static void projectRoomPoint(const FaceRoom &room, const RoomSplit &split, int32_t vx, int32_t vy, int32_t vz,
@@ -659,12 +661,7 @@ static void projectRoomPoint(const FaceRoom &room, const RoomSplit &split, int32
     if (dz >= 1281) {
         dz = 1280;
     }
-#ifdef RENDER_LAB
     int16_t dd = split.divTable[dz];
-#else
-    // as rooms' near vertices are (vertices.h RoomProject.zExact)
-    int16_t dd = z < VIEW_EXACT ? (1 << 20) / z : split.divTable[dz];
-#endif
     const int32_t limit = 2047 << 12;
     int32_t px = x * dd, py = y * dd;
     int32_t sx = asr16<12>(px < -limit ? -limit : px > limit ? limit : px) + (FRAME_WIDTH >> 1);
@@ -749,6 +746,8 @@ static bool roomSplit(const FaceRoom &room, RoomTextures &t, RoomSplit &split, C
     return true;
 }
 
+#else
+
 // The camera on a room quad's front side, worked out in room space: on the
 // frame, corners clamped to what VDP1 can address or held at the near plane can
 // wind a quad facing the camera the wrong way round, and it would be left out.
@@ -772,75 +771,18 @@ static bool roomQuadFacing(const FaceRoom &room, const RoomQuad &q)
     return (e1y * e2z - e1z * e2y) * d[0] + (e1z * e2x - e1x * e2z) * d[1] + (e1x * e2y - e1y * e2x) * d[2] < 0;
 }
 
+#endif
+
 // A sparse texture (water's flecks, 80% or more see-through) over this many lines
 // is left out: VDP1 walks the empty texels as it does the rest, so one such quad
 // near the camera can take more than the rest of the frame. As facesroom.s's.
 #define SPARSE_LINES    64
 
-// A corner this far off the frame and its quad is cut on the screen (roomQuadCut).
-#define CUT_OFF_FRAME   256
+#ifdef RENDER_LAB
 
-// The point halfway between two of a quad's corners on the screen, or the mean
-// of two such points.
-static void cutPoint(const FaceRoom &room, const Vertex* a, const Vertex* b, Vertex* res)
-{
-    int32_t x = (a->x + b->x) >> 1, y = (a->y + b->y) >> 1;
-    uint32_t clip = 0;
-    if (uint32_t(x) > FRAME_WIDTH || uint32_t(y) > FRAME_HEIGHT) clip |= CLIP_FRAME;
-    if (x < room.clip[0]) clip |= CLIP_LEFT;
-    if (x > room.clip[2]) clip |= CLIP_RIGHT;
-    if (y < room.clip[1]) clip |= CLIP_TOP;
-    if (y > room.clip[3]) clip |= CLIP_BOTTOM;
-    res->x = x;
-    res->y = y;
-    res->z = (a->z + b->z) >> 1;
-    res->g = (a->g + b->g) >> 1;
-    res->clip = clip;
-}
-
-static inline void cutQuarter(CommandList &list, const RoomTextures &t, uint32_t flags, const Vertex* a,
-                              const Vertex* b, const Vertex* c, const Vertex* d, int32_t depth)
-{
-    if (!(a->clip & b->clip & c->clip & d->clip & CLIP_DISCARD)) {
-        roomCommand(list, t, flags, a, b, c, d, depth);
-    }
-}
-
-// A quad reaching far off the frame cut 2x2 on the screen, each quarter drawn
-// with a quadrant of its texture. VDP1 draws a quad as lines between two of its
-// edges, which lays the texture bilinearly over the screen quad, so quarters cut
-// at the corners' means draw the same picture and the cut can't be seen coming
-// or going. Quarters off the frame are left out, and the rest walk less of what
-// lies off it (VDP1 steps through every pixel before a line reaches the frame).
-// In the whole quad's bucket, as it would have been. False when there's no room
-// or no cached texture.
-static bool roomQuadCut(const FaceRoom &room, RoomTextures &t, CommandList &list, const RoomQuad &q,
-                        const Vertex* a, const Vertex* b, const Vertex* c, const Vertex* d)
-{
-    if (list.cmd + 4 * 8 > list.end)
-        return false;
-    int32_t slot = cachedSlot(t, t.textures[q.flags & FACE_TEXTURE], DETAIL_QUADS);
-    if (slot < 0)
-        return false;
-
-    Vertex ab, bc, cd, da, mid;
-    cutPoint(room, a, b, &ab);
-    cutPoint(room, b, c, &bc);
-    cutPoint(room, c, d, &cd);
-    cutPoint(room, d, a, &da);
-    cutPoint(room, &ab, &cd, &mid);
-    uint32_t flags = (q.flags & ROOM_QUAD_FLAGS) | room.flags | FACE_DETAIL | (uint32_t(slot) << FACE_DETAIL_SLOT_SHIFT);
-    int32_t depth = zMax(a, b, c, d) >> OT_SHIFT;
-    cutQuarter(list, t, flags | (0 << FACE_DETAIL_QUAD_SHIFT), a, &ab, &mid, &da, depth);
-    cutQuarter(list, t, flags | (1 << FACE_DETAIL_QUAD_SHIFT), &ab, b, &bc, &mid, depth);
-    cutQuarter(list, t, flags | (2 << FACE_DETAIL_QUAD_SHIFT), &mid, &bc, c, &cd, depth);
-    cutQuarter(list, t, flags | (3 << FACE_DETAIL_QUAD_SHIFT), &da, &mid, &cd, d, depth);
-    return true;
-}
-
-// A quad a plane cuts, or near the camera (rooms.cpp faceAddRoomQuads): split
-// or filled where the near plane cuts it, cut on the screen if it reaches far off
-// the frame, else whole, turned when that makes fewer lines, at full res.
+// The old path the lab's captures were taken with: a quad a plane cuts, or near
+// the camera (rooms.cpp faceAddRoomQuads), split or filled where the near plane
+// cuts it, else whole, turned when that makes fewer lines, at full res.
 static void roomQuadCareful(const FaceRoom &room, RoomTextures &t, RoomSplit &split, CommandList &list,
                             const RoomQuad &q)
 {
@@ -852,13 +794,8 @@ static void roomQuadCareful(const FaceRoom &room, RoomTextures &t, RoomSplit &sp
     uint32_t clipOr = a->clip | b->clip | c->clip | d->clip;
     if ((clipAnd & (CLIP_DISCARD & ~CLIP_PLANE)) || ((clipAnd & CLIP_PLANE) && a->z < gViewFar))
         return;     // wholly beyond a frame edge or behind the near plane
-#ifdef RENDER_LAB
     if (backface(a, b, c))
         return;
-#else
-    if (!roomQuadFacing(room, q))
-        return;
-#endif
     uint32_t flags = (q.flags & ROOM_QUAD_FLAGS) | room.flags;
     const Texture &tex = t.textures[flags & FACE_TEXTURE];
     if (clipOr & CLIP_PLANE)
@@ -875,34 +812,29 @@ static void roomQuadCareful(const FaceRoom &room, RoomTextures &t, RoomSplit &sp
     int32_t across = max(span(a, b), span(d, c));
     if ((tex.attr & TEX_ATTR_SPARSE) && min(along, across) >= SPARSE_LINES)
         return;
-#ifndef RENDER_LAB
-    if ((clipOr & CLIP_FRAME) && tex.reserved &&
-        max(max(offFrame(a), offFrame(b)), max(offFrame(c), offFrame(d))) >= CUT_OFF_FRAME &&
-        roomQuadCut(room, t, list, q, a, b, c, d))
-        return;
-#endif
     uint32_t variant = across < along;
     roomCommand(list, t, wholeTexture(t, flags, variant), a, b, c, d, zMax(a, b, c, d) >> OT_SHIFT);
 }
 
-// --- near the camera, as the original ------------------------------------
+#else
 
-#ifndef RENDER_LAB
+// --- near the camera, as the original ------------------------------------
 
 // The original has no polygon clipping (0603fcec, 06040038, issue 263). VDP1
 // lays a texture evenly across a quad, so a quad is given more corners, each
-// where it truly lies: within gNearSplit, or near the camera or far off the
+// where it truly lies: within NEAR_SPLIT, or near the camera or far off the
 // frame, four quadrants of its texture; a quadrant near the camera or far off
 // the frame, four tiles of it. A corner nearer than the plane is projected
 // held at the plane, and only a tile with a corner behind the camera, or that
 // comes out facing away, is left out. Each piece sorts by its own farthest
-// corner. Past gNearSplit a quad stays whole, the warp too small to see go.
+// corner. Past NEAR_SPLIT a quad stays whole, the warp too small to see go.
 //
 // facesroom.s does this itself for a quad with every corner in front of the
 // plane and in reach of the frame's coordinates, from the corners' screen places
 // and depths. This takes the rest, whose corners only room space can place.
 
 #define NEAR_PLANE      80      // phd_InitWindow's
+#define NEAR_SPLIT      4096    // facesroom.s's too
 #define NEAR_CODE       __attribute__((section(".text.facesnear")))   // out of the hot code's order (saturn.ld)
 #define OFF_FRAME_MAX   128     // new corners are held this close to the frame
 
@@ -919,13 +851,6 @@ struct NearPoint
     int32_t x, y, z;
     Vertex v;
 };
-
-static int32_t gNearSplit = 4096;
-
-void facesNear(int32_t split)
-{
-    gNearSplit = split;
-}
 
 // x, y held near the frame; clip gains what they show.
 static inline void nearHold(const FaceRoom &room, int32_t &x, int32_t &y, uint32_t &clip)
@@ -1176,7 +1101,7 @@ NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const 
         return;
     const bool coloured = ((flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) == FACE_TYPE_F;
     const int32_t off = max(max(offFrame(a), offFrame(b)), max(offFrame(c), offFrame(d)));
-    if (!sparse && !coloured && tex.reserved && (near || farthest <= gNearSplit || off > OFF_FRAME_MAX) &&
+    if (!sparse && !coloured && tex.reserved && (near || farthest <= NEAR_SPLIT || off > OFF_FRAME_MAX) &&
         nearSplit(room, t, split, list, q, triangle))
         return;
     if (cut)
@@ -1215,7 +1140,6 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, pieceMaterial) == 300 && offsetof(RoomRun, wibble) == 304 &&
               offsetof(RoomRun, phase) == 308 && offsetof(RoomRun, window) == 312 &&
               offsetof(RoomRun, tiles) == 328 && offsetof(RoomRun, near) == 332 &&
-              offsetof(RoomRun, nearSplit) == 336 &&
               offsetof(RoomMaterial, quadrant) == 30 && offsetof(RoomMaterial, quads) == 60 &&
               offsetof(FaceRoom, points) == 8 && offsetof(FaceRoom, quadsCount) == 16 &&
               offsetof(FaceRoom, facing) == 20 && offsetof(FaceRoom, camera) == 32 &&
@@ -1253,19 +1177,17 @@ void facesRoomMaterials(const RoomTextures &t, RoomMaterial* materials, int32_t 
     }
 }
 
+#ifdef RENDER_LAB
 static void roomCareful(RoomRun* run, const RoomQuad* q)
 {
-#ifndef RENDER_LAB
-    if (gNearSplit)
-    {
-        roomQuadNear(*run->room, *run->textures, *run->split, *run->list, *q, false);
-        return;
-    }
-#endif
     roomQuadCareful(*run->room, *run->textures, *run->split, *run->list, *q);
 }
+#else
+NEAR_CODE static void roomCareful(RoomRun* run, const RoomQuad* q)
+{
+    roomQuadNear(*run->room, *run->textures, *run->split, *run->list, *q, false);
+}
 
-#ifndef RENDER_LAB
 NEAR_CODE static void roomCarefulTri(RoomRun* run, const RoomQuad* q)
 {
     roomQuadNear(*run->room, *run->textures, *run->split, *run->list, *q, true);
@@ -1306,9 +1228,8 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.carefulTri = nullptr;
     run.near = nullptr;
 #else
-    run.carefulTri = gNearSplit ? roomCarefulTri : nullptr;
-    run.near = gNearSplit ? facesRoomNear : nullptr;
-    run.nearSplit = gNearSplit;
+    run.carefulTri = roomCarefulTri;
+    run.near = facesRoomNear;
     run.quads.keys = t.keys[DETAIL_QUADS];
     run.quads.frames = &t.slots[0].frame;
     run.quads.pool = t.pools[0] >> 3;

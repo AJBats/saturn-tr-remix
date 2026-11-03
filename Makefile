@@ -258,7 +258,7 @@ LAB_SRC := $(wildcard renderer/*.cpp renderer/*.s lab/*.cpp lab/*.s) saturn/font
 LAB_DSP := $(patsubst renderer/gen_%.py,$(LAB)/gen/%_dsp.h,$(wildcard renderer/gen_*.py)) $(LAB)/gen/meshlight3_dsp.h
 # -g: lines for profiles (tools/lab.py's trace), and the assembly's local
 # labels kept, for the places inside its macros; the code is the same without
-LAB_FLAGS := -m2 -mb -O2 -g -Wall -DRENDER_LAB -Ilab -Irenderer -Isaturn -I$(LAB)/gen -ffunction-sections
+LAB_FLAGS := -m2 -mb -O2 -g -Wall -DRENDER_LAB -Wa,--defsym,RENDER_LAB=1 -Ilab -Irenderer -Isaturn -I$(LAB)/gen -ffunction-sections
 LAB_CXXFLAGS := $(LAB_FLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
 	-fno-asynchronous-unwind-tables
 

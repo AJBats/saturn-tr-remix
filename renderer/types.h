@@ -45,15 +45,12 @@ struct Face
     int16_t indices[4];     // corners: byte offsets in their CPU's half of gVertices
 };
 
-// A frame's vertices: the master's, then the rooms' as the walk places them, then
-// the corners of quads the near plane splits (SPLIT_VERTICES kept from the rooms).
+// A frame's vertices: the master's, then the rooms' as the walk places them.
 #undef MAX_VERTICES     // openlara/common.h's, for its other platforms
 #ifdef RENDER_LAB
 #define MAX_VERTICES    (5 * 1024)      // tools/labscene.py's, the captures'
-#define SPLIT_VERTICES  0
 #else
-#define MAX_VERTICES    (MASTER_VERTICES + 3328 + SPLIT_VERTICES)
-#define SPLIT_VERTICES  128
+#define MAX_VERTICES    (MASTER_VERTICES + 3328)
 #endif
 #define MAX_DRAWS       256     // a frame's: the master's 2048 vertices hold about that many of the smallest meshes
 #ifndef MASTER_VERTICES

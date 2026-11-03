@@ -296,7 +296,7 @@ static int32_t roomJobs(const RoomSeen* seen, int32_t count, uint32_t cameraRoom
     bool cameraWater = gLevel[cameraRoom].flags & ROOM_FLAG_WATER;
     int32_t queued = 0, placed = 0, bottom = MASTER_VERTICES;
     bool wet = false;
-    int32_t over = bottom - (MAX_VERTICES - SPLIT_VERTICES);
+    int32_t over = bottom - MAX_VERTICES;
     for (int32_t i = 0; i < count; i++) {
         over += (gLevel[seen[i].room].vertices + 15) & ~15;
     }

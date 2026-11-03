@@ -202,12 +202,14 @@ struct RoomTextures
 // The room materials of textures 0 .. count - 1.
 void facesRoomMaterials(const RoomTextures &textures, RoomMaterial* materials, int32_t count);
 
-// Where quads split near the camera put their new corners: the vertices
-// from top down to bottom.
+// What quads split near the camera project their new corners with; the lab's old
+// path puts them in the vertices from top down to bottom.
 struct RoomSplit
 {
+#ifdef RENDER_LAB
     Vertex* vertices;
     int32_t top, bottom;
+#endif
     const uint16_t* divTable;
 };
 
@@ -223,10 +225,6 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &textures, RoomSplit &split, Com
 // past it is a fill behind everything, as one a plane cuts.
 void facesFar(int32_t far);
 
-// Room faces with every corner within this are split as the original split them
-// (faces.cpp roomQuadNear; at most 4096, its own); 0, only where the near plane
-// cuts them.
-void facesNear(int32_t split);
 void facesRoom(const FaceRoom &room, RoomRun &run);
 
 // A face's shading in facesroom.s.
@@ -282,8 +280,7 @@ struct RoomRun
     int32_t window[4];          // +312 the room's portal window: x0 y0 x1 y1
     int32_t (*tiles)(RoomRun* run, uint32_t key, uint32_t size);    // +328 the texture's tiles'
                                 // character / 8, 0 when the cache can't have them
-    void (*near)();             // +332 facesRoomNear, or none: only what the near plane cuts splits
-    int32_t nearSplit;          // +336 a quad with every corner within this splits (facesNear)
+    void (*near)();             // +332 facesRoomNear; the lab has none
 };
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);

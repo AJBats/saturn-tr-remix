@@ -426,7 +426,8 @@ CAM-22*
   The slave sorts by the whole key, a radix sort of two passes (`06008fdc` by high byte, `06008a7a`
   by low byte), one unit of depth wide; ours is 16 wide. The pieces are what shows: at the
   `cistern-warp` spot a wall drew over the floor, a whole quad sorted by its far corner.
-- **Built (menu row Near, Retail by default, Ours as before):** in `facesroom.s`, with quads a plane cuts
+- **Built (the game's only near path since 2026-11-03: the old one and its menu row are gone, the lab
+  keeps its copy for its captures; figures below are from before):** in `facesroom.s`, with quads a plane cuts
   or with a corner past the frame's coordinates in C. Mednafen, Lara standing, against Ours: ROOMS +0.2 ms
   at room 31, +1.2 at the ledge, +1.5 at room 103; VDP1 +0.6 to +0.8 ms at those, +1.9 at `cistern-mirror`,
   +3.5 at `cistern-steps`.
@@ -434,6 +435,20 @@ CAM-22*
   27.36 at `cistern-mirror`, below Ours at the four spots tried; 16-30 more 2 KB slots). Meshes' near plane 64.
   A quad over 128 px off the frame with a corner past 4096 stays whole. The lab doesn't cover Retail mode.
 - Takes in issues 252 and 262.
+
+### 264. Room vertices could be freed room by room
+*Kind: memory, speed · Size: maybe tens of KB of high work RAM · Fix: to be costed*
+
+- `gRoomRotated` (12 bytes each, what the DSP rotates, 43.8 KB) and `gVertices` (8 bytes each, what the
+  faces read, 44 KB with the meshes') hold every listed room's vertices for the frame, and a view
+  past 3,328 loses its deepest rooms (issue 254).
+- Retail has one buffer, 48,000 bytes at `06094564` (1,500 of 32 bytes): a room is transformed, drawn,
+  and the next overwrites it, so a view has no limit (`06037ae8`).
+- The idea: a ring, a room's vertices freed once its faces are made. It would also end issue 254's
+  limit, and what it frees goes to the rooms' faces (issue 244).
+- **What it lacks that today's has:** the DSP rotating the frame's rooms ahead of both CPUs. It could
+  run only as far ahead as the ring is long, which may cost back what the frame gains by it.
+  Not costed.
 
 ## Lara: movement, collision, water, controls
 
@@ -3310,10 +3325,15 @@ Fix: small*
   2.6 is the old path behind the menu's Near Ours, which a build without the menu can't reach.
 - **Test discs read worse than the game:** a build without HW_LOG ends 19,632 bytes lower, which would
   leave LEVEL7A's faces about 26.5 KB (by subtraction, not run).
-- **Candidates:** the save and backup buffers, 40 KB used only when saving or loading (`gLibrary` 16,
-  `gSaveBuffer` 8, `gSaveData` 8, `gWork` 8). Low work RAM is tight only at LEVEL7B: free 7A 51.7 KB,
-  6 69 KB, 10B 124 KB, 7B 1.4 KB. The BIOS runs its backup library from `gLibrary`, so that one has
-  to stay where it can execute.
+- **After 2026-11-03** (`gSaveBuffer` gone, the old near path gone, no vertices kept for split corners:
+  15 KB; room 103, Near 4096, Texels 1): a test disc gives LEVEL7A's faces 21.8 KB (23 rooms), 16 of the
+  view's 26 rooms high, `facesRoomAsm` 16.82 -> 15.89 ms; a build without HW_LOG 41.4 KB (53 rooms), all
+  26 high, 15.41 ms. HW_LOG costs a test disc 19.6 KB of this and 0.48 ms at that view.
+- **Candidates:** `gLibrary` 16 KB and `gWork` 8, the backup library's, used only when saving or loading.
+  Low work RAM is tight only at LEVEL7B: free 7A 51.7 KB, 6 69 KB, 10B 124 KB, 7B 1.4 KB. A level load
+  overwrites low work RAM and the BIOS runs its library from `gLibrary`, so it would need setting up
+  again each time, untested. `gSaveData` must survive a level load. Its 8 KB is more than needed: the
+  Cistern's save is 2,750 bytes for 109 items, the largest level has 192.
 - **Levers:** 242's reserve (face sets in low work RAM instead, 8-byte room
   faces, the meshes' parts folded into their headers, the draws' limit
   measured in play, the rooms projected in place over the DSP's rotated

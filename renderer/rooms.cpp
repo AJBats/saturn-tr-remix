@@ -86,7 +86,7 @@ void roomsInit(const RoomsLevel &level)
     gCtx.fills = gFills[0];
     gCtx.farScaled = 1;
     gCtx.entries = gEntries;
-    gCtx.verticesTop = MAX_VERTICES - SPLIT_VERTICES;
+    gCtx.verticesTop = MAX_VERTICES;
     gCtx.hidden = uncached(gHidden);
     gCtx.seenNear = uncached(gSeenNear);
     gSines = level.sines;
