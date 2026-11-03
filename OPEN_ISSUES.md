@@ -450,6 +450,25 @@ CAM-22*
   run only as far ahead as the ring is long, which may cost back what the frame gains by it.
   Not costed.
 
+### 265. The backup library sits in high work RAM, 24 KB used only to save or load
+*Kind: memory · Size: 24 KB of high work RAM · Fix: small, one thing to test*
+
+- `saturn/backup.cpp`: `gLibrary` 16 KB, where the BIOS copies its backup code and runs it from, and
+  `gWork` 8 KB, its scratch. Neither is touched in play. Moved out, they would take a test disc's
+  room faces at LEVEL7A from 21.8 to about 46 KB and a shipping build's from 41.4 to about 65 KB (issue 244).
+- Low work RAM can hold them at most levels (free: LEVEL7A 51.7 KB, LEVEL6 69, LEVEL10B 124), not at
+  LEVEL7B (1.4 KB), so they would go low when the level leaves room and stay high when it doesn't.
+- **To test:** a level load overwrites low work RAM, so the library would be set up again each time
+  (`BUP_INIT`, today once, `gStub` keeps it). Calling it twice is untested, in Mednafen and on the Saturn.
+
+### 266. The saved game's buffer is bigger than any level's save
+*Kind: memory · Size: about 3 KB of high work RAM · Fix: small*
+
+- `gSaveFile` is 8 KB (`SAVEGAME_SIZE`, from OpenLara's GBA build). The Cistern's save is 2,750 bytes
+  for its 109 items; the largest level, LEVEL10B, has 192, about 5 KB by scale.
+- The exact worst case isn't worked out: the item data's size goes by each item's kind (`ItemSave`, plus
+  `EnemySave` or `LaraSave`), over `level.itemsCount`. Size it from the levels, checked by the packer.
+
 ## Lara: movement, collision, water, controls
 
 ### 29. The button layout and control model differ from retail
@@ -3329,11 +3348,7 @@ Fix: small*
   15 KB; room 103, Near 4096, Texels 1): a test disc gives LEVEL7A's faces 21.8 KB (23 rooms), 16 of the
   view's 26 rooms high, `facesRoomAsm` 16.82 -> 15.89 ms; a build without HW_LOG 41.4 KB (53 rooms), all
   26 high, 15.41 ms. HW_LOG costs a test disc 19.6 KB of this and 0.48 ms at that view.
-- **Candidates:** `gLibrary` 16 KB and `gWork` 8, the backup library's, used only when saving or loading.
-  Low work RAM is tight only at LEVEL7B: free 7A 51.7 KB, 6 69 KB, 10B 124 KB, 7B 1.4 KB. A level load
-  overwrites low work RAM and the BIOS runs its library from `gLibrary`, so it would need setting up
-  again each time, untested. `gSaveData` must survive a level load. Its 8 KB is more than needed: the
-  Cistern's save is 2,750 bytes for 109 items, the largest level has 192.
+- **Candidates:** issues 264, 265 and 266.
 - **Levers:** 242's reserve (face sets in low work RAM instead, 8-byte room
   faces, the meshes' parts folded into their headers, the draws' limit
   measured in play, the rooms projected in place over the DSP's rotated
