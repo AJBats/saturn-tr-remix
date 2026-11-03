@@ -3427,6 +3427,14 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Fix: merge and hold joints with `tools/diet.py`, the user choosing the merges in
   `tools/model_view.py`, as for the wolf. The animals stay; only their meshes change, and
   every state pays less, awake or asleep.
+- Built on branch `shell` (81b84a3), the user's choices: every animal in the viewer joined into one
+  shell, one vertex a corner; the rat's limbs, tail and ears as cards. Master mesh work a kind (draws, pose,
+  feed, draw list, upload), three standing still in room 32 (`tools/hwtest.sh zoo-rats` and so on), Mednafen,
+  less the room without them, ms an animal: rat 3.20 to 2.60, crocodile 2.26 to 2.14, gorilla 2.18 to 2.08.
+  VDP1 a list, ms an animal: rat 1.08 to 0.47, crocodile 0.91 to 0.78, gorilla 0.67 to 0.66. Wolves and the bear:
+  within 0.3 ms. Awake, three rats, a gorilla and two crocodiles at Lara's feet (`zoo`): 28.05 to 28.95 fps, VDP1
+  31.50 to 27.47 ms. What's left of a rat: draws 1.53, feed 0.44, pose 0.40, draw list 0.20: feed, pose and the
+  draw list go by joints, and joints are what's left. Saturn run pending.
 
 ### 257. Creatures that paint nothing cost as much as those that do
 *Kind: speed · Size: 6.9 ms at one spot, Mednafen · Fix: open*
