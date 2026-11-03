@@ -56,6 +56,15 @@ anim, state and object ids) and by call graph.
 | 06037ae8 | Output_DrawRoom |
 | 0603feda | room sprite draw (drops z <= 640) |
 | 0603fb48 | face dispatch |
+| 0603fcec / 0603fd22 / 0603fe04 | room quad handlers, opaque / see-through; room triangle (C = D) |
+| 0603fde2 / 06040038 | near face split: 2x2 from a 2 KB slot |
+| 0604011c / 060402f0 / 060404cc / 060406b8 | a quadrant: whole, or 4 tiles of 16x16 |
+| 060408a4 | a sub-quad's test: 0 off, 1 clean, -1 near or far off the frame, -2 facing away or behind |
+| 06040b08 | 4 edge midpoints and the centre, in view space |
+| 06040d58 | a new corner projected: z held at near, coordinates clamped 128 px off the frame |
+| 06040a60 / 060409a6 | command for a quadrant / a tile |
+| 0604106c / 0604118c / 06041134 | slot pool: set up (2 KB each, up to 100) / take / age each frame, free after 2 unused |
+| 06040ed0 / 06040f70 | upload a quadrant (slave DMA, else master) / copy a tile (CPU) |
 | 060130fc | DrawAnimatingItem |
 | 060130ac | DrawSpriteItem / pickup item |
 | 060130f0 | DrawDummyItem (invisible) |

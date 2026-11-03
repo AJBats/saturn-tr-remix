@@ -394,6 +394,26 @@ CAM-22*
   camera became the default (issue 8): moving it changes which near faces are cut, near the work
   of issues 251-252.
 
+### 263. Near the camera retail splits faces in 3D, two levels deep; ours warps and leaves holes
+*Kind: visible · Size: medium · Fix: port from retail (`0603fce0`..`06040ec0`)*
+
+- **Retail:**
+  - A room quad goes to the split path (`06040038`) when any corner is near the camera or over
+    128 px off the frame, or when its farthest corner is within 4096 units. Triangles go the same
+    way as quads with C = D.
+  - It takes each edge's midpoint and the centre in view space, projects them (`06040d58`) and
+    draws 4 quadrants, each 32x32 of the full texture, from a cached 2 KB slot.
+  - A quadrant with a corner near or over 128 px off, or that came out facing away, is split the
+    same way into 4 tiles of 16x16 texels (`0604011c`).
+  - Near is 80. A corner between 0 and 80 is projected held at 80 and still draws; only a tile with
+    a corner behind the camera is dropped. Coordinates are clamped to 128 px off the frame.
+- **Ours:** a quad is drawn whole unless a corner is within 64, so the texture warps across all
+  1024 units of it. Then one split; a quarter with a corner within 64 is left out, a triangle
+  filled. A quad 256 px off the frame is cut on the screen, which doesn't change the warp.
+- Retail while walking in the Cistern's room 31: 54-92 quadrants, 0-3 tiles, 214-282 commands a
+  frame, 11-13 of 69 slots in use (Mednafen).
+- Takes in issues 252 and 262.
+
 ## Lara: movement, collision, water, controls
 
 ### 29. The button layout and control model differ from retail
