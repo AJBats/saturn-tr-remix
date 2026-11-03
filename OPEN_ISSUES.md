@@ -3294,8 +3294,17 @@ Fix: small*
 - The level's arena takes the rooms' faces last, room by room as they fit
   (`os.cpp osPlaceRoomFaces`); the rest stay where the level file has them,
   in low work RAM, which the slave reads more slowly every frame it draws
-  those rooms. The cost is unmeasured: no trace yet of a frame drawing
-  them, on the Saturn or in Mednafen.
+  those rooms.
+- **Measured 2026-11-03 (Mednafen, room 103, Near Ours, Texels 1):** 41 cycles a face read. The same
+  frame's `facesRoomAsm` is 17.30 ms with every room's faces low and 16.84 ms as it ships (326 of 1357
+  faces read from high), so about 15.4 ms with all of them high: 1.5 ms to win at that view.
+- **It has grown:** LEVEL7A's faces got 37,296 bytes of high work RAM at 33102ae (48 rooms) and get
+  6,832 now (11 rooms), on an HW_LOG build at both: the program grew 30,448 bytes between them, which
+  is all of the loss. That view's rooms need 22 KB. Any more growth takes the rest.
+- **Candidates:** the save and backup buffers, 40 KB used only when saving or loading (`gLibrary` 16,
+  `gSaveBuffer` 8, `gSaveData` 8, `gWork` 8). Low work RAM is tight only at LEVEL7B: free 7A 51.7 KB,
+  6 69 KB, 10B 124 KB, 7B 1.4 KB. The BIOS runs its backup library from `gLibrary`, so that one has
+  to stay where it can execute.
 - **Levers:** 242's reserve (face sets in low work RAM instead, 8-byte room
   faces, the meshes' parts folded into their headers, the draws' limit
   measured in play, the rooms projected in place over the DSP's rotated
