@@ -53,6 +53,9 @@ endif
 ifdef SYNC_TEST
 CFLAGS  += -DSYNC_TEST  # testing, with HW_LOG: the CPUs' synchronisation test at boot (synctest.cpp)
 endif
+ifdef STEPWISE
+CFLAGS  += -DSTEPWISE   # tools/stepwise.py's builds: who made which commands
+endif
 ifdef VOID_VIEW
 CFLAGS  += -DVOID_VIEW  # testing: what nothing draws in the scene shows magenta
 endif

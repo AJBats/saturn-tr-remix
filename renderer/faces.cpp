@@ -1257,8 +1257,16 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.farBucket = gViewFar >> OT_SHIFT;
 }
 
+#ifdef STEPWISE
+StepMark gStepMarks[2][STEP_MARKS];
+uint32_t gStepHead[2], gStepUploaded[2];
+#endif
+
 void facesRoom(const FaceRoom &room, RoomRun &run)
 {
+#ifdef STEPWISE
+    stepMark(0, *run.list, STEP_ROOM | room.room);
+#endif
     bool water = room.flags & FACE_WATER;
     run.vertices = room.vertices;
     run.plain = water ? SHADING_WATER : SHADING_PLAIN;

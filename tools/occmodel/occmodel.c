@@ -27,6 +27,7 @@
 //         occmodel LEVEL.bin one x y z room r00..r22 focal
 //         occmodel LEVEL.bin region x y z room r00..r22 focal RADIUS ARC_DEGREES PITCH_DEGREES VIEWS
 //         occmodel LEVEL.bin cameras VIEWS SEED
+//         occmodel LEVEL.bin holes VIEWS SEED
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -1778,6 +1779,91 @@ static void cameras(const char* name, int views)
     }
 }
 
+// Pixels no room's face covers, from retail's chase camera at random places, headings and looks, nothing cut by
+// distance or by the tiny-window rule: holes in the level itself. By the smallest listed window each hole's pixel
+// falls in: for each such room the views it was listed in, those with holes, and their pixels a view.
+static void holes(const char* name, int views)
+{
+    static long listedIn[MAXROOMS], holedIn[MAXROOMS];
+    static double holePx[MAXROOMS];
+    long withHoles = 0, big = 0;
+    double total = 0;
+    gFar = 1e9f;
+    F = 209.75f;
+    for (int v = 0; v < views; v++)
+    {
+        int room, sector, floor, ceil;
+        for (;;)
+        {
+            room = rng() % nrooms;
+            Room* r = &rooms[room];
+            if (r->alt || r->ns == 0 || !r->np)
+                continue;
+            sector = rng() % r->ns;
+            floor = r->s[sector][0];
+            ceil = r->s[sector][1];
+            if (floor != -127 * 256 && ceil != -127 * 256 && floor - 581 - 40 > ceil)
+                break;
+        }
+        Room* r = &rooms[room];
+        V3 pos;
+        pos.x = r->x + (sector / r->zs + urand(0.02f, 0.98f)) * 1024;
+        pos.z = r->z + (sector % r->zs + urand(0.02f, 0.98f)) * 1024;
+        pos.y = floor - 581;
+        viewSet(pos, urand(0, 6.2832f), urand(-0.5f, 0.3f));
+        gBase.useMask = 0; gBase.usePoly = 0; gBase.minArea = 0;
+        walkRun(&gBase, room, 0);
+        oracle(&gBase);
+        static uint8_t seen[MAXROOMS];
+        memset(seen, 0, sizeof(seen));
+        long count = 0;
+        for (int i = 0; i < gBase.nlist; i++)
+            listedIn[gBase.list[i]]++;
+        for (int y = 0; y < ZH; y++)
+            for (int x = 0; x < ZW; x++)
+            {
+                if (owner[y][x] >= 0)
+                    continue;
+                count += 4;
+                float px = x * 2 + 1, py = y * 2 + 1, best = 1e30f;
+                int at = -1;
+                for (int i = 0; i < gBase.nlist; i++)
+                {
+                    Rect c = gBase.clip[gBase.list[i]];
+                    if (px < c.x0 || px > c.x1 || py < c.y0 || py > c.y1)
+                        continue;
+                    float area = (c.x1 - c.x0) * (c.y1 - c.y0);
+                    if (area < best) {
+                        best = area;
+                        at = gBase.list[i];
+                    }
+                }
+                if (at >= 0) {
+                    holePx[at] += 4;
+                    if (!seen[at]) {
+                        seen[at] = 1;
+                        holedIn[at]++;
+                    }
+                }
+            }
+        total += count;
+        withHoles += count > 0;
+        big += count >= 400;
+    }
+    printf("%s views %d with_holes %.1f%% over400px %.1f%% mean_px %.0f\n", name, views, 100.0 * withHoles / views, 100.0 * big / views, total / views);
+    for (int k = 0; k < 8; k++)
+    {
+        int b = -1;
+        for (int i = 0; i < nrooms; i++)
+            if (holePx[i] > 0 && (b < 0 || holePx[i] > holePx[b]))
+                b = i;
+        if (b < 0)
+            break;
+        printf("  room %d listed %ld holed %ld px_when_holed %.0f\n", b, listedIn[b], holedIn[b], holePx[b] / (holedIn[b] ? holedIn[b] : 1));
+        holePx[b] = 0;
+    }
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 4) {
@@ -1829,6 +1915,35 @@ int main(int argc, char** argv)
                 Rect c = gBase.clip[t];
                 fprintf(f, "%d %d %.0f %.0f %.0f %.0f %.0f\n", t, gFrom[t], gNearest[t], c.x0, c.y0, c.x1, c.y1);
             }
+            fclose(f);
+        }
+        // the view's flat faces by plane (OCC_PLANES names the file): up or down, height, see-through or
+        // not, faces kept, pixels drawn, pixels shown; first a line of every kept face's
+        if (getenv("OCC_PLANES"))
+        {
+            FILE* f = fopen(getenv("OCC_PLANES"), "w");
+            double allFaces = 0, allPx = 0, allShown = 0;
+            for (int i = 0; i < gBase.nlist; i++)
+            {
+                int t = gBase.list[i];
+                Room* r = &rooms[t];
+                Rect c = gBase.clip[t];
+                for (int q = 0; q < r->nq; q++)
+                {
+                    int idx[4] = { r->q[q].a, r->q[q].b, r->q[q].c, r->q[q].d };
+                    if (!faceFacing(r, idx) || faceCulled(r, idx, 4, c))
+                        continue;
+                    double area = faceArea(r, idx, 4), shown = facePx[r->faceBase + q];
+                    allFaces++;
+                    allPx += area;
+                    allShown += shown;
+                    float y = r->v[idx[0]].y;
+                    if (r->v[idx[1]].y != y || r->v[idx[2]].y != y || r->v[idx[3]].y != y)
+                        continue;
+                    fprintf(f, "%c %.0f %d %.0f %.0f %d\n", cam.y < y ? 'F' : 'C', y, r->q[q].transp, area, shown, t);
+                }
+            }
+            fprintf(f, "A 0 0 %.0f %.0f %.0f\n", allPx, allShown, allFaces);
             fclose(f);
         }
         // each listed room's work (OCC_ROOMS names the file): room, vertices, those its kept faces
@@ -1890,6 +2005,13 @@ int main(int argc, char** argv)
         for (int i = 0; i < gBase.nlist; i++)
             printf(" %d(%ld)", gBase.list[i], ownerPx[gBase.list[i]]);
         printf("\n");
+        return 0;
+    }
+    if (!strcmp(argv[2], "holes"))
+    {
+        rngState = (uint32_t)atoi(argv[4]) * 2654435761u + 12345u;
+        const char* name = strrchr(argv[1], '/');
+        holes(name ? name + 1 : argv[1], atoi(argv[3]));
         return 0;
     }
     if (!strcmp(argv[2], "cameras"))

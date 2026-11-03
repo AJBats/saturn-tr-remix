@@ -109,6 +109,32 @@ inline int32_t facesSlot(uint32_t link)
     return (link - (VRAM_FRAME_CMDS >> 3)) / (sizeof(Command) >> 3);
 }
 
+#ifdef STEPWISE
+// Who made which commands (tools/stepwise.py): a mark is the next command's
+// place as a room or a draw begins, list 0 the rooms', 1 the draws'. A list's
+// marks end at gStepUploaded when frameUpload sends it.
+#define STEP_MARKS  512
+#define STEP_ROOM   0x01000000      // | the room
+#define STEP_DRAW   0x02000000      // | its type << 16 | its mesh
+#define STEP_FILL   0x03000000
+
+struct StepMark
+{
+    const uint32_t* cmd;
+    uint32_t who;
+};
+
+extern StepMark gStepMarks[2][STEP_MARKS];
+extern uint32_t gStepHead[2], gStepUploaded[2];
+
+inline void stepMark(int32_t list, const CommandList &l, uint32_t who)
+{
+    StepMark &m = gStepMarks[list][gStepHead[list]++ % STEP_MARKS];
+    m.cmd = l.cmd;
+    m.who = who;
+}
+#endif
+
 // A list taking the commands from slot first of cmds (and its gouraud
 // tables) up to slot end, with heads of OT_SIZE + 1 buckets, emptied, and
 // tails of OT_SIZE.

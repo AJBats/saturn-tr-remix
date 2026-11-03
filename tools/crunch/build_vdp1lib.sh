@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds build/crunch/vdp1lib.dll (Windows, for the lab's Python) from the
 # Mednafen fork's VDP1 drawing code. Run in WSL, which has the mingw compiler:
-#   wsl -d Ubuntu -- sh tools/crunch/build_vdp1lib.sh
+#   wsl -d Ubuntu -- sh tools/crunch/build_vdp1lib.sh [DLL]
 set -e
 cd "$(dirname "$0")/../.."
 
@@ -26,6 +26,7 @@ $cxx -I "$fork" -I "$obj" -c tools/crunch/vdp1lib.cpp -o "$obj/vdp1lib.o"
 for p in $pids; do
     wait "$p"
 done
-x86_64-w64-mingw32-g++ -shared -static -o "$out/vdp1lib.dll" "$obj"/vdp1_line.o "$obj"/vdp1_sprite.o \
+dll=${1:-$out/vdp1lib.dll}
+x86_64-w64-mingw32-g++ -shared -static -o "$dll" "$obj"/vdp1_line.o "$obj"/vdp1_sprite.o \
     "$obj"/vdp1_poly.o "$obj"/vdp1lib.o
-echo "$out/vdp1lib.dll"
+echo "$dll"

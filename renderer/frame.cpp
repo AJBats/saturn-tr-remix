@@ -656,6 +656,9 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
             v[1].x = fill[k][2] - fill[k][0];
             v[1].y = fill[k][3] - fill[k][1];
             const Face face = { FACE_LINE_H, nullptr, { 0 } };
+#ifdef STEPWISE
+            stepMark(1, gMeshList, STEP_FILL);
+#endif
             facesOtherAsm(&face, v, OT_SIZE - 1, &gMeshList);
         }
     }
@@ -665,6 +668,9 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
             slaveEnd = ticksCycles(t0, ticks());
         }
         const DrawScene &d = draws[i];
+#ifdef STEPWISE
+        stepMark(1, gMeshList, STEP_DRAW | d.type << 16 | d.mesh);
+#endif
         if (d.type == DRAW_COPY)
         {
             // a sprite's or rectangle's face: the draw list's made, or given
@@ -867,6 +873,10 @@ void framePlan(int32_t bias, bool posed, bool started)
 
 uint32_t frameUpload()
 {
+#ifdef STEPWISE
+    gStepUploaded[0] = gStepHead[0];
+    gStepUploaded[1] = gStepHead[1];
+#endif
     texturesUpload(gFrameTextures);
     int32_t rooms = gListRooms, first = gListMeshFirst, meshes = gListEnd + 1 - first;
     dmaToVdp1(gFrameCmds, VRAM_FRAME_CMDS, rooms * sizeof(Command));
