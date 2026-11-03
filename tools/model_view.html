@@ -64,31 +64,34 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
 <body>
 <header>
   <h1>Asset Diet Viewer</h1>
-  <div class="tabs"><button data-tab="wolf" class="on">Wolf</button><button data-tab="bridge">Bridges</button></div>
+  <div class="tabs"><button data-tab="wolf" class="on">Wolf</button><button data-tab="rat">Rat</button><button data-tab="bridge">Bridges</button></div>
   <span class="note">left: as the Saturn data has it · right: simplified · drag to orbit, wheel to zoom</span>
 </header>
 <main>
 <aside>
-  <div class="pane on" id="pane-wolf">
+  <div class="pane on" id="pane-animal">
     <h2>Animation</h2>
     <select id="anim"></select>
     <div class="row"><button class="small" id="play">Pause</button><span><input type="range" id="speed" min="0.1" max="2" step="0.05" value="1"></span></div>
     <div class="row"><input type="range" id="frame" min="0" max="100" step="0.01" value="0"></div>
     <span class="sub" id="frameInfo"></span>
-    <h2>Bones merged into their parent</h2>
-    <span class="sub">A merged joint holds one pose relative to its parent: its mesh would be built into the parent's in that pose.</span>
+    <h2>Bones fused into their parent</h2>
+    <span class="sub">A fused joint holds one pose relative to its parent: its mesh would be built into the parent's in that pose.</span>
     <div class="row"><select id="hold"><option value="stand">Hold the standing pose</option><option value="typical">Hold each joint's most typical awake pose</option></select></div>
     <div id="merges"></div>
-    <h2>Geometry</h2>
-    <label><input type="checkbox" id="cards"><span>Lower legs as cards<span class="sub">12 boxes (8 corners, 6 faces each) become flat polygons that turn round the bone to face the camera</span></span></label>
-    <label><input type="checkbox" id="tailCards"><span>Tail as cards<span class="sub">its 3 boxes the same way</span></span></label>
-    <label><input type="checkbox" id="earCards"><span>Ears as cards<span class="sub">upright, textured as seen from the front</span></span></label>
+    <h2>Cards</h2>
+    <span class="sub">Flat polygons that turn round the bone to face the camera, in place of the bone's mesh.</span>
+    <div id="cardGroups"></div>
+    <label><input type="checkbox" id="ribbon"><span>Tail as one ribbon<span class="sub">one strip down the tail's middle facing the camera, narrowing with it, each piece's end shared with the next: no gaps or steps at the bends</span></span></label>
     <div class="row"><select id="cardLight"><option value="ends">Card ends lit as the mean of their box's corners (as the game)</option><option value="view">Card lit as if facing the camera</option></select></div>
     <div class="row"><select id="cardLook"><option value="baked">Card texture: the segment from the side</option><option value="flat">Card texture: none, one colour</option></select></div>
-    <span class="sub">The card textures, 8 texels across, a texel every 5 units along (the wolf's own textures' density):</span>
+    <span class="sub">The card textures, 8 texels across, a texel every 5 units along:</span>
     <canvas id="cardTex" height="1" style="width:100%;image-rendering:pixelated;margin-top:4px"></canvas>
+    <h2>Geometry</h2>
+    <label><input type="checkbox" id="insideCopies"><span>Drop the inside copies<span class="sub" id="insideInfo"></span></span></label>
+    <label><input type="checkbox" id="join"><span>Join the segments<span class="sub" id="joinInfo"></span></span></label>
     <h2>View</h2>
-    <div class="row"><button class="small" id="wolfClose">Close up</button><button class="small" id="wolfLedge">As far as from the ledge</button></div>
+    <div class="row"><button class="small" id="animalClose">Close up</button><button class="small" id="animalFar">About 7 blocks off</button></div>
   </div>
   <div class="pane" id="pane-bridge">
     <h2>Planks (12 items)</h2>
@@ -129,11 +132,6 @@ window.addEventListener('error', (e) => {
 if (!window.THREE) document.getElementById('foot').textContent = 'three.js did not load (cdn.jsdelivr.net unreachable?)';
 const D = /*DATA*/null;
 
-// ---- unit costs measured at the ledge (calibrated Mednafen, sleeping wolves), master cycles; a
-// card: its corners and face (faces.s), its two ends are vertices of the mesh's
-const COST = { joint: 520, mesh: 570, vertex: 133, face: 88, card: 280, wolfItem: 3900, sent: 280,
-               plankItem: 2400, plankVertex: 125, plankFace: 90, staticMesh: 1500, staticVertex: 133 };
-const MHZ = 28636.36;   // cycles a millisecond
 const FOV = 2 * Math.atan(112 / 256) * 180 / Math.PI;   // the game projects with a focal length of 256 px
 const SAT_W = 352, SAT_H = 224;
 
@@ -170,11 +168,12 @@ const atlasTex = new THREE.Texture(img);
 atlasTex.flipY = false; atlasTex.generateMipmaps = false;
 atlasTex.magFilter = atlasTex.minFilter = THREE.NearestFilter;
 img.onload = () => { atlasTex.needsUpdate = true; drawCardTextures(); };
-// the wolf's card textures one under another in the panel, four times their
+// the animal's card textures one under another in the panel, four times their
 // size (each along the card from its first end, as the game has them)
 function drawCardTextures() {
-  const cv = document.getElementById('cardTex'), keys = Object.keys(D.wolf.cards);
-  const ts = keys.map(k => rects[D.wolf.cards[k].t]);
+  if (!img.complete || typeof A === 'undefined') return;
+  const cv = document.getElementById('cardTex'), keys = Object.keys(A.W.cards);
+  const ts = keys.map(k => rects[A.W.cards[k].t]);
   const S = 4, gap = 3;
   cv.width = Math.max(...ts.map(r => r[2])) * S;
   cv.height = ts.reduce((n, r) => n + (r[3] + gap) * S, 0);
@@ -241,9 +240,14 @@ const TINT = [1.0, 0.45, 0.85];
 const ui = (id) => document.getElementById(id);
 const opt = { tint: false };
 
-// a mesh's face with its vertices placed: corners, normals, colours; true when it faces the camera
-function meshFace(mesh, f, place, rotate, shadeOf, cam, b, tint) {
-  const vp = (i) => place([mesh.v[i*3], mesh.v[i*3+1], mesh.v[i*3+2]]);
+// a mesh's face with its vertices placed: corners, normals, colours; true when it faces the camera.
+// weld: the vertices it shares with its parent's mesh, map (its vertex to the parent's), M and mesh the parent's
+function meshFace(mesh, f, place, rotate, shadeOf, cam, b, tint, weld) {
+  const welded = (i) => weld && weld.map[i] !== undefined;
+  const vp = (i) => {
+    if (welded(i)) { const k = weld.map[i], w = weld.mesh.v; return apply(weld.M, [w[k*3], w[k*3+1], w[k*3+2]]); }
+    return place([mesh.v[i*3], mesh.v[i*3+1], mesh.v[i*3+2]]);
+  };
   let P;
   if (f.p) {
     const [a, c1, c2] = f.p.map(vp);
@@ -253,7 +257,10 @@ function meshFace(mesh, f, place, rotate, shadeOf, cam, b, tint) {
   let N = null;
   const zero = (i) => i >= 0 && !mesh.n[i*3] && !mesh.n[i*3+1] && !mesh.n[i*3+2];
   if (mesh.n && !f.c.some(zero)) {     // the planks' normals are all zero: lit by their faces
-    const vn = (i) => rotate([mesh.n[i*3], mesh.n[i*3+1], mesh.n[i*3+2]]);
+    const vn = (i) => {
+      if (welded(i)) { const k = weld.map[i], w = weld.mesh.n; return rv(weld.M.R, [w[k*3], w[k*3+1], w[k*3+2]]); }
+      return rotate([mesh.n[i*3], mesh.n[i*3+1], mesh.n[i*3+2]]);
+    };
     if (f.p) { const [a, c1, c2] = f.p.map(vn); const x = nrm(sub(add(c1, c2), a)); N = f.c.map(i => i < 0 ? x : vn(i)); }
     else N = f.c.map(vn);
   }
@@ -352,80 +359,166 @@ const blitQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBas
 blitScene.add(blitQuad);
 function camTR() { return [camera.position.x, -camera.position.y, -camera.position.z]; }
 
-// ---- the wolf
-const W = D.wolf;
-const NJ = W.parents.length;
-const awake = W.anims.map((a, i) => i).filter(i => !/DEATH|SLEEP/.test(W.anims[i].state));
-const standR = []; for (let j = 0; j < NJ; j++) standR.push(rotYXZ(W.ref[j*3], W.ref[j*3+1], W.ref[j*3+2]));
+// ---- the animals
 function angleBetween(R, Q) { let tr = 0; for (let i = 0; i < 9; i++) tr += R[i] * Q[i]; return Math.acos(Math.max(-1, Math.min(1, (tr - 1) / 2))); }
+function makeAnimal(W, name) {
+  const NJ = W.parents.length;
+  const awake = W.anims.map((a, i) => i).filter(i => !/DEATH|SLEEP/.test(W.anims[i].state));
+  const standR = [];
+  for (let j = 0; j < NJ; j++) standR.push(rotYXZ(W.ref[j*3], W.ref[j*3+1], W.ref[j*3+2]));
+  return { W, name, NJ, awake, standR, typicalR: null, typical: false,
+           state: { anim: W.anims.findIndex(a => a.state === 'RUN' && a.kf.length > 4), time: 0, playing: true, speed: 1 },
+           fused: new Set(), choice: {}, cards: new Set(), merged: new Set() };
+}
+const ANIMALS = { wolf: makeAnimal(D.wolf, 'wolf'), rat: makeAnimal(D.rat, 'rat') };
+let A = ANIMALS.wolf;
+
 // per joint, the awake keyframe's turn closest to all the others (the medoid)
-const typicalR = standR.map((R, j) => {
-  if (!Object.values(W.merges).some(js => js.includes(j))) return R;
-  const all = [];
-  for (const ai of awake) for (const kf of W.anims[ai].kf) all.push(rotYXZ(kf.r[j*3], kf.r[j*3+1], kf.r[j*3+2]));
-  let best = R, bestSum = Infinity;
-  for (const A of all) { let sum = 0; for (const B of all) sum += angleBetween(A, B); if (sum < bestSum) { bestSum = sum; best = A; } }
-  return best;
-});
-let refR = standR;
-const wolfState = { anim: W.anims.findIndex(a => a.state === 'RUN' && a.kf.length > 4), time: 0, playing: true, speed: 1 };
-const merged = new Set();
+function typicalPose(A) {
+  if (A.typicalR) return A.typicalR;
+  const W = A.W;
+  const fusable = new Set();
+  W.fuses.forEach(f => f.joints.forEach(j => fusable.add(j)));
+  W.choices.forEach(c => c.options.forEach(o => o.joints.forEach(j => fusable.add(j))));
+  A.typicalR = A.standR.map((R, j) => {
+    if (!fusable.has(j)) return R;
+    const all = [];
+    for (const ai of A.awake) for (const kf of W.anims[ai].kf) all.push(rotYXZ(kf.r[j*3], kf.r[j*3+1], kf.r[j*3+2]));
+    let best = R, bestSum = Infinity;
+    for (const X of all) { let sum = 0; for (const Y of all) sum += angleBetween(X, Y); if (sum < bestSum) { bestSum = sum; best = X; } }
+    return best;
+  });
+  return A.typicalR;
+}
+function heldPose(A) { return A.typical ? typicalPose(A) : A.standR; }
 
 function motionText(joints) {      // how far the joints turn from the standing pose in the awake animations
   const angs = [];
-  for (const ai of awake) for (const kf of W.anims[ai].kf) for (const j of joints) {
-    angs.push(angleBetween(rotYXZ(kf.r[j*3], kf.r[j*3+1], kf.r[j*3+2]), standR[j]) * 180 / Math.PI);
+  for (const ai of A.awake) for (const kf of A.W.anims[ai].kf) for (const j of joints) {
+    angs.push(angleBetween(rotYXZ(kf.r[j*3], kf.r[j*3+1], kf.r[j*3+2]), A.standR[j]) * 180 / Math.PI);
   }
   angs.sort((a, b) => a - b);
   const med = angs[angs.length >> 1], max = angs[angs.length - 1];
   return `turns ${med.toFixed(0)}° in a typical awake frame, ${max.toFixed(0)}° at most`;
 }
-const MERGE_LABELS = { ears: 'Ears into the head', jaw: 'Jaw into the head', paws: 'Paws into the lower legs',
-                       tail: 'Tail as one piece', chest: 'Chest into the hips' };
-for (const [k, joints] of Object.entries(W.merges)) {
-  const l = document.createElement('label');
-  l.innerHTML = `<input type="checkbox" data-merge="${k}"><span>${MERGE_LABELS[k] || k} <span class="sub">${joints.length} joint${joints.length > 1 ? 's' : ''} (${joints.map(j => W.names[j]).join(', ')}); ${motionText(joints)}</span></span>`;
-  ui('merges').appendChild(l);
-}
-document.querySelectorAll('[data-merge]').forEach(el => el.addEventListener('change', () => {
-  merged.clear();
-  document.querySelectorAll('[data-merge]:checked').forEach(c => W.merges[c.dataset.merge].forEach(j => merged.add(j)));
+
+function fusedJoints() {
+  A.merged.clear();
+  for (const f of A.W.fuses) if (A.fused.has(f.key)) f.joints.forEach(j => A.merged.add(j));
+  for (const c of A.W.choices) c.options[A.choice[c.key] || 0].joints.forEach(j => A.merged.add(j));
   dirty = true;
-}));
-W.anims.forEach((a, i) => { const o = document.createElement('option'); o.value = i; o.textContent = `${a.name} (${a.kf.length} keyframes)`; ui('anim').appendChild(o); });
-ui('anim').value = wolfState.anim;
+}
+
+// the panel for the animal shown
+function fillAnimal() {
+  const W = A.W;
+  ui('anim').innerHTML = '';
+  W.anims.forEach((a, i) => { const o = document.createElement('option'); o.value = i; o.textContent = `${a.name} (${a.kf.length} keyframes)`; ui('anim').appendChild(o); });
+  ui('anim').value = A.state.anim;
+  ui('hold').value = A.typical ? 'typical' : 'stand';
+  ui('play').textContent = A.state.playing ? 'Pause' : 'Play';
+  ui('speed').value = A.state.speed;
+  const m = ui('merges');
+  m.innerHTML = '';
+  for (const f of W.fuses) {
+    const l = document.createElement('label');
+    l.innerHTML = `<input type="checkbox" data-fuse="${f.key}"${A.fused.has(f.key) ? ' checked' : ''}><span>${f.label} <span class="sub">${f.joints.length} joint${f.joints.length > 1 ? 's' : ''} (${f.joints.map(j => W.names[j]).join(', ')}); ${motionText(f.joints)}</span></span>`;
+    m.appendChild(l);
+  }
+  for (const c of W.choices) {
+    const l = document.createElement('div');
+    l.className = 'row';
+    l.innerHTML = `<select data-choice="${c.key}">${c.options.map((o, i) => `<option value="${i}">${o.label}</option>`).join('')}</select>`;
+    m.appendChild(l);
+    l.firstChild.value = A.choice[c.key] || 0;
+  }
+  m.querySelectorAll('[data-fuse]').forEach(el => el.addEventListener('change', () => {
+    if (el.checked) A.fused.add(el.dataset.fuse); else A.fused.delete(el.dataset.fuse);
+    fusedJoints();
+  }));
+  m.querySelectorAll('[data-choice]').forEach(el => el.addEventListener('change', () => { A.choice[el.dataset.choice] = +el.value; fusedJoints(); }));
+  const g = ui('cardGroups');
+  g.innerHTML = '';
+  for (const c of W.cardGroups) {
+    const l = document.createElement('label');
+    l.innerHTML = `<input type="checkbox" data-cards="${c.key}"${A.cards.has(c.key) ? ' checked' : ''}><span>${c.label}<span class="sub">${c.joints.length} joints: ${c.joints.map(j => W.names[j]).join(', ')}</span></span>`;
+    g.appendChild(l);
+  }
+  g.querySelectorAll('[data-cards]').forEach(el => el.addEventListener('change', () => {
+    if (el.checked) A.cards.add(el.dataset.cards); else A.cards.delete(el.dataset.cards);
+    dirty = true;
+  }));
+  const copies = Object.values(W.insideCopies).reduce((n, x) => n + x.length, 0);
+  ui('insideInfo').textContent = `${copies} faces: closed boxes have some sides drawn twice, once each way round; the copy facing in can never be seen`;
+  const rings = Object.values(W.join);
+  const shared = rings.reduce((n, r) => n + Object.keys(r.map).length, 0), caps = rings.reduce((n, r) => n + r.caps.length + r.pcaps.length, 0);
+  ui('joinInfo').textContent = `${rings.length} joints where a segment's end meets its parent's: ${shared} vertices shared with the parent, up to ${caps} end faces gone. The faces stretch across the bend instead of two boxes pivoting through each other`;
+  drawCardTextures();
+}
 
 function animLength(a) { return Math.max(1, (a.kf.length - 1) * a.rate); }
-function wolfPose(simplified) {
-  const a = W.anims[wolfState.anim];
-  const f = Math.min(wolfState.time, animLength(a)) / a.rate;
+function animalPose(simplified) {
+  const W = A.W, a = W.anims[A.state.anim], refR = heldPose(A);
+  const f = Math.min(A.state.time, animLength(a)) / a.rate;
   const i = Math.min(Math.floor(f), a.kf.length - 1), t = i >= a.kf.length - 1 ? 0 : f - i;
-  const A = a.kf[i], B = a.kf[Math.min(i + 1, a.kf.length - 1)];
+  const P = a.kf[i], Q = a.kf[Math.min(i + 1, a.kf.length - 1)];
   const M = [];
-  for (let j = 0; j < NJ; j++) {
-    const R = simplified && merged.has(j) ? refR[j]
-      : rotYXZ(angLerp(A.r[j*3], B.r[j*3], t), angLerp(A.r[j*3+1], B.r[j*3+1], t), angLerp(A.r[j*3+2], B.r[j*3+2], t));
-    M.push(j === 0 ? { R, t: [0, 1, 2].map(q => A.p[q] + (B.p[q] - A.p[q]) * t) }
+  for (let j = 0; j < A.NJ; j++) {
+    const R = simplified && A.merged.has(j) ? refR[j]
+      : rotYXZ(angLerp(P.r[j*3], Q.r[j*3], t), angLerp(P.r[j*3+1], Q.r[j*3+1], t), angLerp(P.r[j*3+2], Q.r[j*3+2], t));
+    M.push(j === 0 ? { R, t: [0, 1, 2].map(q => P.p[q] + (Q.p[q] - P.p[q]) * t) }
                    : child(M[W.parents[j]], W.offsets[j], R));
   }
   return M;
 }
 
-function buildWolf(simplified) {
-  const M = wolfPose(simplified);
+// a chain of segments as one strip facing the camera, each point moved across
+// the line through its neighbours; its quads
+function ribbon(R, M, cam, b) {
+  const last = R.seg[R.seg.length - 1];
+  const pts = R.seg.map(s => apply(M[s.j], s.p)).concat([apply(M[last.j], R.tip)]);
+  const half = R.seg.map(s => s.h).concat([R.tipH]);
+  const n = R.seg.length;
+  const across = pts.map((p, k) => scl(nrm(cross(sub(pts[Math.min(k + 1, n)], pts[Math.max(k - 1, 0)]), sub(cam, p))), half[k]));
+  const mean = (ns, m) => ns.length ? ns.reduce((a, q) => a + lambert(rv(m.R, q)), 0) / ns.length : 1;
+  const light = R.seg.map(s => mean(s.ns, M[s.j])).concat([mean(R.tipNs, M[last.j])]);
+  R.seg.forEach((s, k) => {
+    const base = s.col ? s.col.map(x => x / 255) : WHITE;
+    const c = opt.tint ? [base[0]*TINT[0], base[1]*TINT[1], base[2]*TINT[2]] : base;
+    const at = (q) => c.map(x => x * light[q]);
+    const a0 = across[k], a1 = across[k + 1], p0 = pts[k], p1 = pts[k + 1];
+    const P = s.u ? [sub(p0, a0), sub(p1, a1), add(p1, a1), add(p0, a0)] : [add(p0, a0), sub(p0, a0), sub(p1, a1), add(p1, a1)];
+    const C = s.u ? [at(k), at(k + 1), at(k + 1), at(k)] : [at(k), at(k), at(k + 1), at(k + 1)];
+    const f = nrm(sub(cam, p0));
+    b.quad(P, [f, f, f, f], C, s.t, false, s.t ? 4 : 1);
+  });
+  return n;
+}
+
+function buildAnimal(simplified) {
+  const W = A.W, NJ = A.NJ, merged = A.merged;
+  const M = animalPose(simplified);
   const cam = camTR();
   const b = { lit: new Builder(), card: new Builder(), cardPre: new Builder() };
-  const legCards = simplified && ui('cards').checked, tailCards = simplified && ui('tailCards').checked;
   const flat = ui('cardLook').value === 'flat';
-  const earCards = simplified && ui('earCards').checked;
-  const isCard = (j) => W.cards[j] && (W.tailCards.includes(j) ? tailCards : W.earCards.includes(j) ? earCards : legCards);
+  const isCard = (j) => simplified && W.cards[j] && W.cardGroups.some(g => A.cards.has(g.key) && g.joints.includes(j));
+  const ribbonOn = simplified && ui('ribbon').checked;
+  const ribbonJoints = new Set(W.ribbon.seg.map(s => s.j));
+  const joinOn = simplified && ui('join').checked;
+  const joined = (j) => joinOn && W.join[j] && !isCard(j) && !isCard(W.join[j].p) && !(ribbonOn && (ribbonJoints.has(j) || ribbonJoints.has(W.join[j].p)));
+  const dropped = W.meshes.map(() => new Set());
+  if (simplified && ui('insideCopies').checked) for (const j in W.insideCopies) W.insideCopies[j].forEach(fi => dropped[j].add(fi));
+  for (let j = 1; j < NJ; j++) if (joined(j)) {
+    W.join[j].caps.forEach(fi => dropped[j].add(fi));
+    W.join[j].pcaps.forEach(fi => dropped[W.join[j].p].add(fi));
+  }
   let sent = 0, verts = 0, faces = 0, nCards = 0;
   const meshOwner = new Array(NJ).fill(false);   // kept joints that set up a mesh
   const keptOf = (j) => { while (simplified && merged.has(j)) j = W.parents[j]; return j; };
   for (let j = 0; j < NJ; j++) {
     const mesh = W.meshes[j];
     if (opt.cardsOnly && !W.cards[j]) continue;
-    if (isCard(j)) {
+    if (isCard(j) && !(ribbonOn && ribbonJoints.has(j))) {
       const c = W.cards[j];
       // the game lights each end as the mean of its box's corners there
       // (tools/diet.py CARD_LIGHT): here the mean of their light
@@ -433,18 +526,32 @@ function buildWolf(simplified) {
       const shades = ui('cardLight').value === 'ends' && c.ns0.length && c.ns1.length ? [mean(c.ns0), mean(c.ns1)] : null;
       card(apply(M[j], c.e0), apply(M[j], c.e1), c.w, cam, flat ? c.col.map(x => x / 255) : WHITE, flat ? 0 : c.t, true,
            shades ? b.cardPre : b.card, true, shades);
-      nCards++; sent++; faces++; verts += 2;
+      nCards++; sent++; faces++; verts += 4;    // its ends and their copies (renderer/faces.h)
+      meshOwner[keptOf(j)] = true;
       continue;
     }
-    meshOwner[keptOf(j)] = true;
-    verts += mesh.v.length / 3; faces += mesh.f.length;
+    if (ribbonOn && ribbonJoints.has(j)) continue;
+    const weld = joined(j) ? { map: W.join[j].map, M: M[W.join[j].p], mesh: W.meshes[W.join[j].p] } : null;
+    const used = new Set();
     const place = (v) => apply(M[j], v), rotate = (n) => rv(M[j].R, n);
-    for (const f of mesh.f) if (meshFace(mesh, f, place, rotate, () => 1, cam, b.lit, simplified && merged.has(j))) sent++;
+    mesh.f.forEach((f, fi) => {
+      if (dropped[j].has(fi)) return;
+      faces++;
+      (f.p || f.c).forEach(i => { if (i >= 0 && !(weld && weld.map[i] !== undefined)) used.add(i); });
+      const tint = simplified && (merged.has(j) || (weld && (f.p || f.c).some(i => weld.map[i] !== undefined)));
+      if (meshFace(mesh, f, place, rotate, () => 1, cam, b.lit, tint, weld)) sent++;
+    });
+    verts += used.size;
+    if (used.size || mesh.f.length > dropped[j].size) meshOwner[keptOf(j)] = true;
+  }
+  if (ribbonOn) {
+    const n = ribbon(W.ribbon, M, cam, b.cardPre);
+    nCards += n; sent += n; faces += n; verts += 2 * (n + 1);
+    W.ribbon.seg.forEach(s => { meshOwner[keptOf(s.j)] = true; });
   }
   const joints = simplified ? NJ - merged.size : NJ;
   const setups = meshOwner.filter(x => x).length;
-  const draw = (COST.wolfItem + joints * COST.joint + setups * COST.mesh + verts * COST.vertex + faces * COST.face + nCards * COST.card) / MHZ;
-  return { b, stats: { joints, setups, verts, faces, sent, draw, flush: sent * COST.sent / MHZ } };
+  return { b, stats: { joints, setups, verts, faces, nCards, sent } };
 }
 
 // ---- the bridges
@@ -515,10 +622,7 @@ function buildBridge(simplified) {
       }
     }
   }
-  const planks = (BR.planks.length * COST.plankItem + st.plankVerts * COST.plankVertex + st.plankFaces * COST.plankFace) / MHZ;
-  const ropes = (8 * COST.staticMesh + st.ropeVerts * COST.staticVertex + (st.ropeFaces - st.ropeCards) * COST.face
-                 + st.cardPoints * COST.staticVertex + st.ropeCards * COST.card) / MHZ;
-  return { b, stats: Object.assign(st, { planks, ropes }) };
+  return { b, stats: st };
 }
 
 // ---- stats boxes
@@ -527,16 +631,15 @@ function fmt(v, base, digits = 0) {
   if (base === undefined || base === v) return `<td class="n">${s}</td>`;
   return `<td class="n ${v < base ? 'd' : 'u'}">${s}</td>`;
 }
-function wolfLabel(title, s, o) {
+function animalLabel(title, s, o) {
   o = o || {};
   return `<b>${title}</b><table>
-    <tr><td>joints animated</td>${fmt(s.joints, o.joints)}</tr>
+    <tr><td>joints that move</td>${fmt(s.joints, o.joints)}</tr>
     <tr><td>mesh setups</td>${fmt(s.setups, o.setups)}</tr>
     <tr><td>vertices</td>${fmt(s.verts, o.verts)}</tr>
     <tr><td>faces tested</td>${fmt(s.faces, o.faces)}</tr>
-    <tr><td>faces sent (this view)</td>${fmt(s.sent, o.sent)}</tr>
-    <tr><td>est. master draw, ms</td>${fmt(s.draw, o.draw, 2)}</tr>
-    <tr><td>est. command build, ms</td>${fmt(s.flush, o.flush, 2)}</tr></table>`;
+    <tr><td>&nbsp; of them cards</td>${fmt(s.nCards, o.nCards)}</tr>
+    <tr><td>faces sent (this view)</td>${fmt(s.sent, o.sent)}</tr></table>`;
 }
 function bridgeLabel(title, s, o) {
   o = o || {};
@@ -547,24 +650,39 @@ function bridgeLabel(title, s, o) {
     <tr><td>plank faces sent (this view)</td>${fmt(s.plankSent, o.plankSent)}</tr>
     <tr><td>rope static vertices + card ends</td>${fmt(s.ropeVerts + s.cardPoints, o.ropeVerts === undefined ? undefined : o.ropeVerts + o.cardPoints)}</tr>
     <tr><td>rope static faces</td>${fmt(s.ropeFaces, o.ropeFaces)}</tr>
-    <tr><td>rope faces sent (this view)</td>${fmt(s.ropeSent, o.ropeSent)}</tr>
-    <tr><td>est. planks draw, ms</td>${fmt(s.planks, o.planks, 2)}</tr>
-    <tr><td>est. rope statics draw, ms</td>${fmt(s.ropes, o.ropes, 2)}</tr></table>`;
+    <tr><td>rope faces sent (this view)</td>${fmt(s.ropeSent, o.ropeSent)}</tr></table>`;
 }
 
 // ---- tabs, controls, cameras
 let tab = 'wolf';
 let dirty = true;
-function wolfClose() {
+// the animal's middle and size in its first animation's first frame (three.js coordinates)
+function animalBox() {
+  const saved = A.state.time;
+  A.state.time = 0;
+  const M = animalPose(false);
+  A.state.time = saved;
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  A.W.meshes.forEach((mesh, j) => {
+    for (let i = 0; i < mesh.v.length; i += 3) {
+      const p = T3(apply(M[j], [mesh.v[i], mesh.v[i+1], mesh.v[i+2]]));
+      for (let q = 0; q < 3; q++) { lo[q] = Math.min(lo[q], p[q]); hi[q] = Math.max(hi[q], p[q]); }
+    }
+  });
+  return { c: lo.map((l, q) => (l + hi[q]) / 2), r: Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2 };
+}
+function animalClose() {
+  const { c, r } = animalBox();
   camera.fov = FOV; camera.near = 10; camera.far = 50000;
-  camera.position.set(900, 420, 1150); controls.target.set(0, 230, 0);
+  camera.position.set(c[0] + 1.5 * r, c[1] + 0.6 * r, c[2] + 1.9 * r); controls.target.set(c[0], c[1], c[2]);
   camera.up.set(0, 1, 0); camera.updateProjectionMatrix(); controls.update();
 }
-function wolfLedge() {   // about as far and as high as the ledge's camera from the wolf it sees
+function animalFar() {   // about as far and as high as the ledge's camera from the wolf it sees
+  const { c } = animalBox();
   camera.fov = FOV; camera.near = 10; camera.far = 50000;
   const d = 7400, e = 0.42;
-  camera.position.set(d * Math.cos(e) * 0.8, 230 + d * Math.sin(e), d * Math.cos(e) * 0.6);
-  controls.target.set(0, 230, 0); camera.up.set(0, 1, 0); camera.updateProjectionMatrix(); controls.update();
+  camera.position.set(c[0] + d * Math.cos(e) * 0.8, c[1] + d * Math.sin(e), c[2] + d * Math.cos(e) * 0.6);
+  controls.target.set(c[0], c[1], c[2]); camera.up.set(0, 1, 0); camera.updateProjectionMatrix(); controls.update();
 }
 function ledgeView() {
   const r = BR.camera.rot.map(x => x / 16384), p = T3(BR.camera.pos);
@@ -578,20 +696,21 @@ function ledgeView() {
 document.querySelectorAll('.tabs button').forEach(bt => bt.addEventListener('click', () => {
   tab = bt.dataset.tab;
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === bt));
-  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + tab));
-  if (tab === 'wolf') wolfClose(); else ledgeView();
+  const animal = ANIMALS[tab];
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === (animal ? 'pane-animal' : 'pane-' + tab)));
+  if (animal) { A = animal; fillAnimal(); fusedJoints(); animalClose(); } else ledgeView();
   dirty = true;
 }));
-ui('wolfClose').onclick = wolfClose;
-ui('wolfLedge').onclick = () => { wolfLedge(); ui('pixels').checked = true; dirty = true; };
+ui('animalClose').onclick = animalClose;
+ui('animalFar').onclick = () => { animalFar(); ui('pixels').checked = true; dirty = true; };
 ui('ledge').onclick = ledgeView;
 ui('dist').oninput = (e) => setDist(DIST_MIN * Math.pow(DIST_MAX / DIST_MIN, +e.target.value));
-ui('play').onclick = () => { wolfState.playing = !wolfState.playing; ui('play').textContent = wolfState.playing ? 'Pause' : 'Play'; };
-ui('speed').oninput = (e) => wolfState.speed = +e.target.value;
-ui('hold').onchange = (e) => { refR = e.target.value === 'typical' ? typicalR : standR; dirty = true; };
-ui('anim').onchange = (e) => { wolfState.anim = +e.target.value; wolfState.time = 0; dirty = true; };
-ui('frame').oninput = (e) => { const a = W.anims[wolfState.anim]; wolfState.time = +e.target.value / 100 * animLength(a); dirty = true; };
-['cards', 'tailCards', 'earCards', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
+ui('play').onclick = () => { A.state.playing = !A.state.playing; ui('play').textContent = A.state.playing ? 'Pause' : 'Play'; };
+ui('speed').oninput = (e) => A.state.speed = +e.target.value;
+ui('hold').onchange = (e) => { A.typical = e.target.value === 'typical'; dirty = true; };
+ui('anim').onchange = (e) => { A.state.anim = +e.target.value; A.state.time = 0; dirty = true; };
+ui('frame').oninput = (e) => { const a = A.W.anims[A.state.anim]; A.state.time = +e.target.value / 100 * animLength(a); dirty = true; };
+['insideCopies', 'join', 'ribbon', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
 controls.addEventListener('change', () => { dirty = true; syncDist(); });
 
 function resize() {
@@ -607,10 +726,10 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.max(0, Math.min(0.1, (now - last) / 1000)); last = now;
   controls.update();
-  if (tab === 'wolf' && wolfState.playing) {
-    const a = W.anims[wolfState.anim];
-    wolfState.time = (wolfState.time + dt * 30 * wolfState.speed) % (animLength(a) + a.rate);
-    ui('frame').value = Math.min(100, wolfState.time / animLength(a) * 100);
+  if (ANIMALS[tab] && A.state.playing) {
+    const a = A.W.anims[A.state.anim];
+    A.state.time = (A.state.time + dt * 30 * A.state.speed) % (animLength(a) + a.rate);
+    ui('frame').value = Math.min(100, A.state.time / animLength(a) * 100);
     dirty = true;
   }
   if (dirty) { update(); dirty = false; }
@@ -644,22 +763,22 @@ function update() {
   const filter = smooth ? THREE.LinearFilter : THREE.NearestFilter;
   if (atlasTex.magFilter !== filter) { atlasTex.magFilter = atlasTex.minFilter = filter; atlasTex.needsUpdate = true; }
   for (const v of views) v.lines.visible = wire;
-  if (tab === 'wolf') {
-    const L = buildWolf(false), R = buildWolf(true);
+  if (ANIMALS[tab]) {
+    const L = buildAnimal(false), R = buildAnimal(true);
     views[0].set(L.b); views[1].set(R.b);
-    ui('labelL').innerHTML = wolfLabel('Original', L.stats);
-    ui('labelR').innerHTML = wolfLabel('Simplified', R.stats, L.stats);
-    const a = W.anims[wolfState.anim];
-    ui('frameInfo').textContent = `game frame ${Math.floor(wolfState.time)} of ${animLength(a)}, a keyframe every ${a.rate}`;
-    ui('foot').textContent = 'Costs: master cycles measured per joint, mesh, vertex and face at the ledge (calibrated Mednafen, sleeping wolf); an animated wolf also blends frames, so its joints cost more.';
+    ui('labelL').innerHTML = animalLabel('Original', L.stats);
+    ui('labelR').innerHTML = animalLabel('Simplified', R.stats, L.stats);
+    const a = A.W.anims[A.state.anim];
+    ui('frameInfo').textContent = `game frame ${Math.floor(A.state.time)} of ${animLength(a)}, a keyframe every ${a.rate}`;
+    ui('foot').textContent = A.W.foot;
     const [pw, ph] = saturnSize(L.b.lit.p);
-    sizeText = pw ? ` · the wolf is about ${pw}×${ph} px on the Saturn's 352×224 screen` : '';
+    sizeText = pw ? ` · the ${A.name} is about ${pw}×${ph} px on the Saturn's 352×224 screen` : '';
   } else {
     const L = buildBridge(false), R = buildBridge(true);
     views[0].set(L.b); views[1].set(R.b);
     ui('labelL').innerHTML = bridgeLabel('Original', L.stats);
     ui('labelR').innerHTML = bridgeLabel('Simplified', R.stats, L.stats);
-    ui('foot').textContent = 'Costs: master cycles per plank item, vertex and face measured at the ledge (calibrated Mednafen); cards as faces.s draws them. Faces sent: facing this camera, before the frame clip.';
+    ui('foot').textContent = 'Faces sent: facing this camera, before the frame clip.';
   }
   const d = camera.position.distanceTo(controls.target);
   ui('distInfo').textContent = `${(d / 1024).toFixed(1)} blocks (${Math.round(d)} units) from what the view turns around${sizeText}`;
@@ -699,17 +818,21 @@ function draw() {
 function fromHash() {
   const tokens = decodeURIComponent(location.hash.slice(1)).split(',').filter(Boolean);
   const kv = Object.fromEntries(tokens.map(t => t.split('=')).map(([k, v]) => [k, v === undefined ? true : v]));
-  if (kv.bridge) document.querySelector('[data-tab=bridge]').click(); else wolfClose();
-  for (const id of ['cards', 'tailCards', 'earCards', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
+  const start = kv.bridge ? 'bridge' : kv.rat ? 'rat' : 'wolf';
+  if (ANIMALS[start]) A = ANIMALS[start];
+  for (const f of A.W.fuses) if (kv[f.key]) A.fused.add(f.key);
+  for (const g of A.W.cardGroups) if (kv[g.key]) A.cards.add(g.key);
+  for (const c of A.W.choices) if (kv[c.key]) A.choice[c.key] = +kv[c.key];
+  if (kv.hold) A.typical = kv.hold === 'typical';
+  if (kv.anim) A.state.anim = +kv.anim;
+  if (kv.t) A.state.time = +kv.t * animLength(A.W.anims[A.state.anim]);
+  if (kv.pause) A.state.playing = false;
+  document.querySelector(`[data-tab=${start}]`).click();
+  for (const id of ['insideCopies', 'join', 'ribbon', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
     if (id in kv) ui(id).checked = kv[id] !== '0';
-  document.querySelectorAll('[data-merge]').forEach(c => { if (kv[c.dataset.merge]) { c.checked = true; c.dispatchEvent(new Event('change')); } });
-  if (kv.anim) { ui('anim').value = kv.anim; wolfState.anim = +kv.anim; }
-  if (kv.t) wolfState.time = +kv.t * animLength(W.anims[wolfState.anim]);
-  if (kv.pause) { wolfState.playing = false; ui('play').textContent = 'Play'; }
   for (const id of ['cardLight', 'cardLook']) if (kv[id]) ui(id).value = kv[id];
   opt.cardsOnly = !!kv.cardsOnly;      // debugging: only the joints that can be cards
-  if (kv.hold) { ui('hold').value = kv.hold; ui('hold').dispatchEvent(new Event('change')); }
-  if (kv.far) wolfLedge();
+  if (kv.far) animalFar();
   // debugging: both sides of every face, and/or no see-through texels
   if (kv.double) for (const v of views) for (const k in v.mats) v.mats[k].side = THREE.DoubleSide;
   if (kv.noalpha) for (const v of views) for (const k in v.mats) { v.mats[k].alphaTest = 0; v.mats[k].needsUpdate = true; }

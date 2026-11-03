@@ -1,11 +1,12 @@
-"""HD viewer of the LEVEL1 wolf and bridges beside the simplifications being
-considered for them (build/geo/model_view.html, a page with the assets
-inside: game data, so it stays in build/). For judging what a change does to
-an asset before trying it on the Saturn.
+"""HD viewer of the wolf, the rat and the LEVEL1 bridges beside the
+simplifications being considered for them (build/geo/model_view.html, a page
+with the assets inside: game data, so it stays in build/). For judging what a
+change does to an asset before trying it on the Saturn.
 
-The wolf: every animation, with toggles that freeze joints to the standing
-pose (what merging them into their parent's mesh would draw) and draw the
-lower legs as cards that turn to the camera. The bridges: the twelve plank
+The animals: every animation, with toggles that fuse joints to one held pose
+(what merging them into their parent's mesh would draw), draw segments as
+cards that turn to the camera, drop the inside copies of faces drawn both ways
+and join each segment's end to its parent's. The bridges: the twelve plank
 items, the rope statics and the rooms around them (in their textures' mean
 colours), with toggles that drop the planks' inside faces, draw each plank
 face as one quad with its tiles combined, and draw the ropes as cards.
@@ -18,8 +19,9 @@ triangle variant whose end codes (colour 15) trim it.
 usage: python tools/model_view.py <DATA dir> <out.html>
 
 The page's address sets its toggles, e.g. model_view.html#jaw,ears,cards,
-hold=typical,anim=7,t=0.5,pause or #bridge,tiles,ropes,pixels, and
-cam=x:y:z:tx:ty:tz places the camera (game coordinates).
+hold=typical,anim=7,t=0.5,pause, #rat,lower,tailCards,earCards,join,tail=2 or
+#bridge,tiles,ropes,pixels, and cam=x:y:z:tx:ty:tz places the camera (game
+coordinates).
 """
 import base64
 import io
@@ -37,7 +39,7 @@ import trsat  # noqa: E402
 from diet import (COLOUR_TYPES, FLIP_TYPES, TRANSP_TYPES, TRIANGLE_ARRANGEMENT, TRIANGLE_VARIANT,  # noqa: E402
                   WOLF_EAR_CARDS, WOLF_JOINTS, WOLF_LEG_CARDS, WOLF_MERGES, WOLF_STATES, WOLF_TAIL_CARDS,
                   frame_at, rgb)
-from pack_level import ITEM, TextureTable, hinted_faces, texture_average  # noqa: E402
+from pack_level import ITEM, TextureTable, texture_average  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -45,8 +47,92 @@ BRIDGE_ROOMS = (13, 14)
 CONTEXT_ROOMS = (13, 14, 16)
 
 
+# The rat (joints as its model has them; the water rat's has the same meshes
+# and joints, and its own animations). What the viewer offers: the user's call.
+RAT_JOINTS = ["body", "neck", "head", "jaw", "ear R", "ear L",
+              "shoulder R", "forearm R", "fore paw R", "haunch",
+              "tail 1", "tail 2", "tail 3", "tail 4", "tail 5",
+              "thigh R", "shin R", "hock R", "hind paw R",
+              "thigh L", "shin L", "hock L", "hind paw L",
+              "shoulder L", "forearm L", "fore paw L"]
+RAT_STATES = "NONE STOP CHARGE RUN BITE DEATH POSE".split()
+RAT_WATER_STATES = "NONE SWIM BITE DEATH".split()
+RAT_FUSES = [("ears", "Ears into the head", [4, 5]),
+             ("jaw", "Jaw into the head", [3]),
+             ("paws", "Paws into the lower legs", [8, 18, 22, 25]),
+             ("hocks", "Hocks into the shins", [17, 21])]
+RAT_TAIL = ("tail", [("Tail: 5 pieces, as it is", []),
+                     ("Tail: 3 pieces (tail 2 and 4 fused)", [11, 13]),
+                     ("Tail: 2 pieces (tail 2, 3 and 5 fused)", [11, 12, 14]),
+                     ("Tail: 1 piece", [11, 12, 13, 14])])
+RAT_CARDS = [("lower", "Lower limbs as cards", [7, 8, 16, 17, 18, 20, 21, 22, 24, 25]),
+             ("upper", "Upper limbs as cards", [6, 23, 15, 19]),
+             ("tailCards", "Tail as cards", [10, 11, 12, 13, 14]),
+             ("earCards", "Ears as cards", [4, 5])]
+RAT_EAR_CARDS = [4, 5]      # upright, seen from the front
+RAT_TAIL_JOINTS = [10, 11, 12, 13, 14]
+RAT_NO_JOIN = [3]           # the jaw opens: its top and the head's underside are the mouth
+
+JOIN_REACH = 15             # units a segment's end may lie from its parent's to be joined to it
+JOIN_RING = 3               # the fewest corners that make an end
+
+
+def inside_copies(mesh):
+    """The faces drawn twice, once each way round, whose copy faces into the
+    mesh's middle: a closed box's, which nothing can ever see. A thin shape's
+    copies (an ear) lie about through the middle and both stay."""
+    centre = [sum(c) / len(mesh.vertices) for c in zip(*mesh.vertices)]
+    sets = {}
+    for fi, (ftype, idx, flags) in enumerate(mesh.faces):
+        sets.setdefault(tuple(sorted(idx)), []).append(fi)
+    out = []
+    for fis in sets.values():
+        if len(fis) < 2:
+            continue
+        for fi in fis:
+            v = [mesh.vertices[i] for i in mesh.faces[fi][1]]
+            n = diet.unit(diet.cross(diet.sub(v[1], v[0]), diet.sub(v[2], v[0])))     # away from the side drawn
+            if diet.dot(diet.sub(centre, v[0]), [-c for c in n]) > 1:
+                out.append(fi)
+    return out
+
+
+def join_rings(meshes, start, parents, offsets, skip=()):
+    """Where a segment's end meets its parent's in the model's rest pose (no
+    joint turned): {joint: {p: parent, map: {vertex: the parent's}, caps: its
+    faces on those corners alone, pcaps: the parent's}}. Each corner of the end
+    goes to the nearest of the parent's, each of those taken once."""
+    out = {}
+    for j in range(1, len(parents)):
+        if j in skip:
+            continue
+        p = parents[j]
+        child, parent = meshes[start + j], meshes[start + p]
+        pairs = sorted((diet.norm(diet.sub([c + o for c, o in zip(v, offsets[j])], pv)), i, k)
+                       for i, v in enumerate(child.vertices) for k, pv in enumerate(parent.vertices))
+        taken_i, taken_k, ring = set(), set(), {}
+        for d, i, k in pairs:
+            if d > JOIN_REACH:
+                break
+            if i not in taken_i and k not in taken_k:
+                taken_i.add(i)
+                taken_k.add(k)
+                ring[i] = k
+        if len(ring) < JOIN_RING:
+            continue
+        out[j] = {"p": p, "map": {str(i): k for i, k in ring.items()},
+                  "caps": [fi for fi, f in enumerate(child.faces) if all(i in taken_i for i in f[1])],
+                  "pcaps": [fi for fi, f in enumerate(parent.faces) if all(k in taken_k for k in f[1])]}
+    return out
+
+
 class Atlas(diet.Atlas):
-    """diet.Atlas's images packed into one picture."""
+    """diet.Atlas's images packed into one picture, from any level's textures
+    (level: those asked for from here on are that level's)."""
+
+    def level(self, lvl):
+        self.lvl = lvl
+        self.keys = {}
 
     def pack(self):
         """Shelves, a texel of each image's edge repeated around it; returns
@@ -130,6 +216,71 @@ def model_json(lvl, meshes, atlas, type_, states=None):
     return out
 
 
+def ribbon_json(meshes, start, chain, faces):
+    """A chain of segments (each a tapering box from its parent's end) as one
+    strip facing the camera: each segment's near end's middle and half width,
+    the texture of its biggest side (faces: the viewer's, by joint) and which
+    way that runs, each end's corner normals; the last's far end."""
+    seg = []
+    for j in chain:
+        mesh = meshes[start + j]
+        xs = list(zip(*mesh.vertices))
+        lo, hi = [min(a) for a in xs], [max(a) for a in xs]
+        ext = [h - l for l, h in zip(lo, hi)]
+        axis = ext.index(max(ext))
+        near = lo[axis] if abs(lo[axis]) < abs(hi[axis]) else hi[axis]
+        far = hi[axis] if near == lo[axis] else lo[axis]
+
+        def end(at):
+            vs = [i for i, v in enumerate(mesh.vertices) if abs(v[axis] - at) < ext[axis] / 4]
+            mid = [sum(mesh.vertices[i][k] for i in vs) / len(vs) for k in range(3)]
+            spans = [max(mesh.vertices[i][k] for i in vs) - min(mesh.vertices[i][k] for i in vs)
+                     for k in range(3) if k != axis]
+            return mid, sum(spans) / 4, [diet.unit(mesh.normals[i]) for i in vs] if mesh.normals else []
+        best, area = None, -1
+        for fi, (ftype, idx, flags) in enumerate(mesh.faces):
+            if len(idx) == 4 or best is None:
+                v = [mesh.vertices[i] for i in idx]
+                a = diet.face_area(mesh, idx) if len(idx) == 4 else 0
+                if a > area or best is None:
+                    best, area = fi, a
+        idx = mesh.faces[best][1]
+        v = [mesh.vertices[i] for i in idx]
+        u_along = len(idx) == 4 and diet.norm(diet.sub(v[1], v[0])) > diet.norm(diet.sub(v[3], v[0]))
+        f = faces[j]["f"][best]
+        p, h, ns = end(near)
+        seg.append({"j": j, "p": p, "h": h, "ns": [[round(c, 3) for c in n] for n in ns], "t": f["t"],
+                    "col": f.get("col"), "u": u_along})
+        tip, tip_h, tip_ns = end(far)
+    return {"seg": seg, "tip": tip, "tipH": tip_h, "tipNs": [[round(c, 3) for c in n] for n in tip_ns]}
+
+
+def animal_json(lvl, meshes, atlas, type_, states, names, fuses, choices, card_groups, flat_cards, no_join, foot, tail):
+    """model_json with what the viewer offers for an animal; tail: its joints,
+    which may be drawn as one ribbon."""
+    out = model_json(lvl, meshes, atlas, ITEM[type_], states)
+    model = next(m for m in lvl.models if m["type"] == ITEM[type_])
+    start = model["start"]
+    stop = next(i for i, a in enumerate(out["anims"]) if a["state"] == "STOP" and len(a["kf"]) == 1)
+    out["names"] = names
+    out["ref"] = out["anims"][stop]["kf"][0]["r"]
+    out["fuses"] = [{"key": k, "label": label, "joints": joints} for k, label, joints in fuses]
+    out["choices"] = [{"key": k, "options": [{"label": label, "joints": joints} for label, joints in options]}
+                      for k, options in choices]
+    out["cardGroups"] = [{"key": k, "label": label, "joints": joints} for k, label, joints in card_groups]
+    out["cards"] = {}
+    for _, _, joints in card_groups:
+        for j in joints:
+            kw = {"axis": 1, "view": 2} if j in flat_cards else {}
+            out["cards"][str(j)] = card_json(diet.card_of(meshes[start + j], atlas, **kw), atlas)
+    copies = {str(j): inside_copies(meshes[start + j]) for j in range(model["count"])}
+    out["insideCopies"] = {j: fis for j, fis in copies.items() if fis}
+    out["join"] = join_rings(meshes, start, out["parents"], out["offsets"], no_join)
+    out["ribbon"] = ribbon_json(meshes, start, tail, out["meshes"])
+    out["foot"] = foot
+    return out
+
+
 def card_json(card, atlas):
     r = lambda ns: [[round(c, 3) for c in n] for n in ns]
     return {"e0": card["e0"], "e1": card["e1"], "w": 2 * card["half"], "col": card["col"],
@@ -138,8 +289,8 @@ def card_json(card, atlas):
 
 def plank_json(mesh, atlas, mj, apart):
     """The plank as mesh_json has it, its inside faces marked, and the
-    simplified plank (diet.plank_parts, the faces of draw order hints apart
-    as the packer keeps them)."""
+    simplified plank (diet.plank_parts, with the tiles apart that the packer
+    keeps apart: diet.PLANK_APART)."""
     inside, groups = diet.plank_parts(mesh, atlas, apart)
     for fi in inside:
         mj["f"][fi]["in"] = 1
@@ -181,18 +332,31 @@ def main():
     meshes = trsat.meshes(lvl)
     atlas = Atlas(lvl)
 
-    wolf = model_json(lvl, meshes, atlas, ITEM["WOLF"], WOLF_STATES)
-    wolf["names"] = WOLF_JOINTS
-    wolf["merges"] = WOLF_MERGES
-    stop = next(i for i, a in enumerate(wolf["anims"]) if a["state"] == "STOP" and len(a["kf"]) == 1)
-    wolf["ref"] = wolf["anims"][stop]["kf"][0]["r"]
-    start = next(m for m in lvl.models if m["type"] == ITEM["WOLF"])["start"]
-    wolf["cards"] = {str(j): card_json(diet.card_of(meshes[start + j], atlas), atlas)
-                     for j in WOLF_LEG_CARDS + WOLF_TAIL_CARDS}
-    for j in WOLF_EAR_CARDS:
-        wolf["cards"][str(j)] = card_json(diet.card_of(meshes[start + j], atlas, axis=1, view=2), atlas)
-    wolf["tailCards"] = WOLF_TAIL_CARDS
-    wolf["earCards"] = WOLF_EAR_CARDS
+    labels = {"ears": "Ears into the head", "jaw": "Jaw into the head", "paws": "Paws into the lower legs",
+              "tail": "Tail as one piece", "chest": "Chest into the hips"}
+    wolf = animal_json(lvl, meshes, atlas, "WOLF", WOLF_STATES, WOLF_JOINTS,
+                       [(k, labels[k], joints) for k, joints in WOLF_MERGES.items()], [],
+                       [("cards", "Lower legs as cards", WOLF_LEG_CARDS), ("tailCards", "Tail as cards", WOLF_TAIL_CARDS),
+                        ("earCards", "Ears as cards", WOLF_EAR_CARDS)], WOLF_EAR_CARDS, WOLF_MERGES["jaw"],
+                       "Counts of what each side gives the renderer; for milliseconds, run it in the game.", WOLF_TAIL_CARDS)
+
+    # the rat: the Cistern's, with the water rat's animations after the land rat's
+    rat_level = trsat.load(data_dir, "LEVEL7A")
+    rat_meshes = trsat.meshes(rat_level)
+    atlas.level(rat_level)
+    rat = animal_json(rat_level, rat_meshes, atlas, "RAT_LAND", RAT_STATES, RAT_JOINTS, RAT_FUSES, [RAT_TAIL], RAT_CARDS,
+                      RAT_EAR_CARDS, RAT_NO_JOIN,
+                      "Counts of what each side gives the renderer; for milliseconds, run it in the game. Today, Cistern room 90 "
+                      "spot, Mednafen: 4.1 ms of master mesh work for the rat seen there (issue 256).", RAT_TAIL_JOINTS)
+    water = model_json(rat_level, rat_meshes, atlas, ITEM["RAT_WATER"], RAT_WATER_STATES)
+    if water["parents"] != rat["parents"] or water["offsets"] != rat["offsets"]:
+        raise ValueError("the water rat's skeleton isn't the land rat's")
+    for a in water["anims"]:
+        a["name"] = "water " + a["name"]
+    rat["anims"] += water["anims"]
+    for a in rat["anims"][-len(water["anims"]):]:
+        a["next"] += len(rat["anims"]) - len(water["anims"])
+    atlas.level(lvl)
 
     # the bridges: plank items with their model's first frame, rope statics
     planks, plank_meshes = [], {}
@@ -205,10 +369,12 @@ def main():
                            "yaw": quadrant_yaw(it["rotation"]), "frame": frame})
             plank_meshes[model["start"]] = None
     plank_out, plank_simple = {}, {}
-    hinted = hinted_faces(lvl, meshes)
+    item_names = {v: k for k, v in ITEM.items()}
     for mi in plank_meshes:
         mj = mesh_json(meshes[mi], atlas)
-        plank_simple[str(mi)] = plank_json(meshes[mi], atlas, mj, hinted.get(mi))
+        name = item_names[next(m["type"] for m in lvl.models if m["start"] == mi)]
+        groups = diet.PLANK_APART.get((lvl.name, name), [])
+        plank_simple[str(mi)] = plank_json(meshes[mi], atlas, mj, {fi: k for k, group in enumerate(groups) for fi in group})
         plank_out[str(mi)] = mj
     statics, static_meshes = [], {}
     for ri in BRIDGE_ROOMS:
@@ -237,7 +403,7 @@ def main():
     camera = {"pos": [30156, 3496, 49293],      # the game's view at the ledge (build ea032c9)
               "rot": [6455, 0, 15059, 2710, 16116, -1162, -14813, 2949, 6349]}
     data = {"atlas": {"png": png, "w": aw, "h": ah, "rects": rects},
-            "wolf": wolf,
+            "wolf": wolf, "rat": rat,
             "bridge": {"planks": planks, "meshes": plank_out, "simple": plank_simple, "statics": statics,
                        "staticMeshes": static_out, "ropes": ropes, "rooms": rooms, "camera": camera}}
     template = open(os.path.join(HERE, "model_view.html"), encoding="utf-8").read()
@@ -245,7 +411,7 @@ def main():
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(template.replace("/*DATA*/null", json.dumps(data, separators=(",", ":"))))
     print(f"{out_path}: {os.path.getsize(out_path) // 1024} KB, atlas {aw}x{ah}, {len(atlas.images)} images, "
-          f"wolf {len(wolf['anims'])} anims, {len(planks)} planks, {len(statics)} statics")
+          f"wolf {len(wolf['anims'])} anims, rat {len(rat['anims'])} anims, {len(planks)} planks, {len(statics)} statics")
 
 
 def quadrant_yaw(rotation):
