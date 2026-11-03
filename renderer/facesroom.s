@@ -10,7 +10,9 @@
 ! between (faces.s REUSE); triangles decide every frame. A texture the cache
 ! holds is drawn from it, else in its mean colour. A quad cut by a plane or
 ! near the camera goes to C (RoomRun.careful), which may split it; a face
-! wholly past the far plane is a transparent fill behind everything. The run
+! wholly past the far plane is a transparent fill behind everything. Near the
+! camera a face is split as the original split it (.Lnear, faces.cpp); one a
+! plane cuts, or with a corner beyond the frame's coordinates, in C. The run
 ! is at GBR as the faces go, the list's cursors in registers.
 !
 ! FaceRoom, RoomRun, RoomVariant, RoomMaterial: faces.h. A material keeps its
@@ -52,6 +54,11 @@
     .equ    RUN_VARIANTS,   60
     .equ    RUN_FAR_BUCKET, 268
     .equ    RUN_CAREFUL_TRI, 272
+    .equ    RUN_NEAR,       332
+    .equ    CLIP_LEFT,      2
+    .equ    CLIP_RIGHT,     4
+    .equ    CLIP_TOP,       8
+    .equ    CLIP_BOTTOM,    16
 
     .equ    ROOM_QUADS,     0
     .equ    ROOM_TRIANGLES, 4
@@ -464,30 +471,36 @@
     CULL    \tri, .Lculled\sfx
 .LFaceNear\sfx:
     mov.l   r13, @r15           ! the clip flags ored
-    mov.l   @(RUN_CAREFUL_TRI, gbr), r0
-    tst     r0, r0
-    bt      1f
-    mov.w   @(4, r1), r0        ! every corner within NEAR_SPLIT: to C, which splits it
-    mov     r0, r13
-    mov.w   @(4, r2), r0
-    or      r0, r13
-    mov.w   @(4, r3), r0
-    or      r0, r13
-    mov.w   @(4, r7), r0
-    or      r13, r0
-    shlr8   r0
-    tst     #0xF0, r0
-    .if \tri
-    bt      .LcarefulTri\sfx
-    .else
-    bt      .Lcareful\sfx
-    .endif
-    bra     .LFaceMaterial\sfx
-    nop
-1:
-    .ifeq \tri
     mov.w   @(4, r1), r0
     shlr8   r0
+    tst     #0xF0, r0
+    bf      .LFaceMaterial\sfx  ! corner A past NEAR_SPLIT
+    mov     r0, r6
+    mov.l   @(RUN_NEAR, gbr), r0
+    tst     r0, r0
+    bt      .LfaceOurs\sfx
+    jsr     @r0
+    nop
+    tst     r0, r0
+    bf      1f
+    bra     .Lnext\sfx          ! split
+    nop
+1:  cmp/pz  r0
+    bt      2f
+    bra     .Ldone              ! and the list is full
+    nop
+2:  cmp/eq  #1, r0
+    bt      .LFaceMaterial\sfx
+    .if \tri
+    bra     .LcarefulTri\sfx
+    nop
+    .else
+    bra     .Lcareful\sfx
+    nop
+    .endif
+.LfaceOurs\sfx:
+    .ifeq \tri
+    mov     r6, r0
     tst     #0xF8, r0
     bt      .Lcareful\sfx       ! corner A nearer than 2048: C decides on a split
     .endif
@@ -569,6 +582,7 @@
     mov.l   r0, @(44, r14)
     mov.l   r0, @(48, r14)
     mov.l   r0, @(52, r14)
+    mov.l   r0, @(60, r14)
     bra     .Lmemo\sfx
     mov.l   r0, @(56, r14)
 
@@ -1236,5 +1250,717 @@ _facesRoomAsm:
     FACES   Facing, 0, 1, .LrunDone
     .align 2
     FACES   Any, 0, 0, .LrunDone
+
     .align 2
     FACES   Tri, 1, 0, .Ldone
+
+! --- near the camera, as the original (faces.cpp, issue 263) --------------------
+
+    ! A quad every corner of it within NEAR_SPLIT, none nearer than the plane:
+    ! split here. A new corner lies where the view's midpoint does, from the
+    ! ends' screen places and depths alone: a + (b - a) zb / (za + zb), one
+    ! divide for x and y, ends in address order so that two quads sharing an
+    ! edge agree on it.
+
+    .equ    CLIP_HELD,      0x80    ! over 128 px off the frame
+    .equ    NEAR_PLANE,     80
+
+    .equ    RUN_QUADS,      276
+    .equ    RUN_PIECE_W0,   292
+    .equ    RUN_PIECE_W1,   296
+    .equ    RUN_PIECE_MATERIAL, 300
+    .equ    RUN_WIBBLE,     304
+    .equ    RUN_PHASE,      308
+    .equ    RUN_WINDOW,     312
+    .equ    RUN_TILES,      328
+
+    ! a level's frame on the stack (r4)
+    .equ    F_WORD,     0       ! the next piece's word 2
+    .equ    F_STEP,     4       ! ... to the one after, << 16
+    .equ    F_A,        8       ! its corners
+    .equ    F_B,        12
+    .equ    F_C,        16
+    .equ    F_D,        20
+    .equ    F_CLIP,     24      ! not 0: pieces may lie off the frame
+    .equ    F_LEVEL,    28      ! 0 quadrants, 1 tiles
+    .equ    F_TILES,    32      ! the tiles' character / 8, 0 not looked up, -1 none
+    .equ    F_QUARTER,  36      ! the pieces so far
+    .equ    F_POINTS,   40      ! AB BC CD DA, centre (8 bytes each)
+    .equ    F_CORNERS,  80      ! the quad's corners with their held flags, off the frame
+    .equ    F_BYTES,    112
+
+! v within the coordinates a corner's projection can trust, else to C; r0
+    .macro  TRUSTED v
+    mov.w   @\v, r0
+    add     r6, r0
+    cmp/hi  r8, r0
+    bt      .LnearToC
+    mov.w   @(2, \v), r0
+    add     r6, r0
+    cmp/hi  r8, r0
+    bt      .LnearToC
+    .endm
+
+! v's place held near the frame, its last word kept, to the stack at 'at'; r0, r6
+    .macro  HOLD v, at
+    mov.w   @\v, r0
+    mov     #-128, r6
+    cmp/gt  r0, r6
+    bf      1f
+    mov     r6, r0
+1:  mov.w   .LnearHoldX, r6
+    cmp/gt  r6, r0
+    bf      2f
+    mov     r6, r0
+2:  mov.w   r0, @(\at, r15)
+    mov.w   @(2, \v), r0
+    mov     #-128, r6
+    cmp/gt  r0, r6
+    bf      3f
+    mov     r6, r0
+3:  mov.w   .LnearHoldY, r6
+    cmp/gt  r6, r0
+    bf      4f
+    mov     r6, r0
+4:  mov.w   r0, @(\at + 2, r15)
+    mov.l   @(4, \v), r0
+    mov.l   r0, @(\at + 4, r15)
+    .endm
+
+    .align 2
+.LnearWhole:
+    lds.l   @r15+, pr
+    rts
+    mov     #1, r0
+.LnearToC:
+    lds.l   @r15+, pr
+    rts
+    mov     #2, r0
+
+    ! the face at r4, corners r1 r2 r3 r7, clip flags ored r13, split if it is
+    ! one to split: r0 0 drawn, -1 and the list is full, 1 not one to split, 2
+    ! one for C; r1 r2 r3 r7 r4 r5 kept but when drawn
+    .global _facesRoomNear
+_facesRoomNear:
+    sts.l   pr, @-r15
+    mov.w   @(4, r1), r0
+    mov     r0, r6
+    mov.w   @(4, r2), r0
+    or      r0, r6
+    mov.w   @(4, r3), r0
+    or      r0, r6
+    mov.w   @(4, r7), r0
+    or      r0, r6
+    mov     r6, r0
+    shlr8   r0
+    tst     #0xF0, r0
+    bf      .LnearWhole
+    mov     #NEAR_PLANE, r6
+    mov.w   @(4, r1), r0
+    cmp/gt  r0, r6
+    bt      .LnearToC
+    mov.w   @(4, r2), r0
+    cmp/gt  r0, r6
+    bt      .LnearToC
+    mov.w   @(4, r3), r0
+    cmp/gt  r0, r6
+    bt      .LnearToC
+    mov.w   @(4, r7), r0
+    cmp/gt  r0, r6
+    bt      .LnearToC
+    MATERIAL
+    mov.w   @(8, r14), r0
+    cmp/pz  r0
+    bf      .LnearWhole         ! a texture the cache can't take
+    mov.b   @(13, r14), r0
+    tst     #2, r0
+    bf      .LnearWhole         ! sparse: not worth pieces
+    mov     r13, r0
+    and     #CLIP_FRAME | CLIP_EDGES, r0
+    mov     r0, r13             ! not 0: pieces may lie off the frame
+    tst     #CLIP_FRAME, r0
+    bt      1f
+    mov.w   .LnearTrust, r6
+    mov     r6, r8
+    add     r8, r8
+    TRUSTED r1
+    TRUSTED r2
+    TRUSTED r3
+    TRUSTED r7
+
+    ! its quadrants' word 2 from the cache as the frame's faces before found
+    ! it, else looked up
+1:  mov.l   @(32, r14), r8
+    mov.l   @(RUN_FRAME, gbr), r0
+    cmp/eq  r0, r8
+    bf      .LnearFresh
+    mov.l   @(60, r14), r8
+    tst     r8, r8
+    bf      .LnearGo
+.LnearLookup:
+    mov.l   r13, @-r15
+    mov.w   .LnearQuads, r13
+    stc     gbr, r0
+    add     r0, r13             ! the cache's variant
+    mov.l   @r13, r6
+    mov.w   @(8, r14), r0
+    mov.b   @(r0, r6), r0
+    extu.b  r0, r0
+    tst     r0, r0
+    bt      .LnearMiss
+.LnearSlot:                     ! r0 the slot + 1
+    add     #-1, r0
+    mov     r0, r6
+    shll2   r0
+    shll    r0
+    mov.l   @(4, r13), r8
+    add     r0, r8
+    mov.l   @(RUN_FRAME, gbr), r0
+    mov.l   r0, @r8             ! drawn this frame
+    mov.w   @(10, r13), r0
+    mulu.w  r0, r6
+    mov.w   @(8, r13), r0
+    extu.w  r0, r8
+    sts     macl, r0
+    add     r0, r8
+    shll16  r8
+    mov.w   @(22, r14), r0
+    extu.w  r0, r0              ! a quadrant's size: the texture's half size
+    or      r0, r8
+    mov.l   r8, @(60, r14)
+    mov.l   @r15+, r13
+.LnearGo:                       ! r8 word 2, r13 off the frame
+    mov.l   @r14, r0
+    mov.l   r0, @(RUN_PIECE_W0, gbr)
+    mov.l   @(4, r14), r0
+    mov.l   r0, @(RUN_PIECE_W1, gbr)
+    mov     r14, r0
+    mov.l   r0, @(RUN_PIECE_MATERIAL, gbr)
+    mov.w   @(30, r14), r0
+    extu.w  r0, r6
+    shll16  r6                  ! a quadrant's characters / 8, << 16
+    mov.l   r4, @-r15
+    mov.l   r5, @-r15
+    bsr     .LnearSplit
+    mov     #0, r5
+    mov.l   @r15+, r5
+    mov.l   @r15+, r4
+    lds.l   @r15+, pr
+    bf/s    2f
+    mov     #0, r0
+    mov     #-1, r0
+2:  rts
+    nop
+
+.LnearFresh:                    ! r0 the frame
+    mov.l   r0, @(32, r14)
+    mov     #0, r0
+    mov.l   r0, @(36, r14)
+    mov.l   r0, @(40, r14)
+    mov.l   r0, @(44, r14)
+    mov.l   r0, @(48, r14)
+    mov.l   r0, @(52, r14)
+    mov.l   r0, @(56, r14)
+    bra     .LnearLookup
+    mov.l   r0, @(60, r14)
+
+.LnearMiss:
+    mov.l   .LnearMissAt, r0
+    jsr     @r0
+    nop
+    tst     r0, r0
+    bf      .LnearSlot
+    mov.l   @r15+, r13
+    bra     .LnearWhole
+    nop
+
+    .align 2
+.LnearMissAt:   .long   .Lmiss
+.LnearQuads:    .short  RUN_QUADS
+.LnearTrust:    .short  1000
+
+    ! a level: corners r1 r2 r3 r7, the first piece's word 2 r8, the step r6,
+    ! off the frame r13, level r5: its pieces, T set when the list is full
+.LnearSplit:
+    sts.l   pr, @-r15
+    mov.l   r4, @-r15
+    add     #-F_BYTES, r15
+    mov     r15, r4
+    mov.l   r8, @(F_WORD, r4)
+    mov.l   r6, @(F_STEP, r4)
+    mov.l   r1, @(F_A, r4)
+    mov.l   r2, @(F_B, r4)
+    mov.l   r3, @(F_C, r4)
+    mov.l   r7, @(F_D, r4)
+    mov.l   r13, @(F_CLIP, r4)
+    mov.l   r5, @(F_LEVEL, r4)
+    mov     #0, r0
+    mov.l   r0, @(F_TILES, r4)
+    mov.l   r0, @(F_QUARTER, r4)
+    mov     r4, r13
+    add     #F_POINTS, r13
+    mov     r1, r6
+    bsr     .LnearMid
+    mov     r2, r8
+    mov     r2, r6
+    bsr     .LnearMid
+    mov     r3, r8
+    mov     r3, r6
+    bsr     .LnearMid
+    mov     r7, r8
+    mov     r7, r6
+    bsr     .LnearMid
+    mov     r1, r8
+    mov     r4, r6
+    add     #F_POINTS, r6
+    mov     r6, r8
+    bsr     .LnearMid
+    add     #16, r8
+
+    mov.l   @(F_CLIP, r4), r0
+    tst     r0, r0
+    bt      .LnearWib
+    mov     r4, r13
+    add     #F_POINTS, r13
+    bsr     .LnearClip
+    nop
+    bsr     .LnearClip
+    nop
+    bsr     .LnearClip
+    nop
+    bsr     .LnearClip
+    nop
+    bsr     .LnearClip
+    nop
+    mov.l   @(F_LEVEL, r4), r0
+    tst     r0, r0
+    bf      .LnearWib
+
+    ! the quad's own corners, with what's held flagged
+    mov     r4, r13
+    mov     #F_CORNERS, r0
+    add     r0, r13
+    mov.l   @(F_A, r4), r6
+    bsr     .LnearCorner
+    mov.l   r13, @(F_A, r4)
+    mov.l   @(F_B, r4), r6
+    bsr     .LnearCorner
+    mov.l   r13, @(F_B, r4)
+    mov.l   @(F_C, r4), r6
+    bsr     .LnearCorner
+    mov.l   r13, @(F_C, r4)
+    mov.l   @(F_D, r4), r6
+    bsr     .LnearCorner
+    mov.l   r13, @(F_D, r4)
+
+.LnearWib:
+    mov.l   @(RUN_WIBBLE, gbr), r0
+    tst     r0, r0
+    bt      .LnearPieces
+    mov     r4, r13
+    add     #F_POINTS, r13
+    bsr     .LnearWibble
+    nop
+    bsr     .LnearWibble
+    nop
+    bsr     .LnearWibble
+    nop
+    bsr     .LnearWibble
+    nop
+    bsr     .LnearWibble
+    nop
+
+.LnearPieces:                   ! A AB centre DA, AB B BC centre, centre BC C CD, DA centre CD D
+    mov.l   @(F_A, r4), r1
+    mov     r4, r2
+    add     #F_POINTS, r2
+    mov     r2, r3
+    add     #32, r3
+    mov     r2, r7
+    bsr     .LnearPiece
+    add     #24, r7
+    bt      .LnearOut
+    mov     r4, r1
+    add     #F_POINTS, r1
+    mov.l   @(F_B, r4), r2
+    mov     r1, r3
+    add     #8, r3
+    mov     r1, r7
+    bsr     .LnearPiece
+    add     #32, r7
+    bt      .LnearOut
+    mov     r4, r1
+    add     #F_POINTS + 32, r1
+    mov     r4, r2
+    add     #F_POINTS + 8, r2
+    mov.l   @(F_C, r4), r3
+    mov     r2, r7
+    bsr     .LnearPiece
+    add     #8, r7
+    bt      .LnearOut
+    mov     r4, r1
+    add     #F_POINTS + 24, r1
+    mov     r1, r2
+    add     #8, r2
+    mov     r1, r3
+    add     #-8, r3
+    bsr     .LnearPiece
+    mov.l   @(F_D, r4), r7
+.LnearOut:
+    add     #F_BYTES, r15
+    mov.l   @r15+, r4
+    lds.l   @r15+, pr
+    rts
+    nop
+
+    ! the view's midpoint of r6 and r8 to the point at r13, its clip flags
+    ! none, r13 past it; r0, r5, r6, r8, r14
+.LnearMid:
+    cmp/hs  r6, r8
+    bt      1f
+    mov     r6, r0
+    mov     r8, r6
+    mov     r0, r8
+1:  mov.w   @(4, r6), r0
+    mov     r0, r14
+    mov.w   @(4, r8), r0
+    add     r0, r14             ! za + zb
+    mov     #-1, r5
+    shll8   r5                  ! the divider at 0xFFFFFF00
+    mov.l   r14, @r5            ! DVSR
+    shlr    r14
+    shll16  r0
+    shlr    r0                  ! zb << 15
+    mov.l   r0, @(4, r5)        ! DVDNT: divides as what's next goes on
+    mov     r14, r0
+    mov.w   r0, @(4, r13)       ! z
+    mov.b   @(6, r6), r0
+    extu.b  r0, r14
+    mov.b   @(6, r8), r0
+    extu.b  r0, r0
+    add     r14, r0
+    shlr    r0
+    mov.b   r0, @(6, r13)       ! its shade
+    mov     #0, r0
+    mov.b   r0, @(7, r13)
+    mov.l   @(4, r5), r14       ! zb << 15 / (za + zb)
+    mov.w   @r6, r5
+    mov.w   @r8, r0
+    sub     r5, r0
+    muls.w  r0, r14
+    sts     macl, r0
+    shll2   r0
+    swap.w  r0, r0
+    exts.w  r0, r0
+    add     #1, r0
+    shar    r0                  ! (b - a) u >> 15, rounded
+    add     r5, r0
+    mov.w   r0, @r13
+    mov.w   @(2, r6), r0
+    mov     r0, r5
+    mov.w   @(2, r8), r0
+    sub     r5, r0
+    muls.w  r0, r14
+    sts     macl, r0
+    shll2   r0
+    swap.w  r0, r0
+    exts.w  r0, r0
+    add     #1, r0
+    shar    r0
+    add     r5, r0
+    mov.w   r0, @(2, r13)
+    rts
+    add     #8, r13
+
+    ! corner r6 copied to the point at r13 and flagged, r13 past it
+.LnearCorner:
+    mov.l   @r6, r0
+    mov.l   r0, @r13
+    mov.l   @(4, r6), r0
+    bra     .LnearClip
+    mov.l   r0, @(4, r13)
+
+    ! the point at r13's clip flags (faces.cpp nearHold, the place itself left
+    ! as it is), r13 past it; r0, r5, r6, r8, r14
+.LnearClip:
+    mov.w   @r13, r6            ! x
+    mov.w   @(2, r13), r0
+    mov     r0, r8              ! y
+    mov     #0, r14
+    mov     #88, r0
+    shll2   r0                  ! FRAME_WIDTH
+    cmp/hi  r0, r6
+    bt      1f
+    mov     #56, r0
+    shll2   r0                  ! FRAME_HEIGHT
+    cmp/hi  r0, r8
+    bf      2f
+1:  mov     #CLIP_FRAME, r14
+    mov     #-128, r0
+    cmp/gt  r6, r0
+    bt      3f
+    cmp/gt  r8, r0
+    bt      3f
+    mov.w   .LnearMaxX, r0
+    cmp/gt  r0, r6
+    bt      3f
+    mov.w   .LnearMaxY, r0
+    cmp/gt  r0, r8
+    bf      2f
+3:  mov     #CLIP_FRAME, r14
+    mov     #-128, r5
+    extu.b  r5, r5
+    or      r5, r14             ! CLIP_HELD
+2:  mov.l   @(RUN_WINDOW, gbr), r0
+    cmp/gt  r6, r0
+    bf      4f
+    add     #CLIP_LEFT, r14
+4:  mov.l   @(RUN_WINDOW + 8, gbr), r0
+    cmp/gt  r0, r6
+    bf      5f
+    add     #CLIP_RIGHT, r14
+5:  mov.l   @(RUN_WINDOW + 4, gbr), r0
+    cmp/gt  r8, r0
+    bf      6f
+    add     #CLIP_TOP, r14
+6:  mov.l   @(RUN_WINDOW + 12, gbr), r0
+    cmp/gt  r0, r8
+    bf      7f
+    add     #CLIP_BOTTOM, r14
+7:  mov     r14, r0
+    mov.b   r0, @(7, r13)
+    rts
+    add     #8, r13
+
+.LnearMaxX:     .short  480
+.LnearMaxY:     .short  352
+
+    ! the point at r13 wibbled, if on the frame, r13 past it; r0, r5, r6, r8
+.LnearWibble:
+    mov.b   @(7, r13), r0
+    tst     #CLIP_FRAME, r0
+    bf      1f
+    mov.l   @(RUN_WIBBLE, gbr), r0
+    mov     r0, r5
+    mov.l   @(RUN_PHASE, gbr), r0
+    mov     r0, r8
+    mov.w   @r13, r6
+    add     r6, r0
+    and     #31, r0
+    mov.b   @(r0, r5), r0
+    add     r6, r0
+    mov.w   r0, @r13
+    mov.w   @(2, r13), r0
+    mov     r0, r6
+    add     r8, r0
+    and     #31, r0
+    mov.b   @(r0, r5), r0
+    add     r6, r0
+    mov.w   r0, @(2, r13)
+1:  rts
+    add     #8, r13
+
+    ! a piece r1 r2 r3 r7 of the level at r4: off the frame left out, held
+    ! split again or drawn held; T set when the list is full
+.LnearPiece:
+    mov.l   @(F_WORD, r4), r8
+    mov.l   @(F_STEP, r4), r0
+    add     r8, r0
+    mov.l   r0, @(F_WORD, r4)
+    mov.l   @(F_CLIP, r4), r0
+    tst     r0, r0
+    bf      1f
+    bra     .LnearDraw
+    mov     #0, r13
+1:  mov.l   @(F_QUARTER, r4), r0
+    add     #1, r0
+    mov.l   r0, @(F_QUARTER, r4)
+    mov.l   @(4, r1), r6
+    mov.l   @(4, r2), r0
+    mov     r6, r13
+    and     r0, r6
+    or      r0, r13
+    mov.l   @(4, r3), r0
+    and     r0, r6
+    or      r0, r13
+    mov.l   @(4, r7), r0
+    and     r0, r6
+    or      r0, r13
+    mov     r6, r0
+    tst     #CLIP_EDGES, r0
+    bf      .LnearLeft
+    mov     r13, r0
+    tst     #CLIP_HELD, r0
+    bf      2f
+    bra     .LnearDraw
+    nop
+2:  mov.l   @(F_LEVEL, r4), r0
+    tst     r0, r0
+    bf      .LnearHeld
+
+    ! in tiles, if its texture can have them
+    mov.l   @(RUN_PIECE_MATERIAL, gbr), r0
+    mov     r0, r14
+    mov.w   @(22, r14), r0
+    extu.w  r0, r6              ! a quadrant's size
+    tst     #1, r0
+    bf      .LnearHeld
+    mov     r6, r0
+    shlr8   r0
+    tst     #1, r0
+    bf      .LnearHeld          ! VDP1 takes widths by 8; a tile's texels must start on a byte
+    mov.l   @(F_TILES, r4), r0
+    tst     r0, r0
+    bf      3f
+    sts.l   pr, @-r15           ! the tiles' character: RoomRun.tiles(run, key, size)
+    mov.l   r1, @-r15
+    mov.l   r2, @-r15
+    mov.l   r3, @-r15
+    mov.l   r7, @-r15
+    mov.l   r8, @-r15
+    mov.l   r13, @-r15
+    mov.l   r4, @-r15
+    mov.w   @(8, r14), r0
+    extu.w  r0, r5
+    stc     gbr, r4
+    mov.l   @(RUN_TILES, gbr), r0
+    jsr     @r0
+    nop
+    mov.l   @r15+, r4
+    mov.l   @r15+, r13
+    mov.l   @r15+, r8
+    mov.l   @r15+, r7
+    mov.l   @r15+, r3
+    mov.l   @r15+, r2
+    mov.l   @r15+, r1
+    lds.l   @r15+, pr
+    tst     r0, r0
+    bf      4f
+    mov     #-1, r0
+4:  mov.l   r0, @(F_TILES, r4)
+3:  cmp/pl  r0
+    bf      .LnearHeld          ! no room for them
+    mov     r0, r8
+    shll16  r8                  ! their character << 16
+    mov.l   @(RUN_PIECE_MATERIAL, gbr), r0
+    mov     r0, r14
+    mov.w   @(22, r14), r0
+    extu.w  r0, r6
+    shlr8   r0
+    shlr    r0
+    shll8   r0                  ! a tile's width
+    mov     r0, r5
+    mov     r6, r0
+    extu.b  r0, r0
+    shlr    r0                  ! ... and height
+    or      r5, r0
+    or      r0, r8              ! the first tile of all's word 2
+    mov.l   @(F_STEP, r4), r6
+    shlr2   r6                  ! a tile's characters / 8, << 16
+    mov.l   @(F_QUARTER, r4), r0
+    add     #-1, r0
+    shll2   r0                  ! the tiles before this quadrant's
+    mul.l   r0, r6
+    sts     macl, r0
+    add     r0, r8
+    mov     #CLIP_HELD, r13
+    bra     .LnearSplit
+    mov     #1, r5
+
+.LnearLeft:
+    rts
+    clrt
+
+    ! drawn with its corners held, a hole left clean if that turns it over
+.LnearHeld:
+    sts.l   pr, @-r15
+    mov.l   r8, @-r15
+    add     #-32, r15
+    HOLD    r1, 0
+    HOLD    r2, 8
+    HOLD    r3, 16
+    HOLD    r7, 24
+    mov     r15, r1
+    mov     r15, r2
+    add     #8, r2
+    mov     r15, r3
+    add     #16, r3
+    mov     r15, r7
+    add     #24, r7
+    BACKFACE 8f
+    mov.l   @(32, r15), r8
+    bsr     .LnearDraw
+    mov     #CLIP_FRAME, r13
+9:  add     #36, r15
+    lds.l   @r15+, pr
+    rts
+    nop
+8:  mov.l   .LnearVoid, r0
+    jsr     @r0
+    nop
+    bra     9b
+    nop
+
+    .align 2
+.LnearVoid:     .long   .Lvoid
+.LnearHoldX:    .short  480
+.LnearHoldY:    .short  352
+    .align 2
+
+    ! a piece's command: corners r1 r2 r3 r7, word 2 r8, clip flags ored r13;
+    ! T set when the list is full
+.LnearDraw:
+    sts.l   pr, @-r15
+    mov.l   r8, @(8, r9)
+    mov.l   @(RUN_PIECE_W1, gbr), r0
+    mov.l   r0, @(4, r9)
+    mov.l   @(RUN_PIECE_W0, gbr), r0
+    mov     r0, r8
+    mov     r13, r0
+    tst     #CLIP_FRAME, r0
+    bt      5f
+    mov.l   .LnearMirror, r0
+    jsr     @r0
+    nop
+5:  BUCKET
+    LINK
+    QUAD_CORNERS
+    mov.l   @(RUN_PLAIN, gbr), r0
+    cmp/pz  r0
+    bf      8f
+    mov.l   @(RUN_SHADE_GOURAUD, gbr), r0
+    mov     r0, r6
+    SHADE   r1
+    SHADE   r2
+    SHADE   r3
+    SHADE   r7
+    cmp/eq  r1, r2
+    bf      6f
+    cmp/eq  r1, r3
+    bf      6f
+    cmp/eq  r1, r7
+    bf      6f
+    mov.l   .LnearShaded, r0
+    jsr     @r0
+    nop
+    tst     r0, r0
+    bf      7f
+    mov     r1, r2
+    mov     r1, r3
+    mov     r1, r7
+6:  TABLE
+7:  NEXT
+    lds.l   @r15+, pr
+    rts
+    nop
+8:  mov.l   .LnearWater, r0
+    jsr     @r0
+    nop
+    bra     7b
+    nop
+
+    .align 2
+.LnearMirror:   .long   .Lmirror
+.LnearShaded:   .long   .LshadedCopy
+.LnearWater:    .long   .LwaterShade
+

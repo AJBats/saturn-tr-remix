@@ -897,6 +897,10 @@ static void roomQuadCareful(const FaceRoom &room, RoomTextures &t, RoomSplit &sp
 // held at the plane, and only a tile with a corner behind the camera, or that
 // comes out facing away, is left out. Each piece sorts by its own farthest
 // corner. Past NEAR_SPLIT a quad stays whole, the warp too small to see go.
+//
+// facesroom.s does this itself for a quad with every corner in front of the
+// plane and in reach of the frame's coordinates, from the corners' screen places
+// and depths. This takes the rest, whose corners only room space can place.
 
 #define NEAR_PLANE      80      // phd_InitWindow's
 #define NEAR_SPLIT      4096
@@ -1205,6 +1209,11 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, list) == 44 && offsetof(RoomRun, plain) == 56 &&
               offsetof(RoomRun, variants) == 60 && offsetof(RoomRun, room) == 64 &&
               offsetof(RoomRun, farBucket) == 268 && offsetof(RoomRun, carefulTri) == 272 &&
+              offsetof(RoomRun, quads) == 276 && offsetof(RoomRun, pieceW0) == 292 &&
+              offsetof(RoomRun, pieceMaterial) == 300 && offsetof(RoomRun, wibble) == 304 &&
+              offsetof(RoomRun, phase) == 308 && offsetof(RoomRun, window) == 312 &&
+              offsetof(RoomRun, tiles) == 328 && offsetof(RoomRun, near) == 332 &&
+              offsetof(RoomMaterial, quadrant) == 30 && offsetof(RoomMaterial, quads) == 60 &&
               offsetof(FaceRoom, points) == 8 && offsetof(FaceRoom, quadsCount) == 16 &&
               offsetof(FaceRoom, facing) == 20 && offsetof(FaceRoom, camera) == 32 &&
               offsetof(DetailSlot, frame) == 4 && sizeof(DetailSlot) == 8, "facesroom.s's layouts");
@@ -1235,9 +1244,9 @@ void facesRoomMaterials(const RoomTextures &t, RoomMaterial* materials, int32_t 
             m.sizes[v] = w[2] & 0xFFFF;
             m.w2[v] = 0;
         }
-        m.spare = 0;
+        m.quadrant = (tex.size >> 8) * (tex.size & 0xFF) / 2;
         m.frame = ~t.frame;
-        m.spare2 = 0;
+        m.quads = 0;
     }
 }
 
@@ -1257,6 +1266,20 @@ static void roomCareful(RoomRun* run, const RoomQuad* q)
 static void roomCarefulTri(RoomRun* run, const RoomQuad* q)
 {
     roomQuadNear(*run->room, *run->textures, *run->split, *run->list, *q, true);
+}
+
+static int32_t roomTiles(RoomRun* run, uint32_t key, uint32_t size)
+{
+    RoomTextures &t = *run->textures;
+    int32_t slot = int32_t(t.keys[DETAIL_TILES][key]) - 1;
+    if (slot < 0)
+    {
+        slot = t.miss(key, size, DETAIL_TILES);
+        if (slot < 0)
+            return 0;
+    }
+    t.slots[slot].frame = t.frame;
+    return (t.pools[0] + slot * DETAIL_SLOT_SIZE) >> 3;
 }
 #endif
 
@@ -1278,8 +1301,16 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.careful = roomCareful;
 #ifdef RENDER_LAB
     run.carefulTri = nullptr;
+    run.near = nullptr;
 #else
     run.carefulTri = gNearRetail ? roomCarefulTri : nullptr;
+    run.near = gNearRetail ? facesRoomNear : nullptr;
+    run.quads.keys = t.keys[DETAIL_QUADS];
+    run.quads.frames = &t.slots[0].frame;
+    run.quads.pool = t.pools[0] >> 3;
+    run.quads.step = DETAIL_SLOT_SIZE >> 3;
+    run.quads.variant = DETAIL_QUADS;
+    run.tiles = roomTiles;
 #endif
     for (uint32_t v = 0; v < 6; v++)
     {
@@ -1308,6 +1339,11 @@ void facesRoom(const FaceRoom &room, RoomRun &run)
     run.plain = water ? SHADING_WATER : SHADING_PLAIN;
     run.variants = water ? run.wet : run.dry;
     run.room = &room;
+    run.wibble = room.ripple ? kWibble : nullptr;
+    run.phase = room.phase;
+    for (int32_t i = 0; i < 4; i++) {
+        run.window[i] = room.clip[i];
+    }
     facesRoomAsm(&room, &run);
 }
 

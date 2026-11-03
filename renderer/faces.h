@@ -174,11 +174,11 @@ struct RoomMaterial
                                 // sparse (TEX_ATTR_SPARSE)
     uint16_t lines[2];          // +14 4 x its texels along a face's lines, as it is and turned
     uint16_t sizes[6];          // +18 CMDSIZE by variant: mip level * 2 + turned
-    uint16_t spare;
+    uint16_t quadrant;          // +30 a quadrant's characters / 8
     uint32_t frame;             // +32 the frame w2 is of
     uint32_t w2[6];             // +36 by variant, from the cache that frame: character << 16 |
                                 // size; 0 not looked up yet
-    uint32_t spare2;
+    uint32_t quads;             // +60 ... in quadrants
 };
 
 // The room texture cache as the frame finds it, and what room faces take
@@ -273,9 +273,19 @@ struct RoomRun
     int32_t farBucket;          // +268 a corner at the far plane's (facesFar)
     void (*carefulTri)(RoomRun* run, const RoomQuad* triangle); // +272 a triangle the same, or
                                 // none: filled where a plane cuts it, else on as it is
+    RoomVariant quads;          // +276 the cache's quadrants, for faces split near the camera
+    uint32_t pieceW0, pieceW1;  // +292 the face being split's command words
+    const RoomMaterial* pieceMaterial;  // +300 ... its material
+    const int8_t* wibble;       // +304 the room's ripple offsets (32), or none
+    int32_t phase;              // +308 ... their phase
+    int32_t window[4];          // +312 the room's portal window: x0 y0 x1 y1
+    int32_t (*tiles)(RoomRun* run, uint32_t key, uint32_t size);    // +328 the texture's tiles'
+                                // character / 8, 0 when the cache can't have them
+    void (*near)();             // +332 facesRoomNear, or none: only what the near plane cuts splits
 };
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);
+extern "C" void facesRoomNear();    // facesroom.s's, as it calls it
 
 // One face as the game made it whole (a sprite's, a rectangle's or line's,
 // a fill's, a void's: render.cpp faceCommand), its corners in half, into
