@@ -1844,12 +1844,10 @@ struct ItemObj
 #define FLIP_FLAG_ONCE      32
 #define FLIP_FLAG_MASK      31
 
-#define SAVEGAME_VER    3
 #define SAVEGAME_SIZE   (8 * 1024)  // 8k EWRAM
 
 struct SaveGame
 {
-    uint32 version;
     uint32 dataSize;
 
     uint8  level;
@@ -1869,12 +1867,20 @@ struct SaveGame
     uint8  flipmaps[MAX_FLIPMAPS];
 };
 
-#define SETTINGS_VER    3
+// The file in backup RAM: the header, then the item data.
+struct SaveFile
+{
+    SaveGame game;
+    uint8    data[SAVEGAME_SIZE - sizeof(SaveGame)];
+};
+
+#define gSaveGame   gSaveFile.game
+#define gSaveData   gSaveFile.data
+
 #define SETTINGS_SIZE   128
 
 struct Settings
 {
-    uint8 version;
     uint8 controls_vibration:1;
     uint8 controls_swap:1;
     uint8 audio_sfx:1;
@@ -2707,8 +2713,7 @@ extern const uint32 gSinCosTable[4096];
 extern Sphere gSpheres[2][MAX_SPHERES];
 
 extern Settings gSettings;
-extern SaveGame gSaveGame;
-extern uint8 gSaveData[SAVEGAME_SIZE - sizeof(SaveGame)];
+extern SaveFile gSaveFile;
 
 extern int32 gCurTrack;
 extern int32 gAnimTexFrame;

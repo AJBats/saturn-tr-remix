@@ -36,12 +36,9 @@ int32 osGetSystemTimeMS()
     return 0; // TODO FRT based timer
 }
 
-// Settings and the one saved game live in backup RAM; the game is a SaveGame
-// followed by its item data.
+// Settings and the one saved game live in backup RAM.
 #define SETTINGS_FILE   "TOMBR_CFG"
-#define SAVE_FILE       "TOMBR_SAVE"
-
-static uint8 gSaveBuffer[SAVEGAME_SIZE];
+#define SAVE_FILE       "TOMBR_GAME"
 
 // The level last loaded, and whether the next load skips its video: a saved
 // game or a restart goes straight back in.
@@ -61,12 +58,7 @@ bool osSaveSettings()
 
 bool osLoadSettings()
 {
-    Settings settings;
-    if (!backupRead(SETTINGS_FILE, &settings, sizeof(settings)) || settings.version != SETTINGS_VER)
-        return false;
-
-    gSettings = settings;
-    return true;
+    return backupRead(SETTINGS_FILE, &gSettings, sizeof(gSettings));
 }
 
 bool osCheckSave()
@@ -76,29 +68,19 @@ bool osCheckSave()
 
 bool osSaveGame()
 {
-    memcpy(gSaveBuffer, &gSaveGame, sizeof(gSaveGame));
-    memcpy(gSaveBuffer + sizeof(gSaveGame), gSaveData, gSaveGame.dataSize);
-
     // the level's name shows in the BIOS memory manager
     char comment[11];
     strncpy(comment, (const char*)gLevelInfo[gLevelID].data, sizeof(comment));
     comment[sizeof(comment) - 1] = 0;
 
-    return backupWrite(SAVE_FILE, comment, gSaveBuffer, sizeof(gSaveGame) + gSaveGame.dataSize);
+    return backupWrite(SAVE_FILE, comment, &gSaveFile, sizeof(SaveGame) + gSaveGame.dataSize);
 }
 
 bool osLoadGame()
 {
-    if (!backupRead(SAVE_FILE, gSaveBuffer, sizeof(gSaveBuffer)))
+    if (!backupRead(SAVE_FILE, &gSaveFile, sizeof(gSaveFile)))
         return false;
 
-    SaveGame save;
-    memcpy(&save, gSaveBuffer, sizeof(save));
-    if (save.version != SAVEGAME_VER || save.dataSize > sizeof(gSaveData))
-        return false;
-
-    gSaveGame = save;
-    memcpy(gSaveData, gSaveBuffer + sizeof(save), save.dataSize);
     gSkipVideo = true;
     return true;
 }

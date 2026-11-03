@@ -32,7 +32,6 @@ void nextLevel(LevelID next)
 
 bool gameSave()
 {
-    gSaveGame.version = SAVEGAME_VER;
     gSaveGame.level = gLevelID;
     gSaveGame.track = gCurTrack;
     gSaveGame.randSeedLogic = gRandSeedLogic;
@@ -104,7 +103,6 @@ void gameInit()
 
     gSaveGame.dataSize = 0;
 
-    gSettings.version = SETTINGS_VER;
     gSettings.controls_vibration = 1;
     gSettings.controls_swap = 0;
     gSettings.audio_sfx = 1;
