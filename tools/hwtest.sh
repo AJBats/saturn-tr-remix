@@ -36,6 +36,9 @@
 #               of the camera's sight, for his running off
 #   cistern-flat LEVEL7A, room 105: a wall drawn flat at 1.5 texels a pixel, the
 #               room texture cache full
+#   cistern-warp LEVEL7A, room 31: where retail's near faces beat ours (issue 263)
+#   cistern-corner LEVEL7A, room 31 again, turned to the wall, close: the near
+#               faces at their hardest
 #   cistern-feet LEVEL7A, room 97: the floor gone from under Lara's feet
 #   cistern-feet-door the same with the door beside her (item 25) opened, as it
 #               was when the floor went
@@ -70,10 +73,12 @@ case "${1:-ledge}" in
     cistern-mirror) level=LEVEL7A id=LVL_TR1_7A start=91@40465:-5632:65637 yaw=0x73D4 ;;
     cistern-pierre) level=LEVEL7A id=LVL_TR1_7A start=91@40465:-5632:65637 yaw=0x73D4 trigger=29 ;;
     cistern-flat) level=LEVEL7A id=LVL_TR1_7A start=105@47569:0:59202 yaw=0x9D98 ;;
+    cistern-warp) level=LEVEL7A id=LVL_TR1_7A start=31@58826:-3584:53511 yaw=0xC207 ;;
+    cistern-corner) level=LEVEL7A id=LVL_TR1_7A start=31@58826:-3584:53511 yaw=0x4207 ;;
     cistern-feet) level=LEVEL7A id=LVL_TR1_7A start=97@50480:-3328:60035 yaw=0x31D0 ;;
     cistern-feet-door) level=LEVEL7A id=LVL_TR1_7A start=97@50480:-3328:60035 yaw=0x31D0 trigger=25 ;;
     cistern-bright) level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|cistern-feet|cistern-feet-door|cistern-bright|cistern-tunnel|cistern-look|cistern-water]" >&2; exit 1 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|cistern-warp|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-tunnel|cistern-look|cistern-water]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 

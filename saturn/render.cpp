@@ -515,6 +515,11 @@ void renderTexels(int32 lod)
     render::frameTexels(lod);
 }
 
+void renderNear(bool retail)
+{
+    render::frameNear(retail);
+}
+
 static int32 gTiny = 256;     // renderTiny's
 
 void renderTiny(int32 pixels)

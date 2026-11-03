@@ -46,6 +46,7 @@ static int32 gTinyStep = 3;     // kTiny's
 static bool gHolesShown;        // what rooms' fills fill and what nothing draws, magenta
 static const char* const kTexels[] = { "1 a pixel", "1.5 a pixel" };
 static int32 gTexelStep;        // kTexels'
+static int32 gNearStep = 1;     // kCamera's: room faces near the camera
 #endif
 
 static bool gShowStats;
@@ -82,6 +83,9 @@ static const Option gOptions[] = {
     { "Texels", kTexels, 2,
         [] { return gTexelStep; },
         [](int32 v) { gTexelStep = v; renderTexels(4 + 2 * v); } },
+    { "Near", kCamera, 2,
+        [] { return gNearStep; },
+        [](int32 v) { gNearStep = v; renderNear(v); } },
     { "Camera", kCamera, 2,
         [] { return int32(gCameraRetail); },
         [](int32 v) { gCameraRetail = v; } },
@@ -90,7 +94,7 @@ static const Option gOptions[] = {
 
 enum { OPTION_STATS,
 #ifdef HW_LOG
-       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_HOLES, OPTION_TEXELS, OPTION_CAMERA,
+       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_HOLES, OPTION_TEXELS, OPTION_NEAR, OPTION_CAMERA,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");

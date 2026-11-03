@@ -102,8 +102,9 @@ struct Sprite
 };
 
 // The room texture cache (saturn/detail.h): slots in VDP1 VRAM holding the
-// room textures in use, whole, in quadrants for a split quad, transposed, or
-// at half or a quarter of their size; a texture's key is Texture.reserved - 1.
+// room textures in use, whole, in quadrants for a split quad, in tiles for a
+// quadrant split again, transposed, or at half or a quarter of their size; a
+// texture's key is Texture.reserved - 1.
 #ifndef DETAIL_MAX_KEYS
 #define DETAIL_MAX_KEYS     1088
 #endif
@@ -117,7 +118,11 @@ struct Sprite
 #define DETAIL_MIP_SLOTS    64
 #endif
 enum DetailVariant { DETAIL_WHOLE, DETAIL_QUADS, DETAIL_TURNED, DETAIL_MIP1, DETAIL_MIP1_TURNED, DETAIL_MIP2,
-                     DETAIL_MIP2_TURNED, DETAIL_VARIANTS };
+                     DETAIL_MIP2_TURNED,
+#ifndef RENDER_LAB
+                     DETAIL_TILES,  // the lab's captures hold the others'
+#endif
+                     DETAIL_VARIANTS };
 
 struct DetailSlot
 {

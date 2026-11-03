@@ -26,7 +26,7 @@ static uint8_t gStaging[2][DETAIL_SLOT_SIZE] __attribute__((aligned(16)));
 
 static inline uint32_t detailLevel(uint32_t variant)
 {
-    return variant < DETAIL_MIP1 ? 0 : (variant - DETAIL_MIP1) / 2 + 1;
+    return variant < DETAIL_MIP1 || variant > DETAIL_MIP2_TURNED ? 0 : (variant - DETAIL_MIP1) / 2 + 1;
 }
 
 static inline uint32_t detailPoolStart(uint32_t level)
@@ -110,6 +110,30 @@ static void quadrants(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h)
     }
 }
 
+#ifndef RENDER_LAB
+// One texture's block, the 4w x 4h texture, to dst as sixteen w x h tiles:
+// each quadrant's four in turn, clockwise from top left, the quadrants too.
+static void tiles(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h)
+{
+    static const uint8_t ox[4] = { 0, 1, 1, 0 };
+    static const uint8_t oy[4] = { 0, 0, 1, 1 };
+    uint32_t row = w / 2;
+    uint32_t tile = row * h;
+    if (tile * 16 > DETAIL_SLOT_SIZE)
+        return;
+    for (int32_t q = 0; q < 4; q++)
+    {
+        for (int32_t i = 0; i < 4; i++)
+        {
+            uint32_t x = ox[q] * 2 + ox[i], y = oy[q] * 2 + oy[i];
+            for (uint32_t r = 0; r < h; r++) {
+                memcpy(dst + (q * 4 + i) * tile + r * row, src + (y * h + r) * row * 4 + x * row, row);
+            }
+        }
+    }
+}
+#endif
+
 // The w x h 4-bit texture transposed, by 8 x 8 blocks (detail.cpp
 // detailTranspose).
 static void transpose(uint8_t* dst, const uint8_t* src, uint32_t w, uint32_t h)
@@ -161,6 +185,10 @@ uint32_t texturesStaged(uint8_t* dst, const TextureUpload &upload)
     uint32_t size = w * h / 2;
     if (variant == DETAIL_QUADS) {
         quadrants(dst, src, w / 2, h / 2);
+#ifndef RENDER_LAB
+    } else if (variant == DETAIL_TILES) {
+        tiles(dst, src, w / 4, h / 4);
+#endif
     } else if (variant == DETAIL_TURNED || variant == DETAIL_MIP1_TURNED || variant == DETAIL_MIP2_TURNED) {
         transpose(dst, src, w, h);
     } else {

@@ -65,6 +65,9 @@ anim, state and object ids) and by call graph.
 | 06040a60 / 060409a6 | command for a quadrant / a tile |
 | 0604106c / 0604118c / 06041134 | slot pool: set up (2 KB each, up to 100) / take / age each frame, free after 2 unused |
 | 06040ed0 / 06040f70 | upload a quadrant (slave DMA, else master) / copy a tile (CPU) |
+| 06007bc0 | slave's loop: a job's first word & 0x3C into the table at 06007c24 |
+| 06008fdc | slave job 0x28: a command into its bucket by depth (+0x1E) >> 8, next at +0x20 |
+| 06008a4c..06008ab4 | slave's flush: far to near, each bucket again by depth & 0xFF, into the DMA list |
 | 060130fc | DrawAnimatingItem |
 | 060130ac | DrawSpriteItem / pickup item |
 | 060130f0 | DrawDummyItem (invisible) |

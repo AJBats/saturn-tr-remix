@@ -222,6 +222,10 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &textures, RoomSplit &split, Com
 // The rooms' far plane, in world units (frame.h frameFar): a room face wholly
 // past it is a fill behind everything, as one a plane cuts.
 void facesFar(int32_t far);
+
+// Near the camera room faces are split as the original split them (faces.cpp
+// roomQuadNear), or only where the near plane cuts them.
+void facesNear(bool retail);
 void facesRoom(const FaceRoom &room, RoomRun &run);
 
 // A face's shading in facesroom.s.
@@ -267,6 +271,8 @@ struct RoomRun
     RoomSplit* split;           // +72
     RoomVariant dry[6], wet[6]; // the variants in a room out of water and in it
     int32_t farBucket;          // +268 a corner at the far plane's (facesFar)
+    void (*carefulTri)(RoomRun* run, const RoomQuad* triangle); // +272 a triangle the same, or
+                                // none: filled where a plane cuts it, else on as it is
 };
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);

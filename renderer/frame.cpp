@@ -766,6 +766,13 @@ void frameTexels(int32_t lod)
     gRoomTextures.lod = lod;
 }
 
+void frameNear(bool retail)
+{
+#ifndef RENDER_LAB
+    facesNear(retail);
+#endif
+}
+
 void frameFar(int32_t far)
 {
     roomsFar(far);

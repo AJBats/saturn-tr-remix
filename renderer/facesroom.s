@@ -51,6 +51,7 @@
     .equ    RUN_PLAIN,      56
     .equ    RUN_VARIANTS,   60
     .equ    RUN_FAR_BUCKET, 268
+    .equ    RUN_CAREFUL_TRI, 272
 
     .equ    ROOM_QUADS,     0
     .equ    ROOM_TRIANGLES, 4
@@ -401,25 +402,39 @@
     tst     #CLIP_BLACK, r0
     bf      1f
     tst     #CLIP_PLANE, r0
-    .if \tri
-    bt      1f
-    .else
-    bt      .Lcareful\sfx
-    .endif
+    bt      .Lcut\sfx
     mov.l   @(RUN_FAR_BUCKET, gbr), r0
     mov     r0, r6              ! the far plane's bucket
     mov.w   @(4, r1), r0
     shlr2   r0
     shlr2   r0
     cmp/eq  r6, r0
-    bf      .Lnext\sfx          ! behind the near plane
+    bf      .Lwithin\sfx        ! all at the near plane
 1:  bsr     .Lvoid
     nop
     bf      .Lnext\sfx
     bra     .Ldone
     nop
 
-    .ifeq \tri
+.Lwithin\sfx:                   ! left out, unless C splits what's near
+    mov.l   @(RUN_CAREFUL_TRI, gbr), r0
+    tst     r0, r0
+    bt      .Lnext\sfx
+    .if \tri
+    bra     .LcarefulTri\sfx
+    nop
+.Lcut\sfx:                      ! filled, unless C splits it
+    mov.l   @(RUN_CAREFUL_TRI, gbr), r0
+    tst     r0, r0
+    bt      1b
+.LcarefulTri\sfx:
+    bsr     .LcarefulTri
+    nop
+    bf      .Lnext\sfx
+    bra     .Ldone
+    nop
+    .else
+.Lcut\sfx:
 .Lcareful\sfx:
     bsr     .Lcareful
     nop
@@ -449,6 +464,27 @@
     CULL    \tri, .Lculled\sfx
 .LFaceNear\sfx:
     mov.l   r13, @r15           ! the clip flags ored
+    mov.l   @(RUN_CAREFUL_TRI, gbr), r0
+    tst     r0, r0
+    bt      1f
+    mov.w   @(4, r1), r0        ! every corner within NEAR_SPLIT: to C, which splits it
+    mov     r0, r13
+    mov.w   @(4, r2), r0
+    or      r0, r13
+    mov.w   @(4, r3), r0
+    or      r0, r13
+    mov.w   @(4, r7), r0
+    or      r13, r0
+    shlr8   r0
+    tst     #0xF0, r0
+    .if \tri
+    bt      .LcarefulTri\sfx
+    .else
+    bt      .Lcareful\sfx
+    .endif
+    bra     .LFaceMaterial\sfx
+    nop
+1:
     .ifeq \tri
     mov.w   @(4, r1), r0
     shlr8   r0
@@ -1127,10 +1163,16 @@ _facesRoomAsm:
     rts
     nop
 
-    ! the quad at r4 to C (RoomRun.careful), the cursors through the list;
-    ! T set when it is then full; r0 .. r3, r6, r7
+    ! the quad (or triangle) at r4 to C (RoomRun.careful, carefulTri), the
+    ! cursors through the list; T set when it is then full; r0 .. r3, r6, r7
+.LcarefulTri:
+    mov.l   @(RUN_CAREFUL_TRI, gbr), r0
+    bra     1f
+    mov     r0, r6
 .Lcareful:
-    sts.l   pr, @-r15
+    mov.l   @(RUN_CAREFUL, gbr), r0
+    mov     r0, r6
+1:  sts.l   pr, @-r15
     mov.l   r4, @-r15
     mov.l   r5, @-r15
     mov.l   @(RUN_LIST, gbr), r0
@@ -1140,8 +1182,7 @@ _facesRoomAsm:
     mov.l   r12, @(16, r0)
     mov     r4, r5
     stc     gbr, r4
-    mov.l   @(RUN_CAREFUL, gbr), r0
-    jsr     @r0
+    jsr     @r6
     nop
     mov.l   @(RUN_LIST, gbr), r0
     mov.l   @r0, r9

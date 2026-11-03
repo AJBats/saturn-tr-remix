@@ -477,15 +477,13 @@ static void roomMaterial(const RoomTextures &t, uint32_t flags, uint32_t* w)
     w[1] = pair(PMOD_NO_ECD_SPD | PMOD_GOURAUD, tex.color);
 }
 
-// A room face's command from its flags and corners (flush.s, render.cpp
-// faceCommand): turned as its texture is, mirrored off the frame, shaded.
-static void roomCommand(CommandList &list, const RoomTextures &t, uint32_t flags, const Vertex* a,
-                        const Vertex* b, const Vertex* c, const Vertex* d, int32_t depth)
+// A room face's command from its material in the list's next command, and its
+// flags and corners (flush.s, render.cpp faceCommand): turned as its texture
+// is, mirrored off the frame, shaded.
+static void roomCorners(CommandList &list, uint32_t flags, const Vertex* a, const Vertex* b, const Vertex* c,
+                        const Vertex* d, int32_t depth)
 {
-    if (list.cmd == list.end)
-        return;
     uint32_t* w = list.cmd;
-    roomMaterial(t, flags, w);
     if (w[0] & (CMD_SKIP << 16))
     {
         linked(list, w[0], depth);
@@ -507,6 +505,15 @@ static void roomCommand(CommandList &list, const RoomTextures &t, uint32_t flags
     Shading shading = flags & FACE_WATER ? SHADE_WATER : (flags & far) == far ? SHADE_FAR : SHADE_NEAR;
     shade(list, w[1], ((w[1] >> 16) & 0x3F) == (PMOD_LUT16 | PMOD_GOURAUD), shading, a, b, c, d);
     linked(list, w[0], depth);
+}
+
+static void roomCommand(CommandList &list, const RoomTextures &t, uint32_t flags, const Vertex* a,
+                        const Vertex* b, const Vertex* c, const Vertex* d, int32_t depth)
+{
+    if (list.cmd == list.end)
+        return;
+    roomMaterial(t, flags, list.cmd);
+    roomCorners(list, flags, a, b, c, d, depth);
 }
 
 // A transparent fill behind everything over the corners' box on the frame,
@@ -541,7 +548,7 @@ static inline int32_t span(const Vertex* a, const Vertex* b)
 
 static inline uint32_t detailLevel(uint32_t variant)
 {
-    return variant < DETAIL_MIP1 ? 0 : (variant - DETAIL_MIP1) / 2 + 1;
+    return variant < DETAIL_MIP1 || variant > DETAIL_MIP2_TURNED ? 0 : (variant - DETAIL_MIP1) / 2 + 1;
 }
 
 static inline uint32_t detailPoolStart(uint32_t level)
@@ -878,6 +885,314 @@ static void roomQuadCareful(const FaceRoom &room, RoomTextures &t, RoomSplit &sp
     roomCommand(list, t, wholeTexture(t, flags, variant), a, b, c, d, zMax(a, b, c, d) >> OT_SHIFT);
 }
 
+// --- near the camera, as the original ------------------------------------
+
+#ifndef RENDER_LAB
+
+// The original has no polygon clipping (0603fcec, 06040038, issue 263). VDP1
+// lays a texture evenly across a quad, so a quad is given more corners, each
+// where it truly lies: within NEAR_SPLIT, or near the camera or far off the
+// frame, four quadrants of its texture; a quadrant near the camera or far off
+// the frame, four tiles of it. A corner nearer than the plane is projected
+// held at the plane, and only a tile with a corner behind the camera, or that
+// comes out facing away, is left out. Each piece sorts by its own farthest
+// corner. Past NEAR_SPLIT a quad stays whole, the warp too small to see go.
+
+#define NEAR_PLANE      80      // phd_InitWindow's
+#define NEAR_SPLIT      4096
+#define OFF_FRAME_MAX   128     // new corners are held this close to the frame
+
+// A piece's corner's clip flags: the frame's and edges' as a vertex's, and
+#define CLIP_NEAR       0x20    // in front of the camera, nearer than the plane
+#define CLIP_BEHIND     0x40    // behind it
+#define CLIP_HELD       0x80    // over OFF_FRAME_MAX off the frame
+
+enum NearTest { NEAR_OFF, NEAR_CLEAN, NEAR_SPLIT_AGAIN, NEAR_FLIPPED };
+
+// A piece's corner: where it lies from the camera, << 8, and as drawn.
+struct NearPoint
+{
+    int32_t x, y, z;
+    Vertex v;
+};
+
+static bool gNearRetail = true;
+
+void facesNear(bool retail)
+{
+    gNearRetail = retail;
+}
+
+// x, y held near the frame; clip gains what they show.
+static inline void nearHold(const FaceRoom &room, int32_t &x, int32_t &y, uint32_t &clip)
+{
+    if (uint32_t(x) > FRAME_WIDTH || uint32_t(y) > FRAME_HEIGHT) {
+        clip |= CLIP_FRAME;
+    }
+    if (x < -OFF_FRAME_MAX)
+    {
+        x = -OFF_FRAME_MAX;
+        clip |= CLIP_HELD;
+    }
+    else if (x > FRAME_WIDTH + OFF_FRAME_MAX)
+    {
+        x = FRAME_WIDTH + OFF_FRAME_MAX;
+        clip |= CLIP_HELD;
+    }
+    if (y < -OFF_FRAME_MAX)
+    {
+        y = -OFF_FRAME_MAX;
+        clip |= CLIP_HELD;
+    }
+    else if (y > FRAME_HEIGHT + OFF_FRAME_MAX)
+    {
+        y = FRAME_HEIGHT + OFF_FRAME_MAX;
+        clip |= CLIP_HELD;
+    }
+    if (x < room.clip[0]) clip |= CLIP_LEFT;
+    if (x > room.clip[2]) clip |= CLIP_RIGHT;
+    if (y < room.clip[1]) clip |= CLIP_TOP;
+    if (y > room.clip[3]) clip |= CLIP_BOTTOM;
+}
+
+// A corner on to the frame from where it lies (06040d58).
+static void nearProject(const FaceRoom &room, const RoomSplit &split, NearPoint &p)
+{
+    int32_t z = p.z;
+    uint32_t clip = 0;
+    if (z < NEAR_PLANE << 8)
+    {
+        clip = z <= 0 ? CLIP_BEHIND : CLIP_NEAR;
+        z = NEAR_PLANE << 8;
+    }
+    const int32_t limit16 = 0x7FFF << 8;
+    int32_t x = asr16<8>(p.x < -limit16 ? -limit16 : p.x > limit16 ? limit16 : p.x);
+    int32_t y = asr16<8>(p.y < -limit16 ? -limit16 : p.y > limit16 ? limit16 : p.y);
+    z = uint32_t(z) >> 8;
+    uint32_t dz = uint32_t(z) >> 4;
+    int32_t dd;
+    if (z < VIEW_EXACT)
+    {
+        volatile int32_t* const divider = (volatile int32_t*)0xFFFFFF00;
+        divider[0] = z;         // DVSR
+        divider[1] = 1 << 20;   // DVDNT: divides
+        dd = divider[1];
+    }
+    else
+    {
+        dd = split.divTable[dz >= 1281 ? 1280 : dz];
+    }
+    const int32_t limit = 2047 << 12;
+    int32_t px = x * dd, py = y * dd;
+    int32_t sx = asr16<12>(px < -limit ? -limit : px > limit ? limit : px) + (FRAME_WIDTH >> 1);
+    int32_t sy = asr16<12>(py < -limit ? -limit : py > limit ? limit : py) + (FRAME_HEIGHT >> 1);
+    nearHold(room, sx, sy, clip);
+    if (room.ripple && !(clip & CLIP_FRAME))
+    {
+        sx += kWibble[(room.phase + sx) & 31];
+        sy += kWibble[(room.phase + sy) & 31];
+    }
+    p.v.x = sx;
+    p.v.y = sy;
+    p.v.z = z;
+    p.v.clip = clip;
+}
+
+// A corner of the quad itself: as the rooms' projection left it unless nearer
+// than the plane.
+static void nearCorner(const FaceRoom &room, const RoomSplit &split, uint32_t index, NearPoint &p)
+{
+    const RoomVertex* r = room.points + index / sizeof(Vertex);
+    const Vertex* v = corner(room.vertices, index);
+    int32_t vx = r->x * 4, vy = r->y * 4, vz = r->z * 4;
+    p.x = dot3(room.m, vx, vy, vz, room.t[0]);
+    p.y = dot3(room.m + 3, vx, vy, vz, room.t[1]);
+    p.z = dot3(room.m + 6, vx, vy, vz, room.t[2]);
+    p.v = *v;
+    if (p.z < NEAR_PLANE << 8)
+    {
+        nearProject(room, split, p);
+        return;
+    }
+    int32_t x = v->x, y = v->y;
+    uint32_t clip = 0;
+    nearHold(room, x, y, clip);
+    p.v.x = x;
+    p.v.y = y;
+    p.v.clip = clip;
+}
+
+static inline void nearMid(const FaceRoom &room, const RoomSplit &split, const NearPoint &a, const NearPoint &b,
+                           NearPoint &m)
+{
+    m.x = (a.x + b.x) >> 1;
+    m.y = (a.y + b.y) >> 1;
+    m.z = (a.z + b.z) >> 1;
+    m.v.g = (a.v.g + b.v.g) >> 1;
+    nearProject(room, split, m);
+}
+
+// The four edges' midpoints and the centre (06040b08): m[0 .. 4] AB, BC, CD,
+// DA, centre.
+static void nearMids(const FaceRoom &room, const RoomSplit &split, const NearPoint &a, const NearPoint &b,
+                     const NearPoint &c, const NearPoint &d, NearPoint* m)
+{
+    nearMid(room, split, a, b, m[0]);
+    nearMid(room, split, b, c, m[1]);
+    nearMid(room, split, c, d, m[2]);
+    nearMid(room, split, d, a, m[3]);
+    m[4].x = (a.x + b.x + c.x + d.x) >> 2;
+    m[4].y = (a.y + b.y + c.y + d.y) >> 2;
+    m[4].z = (a.z + b.z + c.z + d.z) >> 2;
+    m[4].v.g = (a.v.g + b.v.g + c.v.g + d.v.g) >> 2;
+    nearProject(room, split, m[4]);
+}
+
+// What's to be done with a piece (060408a4).
+static NearTest nearTest(const Vertex &a, const Vertex &b, const Vertex &c, const Vertex &d)
+{
+    uint32_t clipAnd = a.clip & b.clip & c.clip & d.clip;
+    uint32_t clipOr = a.clip | b.clip | c.clip | d.clip;
+    if (clipAnd & (CLIP_EDGES | CLIP_BEHIND))
+        return NEAR_OFF;
+    if ((clipOr & CLIP_BEHIND) || backface(&a, &b, &c))
+        return NEAR_FLIPPED;
+    return clipOr & (CLIP_NEAR | CLIP_HELD) ? NEAR_SPLIT_AGAIN : NEAR_CLEAN;
+}
+
+// A piece's command (06040a60, 060409a6): its material w, its texture at srca, this size.
+static void nearCommand(CommandList &list, const uint32_t* w, uint32_t flags, uint32_t srca, uint32_t size,
+                        const NearPoint &a, const NearPoint &b, const NearPoint &c, const NearPoint &d)
+{
+    if (list.cmd == list.end)
+        return;
+    list.cmd[0] = w[0];
+    list.cmd[1] = w[1];
+    list.cmd[2] = pair(srca >> 3, size);
+    roomCorners(list, flags, &a.v, &b.v, &c.v, &d.v, zMax(&a.v, &b.v, &c.v, &d.v) >> OT_SHIFT);
+}
+
+// Quadrant 'quarter' in tiles (0604011c); false when there's no having them.
+static bool nearTiles(const FaceRoom &room, RoomTextures &t, const RoomSplit &split, CommandList &list,
+                      const Texture &tex, const uint32_t* w, uint32_t flags, int32_t quarter, const NearPoint &a,
+                      const NearPoint &b, const NearPoint &c, const NearPoint &d)
+{
+    if (tex.size & 0x0101)
+        return false;   // VDP1 takes widths by 8; a tile's texels must start on a byte
+    int32_t slot = cachedSlot(t, tex, DETAIL_TILES);
+    if (slot < 0)
+        return false;
+    NearPoint m[5];
+    nearMids(room, split, a, b, c, d, m);
+    const uint32_t size = ((tex.size >> 9) << 8) | ((tex.size & 0xFF) >> 1);
+    const uint32_t bytes = (size >> 8) * 4 * (size & 0xFF);
+    uint32_t srca = t.pools[0] + slot * DETAIL_SLOT_SIZE + quarter * 4 * bytes;
+    const NearPoint* tile[4][4] = { { &a, &m[0], &m[4], &m[3] }, { &m[0], &b, &m[1], &m[4] },
+                                    { &m[4], &m[1], &c, &m[2] }, { &m[3], &m[4], &m[2], &d } };
+    for (int32_t i = 0; i < 4; i++, srca += bytes)
+    {
+        const NearPoint* const* p = tile[i];
+        NearTest test = nearTest(p[0]->v, p[1]->v, p[2]->v, p[3]->v);
+        if (test != NEAR_OFF && test != NEAR_FLIPPED) {
+            nearCommand(list, w, flags, srca, size, *p[0], *p[1], *p[2], *p[3]);
+        }
+    }
+    return true;
+}
+
+// The quad in quadrants (06040038); false when its texture can't have them.
+static bool nearSplit(const FaceRoom &room, RoomTextures &t, const RoomSplit &split, CommandList &list,
+                      const RoomQuad &q, bool triangle)
+{
+    const Texture &tex = t.textures[q.flags & FACE_TEXTURE];
+    int32_t slot = cachedSlot(t, tex, DETAIL_QUADS);
+    if (slot < 0)
+        return false;
+    NearPoint a, b, c, d, m[5];
+    nearCorner(room, split, q.indices[0], a);
+    nearCorner(room, split, q.indices[1], b);
+    nearCorner(room, split, q.indices[2], c);
+    if (triangle) {
+        d = c;
+    } else {
+        nearCorner(room, split, q.indices[3], d);
+    }
+    nearMids(room, split, a, b, c, d, m);
+
+    const uint32_t flags = (q.flags & ROOM_QUAD_FLAGS) | room.flags | FACE_DETAIL;
+    uint32_t w[3];
+    roomMaterial(t, flags, w);
+    const uint32_t bytes = (tex.size >> 8) * 4 * (tex.size & 0xFF);
+    uint32_t srca = t.pools[0] + slot * DETAIL_SLOT_SIZE;
+    const NearPoint* quarter[4][4] = { { &a, &m[0], &m[4], &m[3] }, { &m[0], &b, &m[1], &m[4] },
+                                       { &m[4], &m[1], &c, &m[2] }, { &m[3], &m[4], &m[2], &d } };
+    for (int32_t i = 0; i < 4; i++, srca += bytes)
+    {
+        const NearPoint* const* p = quarter[i];
+        NearTest test = nearTest(p[0]->v, p[1]->v, p[2]->v, p[3]->v);
+        if (test == NEAR_OFF)
+            continue;
+        if (test == NEAR_CLEAN || !nearTiles(room, t, split, list, tex, w, flags, i, *p[0], *p[1], *p[2], *p[3])) {
+            nearCommand(list, w, flags, srca, tex.size, *p[0], *p[1], *p[2], *p[3]);
+        }
+    }
+    return true;
+}
+
+// A room face near the camera: split, filled where the far plane cuts it, or
+// whole as facesroom.s DECIDE would have drawn it.
+static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const RoomSplit &split, CommandList &list,
+                         const RoomQuad &q, bool triangle)
+{
+    const Vertex* a = corner(room.vertices, q.indices[0]);
+    const Vertex* b = corner(room.vertices, q.indices[1]);
+    const Vertex* c = corner(room.vertices, q.indices[2]);
+    const Vertex* d = triangle ? c : corner(room.vertices, q.indices[3]);
+    if (a->clip & b->clip & c->clip & d->clip & CLIP_EDGES)
+        return;
+    const uint32_t cut = (a->clip | b->clip | c->clip | d->clip) & CLIP_PLANE;
+    if (cut && !roomQuadFacing(room, q))
+        return;     // facesroom.s has tested the others
+    const int32_t farthest = zMax(a, b, c, d);
+    if (cut && farthest >= gViewFar)
+    {
+        faceVoid(list, a, b, c, d);
+        return;
+    }
+    const uint32_t flags = (q.flags & ROOM_QUAD_FLAGS) | room.flags;
+    const uint32_t index = flags & FACE_TEXTURE;
+    const Texture &tex = t.textures[index];
+    const bool near = min(min(a->z, b->z), min(c->z, d->z)) < NEAR_PLANE;
+    const bool sparse = tex.attr & TEX_ATTR_SPARSE;
+    if (near && sparse)
+        return;
+    const bool coloured = ((flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) == FACE_TYPE_F;
+    const int32_t off = max(max(offFrame(a), offFrame(b)), max(offFrame(c), offFrame(d)));
+    if (!sparse && !coloured && tex.reserved && (near || farthest <= NEAR_SPLIT || off > OFF_FRAME_MAX) &&
+        nearSplit(room, t, split, list, q, triangle))
+        return;
+    if (cut)
+    {
+        faceVoid(list, a, b, c, d);
+        return;
+    }
+    const int32_t along = max(span(a, d), span(b, c));
+    const int32_t across = max(span(a, b), span(d, c));
+    const uint32_t turned = along > across;
+    const RoomMaterial &m = t.materials[index];
+    const uint32_t want = t.lod * (turned ? along : across);
+    uint32_t variant = turned;
+    if (t.lod && m.lines[turned] > want && m.mips)
+    {
+        variant += m.lines[turned] > 2 * want && m.mips > 1 ? 4 : 2;
+    }
+    if (sparse && variant < 2 && min(along, across) >= SPARSE_LINES)
+        return;
+    roomCommand(list, t, coloured ? flags : wholeTexture(t, flags, variant), a, b, c, d, farthest >> OT_SHIFT);
+}
+
+#endif
+
 // --- rooms through facesroom.s ------------------------------------------
 
 static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
@@ -887,7 +1202,7 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomVariant, shading) == 14 && offsetof(RoomRun, parity) == 16 &&
               offsetof(RoomRun, list) == 44 && offsetof(RoomRun, plain) == 56 &&
               offsetof(RoomRun, variants) == 60 && offsetof(RoomRun, room) == 64 &&
-              offsetof(RoomRun, farBucket) == 268 &&
+              offsetof(RoomRun, farBucket) == 268 && offsetof(RoomRun, carefulTri) == 272 &&
               offsetof(FaceRoom, points) == 8 && offsetof(FaceRoom, quadsCount) == 16 &&
               offsetof(FaceRoom, facing) == 20 && offsetof(FaceRoom, camera) == 32 &&
               offsetof(DetailSlot, frame) == 4 && sizeof(DetailSlot) == 8, "facesroom.s's layouts");
@@ -926,8 +1241,22 @@ void facesRoomMaterials(const RoomTextures &t, RoomMaterial* materials, int32_t 
 
 static void roomCareful(RoomRun* run, const RoomQuad* q)
 {
+#ifndef RENDER_LAB
+    if (gNearRetail)
+    {
+        roomQuadNear(*run->room, *run->textures, *run->split, *run->list, *q, false);
+        return;
+    }
+#endif
     roomQuadCareful(*run->room, *run->textures, *run->split, *run->list, *q);
 }
+
+#ifndef RENDER_LAB
+static void roomCarefulTri(RoomRun* run, const RoomQuad* q)
+{
+    roomQuadNear(*run->room, *run->textures, *run->split, *run->list, *q, true);
+}
+#endif
 
 void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandList &list)
 {
@@ -945,6 +1274,11 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.list = &list;
     run.miss = t.miss;
     run.careful = roomCareful;
+#ifdef RENDER_LAB
+    run.carefulTri = nullptr;
+#else
+    run.carefulTri = gNearRetail ? roomCarefulTri : nullptr;
+#endif
     for (uint32_t v = 0; v < 6; v++)
     {
         RoomVariant &rv = run.dry[v];

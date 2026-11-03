@@ -412,6 +412,14 @@ CAM-22*
   filled. A quad 256 px off the frame is cut on the screen, which doesn't change the warp.
 - Retail while walking in the Cistern's room 31: 54-92 quadrants, 0-3 tiles, 214-282 commands a
   frame, 11-13 of 69 slots in use (Mednafen).
+- **Draw order:** each piece keeps its own depth key, its farthest corner (a mesh face its mean).
+  The slave sorts by the whole key, a radix sort of two passes (`06008fdc` by high byte, `06008a7a`
+  by low byte), one unit of depth wide; ours is 16 wide. The pieces are what shows: at the
+  `cistern-warp` spot a wall drew over the floor, a whole quad sorted by its far corner.
+- **Built in C (menu row Near, Retail by default, Ours as before):** all of the above bar meshes,
+  which retail doesn't split, and the sort's width. Mednafen, Lara standing: VDP1 +0.6 to +0.8 ms
+  at three spots, +1.9 at `cistern-mirror`, +3.5 at `cistern-steps` (lines +24%, texels +12%:
+  quadrants aren't turned or mipped); ROOMS on the slave +3.7 to +6.4 ms. Still to do: assembly.
 - Takes in issues 252 and 262.
 
 ## Lara: movement, collision, water, controls
