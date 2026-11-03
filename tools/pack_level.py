@@ -1159,15 +1159,17 @@ def move_lara(lvl, room_index, sector=None):
     lara.update(room=room_index, x=room.x + sx * 1024 + 512, y=floor * 256, z=room.z + sz * 1024 + 512)
 
 
-def start_trigger(lvl, items, flips):
-    """A trigger on Lara's sector activating items, every mask bit set, as
-    the level's floor triggers have it, and turning flip maps on."""
+def start_trigger(lvl, items, flips, at=None):
+    """A trigger on Lara's sector, or at (room, x, z), activating items, every
+    mask bit set, as the level's floor triggers have it, and turning flip maps
+    on."""
     lara = next(it for it in lvl.items if it["type"] == ITEM["LARA"])
-    room = lvl.rooms[lara["room"]]
-    index = (lara["x"] - room.x) // 1024 * room.z_sectors + (lara["z"] - room.z) // 1024
+    room_index, x, z = at or (lara["room"], lara["x"], lara["z"])
+    room = lvl.rooms[room_index]
+    index = (x - room.x) // 1024 * room.z_sectors + (z - room.z) // 1024
     sector = room.sectors[index]
     if sector[0]:
-        raise ValueError(f"START_TRIGGER: Lara's sector already has floor data at {sector[0]}")
+        raise ValueError(f"START_TRIGGER: the sector already has floor data at {sector[0]}")
     words = [0x8004, 0x3E00] + [i & 0x3FF for i in items]     # trigger (ACTIVATE), its mask
     words += [4 << 10 | f for f in flips]                       # FLIP_ON
     words[-1] |= 0x8000
@@ -1290,10 +1292,12 @@ def main():
         item, at = placed.split("@")
         room, x, y, z = (int(v) for v in at.split(":"))
         lvl.items[int(item)].update(room=room, x=x, y=y, z=z)
+        lvl.items[int(item)]["flags"] &= ~0x100     # not hidden until triggered
     triggered = list(filter(None, os.environ.get("START_TRIGGER", "").split(",")))
     if triggered:
         start_trigger(lvl, [int(i) for i in triggered if not i.startswith("flip")],
-                      [int(i[4:]) for i in triggered if i.startswith("flip")])
+                      [int(i[4:]) for i in triggered if i.startswith("flip")],
+                      tuple(int(v) for v in os.environ["TRIGGER_AT"].split(":")) if os.environ.get("TRIGGER_AT") else None)
     sounds = sfx.Sfx(lvl, load_ps1(sys.argv[4] if len(sys.argv) > 4 else None, name))
     packer = Packer(lvl, sounds, os.environ.get("OBJECT_ART") == "1")
     data = packer.pack()

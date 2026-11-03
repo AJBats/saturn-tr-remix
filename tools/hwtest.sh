@@ -49,8 +49,11 @@
 #               was when the floor went
 #   cistern-bright LEVEL7A, room 32: where a light's falloff overflowed and
 #               Lara and the crocodiles blew out white (issue 205)
-#   rats        LEVEL7A, room 32, bright: three land rats moved there, a block or two off
-#   gorillas    LEVEL6, room 4: three gorillas awake, three blocks off
+#   zoo         LEVEL7A, room 32, bright: three rats and a gorilla moved in beside the
+#               two crocodiles there, all still until Lara steps a block forward
+#   zoo-wolves  LEVEL1, room 17: the bear and two wolves moved in beside it, the same
+#   zoo-none zoo-rats zoo-crocs zoo-gorillas  room 32 with none of them, or three of
+#               a kind standing in view, still: what each kind costs
 #   bear        LEVEL1, room 17: the bear awake, about three blocks off
 #
 # OBJECT_ART=1 in the environment reworks the meshes' textures too
@@ -89,15 +92,19 @@ case "${1:-ledge}" in
     cistern-feet) level=LEVEL7A id=LVL_TR1_7A start=97@50480:-3328:60035 yaw=0x31D0 ;;
     cistern-feet-door) level=LEVEL7A id=LVL_TR1_7A start=97@50480:-3328:60035 yaw=0x31D0 trigger=25 ;;
     cistern-bright) level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 ;;
-    rats)       level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 place=41@32:62976:-1280:52736,30@32:60928:-1280:52736,31@32:64000:-1280:51712 ;;
-    gorillas)   level=LEVEL6 id=LVL_TR1_6 start=4@58880:-2048:38400 yaw=0xC000 trigger=11,12,13 ;;
+    zoo)        level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 trigger=41,30,31,21,36,37 wake=32:62976:51712 place=41@32:62976:-1280:52736,30@32:60928:-1280:52736,31@32:64000:-1280:51712,21@32:59904:-1280:54784 ;;
+    zoo-wolves) level=LEVEL1 id=LVL_TR1_1 start=17@17920:6656:59904 yaw=0xC000 trigger=30,45,46 wake=17:16896:59904 place=45@17:13824:6656:59904,46@17:14848:6656:59904 ;;
+    zoo-none)   level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 place=36@5:45568:-5632:76288,37@5:45568:-5632:76288,39@5:45568:-5632:76288 ;;
+    zoo-rats)   level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 place=36@5:45568:-5632:76288,37@5:45568:-5632:76288,39@5:45568:-5632:76288,41@32:62976:-1280:52736,30@32:60928:-1280:52736,31@32:64000:-1280:51712 ;;
+    zoo-crocs)  level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 place=36@32:62976:-1280:52736,37@32:60928:-1280:52736,39@32:59904:-1280:54784 ;;
+    zoo-gorillas) level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 place=36@5:45568:-5632:76288,37@5:45568:-5632:76288,39@5:45568:-5632:76288,21@32:62976:-1280:52736,27@32:60928:-1280:52736,28@32:59904:-1280:54784 ;;
     bear)       level=LEVEL1 id=LVL_TR1_1 start=17@16896:6656:60928 yaw=0xA000 trigger=30 ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-tunnel|cistern-look|cistern-water|rats|gorillas|bear]" >&2; exit 1 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-tunnel|cistern-look|cistern-water|zoo|zoo-wolves|zoo-none|zoo-rats|zoo-crocs|zoo-gorillas|bear]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 
 make levels OBJECT_ART=$art     # every level in that art, before the start's
-LARA_START=$start START_TRIGGER=${trigger:-} ITEMS_AT=${place:-} OBJECT_ART=$art python -I tools/pack_level.py \
+LARA_START=$start START_TRIGGER=${trigger:-} ITEMS_AT=${place:-} TRIGGER_AT=${wake:-} OBJECT_ART=$art python -I tools/pack_level.py \
     external_resources/disc/files/DATA $level build/data/$level.PKD \
     external_resources/ps1/files/files/PSXDATA
 sleep 1     # make compares seconds
