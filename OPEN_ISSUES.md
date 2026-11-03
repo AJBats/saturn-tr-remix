@@ -3301,6 +3301,10 @@ Fix: small*
 - **It has grown:** LEVEL7A's faces got 37,296 bytes of high work RAM at 33102ae (48 rooms) and get
   6,832 now (11 rooms), on an HW_LOG build at both: the program grew 30,448 bytes between them, which
   is all of the loss. That view's rooms need 22 KB. Any more growth takes the rest.
+- **What grew:** 17.9 KB of code (near faces 9.1, retail's camera 3.8, debug 2.5, FMV 1.0, the rest
+  1.5) and 12.5 KB of buffers and tables (3,328 room vertices 7.7, the stamps page 1.3, sort keys 1.1).
+- **Test discs read worse than the game:** a build without HW_LOG ends 19,632 bytes lower, which would
+  leave LEVEL7A's faces about 26.5 KB (by subtraction, not run).
 - **Candidates:** the save and backup buffers, 40 KB used only when saving or loading (`gLibrary` 16,
   `gSaveBuffer` 8, `gSaveData` 8, `gWork` 8). Low work RAM is tight only at LEVEL7B: free 7A 51.7 KB,
   6 69 KB, 10B 124 KB, 7B 1.4 KB. The BIOS runs its backup library from `gLibrary`, so that one has
