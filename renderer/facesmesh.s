@@ -929,6 +929,17 @@ _facesMeshCardsAsm:
     mulu.w  r0, r13
     sts     macl, r2
     shlr8   r2
+    ! by the view's scale
+    mov.l   .LcardFocal, r3
+    mov.l   @r3, r3
+    mulu.w  r1, r3
+    sts     macl, r1
+    shll2   r1
+    shlr16  r1
+    mulu.w  r2, r3
+    sts     macl, r2
+    shll2   r2
+    shlr16  r2
 
     ! on the frame: the mesh inside it, or both ends M or more inside each
     ! edge, M the wider half width in pixels + 1
@@ -1207,3 +1218,5 @@ _facesMeshCardsAsm:
     .align 2
 .LcardHalve:    .short  936         ! (123 + 51) * 936 >> 7 < DIV_TABLE_SIZE
 .LcardCoordMax: .short  1023        ! VDP1_COORD_MAX
+    .align  2
+.LcardFocal:    .long   _gFocalScale

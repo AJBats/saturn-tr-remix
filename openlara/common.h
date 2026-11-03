@@ -1501,8 +1501,10 @@ struct Camera {
 };
 
 // The original's camera and field of view rather than ours (camera.h), and the
-// view from where the camera is, with that field of view.
+// view from where the camera is, with that field of view. gFocalScale, 2^14:
+// what the view's x and y rows are scaled by (renderer/draws.cpp).
 extern bool gCameraRetail;
+extern "C" int32 gFocalScale;
 void cameraView(const vec3i &pos, int32 angleX, int32 angleY);
 
 enum ZoneType

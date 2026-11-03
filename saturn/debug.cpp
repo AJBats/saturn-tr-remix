@@ -42,7 +42,7 @@ static const char* const kCamera[] = { "Ours", "Retail" };
 static const char* const kBlack[] = { "Off", "Rooms", "Rooms, faces" };
 static int32 gBlackStep = 2;    // kBlack's
 static const char* const kTiny[] = { "Off", "64 px", "128 px", "256 px" };
-static int32 gTinyStep = 2;     // kTiny's
+static int32 gTinyStep = 3;     // kTiny's
 static bool gHolesShown;        // what rooms' fills fill and what nothing draws, magenta
 #endif
 

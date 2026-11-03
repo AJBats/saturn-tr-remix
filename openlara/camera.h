@@ -487,8 +487,8 @@ void Camera::lookAt(int32 offset)
 
 // --- the original's camera -------------------------------------------------
 // CalculateCamera and what it calls (retail 0600c054 .. 0600d128), with its
-// field of view: a choice beside ours while the two are compared (the HW_LOG
-// menu's Camera).
+// field of view: the game's camera. OpenLara's, below, is the other choice (the
+// HW_LOG menu's Camera; a player's option in time, OPEN_ISSUES 261).
 
 #define CHASE_SPEED         12
 #define COMBAT_SPEED        8
@@ -498,7 +498,7 @@ void Camera::lookAt(int32 offset)
 #define MIN_SQUARE          (256 * 256)
 #define FOV_SCALE           13424   // 209.75 / 256, 2^14: the view's x and y rows make the 256 px focal length retail's
 
-bool gCameraRetail;
+bool gCameraRetail = true;
 static int32 targetSquare;  // the chase's distance on the ground, squared
 
 void cameraView(const vec3i &pos, int32 angleX, int32 angleY)
@@ -513,6 +513,7 @@ void cameraView(const vec3i &pos, int32 angleX, int32 angleY)
     m.e10 = m.e10 * FOV_SCALE >> 14;
     m.e11 = m.e11 * FOV_SCALE >> 14;
     m.e12 = m.e12 * FOV_SCALE >> 14;
+    gFocalScale = FOV_SCALE;
     for (int32 i = 0; i < 6; i++) {
         gViewRotation[i] = int16(gViewRotation[i] * FOV_SCALE >> 14);
     }

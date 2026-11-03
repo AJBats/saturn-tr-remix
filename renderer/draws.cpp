@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <string.h>
 
+// What the game's view scales x and y by, 2^14 (camera.h cameraView): the
+// sprites' and cards' sizes, in the game's units, go by it too.
+extern "C" { int32_t gFocalScale = 1 << 14; }
+
 namespace render {
 
 static_assert(offsetof(DrawsContext, camera) == 60 && offsetof(DrawsContext, view) == 72 &&

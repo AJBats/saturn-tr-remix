@@ -509,7 +509,7 @@ void renderFar(int32 far)
     render::frameFar(far);
 }
 
-static int32 gTiny = 128;     // renderTiny's
+static int32 gTiny = 256;     // renderTiny's
 
 void renderTiny(int32 pixels)
 {

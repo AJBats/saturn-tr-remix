@@ -205,163 +205,6 @@ code, likely for the softlock · Fix: small to medium · Audit: AI-4*
 
 ## Camera
 
-### 8. The field of view is 69° where retail's is 80° (reported in play)
-*Severity: visible · Confidence: confirmed · Fix: small to medium (but see the
-decision) · Audit: CAM-1, MATH-1, GFX near plane*
-
-- **Retail:**
-  - phd_InitWindow (`0603cf1c`, called from `060373fc`) sets 352×224, near 80,
-    far 20480, FOV 80°.
-  - AlterFOV (`06039b34`) sets `phd_persp` (`DAT_06063c70`) to
-    176·cos 40° / sin 40° ≈ 209.75.
-  - The vertex transforms (`0604127c` meshes, `06041a80` rooms) compute
-    `zp = zv/persp`, then `xs = xv/zp + 176`.
-  - LaraNormal and the inventory re-apply FOV 80; cutscenes change it per
-    frame (issue 19).
-- **Ours:** `sx = (x · divTable[z >> 4]) >> 12`, i.e. 256·x/z, a fixed 256 px
-  focal length. Sites:
-  - `openlara/common.h:2276-2286` (PERSPECTIVE)
-  - `saturn/render.cpp:319-323`, and `2431` (sprites)
-  - `saturn/render.h:166-175`
-  - `saturn/xform.s:167-185`, `saturn/meshxform.s:167-185`
-  - `saturn/project.dsp`
-
-  `matrixSetView` (`common.cpp:1460`) applies no scale. The near plane is
-  `VIEW_MIN_F` 64 (`common.h:502`), against retail's 80.
-- **Effect:** always.
-  - The view is 69.0° × 47.3°, against retail's 80.2° × 56.4°.
-  - Everything is drawn 22.5% larger, so the camera feels zoomed in and closer.
-  - The inventory ring is affected too (issue 173).
-- **Fix:**
-  - A projection-only reciprocal table, 53504/i (65536·209.75/256), or scale
-    view-matrix rows 0 and 1 by 209.75/256.
-  - Keep `divTable` at 65536/i, because `GET_FRAME_T`, `moveTo` and `matrixLerp`
-    use it.
-  - Make the focal length a variable, for cutscene FOV (19).
-  - Near plane 80.
-- **Decision:** 80° puts about 1.5× as much of the world in the frame, so more
-  rooms, faces and vertices. That has a CPU cost. All perf comparisons with the
-  original so far measured our narrower view.
-
-### 9. The chase camera catches up 1/8 per tick; retail's catches up 1/12
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: CAM-2*
-
-- **Retail:** ChaseCamera (`0600ca08`) passes CHASE_SPEED 12 to MoveCamera
-  (`0600c054`). That moves (target - pos) / speed with C division (the
-  hardware-divide helper `060457f6`).
-- **Ours:**
-  - `openlara/camera.h:387` does `move(best, lastFixed ? speed : 8)`.
-  - `camera.h:283-288` then uses `>> 3`, which rounds toward minus infinity, so
-    negative errors never settle to zero.
-- **Effect:** always. Ours is about 50% stiffer: it trails less, and swings
-  wider when Lara turns, runs or falls.
-- **Fix:** speed 12, and `/ speed`.
-
-### 10. The chase camera looks 10° down by default
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: CAM-3*
-
-- **Retail:**
-  - The target elevation is reset to 0 at the end of every CalculateCamera
-    (`DAT_06074db4 = 0`).
-  - ChaseCamera adds only Lara's x_rot.
-  - Only specific states set an elevation: hang -60°, slide -45°, surface
-    -22°, and so on.
-- **Ours:** `openlara/camera.h:378-380` sets `CAM_ANGLE_FOLLOW` (-10°,
-  `camera.h:12`) whenever the target pitch is 0. This also applies underwater.
-- **Effect:** always. Our camera sits about 267 units higher (a quarter block)
-  and looks down. Retail's is level with Lara's chest height.
-- **Fix:** delete the default.
-
-### 11. Walls are handled by OpenLara's own scheme, not TR1's box-based slide
-*Severity: visible · Confidence: confirmed (mechanism) · Fix: medium · Audit:
-CAM-4, CAM-18*
-
-- **Retail, chase and combat cameras:**
-  - SmartShift (`0600c50c`) runs LOS (`06010ca8`), then works on the
-    pathfinding boxes of the target and the camera.
-  - It extends into neighbour boxes where the next block isn't a BadPosition
-    (`0600c4a4`), and insets by 256.
-  - ShiftCamera (`0600c394`) slides the camera along the box edge while keeping
-    distance² = target_square.
-- **Retail, look camera:** ClipCamera (`0600c2e8`).
-- **Retail, fixed cameras:** LOS first, then ShiftClamp(256) (`0600cb20`) only
-  if LOS fails (FixedCamera `0600d090`).
-- **Ours:**
-  - `getBestLocation` (`openlara/camera.h:232-273`) traces to the ideal spot.
-  - If the trace is blocked within 768 (measured with `fastLength`), it tries
-    the four world-axis directions (0/90/180/270°, not relative to Lara). It
-    takes whichever is nearest the current view.
-  - `clip()` (`camera.h:209-230`) then pushes 255 off walls on each axis per
-    sector, and clamps y 255 from floor and ceiling.
-  - `clip()` also runs on every fixed camera (`camera.h:277`). That moves 2
-    retail cameras within 255 of a wall: one in Palace Midas, one in Natla's
-    Mines.
-- **Effect:** in corridors, and with Lara's back to a wall. Retail slides around
-  Lara along the wall at full distance. Ours comes in close or jumps to a
-  world-aligned side.
-- **Fix:**
-  - Port SmartShift, ShiftCamera, ClipCamera, BadPosition and ShiftClamp; our
-    levels have the boxes.
-  - Retail quirk to keep or not: CombatCamera uses a stale target_square.
-  - The LOS details are issue 27.
-
-### 12. The look camera is at half distance and has no pivot shift
-*Severity: visible · Confidence: confirmed · Fix: medium · Audit: CAM-5*
-
-- **Retail:** LookCamera (`0600ce74`; TR1X `camera.c`).
-  - Distance 1536 (0x600).
-  - The pivot moves along Lara's facing by -512·sin(elevation).
-  - The target is ShiftClamped 306 (0x132) from walls, floor and ceiling.
-  - The target's x/z glides at 1/speed (4).
-  - ClipCamera handles walls.
-- **Ours:** `openlara/camera.h:421-432` sets
-  `targetDist = lookAtItem ? 1536 : CAM_DIST_LOOK` (768, `camera.h:9`). There is
-  no pivot shift, no ShiftClamp and no target glide.
-- **Effect:** every time Look is held while standing or treading water. Ours is
-  twice as close. When looking up or down, retail swings to show the area ahead
-  of Lara; ours orbits Lara herself.
-- **Fix:** port LookCamera.
-
-### 13. The combat camera is too close and pitched 10° down
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: CAM-7*
-
-- **Retail:** CombatCamera (`0600cd34`) uses COMBAT_DISTANCE 2560 (0xA00). Its
-  elevation is x_rot plus either the target angles or head + torso, with no
-  extra offset.
-- **Ours:** `openlara/camera.h:394` adds `CAM_ANGLE_COMBAT` (-10°), and
-  `camera.h:414` sets the distance to 2048.
-- **Effect:** whenever guns are drawn.
-- **Fix:** 2560 and no offset.
-
-### 14. Fixed cameras ignore the trigger's glide speed and always cut
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: CAM-8*
-
-- **Retail:**
-  - FixedCamera calls MoveCamera(ideal, camera.speed).
-  - TestTriggers (`06010350`) decodes the speed as (field << 3) + 1.
-  - A camera with a target item is forced to speed 1 on its first frame.
-- **Ours:** `openlara/camera.h:443` always calls `move(best, 1)`.
-- **Effect:** in retail's data, 19 of the 101 triggered cameras glide (speeds
-  17, 33, 65 and 153, none with a target):
-  - Gym, Caves, Vilcabamba
-  - Lost Valley ×3, Qualopec ×6
-  - Colosseum, Cistern, Tihocan ×2, Sanctuary ×2, Natla's Mines
-
-  We cut instantly at all of them.
-- **Fix:** `move(best, speed)`.
-
-### 15. Look or combat after a targeted fixed camera aims at world y = 0
-*Severity: visible (glitch) · Confidence: confirmed · Fix: small · Audit:
-CAM-9*
-
-- **Retail:** CalculateCamera's look/combat branch sets target.y = y - 256
-  (`DAT_06074d84 = iVar9 - 0x100`) and speed 1.
-- **Ours:** `openlara/camera.h:532-534` sets `target.pos.y = 0; speed = 1;`.
-  Upstream OpenLara has the same bug.
-- **Effect:** drawing guns or pressing Look while a camera with a target item is
-  showing. The camera aims at y = 0 for a frame, then recovers at 1/4 per tick.
-- **Fix:** one line.
-
 ### 16. Trigger look-ats are narrower, slower, and don't decay
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: CAM-10*
 
@@ -493,13 +336,6 @@ checked) · Fix: small · Audit: CAM-14*
   missing.
 - **Fix:** initialise the camera on load; stop saving it.
 
-### 23. FOLLOW_CENTRE also adds the bounding box's X centre
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: CAM-17*
-
-- **Retail:** adds only the box's Z centre, rotated by yaw (bounds +8/+10).
-- **Ours:** `openlara/camera.h:542-552` rotates both X and Z.
-- **Effect:** push/pull, climbing out of water, and special kill animations.
-
 ### 24. The "already looked at" mark reuses ITEM_FLAG_ANIMATED
 *Severity: subtle (latent) · Confidence: confirmed (code) · Fix: small · Audit:
 CAM-19*
@@ -523,14 +359,6 @@ CAM-19*
 - **Effect:** opening the inventory with the camera pushed against a floor or
   ceiling shows a slightly different view.
 
-### 26. Camera smoothing rounds with shifts instead of dividing
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: CAM-21*
-
-- **Retail:** target.y smoothing in chase divides by 4; MoveCamera divides by
-  speed.
-- **Ours:** `openlara/camera.h:560` uses `>> 2`, and `camera.h:285` uses `>> 3`.
-- **Effect:** residual offsets of a few units that never settle.
-
 ### 27. LOS edge cases
 *Severity: subtle · Confidence: confirmed · Fix: part of issue 11 · Audit:
 CAM-22*
@@ -551,6 +379,20 @@ CAM-22*
 - **Effect:** only on triggers with several camera commands.
 
 ---
+
+### 261. A player's choice of camera
+*Kind: feature · Size: small · Fix: an in-game option*
+
+- The user's idea (2026-11-02): retail's camera is now the game's, and it would be fun to let the
+  player switch to OpenLara's in the game's options. Both are in `openlara/camera.h`; `gCameraRetail`
+  and the HW_LOG menu's Camera row switch them today.
+
+### 262. The near plane is 64 where retail's is 80
+*Kind: visible · Size: small · Fix: decide with the near-face work*
+
+- Retail's phd_InitWindow (`0603cf1c`) sets near 80; ours is `VIEW_MIN_F` 64. Left at 64 when retail's
+  camera became the default (issue 8): moving it changes which near faces are cut, near the work
+  of issues 251-252.
 
 ## Lara: movement, collision, water, controls
 
@@ -3599,6 +3441,8 @@ over 14.6, at most 188 · Fix: medium, parked*
   -0.55, -0.32; 128 px -0.87, -0.61; 256 px -1.62, -1.07. Mednafen near the stamped camera: rooms 3, 9
   and 10 gone, 2853 room vertices to 2423, 5 pixels of fill left showing at 256 px.
 - Menu row Holes paints fills and whatever nothing draws magenta, at about 3.5 ms of VDP1.
+- Decided, the user, on the Saturn (2026-11-02): Tiny at 256, "totally fine to see black there", to
+  keep an eye on; the room 103 spot 28-30 fps depending on the camera, called done.
 - Open: Far 16 against the black test on the Saturn, in Lara's Home and at both spots; the stamps'
   hall of mirrors (the user, turning back to a stamped view): hidden rooms' windows are now
   filled too, to be looked at again.
@@ -3609,7 +3453,6 @@ over 14.6, at most 188 · Fix: medium, parked*
 
 | Issue | Decision |
 |---|---|
-| **8** | Retail's 80° field of view puts about 1.5× as much world on screen; that costs CPU. Past perf comparisons with the original measured our narrower view. |
 | **88** | Retail's torso charges without turning (a retail bug). Reproduce it? |
 | **99** | Retail's gorilla sidestep turns wrongly (a retail bug). Reproduce it? |
 | **11** | Retail's CombatCamera uses a stale target_square. Reproduce it? |
@@ -3624,6 +3467,182 @@ over 14.6, at most 188 · Fix: medium, parked*
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+Issues 8 to 15, 23 and 26 below: closed by retail's camera, the default since 2026-11-02 (`openlara/camera.h`
+updateRetail, within 2 units of retail in Mednafen at rest and looking; combat, fixed cameras and walls
+in motion not compared).
+
+### 8. The field of view is 69° where retail's is 80° (reported in play)
+*Severity: visible · Confidence: confirmed · Fix: small to medium (but see the
+decision) · Audit: CAM-1, MATH-1, GFX near plane*
+
+- **Retail:**
+  - phd_InitWindow (`0603cf1c`, called from `060373fc`) sets 352×224, near 80,
+    far 20480, FOV 80°.
+  - AlterFOV (`06039b34`) sets `phd_persp` (`DAT_06063c70`) to
+    176·cos 40° / sin 40° ≈ 209.75.
+  - The vertex transforms (`0604127c` meshes, `06041a80` rooms) compute
+    `zp = zv/persp`, then `xs = xv/zp + 176`.
+  - LaraNormal and the inventory re-apply FOV 80; cutscenes change it per
+    frame (issue 19).
+- **Ours:** `sx = (x · divTable[z >> 4]) >> 12`, i.e. 256·x/z, a fixed 256 px
+  focal length. Sites:
+  - `openlara/common.h:2276-2286` (PERSPECTIVE)
+  - `saturn/render.cpp:319-323`, and `2431` (sprites)
+  - `saturn/render.h:166-175`
+  - `saturn/xform.s:167-185`, `saturn/meshxform.s:167-185`
+  - `saturn/project.dsp`
+
+  `matrixSetView` (`common.cpp:1460`) applies no scale. The near plane is
+  `VIEW_MIN_F` 64 (`common.h:502`), against retail's 80.
+- **Effect:** always.
+  - The view is 69.0° × 47.3°, against retail's 80.2° × 56.4°.
+  - Everything is drawn 22.5% larger, so the camera feels zoomed in and closer.
+  - The inventory ring is affected too (issue 173).
+- **Fix:**
+  - A projection-only reciprocal table, 53504/i (65536·209.75/256), or scale
+    view-matrix rows 0 and 1 by 209.75/256.
+  - Keep `divTable` at 65536/i, because `GET_FRAME_T`, `moveTo` and `matrixLerp`
+    use it.
+  - Make the focal length a variable, for cutscene FOV (19).
+  - Near plane 80.
+- **Decision:** 80° puts about 1.5× as much of the world in the frame, so more
+  rooms, faces and vertices. That has a CPU cost. All perf comparisons with the
+  original so far measured our narrower view.
+
+### 9. The chase camera catches up 1/8 per tick; retail's catches up 1/12
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: CAM-2*
+
+- **Retail:** ChaseCamera (`0600ca08`) passes CHASE_SPEED 12 to MoveCamera
+  (`0600c054`). That moves (target - pos) / speed with C division (the
+  hardware-divide helper `060457f6`).
+- **Ours:**
+  - `openlara/camera.h:387` does `move(best, lastFixed ? speed : 8)`.
+  - `camera.h:283-288` then uses `>> 3`, which rounds toward minus infinity, so
+    negative errors never settle to zero.
+- **Effect:** always. Ours is about 50% stiffer: it trails less, and swings
+  wider when Lara turns, runs or falls.
+- **Fix:** speed 12, and `/ speed`.
+
+### 10. The chase camera looks 10° down by default
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: CAM-3*
+
+- **Retail:**
+  - The target elevation is reset to 0 at the end of every CalculateCamera
+    (`DAT_06074db4 = 0`).
+  - ChaseCamera adds only Lara's x_rot.
+  - Only specific states set an elevation: hang -60°, slide -45°, surface
+    -22°, and so on.
+- **Ours:** `openlara/camera.h:378-380` sets `CAM_ANGLE_FOLLOW` (-10°,
+  `camera.h:12`) whenever the target pitch is 0. This also applies underwater.
+- **Effect:** always. Our camera sits about 267 units higher (a quarter block)
+  and looks down. Retail's is level with Lara's chest height.
+- **Fix:** delete the default.
+
+### 11. Walls are handled by OpenLara's own scheme, not TR1's box-based slide
+*Severity: visible · Confidence: confirmed (mechanism) · Fix: medium · Audit:
+CAM-4, CAM-18*
+
+- **Retail, chase and combat cameras:**
+  - SmartShift (`0600c50c`) runs LOS (`06010ca8`), then works on the
+    pathfinding boxes of the target and the camera.
+  - It extends into neighbour boxes where the next block isn't a BadPosition
+    (`0600c4a4`), and insets by 256.
+  - ShiftCamera (`0600c394`) slides the camera along the box edge while keeping
+    distance² = target_square.
+- **Retail, look camera:** ClipCamera (`0600c2e8`).
+- **Retail, fixed cameras:** LOS first, then ShiftClamp(256) (`0600cb20`) only
+  if LOS fails (FixedCamera `0600d090`).
+- **Ours:**
+  - `getBestLocation` (`openlara/camera.h:232-273`) traces to the ideal spot.
+  - If the trace is blocked within 768 (measured with `fastLength`), it tries
+    the four world-axis directions (0/90/180/270°, not relative to Lara). It
+    takes whichever is nearest the current view.
+  - `clip()` (`camera.h:209-230`) then pushes 255 off walls on each axis per
+    sector, and clamps y 255 from floor and ceiling.
+  - `clip()` also runs on every fixed camera (`camera.h:277`). That moves 2
+    retail cameras within 255 of a wall: one in Palace Midas, one in Natla's
+    Mines.
+- **Effect:** in corridors, and with Lara's back to a wall. Retail slides around
+  Lara along the wall at full distance. Ours comes in close or jumps to a
+  world-aligned side.
+- **Fix:**
+  - Port SmartShift, ShiftCamera, ClipCamera, BadPosition and ShiftClamp; our
+    levels have the boxes.
+  - Retail quirk to keep or not: CombatCamera uses a stale target_square.
+  - The LOS details are issue 27.
+
+### 12. The look camera is at half distance and has no pivot shift
+*Severity: visible · Confidence: confirmed · Fix: medium · Audit: CAM-5*
+
+- **Retail:** LookCamera (`0600ce74`; TR1X `camera.c`).
+  - Distance 1536 (0x600).
+  - The pivot moves along Lara's facing by -512·sin(elevation).
+  - The target is ShiftClamped 306 (0x132) from walls, floor and ceiling.
+  - The target's x/z glides at 1/speed (4).
+  - ClipCamera handles walls.
+- **Ours:** `openlara/camera.h:421-432` sets
+  `targetDist = lookAtItem ? 1536 : CAM_DIST_LOOK` (768, `camera.h:9`). There is
+  no pivot shift, no ShiftClamp and no target glide.
+- **Effect:** every time Look is held while standing or treading water. Ours is
+  twice as close. When looking up or down, retail swings to show the area ahead
+  of Lara; ours orbits Lara herself.
+- **Fix:** port LookCamera.
+
+### 13. The combat camera is too close and pitched 10° down
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: CAM-7*
+
+- **Retail:** CombatCamera (`0600cd34`) uses COMBAT_DISTANCE 2560 (0xA00). Its
+  elevation is x_rot plus either the target angles or head + torso, with no
+  extra offset.
+- **Ours:** `openlara/camera.h:394` adds `CAM_ANGLE_COMBAT` (-10°), and
+  `camera.h:414` sets the distance to 2048.
+- **Effect:** whenever guns are drawn.
+- **Fix:** 2560 and no offset.
+
+### 14. Fixed cameras ignore the trigger's glide speed and always cut
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: CAM-8*
+
+- **Retail:**
+  - FixedCamera calls MoveCamera(ideal, camera.speed).
+  - TestTriggers (`06010350`) decodes the speed as (field << 3) + 1.
+  - A camera with a target item is forced to speed 1 on its first frame.
+- **Ours:** `openlara/camera.h:443` always calls `move(best, 1)`.
+- **Effect:** in retail's data, 19 of the 101 triggered cameras glide (speeds
+  17, 33, 65 and 153, none with a target):
+  - Gym, Caves, Vilcabamba
+  - Lost Valley ×3, Qualopec ×6
+  - Colosseum, Cistern, Tihocan ×2, Sanctuary ×2, Natla's Mines
+
+  We cut instantly at all of them.
+- **Fix:** `move(best, speed)`.
+
+### 15. Look or combat after a targeted fixed camera aims at world y = 0
+*Severity: visible (glitch) · Confidence: confirmed · Fix: small · Audit:
+CAM-9*
+
+- **Retail:** CalculateCamera's look/combat branch sets target.y = y - 256
+  (`DAT_06074d84 = iVar9 - 0x100`) and speed 1.
+- **Ours:** `openlara/camera.h:532-534` sets `target.pos.y = 0; speed = 1;`.
+  Upstream OpenLara has the same bug.
+- **Effect:** drawing guns or pressing Look while a camera with a target item is
+  showing. The camera aims at y = 0 for a frame, then recovers at 1/4 per tick.
+- **Fix:** one line.
+
+### 23. FOLLOW_CENTRE also adds the bounding box's X centre
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: CAM-17*
+
+- **Retail:** adds only the box's Z centre, rotated by yaw (bounds +8/+10).
+- **Ours:** `openlara/camera.h:542-552` rotates both X and Z.
+- **Effect:** push/pull, climbing out of water, and special kill animations.
+
+### 26. Camera smoothing rounds with shifts instead of dividing
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: CAM-21*
+
+- **Retail:** target.y smoothing in chase divides by 4; MoveCamera divides by
+  speed.
+- **Ours:** `openlara/camera.h:560` uses `>> 2`, and `camera.h:285` uses `>> 3`.
+- **Effect:** residual offsets of a few units that never settle.
 
 ### 259. A hall of mirrors where the rooms want more vertices than there are
 *Kind: visible · Fixed: smallest windows give way, filled · Found by the user, 2026-11-02*

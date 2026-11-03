@@ -1398,6 +1398,7 @@ void matrixSetView(const vec3i &pos, int32 angleX, int32 angleY)
     gViewRotation[0] = m.e00; gViewRotation[1] = m.e01; gViewRotation[2] = m.e02;
     gViewRotation[3] = m.e10; gViewRotation[4] = m.e11; gViewRotation[5] = m.e12;
     gViewRotation[6] = m.e20; gViewRotation[7] = m.e21; gViewRotation[8] = m.e22;
+    gFocalScale = 1 << 14;
 }
 
 void CollisionInfo::setSide(CollisionInfo::SideType st, int32 floor, int32 ceiling)

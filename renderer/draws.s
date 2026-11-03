@@ -1136,7 +1136,7 @@
     SAR     r1, r0
     SAR     r7, r0
     SAR     r2, r0
-    ! its corners about it (the sprite's l t r b)
+    ! its corners about it (the sprite's l t r b, by the view's scale)
     mov.w   @(C_INDEX,r14), r0
     extu.w  r0, r0
     shll2   r0
@@ -1144,16 +1144,35 @@
     mov     r0, r3
     mov.l   @(D_SPRITES,gbr), r0
     add     r0, r3                  ! its Sprite
+    mov.l   .LfocalScale, r0
+    mov.l   @r0, r8
     mov.w   @(8,r3), r0
-    mov     r0, r4
+    muls.w  r0, r8
+    sts     macl, r4
+    shll2   r4
+    shlr16  r4
+    exts.w  r4, r4
     add     r1, r4                  ! l
     mov.w   @(12,r3), r0
-    mov     r0, r6
+    muls.w  r0, r8
+    sts     macl, r6
+    shll2   r6
+    shlr16  r6
+    exts.w  r6, r6
     add     r1, r6                  ! r
     mov.w   @(10,r3), r0
-    mov     r0, r5
+    muls.w  r0, r8
+    sts     macl, r5
+    shll2   r5
+    shlr16  r5
+    exts.w  r5, r5
     add     r7, r5                  ! t
     mov.w   @(14,r3), r0
+    muls.w  r0, r8
+    sts     macl, r0
+    shll2   r0
+    shlr16  r0
+    exts.w  r0, r0
     add     r0, r7                  ! b
     ! PERSPECTIVE on both: d = divTable[z >> 4], each * d >> 12
     mov     r2, r1
@@ -1267,6 +1286,7 @@
     .align  1
 .Ldiv_last2: .word  1280
     .align  2
+.LfocalScale: .long _gFocalScale
 
 ! renderRect: the call at r14 (x y width height, colour, bucket; its type)
 .Lrect:
