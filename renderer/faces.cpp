@@ -568,14 +568,25 @@ static int32_t cachedSlot(RoomTextures &t, const Texture &tex, uint32_t variant)
 }
 
 // faces.s WHOLE: the face's texture whole from the cache, at mip level
-// 'level' turned or not (variant: level * 2 + turned), in its flags; drawn
-// in its mean colour when the cache misses it.
+// 'level' turned or not (variant: level * 2 + turned), in its flags; with no
+// room at that level the next one down, and drawn in its mean colour when
+// the cache misses it at all of them.
 static uint32_t wholeTexture(RoomTextures &t, uint32_t flags, uint32_t variant)
 {
     static const uint8_t kVariants[6] = { DETAIL_WHOLE, DETAIL_TURNED, DETAIL_MIP1, DETAIL_MIP1_TURNED,
                                           DETAIL_MIP2, DETAIL_MIP2_TURNED };
     const Texture &tex = t.textures[flags & FACE_TEXTURE];
-    int32_t slot = tex.reserved ? cachedSlot(t, tex, kVariants[variant]) : -1;
+    int32_t slot = -1;
+    if (tex.reserved)
+    {
+        const uint32_t mips = tex.size & 7 ? 0 : tex.size & 0x010F ? 1 : 2;
+        slot = cachedSlot(t, tex, kVariants[variant]);
+        while (slot < 0 && variant / 2 < mips)
+        {
+            variant += 2;
+            slot = cachedSlot(t, tex, kVariants[variant]);
+        }
+    }
     if (slot < 0)
         return flags;
     flags |= FACE_DETAIL | FACE_DETAIL_WHOLE | (uint32_t(slot) << FACE_DETAIL_SLOT_SHIFT);

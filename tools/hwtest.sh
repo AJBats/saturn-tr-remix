@@ -34,6 +34,9 @@
 #               a view of 36 rooms
 #   cistern-pierre LEVEL7A, the mirror spot with Pierre (item 29) awake, out
 #               of the camera's sight, for his running off
+#   cistern-flat LEVEL7A, room 105: a wall drawn flat at 1.5 texels a pixel, the
+#               room texture cache full
+#   cistern-feet LEVEL7A, room 97: the floor gone from under Lara's feet
 #
 # OBJECT_ART=1 in the environment reworks the meshes' textures too
 # (tools/pack_level.py), in every level.
@@ -62,7 +65,9 @@ case "${1:-ledge}" in
     cistern-stamp) level=LEVEL7A id=LVL_TR1_7A start=103@47529:0:52129 yaw=0xDB9F ;;
     cistern-mirror) level=LEVEL7A id=LVL_TR1_7A start=91@40465:-5632:65637 yaw=0x73D4 ;;
     cistern-pierre) level=LEVEL7A id=LVL_TR1_7A start=91@40465:-5632:65637 yaw=0x73D4 trigger=29 ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-tunnel|cistern-look|cistern-water]" >&2; exit 1 ;;
+    cistern-flat) level=LEVEL7A id=LVL_TR1_7A start=105@47569:0:59202 yaw=0x9D98 ;;
+    cistern-feet) level=LEVEL7A id=LVL_TR1_7A start=97@50480:-3328:60035 yaw=0x31D0 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|cistern-feet|cistern-tunnel|cistern-look|cistern-water]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 

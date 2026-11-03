@@ -576,7 +576,19 @@
     nop
     tst     r0, r0
     bf      .Lslot\sfx
+    ! no room at this level: the next one down, if the texture has one
+    mov.l   @(4, r15), r6
+    add     #-36, r6
+    shlr2   r6                  ! the variant
+    mov     r6, r8
+    shlr    r8                  ! its level
+    mov.b   @(12, r14), r0
+    cmp/ge  r0, r8
+    bf      1f
     bra     .Lplain\sfx
+    nop
+1:  add     #2, r6
+    bra     .Lmemo\sfx
     nop
 
     ! the command's corners, mirrored when further off the frame on its AD
