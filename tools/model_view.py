@@ -75,6 +75,7 @@ RAT_CARDS = [("lower", "Lower limbs as cards", [7, 8, 16, 17, 18, 20, 21, 22, 24
 RAT_EAR_CARDS = [4, 5]      # upright, seen from the front
 RAT_TAIL_JOINTS = [10, 11, 12, 13, 14]
 RAT_NO_JOIN = [3]           # the jaw opens: its top and the head's underside are the mouth
+RAT_JOIN_WIDE = {1: 20, 2: 25, 8: 25, 18: 25, 22: 25, 25: 25}     # neck and head all round, paws
 RAT_CHOSEN = (["ears"], ["lower", "upper", "tailCards", "earCards"])    # the user's, 2026-11-03
 
 # The crocodile (the land's and the water's have the same meshes and joints)
@@ -106,6 +107,7 @@ GORILLA_FUSES = [("jaw", "Jaw into the head", [15]),
                  ("feet", "Feet into the shins", [3, 6]),
                  ("head", "Head into the chest (the game turns it towards Lara; it would stop)", [14]),
                  ("chest", "Chest into the hips", [7])]
+GORILLA_JOIN_WIDE = {14: 50}    # the head to the chest
 GORILLA_CARDS = [("lower", "Shins, feet, forearms, hands as cards", [2, 3, 5, 6, 9, 10, 12, 13]),
                  ("upper", "Thighs and upper arms as cards", [1, 4, 8, 11])]
 
@@ -124,6 +126,8 @@ BEAR_CARDS = [("lower", "Lower limbs as cards", [2, 3, 5, 6, 8, 9, 11, 12]),
               ("upper", "Upper limbs as cards", [1, 4, 7, 10]),
               ("earCards", "Ears as cards", [15, 16])]
 BEAR_EAR_CARDS = [15, 16]
+BEAR_JOIN_WIDE = {3: 25, 6: 25, 9: 25, 12: 25, 14: 36}      # paws, the head to the neck
+WOLF_JOIN_WIDE = {2: 35, 3: 32}     # the neck to the chest and the head to the neck, all round
 
 ANIMAL_FOOT = "Counts of what each side gives the renderer; for milliseconds, run it in the game."
 
@@ -134,7 +138,8 @@ JOIN_RING = 3               # the fewest corners that make an end
 def inside_copies(mesh):
     """The faces drawn twice, once each way round, whose copy faces into the
     mesh's middle: a closed box's, which nothing can ever see. A thin shape's
-    copies (an ear) lie about through the middle and both stay."""
+    copies (an ear) lie about through the middle, and a face joined to nothing
+    (a row of teeth) can be seen from behind: both stay."""
     centre = [sum(c) / len(mesh.vertices) for c in zip(*mesh.vertices)]
     sets = {}
     for fi, (ftype, idx, flags) in enumerate(mesh.faces):
@@ -142,6 +147,9 @@ def inside_copies(mesh):
     out = []
     for fis in sets.values():
         if len(fis) < 2:
+            continue
+        corners = set(mesh.faces[fis[0]][1])
+        if not any(corners & set(f[1]) for fi, f in enumerate(mesh.faces) if fi not in fis):
             continue
         for fi in fis:
             v = [mesh.vertices[i] for i in mesh.faces[fi][1]]
@@ -151,33 +159,77 @@ def inside_copies(mesh):
     return out
 
 
-def join_rings(meshes, start, parents, offsets, skip=()):
+def join_rings(meshes, start, parents, offsets, skip=(), wide=None):
     """Where a segment's end meets its parent's in the model's rest pose (no
     joint turned): {joint: {p: parent, map: {vertex: the parent's}, caps: its
-    faces on those corners alone, pcaps: the parent's}}. Each corner of the end
-    goes to the nearest of the parent's, each of those taken once."""
+    faces that go, pcaps: the parent's, pull: the parent's vertices moved to a
+    corner, gap: how far a corner moves}}. Each corner of the end goes to the
+    nearest of the parent's, each of those taken once, within JOIN_REACH; a
+    joint in wide has its own reach, and a corner over shares one when the end
+    has more than the parent's. What goes: the faces on those corners alone, and
+    the stubs that hid the bend, a thigh's knee or a chest's cone: faces on
+    those corners and vertices lying past them inside the other segment. A face
+    that stays on such a vertex takes it to the nearest corner."""
     out = {}
     for j in range(1, len(parents)):
         if j in skip:
             continue
         p = parents[j]
         child, parent = meshes[start + j], meshes[start + p]
-        pairs = sorted((diet.norm(diet.sub([c + o for c, o in zip(v, offsets[j])], pv)), i, k)
-                       for i, v in enumerate(child.vertices) for k, pv in enumerate(parent.vertices))
-        taken_i, taken_k, ring = set(), set(), {}
+        placed = [[c + o for c, o in zip(v, offsets[j])] for v in child.vertices]
+        reach = (wide or {}).get(j, JOIN_REACH)
+        pairs = sorted((diet.norm(diet.sub(v, pv)), i, k) for i, v in enumerate(placed) for k, pv in enumerate(parent.vertices))
+        taken, ring, gap = set(), {}, 0
         for d, i, k in pairs:
-            if d > JOIN_REACH:
+            if d > reach:
                 break
-            if i not in taken_i and k not in taken_k:
-                taken_i.add(i)
-                taken_k.add(k)
+            if i not in ring and k not in taken:
+                taken.add(k)
                 ring[i] = k
+                gap = max(gap, d)
         if len(ring) < JOIN_RING:
             continue
-        out[j] = {"p": p, "map": {str(i): k for i, k in ring.items()},
-                  "caps": [fi for fi, f in enumerate(child.faces) if all(i in taken_i for i in f[1])],
-                  "pcaps": [fi for fi, f in enumerate(parent.faces) if all(k in taken_k for k in f[1])]}
+        if j in (wide or {}):
+            for d, i, k in pairs:
+                if d > reach:
+                    break
+                if i not in ring and k in taken:
+                    ring[i] = k
+                    gap = max(gap, d)
+        centre = mean([placed[i] for i in ring])
+        others = [v for i, v in enumerate(placed) if i not in ring]
+        along = diet.sub(mean(others), centre) if others else [0, 0, 0]
+        ahead = lambda v: sum(a * b for a, b in zip(diet.sub(v, centre), along))  # noqa: E731
+
+        behind = {i for i, v in enumerate(placed) if i not in ring and ahead(v) < 0 and in_box(v, parent.vertices)}
+        past = {k for k, v in enumerate(parent.vertices) if k not in taken and ahead(v) > 0 and in_box(v, placed)}
+        caps = [fi for fi, f in enumerate(child.faces)
+                if all(i in ring or i in behind for i in f[1]) or len({ring.get(i, -1 - i) for i in f[1]}) < 3]
+        pcaps = [fi for fi, f in enumerate(parent.faces) if all(k in taken or k in past for k in f[1])]
+
+        def nearest(v):
+            return min(taken, key=lambda k: diet.norm(diet.sub(v, parent.vertices[k])))
+        for fi, f in enumerate(child.faces):
+            if fi not in caps:
+                for i in f[1]:
+                    if i in behind:
+                        ring[i] = nearest(placed[i])
+        pull = {}
+        for fi, f in enumerate(parent.faces):
+            if fi not in pcaps:
+                for k in f[1]:
+                    if k in past:
+                        pull[str(k)] = nearest(parent.vertices[k])
+        out[j] = {"p": p, "map": {str(i): k for i, k in ring.items()}, "gap": round(gap), "caps": caps, "pcaps": pcaps, "pull": pull}
     return out
+
+
+def mean(vs):
+    return [sum(c) / len(vs) for c in zip(*vs)]
+
+
+def in_box(v, vs):
+    return all(min(c) <= x <= max(c) for x, c in zip(v, zip(*vs)))
 
 
 class Atlas(diet.Atlas):
@@ -335,10 +387,10 @@ def pin_card(card, parents, offsets, j):
 
 
 def animal_json(lvl, meshes, atlas, type_, title, states, names, fuses, choices, card_groups, flat_cards, no_join, tail,
-                chosen=([], []), foot=ANIMAL_FOOT):
+                chosen=([], []), foot=ANIMAL_FOOT, wide_join=None):
     """model_json with what the viewer offers for an animal; tail: its joints,
     which may be drawn as one ribbon; chosen: the fuses and card groups on to
-    begin with."""
+    begin with; wide_join: seams that reach further than most (join_rings)."""
     out = model_json(lvl, meshes, atlas, ITEM[type_], states)
     model = next(m for m in lvl.models if m["type"] == ITEM[type_])
     start = model["start"]
@@ -362,7 +414,7 @@ def animal_json(lvl, meshes, atlas, type_, title, states, names, fuses, choices,
             out["cards"][str(j)] = card_json(card, atlas)
     copies = {str(j): inside_copies(meshes[start + j]) for j in range(model["count"])}
     out["insideCopies"] = {j: fis for j, fis in copies.items() if fis}
-    out["join"] = join_rings(meshes, start, out["parents"], out["offsets"], no_join)
+    out["join"] = join_rings(meshes, start, out["parents"], out["offsets"], no_join, wide_join)
     out["ribbon"] = ribbon_json(meshes, start, tail, out["meshes"]) if tail else None
     out["foot"] = foot
     return out
@@ -436,9 +488,10 @@ def main():
                        [(k, labels[k], joints) for k, joints in WOLF_MERGES.items()] +
                        [("neck", "Neck into the chest", [2]), ("head", "Head into the neck", [3])], [],
                        [("cards", "Lower legs as cards", WOLF_LEG_CARDS), ("tailCards", "Tail as cards", WOLF_TAIL_CARDS),
-                        ("earCards", "Ears as cards", WOLF_EAR_CARDS)], WOLF_EAR_CARDS, WOLF_MERGES["jaw"], WOLF_TAIL_CARDS)
+                        ("earCards", "Ears as cards", WOLF_EAR_CARDS)], WOLF_EAR_CARDS, WOLF_MERGES["jaw"], WOLF_TAIL_CARDS,
+                       wide_join=WOLF_JOIN_WIDE)
     bear = animal_json(lvl, meshes, atlas, "BEAR", "bear", BEAR_STATES, BEAR_JOINTS, BEAR_FUSES, [], BEAR_CARDS,
-                       BEAR_EAR_CARDS, [17], None)
+                       BEAR_EAR_CARDS, [17], None, wide_join=BEAR_JOIN_WIDE)
 
     # the rat: the Cistern's, with the water rat's animations after the land rat's
     rat_level = trsat.load(data_dir, "LEVEL7A")
@@ -446,14 +499,15 @@ def main():
     atlas.level(rat_level)
     rat = animal_json(rat_level, rat_meshes, atlas, "RAT_LAND", "rat", RAT_STATES, RAT_JOINTS, RAT_FUSES, [RAT_TAIL], RAT_CARDS,
                       RAT_EAR_CARDS, RAT_NO_JOIN, RAT_TAIL_JOINTS, RAT_CHOSEN,
-                      ANIMAL_FOOT + " Today, Cistern room 90 spot, Mednafen: 4.1 ms of master mesh work for the rat seen there (issue 256).")
+                      ANIMAL_FOOT + " Today, Cistern room 90 spot, Mednafen: 4.1 ms of master mesh work for the rat seen there (issue 256).",
+                      RAT_JOIN_WIDE)
     add_water(rat, rat_level, rat_meshes, atlas, "RAT_WATER", RAT_WATER_STATES)
     croc = animal_json(rat_level, rat_meshes, atlas, "CROCODILE_LAND", "crocodile", CROC_STATES, CROC_JOINTS, CROC_FUSES,
                        [CROC_TAIL], CROC_CARDS, [], [9], CROC_TAIL_JOINTS,
                        foot=ANIMAL_FOOT + " Today, Cistern room 90 spot, Mednafen: 3.5 ms of master mesh work a crocodile (issue 256).")
     add_water(croc, rat_level, rat_meshes, atlas, "CROCODILE_WATER", CROC_WATER_STATES)
     gorilla = animal_json(rat_level, rat_meshes, atlas, "GORILLA", "gorilla", GORILLA_STATES, GORILLA_JOINTS, GORILLA_FUSES, [],
-                          GORILLA_CARDS, [], [15], None)
+                          GORILLA_CARDS, [], [15], None, wide_join=GORILLA_JOIN_WIDE)
     atlas.level(lvl)
 
     # the bridges: plank items with their model's first frame, rope statics
