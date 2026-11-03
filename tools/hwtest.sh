@@ -41,6 +41,7 @@
 #   caves-mirror LEVEL1, room 24: hall of mirrors at the top of the frame, with
 #               the camera looking down on her
 #   cistern-warp LEVEL7A, room 31: where retail's near faces beat ours (issue 263)
+#   cistern-ledge31 LEVEL7A, room 31, on the platform: what's below clipping up through it
 #   cistern-corner LEVEL7A, room 31 again, turned to the wall, close: the near
 #               faces at their hardest
 #   cistern-feet LEVEL7A, room 97: the floor gone from under Lara's feet
@@ -80,11 +81,12 @@ case "${1:-ledge}" in
     caves-planks) level=LEVEL1 id=LVL_TR1_1 start=14@25024:5120:52823 yaw=0xCD2D ;;
     caves-mirror) level=LEVEL1 id=LVL_TR1_1 start=24@44659:7168:76311 yaw=0xC631 ;;
     cistern-warp) level=LEVEL7A id=LVL_TR1_7A start=31@58826:-3584:53511 yaw=0xC207 ;;
+    cistern-ledge31) level=LEVEL7A id=LVL_TR1_7A start=31@58986:-3584:52668 yaw=0xE765 ;;
     cistern-corner) level=LEVEL7A id=LVL_TR1_7A start=31@58826:-3584:53511 yaw=0x4207 ;;
     cistern-feet) level=LEVEL7A id=LVL_TR1_7A start=97@50480:-3328:60035 yaw=0x31D0 ;;
     cistern-feet-door) level=LEVEL7A id=LVL_TR1_7A start=97@50480:-3328:60035 yaw=0x31D0 trigger=25 ;;
     cistern-bright) level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-tunnel|cistern-look|cistern-water]" >&2; exit 1 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-tunnel|cistern-look|cistern-water]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 
