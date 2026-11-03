@@ -2857,40 +2857,6 @@ jump), likely (the audio lead) · Fix: small · Audit: MATH-9*
 
 ## Scene look: lighting and effects
 
-### 205. Room light falloff is doubled, and in 11 rooms the square overflows
-*Severity: visible · Confidence: confirmed (data plus arithmetic) · Fix: small
-· Audit: GFX-1*
-
-- **Retail:** Output_CalculateLight (`060388ec`; TR1X `output.c`) computes
-  falloff² >> 12 and dist² >> 12, then intensity·F/(d + F).
-  - It uses the raw falloff from offset +0x10 of each 0x14-byte light record
-    (asm `0x06038980`).
-  - The LIGHTSIZ chunk is read in bulk at `0x06039152` and never scaled.
-  - The Saturn's raw falloff values are identical to the PS1's (checked in
-    LEVEL1 and LEVEL2).
-- **Ours:** `tools/trsat.py:236` stores `radius = radius * 2`, copied from
-  OpenLara's SAT reader. `tools/pack_level.py:499` then packs it, and
-  `openlara/draw.h:84`, `89` use it (`att = X_SQR(radius) >> 12` on an int32).
-- **Effect:**
-  - Everywhere, lights reach about twice as far, so Lara and enemies look
-    brighter and more strongly side-lit than on retail.
-  - Where the raw falloff is above about 23170, the int32 square overflows and
-    goes negative. The rooms are:
-    - LEVEL2: 71, 82
-    - LEVEL3A: 1, 47, 86
-    - LEVEL3B: 1
-    - LEVEL5: 42
-    - LEVEL7A: 6, 32
-    - LEVEL7B: 28
-    - LEVEL10A: 37
-  - In the rooms with radius 65280, the light term grows without bound as Lara
-    nears about 5.8k units from the light, then turns negative beyond that. Her
-    shading blows out, then the light drops out.
-  - In the rooms with 46848, the falloff is inverted: farther from the light
-    reads brighter.
-- **Fix:** drop the ×2, and pack radius >> 7 (with << 7 in the engine) so the
-  square stays under 2³¹.
-
 ### 206. Item and effect sprites fade in the fog; retail's don't
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-2*
 
@@ -3467,6 +3433,40 @@ over 14.6, at most 188 · Fix: medium, parked*
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 205. Room light falloff is doubled, and in 11 rooms the square overflows
+*Severity: visible · Confidence: confirmed (data plus arithmetic) · Fix: small
+· Audit: GFX-1*
+
+- **Retail:** Output_CalculateLight (`060388ec`; TR1X `output.c`) computes
+  falloff² >> 12 and dist² >> 12, then intensity·F/(d + F).
+  - It uses the raw falloff from offset +0x10 of each 0x14-byte light record
+    (asm `0x06038980`).
+  - The LIGHTSIZ chunk is read in bulk at `0x06039152` and never scaled.
+  - The Saturn's raw falloff values are identical to the PS1's (checked in
+    LEVEL1 and LEVEL2).
+- **Ours:** `tools/trsat.py:236` stores `radius = radius * 2`, copied from
+  OpenLara's SAT reader. `tools/pack_level.py:499` then packs it, and
+  `openlara/draw.h:84`, `89` use it (`att = X_SQR(radius) >> 12` on an int32).
+- **Effect:**
+  - Everywhere, lights reach about twice as far, so Lara and enemies look
+    brighter and more strongly side-lit than on retail.
+  - Where the raw falloff is above about 23170, the int32 square overflows and
+    goes negative. The rooms are:
+    - LEVEL2: 71, 82
+    - LEVEL3A: 1, 47, 86
+    - LEVEL3B: 1
+    - LEVEL5: 42
+    - LEVEL7A: 6, 32
+    - LEVEL7B: 28
+    - LEVEL10A: 37
+  - In the rooms with radius 65280, the light term grows without bound as Lara
+    nears about 5.8k units from the light, then turns negative beyond that. Her
+    shading blows out, then the light drops out.
+  - In the rooms with 46848, the falloff is inverted: farther from the light
+    reads brighter.
+- **Fix:** drop the ×2, and pack radius >> 7 (with << 7 in the engine) so the
+  square stays under 2³¹.
 
 Issues 8 to 15, 23 and 26 below: closed by retail's camera, the default since 2026-11-02 (`openlara/camera.h`
 updateRetail, within 2 units of retail in Mednafen at rest and looking; combat, fixed cameras and walls

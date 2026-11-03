@@ -233,7 +233,7 @@ def read_sat(lvl, data):
                 x, y, z = r.s32(), r.s32(), r.s32()
                 i1, i2 = r.s16(), r.s16()
                 radius = r.s32()
-                room.lights.append(dict(x=x, y=y, z=z, intensity=i1, intensity2=i2, radius=radius * 2))
+                room.lights.append(dict(x=x, y=y, z=z, intensity=i1, intensity2=i2, radius=radius))
         elif tag == "CAMERAS ":
             r.expect(0x10, tag)
             lvl.cameras = [(r.s32(), r.s32(), r.s32(), r.s16(), r.u16()) for _ in range(r.u32())]
