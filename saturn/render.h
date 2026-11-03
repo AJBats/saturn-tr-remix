@@ -53,6 +53,9 @@ void renderBlack(int32 mode);
 // A portal's window under so many pixels: not entered (renderer/rooms.h roomsTiny).
 void renderTiny(int32 pixels);
 
+// 4 x the texels a pixel a room face may take before its next mip level.
+void renderTexels(int32 lod);
+
 #ifdef HW_LOG
 // The debug page's stamps (renderer/rooms.h roomsHideWith, roomsListCopy, frame.h
 // framePaintRoom).

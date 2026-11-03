@@ -222,6 +222,10 @@ void frameEnds();
 // far plane.
 void frameFar(int32_t far);
 
+// 4 x the texels a pixel along a room face's lines past which it takes its next
+// mip level (faces.h RoomTextures.lod), from the frame after next.
+void frameTexels(int32_t lod);
+
 // The list and the textures its faces queued into VDP1 VRAM where the game
 // keeps its own, by the SCU's DMA: the textures, the clear and the rooms'
 // commands, then the draws' and the end, and their gouraud tables. The

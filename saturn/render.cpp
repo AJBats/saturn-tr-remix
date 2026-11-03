@@ -38,7 +38,7 @@ static_assert(sizeof(ItemObj) == sizeof(render::GameItem) && sizeof(Texture) == 
 #define FACE_TYPE_LINE_H    8
 #define FACE_TYPE_LINE_V    9
 #define BAR_HEIGHT      5
-#define TEXTURE_LOD     4           // room faces' mip level: 1 texel a pixel
+static int32 gTexels = 4;       // room faces' mip level: 1 texel a pixel (renderTexels)
 #define MAX_CALLS       384         // a frame's: its draws, and a viewport for each room seen
 #define NO_INDEX        0xFFFFFFFF
 
@@ -509,6 +509,12 @@ void renderFar(int32 far)
     render::frameFar(far);
 }
 
+void renderTexels(int32 lod)
+{
+    gTexels = lod;
+    render::frameTexels(lod);
+}
+
 static int32 gTiny = 256;     // renderTiny's
 
 void renderTiny(int32 pixels)
@@ -696,7 +702,7 @@ void renderLevelInit()
     f.shade[0] = vram ? &gShadeCaches[0] : nullptr;     // none without VRAM for the copies
     f.shade[1] = vram ? &gShadeCaches[1] : nullptr;
     f.pmod = PMOD_LUT16 | PMOD_GOURAUD | PMOD_HSS;
-    f.lod = TEXTURE_LOD;
+    f.lod = gTexels;
     for (int32 l = 0; l < 3; l++) {
         f.pools[l] = gDetailPoolVram[l];
     }
