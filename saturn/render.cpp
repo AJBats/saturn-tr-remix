@@ -14,6 +14,7 @@
 
 #include "render.h"
 #include "detail.h"
+#include "plane.h"
 #include "screen.h"
 #include "crash.h"
 #include "hw.h"
@@ -62,6 +63,8 @@ static uint32 gDrawStart;       // the frame's drawing began (clear)
 #define gMeshFaceFlags  (cpuState()->meshFaceFlags)
 static bool gCameraWater;
 static bool gSceneClear;        // the scene's frame cleared all the same (setSceneClear)
+static bool gSceneSwept;        // the scene's frames cleared by VDP1's vblank erase, its strip by the list
+static bool gListOpening;       // the list built opens with the polygon for that
 
 static render::CallRecord* call(uint8 kind, uint32 index)
 {
@@ -97,6 +100,7 @@ void setPaletteIndex(int32 index)
 void setCameraWater(bool water)
 {
     gCameraWater = water;
+    planeWater(water);
 }
 
 void setSceneClear(bool clear)
@@ -304,6 +308,7 @@ Room** renderWalk(Room* cameraRoom)
 {
     static Room* visible[ROOMS_LISTED + 1];
     view(gSceneCamera, gSceneView);
+    planeView(gSceneCamera, gSceneView, gSaveGame.flipped != 0);
     int32_t vp[4] = { viewport.x0, viewport.y0, viewport.x1, viewport.y1 };
     uint32_t room = uint32(cameraRoom - rooms);
     if (gAheadWalked && gAhead.room == room && gAhead.phase == uint32(gCausticsFrame) &&
@@ -399,6 +404,17 @@ enum DepthHintKind { DEPTH_HINT_ITEM, DEPTH_HINT_STATIC };
 
 #define MAX_LEVEL_HINTS 32
 static DepthHint gLevelHints[MAX_LEVEL_HINTS];
+
+// The solid boxes (saturn/occluders.txt), the level's.
+struct Occluder
+{
+    uint8 level;
+    render::SolidBox box;
+};
+#include "occluders.h"
+
+#define MAX_LEVEL_BOXES 32
+static render::SolidBox gLevelBoxes[MAX_LEVEL_BOXES];
 
 // The walk's and the pose's tables of the level's rooms, in high work RAM:
 // each room as the walk reads it, the portals and lights gathered (each
@@ -515,17 +531,17 @@ void renderTexels(int32 lod)
     render::frameTexels(lod);
 }
 
-void renderNear(int32 split)
-{
-    render::frameNear(split);
-}
-
 static int32 gTiny = 256;     // renderTiny's
 
 void renderTiny(int32 pixels)
 {
     gTiny = pixels;
     render::roomsTiny(pixels);
+}
+
+void renderBoxes(bool on)
+{
+    render::roomsBoxesOn(on);
 }
 
 void renderBlack(int32 mode)
@@ -562,6 +578,44 @@ void renderHolesShown(bool shown)
 }
 #endif
 
+// A face no brighter than this of 31 at its brightest can't be seen: a plain black polygon
+// will do (faces.h RoomMaterial.skip), still hiding what it hides.
+#define DARK_LIMIT  3
+
+// From the colour tables as VDP1's memory has them, every mip level's: the shade from
+// which each room texture's faces are that dark. A half-transparent one darkens what's
+// behind it however dark it is, so it stays.
+static void roomsDarkInit(uint32 count)
+{
+    for (uint32 i = 0; i < count; i++)
+    {
+        render::RoomMaterial &m = render::gRoomMaterials[i];
+        int32 from = 63;
+        if (((m.w1 >> 16) & 3) != 3)
+        {
+            int32 brightest = 0;
+            for (int32 level = 0; level <= m.mips; level++)
+            {
+                const volatile uint16* table = (const volatile uint16*)(VDP1_VRAM + ((m.w1 & 0xFFFF) + 4 * level) * 8);
+                for (int32 c = 0; c < 16; c++)
+                {
+                    uint32 colour = table[c];
+                    if (colour & 0x8000)
+                    {
+                        brightest = X_MAX(brightest, int32(colour & 31));
+                        brightest = X_MAX(brightest, int32((colour >> 5) & 31));
+                        brightest = X_MAX(brightest, int32((colour >> 10) & 31));
+                    }
+                }
+            }
+            for (int32 shade = 31; shade >= 0 && brightest + gShadeLevel[shade] - 16 <= DARK_LIMIT; shade--) {
+                from = shade;
+            }
+        }
+        m.skip = (m.skip & 3) | (from << 2);
+    }
+}
+
 // The clear: a scaled sprite of colour 0 over the frame, transparency off,
 // which writes 0 (VDP2 shows the back colour); skipped where rooms cover the
 // frame (what neither a face nor a portal of theirs would draw is filled
@@ -578,6 +632,14 @@ static render::Command clearCommand()
 
 void renderLevelInit()
 {
+    // Lost Valley stands open to the sky, where no face covers the frame and the
+    // buffer has to be clear, and a floor on VDP2 shows only where it's clear. So
+    // those are erased, and the fills that keep old pixels from showing where planes
+    // cut faces away have no work left.
+    gSceneSwept = gLevelID == LVL_TR1_3A || planeLevel();
+    vdp1EraseFrames(gSceneSwept);
+    *uncached(&render::gFacesVoidWay) = gSceneSwept ? render::FACE_VOIDS_NONE : render::FACE_VOIDS_BOXED;
+
     // the shaded copies, at the top of the cache, if it can spare them
     uint32 shadeBytes = 2 * 256 * SHADE_TABLE_SIZE;
     uint32 vram = detailSpareBytes() >= shadeBytes ? detailReserveTop(shadeBytes) : 0;
@@ -682,6 +744,15 @@ void renderLevelInit()
     }
     render::hintsInit(gLevelHints, hints);
 
+    uint32 boxes = 0;
+    for (uint32 i = 0; i < sizeof(gOccluders) / sizeof(gOccluders[0]) && boxes < MAX_LEVEL_BOXES; i++)
+    {
+        if (gOccluders[i].level == gLevelID) {
+            gLevelBoxes[boxes++] = gOccluders[i].box;
+        }
+    }
+    render::roomsSolidBoxes(gLevelBoxes, boxes);
+
     // the room textures: those the rooms' faces take
     uint32 roomTextures = 0;
     for (int32 i = 0; i < level.roomsCount; i++)
@@ -716,6 +787,7 @@ void renderLevelInit()
     f.clear = clearCommand();
     f.vertices = gVertices;
     render::frameInit(f);
+    roomsDarkInit(X_MIN(roomTextures, MAX_ROOM_TEXTURES));
 
     // the rooms' faces in what high work RAM is left, then where they are
     osPlaceRoomFaces();
@@ -759,6 +831,12 @@ static void listUpload()
         shadeTablesReset();     // the item textures may have covered them
         gListResume = false;
     }
+    if (gListOpening)
+    {
+        gListOpening = false;
+        vdp1OpeningPolygonNext();
+    }
+    planeListPlot(vdp1Plots() + 1);
     vdp1Plot();
     gListPending = false;
 
@@ -855,6 +933,23 @@ void closeBackground()
     screenClosing();
 }
 
+// VDP1's frames fade on VDP2's offset B, but on a plane level the offsets are the plane's
+// and the picture's (screen.cpp): there the ring fades by its shades, in the same steps.
+static void shadesFade()
+{
+    static int32 faded;
+    const int32 now = gInventoryFrame && planeLevel() ? screenFramesFade() / 8 : 0;
+    if (now == faded)
+        return;
+    faded = now;
+    for (int32 g = 0; g < 32; g++)
+    {
+        const uint32 c = uint32(X_MAX(31 - g + now, 0));
+        gShadeLevel[g] = c;
+        gShadeGouraud[g] = (c << 10) | (c << 5) | c;
+    }
+}
+
 void flush_c()
 {
     uint32 start = timerTicks();
@@ -906,6 +1001,7 @@ void flush_c()
     calls.matrixLights = gGivenLights;
     calls.inventory = gInventoryFrame;
     calls.started = gWalked;
+    shadesFade();
     render::FrameTimes s = render::frameRun(calls, gBias);
     gBias = X_MAX(X_MIN(gBias + s.late / 2, BIAS_MAX), -BIAS_MAX);
     gStats.detailUploads = render::gFrameTextures.count;
@@ -931,6 +1027,7 @@ void flush_c()
     dspEndsClear();     // read: from here the next frame's, whose rooms' run may be on already
     if (gWalked && !gSceneClear)
     {
+        const render::FrameVoids voids = render::frameVoids();
 #ifdef VOID_VIEW
         // magenta where nothing draws in the scene
         render::Command &c = render::gFrameCmds[0];
@@ -950,8 +1047,45 @@ void flush_c()
         }
         else
 #endif
-        render::gFrameCmds[0].w[0] |= CMD_SKIP << 16;
+        if (gSceneSwept)
+        {
+            render::Command &c = render::gFrameCmds[0];
+            c.w[0] = (c.w[0] & ~(0xFu << 16)) | (CMD_POLYGON << 16);
+            c.w[1] = PMOD_NO_ECD_SPD << 16;
+            c.w[4] = (FRAME_WIDTH - 1) << 16;
+            c.w[6] = FRAME_HEIGHT - 1;
+            gListOpening = true;
+        }
+        else if (*uncached(&render::gFacesVoidWay) == render::FACE_VOIDS_BOXED && voids.x0 <= voids.x1)
+        {
+            render::Command &c = render::gFrameCmds[0];
+            c.w[0] = (c.w[0] & ~(0xFu << 16)) | (CMD_POLYGON << 16);
+            c.w[1] = PMOD_NO_ECD_SPD << 16;
+            c.w[3] = (voids.x0 << 16) | voids.y0;
+            c.w[4] = (voids.x1 << 16) | voids.y0;
+            c.w[5] = (voids.x1 << 16) | voids.y1;
+            c.w[6] = (voids.x0 << 16) | voids.y1;
+        }
+        else
+        {
+            render::gFrameCmds[0].w[0] |= CMD_SKIP << 16;
+        }
 #endif
+
+        // the next frame's fills: one rectangle while it costs less than theirs,
+        // a small one's pixels costing about 3 times a big one's. Either way the
+        // picture is right; a change of scene pays for at most a frame.
+        if (!gSceneSwept)
+        {
+            const int32 box = (voids.x1 - voids.x0 + 1) * (voids.y1 - voids.y0 + 1);
+            *uncached(&render::gFacesVoidWay) = voids.x0 > voids.x1 || 3 * voids.area > box
+                ? render::FACE_VOIDS_BOXED : render::FACE_VOIDS_DRAWN;
+#ifdef HW_LOG
+            if (gHolesShown) {
+                *uncached(&render::gFacesVoidWay) = render::FACE_VOIDS_DRAWN;   // to tell them from holes
+            }
+#endif
+        }
     }
 
     gStats.faces = render::facesSlot(render::gRoomList.link) - 1 + render::gFrameEnd - render::gMeshFirst;
@@ -984,6 +1118,7 @@ void flush_c()
     // the inventory's frames and the one after go up at once, as the cache
     // changes hands; the scene to go behind it too, held till it's copied
     gListPending = true;
+    planeListMade();
     if (gCapture) {
         vdp1Hold();
     }

@@ -340,6 +340,12 @@ def capture(cue, frame, keys, name, fps_window=0, shots=0, playback=0, record=0)
     os.makedirs(ipc, exist_ok=True)
     if not os.path.exists(os.path.join(home, 'mednafen.cfg')):
         sys.exit(f'{home} needs a mednafen.cfg and firmware/ (copy build/mednafen_home, calibrated)')
+    lock = os.path.join(home, 'mednafen.lck')
+    try:
+        if os.path.exists(lock):
+            os.remove(lock)
+    except PermissionError:     # the running Mednafen holds it open
+        sys.exit(f'another Mednafen is running on {home}: wait for it to finish')
     action, ack_file = os.path.join(ipc, 'mednafen_action.txt'), os.path.join(ipc, 'mednafen_ack.txt')
     for f in (action, ack_file):
         if os.path.exists(f):
@@ -375,13 +381,18 @@ def capture(cue, frame, keys, name, fps_window=0, shots=0, playback=0, record=0)
         sys.exit(f'{cmd}: no reply with "{expect}" (last: {ack()})')
 
     env = dict(os.environ, MEDNAFEN_HOME=home)
-    proc = subprocess.Popen([exe, '--sound', '0', '-cd.image_memcache', '1', '--automation', ipc, cue],
-                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+    stderr_path = os.path.join(ROOT, 'build/trace_stderr.txt')
+    with open(stderr_path, 'w') as stderr:
+        proc = subprocess.Popen([exe, '--sound', '0', '-cd.image_memcache', '1', '--automation', ipc, cue],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=stderr, env=env)
     try:
         deadline = time.time() + 60
         while 'ready' not in ack():
-            if proc.poll() is not None or time.time() > deadline:
-                sys.exit('Mednafen did not start')
+            exited = proc.poll() is not None
+            if exited or time.time() > deadline:
+                why = f'exited with code {proc.returncode}' if exited else 'was not ready in 60 s, stopped it'
+                with open(stderr_path, encoding='utf-8', errors='replace') as f:
+                    sys.exit(f'Mednafen {why}: {f.read().strip()}')
             time.sleep(0.2)
         send('deterministic', 'deterministic', 10)
         if keys:
@@ -454,14 +465,19 @@ def capture(cue, frame, keys, name, fps_window=0, shots=0, playback=0, record=0)
                 send(f'screenshot {shot.replace(os.sep, "/")}', 'screenshot', 30)
             time.sleep(0.5)
     finally:
-        try:
-            send('quit', 'quit', 5)
-        except SystemExit:
-            pass
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            print('Mednafen still running after quit', file=sys.stderr)
+        # Only while ours is alive: once it has gone, the automation folder may
+        # be another instance's, and a quit sent there would shut that one down.
+        if proc.poll() is None:
+            try:
+                send('quit', 'quit', 5)
+            except SystemExit:
+                pass
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                # stuck: it would keep the lock on this home
+                proc.kill()
+                proc.wait()
     return dump
 
 

@@ -1,0 +1,486 @@
+<title>VDP1 Stepwise</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+/* One screen of a Saturn's frame being built: the picture is the page, what explains it sits beside it. */
+:root {
+  color-scheme: dark;
+  --bg: #0f1218; --panel: #171b24; --line: #2b3242; --text: #e2e6ef; --muted: #939cb0; --accent: #ffb000;
+  --room: #5aa9e6; --lara: #ff7b7b; --creature: #e05eb0; --static: #6fcf97; --object: #b794f6; --fill: #8a8f9c; --sprite: #f2c94c; --frame: #5a6072;
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
+}
+html, body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.45; }
+body { padding-block: 18px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+main { max-width: 1320px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+h1 { font-size: 21px; margin: 0; font-weight: 600; }
+h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+.note { color: var(--muted); font-size: 13px; max-width: 75ch; margin: 2px 0 0; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+button, select { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button:focus-visible, select:focus-visible, input:focus-visible, tr:focus-visible, canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #17130a; font-weight: 600; }
+.figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; padding: 4px 0 2px; }
+.figure b { display: block; font-family: var(--mono); font-size: 25px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.figure span { color: var(--muted); font-size: 13px; }
+.work { display: grid; grid-template-columns: minmax(0, 704px) minmax(0, 1fr); gap: 22px; align-items: start; }
+@media (max-width: 1020px) { .work { grid-template-columns: minmax(0, 1fr); } }
+.stage { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+#view { width: 100%; max-width: 704px; aspect-ratio: 352 / 224; image-rendering: pixelated; background: #000; display: block; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#step { width: 100%; accent-color: var(--accent); margin: 0; }
+#strip { width: 100%; height: 60px; display: block; background: var(--panel); cursor: crosshair; }
+.readout { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; min-height: 3.1em; overflow-wrap: anywhere; }
+.readout .who { color: var(--accent); font-weight: 600; }
+.side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--muted); }
+.legend i { display: inline-block; width: 11px; height: 11px; margin-right: 5px; vertical-align: -1px; }
+.table { overflow-x: auto; max-height: 520px; overflow-y: auto; border-top: 1px solid var(--line); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th { text-align: right; color: var(--muted); font-weight: 600; padding: 5px 7px; cursor: pointer; position: sticky; top: 0; background: var(--bg); white-space: nowrap; }
+td { text-align: right; padding: 3px 7px; border-top: 1px solid #1e2430; font-family: var(--mono); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--panel); }
+tr.on { background: #3a2c08; }
+td .swatch { display: inline-block; width: 9px; height: 9px; margin-right: 6px; }
+.bar { display: inline-block; width: 44px; height: 7px; background: #2a3040; vertical-align: 1px; margin-right: 6px; }
+.bar i { display: block; height: 100%; background: var(--static); }
+.hist { display: flex; gap: 3px; align-items: flex-end; height: 62px; }
+.hist div { flex: 1; min-width: 0; text-align: center; font-size: 11px; color: var(--muted); font-family: var(--mono); display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+.hist i { display: block; }
+</style>
+
+<main>
+  <header>
+    <h1>VDP1 Stepwise</h1>
+    <p class="note">One frame, drawn one VDP1 command at a time in the order the Saturn draws it. Pixel counts are exact. Times come from Mednafen's VDP1 model, which reads 12 to 25% above a real Saturn. "Seen" means still on screen when the frame is done.</p>
+  </header>
+  <nav class="tabs" id="scenes" aria-label="Scene"></nav>
+  <section class="figures" id="figures" aria-label="This frame in numbers"></section>
+  <div class="work">
+    <section class="stage">
+      <canvas id="view" width="352" height="224" aria-label="The frame as drawn so far"></canvas>
+      <div class="row" id="lists" role="group" aria-label="Which list is drawn"></div>
+      <p class="note" id="listnote"></p>
+      <div class="row" id="views" role="group" aria-label="What the picture shows"></div>
+      <div class="legend" id="legend"></div>
+      <input type="range" id="step" min="0" max="1" value="1" aria-label="Commands drawn">
+      <div class="row">
+        <button id="start" title="Before the first command">|&lt;</button>
+        <button data-move="-100">-100</button><button data-move="-10">-10</button><button data-move="-1">-1</button>
+        <button id="play">Play</button>
+        <button data-move="1">+1</button><button data-move="10">+10</button><button data-move="100">+100</button>
+        <button id="end" title="The finished frame">&gt;|</button>
+        <select id="speed" aria-label="Play speed"><option value="1">1 a frame</option><option value="3" selected>3 a frame</option><option value="10">10 a frame</option></select>
+      </div>
+      <canvas id="strip" tabindex="0" aria-label="Every command in draw order: its height is the pixels it writes, the bright part those still seen at the end. Click to go there."></canvas>
+      <div class="readout" id="readout" aria-live="polite"></div>
+    </section>
+    <aside class="side">
+      <section><h2>By kind of thing</h2><div class="table" style="max-height:none"><table id="kinds"></table></div></section>
+      <section><h2>How many times each pixel is written</h2><div class="hist" id="hist"></div></section>
+      <section><h2>Who made it (click to isolate)</h2><div class="table"><table id="owners"></table></div></section>
+    </aside>
+  </div>
+</main>
+
+<script>
+const FRAMES = /*FRAMES*/null;
+const CAT = { room: '#5aa9e6', lara: '#ff7b7b', creature: '#e05eb0', static: '#6fcf97', object: '#b794f6', fill: '#8a8f9c', sprite: '#f2c94c', frame: '#5a6072' };
+const CAT_NAME = { room: 'Rooms', lara: 'Lara', creature: 'Creatures', static: 'Static meshes', object: 'Other objects', fill: 'Fills', sprite: 'Sprites', frame: 'The frame' };
+const KIND = ['sprite', 'scaled sprite', 'textured quad', 'textured quad', 'polygon', 'polyline', 'line', 'polyline'];
+const HEAT = ['#000000', '#16324f', '#1f6f8b', '#3fb28f', '#d8d35f', '#f2994a', '#eb5757', '#ff5fd2', '#ffffff'];
+const $ = id => document.getElementById(id);
+const rgbOf = hex => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+const HEAT_RGB = HEAT.map(rgbOf);
+const CAT_RGB = Object.fromEntries(Object.entries(CAT).map(([k, v]) => [k, rgbOf(v)]));
+const ctx = $('view').getContext('2d');
+let F, W, H, N, writes, runs, runAt, colorAt, col, cnt, top_, last, cur = 0, image, stripBase;
+let viewMode = 'picture', selected = -1, sortKey = 'cycles', sortUp = false, playing = false, msOf = c => c * 1000 / 28636360;
+let listMode = 'now', lastOther = 'run', scene = 0, TODAY, differs, filled;
+const HAS_BOXES = FRAMES.some(f => f.boxes);
+const LISTS = HAS_BOXES ? [['now', 'Boxes off'], ['boxes', 'Boxes on']] : [['now', 'As now'], ['run', 'Opening black run as one fill'], ['all', 'All black scenery as one fill']];
+let cutOf = new Map(), cutCol, cutMask;
+if (HAS_BOXES) lastOther = 'boxes';
+
+function bytes(b64) {
+  const s = atob(b64), a = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
+  return a.buffer;
+}
+
+// The scene with its dropped black commands gone and their one fill first, every figure worked out again.
+function listOf(b, mode) {
+  if (!b.w) { b.w = new Uint16Array(bytes(b.writes)); b.r = new Uint16Array(bytes(b.runs)); b.a = new Uint32Array(bytes(b.run_at)); }
+  const m = mode !== 'now' && b.black ? b.black[mode] : null, drop = new Set(m ? m.drop : []), w = b.width, h = b.height;
+  const out = [];
+  if (m && m.box) {
+    const [x0, y0, x1, y1] = m.box;
+    out.push({ owner: b.owners.length, cat: 'fill', kind: 4, cycles: m.cycles, lines: y1 - y0 + 1, plotted: (x1 - x0 + 1) * (y1 - y0 + 1), texels: 0, written: (x1 - x0 + 1) * (y1 - y0 + 1), corners: [x0, y0, x1, y0, x1, y1, x0, y1], tw: 0, th: 0, box: m.box, from: -1 });
+  }
+  let px = 0;
+  const startOf = [];
+  b.commands.forEach((c, i) => { startOf.push(px); px += c.written; if (!drop.has(i)) out.push({ ...c, from: i }); });
+  const totalPx = out.reduce((a, c) => a + c.written, 0);
+  const totalRuns = out.reduce((a, c) => a + (c.from < 0 ? c.lines : b.a[c.from + 1] - b.a[c.from]), 0);
+  const wr = new Uint16Array(totalPx), rn = new Uint16Array(totalRuns * 3), ra = new Uint32Array(out.length + 1);
+  const lastW = new Int32Array(w * h).fill(-1), count = new Uint16Array(w * h), final_ = new Uint16Array(w * h);
+  let pw = 0, pr = 0;
+  out.forEach((c, i) => {
+    ra[i] = pr;
+    if (c.from < 0) {
+      const [x0, y0, x1, y1] = c.box;
+      for (let y = y0; y <= y1; y++) { rn[pr * 3] = y; rn[pr * 3 + 1] = x0; rn[pr * 3 + 2] = x1 - x0 + 1; pr++; }
+      pw += c.written;
+    } else {
+      let from = startOf[c.from];
+      for (let r = b.a[c.from]; r < b.a[c.from + 1]; r++) {
+        rn[pr * 3] = b.r[r * 3]; rn[pr * 3 + 1] = b.r[r * 3 + 1]; rn[pr * 3 + 2] = b.r[r * 3 + 2]; pr++;
+        for (let j = b.r[r * 3 + 2]; j > 0; j--) wr[pw++] = b.w[from++];
+      }
+    }
+  });
+  ra[out.length] = pr;
+  let pc = 0;
+  out.forEach((c, i) => {
+    for (let r = ra[i]; r < ra[i + 1]; r++) {
+      let p = rn[r * 3] * w + rn[r * 3 + 1];
+      for (let j = rn[r * 3 + 2]; j > 0; j--, p++) { lastW[p] = i; count[p]++; final_[p] = wr[pc++]; }
+    }
+  });
+  const seen = new Uint32Array(out.length);
+  let never = 0;
+  const histo = new Array(9).fill(0);
+  for (let p = 0; p < w * h; p++) { if (lastW[p] >= 0) seen[lastW[p]]++; else never++; histo[Math.min(count[p], histo.length - 1)]++; }
+  const owners_ = b.owners.map(o => ({ ...o, commands: 0, written: 0, seen: 0, cycles: 0, plotted: 0 }));
+  if (m && m.box) owners_.push({ name: 'one fill for the black', cat: 'fill', commands: 0, written: 0, seen: 0, cycles: 0, plotted: 0 });
+  let cycles = 0, wasted = 0, gone = 0;
+  out.forEach((c, i) => {
+    c.seen = seen[i];
+    const o = owners_[c.owner];
+    o.commands++; o.written += c.written; o.seen += c.seen; o.cycles += c.cycles; o.plotted += c.plotted;
+    cycles += c.cycles;
+    wasted += c.written ? c.cycles * (1 - c.seen / c.written) : c.cycles;
+    if (c.written && !c.seen) gone += c.cycles;
+  });
+  return { title: b.title, width: w, height: h, commands: out, owners: owners_.filter(o => o.commands || !o.name.startsWith('one fill')), cycles, wasted, gone, never, hist: histo, w: wr, r: rn, a: ra, final_, lastW };
+}
+
+function load(i, keepPlace) {
+  const finished = !keepPlace || cur === N, place = cur;
+  scene = i;
+  TODAY = listOf(FRAMES[i], 'now');
+  F = listMode === 'now' ? TODAY : listOf(FRAMES[i], listMode);
+  [...$('scenes').children].forEach((b, k) => b.setAttribute('aria-pressed', k === i));
+  [...$('lists').children].forEach(b => b.setAttribute('aria-pressed', b.dataset.list === listMode));
+  W = F.width; H = F.height; N = F.commands.length;
+  writes = F.w;
+  runs = F.r;
+  runAt = F.a;
+  differs = new Uint8Array(W * H);
+  filled = new Uint8Array(W * H);
+  for (let p = 0; p < W * H; p++) {
+    if (TODAY.lastW[p] < 0) { if (F.lastW[p] >= 0) filled[p] = 1; continue; }
+    const a = TODAY.final_[p], c = F.final_[p];
+    if ((a & 0x8000 ? a & 0x7FFF : 0) !== (c & 0x8000 ? c & 0x7FFF : 0)) differs[p] = 1;
+  }
+  listNote();
+  cutOf = new Map();
+  const bx = FRAMES[i].boxes;
+  if (bx && listMode === 'now') bx.drop.forEach((d, k) => cutOf.set(d, bx.why[k]));
+  cutMask = new Uint8Array(W * H);
+  cutCol = new Uint16Array(W * H);
+  colorAt = new Uint32Array(N + 1);
+  F.commands.forEach((c, k) => { colorAt[k + 1] = colorAt[k] + c.written; });
+  col = new Uint16Array(W * H); cnt = new Uint8Array(W * H); top_ = new Int32Array(W * H);
+  $('view').width = W; $('view').height = H;
+  image = ctx.createImageData(W, H);
+  reset(); apply(N);
+  last = top_.slice();
+  selected = -1;
+  $('step').max = N;
+  figures(); kinds(); hist(); owners(); stripDraw();
+  go(finished ? N : Math.min(place, N));
+}
+
+function listNote() {
+  const b = FRAMES[scene], m = b.black && b.black[listMode];
+  const el = $('listnote');
+  if (b.boxes) {
+    const x = b.boxes;
+    el.textContent = listMode === 'now'
+      ? 'The list with the boxes off. Pick "What the boxes cut" and step through: each face the boxes cut shows pink and stays pink, on top of whatever later paints over it. The yellow rectangles are the boxes as the game saw them this frame.'
+      : `The same list without the ${x.drop.length} commands the game itself left out. "Differs from today" shows what that changed on screen. The game's own list with the boxes on is the next tab along.`;
+    return;
+  }
+  if (HAS_BOXES) { el.textContent = 'The game\'s own list with the boxes on, captured from the same camera. The yellow rectangles are the boxes this frame.'; return; }
+  if (listMode === 'now') { el.textContent = 'The list as the game draws it today. The B key flips to the list last picked and back.'; return; }
+  if (!m || !m.box) { el.textContent = 'No black commands to replace in this scene.'; return; }
+  const was = m.drop.reduce((a, i) => a + b.commands[i].cycles, 0), [x0, y0, x1, y1] = m.box;
+  const byPixels = m.drop.filter(i => b.commands[i].kind !== 4).length;
+  el.textContent = `${m.drop.length} black commands, ${msOf(was).toFixed(2)} ms, become one rectangle ${x1 - x0 + 1} x ${y1 - y0 + 1} at (${x0}, ${y0}), ${msOf(m.cycles).toFixed(2)} ms: ${msOf(was - m.cycles).toFixed(2)} ms saved on VDP1. CPU isn't counted.${listMode === 'run' ? ' These are the rectangles the game already writes, one for each face at the fog\'s floor, merged.' : ` Lara's and the objects' black faces stay: that black is their own, not the fog's. ${byPixels} of these are textured faces black only by their pixels, which the game can't tell without a new test.`}`;
+}
+
+function setList(mode) {
+  if (mode === listMode) return;
+  if (listMode !== 'now') lastOther = listMode;
+  if (mode !== 'now') lastOther = mode;
+  listMode = mode;
+  load(scene, true);
+}
+
+function reset() { col.fill(0); cnt.fill(0); top_.fill(-1); if (cutMask) cutMask.fill(0); cur = 0; }
+
+function apply(k) {
+  if (k < cur) reset();
+  for (let i = cur; i < k; i++) {
+    let c = colorAt[i];
+    const isCut = cutOf.has(F.commands[i].from);
+    for (let r = runAt[i]; r < runAt[i + 1]; r++) {
+      let p = runs[r * 3] * W + runs[r * 3 + 1];
+      for (let j = runs[r * 3 + 2]; j > 0; j--, p++) {
+        if (isCut) { cutMask[p] = 1; cutCol[p] = writes[c]; }
+        col[p] = writes[c++]; if (cnt[p] < 255) cnt[p]++; top_[p] = i;
+      }
+    }
+  }
+  cur = k;
+}
+
+function paint() {
+  const d = image.data, cmds = F.commands;
+  for (let p = 0, o = 0; p < W * H; p++, o += 4) {
+    let r = 0, g = 0, b = 0;
+    const t = top_[p];
+    if (t >= 0) {
+      const c = col[p];
+      if (viewMode === 'heat') {
+        const h = HEAT_RGB[Math.min(cnt[p], 8)];
+        r = h[0]; g = h[1]; b = h[2];
+      } else if (viewMode === 'who') {
+        const h = CAT_RGB[cmds[t].cat] || CAT_RGB.frame;
+        const v = 0.45 + 0.55 * (c & 0x8000 ? (((c & 31) + ((c >> 5) & 31) + ((c >> 10) & 31)) / 93) : 0);
+        r = h[0] * v; g = h[1] * v; b = h[2] * v;
+      } else {
+        if (c & 0x8000) { r = (c & 31) << 3; g = ((c >> 5) & 31) << 3; b = ((c >> 10) & 31) << 3; }
+        if (viewMode === 'cut') { r *= 0.55; g *= 0.55; b *= 0.55; }
+        if (viewMode === 'waste') {
+          const y = (r * 3 + g * 6 + b) / 10;
+          if (last[p] === t) { r = g = b = y * 0.75; }
+          else { r = 90 + y * 0.65; g = y * 0.2; b = y * 0.2; }
+        }
+      }
+      if (selected >= 0 && cmds[t].owner !== selected) { r *= 0.22; g *= 0.22; b *= 0.22; }
+    } else if (viewMode === 'heat' && cur === N) {
+      r = 255; b = 255;     // never written: what shows the last frame
+    }
+    if (viewMode === 'cut' && cutMask[p]) {
+      const k = cutCol[p], y = k & 0x8000 ? ((k & 31) * 3 + ((k >> 5) & 31) * 6 + ((k >> 10) & 31)) * 0.8 : 0;
+      r = 170 + y * 0.35; g = 30 + y * 0.45; b = 130 + y * 0.45;
+    }
+    if (viewMode === 'differs') {
+      const y = (r * 3 + g * 6 + b) / 10 * 0.5;
+      r = g = b = y;
+      if (differs[p]) { r = 255; g = 40; b = 255; }
+      else if (filled[p]) { r = 40; g = 200; b = 90; }
+      else if (t < 0 && cur === N) { r = 90; g = 0; b = 90; }
+    }
+    d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  const rects = FRAMES[scene].boxes ? FRAMES[scene].boxes.rects : FRAMES[scene].boxRects;
+  if (rects && (viewMode === 'cut' || viewMode === 'differs')) {
+    ctx.strokeStyle = '#ffe600'; ctx.lineWidth = 1;
+    ctx.font = '8px monospace'; ctx.fillStyle = '#ffe600';
+    rects.forEach((r, n) => {
+      ctx.strokeRect(r[0] + .5, r[1] + .5, r[2] - r[0], r[3] - r[1]);
+      ctx.fillText('box ' + (n + 1), Math.max(r[0], 0) + 2, Math.max(r[1], 0) + 9);
+    });
+  }
+  if (cur > 0) {
+    const c = cmds[cur - 1].corners;
+    ctx.strokeStyle = '#ffb000'; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.moveTo(c[0] + .5, c[1] + .5); ctx.lineTo(c[2] + .5, c[3] + .5); ctx.lineTo(c[4] + .5, c[5] + .5); ctx.lineTo(c[6] + .5, c[7] + .5); ctx.closePath(); ctx.stroke();
+  }
+}
+
+function go(k) {
+  k = Math.max(0, Math.min(N, k));
+  apply(k);
+  $('step').value = k;
+  paint(); stripCursor(); readout();
+}
+
+function readout() {
+  const el = $('readout');
+  if (!cur) { el.textContent = 'Nothing drawn yet.'; return; }
+  const c = F.commands[cur - 1], o = F.owners[c.owner];
+  let spent = 0, written = 0;
+  for (let i = 0; i < cur; i++) { spent += F.commands[i].cycles; written += F.commands[i].written; }
+  el.innerHTML = '';
+  const who = document.createElement('span'); who.className = 'who'; who.textContent = o.name;
+  el.append(`Command ${cur} of ${N}: `, who,
+    `, ${KIND[c.kind & 7]} ${c.kind < 4 ? `${c.tw}x${c.th} texels` : ''}, ${c.lines} lines. Writes ${c.written} px, ${c.seen} seen at the end. ${msOf(c.cycles).toFixed(3)} ms.${cutOf.has(c.from) ? (cutOf.get(c.from) >= 0 ? ` Cut: wholly behind box ${cutOf.get(c.from) + 1}.` : ' Cut: its room was skipped, seen only through a doorway behind a box.') : ''}`,
+    document.createElement('br'),
+    `So far: ${msOf(spent).toFixed(2)} of ${msOf(F.cycles).toFixed(2)} ms, ${(written / (W * H)).toFixed(2)} screens written.`);
+}
+
+function figures() {
+  const c = F.commands, written = c.reduce((a, x) => a + x.written, 0), gone = c.filter(x => x.written && !x.seen).length;
+  const items = [
+    [msOf(F.cycles).toFixed(1) + ' ms', `VDP1 time, ${N} commands`],
+    [(written / (W * H)).toFixed(2), 'screens written on the frame'],
+    [msOf(F.wasted).toFixed(1) + ' ms', `on pixels not seen (${Math.round(F.wasted * 100 / F.cycles)}% of the time)`],
+    [gone + ' / ' + msOf(F.gone).toFixed(1) + ' ms', 'commands with nothing left at the end'],
+    [String(F.never), listMode === 'now' ? 'pixels never written: they show the last frame' : `pixels never written, ${TODAY.never} as now`],
+  ];
+  const bx = FRAMES[scene].boxes;
+  if (bx) {
+    items.length = 0;
+    items.push([msOf(TODAY.cycles).toFixed(1) + ' -> ' + msOf(bx.onCycles).toFixed(1) + ' ms', `VDP1 time, boxes off to on, the game's own lists (${bx.offCommands} to ${bx.onCommands} commands)`]);
+    items.push([String(bx.drop.length), `room faces the boxes cut, ${msOf(bx.cycles).toFixed(1)} ms of drawing${bx.rooms.length ? `, among them all of ${bx.rooms.join(', ')}` : ''}`]);
+    items.push([String(bx.seen), 'pixels of those faces that would have shown: the test of a wrong cut, 0 is right']);
+    items.push([bx.rects.length + ' on screen', 'boxes in view this frame']);
+    items.push([bx.hidden + ' / ' + msOf(bx.hiddenCycles).toFixed(1) + ' ms', 'room faces hidden anyway with the boxes off: what a perfect test could cut']);
+    if (listMode === 'boxes') items.push([String(differs.reduce((a, x) => a + x, 0)), 'pixels differ on screen, boxes off to on']);
+  } else if (listMode !== 'now') {
+    items[0][1] = `VDP1 time, ${N} commands; as now ${msOf(TODAY.cycles).toFixed(1)} ms, ${TODAY.commands.length} commands`;
+    items.push([String(differs.reduce((a, x) => a + x, 0)), 'pixels look different from today\'s frame']);
+  }
+  $('figures').innerHTML = '';
+  for (const [b, s] of items) {
+    const d = document.createElement('div'); d.className = 'figure';
+    d.innerHTML = `<b></b><span></span>`;
+    d.firstChild.textContent = b; d.lastChild.textContent = s;
+    $('figures').append(d);
+  }
+}
+
+function pctBar(a, b) { const p = b ? a * 100 / b : 0; return `<span class="bar"><i style="width:${p.toFixed(0)}%"></i></span>${p.toFixed(0).padStart(3)}%`; }
+
+function kinds() {
+  const t = {};
+  for (const c of F.commands) { const s = t[c.cat] = t[c.cat] || { n: 0, cycles: 0, written: 0, seen: 0 }; s.n++; s.cycles += c.cycles; s.written += c.written; s.seen += c.seen; }
+  let h = '<thead><tr><th>Kind</th><th>Commands</th><th>ms</th><th>Written</th><th>Seen</th></tr></thead><tbody>';
+  for (const [k, s] of Object.entries(t).sort((a, b) => b[1].cycles - a[1].cycles))
+    h += `<tr style="cursor:default"><td><span class="swatch" style="background:${CAT[k] || CAT.frame}"></span>${CAT_NAME[k] || k}</td><td>${s.n}</td><td>${msOf(s.cycles).toFixed(2)}</td><td>${s.written}</td><td>${pctBar(s.seen, s.written)}</td></tr>`;
+  $('kinds').innerHTML = h + '</tbody>';
+}
+
+function hist() {
+  const h = F.hist, total = W * H, top = Math.max(...h);
+  $('hist').innerHTML = '';
+  for (let i = 0; i <= 8; i++) {
+    const n = i < 8 ? (h[i] || 0) : h.slice(8).reduce((a, b) => a + b, 0);
+    const d = document.createElement('div');
+    d.title = `${n} pixels written ${i < 8 ? i : '8 or more'} times`;
+    d.innerHTML = `<span>${Math.round(n * 100 / total)}%</span><i style="height:${Math.max(1, n * 34 / top)}px;background:${HEAT[Math.max(1, i)]}"></i><span>${i < 8 ? i : '8+'}x</span>`;
+    $('hist').append(d);
+  }
+}
+
+function owners() {
+  const rows = F.owners.map((o, i) => ({ ...o, i, pct: o.written ? o.seen / o.written : 0 }));
+  rows.sort((a, b) => { const x = a[sortKey], y = b[sortKey]; const c = typeof x === 'string' ? x.localeCompare(y, undefined, { numeric: true }) : x - y; return sortUp ? c : -c; });
+  const heads = [['name', 'Owner'], ['commands', 'Cmds'], ['cycles', 'ms'], ['written', 'Written'], ['seen', 'Seen'], ['pct', 'Seen %']];
+  const table = $('owners');
+  table.innerHTML = '<thead><tr>' + heads.map(([k, n]) => `<th data-key="${k}">${n}${k === sortKey ? (sortUp ? ' ^' : ' v') : ''}</th>`).join('') + '</tr></thead>';
+  const body = document.createElement('tbody');
+  for (const o of rows) {
+    const tr = document.createElement('tr');
+    tr.tabIndex = 0;
+    if (o.i === selected) tr.className = 'on';
+    tr.innerHTML = `<td><span class="swatch" style="background:${CAT[o.cat] || CAT.frame}"></span></td><td>${o.commands}</td><td>${msOf(o.cycles).toFixed(2)}</td><td>${o.written}</td><td>${o.seen}</td><td>${pctBar(o.seen, o.written)}</td>`;
+    tr.firstChild.append(o.name);
+    const pick = () => { selected = selected === o.i ? -1 : o.i; owners(); stripDraw(); paint(); stripCursor(); };
+    tr.onclick = pick;
+    tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
+    body.append(tr);
+  }
+  table.append(body);
+  table.querySelectorAll('th').forEach(th => th.onclick = () => {
+    const k = th.dataset.key;
+    if (sortKey === k) sortUp = !sortUp; else { sortKey = k; sortUp = k === 'name'; }
+    owners();
+  });
+}
+
+function stripDraw() {
+  const cv = $('strip'), w = cv.clientWidth || 700, h = 60;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = w * dpr; cv.height = h * dpr;
+  stripBase = document.createElement('canvas'); stripBase.width = cv.width; stripBase.height = cv.height;
+  const g = stripBase.getContext('2d');
+  const peak = Math.sqrt(Math.max(1, ...F.commands.map(c => c.written)));
+  const bw = Math.max(1, cv.width / N);
+  F.commands.forEach((c, i) => {
+    const x = i * cv.width / N, full = Math.sqrt(c.written) / peak * cv.height, kept = c.written ? full * c.seen / c.written : 0;
+    const dim = selected >= 0 && c.owner !== selected;
+    g.globalAlpha = dim ? 0.1 : 0.32; g.fillStyle = cutOf.has(c.from) ? '#ff3cc8' : CAT[c.cat] || CAT.frame;
+    g.fillRect(x, cv.height - full, bw, full);
+    g.globalAlpha = dim ? 0.15 : 1;
+    g.fillRect(x, cv.height - kept, bw, kept);
+  });
+}
+
+function stripCursor() {
+  const cv = $('strip'), g = cv.getContext('2d');
+  if (!stripBase) return;
+  g.clearRect(0, 0, cv.width, cv.height);
+  g.drawImage(stripBase, 0, 0);
+  const x = cur * cv.width / N;
+  g.fillStyle = '#ffb000'; g.fillRect(x - 1, 0, 2 * (window.devicePixelRatio || 1), cv.height);
+}
+
+function setView(v) {
+  viewMode = v;
+  [...$('views').children].forEach(b => b.setAttribute('aria-pressed', b.dataset.view === v));
+  const lg = $('legend');
+  lg.innerHTML = '';
+  const add = (color, text) => { const s = document.createElement('span'); s.innerHTML = `<i style="background:${color}"></i>`; s.append(text); lg.append(s); };
+  if (v === 'heat') { add('#ff00ff', 'Never written: shows the last frame'); for (let i = 1; i <= 8; i++) add(HEAT[i], i === 8 ? '8+ times' : i + (i === 1 ? ' time' : '')); }
+  else if (v === 'waste') { add('#a02020', 'Will be painted over later'); add('#8c8c8c', 'Still there at the end'); }
+  else if (v === 'who') { for (const k of Object.keys(CAT)) add(CAT[k], CAT_NAME[k]); }
+  else if (v === 'cut') { add('#ff3cc8', 'A face the boxes cut, drawn so far, seen through what paints over it'); add('#ffe600', 'A box\'s rectangle this frame'); }
+  else if (v === 'differs') { add('#ff28ff', 'Looks different from today\'s frame'); add('#28c85a', 'Never written today, written here'); add('#5a005a', 'Still never written'); }
+  paint();
+}
+
+for (const [k, n] of LISTS) {
+  const b = document.createElement('button'); b.textContent = n; b.dataset.list = k; b.onclick = () => setList(k); $('lists').append(b);
+}
+for (const [v, n] of [['picture', 'Picture'], ...(HAS_BOXES ? [['cut', 'What the boxes cut']] : []), ['heat', 'Times written'], ['waste', 'Painted over later'], ['who', 'Who drew it'], ['differs', 'Differs from today']]) {
+  const b = document.createElement('button'); b.textContent = n; b.dataset.view = v; b.onclick = () => setView(v); $('views').append(b);
+}
+FRAMES.forEach((f, i) => { const b = document.createElement('button'); b.textContent = f.title; b.onclick = () => load(i); $('scenes').append(b); });
+$('step').oninput = e => go(+e.target.value);
+document.querySelectorAll('[data-move]').forEach(b => b.onclick = () => go(cur + +b.dataset.move));
+$('start').onclick = () => go(0);
+$('end').onclick = () => go(N);
+function tick() {
+  if (!playing) return;
+  if (cur >= N) { playing = false; $('play').textContent = 'Play'; return; }
+  go(cur + +$('speed').value);
+  requestAnimationFrame(tick);
+}
+$('play').onclick = () => {
+  playing = !playing;
+  $('play').textContent = playing ? 'Pause' : 'Play';
+  if (playing) { if (cur >= N) go(0); requestAnimationFrame(tick); }
+};
+const seek = e => { const r = $('strip').getBoundingClientRect(); go(Math.round((e.clientX - r.left) / r.width * N)); };
+$('strip').onpointerdown = e => { seek(e); $('strip').setPointerCapture(e.pointerId); };
+$('strip').onpointermove = e => { if (e.buttons) seek(e); };
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+  if (e.key === 'ArrowRight') { e.preventDefault(); go(cur + (e.shiftKey ? 10 : 1)); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); go(cur - (e.shiftKey ? 10 : 1)); }
+  if (e.key === 'b' || e.key === 'B') setList(listMode === 'now' ? lastOther : 'now');
+});
+window.addEventListener('resize', () => { stripDraw(); stripCursor(); });
+load(0);
+setView(HAS_BOXES ? 'cut' : 'picture');
+</script>

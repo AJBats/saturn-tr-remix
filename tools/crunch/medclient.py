@@ -38,6 +38,12 @@ class Mednafen:
         self.stop()
 
     def start(self, timeout=60):
+        lock = os.path.join(self.home, 'mednafen.lck')
+        try:
+            if os.path.exists(lock):
+                os.remove(lock)
+        except PermissionError:     # the running Mednafen holds it open
+            raise RuntimeError(f'another Mednafen is running on {self.home}: give this one a different name') from None
         os.makedirs(self.ipc, exist_ok=True)
         os.makedirs(os.path.join(self.home, 'firmware'), exist_ok=True)
         shutil.copy(os.path.join(SHARED_HOME, 'mednafen.cfg'), self.home)
@@ -45,22 +51,28 @@ class Mednafen:
             dst = os.path.join(self.home, 'firmware', f)
             if not os.path.exists(dst):
                 shutil.copy(os.path.join(SHARED_HOME, 'firmware', f), dst)
-        for f in (self.ack_file, self.action_file, os.path.join(self.home, 'mednafen.lck')):
+        for f in (self.ack_file, self.action_file):
             if os.path.exists(f):
                 os.remove(f)
         env = dict(os.environ, MEDNAFEN_HOME=self.home)
-        self.stderr = open(os.path.join(LAB, os.path.basename(self.ipc) + '_stderr.txt'), 'w')
-        self.proc = subprocess.Popen([EXE, '--sound', '0', '-cd.image_memcache', '1', '--automation', self.ipc,
-                                      self.cue], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                     stderr=self.stderr, env=env)
+        stderr_path = os.path.join(LAB, os.path.basename(self.ipc) + '_stderr.txt')
+        with open(stderr_path, 'w') as stderr:
+            self.proc = subprocess.Popen([EXE, '--sound', '0', '-cd.image_memcache', '1', '--automation', self.ipc,
+                                          self.cue], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                         stderr=stderr, env=env)
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self.proc.poll() is not None:
-                raise RuntimeError(f'Mednafen exited with code {self.proc.returncode}')
+                with open(stderr_path, encoding='utf-8', errors='replace') as f:
+                    raise RuntimeError(f'Mednafen exited with code {self.proc.returncode}: {f.read().strip()}')
             if 'ready' in self.ack():
                 return
             time.sleep(0.2)
-        raise RuntimeError('Mednafen did not come up')
+        # stuck: it would keep the lock on this name, and __exit__ will not run
+        self.proc.kill()
+        self.proc.wait()
+        with open(stderr_path, encoding='utf-8', errors='replace') as f:
+            raise RuntimeError(f'Mednafen was not ready in {timeout} s, stopped it: {f.read().strip()}')
 
     def stop(self):
         """Quits the instance this object started (and only that one)."""
@@ -72,7 +84,9 @@ class Mednafen:
             try:
                 self.proc.wait(10)
             except subprocess.TimeoutExpired:
-                pass
+                # stuck: it would keep the lock on this name
+                self.proc.kill()
+                self.proc.wait()
         self.proc = None
 
     def ack(self):

@@ -7,6 +7,12 @@
 
 void screenInit();
 
+// This level has a plane (plane.h): it shows under the frames, and the picture when
+// there's one, from the next frame; VDP2's offsets are its and the picture's, and
+// the frames fade by what screenFramesFade gives render.cpp.
+void screenPlaneLevel(bool on);
+int32_t screenFramesFade();
+
 // Shows BINDATA/<name>.BIN, a 15-bit RGB picture width x 224, centred, in
 // place of the game's frame until screenRelease.
 void screenShow(const char* name, int32_t width);

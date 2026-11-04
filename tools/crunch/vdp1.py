@@ -43,8 +43,8 @@ def calibrated_costs(cfg=CFG):
 
 
 class Vdp1:
-    def __init__(self, tvmr=0, fbcr=0x03, costs=None):
-        self.lib = ctypes.CDLL(DLL)
+    def __init__(self, tvmr=0, fbcr=0x03, costs=None, dll=DLL):
+        self.lib = ctypes.CDLL(dll)
         self.lib.vdp1_vram.restype = ctypes.POINTER(ctypes.c_uint16)
         self.lib.vdp1_fb.restype = ctypes.POINTER(ctypes.c_uint16)
         self.lib.vdp1_plot.restype = ctypes.c_int32
@@ -71,6 +71,20 @@ class Vdp1:
         log = (CommandCost * max(log_max, 1))()
         n = self.lib.vdp1_plot(ctypes.byref(totals), log, log_max)
         return totals, [log[i] for i in range(min(n, log_max))]
+
+
+    def reset(self):
+        """Ready for step: the clip and local coordinates cleared, as a plot begins."""
+        c = self.costs
+        self.lib.vdp1_reset(self.tvmr, self.fbcr, c['texel'], c['tex_pixel'], c['gouraud'], c['pixel'], c['line'])
+
+    def step(self, addr, ret_addr):
+        """One command at addr (VRAM words): (the next's address or -1, its cost). ret_addr: a c_int32 the
+        list's return address stays in, -1 for none."""
+        cost = CommandCost()
+        step = self.lib.vdp1_step
+        step.restype = ctypes.c_int32
+        return step(ctypes.c_int32(addr), ctypes.byref(ret_addr), ctypes.byref(cost)), cost
 
 
 def rgb(fb, width=352, height=224):

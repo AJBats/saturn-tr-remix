@@ -107,6 +107,8 @@ struct CommandList
     ShadeCache* shade;      // +36 the CPU's shaded colour tables, or none
     const uint8_t* shadeLevel;      // +40 shade 0 .. 31 to its gouraud level, for water
     const Sprite* sprites;  // +44 the level's, for a sprite's face
+    int32_t voidX0, voidY0, voidX1, voidY1; // +48 the box round this frame's fills so far, x0 > x1 none
+    int32_t voidArea;       // +64 ... and their areas added up
 };
 
 // A command's place, as VDP1 links to it.
@@ -119,6 +121,32 @@ inline int32_t facesSlot(uint32_t link)
 {
     return (link - (VRAM_FRAME_CMDS >> 3)) / (sizeof(Command) >> 3);
 }
+
+#ifdef STEPWISE
+// Who made which commands (tools/stepwise.py): a mark is the next command's
+// place as a room or a draw begins, list 0 the rooms', 1 the draws'. A list's
+// marks end at gStepUploaded when frameUpload sends it.
+#define STEP_MARKS  512
+#define STEP_ROOM   0x01000000      // | the room
+#define STEP_DRAW   0x02000000      // | its type << 16 | its mesh
+#define STEP_FILL   0x03000000
+
+struct StepMark
+{
+    const uint32_t* cmd;
+    uint32_t who;
+};
+
+extern StepMark gStepMarks[2][STEP_MARKS];
+extern uint32_t gStepHead[2], gStepUploaded[2];
+
+inline void stepMark(int32_t list, const CommandList &l, uint32_t who)
+{
+    StepMark &m = gStepMarks[list][gStepHead[list]++ % STEP_MARKS];
+    m.cmd = l.cmd;
+    m.who = who;
+}
+#endif
 
 // A list taking the commands from slot first of cmds (and its gouraud
 // tables) up to slot end, with heads of OT_SIZE + 1 buckets, emptied, and
@@ -185,7 +213,9 @@ struct RoomMaterial
     uint16_t colour;            // +10 its mean
     uint8_t mips;               // +12 the mip levels it takes: 0 .. 2
     uint8_t skip;               // +13 see-through texels: left out without the cache; bit 1
-                                // sparse (TEX_ATTR_SPARSE)
+                                // sparse (TEX_ATTR_SPARSE); bits 2 .. 7 the shade from which, at every
+                                // corner, a face of it can't be seen, so black will do (63 none:
+                                // render.cpp)
     uint16_t lines[2];          // +14 4 x its texels along a face's lines, as it is and turned
     uint16_t sizes[6];          // +18 CMDSIZE by variant: mip level * 2 + turned
     uint16_t quadrant;          // +30 a quadrant's characters / 8
@@ -216,16 +246,27 @@ struct RoomTextures
 // The room materials of textures 0 .. count - 1.
 void facesRoomMaterials(const RoomTextures &textures, RoomMaterial* materials, int32_t count);
 
-// Where quads split near the camera put their new corners: the vertices
-// from top down to bottom.
+// What quads split near the camera project their new corners with; the lab's old
+// path puts them in the vertices from top down to bottom.
 struct RoomSplit
 {
+#ifdef RENDER_LAB
     Vertex* vertices;
     int32_t top, bottom;
+#endif
     const uint16_t* divTable;
 };
 
 struct RoomRun;
+
+// A solid box over a room's window (facesRoom, from a BoxSeen): its rectangle, and where a
+// face's corners must lie to be behind it, in the coordinates of the room's points:
+// lo < p < hi on each axis.
+struct RoomBox
+{
+    int16_t x0, y0, x1, y1;
+    int16_t lo[3], hi[3];
+};
 
 // A room's faces: its quads in their runs, then its triangles, as the game
 // adds them (faces.s, rooms.cpp roomFaces), each straight to its command,
@@ -237,10 +278,6 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &textures, RoomSplit &split, Com
 // past it is a fill behind everything, as one a plane cuts.
 void facesFar(int32_t far);
 
-// Room faces with every corner within this are split as the original split them
-// (faces.cpp roomQuadNear; at most 4096, its own); 0, only where the near plane
-// cuts them.
-void facesNear(int32_t split);
 void facesRoom(const FaceRoom &room, RoomRun &run);
 
 // A face's shading in facesroom.s.
@@ -296,9 +333,24 @@ struct RoomRun
     int32_t window[4];          // +312 the room's portal window: x0 y0 x1 y1
     int32_t (*tiles)(RoomRun* run, uint32_t key, uint32_t size);    // +328 the texture's tiles'
                                 // character / 8, 0 when the cache can't have them
-    void (*near)();             // +332 facesRoomNear, or none: only what the near plane cuts splits
-    int32_t nearSplit;          // +336 a quad with every corner within this splits (facesNear)
+    void (*near)();             // +332 facesRoomNear; the lab has none
+    int32_t voidWay;            // +336 gFacesVoidWay, for the run
+    int32_t boxNear;            // +340 a face with corner A nearer isn't behind any of the room's boxes
+    int32_t boxCount;           // +344 those over the room's window
+    const RoomBox* boxes;       // +348 ... roomBoxes
+    const RoomVertex* points;   // +352 the room's
+    const BoxSeen* seen;        // the frame's solid boxes (rooms.h roomsBoxes), for facesRoom
+    int32_t seenCount;
+    RoomBox roomBoxes[BOXES_SEEN];
 };
+
+// What room faces and the walk do where a plane cuts a face away, to keep old
+// pixels from showing: each paints its own rectangle of colour 0 behind everything;
+// or adds to the list's box, for one rectangle round them all, painted first; or, on a
+// frame buffer already clear, nothing. Set between frames. Meshes' stay their own unless
+// the buffer is clear: they're few.
+enum FaceVoidWay { FACE_VOIDS_DRAWN, FACE_VOIDS_BOXED, FACE_VOIDS_NONE };
+extern "C" volatile int32_t gFacesVoidWay;
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);
 extern "C" void facesRoomNear();    // facesroom.s's, as it calls it

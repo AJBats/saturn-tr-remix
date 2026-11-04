@@ -55,7 +55,13 @@
     .equ    RUN_FAR_BUCKET, 268
     .equ    RUN_CAREFUL_TRI, 272
     .equ    RUN_NEAR,       332
-    .equ    RUN_NEAR_SPLIT, 336
+    .equ    RUN_VOID_WAY,   336     ! faces.h FaceVoidWay
+    .equ    RUN_BOX_NEAR,   340
+    .equ    RUN_BOX_COUNT,  344
+    .equ    RUN_BOXES,      348
+    .equ    RUN_POINTS,     352
+    .equ    BOX_BYTES,      20      ! RoomBox
+    .equ    VOIDS_NONE,     2
     .equ    CLIP_LEFT,      2
     .equ    CLIP_RIGHT,     4
     .equ    CLIP_TOP,       8
@@ -425,16 +431,20 @@
     nop
 
 .Lwithin\sfx:                   ! left out, unless C splits what's near
+    .ifdef RENDER_LAB
     mov.l   @(RUN_CAREFUL_TRI, gbr), r0
     tst     r0, r0
     bt      .Lnext\sfx
+    .endif
     .if \tri
     bra     .LcarefulTri\sfx
     nop
 .Lcut\sfx:                      ! filled, unless C splits it
+    .ifdef RENDER_LAB
     mov.l   @(RUN_CAREFUL_TRI, gbr), r0
     tst     r0, r0
     bt      1b
+    .endif
 .LcarefulTri\sfx:
     bsr     .LcarefulTri
     nop
@@ -451,18 +461,18 @@
     nop
     .endif
 
-.LtoPlain\sfx:
-    bra     .Lplain\sfx
-    nop
-
     ! wound the wrong way on the frame: it is, unless the near plane holds a
     ! corner, which can turn a quad over (the original tests only those with
     ! none near); then C asks in room space
 .LfaceClose\sfx:                 ! r0 corner A's z >> 8
+    .ifdef RENDER_LAB
     mov     r0, r6
+    .endif
     mov.l   @(RUN_NEAR, gbr), r0
+    .ifdef RENDER_LAB
     tst     r0, r0
     bt      .LfaceOurs\sfx
+    .endif
     jsr     @r0
     nop
     tst     r0, r0
@@ -485,6 +495,7 @@
     bra     .Lcareful\sfx
     nop
     .endif
+    .ifdef RENDER_LAB
 .LfaceOurs\sfx:
     .ifeq \tri
     mov     r6, r0
@@ -493,11 +504,14 @@
     .endif
     bra     .LFaceMaterial\sfx
     nop
+    .endif
 
 .LfaceWound\sfx:
+    .ifdef RENDER_LAB
     mov.l   @(RUN_NEAR, gbr), r0
     tst     r0, r0
     bt      .Lnext\sfx
+    .endif
     mov.l   @(4, r1), r6
     mov.l   @(4, r2), r0
     or      r0, r6
@@ -514,6 +528,24 @@
     bra     .Lcareful\sfx
     nop
     .endif
+
+    ! corner A far enough to be behind a solid box
+.LfaceBoxes\sfx:
+    mov.l   .LbehindAt\sfx, r0
+    jsr     @r0
+    nop
+    bf      1f
+    bra     .Lnext\sfx
+    nop
+1:  mov.w   @(4, r1), r0
+    bra     .LFaceSeen\sfx
+    nop
+    .align 2
+.LbehindAt\sfx: .long   .Lbehind
+
+.LtoPlain\sfx:
+    bra     .Lplain\sfx
+    nop
 
 .Lnext\sfx:
     dt      r5
@@ -532,12 +564,40 @@
     CULL    \tri, .Lculled\sfx
 .LFaceNear\sfx:
     mov.l   r13, @r15           ! the clip flags ored
+    mov.l   @(RUN_BOX_NEAR, gbr), r0
+    mov     r0, r6
     mov.w   @(4, r1), r0
+    cmp/ge  r6, r0
+    bt      .LfaceBoxes\sfx
+.LFaceSeen\sfx:
     shlr8   r0
     tst     #0xF0, r0
-    bt      .LfaceClose\sfx     ! corner A within the most faces.cpp splits at
+    bt      .LfaceClose\sfx     ! corner A within the distance faces.cpp splits at
 .LFaceMaterial\sfx:
     MATERIAL
+    ! too dark to see? Corner A settles it for most faces
+    mov.b   @(13, r14), r0
+    extu.b  r0, r0
+    shlr2   r0
+    mov     r0, r8
+    mov.b   @(6, r1), r0
+    extu.b  r0, r0
+    cmp/hs  r8, r0
+    bf      .LFaceLit\sfx
+    mov.l   .LdarkAt\sfx, r0
+    jsr     @r0
+    nop
+    tst     r0, r0
+    bt      .LFaceLit\sfx
+    cmp/pz  r0
+    bt      1f
+    bra     .LdoneNear
+    nop
+1:  bra     .Lnext\sfx
+    nop
+    .align 2
+.LdarkAt\sfx:   .long   .Ldark
+.LFaceLit\sfx:
     mov.w   @(8, r14), r0
     cmp/pz  r0
     bf      .LtoPlain\sfx      ! a texture the cache can't take
@@ -742,7 +802,7 @@
     ! without the cache: in its mean colour, or left out
 .Lplain\sfx:                    ! r14 the material
     mov.b   @(13, r14), r0
-    tst     r0, r0
+    tst     #3, r0
     bf      .Lskip\sfx
     mov.w   @(10, r14), r0
     extu.w  r0, r6              ! the colour
@@ -945,6 +1005,9 @@ _facesRoomAsm:
     rts
     mov.l   @r15+, r8
 
+    .align 2
+    FACES   Facing, 0, 1, .LrunDone
+
 ! --- what the faces share ------------------------------------------------------
 
     ! offFrame(A) + offFrame(D) > offFrame(B) + offFrame(C): the corners
@@ -1138,10 +1201,18 @@ _facesRoomAsm:
     rts
     nop
 
-    ! a transparent fill over the box on the frame of corners r1, r2, r3, r7,
-    ! behind everything (faces.cpp faceVoid); T set when the list is then
-    ! full; r0, r6, r8, r13, r14
+.LvoidNone:
+    rts
+    clrt
+
+    ! the box on the frame of corners r1, r2, r3, r7 (faces.cpp faceVoid): added
+    ! to the frame's box and area, then a transparent fill over it behind
+    ! everything if that's the way (FaceVoidWay); T set when the list is then
+    ! full; r0 .. r3, r6, r8, r13, r14
 .Lvoid:
+    mov.l   @(RUN_VOID_WAY, gbr), r0
+    cmp/eq  #VOIDS_NONE, r0
+    bt      .LvoidNone
     mov.w   @r1, r6             ! x: least
     mov     r6, r8              ! ... most
     RANGE   r2, 0, r6, r8
@@ -1171,12 +1242,49 @@ _facesRoomAsm:
     cmp/gt  r0, r14
     bf      4f
     mov     r0, r14
-4:  mov     #0x10, r0           ! (CMD_POLYGON | CMD_JUMP) >> 8
-    cmp/gt  r8, r6
+4:  cmp/gt  r8, r6
     bt      5f
     cmp/gt  r14, r13
-    bf      6f
-5:  mov     #0x50, r0           ! empty: skipped
+    bt      5f
+    mov.l   @(RUN_LIST, gbr), r0
+    mov     r0, r1
+    mov.l   @(48, r1), r2       ! CommandList's box
+    cmp/ge  r2, r6
+    bt      1f
+    mov.l   r6, @(48, r1)
+1:  mov.l   @(52, r1), r2
+    cmp/ge  r2, r13
+    bt      2f
+    mov.l   r13, @(52, r1)
+2:  mov.l   @(56, r1), r2
+    cmp/gt  r2, r8
+    bf      3f
+    mov.l   r8, @(56, r1)
+3:  mov.l   @(60, r1), r2
+    cmp/gt  r2, r14
+    bf      4f
+    mov.l   r14, @(60, r1)
+4:  mov     r8, r2
+    sub     r6, r2
+    add     #1, r2
+    mov     r14, r3
+    sub     r13, r3
+    add     #1, r3
+    mulu.w  r2, r3
+    add     #64, r1
+    mov.l   @r1, r2
+    sts     macl, r3
+    add     r3, r2
+    mov.l   r2, @r1             ! its area
+    mov.l   @(RUN_VOID_WAY, gbr), r0
+    tst     r0, r0
+    bf      .LvoidNone          ! in the box alone
+    bra     6f
+    mov     #0x10, r0           ! (CMD_POLYGON | CMD_JUMP) >> 8
+5:  mov.l   @(RUN_VOID_WAY, gbr), r0
+    tst     r0, r0
+    bf      .LvoidNone
+    mov     #0x50, r0           ! empty: skipped
 6:  shll8   r0
     or      #4, r0
     shll16  r0
@@ -1279,7 +1387,6 @@ _facesRoomAsm:
 ! --- the faces ------------------------------------------------------------------
 
     .align 2
-    FACES   Facing, 0, 1, .LrunDone
     .align 2
     FACES   Any, 0, 0, .LrunDone
 
@@ -1296,7 +1403,7 @@ _facesRoomAsm:
     ! follows in the cache
     .section .text.facesnear, "ax"
 
-    ! A quad every corner of it within RoomRun.nearSplit, none nearer than the plane:
+    ! A quad every corner of it within 4096 (faces.cpp NEAR_SPLIT), none nearer than the plane:
     ! split here. A new corner lies where the view's midpoint does, from the
     ! ends' screen places and depths alone: a + (b - a) zb / (za + zb), one
     ! divide for x and y, ends in address order so that two quads sharing an
@@ -1383,8 +1490,8 @@ _facesRoomAsm:
     .global _facesRoomNear
 _facesRoomNear:
     sts.l   pr, @-r15
-    mov.l   @(RUN_NEAR_SPLIT, gbr), r0
-    mov     r0, r6
+    mov     #16, r6
+    shll8   r6                  ! NEAR_SPLIT
     mov.w   @(4, r1), r0
     cmp/gt  r6, r0
     bt      .LnearWhole
@@ -1948,6 +2055,125 @@ _facesRoomNear:
 .LnearHoldX:    .short  480
 .LnearHoldY:    .short  352
     .align 2
+
+    ! a room face, corners r1, r2, r3, r7, corner A at the shade r8 from which its
+    ! texture can't be seen: with every corner there, a plain black polygon in its place
+    ! among the faces, which hides what's behind it for less than its texture costs either
+    ! CPU. Never under water, whose colours are worked another way. r0 1 made, -1 and the
+    ! list is full; else 0, r14 kept. r0, r6, r8, r13, r14
+.Ldark:
+    mov.b   @(6, r2), r0
+    extu.b  r0, r0
+    cmp/hs  r8, r0
+    bf      8f
+    mov.b   @(6, r3), r0
+    extu.b  r0, r0
+    cmp/hs  r8, r0
+    bf      8f
+    mov.b   @(6, r7), r0
+    extu.b  r0, r0
+    cmp/hs  r8, r0
+    bf      8f
+    mov.l   @(RUN_PLAIN, gbr), r0
+    cmp/pz  r0
+    bf      8f
+    mov.l   @r15, r0            ! the clip flags ored
+    sts.l   pr, @-r15
+    mov     #0x10, r8
+    shll8   r8
+    add     #4, r8
+    shll16  r8                  ! w0: (CMD_POLYGON | CMD_JUMP) << 16
+    tst     #CLIP_FRAME, r0
+    bt      5f
+    mov.l   .LnearMirror, r0
+    jsr     @r0
+    nop
+5:  BUCKET
+    LINK
+    QUAD_CORNERS
+    mov     #-64, r0
+    extu.b  r0, r0
+    shll16  r0
+    mov     #-128, r6
+    extu.b  r6, r6
+    shll8   r6
+    or      r6, r0
+    mov.l   r0, @(4, r9)        ! w1: PMOD_NO_ECD_SPD << 16 | black
+    NEXT
+    lds.l   @r15+, pr
+    bt      9f
+    rts
+    mov     #1, r0
+8:  rts
+    mov     #0, r0
+9:  rts
+    mov     #-1, r0
+
+    ! the face with corners r1 r2 r3 r7 wholly behind a solid box (faces.h RoomBox): every
+    ! corner in the box's rectangle and past its sides that face the camera: T set.
+    ! r0, r6, r8, r13, r14
+    .macro  BOX_INSIDE v, miss
+    mov.w   @\v, r6
+    mov.w   @r13, r0
+    cmp/ge  r0, r6
+    bf      \miss
+    mov.w   @(4, r13), r0
+    cmp/ge  r6, r0
+    bf      \miss
+    mov.w   @(2, \v), r0
+    mov     r0, r6
+    mov.w   @(2, r13), r0
+    cmp/ge  r0, r6
+    bf      \miss
+    mov.w   @(6, r13), r0
+    cmp/ge  r6, r0
+    bf      \miss
+    .endm
+
+    ! a vertex's byte offset by half is its point's
+    .macro  BOX_PAST v, miss
+    mov.l   @(RUN_VERTICES, gbr), r0
+    mov     \v, r6
+    sub     r0, r6
+    shlr    r6
+    mov.l   @(RUN_POINTS, gbr), r0
+    add     r0, r6
+    .irp    k, 0, 1, 2
+    mov.b   @(\k, r6), r0
+    extu.b  r0, r8
+    mov.w   @(8 + 2 * \k, r13), r0
+    cmp/gt  r0, r8
+    bf      \miss
+    mov.w   @(14 + 2 * \k, r13), r0
+    cmp/gt  r8, r0
+    bf      \miss
+    .endr
+    .endm
+
+.Lbehind:
+    mov.l   @(RUN_BOX_COUNT, gbr), r0
+    mov     r0, r14
+    mov.l   @(RUN_BOXES, gbr), r0
+    mov     r0, r13
+1:  BOX_INSIDE r1, 5f
+    BOX_INSIDE r2, 5f
+    BOX_INSIDE r3, 5f
+    BOX_INSIDE r7, 5f
+    bra     6f
+    nop
+5:  dt      r14
+    bf/s    1b
+    add     #BOX_BYTES, r13
+    rts
+    clrt
+6:  BOX_PAST r1, 7f
+    BOX_PAST r2, 7f
+    BOX_PAST r3, 7f
+    BOX_PAST r7, 7f
+    rts
+    sett
+7:  bra     5b
+    nop
 
     ! a piece's command: corners r1 r2 r3 r7, word 2 r8, clip flags ored r13;
     ! T set when the list is full

@@ -44,6 +44,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
 | 219-247, 251-255 | Rendering: the new renderer's open work |
+| 273-279 | Production code: clean-up |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -426,7 +427,8 @@ CAM-22*
   The slave sorts by the whole key, a radix sort of two passes (`06008fdc` by high byte, `06008a7a`
   by low byte), one unit of depth wide; ours is 16 wide. The pieces are what shows: at the
   `cistern-warp` spot a wall drew over the floor, a whole quad sorted by its far corner.
-- **Built (menu row Near, Retail by default, Ours as before):** in `facesroom.s`, with quads a plane cuts
+- **Built (the game's only near path since 2026-11-03: the old one and its menu row are gone, the lab
+  keeps its copy for its captures; figures below are from before):** in `facesroom.s`, with quads a plane cuts
   or with a corner past the frame's coordinates in C. Mednafen, Lara standing, against Ours: ROOMS +0.2 ms
   at room 31, +1.2 at the ledge, +1.5 at room 103; VDP1 +0.6 to +0.8 ms at those, +1.9 at `cistern-mirror`,
   +3.5 at `cistern-steps`.
@@ -434,6 +436,55 @@ CAM-22*
   27.36 at `cistern-mirror`, below Ours at the four spots tried; 16-30 more 2 KB slots). Meshes' near plane 64.
   A quad over 128 px off the frame with a corner past 4096 stays whole. The lab doesn't cover Retail mode.
 - Takes in issues 252 and 262.
+
+### 264. Room vertices could be freed room by room
+*Kind: memory, speed � Size: maybe tens of KB of high work RAM � Fix: to be costed*
+
+- `gRoomRotated` (12 bytes each, what the DSP rotates, 43.8 KB) and `gVertices` (8 bytes each, what the
+  faces read, 44 KB with the meshes') hold every listed room's vertices for the frame, and a view
+  past 3,328 loses its deepest rooms (issue 254).
+- Retail has one buffer, 48,000 bytes at `06094564` (1,500 of 32 bytes): a room is transformed, drawn,
+  and the next overwrites it, so a view has no limit (`06037ae8`).
+- The idea: a ring, a room's vertices freed once its faces are made. It would also end issue 254's
+  limit, and what it frees goes to the rooms' faces (issue 244).
+- **What it lacks that today's has:** the DSP rotating the frame's rooms ahead of both CPUs. It could
+  run only as far ahead as the ring is long, which may cost back what the frame gains by it.
+  Not costed.
+
+### 265. The backup library sits in high work RAM, 24 KB used only to save or load
+*Kind: memory � Size: 24 KB of high work RAM � Fix: small, one thing to test*
+
+- `saturn/backup.cpp`: `gLibrary` 16 KB, where the BIOS copies its backup code and runs it from, and
+  `gWork` 8 KB, its scratch. Neither is touched in play. Moved out, they would take a test disc's
+  room faces at LEVEL7A from 21.8 to about 46 KB and a shipping build's from 41.4 to about 65 KB (issue 244).
+- Low work RAM can hold them at most levels (free: LEVEL7A 51.7 KB, LEVEL6 69, LEVEL10B 124), not at
+  LEVEL7B (1.4 KB), so they would go low when the level leaves room and stay high when it doesn't.
+- **To test:** a level load overwrites low work RAM, so the library would be set up again each time
+  (`BUP_INIT`, today once, `gStub` keeps it). Calling it twice is untested, in Mednafen and on the Saturn.
+
+### 266. The saved game's buffer is bigger than any level's save
+*Kind: memory � Size: about 3 KB of high work RAM � Fix: small*
+
+- `gSaveFile` is 8 KB (`SAVEGAME_SIZE`, from OpenLara's GBA build). The Cistern's save is 2,750 bytes
+  for its 109 items; the largest level, LEVEL10B, has 192, about 5 KB by scale.
+- The exact worst case isn't worked out: the item data's size goes by each item's kind (`ItemSave`, plus
+  `EnemySave` or `LaraSave`), over `level.itemsCount`. Size it from the levels, checked by the packer.
+
+### 268. A mesh's face near the camera can walk thousands of lines off the frame
+*Kind: speed (VDP1) � Size: 9.97 ms of one list, Mednafen, one face that drew nothing � Fix: to be costed*
+
+- `tools/hwtest.sh valley-trex`, frame 1960: static 26, a tree: corners (319,-404) (998,-1024) (896,1023)
+  (315,301), 2,048 lines, 103,395 pixels walked, 0 written. Coordinates are clamped at +-1024.
+  The next dearest in that list is 2.04 ms. Room faces got retail's near pieces (issue 263); meshes didn't.
+- Only when a near mesh face reaches far off the frame, so this is a spike and not the level's steady cost.
+
+### 270. Plants walk far more pixels than they write
+*Kind: speed (VDP1) � Size: among the plants, statics 12.7 of 42.7 ms for 17% of the frame's pixels � Fix: assets*
+
+- `tools/stepwise.py`, `valley-plants`, Mednafen: statics walk 68,897 pixels to write 26,727, 0.47 ms a 1000 px
+  written against the rooms' 0.24. VDP1 walks see-through texels as it does the rest. Static 21's 40x56 face walks
+  5,356 for 1,884.
+- For the asset study: crop see-through borders from plant textures and their quads, fewer overlapping leaves.
 
 ## Lara: movement, collision, water, controls
 
@@ -3310,10 +3361,11 @@ Fix: small*
   2.6 is the old path behind the menu's Near Ours, which a build without the menu can't reach.
 - **Test discs read worse than the game:** a build without HW_LOG ends 19,632 bytes lower, which would
   leave LEVEL7A's faces about 26.5 KB (by subtraction, not run).
-- **Candidates:** the save and backup buffers, 40 KB used only when saving or loading (`gLibrary` 16,
-  `gSaveBuffer` 8, `gSaveData` 8, `gWork` 8). Low work RAM is tight only at LEVEL7B: free 7A 51.7 KB,
-  6 69 KB, 10B 124 KB, 7B 1.4 KB. The BIOS runs its backup library from `gLibrary`, so that one has
-  to stay where it can execute.
+- **After 2026-11-03** (`gSaveBuffer` gone, the old near path gone, no vertices kept for split corners:
+  15 KB; room 103, Near 4096, Texels 1): a test disc gives LEVEL7A's faces 21.8 KB (23 rooms), 16 of the
+  view's 26 rooms high, `facesRoomAsm` 16.82 -> 15.89 ms; a build without HW_LOG 41.4 KB (53 rooms), all
+  26 high, 15.41 ms. HW_LOG costs a test disc 19.6 KB of this and 0.48 ms at that view.
+- **Candidates:** issues 264, 265 and 266.
 - **Levers:** 242's reserve (face sets in low work RAM instead, 8-byte room
   faces, the meshes' parts folded into their headers, the draws' limit
   measured in play, the rooms projected in place over the DSP's rotated
@@ -3465,6 +3517,8 @@ over 14.6, at most 188 · Fix: medium, parked*
   master 118 to 101, slave 108 to 85, no change seen in the picture. In Lara's Home, bright, 16
   pops in a little and 18 is mostly fine (the user, 2026-11-02). A cap that suits a dark
   level doesn't suit a bright one.
+- The user again, 2026-11-03: Far 16 once the Tiny and Black rules were in showed no real
+  improvement, those rules already doing this work. Far stays 20.
 - The black test (menu row Black): a room seen by no portal with a corner nearer than where its
   brightest vertex reaches the fog's floor is dropped, with what stands in it, its window
   filled, the walk going on through it (`RoomLevel.black`); a face wholly at the floor is
@@ -3487,6 +3541,164 @@ over 14.6, at most 188 · Fix: medium, parked*
   hall of mirrors (the user, turning back to a stamped view): hidden rooms' windows are now
   filled too, to be looked at again.
 
+### 271. Other levels could have the vblank erase; each must pay for its earlier deadline
+*Kind: speed · Size: below · Fix: small per level, the user's call, each read on the Saturn first*
+
+- Lost Valley alone has it (267). `renderLevelInit` chooses by level; rooms flagged instead would have to choose a
+  list ahead, so walking into an open room could show old pixels for a frame.
+- The rule at the 30 fps line: it gains the black fills F (ms of VDP1), costs the strip 0.59 and the 2.47 ms deadline, so
+  lists right at the line gain F - 3.06. Past the line it helps: a list that misses 30 fps by less than F - 0.59
+  goes from 20 fps to 2 and 3 fields in turn, 24. The slave gains about 5 us a fill.
+- Mednafen (`../trs_clear`, lists read long there), list ms and fps, no clear against the erase: Cistern room 103
+  35.49, 20.00 / 35.20, 23.64 (half the lists late); Cistern water 39.70, 20 / 37.60, 20; Cistern room 99
+  30.17, 30 / 27.68, 30; Cistern steps 31.14, 30 / 32.37, 30 (every list late, a polygon every list); the ledge
+  31.72, 30 / 32.45, 24.24; wolves 28.18 fps / 26.97; Vilcabamba 26.55, 30 / 27.10, 30; the pool 19.72, 30 /
+  20.32, 30. F is about 2.3-3.1 at the Cistern, 0.7 at the ledge, 0 at Vilcabamba and the pool.
+- Open places on a first scan (`tools/levelgaps.py`): LEVEL5 346 sectors, LEVEL8C 289, LEVEL6 76, LEVEL7B 67.
+  The Colosseum and the Sanctuary may need it for their holes, as Lost Valley did.
+- In a closed room one box round the fills (no erase) has more room at the line unless the box costs 3.06 ms or
+  more, near the whole frame: Cistern room 103 with near-black faces skipped, 32.57 ms against a limit of 33.36 with the box, 30.87 against
+  30.89 with the erase. So the erase is for open scenes, for their holes.
+- Not measured: cracks. Where seams open, closed rooms show the last frame now, nearly the same picture, and
+  would show black. Stills of Cistern room 103 and the water differ by about 30 pixels that way.
+- If every level had it, the fills' code could go: the walk's, `.Lvoid` in two files, `faceVoid`, about 150 lines.
+
+### 272. A skybox from TRX on VDP2 behind the open scenes
+*Kind: look, an addition retail hasn't got · Size: Lost Valley, the Colosseum, the Sanctuary · Fix: medium, waits for the VDP2 work*
+
+- The user's idea, 2026-11-03: TRX (`external_resources/TRX`) has skyboxes; VDP2 could show one behind VDP1's frame, where
+  colour 0 is transparent. The VDP2 support is coming along on branch `vdp2-lab` (`docs/vdp2-lab.md`).
+- The catch: under the erase (267) a face at the fog's floor draws nothing, so sky would show through far rock that should
+  stand black against it. Those faces would need real black (0x8000) above the horizon, at some of what the erase saved.
+
+### 280. The flooded Cistern from above the water holds 22 fps where the dry one holds 30
+*Kind: speed · Size: Mednafen, VDP1 +8.7 ms at one view · Fix: to be looked at*
+
+- Room 99 along the hall, the frames page: dry (`tools/hwtest.sh cistern-straight`) 24 rooms, 769 commands, VDP1 24.4 ms,
+  CPU 25.7 ms, 30 fps. Flooded (`cistern-flood-above`, branch `vdp2-planes` for now) 24 rooms, 936 commands, VDP1 33.0 ms,
+  CPU 25-30 ms, 22-23 fps. Not read on the Saturn.
+- What the flood adds is the water's surface: 293 quads at y -3072 and 14 at -3328, one each way, transparent, four frames of
+  animated texture. VDP1 walks each one whole for the flecks it holds.
+- Under water the same hall is the lightest it gets (`cistern-flood`): 5 to 7 rooms, VDP1 16.7-23.4 ms, CPU 12-14 ms, 30 fps.
+- With floors on VDP2 (269), the wet floor gone from under the surface, the same view: VDP1 24.0 ms, 30 fps. See also 253, the flecks.
+
+### 281. Solid boxes: three pillars named, and what's left of the idea
+*Kind: speed - Size: Mednafen, VDP1 -4.41 ms at room 103, little elsewhere - Fix: built for faces and portals, objects to come*
+
+- `saturn/occluders.txt` names shapes nothing can be seen through, a box or a flat rectangle with the side it's seen from.
+  Each frame each gets a rectangle inside its outline (`rooms.s roomsBoxesAsm`). A portal or a room face wholly in the rectangle
+  and past the sides that face the camera is left out; so the rule works for a long wall or a floor, not only a pillar. HW_LOG
+  menu row `Boxes`. `python -I tools/occluders.py check LEVEL` tests a level's boxes against its rooms.
+- Three Cistern pillars, on against off, Mednafen, list ms: room 103 33.83 -> 29.42 (20 -> 30 fps), water 38.62 -> 36.90 (the
+  texture cache has room, a strip that was flat colour keeps its texture), room 99 28.50 -> 27.32. Steps, room 2: nothing. The
+  CPUs: the slave's faces -0.23 ms at room 99, the finding +0.17 to +0.27 ms wherever a box is in view. Levels with no boxes:
+  under 0.1 ms. 8000 random views in tools/occmodel: 0 pixels lost.
+- Not done: objects behind a box are still drawn. A box with a corner within 128 of the camera or past the far plane is off.
+- Finding more: tools/occmodel `boxsearch` tried 493 boxes of rock and 651 rectangles of faces over 300 heavy Cistern views:
+  the best 16 save 0.08 ms of room work and 0.19 ms of VDP1 on average. So a spot tool, placed by hand where a view is heavy; no
+  automatic list. The rock between rooms is thin, and what looks solid is mostly sectors of air closed by faces.
+- For VDP2 planes (269): a flat rectangle at the plane's height, seen from above, hides what's below it wholly inside its rectangle.
+  It can't help a face that pokes out over the rim, which is what the kept faces are for.
+
+### 282. The room walk does half its corner sums twice
+*Kind: speed - Size: Saturn walk 7.4 ms at room 103 looking up; estimated -0.8 ms mean, -1.9 ms worst, heavy Cistern views - Fix: to be built*
+
+- tools/occmodel `walkstat`, heavy views (2000+ room vertices), portals checked / facing the camera / different ones of those:
+  Cistern 235 / 108 / 57, worst 395 / 187 / 69; Lost Valley 112 / 54 / 35, worst 216 / 98 / 50; level 5 135 / 71 / 45; 8A 69 / 39 / 32.
+- A room is walked again when its window grows, and every portal of it is rotated and projected again though nothing about it has
+  changed in the frame. Keeping each portal's projected bounds for the frame leaves only the clip against the window to redo.
+
+### 283. VDP1's faces show through a plane where they lie past it
+*Kind: look · Size: Cistern room 103 from the start, a green patch of pool wall on the floor · Fix: pinned, the user's plan below*
+
+- VDP1 is always in front of VDP2. A floor face used to hide what lay past it; on the plane (269) it can't, so a pit's far wall paints over the near floor when it reaches past the rim on screen.
+- The user's plan, 2026-11-04: nearly all of them just want trimming, which solid boxes (281) can do with a flat rectangle at the floor's height. A face flush against a ledge, straddling a view above and below the plane, can't be trimmed that way and wants a mask: a colour 0 polygon in its place in the list, as Sonic World does at its river (docs/vdp2-lab.md). Pinned till solid boxes are better understood.
+- A census by `tools/occmodel` `planes` mode: Cistern hall 241 px a view, valley 99, 8% of random views past 400 px. It's been judged by eye only at the spots played so far.
+
+### 284. On a plane level the trace holds about 8 frames
+*Kind: test discs alone · Size: 8 frames against 120 · Fix: small, if it gets in the way*
+
+- CPU writes to bank B would disturb the plane, so the trace goes to the bitmap's last 32 lines, 32 KB (`saturn/os.cpp`), and the profile's blocks take a third of that. Without them about 15 frames.
+
+### 285. Lost Valley: room 56, high over the valley, the CPUs over on the Saturn (reported in play)
+*Kind: speed · Size: 27 fps, master 37 ms, slave 34 ms · Fix: to be looked at*
+
+- `tools/hwtest.sh valley-ledge`, Lara at 37787, 230, 20847, heading 3ffc, camera 37048, -933, 22086, pitch f74c, heading 6787. Saturn, floor on VDP2 (269): 18 rooms, 2,647 room vertices, 122 meshes with 1,514 vertices, 446 commands; VDP1 21.7 ms, master 37.0 ms, slave 34.4 ms, 26.7 fps over 5 seconds, 24 of 134 lists late.
+- VDP1 has plenty of room here and both CPUs are over. The user expects what's left of the VDP2 work to reach it.
+
+### 286. Coming back from the inventory, room textures show their lower detail for a frame or two
+*Kind: look · Size: about 2,500 pixels a frame of the top of the frame, two frames, at the valley's room 51 · Fix: to be costed*
+
+- Reported in play as trees flickering on unpausing, at room 51, 41188, 3584, 36270. Mednafen, the same pause with and without floors on VDP2, pixels changed from frame to frame in the top of the frame: with 569, 2,789, 2,493, then 22; without 774, 3,349, 2,575, then 761: VDP2 isn't the cause.
+- The inventory takes the texture cache's first slots for the item textures (`detailSuspend`, `saturn/detail.cpp`). Back in the game the faces whose textures those were draw lower detail till theirs are uploaded again. To read on the Saturn, where it may differ: a disc with no plane at the same spot.
+
+## Production code: clean-up
+
+Not differences from retail, and not open work on the picture: what a shipping build still
+carries from how it was built, debug reads and lab paths and spare memory. From an audit of
+`saturn/` and `renderer/` on 2026-11-04 (code at 7cac8a9), to be taken on later at the user's
+word. Of the same kind and already open: 264, 265, 266.
+
+### 273. Timer reads a shipping build doesn't use
+*Kind: speed · Size: perhaps 0.3 to 0.5 ms across both CPUs at a heavy view, not measured · Fix: small*
+
+- `ticks()` (`saturn/system.cpp:620`, about 110 cycles by the audit's reading) is taken twice round every
+  wait on the frame's path: `roomTurned` (`renderer/vertices.cpp:322`), each chunk of a room, up to 119
+  a frame; each draw (`vertices.cpp:757-775`, `806-822`); the stages' waits (`renderer/frame.cpp:387-513`,
+  `579-738`). The sums go to `gStats` for the debug page (`saturn/render.cpp:1057`) and no further.
+- **Some stay:** `s.late` steers the master and slave's split each frame (`saturn/render.cpp:958`, by
+  `drawsEnd`, `slaveEnd`, `gNextAfter`), so those reads aren't debug. The fix is the wait pairs behind `HW_LOG`.
+
+### 274. 16 KB at the bottom of gVertices that nothing seems to use
+*Kind: memory · Size: 16 KB of high work RAM · Fix: small, to confirm first*
+
+- `saturn/render.cpp:417`: 5,376 entries of 8 bytes. The walk places rooms from entry 2,048 up
+  (`renderer/rooms.s:958`, `MASTER_VERTICES`), and the game's meshes go to `gMeshOut`
+  (`renderer/vertices.cpp:152`). The bottom 2,048 look left over from when the meshes shared the buffer.
+- From reading the code, not from a run. A Mednafen write watch over those 16 KB through a level settles it.
+- What it frees goes to the rooms' faces (244).
+
+### 275. Two tables bigger than any level has asked
+*Kind: memory · Size: about 8 KB of high work RAM · Fix: small*
+
+- `gSeen` (`renderer/rooms.cpp:46`): `ROOMS_LISTED` 128, 8.7 KB, where the game has been seen to reach 38.
+  `gList` and `gListCopy` go by the same number. The lab wants more, so the game's limit goes behind `RENDER_LAB`.
+- `made` in `facesMeshHinted` (`renderer/faces.cpp:329`, `MAX_MADE_FACES` 512), 8 KB, where the largest mesh has
+  163 faces.
+- Both need a limit known to hold in every level: the packer can check the meshes' and the rooms' worst case
+  is the walk's own, as in issue 254. What it frees goes to 244.
+
+### 276. Options only the lab or the debug menu changes, read on every vertex, face or room
+*Kind: speed · Size: a cycle or two each, not measured · Fix: small*
+
+- `farScaled` (`renderer/roomproject.s`, `renderer/meshproject.s`, set by `vertices.cpp:366`): only the lab turns
+  it off. `lod` (`renderer/faces.cpp:1133`): the menu's Texels, which waits on the user's read on the Saturn
+  (`texel-lod-door`). `black` (`gBlack`, `saturn/render.cpp:436`): the menu's. `hidden` (`renderer/rooms.cpp:90`):
+  the stamps' menu. `posed` (`renderer/frame.cpp:544`): false only for the lab's `frameDraws` (277).
+- These become constants in a shipping build, as `RENDER_LAB` already does in the assembly.
+
+### 277. The lab's paths compiled into the game, and dead code
+*Kind: code and memory · Size: not measured · Fix: small*
+
+- Lab only, in the game's build: `frameDraws` (`renderer/frame.cpp:876`, its one caller `lab/lab.cpp:715`) and the
+  `given` branches it needs in `stagesTogether` (`frame.cpp:542-691`).
+- No caller anywhere: `detailMips` (`saturn/detail.cpp:79`), `slaveDone` (`saturn/slave.cpp:134`).
+
+### 278. C on the frame's path with assembly beside it
+*Kind: speed · Size: below, Mednafen · Fix: medium each, only if the frame still needs the CPU*
+
+- `verticesDrawsSet` (`renderer/vertices.cpp:207`) 0.29 ms and the frame's plan (`framePlan`, `verticesPlan`) 0.18 ms
+  at the ledge; `facesMeshHinted` (`renderer/faces.cpp:319`) about 0.15 ms at LEVEL1.
+- The near faces' split: about 1.2 to 1.5 ms at the ledge and Cistern room 103, measured before its assembly half
+  existed, so to be measured again first.
+
+### 279. The DMA wait doesn't count a level 0 transfer that was interrupted
+*Kind: correctness · Size: not seen to fail · Fix: one line, then a run on the Saturn*
+
+- `DSTA_D0_BUSY` (`saturn/hw.h:62`) is 0x00000030, waiting or moving. libyaul's level 0 mask (`scu/dma.h`) also has bit
+  16, interrupted, so 0x00010030. `dmaWait` (`saturn/system.cpp:615`) can return while a transfer is held up by a higher
+  level, and the next `dmaCopy` writes its registers over it. The lab found it (`docs/vdp2-production.md`, branch `vdp2-lab`).
+
 ---
 
 ## Decisions needed before fixing
@@ -3507,6 +3719,26 @@ over 14.6, at most 188 · Fix: medium, parked*
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 269. Flat floors and ceilings on a VDP2 plane
+*Closed 2026-11-04: branch vdp2-planes, docs/vdp2-production.md. The Cistern (floor, ceiling) and Lost Valley (floor) are on it. Saturn, room 103 about 22 degrees up: VDP1 20.5, master 27.4, slave 24.7 ms, 30.0 fps.*
+
+*Kind: speed, look � Size: see below � Fix: large, only if it pays*
+
+- The user's idea (2026-11-03): one big flat floor, Lost Valley's or the Cistern's, drawn by a VDP2 rotation
+  plane under VDP1's frame, with correct perspective and no VDP1 warp.
+- What the biggest plane holds (`occmodel one` with OCC_PLANES, priced at each view's VDP1 time a pixel;
+  Mednafen): among the plants 134 faces, 33,435 px, about 8.0 of 42.7 ms; Cistern room 103 floor 107 faces,
+  26,011 px, about 5.3 of 35.5 ms, its ceiling at -7168 95 faces, about 1.5 ms. At about 570 cycles a kept
+  face that is also about 2.7 and 4.0 ms of slave work. Floors elsewhere at other heights stay on VDP1.
+- **What it lacks that VDP1 floors have:** each vertex's light and the moving caustics, so light is baked or
+  per line; a floor hides what VDP1 drew behind it, and a plane under the frame can't, so rooms below the
+  floor would show until those pixels are written colour 0, which gives back part of the saving; VDP2
+  VRAM and cycles for the plane's cells, map and coefficients.
+- **Now:** proven on the Saturn in the lab, 2026-11-04, and on its way into the game: the design is
+  `docs/vdp2-production.md`, the lab's notes `docs/vdp2-lab.md`, branch `vdp2-lab`; the build on branch `vdp2-planes`.
+- **First test on the Saturn, not in Mednafen:** no display read from VDP2 bank B has ever worked on this
+  Saturn (mednafen-vdp2 notes), and new layouts have looked right in Mednafen and broken on the console.
 
 ### 205. Room light falloff is doubled, and in 11 rooms the square overflows
 *Severity: visible · Confidence: confirmed (data plus arithmetic) · Fix: small
@@ -3728,6 +3960,27 @@ CAM-9*
 - Now the rooms showing least make way (`renderer/rooms.cpp` roomsMakeWay), their windows filled and
   what stands in them dropped: there, a room of 133 vertices seen through 3 pixels. Holes in
   Mednafen, lists drawn offline over magenta: 6,289 to 5 or fewer.
+
+### 267. Open skies and gaps in the rock show the last frame: Lost Valley's hall of mirrors
+*Closed 2026-11-04: bba39c3*
+
+- Reported on the Saturn, 2026-11-03: room 56 looking up (`tools/hwtest.sh valley-sky`), and a smaller
+  one at room 27 (`valley-cave`). Retail clears its frame, so what no face covers is black there. We
+  had no clear (fd12447), which is fine in closed rooms.
+- Pixels no command writes, Mednafen, `tools/stepwise.py`: looking up 33,887 (43% of the frame), among the
+  plants 3,100, walking in 2,013, T-rex 1,846, the cave 265 in one triangle.
+- Bake-off, branch `clear-bakeoff` (`../trs_clear`). Saturn, room 51 (41347 3584 32913 8892), list ms, all
+  20 fps: no clear 37.46, quads and a fill 38.37, quads with the black fills in one box 35.67, a polygon over
+  the frame 37.40, vblank erase 34.60, manual erase 34.01 (flickers). The black fills are 3.45 ms there, the strip 0.59,
+  a whole frame 3.39. Ceiling quads (`tools/level_view.py`) were never reviewed: they lost.
+- A first fill round each open room's box (23559a1) was reverted the same day: close to a whole clear looking up.
+- What the erase gives up: a list must end 2.47 ms sooner to be erased. Ending in that gap, it still changes on
+  time and the next list pays 2.80 ms for a whole-frame polygon. Cost and gain elsewhere: issue 271.
+- Asked at vblank-in, the erase smeared on the Saturn with lists ending just before it, and not in Mednafen:
+  the upload that starts as a list ends is suspected of holding the write to VDP1 past the sweep's start, the
+  bench having asked first and started its DMA after. Asked as the list ends, the user saw no smearing:
+  103 erased, 5 late, 0 too late in 5 seconds.
+- The final build on the Saturn (a0f11be, from the valley mouth), 2026-11-03: the user looked it over, it looks good.
 
 ### 260. The game crashed when Pierre ran off
 *Kind: crash · Fixed · Found by the user, 2026-11-02*

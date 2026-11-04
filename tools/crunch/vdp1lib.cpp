@@ -92,6 +92,85 @@ __declspec(dllexport) void vdp1_reset(uint32 tvmr, uint32 fbcr, uint32 texel, ui
  ExtraCycles16 = 0;
 }
 
+// One command of a list, at addr (in VRAM words): drawn into FB[0] as a plot draws
+// it, with its cost in c. Returns the next command's address, or -1 at the list's
+// end. ret_addr is the plot's return address, -1 for none, as vdp1_plot keeps it.
+__declspec(dllexport) int32 vdp1_step(int32 addr, int32* ret_addr, CommandCost* c)
+{
+ static int32 (*const command_table[0xC])(const uint16* cmd_data) =
+ {
+  CMD_NormalSprite, CMD_ScaledSprite,   CMD_DistortedSprite, CMD_DistortedSprite,
+  CMD_Polygon,      CMD_Line,           CMD_Line,            CMD_Line,
+  CMD_SetUserClip,  CMD_SetSystemClip,  CMD_SetLocalCoord,   CMD_SetUserClip
+ };
+
+ static int32 (*const resume_table[0x8])(const uint16* cmd_data) =
+ {
+  RESUME_Sprite,  RESUME_Sprite, RESUME_Sprite, RESUME_Sprite,
+  RESUME_Polygon, RESUME_Line,   RESUME_Line,   RESUME_Line,
+ };
+
+ uint16 cmd[0x10];
+ memcpy(cmd, &VRAM[addr], sizeof(cmd));
+ uint32 cycles = 16;
+ const uint32 lines0 = LogLines, pixels0 = LogPixels, texels0 = LogTexels, gouraud0 = LogGouraud;
+
+ if(!(cmd[0] & 0xC000))
+ {
+  if((cmd[0] & 0xF) >= 0xC)
+   return -1;
+
+  cycles += command_table[cmd[0] & 0xF](cmd);
+  if(!(cmd[0] & 0x8))
+  {
+   for(;;)
+   {
+    const int32 r = resume_table[cmd[0] & 0x7](cmd);
+
+    if(!r)
+     break;
+
+    cycles += r;
+   }
+  }
+ }
+ else if(cmd[0] & 0x8000)
+  return -1;
+
+ c->addr = addr >> 2;
+ c->cycles = cycles;
+ c->lines = LogLines - lines0;
+ c->pixels = LogPixels - pixels0;
+ c->texels = LogTexels - texels0;
+ c->gouraud = LogGouraud - gouraud0;
+
+ int32 next = (addr + 0x10) & 0x3FFFF;
+ switch((cmd[0] >> 12) & 0x3)
+ {
+  case 0:
+   break;
+
+  case 1:
+   next = (cmd[1] << 2) &~ 0xF;
+   break;
+
+  case 2:
+   if(*ret_addr < 0)
+    *ret_addr = next;
+   next = (cmd[1] << 2) &~ 0xF;
+   break;
+
+  case 3:
+   if(*ret_addr >= 0)
+   {
+    next = *ret_addr;
+    *ret_addr = -1;
+   }
+   break;
+ }
+ return next;
+}
+
 // Draws the list from VRAM address 0 into FB[0], as a plot does. Each command
 // drawn gets a CommandCost while 'log' has room; returns the commands run.
 __declspec(dllexport) int32 vdp1_plot(PlotTotals* totals, CommandCost* log, int32 log_max)

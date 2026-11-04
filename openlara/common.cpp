@@ -9,8 +9,7 @@ EWRAM_DATA Sphere gSpheres[2][MAX_SPHERES]; // EWRAM 1k
 EWRAM_DATA TargetInfo tinfo;
 
 EWRAM_DATA Settings gSettings;
-EWRAM_DATA SaveGame gSaveGame;
-EWRAM_DATA uint8 gSaveData[SAVEGAME_SIZE - sizeof(SaveGame)];
+EWRAM_DATA SaveFile gSaveFile;
 
 EWRAM_DATA int32 gCurTrack;
 EWRAM_DATA int32 gAnimTexFrame;

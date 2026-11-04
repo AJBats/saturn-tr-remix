@@ -46,9 +46,7 @@ static int32 gTinyStep = 3;     // kTiny's
 static bool gHolesShown;        // what rooms' fills fill and what nothing draws, magenta
 static const char* const kTexels[] = { "1 a pixel", "1.5 a pixel" };
 static int32 gTexelStep = 1;    // kTexels'
-static const char* const kNear[] = { "Ours", "4096", "3072", "2048" };
-static const int16 kNearSplit[] = { 0, 4096, 3072, 2048 };
-static int32 gNearStep = 1;     // kNear's: how far off room faces split
+static bool gBoxesShut = true;  // what the level's solid boxes hide left out
 #endif
 
 static bool gShowStats;
@@ -79,15 +77,15 @@ static const Option gOptions[] = {
     { "Tiny", kTiny, 4,
         [] { return gTinyStep; },
         [](int32 v) { gTinyStep = v; renderTiny(v ? 32 << v : 0); } },
+    { "Boxes", kOnOff, 2,
+        [] { return int32(gBoxesShut); },
+        [](int32 v) { gBoxesShut = v; renderBoxes(v); } },
     { "Holes", kOnOff, 2,
         [] { return int32(gHolesShown); },
         [](int32 v) { gHolesShown = v; renderHolesShown(v); } },
     { "Texels", kTexels, 2,
         [] { return gTexelStep; },
         [](int32 v) { gTexelStep = v; renderTexels(4 + 2 * v); } },
-    { "Near", kNear, 4,
-        [] { return gNearStep; },
-        [](int32 v) { gNearStep = v; renderNear(kNearSplit[v]); } },
     { "Camera", kCamera, 2,
         [] { return int32(gCameraRetail); },
         [](int32 v) { gCameraRetail = v; } },
@@ -96,7 +94,7 @@ static const Option gOptions[] = {
 
 enum { OPTION_STATS,
 #ifdef HW_LOG
-       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_HOLES, OPTION_TEXELS, OPTION_NEAR, OPTION_CAMERA,
+       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_BOXES, OPTION_HOLES, OPTION_TEXELS, OPTION_CAMERA,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");
@@ -483,7 +481,7 @@ static bool gBenchChanged = true;   // the bench's rows to compose again
 // With the bench's rows hidden: where Lara stands (room, x, y, z, heading, as
 // LARA_START and START_YAW take them) and what the scene costs, averaged
 // over half a second, so that two views can be compared and reproduced.
-#define SCENE_ROWS      4
+#define SCENE_ROWS      5
 #define SCENE_WINDOW    30      // vblanks averaged
 static char gSceneRows[SCENE_ROWS][OVERLAY_COLUMNS + 1];
 
@@ -499,10 +497,43 @@ static char* appendHex(char* p, uint32 value, int32 digits)
     return p;
 }
 
+// With frames erased (vdp1EraseFrames): lists on a swept buffer, on one not swept,
+// sweeps asked too late, the list's time and the frame rate, 5 seconds at a time.
+#define ERASE_WINDOW    300
+
+static void eraseUpdate()
+{
+    static uint32 start, frames, vdp1;
+
+    frames++;
+    vdp1 += gStats.vdp1Ticks;
+    if (gVblankCount - start < ERASE_WINDOW)
+        return;
+    const EraseCounts c = vdp1EraseTake();
+    gSceneRows[4][0] = 0;
+    if (c.swept || c.unswept)
+    {
+        char* p = appendStat(gSceneRows[4], "er ", c.swept);
+        p = appendStat(p, "late ", c.unswept);
+        p = appendStat(p, "tl ", c.tooLate);
+        uint32 hundredths = vdp1 * 100 / frames * 100 / 22354;
+        p = appendStat(p, "ms ", hundredths / 100);
+        p -= 2;
+        *p++ = '.';
+        *p++ = '0' + hundredths / 10 % 10;
+        *p++ = '0' + hundredths % 10;
+        *p++ = ' ';
+        appendStat(p, "fps10 ", frames * 600 / (gVblankCount - start));
+    }
+    start = gVblankCount;
+    frames = vdp1 = 0;
+}
+
 static void sceneUpdate()
 {
     static uint32 start, frames, vdp1, cpu, drawn, roomVertices, vertices, faces, meshes;
 
+    eraseUpdate();
     frames++;
     vdp1 += gStats.vdp1Ticks;
     cpu += gStats.updateTicks + gStats.renderTicks - gStats.waitTicks;
@@ -996,7 +1027,8 @@ static void benchUpdate()
         if (gSound.low < 0) {
             p = append(p - 2, " under  ");
         }
-        appendStat(p, "blk/s ", gSound.blocks);
+        p = appendStat(p, "blk/s ", gSound.blocks);
+        appendStat(p, "track ", uint32(X_MAX(gCurTrack, 0)));
         strncpy(gSoundRow, text, OVERLAY_COLUMNS);
         for (int32 i = 0; i < SPLIT_COUNT; i++) {
             gSplit[i] = framePercent(split[i] / frames);

@@ -4,6 +4,7 @@
 #include "platform.h"
 #include "crash.h"
 #include "hw.h"
+#include "vram.h"
 #include "trace.h"
 
 #define BACK_COLOR_ADDR 0x7FFFE  // last word of VDP2 VRAM
@@ -35,6 +36,10 @@
 #define EDSR_CEF    0x0002  // VDP1 finished drawing the current frame
 #define FBCR_FCM    0x0002  // manual frame buffer change
 #define FBCR_FCT    0x0001  // change frame buffers at the next field
+#define TVMR_VBE    0x0008  // the erase sweeps the buffer on screen in the vblank
+#define EWRR_FRAME  ((SCREEN_WIDTH / 8) << 9 | (SCREEN_HEIGHT - 1))
+#define SWEEP_LINES 185     // its reach at 352 x 224, the Saturn's: about 65,000 pixels a vblank
+#define PLOT_FIRST_LINE 1   // the buffers change 335-540 cycles after the counter reads line 0; a line is 1,817
 
 // VDP1 frame sequencing (after libyaul's variable-interval mode): a plot is
 // started once the command list is uploaded; at the vblank-in after VDP1
@@ -68,12 +73,21 @@ static volatile bool gHolding;             // this plot's does, until vdp1Releas
 static uint32_t gPlotStart;
 static void (*volatile gOnNextFrame)();
 static void (*volatile gOnShown)(uint32_t plot);
+static void (*volatile gOnChange)(uint32_t plot);
+static volatile bool gChangeUntold;        // a change asked, its vertical blank not yet come or told
 static volatile uint32_t gFieldsShown = 2; // vblank-ins since the last change
 static volatile uint32_t gPlotsAsked;      // vdp1Plot calls
 static volatile uint32_t gPlotsStarted;    // plots started: the one drawing or last drawn
 static void (*volatile gOnLine)();
 static void (*volatile gOnVblank)();
 static uint32_t gSmpcCommands;
+static volatile bool gEraseFrames;  // vdp1EraseFrames
+static volatile bool gSweepAsked;   // TVMR's VBE is on, for this change
+static volatile bool gSwept;        // the buffer the next list draws on was swept
+static volatile bool gOpeningNext;  // the next plot's list opens with the polygon
+#ifdef HW_LOG
+static volatile EraseCounts gEraseCounts;
+#endif
 
 volatile uint32_t gVblankCount;
 FrameStats gStats;
@@ -103,14 +117,48 @@ extern "C" void lineEntry();
 
 #define MIN_FIELDS_SHOWN    2
 
-// The last list's frame buffers changed, if it has been on screen long enough.
-static void changeRequest()
+// The last list's frame buffers changed, the buffer on screen erased if sweep
+// and the erase is on. The write to VDP1 waits for an SCU DMA on the bus (a list's
+// upload), so the line is read after it: asked past vblank-in the sweep doesn't
+// start, though the buffers still change.
+static void changeAsk(bool sweep)
 {
-    if (gFieldsShown < MIN_FIELDS_SHOWN)
-        return;
+    gSwept = false;
+    if (sweep && gEraseFrames)
+    {
+        VDP1_TVMR = TVMR_VBE;
+        gSweepAsked = true;
+        gSwept = vdp2Line() <= SCREEN_HEIGHT;
+#ifdef HW_LOG
+        if (!gSwept) {
+            gEraseCounts.tooLate++;
+        }
+#endif
+    }
     VDP1_FBCR = FBCR_FCM | FBCR_FCT;
     gVdp1State = VDP1_CHANGING;
+    gChangeUntold = true;
     traceBegin(TRACE_IRQ, TR_CHANGE);
+}
+
+// ... if it has been on screen long enough.
+static void changeRequest(bool sweep)
+{
+    if (gFieldsShown >= MIN_FIELDS_SHOWN) {
+        changeAsk(sweep);
+    }
+}
+
+// In the vertical blank: the change asked goes with this one's end.
+static inline void changeTell()
+{
+    if (gChangeUntold)
+    {
+        gChangeUntold = false;
+        if (gOnChange) {
+            gOnChange(gPlotsStarted);
+        }
+    }
 }
 
 extern "C" void vblankInHandler(const uint32_t* irqStack)
@@ -138,13 +186,14 @@ extern "C" void vblankInHandler(const uint32_t* irqStack)
         // hardware): this plot's sprite-end interrupt must have come too
         if (gVdp1Drawn && (VDP1_EDSR & EDSR_CEF))
         {
-            changeRequest();
+            changeRequest(true);
         }
         else
         {
             gStats.vdp1Late++;
         }
     }
+    changeTell();
     if (gOnVblank) {
         gOnVblank();
     }
@@ -157,9 +206,25 @@ static void waitDisplayStart()
     while (vdp2Line() >= SCREEN_HEIGHT);
 }
 
-// From the vblank-out interrupt or the master's flush: lane is the trace's.
+// From the vblank-out interrupt or the master's flush: lane is the trace's. A
+// plot before the change would draw into the buffer going on screen.
 static void plotStart(int32_t lane, bool hold)
 {
+    while (vdp2Line() < PLOT_FIRST_LINE);
+    if (gOpeningNext)
+    {
+        gOpeningNext = false;
+        const uint16_t top = gSwept ? SWEEP_LINES : 0;
+        REG16(VDP1_VRAM + VRAM_FRAME_CMDS + 0x0E) = top;    // CMDYA
+        REG16(VDP1_VRAM + VRAM_FRAME_CMDS + 0x12) = top;    // CMDYB
+#ifdef HW_LOG
+        if (gSwept) {
+            gEraseCounts.swept++;
+        } else {
+            gEraseCounts.unswept++;
+        }
+#endif
+    }
     gPlotsStarted++;
     gPlotStart = timerTicks();
     traceAt(lane, gPlotStart, (TR_PLOT << 8) | (gPlotsStarted & 0xFF));
@@ -172,6 +237,11 @@ static void plotStart(int32_t lane, bool hold)
 extern "C" void vblankOutHandler()
 {
     traceBegin(TRACE_IRQ, TR_IRQ_VBLANK_OUT);
+    if (gSweepAsked)
+    {
+        gSweepAsked = false;
+        VDP1_TVMR = 0;
+    }
     bool changed = gVdp1State == VDP1_CHANGING;
     uint32_t shown = gPlotsStarted;
     if (changed)
@@ -227,15 +297,45 @@ extern "C" void spriteEndHandler()
 
     // past this vertical blank's vblank-in, in time for its change: with the
     // interrupts off, so that the vblank-out handler sees the request or the
-    // flag is already down
+    // flag is already down. Before it, with the coming vertical blank the list's
+    // change and the erase on: asked now, before the master, let go by this
+    // interrupt, starts the next list's upload and holds up the request.
     uint32_t sr;
     asm volatile("stc sr, %0" : "=r"(sr));
     asm volatile("ldc %0, sr" : : "r"(sr | 0xF0));
-    if (gVdp1State == VDP1_PLOTTING && !gHolding && (VDP2_TVSTAT & TVSTAT_VBLANK)) {
-        changeRequest();
+    if (gVdp1State == VDP1_PLOTTING && !gHolding)
+    {
+        if (VDP2_TVSTAT & TVSTAT_VBLANK) {
+            changeRequest(false);
+            changeTell();
+        } else if (gEraseFrames && gFieldsShown + 1 >= MIN_FIELDS_SHOWN && vdp2Line() < SCREEN_HEIGHT) {
+            changeAsk(true);
+        }
     }
     asm volatile("ldc %0, sr" : : "r"(sr));
 }
+
+void vdp1EraseFrames(bool on)
+{
+    gEraseFrames = on;
+}
+
+void vdp1OpeningPolygonNext()
+{
+    gOpeningNext = true;
+}
+
+#ifdef HW_LOG
+EraseCounts vdp1EraseTake()
+{
+    EraseCounts c;
+    c.swept = gEraseCounts.swept;
+    c.unswept = gEraseCounts.unswept;
+    c.tooLate = gEraseCounts.tooLate;
+    gEraseCounts.swept = gEraseCounts.unswept = gEraseCounts.tooLate = 0;
+    return c;
+}
+#endif
 
 void vdp1WaitIdle()
 {
@@ -255,6 +355,11 @@ bool vdp1Drawn()
 uint32_t vdp1Plots()
 {
     return gPlotsAsked;
+}
+
+void vdp1OnChange(void (*fn)(uint32_t plot))
+{
+    gOnChange = fn;
 }
 
 void vdp1OnShown(void (*fn)(uint32_t plot))
@@ -349,6 +454,9 @@ static void vdp1Init()
 {
     VDP1_TVMR = 0;          // 16bpp
     VDP1_PTMR = 0;          // plot only when asked
+    VDP1_EWDR = 0;          // the erase: colour 0, the whole frame
+    VDP1_EWLR = 0;
+    VDP1_EWRR = EWRR_FRAME;
 
     waitVblank();
     VDP1_FBCR = FBCR_FCM | FBCR_FCT;

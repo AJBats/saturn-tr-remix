@@ -45,15 +45,12 @@ struct Face
     int16_t indices[4];     // corners: byte offsets in their CPU's half of gVertices
 };
 
-// A frame's vertices: the master's, then the rooms' as the walk places them, then
-// the corners of quads the near plane splits (SPLIT_VERTICES kept from the rooms).
+// A frame's vertices: the master's, then the rooms' as the walk places them.
 #undef MAX_VERTICES     // openlara/common.h's, for its other platforms
 #ifdef RENDER_LAB
 #define MAX_VERTICES    (5 * 1024)      // tools/labscene.py's, the captures'
-#define SPLIT_VERTICES  0
 #else
-#define MAX_VERTICES    (MASTER_VERTICES + 3328 + SPLIT_VERTICES)
-#define SPLIT_VERTICES  128
+#define MAX_VERTICES    (MASTER_VERTICES + 3328)
 #endif
 #define MAX_DRAWS       256     // a frame's: the master's 2048 vertices hold about that many of the smallest meshes
 #ifndef MASTER_VERTICES
@@ -304,6 +301,28 @@ struct RoomSeen
     uint16_t dropped;       // listed, not drawn: nothing of it, its window filled
     int32_t window[4];
     int32_t m[12];
+};
+
+// A shape nothing can be seen through (saturn/occluders.txt), lo <= hi, world units: a solid
+// box, or a flat rectangle (lo = hi on one axis) with side k + 1 above its plane on axis k, or
+// -(k + 1) below, the side it can be seen from.
+struct SolidBox
+{
+    int32_t lo[3], hi[3];
+    int32_t side;
+};
+
+// One on the frame (rooms.s roomsBoxesAsm): a rectangle wholly inside its outline, its nearest
+// corner's depth, and where a point lies if it's behind it, from the camera: lo < p < hi on
+// each axis, past each side of a box that faces the camera, or past a flat one's plane. A ray
+// through the rectangle has met the shape by the time it's past them.
+#define BOXES_SEEN  6
+struct BoxSeen
+{
+    int16_t x0, y0, x1, y1;
+    int32_t near;
+    int32_t lo[3], hi[3];
+    int32_t area;
 };
 
 struct RoomGeometry

@@ -735,9 +735,24 @@ bool verticesRoomMasters(uint32_t i)
     return false;
 }
 
-void verticesRoom(uint32_t i, uint32_t &wait)
+bool verticesRoomMine(uint32_t i, uint32_t &wait, int32_t &from)
 {
     for (int32_t c = gChunkAt[i]; c < gChunkAt[i + 1]; c++)
+    {
+        if (!tasClaim(uncached(gChunkClaims + c)))
+        {
+            from = c - gChunkAt[i];
+            return false;
+        }
+        chunkProject(c, wait);
+    }
+    from = gChunkAt[i + 1] - gChunkAt[i];
+    return true;
+}
+
+void verticesRoom(uint32_t i, uint32_t &wait, int32_t from)
+{
+    for (int32_t c = gChunkAt[i] + from; c < gChunkAt[i + 1]; c++)
     {
         if (tasClaim(uncached(gChunkClaims + c)))
         {

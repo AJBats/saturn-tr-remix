@@ -34,6 +34,7 @@ static uint16_t gTails[2][OT_SIZE];
 static FrameLevel gLevel;
 static Command gClear;          // the list's first command, jumping to the first bucket's
 
+#ifdef RENDER_LAB
 // The rooms' vertices' top: the walk places them from MASTER_VERTICES up, a
 // room's rounded up to 16 (rooms.cpp placeRooms' gBottom).
 static int32_t roomsBottom()
@@ -47,6 +48,7 @@ static int32_t roomsBottom()
     }
     return bottom;
 }
+#endif
 
 void frameInit(const FrameLevel &level)
 {
@@ -69,7 +71,9 @@ void frameInit(const FrameLevel &level)
     facesRoomMaterials(t, gRoomMaterials, level.roomTextures < MAX_ROOM_TEXTURES ? level.roomTextures
                                                                                   : MAX_ROOM_TEXTURES);
     t.materials = gRoomMaterials;
+#ifdef RENDER_LAB
     gSplit.vertices = level.vertices;
+#endif
     gSplit.divTable = divTable;
     gMeshFirst = 1;
     frameLists();
@@ -95,8 +99,10 @@ void frameLists()
                   gLevel.shadeGouraud, gLevel.shadeLevel, gLevel.shade[1], gLevel.sprites);
     facesListInit(gMeshList, gFrameCmds, gFrameGrd, gMeshFirst, MAX_CMDS - 1, gHeads[1], gTails[1], gLevel.materials,
                   gLevel.shadeGouraud, gLevel.shadeLevel, gLevel.shade[0], gLevel.sprites);
+#ifdef RENDER_LAB
     gSplit.top = MAX_VERTICES;
     gSplit.bottom = roomsBottom();
+#endif
 }
 
 void frameSplit(const DrawScene* draws, uint32_t count, int32_t fills)
@@ -151,8 +157,10 @@ void framePaintRoom(int32_t) {}
 static void roomListStart()
 {
     facesListStart(gRoomList, gFrameCmds, gFrameGrd, 1, gMeshFirst);
+#ifdef RENDER_LAB
     gSplit.top = MAX_VERTICES;
     gSplit.bottom = roomsBottom();
+#endif
 }
 
 void frameListsStart(bool rooms)
@@ -394,20 +402,31 @@ static void slaveRooms(void*)
     }
     stageBegin(STAGE_ROOMS);
     void (*work)() = *uncached(&gNextWork);
+    // the next frame's work while the master projects a room's chunks
+    auto workNow = [&]() {
+        stageEnd(STAGE_ROOMS);
+        work();
+        work = nullptr;
+        stageBegin(STAGE_ROOMS);
+    };
+    // room i's vertices; the master's claims, coming as it's begun, can leave
+    // it chunks the master won't reach for a while: that work meanwhile
+    auto project = [&](uint32_t i) {
+        int32_t from = 0;
+        if (work && i && !verticesRoomMine(i, wait, from)) {
+            workNow();
+        }
+        verticesRoom(i, wait, from);
+    };
     uint32_t projected = 0;     // rooms projected, ahead of their faces while the last list holds the commands
     for (uint32_t i = 0; i < gFrameRoomCount; i++)
     {
-        if (work && i >= projected && i && shared->drawListDone && verticesRoomMasters(i))
-        {
-            // the next frame's work while the master projects this room's chunks
-            stageEnd(STAGE_ROOMS);
-            work();
-            work = nullptr;
-            stageBegin(STAGE_ROOMS);
+        if (work && i >= projected && i && shared->drawListDone && verticesRoomMasters(i)) {
+            workNow();
         }
         if (i >= projected)
         {
-            verticesRoom(i, wait);
+            project(i);
             projected = i + 1;
         }
         if (!i)
@@ -417,7 +436,7 @@ static void slaveRooms(void*)
             // master has chunks of; faces wait for the commands
             while (!shared->listFree && projected < gFrameRoomCount && !verticesRoomMasters(projected))
             {
-                verticesRoom(projected, wait);
+                project(projected);
                 projected++;
             }
             if (!shared->listFree)
@@ -436,6 +455,7 @@ static void slaveRooms(void*)
                 stageBegin(STAGE_ROOMS);
             }
             facesRoomsBegin(gRoomRun, gRoomTextures, gSplit, gRoomList);
+            gRoomRun.seen = roomsBoxes(gFrameRooms, gRoomRun.seenCount);
         }
 #ifdef HW_LOG
         gRoomSlots[i][0] = facesSlot(gRoomList.link);
@@ -640,7 +660,7 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         // draws
         int32_t fills;
         const int32_t (*fill)[4] = roomsFills(fills);
-        for (int32_t k = 0; k < fills; k++)
+        for (int32_t k = 0; k < fills && *uncached(&gFacesVoidWay) == FACE_VOIDS_DRAWN; k++)
         {
             Vertex v[2] = {};
             v[0].x = fill[k][0];
@@ -649,6 +669,9 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
             v[1].x = fill[k][2] - fill[k][0];
             v[1].y = fill[k][3] - fill[k][1];
             const Face face = { FACE_LINE_H, nullptr, { 0 } };
+#ifdef STEPWISE
+            stepMark(1, gMeshList, STEP_FILL);
+#endif
             facesOtherAsm(&face, v, OT_SIZE - 1, &gMeshList);
         }
     }
@@ -658,6 +681,9 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
             slaveEnd = ticksCycles(t0, ticks());
         }
         const DrawScene &d = draws[i];
+#ifdef STEPWISE
+        stepMark(1, gMeshList, STEP_DRAW | d.type << 16 | d.mesh);
+#endif
         if (d.type == DRAW_COPY)
         {
             // a sprite's or rectangle's face: the draw list's made, or given
@@ -767,13 +793,6 @@ void frameTexels(int32_t lod)
     gRoomTextures.lod = lod;
 }
 
-void frameNear(int32_t split)
-{
-#ifndef RENDER_LAB
-    facesNear(split);
-#endif
-}
-
 void frameFar(int32_t far)
 {
     roomsFar(far);
@@ -806,6 +825,41 @@ void frameRoomsStart(bool listFree)
 void frameListFree()
 {
     *uncached(&gSlaveStages.listFree) = 1;
+}
+
+static inline int32_t voidMin(int32_t a, int32_t b)
+{
+    return a < b ? a : b;
+}
+
+static inline int32_t voidMax(int32_t a, int32_t b)
+{
+    return a > b ? a : b;
+}
+
+FrameVoids frameVoids()
+{
+    const CommandList* rooms = uncached(&gRoomList);
+    const CommandList* meshes = uncached(&gMeshList);
+    FrameVoids v;
+    v.x0 = voidMin(rooms->voidX0, meshes->voidX0);
+    v.y0 = voidMin(rooms->voidY0, meshes->voidY0);
+    v.x1 = voidMax(rooms->voidX1, meshes->voidX1);
+    v.y1 = voidMax(rooms->voidY1, meshes->voidY1);
+    v.area = rooms->voidArea + meshes->voidArea;
+    int32_t fills;
+    const int32_t (*fill)[4] = roomsFills(fills);
+    for (int32_t k = 0; k < fills; k++)
+    {
+        if (fill[k][0] > fill[k][2] || fill[k][1] > fill[k][3])
+            continue;
+        v.x0 = voidMin(v.x0, fill[k][0]);
+        v.y0 = voidMin(v.y0, fill[k][1]);
+        v.x1 = voidMax(v.x1, fill[k][2]);
+        v.y1 = voidMax(v.y1, fill[k][3]);
+        v.area += (fill[k][2] - fill[k][0] + 1) * (fill[k][3] - fill[k][1] + 1);
+    }
+    return v;
 }
 
 void frameEnds()
@@ -867,6 +921,10 @@ void framePlan(int32_t bias, bool posed, bool started)
 
 uint32_t frameUpload()
 {
+#ifdef STEPWISE
+    gStepUploaded[0] = gStepHead[0];
+    gStepUploaded[1] = gStepHead[1];
+#endif
     texturesUpload(gFrameTextures);
     int32_t rooms = gListRooms, first = gListMeshFirst, meshes = gListEnd + 1 - first;
     dmaToVdp1(gFrameCmds, VRAM_FRAME_CMDS, rooms * sizeof(Command));

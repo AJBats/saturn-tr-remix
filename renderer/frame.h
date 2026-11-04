@@ -38,6 +38,14 @@ extern CommandList gRoomList, gMeshList;
 // adds to the picture (-1 none): HW_LOG builds.
 void framePaintRoom(int32_t room);
 
+// This frame's fills, as faces.h FaceVoidWay has them: the box round them, x0 > x1
+// none, and their areas added up. With all its faces done.
+struct FrameVoids
+{
+    int32_t x0, y0, x1, y1, area;
+};
+FrameVoids frameVoids();
+
 // The colour rooms' fills are drawn in, to see them: 0, transparent, as played.
 void frameFillColour(uint16_t colour);
 
@@ -225,9 +233,6 @@ void frameFar(int32_t far);
 // 4 x the texels a pixel along a room face's lines past which it takes its next
 // mip level (faces.h RoomTextures.lod), from the frame after next.
 void frameTexels(int32_t lod);
-
-// How room faces near the camera split (faces.h facesNear).
-void frameNear(int32_t split);
 
 // The list and the textures its faces queued into VDP1 VRAM where the game
 // keeps its own, by the SCU's DMA: the textures, the clear and the rooms'

@@ -4,12 +4,15 @@
 // frame: on a Saturn, layers read from bank B showed only garbage.
 //
 // VDP2's colour offsets darken the layers: A the bitmap, B VDP1's frames,
-// each fading at the vblanks (0 as drawn, -255 black).
+// each fading at the vblanks (0 as drawn, -255 black). A level with a plane
+// (plane.h) has three layers to two offsets, and the plane's fog holds one down
+// by its constant: there A is the plane, B the bitmap, each on the bitmap's fade.
 
 #include "screen.h"
 #include "cd.h"
 #include "crash.h"
 #include "hw.h"
+#include "plane.h"
 #include "system.h"
 
 #include <string.h>
@@ -21,7 +24,7 @@
 #define STAGING_SIZE    (BITMAP_WIDTH * PICTURE_HEIGHT * 2)
 
 #define SPRITE_PRIORITY 0x0606  // as systemInit sets it
-#define PICTURE_PRIORITY 1      // under the sprites
+#define PICTURE_PRIORITY 2      // under the sprites, over the plane
 #define OVERLAY_PRIORITY 7      // over them
 
 #define PICTURE_DIM     -64     // the paused scene behind the inventory, as the original's
@@ -29,6 +32,8 @@
 static volatile bool gPicture;  // NBG0 holds a picture, and shows
 static volatile bool gOverlay;  // NBG0 is the overlay, and shows
 static bool gCaptured;          // the picture is the frame screenCapture took, till released
+static bool gPlaneLevel;        // the level has a plane
+static volatile bool gPlaneShown;
 static uint32_t gPictures;
 
 // The colour offsets' fades, the bitmap's and the frames': each one's offset
@@ -41,8 +46,9 @@ static volatile uint32_t gFadeLeft[2];
 
 static void fadeWrite()
 {
-    uint16_t a = uint16_t(gFadeValue[FADE_PICTURE] >> 16) & 0x1FF;
-    uint16_t b = uint16_t(gFadeValue[FADE_FRAMES] >> 16) & 0x1FF;
+    int32_t picture = gFadeValue[FADE_PICTURE] >> 16;
+    uint16_t a = uint16_t(gPlaneLevel ? picture + PLANE_OFFSET : picture) & 0x1FF;
+    uint16_t b = uint16_t(gPlaneLevel ? picture : gFadeValue[FADE_FRAMES] >> 16) & 0x1FF;
     VDP2_COAR = VDP2_COAG = VDP2_COAB = a;
     VDP2_COBR = VDP2_COBG = VDP2_COBB = b;
 }
@@ -92,7 +98,7 @@ static void fadesClear()
 static void showLayers()
 {
     VDP2_PRINA = gPicture ? PICTURE_PRIORITY : OVERLAY_PRIORITY;
-    VDP2_BGON = (gPicture || gOverlay) ? BGON_N0ON : 0;
+    VDP2_BGON = ((gPicture || gOverlay) ? BGON_N0ON : 0) | (gPlaneShown ? BGON_R0ON | BGON_R0TPON : 0);
 }
 
 static void showFrames()
@@ -103,6 +109,7 @@ static void showFrames()
 static void showFramesOnly()
 {
     gPicture = false;
+    gPlaneShown = gPlaneLevel;
     showLayers();
     showFrames();
     fadesClear();
@@ -122,6 +129,19 @@ void screenFramesHidden(bool hidden)
     }
 }
 
+void screenPlaneLevel(bool on)
+{
+    gPlaneLevel = on;
+    VDP2_CLOFSL = on ? CLOF_N0 : CLOF_SP;
+    VDP2_CLOFEN = on ? CLOF_N0 | CLOF_R0 : CLOF_N0 | CLOF_SP;
+    fadeWrite();
+}
+
+int32_t screenFramesFade()
+{
+    return gFadeValue[FADE_FRAMES] >> 16;
+}
+
 // The bitmap is about to take a picture.
 static void takeBitmap()
 {
@@ -129,6 +149,16 @@ static void takeBitmap()
     gPictures++;
     showLayers();
     fadesClear();
+}
+
+// ... that fills the screen, and may stage in bank B: no plane.
+static void takeScreen()
+{
+    gPlaneShown = false;
+    showLayers();
+    planeOff();
+    screenPlaneLevel(false);
+    takeBitmap();
 }
 
 void screenInit()
@@ -166,7 +196,7 @@ void screenShow(const char* name, int32_t width)
 {
     vdp1OnNextFrame(nullptr);
     hideFrames();
-    takeBitmap();
+    takeScreen();
 
     char path[32] = "BINDATA/";
     strcat(path, name);
@@ -256,7 +286,7 @@ volatile uint16_t* screenBlank()
 {
     vdp1OnNextFrame(nullptr);
     hideFrames();
-    takeBitmap();
+    takeScreen();
 
     volatile uint32_t* dst = (volatile uint32_t*)VDP2_VRAM;
     for (uint32_t i = 0; i < BITMAP_WIDTH * BITMAP_HEIGHT / 2; i++) {

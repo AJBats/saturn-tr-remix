@@ -53,6 +53,9 @@ endif
 ifdef SYNC_TEST
 CFLAGS  += -DSYNC_TEST  # testing, with HW_LOG: the CPUs' synchronisation test at boot (synctest.cpp)
 endif
+ifdef STEPWISE
+CFLAGS  += -DSTEPWISE   # tools/stepwise.py's builds: who made which commands
+endif
 ifdef VOID_VIEW
 CFLAGS  += -DVOID_VIEW  # testing: what nothing draws in the scene shows magenta
 endif
@@ -104,9 +107,10 @@ DSP_HEADERS := $(patsubst saturn/%.dsp,$(BUILD)/gen/%_dsp.h,$(wildcard saturn/*.
 # The sound CPU's programs, assembled into headers (tools/m68kasm.py):
 # saturn/NAME.68k to NAME_m68k.h holding NAME_m68k[]
 M68K_HEADERS := $(patsubst saturn/%.68k,$(BUILD)/gen/%_m68k.h,$(wildcard saturn/*.68k))
-# draw order hints (tools/depth_hints.py): saturn/depth_hints.txt
+# draw order hints (tools/depth_hints.py): saturn/depth_hints.txt; solid boxes
+# (tools/occluders.py): saturn/occluders.txt
 HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h renderer/*.h) $(DSP_HEADERS) $(M68K_HEADERS) \
-	$(BUILD)/gen/depth_hints.h $(FLAGS_FILE)
+	$(BUILD)/gen/depth_hints.h $(BUILD)/gen/occluders.h $(FLAGS_FILE)
 
 .PHONY: all disc levels dspbench vdp1bench lab extract ghidra check-toolchain
 
@@ -149,6 +153,10 @@ $(BUILD)/gen/depth_hints.h: saturn/depth_hints.txt tools/depth_hints.py
 	@mkdir -p $(@D)
 	$(PY) tools/depth_hints.py $< $@
 
+$(BUILD)/gen/occluders.h: saturn/occluders.txt tools/occluders.py
+	@mkdir -p $(@D)
+	$(PY) tools/occluders.py $< $@
+
 %/0MAIN.BIN: %/0MAIN.elf
 	$(OBJCOPY) -O binary $< $@
 
@@ -162,6 +170,9 @@ PSXDATA := $(ER)/ps1/files/files/PSXDATA
 LEVELS  := TITLE GYM LEVEL1 LEVEL2 LEVEL3A LEVEL3B LEVEL4 LEVEL5 LEVEL6 LEVEL7A LEVEL7B \
            LEVEL8A LEVEL8B LEVEL8C LEVEL10A LEVEL10B LEVEL10C CUT1 CUT2 CUT3 CUT4
 GAME_DISC := $(foreach l,$(LEVELS),$(foreach e,PKD TEX SUB SFX ITX MSH,DATA/$(l).$(e)=build/data/$(l).$(e)))
+# a floor and ceiling on VDP2 (tools/planepack.py), where saturn/planes.txt names the level
+PLANE_LEVELS := $(shell grep -o '^LEVEL[0-9A-Z]*' saturn/planes.txt)
+GAME_DISC += $(foreach l,$(PLANE_LEVELS),$(foreach e,PLC PLN,DATA/$(l).$(e)=build/data/$(l).$(e)))
 # the title and loading pictures (saturn/screen.h)
 PICTURES := USATIT USAOPT GYM224 AZTEC224 GREEK224 EGYPT224 ATLAN224 EIDOS224 CRED224 ENDPG224
 GAME_DISC += $(foreach p,$(PICTURES),BINDATA/$(p).BIN=$(DISC)/files/BINDATA/$(p).BIN)
@@ -177,9 +188,9 @@ $(shell mkdir -p build/data && (echo $(OBJECT_ART) | cmp -s - build/data/object_
 
 levels: $(foreach l,$(LEVELS),build/data/$(l).PKD)
 
-build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%.ITX build/data/%.MSH &: \
+build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%.ITX build/data/%.MSH build/data/%.PLC build/data/%.PLN &: \
 		tools/pack_level.py tools/texart.py tools/diet.py tools/trsat.py tools/trpsx.py tools/sfx.py tools/meshstore.py \
-		tools/facepack.py tools/roomrank.py \
+		tools/facepack.py tools/roomrank.py tools/planepack.py saturn/planes.txt $(wildcard saturn/plane_paint/*.txt) \
 		openlara/common.h saturn/vram.h saturn/sound.h $(DISC)/filelist.txt $(wildcard $(PSXDATA)/*.PSX) \
 		build/data/object_art
 	OBJECT_ART=$(OBJECT_ART) $(PY) tools/pack_level.py $(DISC)/files/DATA $* build/data/$*.PKD $(PSXDATA)
@@ -258,7 +269,7 @@ LAB_SRC := $(wildcard renderer/*.cpp renderer/*.s lab/*.cpp lab/*.s) saturn/font
 LAB_DSP := $(patsubst renderer/gen_%.py,$(LAB)/gen/%_dsp.h,$(wildcard renderer/gen_*.py)) $(LAB)/gen/meshlight3_dsp.h
 # -g: lines for profiles (tools/lab.py's trace), and the assembly's local
 # labels kept, for the places inside its macros; the code is the same without
-LAB_FLAGS := -m2 -mb -O2 -g -Wall -DRENDER_LAB -Ilab -Irenderer -Isaturn -I$(LAB)/gen -ffunction-sections
+LAB_FLAGS := -m2 -mb -O2 -g -Wall -DRENDER_LAB -Wa,--defsym,RENDER_LAB=1 -Ilab -Irenderer -Isaturn -I$(LAB)/gen -ffunction-sections
 LAB_CXXFLAGS := $(LAB_FLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
 	-fno-asynchronous-unwind-tables
 

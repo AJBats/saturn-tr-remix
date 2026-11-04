@@ -55,7 +55,9 @@ void renderTiny(int32 pixels);
 
 // 4 x the texels a pixel a room face may take before its next mip level.
 void renderTexels(int32 lod);
-void renderNear(int32 split);
+
+// What lies wholly behind the level's solid boxes left out (renderer/rooms.h roomsSolidBoxes).
+void renderBoxes(bool on);
 
 #ifdef HW_LOG
 // The debug page's stamps (renderer/rooms.h roomsHideWith, roomsListCopy, frame.h
