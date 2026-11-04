@@ -65,7 +65,8 @@ extern "C" int32_t gFocalScale;
 #define DEPTH_ENTRIES   8192
 #define DEPTH_BYTES     (DEPTH_ENTRIES * 4)
 #define DEPTH_K         10485760    // 2^24 / 1.6: k at entry 1
-#define DEPTH_Z         2147840     // focal length (209.75, the game's) x 2^14 / 1.6: a ray's depth at entry 1
+#define DEPTH_Z         2147840     // focal length (209.75, retail's camera) x 2^14 / 1.6: a ray's depth at entry 1
+#define DEPTH_SCALE     13424       // that focal length as gFocalScale has it
 #define DEPTH_FAR       20480       // the renderer's far cut
 #define DEPTH_LIMIT_SHIFT 16        // down / height no more than 8192 x 8 / 5: a height no less than down x 5 >> 16
 #define TABLE_TIMES_5   5           // entries for down / height: 5 / 8
@@ -109,6 +110,8 @@ static Frame gPending;      // the list made's, till its plot
 static Frame gLists[4];     // the lists' by their plots
 static bool gLineWater;     // the line colours in CRAM
 static uint16_t gLineColours[2][LINE_ENTRIES];
+static int32_t gLineScale;  // the camera's focal length they were made for
+static volatile bool gLineStale;    // ... and CRAM's were not
 
 static inline volatile uint32_t* vram32(uint32_t at)
 {
@@ -124,6 +127,33 @@ static void lineColoursWrite(bool water)
     }
     gLineWater = water;
 }
+
+#ifdef HW_LOG
+#define WRITE_COST_EVERY    32      // lists
+#define WRITE_COST_LONGS    512     // what a row of 32 sectors comes to
+#define BLANK_NAME          0x00772000  // page 0's, tools/planepack.py's: rewriting it changes nothing
+
+static PlaneWriteCost gWriteCost;
+
+static void writeCostMeasure(uint32_t plot)
+{
+    if (plot % WRITE_COST_EVERY)
+        return;
+    const uint32_t t0 = timerTicks();
+    volatile uint32_t* names = vram32(NAMES_AT);
+    for (int32_t i = 0; i < WRITE_COST_LONGS; i++) {
+        names[i] = BLANK_NAME;
+    }
+    gWriteCost.last = (timerTicks() - t0) & 0xFFFF;
+    gWriteCost.line = vdp2Line();
+    gWriteCost.most = gWriteCost.last > gWriteCost.most ? gWriteCost.last : gWriteCost.most;
+}
+
+PlaneWriteCost planeWriteCost()
+{
+    return gWriteCost;
+}
+#endif
 
 // The buffers are changing to this list's frame, in this vertical blank.
 static void listChanging(uint32_t plot)
@@ -153,9 +183,14 @@ static void listChanging(uint32_t plot)
         VDP2_WPEY1 = uint16_t(f.ceilingBelow - 1);
         VDP2_RPMD = RPMD_WINDOW;
     }
-    if (f.water != gLineWater) {
+    if (f.water != gLineWater || gLineStale)
+    {
+        gLineStale = false;
         lineColoursWrite(f.water);
     }
+#ifdef HW_LOG
+    writeCostMeasure(plot);
+#endif
 }
 
 void* planeCellsAt()
@@ -205,11 +240,13 @@ static void depthTableWrite()
 
 // What each depth's line colour gives back: in air the fog not yet taken off, as the
 // renderer's shades go; under water its red less by the fade faces.cpp waterColour has.
-static void lineColoursMake()
+// The table's depths are retail's camera's: a wider or narrower camera's are in proportion.
+static void lineColoursMake(int32_t scale)
 {
+    gLineScale = scale;
     for (int32_t i = 0; i < LINE_ENTRIES; i++)
     {
-        const int32_t z = i << DEPTH_STEP_SHIFT;
+        const int32_t z = (i << DEPTH_STEP_SHIFT) * scale / DEPTH_SCALE;
         int32_t fog = (z - FOG_MIN) >> DEPTH_STEP_SHIFT;
         fog = fog < 0 ? 0 : fog > FOG_STEPS ? FOG_STEPS : fog;
         const int32_t level = FOG_STEPS - fog;
@@ -290,7 +327,7 @@ void planeLoaded(uint32_t cellBytes, uint32_t nameBytes)
     gTableAt = CELLS_AT + cellsOnly;
     gNamesEnd = NAMES_AT + nameBytes;
     depthTableWrite();
-    lineColoursMake();
+    lineColoursMake(DEPTH_SCALE);
     lineColoursWrite(false);
     paramsWrite();
 
@@ -387,6 +424,11 @@ void planeView(const int32_t camera[3], const int32_t view[12])
     // the rows as if unnarrowed, and the z row times F / 256
     const int32_t scale = gFocalScale;
     const int32_t wider = (1 << 28) / scale;
+    if (scale != gLineScale)
+    {
+        lineColoursMake(scale);
+        gLineStale = true;
+    }
     int32_t r[9];
     for (int32_t row = 0; row < 3; row++)
     {
