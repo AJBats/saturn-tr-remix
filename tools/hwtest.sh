@@ -64,7 +64,7 @@
 #   valley-dark LEVEL3A, room 63: dark rock with a bright cave behind it, in the middle of
 #               the frame
 #
-#   valley-end  LEVEL3A's mouth, the level ending at once: from a level with a plane to one without
+#   valley-end  LEVEL3A, room 51, the level ending at once: from a level with a plane to one without
 #   vilcabamba-end LEVEL2's stone houses, the level ending at once: on into LEVEL3A's plane
 #
 # PLANES=0 in the environment packs the level without its floor and ceiling on VDP2.
@@ -113,7 +113,7 @@ case "${1:-ledge}" in
     valley-sky) level=LEVEL3A id=LVL_TR1_3A start=56@41167:3584:27288 yaw=0xA136 ;;
     valley-cave) level=LEVEL3A id=LVL_TR1_3A start=27@36389:113:46532 yaw=0x3D3B ;;
     valley-plants) level=LEVEL3A id=LVL_TR1_3A start=51@41453:3584:35241 yaw=0x8143 ;;
-    valley-end) level=LEVEL3A id=LVL_TR1_3A start=30@39424:3584:42496 yaw=0x6000 trigger=end ;;
+    valley-end) level=LEVEL3A id=LVL_TR1_3A start=51@41453:3584:35241 yaw=0x8143 trigger=end ;;
     vilcabamba-end) level=LEVEL2 id=LVL_TR1_2 start=15@66372:0:26074 yaw=0x1ADC trigger=end ;;
     valley-dark) level=LEVEL3A id=LVL_TR1_3A start=63@60614:3584:15342 yaw=0x0000 ;;
     *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-dark|cistern-tunnel|cistern-look|cistern-water|cistern-flood|cistern-flood-above|valley|valley-trex|valley-sky|valley-cave|valley-plants|valley-dark|valley-end|vilcabamba-end]" >&2; exit 1 ;;
