@@ -63,12 +63,16 @@ class Mednafen:
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self.proc.poll() is not None:
-                with open(stderr_path) as f:
+                with open(stderr_path, encoding='utf-8', errors='replace') as f:
                     raise RuntimeError(f'Mednafen exited with code {self.proc.returncode}: {f.read().strip()}')
             if 'ready' in self.ack():
                 return
             time.sleep(0.2)
-        raise RuntimeError('Mednafen did not come up')
+        # stuck: it would keep the lock on this name, and __exit__ will not run
+        self.proc.kill()
+        self.proc.wait()
+        with open(stderr_path, encoding='utf-8', errors='replace') as f:
+            raise RuntimeError(f'Mednafen was not ready in {timeout} s, stopped it: {f.read().strip()}')
 
     def stop(self):
         """Quits the instance this object started (and only that one)."""
@@ -80,7 +84,9 @@ class Mednafen:
             try:
                 self.proc.wait(10)
             except subprocess.TimeoutExpired:
-                pass
+                # stuck: it would keep the lock on this name
+                self.proc.kill()
+                self.proc.wait()
         self.proc = None
 
     def ack(self):

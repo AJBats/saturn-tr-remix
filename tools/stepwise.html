@@ -101,7 +101,10 @@ const ctx = $('view').getContext('2d');
 let F, W, H, N, writes, runs, runAt, colorAt, col, cnt, top_, last, cur = 0, image, stripBase;
 let viewMode = 'picture', selected = -1, sortKey = 'cycles', sortUp = false, playing = false, msOf = c => c * 1000 / 28636360;
 let listMode = 'now', lastOther = 'run', scene = 0, TODAY, differs, filled;
-const LISTS = [['now', 'As now'], ['run', 'Opening black run as one fill'], ['all', 'All black scenery as one fill']];
+const HAS_BOXES = FRAMES.some(f => f.boxes);
+const LISTS = HAS_BOXES ? [['now', 'Boxes off'], ['boxes', 'Boxes on']] : [['now', 'As now'], ['run', 'Opening black run as one fill'], ['all', 'All black scenery as one fill']];
+let cutOf = new Map(), cutCol, cutMask;
+if (HAS_BOXES) lastOther = 'boxes';
 
 function bytes(b64) {
   const s = atob(b64), a = new Uint8Array(s.length);
@@ -185,6 +188,11 @@ function load(i, keepPlace) {
     if ((a & 0x8000 ? a & 0x7FFF : 0) !== (c & 0x8000 ? c & 0x7FFF : 0)) differs[p] = 1;
   }
   listNote();
+  cutOf = new Map();
+  const bx = FRAMES[i].boxes;
+  if (bx && listMode === 'now') bx.drop.forEach((d, k) => cutOf.set(d, bx.why[k]));
+  cutMask = new Uint8Array(W * H);
+  cutCol = new Uint16Array(W * H);
   colorAt = new Uint32Array(N + 1);
   F.commands.forEach((c, k) => { colorAt[k + 1] = colorAt[k] + c.written; });
   col = new Uint16Array(W * H); cnt = new Uint8Array(W * H); top_ = new Int32Array(W * H);
@@ -201,6 +209,14 @@ function load(i, keepPlace) {
 function listNote() {
   const b = FRAMES[scene], m = b.black && b.black[listMode];
   const el = $('listnote');
+  if (b.boxes) {
+    const x = b.boxes;
+    el.textContent = listMode === 'now'
+      ? 'The list with the boxes off. Pick "What the boxes cut" and step through: each face the boxes cut shows pink and stays pink, on top of whatever later paints over it. The yellow rectangles are the boxes as the game saw them this frame.'
+      : `The same list without the ${x.drop.length} commands the game itself left out. "Differs from today" shows what that changed on screen. The game's own list with the boxes on is the next tab along.`;
+    return;
+  }
+  if (HAS_BOXES) { el.textContent = 'The game\'s own list with the boxes on, captured from the same camera. The yellow rectangles are the boxes this frame.'; return; }
   if (listMode === 'now') { el.textContent = 'The list as the game draws it today. The B key flips to the list last picked and back.'; return; }
   if (!m || !m.box) { el.textContent = 'No black commands to replace in this scene.'; return; }
   const was = m.drop.reduce((a, i) => a + b.commands[i].cycles, 0), [x0, y0, x1, y1] = m.box;
@@ -216,15 +232,19 @@ function setList(mode) {
   load(scene, true);
 }
 
-function reset() { col.fill(0); cnt.fill(0); top_.fill(-1); cur = 0; }
+function reset() { col.fill(0); cnt.fill(0); top_.fill(-1); if (cutMask) cutMask.fill(0); cur = 0; }
 
 function apply(k) {
   if (k < cur) reset();
   for (let i = cur; i < k; i++) {
     let c = colorAt[i];
+    const isCut = cutOf.has(F.commands[i].from);
     for (let r = runAt[i]; r < runAt[i + 1]; r++) {
       let p = runs[r * 3] * W + runs[r * 3 + 1];
-      for (let j = runs[r * 3 + 2]; j > 0; j--, p++) { col[p] = writes[c++]; if (cnt[p] < 255) cnt[p]++; top_[p] = i; }
+      for (let j = runs[r * 3 + 2]; j > 0; j--, p++) {
+        if (isCut) { cutMask[p] = 1; cutCol[p] = writes[c]; }
+        col[p] = writes[c++]; if (cnt[p] < 255) cnt[p]++; top_[p] = i;
+      }
     }
   }
   cur = k;
@@ -246,6 +266,7 @@ function paint() {
         r = h[0] * v; g = h[1] * v; b = h[2] * v;
       } else {
         if (c & 0x8000) { r = (c & 31) << 3; g = ((c >> 5) & 31) << 3; b = ((c >> 10) & 31) << 3; }
+        if (viewMode === 'cut') { r *= 0.55; g *= 0.55; b *= 0.55; }
         if (viewMode === 'waste') {
           const y = (r * 3 + g * 6 + b) / 10;
           if (last[p] === t) { r = g = b = y * 0.75; }
@@ -255,6 +276,10 @@ function paint() {
       if (selected >= 0 && cmds[t].owner !== selected) { r *= 0.22; g *= 0.22; b *= 0.22; }
     } else if (viewMode === 'heat' && cur === N) {
       r = 255; b = 255;     // never written: what shows the last frame
+    }
+    if (viewMode === 'cut' && cutMask[p]) {
+      const k = cutCol[p], y = k & 0x8000 ? ((k & 31) * 3 + ((k >> 5) & 31) * 6 + ((k >> 10) & 31)) * 0.8 : 0;
+      r = 170 + y * 0.35; g = 30 + y * 0.45; b = 130 + y * 0.45;
     }
     if (viewMode === 'differs') {
       const y = (r * 3 + g * 6 + b) / 10 * 0.5;
@@ -266,6 +291,15 @@ function paint() {
     d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
   }
   ctx.putImageData(image, 0, 0);
+  const rects = FRAMES[scene].boxes ? FRAMES[scene].boxes.rects : FRAMES[scene].boxRects;
+  if (rects && (viewMode === 'cut' || viewMode === 'differs')) {
+    ctx.strokeStyle = '#ffe600'; ctx.lineWidth = 1;
+    ctx.font = '8px monospace'; ctx.fillStyle = '#ffe600';
+    rects.forEach((r, n) => {
+      ctx.strokeRect(r[0] + .5, r[1] + .5, r[2] - r[0], r[3] - r[1]);
+      ctx.fillText('box ' + (n + 1), Math.max(r[0], 0) + 2, Math.max(r[1], 0) + 9);
+    });
+  }
   if (cur > 0) {
     const c = cmds[cur - 1].corners;
     ctx.strokeStyle = '#ffb000'; ctx.lineWidth = 1; ctx.beginPath();
@@ -289,7 +323,7 @@ function readout() {
   el.innerHTML = '';
   const who = document.createElement('span'); who.className = 'who'; who.textContent = o.name;
   el.append(`Command ${cur} of ${N}: `, who,
-    `, ${KIND[c.kind & 7]} ${c.kind < 4 ? `${c.tw}x${c.th} texels` : ''}, ${c.lines} lines. Writes ${c.written} px, ${c.seen} seen at the end. ${msOf(c.cycles).toFixed(3)} ms.`,
+    `, ${KIND[c.kind & 7]} ${c.kind < 4 ? `${c.tw}x${c.th} texels` : ''}, ${c.lines} lines. Writes ${c.written} px, ${c.seen} seen at the end. ${msOf(c.cycles).toFixed(3)} ms.${cutOf.has(c.from) ? (cutOf.get(c.from) >= 0 ? ` Cut: wholly behind box ${cutOf.get(c.from) + 1}.` : ' Cut: its room was skipped, seen only through a doorway behind a box.') : ''}`,
     document.createElement('br'),
     `So far: ${msOf(spent).toFixed(2)} of ${msOf(F.cycles).toFixed(2)} ms, ${(written / (W * H)).toFixed(2)} screens written.`);
 }
@@ -303,7 +337,16 @@ function figures() {
     [gone + ' / ' + msOf(F.gone).toFixed(1) + ' ms', 'commands with nothing left at the end'],
     [String(F.never), listMode === 'now' ? 'pixels never written: they show the last frame' : `pixels never written, ${TODAY.never} as now`],
   ];
-  if (listMode !== 'now') {
+  const bx = FRAMES[scene].boxes;
+  if (bx) {
+    items.length = 0;
+    items.push([msOf(TODAY.cycles).toFixed(1) + ' -> ' + msOf(bx.onCycles).toFixed(1) + ' ms', `VDP1 time, boxes off to on, the game's own lists (${bx.offCommands} to ${bx.onCommands} commands)`]);
+    items.push([String(bx.drop.length), `room faces the boxes cut, ${msOf(bx.cycles).toFixed(1)} ms of drawing${bx.rooms.length ? `, among them all of ${bx.rooms.join(', ')}` : ''}`]);
+    items.push([String(bx.seen), 'pixels of those faces that would have shown: the test of a wrong cut, 0 is right']);
+    items.push([bx.rects.length + ' on screen', 'boxes in view this frame']);
+    items.push([bx.hidden + ' / ' + msOf(bx.hiddenCycles).toFixed(1) + ' ms', 'room faces hidden anyway with the boxes off: what a perfect test could cut']);
+    if (listMode === 'boxes') items.push([String(differs.reduce((a, x) => a + x, 0)), 'pixels differ on screen, boxes off to on']);
+  } else if (listMode !== 'now') {
     items[0][1] = `VDP1 time, ${N} commands; as now ${msOf(TODAY.cycles).toFixed(1)} ms, ${TODAY.commands.length} commands`;
     items.push([String(differs.reduce((a, x) => a + x, 0)), 'pixels look different from today\'s frame']);
   }
@@ -376,7 +419,7 @@ function stripDraw() {
   F.commands.forEach((c, i) => {
     const x = i * cv.width / N, full = Math.sqrt(c.written) / peak * cv.height, kept = c.written ? full * c.seen / c.written : 0;
     const dim = selected >= 0 && c.owner !== selected;
-    g.globalAlpha = dim ? 0.1 : 0.32; g.fillStyle = CAT[c.cat] || CAT.frame;
+    g.globalAlpha = dim ? 0.1 : 0.32; g.fillStyle = cutOf.has(c.from) ? '#ff3cc8' : CAT[c.cat] || CAT.frame;
     g.fillRect(x, cv.height - full, bw, full);
     g.globalAlpha = dim ? 0.15 : 1;
     g.fillRect(x, cv.height - kept, bw, kept);
@@ -401,6 +444,7 @@ function setView(v) {
   if (v === 'heat') { add('#ff00ff', 'Never written: shows the last frame'); for (let i = 1; i <= 8; i++) add(HEAT[i], i === 8 ? '8+ times' : i + (i === 1 ? ' time' : '')); }
   else if (v === 'waste') { add('#a02020', 'Will be painted over later'); add('#8c8c8c', 'Still there at the end'); }
   else if (v === 'who') { for (const k of Object.keys(CAT)) add(CAT[k], CAT_NAME[k]); }
+  else if (v === 'cut') { add('#ff3cc8', 'A face the boxes cut, drawn so far, seen through what paints over it'); add('#ffe600', 'A box\'s rectangle this frame'); }
   else if (v === 'differs') { add('#ff28ff', 'Looks different from today\'s frame'); add('#28c85a', 'Never written today, written here'); add('#5a005a', 'Still never written'); }
   paint();
 }
@@ -408,7 +452,7 @@ function setView(v) {
 for (const [k, n] of LISTS) {
   const b = document.createElement('button'); b.textContent = n; b.dataset.list = k; b.onclick = () => setList(k); $('lists').append(b);
 }
-for (const [v, n] of [['picture', 'Picture'], ['heat', 'Times written'], ['waste', 'Painted over later'], ['who', 'Who drew it'], ['differs', 'Differs from today']]) {
+for (const [v, n] of [['picture', 'Picture'], ...(HAS_BOXES ? [['cut', 'What the boxes cut']] : []), ['heat', 'Times written'], ['waste', 'Painted over later'], ['who', 'Who drew it'], ['differs', 'Differs from today']]) {
   const b = document.createElement('button'); b.textContent = n; b.dataset.view = v; b.onclick = () => setView(v); $('views').append(b);
 }
 FRAMES.forEach((f, i) => { const b = document.createElement('button'); b.textContent = f.title; b.onclick = () => load(i); $('scenes').append(b); });
@@ -438,5 +482,5 @@ document.addEventListener('keydown', e => {
 });
 window.addEventListener('resize', () => { stripDraw(); stripCursor(); });
 load(0);
-setView('picture');
+setView(HAS_BOXES ? 'cut' : 'picture');
 </script>
