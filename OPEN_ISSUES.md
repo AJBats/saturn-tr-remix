@@ -3479,21 +3479,28 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Fix: merge and hold joints with `tools/diet.py`, the user choosing the merges in
   `tools/model_view.py`, as for the wolf. The animals stay; only their meshes change, and
   every state pays less, awake or asleep.
-- Built on branch `shell` (81b84a3), the user's choices: every animal in the viewer joined into one
+- Built (81b84a3), the user's choices: every animal in the viewer joined into one
   shell, one vertex a corner; the rat's limbs, tail and ears as cards. Master mesh work a kind (draws, pose,
   feed, draw list, upload), three standing still in room 32 (`tools/hwtest.sh zoo-rats` and so on), Mednafen,
   less the room without them, ms an animal: rat 3.20 to 2.60, crocodile 2.26 to 2.14, gorilla 2.18 to 2.08.
   VDP1 a list, ms an animal: rat 1.08 to 0.47, crocodile 0.91 to 0.78, gorilla 0.67 to 0.66. Wolves and the bear:
   within 0.3 ms. Awake, three rats, a gorilla and two crocodiles at Lara's feet (`zoo`): 28.05 to 28.95 fps, VDP1
   31.50 to 27.47 ms. What's left of a rat: draws 1.53, feed 0.44, pose 0.40, draw list 0.20: feed, pose and the
-  draw list go by joints, and joints are what's left. Saturn run pending.
-- The diet's originals are out of the level (branch `shell`). `tools/pack_level.py` kept every mesh whole in the
+  draw list go by joints, and joints are what's left.
+- The diet's originals are out of the level. `tools/pack_level.py` kept every mesh whole in the
   PKD beside the renderer's store, though the game's code reads only its collision sphere, and loaded the level's
   object textures as one block, read or not. Now the PKD has the spheres, the store the geometry, and the blob what
   the store's faces read (`TextureTable.drop_unread`). Low work RAM, all meshes: 48-88 KB a level (LEVEL7B 1.0 KB
   free to 87 KB). VDP1 VRAM, for the room texture cache: LEVEL1 12.4 KB, LEVEL7A 9.4 KB, none where nothing was
   unread. Every mesh of every level compared with before, face by face: same bytes read, same spheres. The program
-  is byte-identical; frame costs within 0.03 ms (Mednafen, `zoo`, `zoo-wolves`). Not yet run on the Saturn.
+  is byte-identical; frame costs within 0.03 ms (Mednafen, `zoo`, `zoo-wolves`).
+- On the Saturn, 2026-11-04, `zoo` and `zoo-wolves` before merging: the user found they look right. No Saturn
+  trace yet. Merged with VDP2's planes. Against main before the merge, Mednafen, 30 fps at all of these: `zoo`
+  VDP1 27.06 to 24.97 ms, master draws 13.51 to 11.60, slave jobs 7.22 to 5.99; `zoo-wolves` VDP1 25.53 to 25.19,
+  draws 9.86 to 9.57; `cistern-steps` draws 5.40 to 4.87, VDP1 17.52 to 17.72; `ledge` and `valley-plants` within
+  0.12 ms. The rise at `cistern-steps` is in room 90, not the animals: the same commands and pixels, but four big
+  faces there went from a shaded copy of their colour table to real gouraud (+0.15 ms). The copies' cache picks
+  its slot by the table's address (`renderer/faces.cpp` `shadedCopy`), and the tables moved.
 
 ### 257. Creatures that paint nothing cost as much as those that do
 *Kind: speed · Size: 6.9 ms at one spot, Mednafen · Fix: open*
