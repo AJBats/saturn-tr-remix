@@ -39,6 +39,7 @@
 #define TVMR_VBE    0x0008  // the erase sweeps the buffer on screen in the vblank
 #define EWRR_FRAME  ((SCREEN_WIDTH / 8) << 9 | (SCREEN_HEIGHT - 1))
 #define SWEEP_LINES 185     // its reach at 352 x 224, the Saturn's: about 65,000 pixels a vblank
+#define PLOT_FIRST_LINE 1   // the buffers change 335-540 cycles after the counter reads line 0; a line is 1,817
 
 // VDP1 frame sequencing (after libyaul's variable-interval mode): a plot is
 // started once the command list is uploaded; at the vblank-in after VDP1
@@ -189,9 +190,11 @@ static void waitDisplayStart()
     while (vdp2Line() >= SCREEN_HEIGHT);
 }
 
-// From the vblank-out interrupt or the master's flush: lane is the trace's.
+// From the vblank-out interrupt or the master's flush: lane is the trace's. A
+// plot before the change would draw into the buffer going on screen.
 static void plotStart(int32_t lane, bool hold)
 {
+    while (vdp2Line() < PLOT_FIRST_LINE);
     if (gOpeningNext)
     {
         gOpeningNext = false;
