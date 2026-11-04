@@ -165,6 +165,9 @@ PSXDATA := $(ER)/ps1/files/files/PSXDATA
 LEVELS  := TITLE GYM LEVEL1 LEVEL2 LEVEL3A LEVEL3B LEVEL4 LEVEL5 LEVEL6 LEVEL7A LEVEL7B \
            LEVEL8A LEVEL8B LEVEL8C LEVEL10A LEVEL10B LEVEL10C CUT1 CUT2 CUT3 CUT4
 GAME_DISC := $(foreach l,$(LEVELS),$(foreach e,PKD TEX SUB SFX ITX MSH,DATA/$(l).$(e)=build/data/$(l).$(e)))
+# a floor and ceiling on VDP2 (tools/planepack.py), where saturn/planes.txt names the level
+PLANE_LEVELS := $(shell grep -o '^LEVEL[0-9A-Z]*' saturn/planes.txt)
+GAME_DISC += $(foreach l,$(PLANE_LEVELS),$(foreach e,PLC PLN,DATA/$(l).$(e)=build/data/$(l).$(e)))
 # the title and loading pictures (saturn/screen.h)
 PICTURES := USATIT USAOPT GYM224 AZTEC224 GREEK224 EGYPT224 ATLAN224 EIDOS224 CRED224 ENDPG224
 GAME_DISC += $(foreach p,$(PICTURES),BINDATA/$(p).BIN=$(DISC)/files/BINDATA/$(p).BIN)
@@ -180,9 +183,9 @@ $(shell mkdir -p build/data && (echo $(OBJECT_ART) | cmp -s - build/data/object_
 
 levels: $(foreach l,$(LEVELS),build/data/$(l).PKD)
 
-build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%.ITX build/data/%.MSH &: \
+build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%.ITX build/data/%.MSH build/data/%.PLC build/data/%.PLN &: \
 		tools/pack_level.py tools/texart.py tools/diet.py tools/trsat.py tools/trpsx.py tools/sfx.py tools/meshstore.py \
-		tools/facepack.py tools/roomrank.py \
+		tools/facepack.py tools/roomrank.py tools/planepack.py saturn/planes.txt $(wildcard saturn/plane_paint/*.txt) \
 		openlara/common.h saturn/vram.h saturn/sound.h $(DISC)/filelist.txt $(wildcard $(PSXDATA)/*.PSX) \
 		build/data/object_art
 	OBJECT_ART=$(OBJECT_ART) $(PY) tools/pack_level.py $(DISC)/files/DATA $* build/data/$*.PKD $(PSXDATA)

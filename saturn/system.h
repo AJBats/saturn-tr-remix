@@ -95,6 +95,10 @@ void vdp1Release();
 // Plots asked for since boot, counting this one: vdp1Plot numbers each.
 uint32_t vdp1Plots();
 
+// Calls fn in the vertical blank a plot's frame is to come on screen in, as soon as
+// that's certain, with its number; nullptr stops.
+void vdp1OnChange(void (*fn)(uint32_t plot));
+
 // Calls fn from the vblank-out interrupt each time a plot's frame comes on
 // screen, with its number (vdp1Plots when it was asked for); nullptr stops.
 void vdp1OnShown(void (*fn)(uint32_t plot));

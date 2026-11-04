@@ -7,6 +7,7 @@
 #include "detail.h"
 #include "fmv.h"
 #include "hw.h"
+#include "plane.h"
 #include "render.h"
 #include "screen.h"
 #include "sound.h"
@@ -319,12 +320,22 @@ const void* osLoadLevel(LevelID id)
     uint32 subSize = loadOrHalt(name, ".SUB", subData, LEVEL_MAX - levelSize);
     detailInit(VRAM_TEX_BASE + texSize, subData, subSize);
 
+    // a floor and ceiling on VDP2, if the level has them: straight to bank B
+    uint32 planeCells = fileSize(name, ".PLC");
+    uint32 planeNames = 0;
+    if (planeCells)
+    {
+        loadOrHalt(name, ".PLC", planeCellsAt(), planeCells);
+        planeNames = loadOrHalt(name, ".PLN", planeNamesAt(), fileSize(name, ".PLN"));
+    }
+    planeLoaded(planeCells, planeNames);
+
     // VDP2's VRAM past the bitmap, at its top (hw.h): the inventory's item
     // textures, which the CPU copies to VDP1 VRAM when asked (some cutscenes
     // have none)
     uint32 itemSize = (fileSize(name, ".ITX") + 15) & ~15;
-    uint8* items = (uint8*)(VDP2_BANK_B_END - itemSize);
-    if (itemSize > VDP2_BANK_B_END - VDP2_BANK_B)
+    uint8* items = planeItemsAt(itemSize);
+    if (!items || itemSize > VDP2_BANK_B_END - VDP2_BANK_B)
     {
         crashLog("ITEMS", itemSize);
         while (1);  // TODO error screen
@@ -340,8 +351,14 @@ const void* osLoadLevel(LevelID id)
 
     strcpy(path + strlen(path) - 3, "ITX");
     detailItemInit(items, X_MAX(0, cdLoadFile(path, items, itemSize)));
-    traceLevel(items);
+    if (planeLevel()) {
+        traceLevel((const void*)VDP2_BITMAP_TAIL, (const void*)VDP2_BANK_B);
+    } else {
+        traceLevel((const void*)VDP2_BANK_B, items);
+    }
 
+    planeReady();
+    screenPlaneLevel(planeLevel());
     screenRelease(false);
     crashHold(false);
     return LEVEL_ADDR;

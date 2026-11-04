@@ -1,0 +1,4 @@
+# The levels with a floor or ceiling on VDP2, and their heights (tools/planepack.py).
+# What's been changed by hand, level by level, is in plane_paint/.
+LEVEL7A floor 0 ceiling -7168
+LEVEL3A floor 3584

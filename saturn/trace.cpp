@@ -24,7 +24,7 @@
 // Events each lane's ring holds, powers of two: some 120 frames with the
 // detail spans. Halved together till they fit the area (they do whole).
 static const uint32_t kRingSize[TRACE_LANES] = { 16384, 2048, 16384, 1024 };
-#define TRACE_RING_MIN  256
+#define TRACE_RING_MIN  64
 
 struct TraceHeader
 {
@@ -216,14 +216,15 @@ void traceInit()
     crashLog("TRV2", eventCycles((uint32_t*)TRACE_AREA));
 }
 
-static uint32_t gAreaEnd;       // traceLevel's end; 0 before a level
+static uint32_t gAreaStart, gAreaEnd;  // traceLevel's; 0 before a level
 static uint32_t gGeneration;    // traceGeneration's
 
-void traceLevel(const void* end)
+void traceLevel(const void* start, const void* end)
 {
+    gAreaStart = uintptr_t(start);
     gAreaEnd = uintptr_t(end);
     traceStop();
-    uint32_t base = TRACE_AREA;
+    uint32_t base = gAreaStart;
     uint32_t profileBytes = (traceProfileCount() * sizeof(uint16_t) + 3) & ~3;
     int32_t room = int32_t(gAreaEnd - base - sizeof(TraceArea) - profileBytes) / 4;  // ring events
     int32_t shift = 0;
@@ -276,7 +277,7 @@ void traceStop()
 void traceResume()
 {
     if (gAreaEnd) {
-        traceLevel((const void*)gAreaEnd);
+        traceLevel((const void*)gAreaStart, (const void*)gAreaEnd);
     }
 }
 

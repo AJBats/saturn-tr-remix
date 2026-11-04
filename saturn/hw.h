@@ -63,10 +63,13 @@ typedef struct {
 
 /* VDP2 */
 #define VDP2_VRAM   0x25E00000
+#define VDP2_CRAM   0x25F00000
 // VRAM's bank B, past the bitmap (screen.cpp), to its last 256 bytes (the
 // back colour's at the end): a level's inventory item textures at its top
 // (os.cpp), what pictures stage between levels, the trace (HW_LOG) below
-// the item textures
+// the item textures; on a plane level the plane's (plane.cpp), and the
+// trace in the bitmap's last 32 lines, which nothing shows
+#define VDP2_BITMAP_TAIL (VDP2_VRAM + 0x38000)
 #define VDP2_BANK_B     (VDP2_VRAM + 0x40000)
 #define VDP2_BANK_B_END (VDP2_VRAM + 0x7FF00)
 #define VDP2_TVMD   REG16(0x25F80000)
@@ -86,8 +89,14 @@ typedef struct {
 #define VDP2_BGON   REG16(0x25F80020)
 #define VDP2_MZCTL  REG16(0x25F80022)
 #define VDP2_CHCTLA REG16(0x25F80028)
+#define VDP2_CHCTLB REG16(0x25F8002A)
 #define VDP2_BMPNA  REG16(0x25F8002C)
+#define VDP2_PNCR   REG16(0x25F80038)
+#define VDP2_PLSZ   REG16(0x25F8003A)
 #define VDP2_MPOFN  REG16(0x25F8003C)
+#define VDP2_MPOFR  REG16(0x25F8003E)
+#define VDP2_MPABRA REG16(0x25F80050)
+#define VDP2_MPABRB REG16(0x25F80060)
 #define VDP2_SCXIN0 REG16(0x25F80070)
 #define VDP2_SCXDN0 REG16(0x25F80072)
 #define VDP2_SCYIN0 REG16(0x25F80074)
@@ -98,16 +107,32 @@ typedef struct {
 #define VDP2_ZMYDN0 REG16(0x25F8007E)
 #define VDP2_ZMCTL  REG16(0x25F80098)
 #define VDP2_SCRCTL REG16(0x25F8009A)
+#define VDP2_LCTAU  REG16(0x25F800A8)
+#define VDP2_LCTAL  REG16(0x25F800AA)
 #define VDP2_BKTAU  REG16(0x25F800AC)
 #define VDP2_BKTAL  REG16(0x25F800AE)
+#define VDP2_RPMD   REG16(0x25F800B0)
+#define VDP2_RPRCTL REG16(0x25F800B2)
+#define VDP2_KTCTL  REG16(0x25F800B4)
+#define VDP2_KTAOF  REG16(0x25F800B6)
+#define VDP2_RPTAU  REG16(0x25F800BC)
+#define VDP2_RPTAL  REG16(0x25F800BE)
+#define VDP2_WPSX1  REG16(0x25F800C8)
+#define VDP2_WPSY1  REG16(0x25F800CA)
+#define VDP2_WPEX1  REG16(0x25F800CC)
+#define VDP2_WPEY1  REG16(0x25F800CE)
 #define VDP2_WCTLA  REG16(0x25F800D0)
+#define VDP2_WCTLD  REG16(0x25F800D6)
 #define VDP2_SPCTL  REG16(0x25F800E0)
+#define VDP2_CRAOFB REG16(0x25F800E6)
+#define VDP2_LNCLEN REG16(0x25F800E8)
 #define VDP2_CCCTL  REG16(0x25F800EC)
 #define VDP2_PRISA  REG16(0x25F800F0)
 #define VDP2_PRISB  REG16(0x25F800F2)
 #define VDP2_PRISC  REG16(0x25F800F4)
 #define VDP2_PRISD  REG16(0x25F800F6)
 #define VDP2_PRINA  REG16(0x25F800F8)
+#define VDP2_PRIR   REG16(0x25F800FC)
 #define VDP2_CLOFEN REG16(0x25F80110)
 #define VDP2_CLOFSL REG16(0x25F80112)
 #define VDP2_COAR   REG16(0x25F80114)
@@ -126,7 +151,10 @@ typedef struct {
 #define CYCP_N0CG       0x4     /* cycle pattern slots: NBG0 character/bitmap read */
 #define CYCP_CPU        0xE     /* CPU access */
 #define BGON_N0ON       0x0001
+#define BGON_R0ON       0x0010
+#define BGON_R0TPON     0x1000  /* RBG0's colour 0 a colour */
 #define CLOF_N0         0x0001  /* CLOFEN/CLOFSL: NBG0 */
+#define CLOF_R0         0x0010  /* CLOFEN/CLOFSL: RBG0 */
 #define CLOF_SP         0x0040  /* CLOFEN/CLOFSL: sprites */
 #define CHCTLA_N0BMEN   0x0002  /* NBG0 is a bitmap (512x256 with size bits 0) */
 #define CHCTLA_N0_32K   0x0030  /* NBG0 in 15-bit RGB */

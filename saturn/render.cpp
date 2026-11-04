@@ -14,6 +14,7 @@
 
 #include "render.h"
 #include "detail.h"
+#include "plane.h"
 #include "screen.h"
 #include "crash.h"
 #include "hw.h"
@@ -99,6 +100,7 @@ void setPaletteIndex(int32 index)
 void setCameraWater(bool water)
 {
     gCameraWater = water;
+    planeWater(water);
 }
 
 void setSceneClear(bool clear)
@@ -306,6 +308,7 @@ Room** renderWalk(Room* cameraRoom)
 {
     static Room* visible[ROOMS_LISTED + 1];
     view(gSceneCamera, gSceneView);
+    planeView(gSceneCamera, gSceneView);
     int32_t vp[4] = { viewport.x0, viewport.y0, viewport.x1, viewport.y1 };
     uint32_t room = uint32(cameraRoom - rooms);
     if (gAheadWalked && gAhead.room == room && gAhead.phase == uint32(gCausticsFrame) &&
@@ -614,9 +617,10 @@ static render::Command clearCommand()
 void renderLevelInit()
 {
     // Lost Valley stands open to the sky, where no face covers the frame and the
-    // buffer has to be clear. So it's erased, and the fills that keep old pixels
-    // from showing where planes cut faces away have no work left.
-    gSceneSwept = gLevelID == LVL_TR1_3A;
+    // buffer has to be clear, and a floor on VDP2 shows only where it's clear. So
+    // those are erased, and the fills that keep old pixels from showing where planes
+    // cut faces away have no work left.
+    gSceneSwept = gLevelID == LVL_TR1_3A || planeLevel();
     vdp1EraseFrames(gSceneSwept);
     *uncached(&render::gFacesVoidWay) = gSceneSwept ? render::FACE_VOIDS_NONE : render::FACE_VOIDS_BOXED;
 
@@ -807,6 +811,7 @@ static void listUpload()
         gListOpening = false;
         vdp1OpeningPolygonNext();
     }
+    planeListPlot(vdp1Plots() + 1);
     vdp1Plot();
     gListPending = false;
 
@@ -903,6 +908,23 @@ void closeBackground()
     screenClosing();
 }
 
+// VDP1's frames fade on VDP2's offset B, but on a plane level the offsets are the plane's
+// and the picture's (screen.cpp): there the ring fades by its shades, in the same steps.
+static void shadesFade()
+{
+    static int32 faded;
+    const int32 now = gInventoryFrame && planeLevel() ? screenFramesFade() / 8 : 0;
+    if (now == faded)
+        return;
+    faded = now;
+    for (int32 g = 0; g < 32; g++)
+    {
+        const uint32 c = uint32(X_MAX(31 - g + now, 0));
+        gShadeLevel[g] = c;
+        gShadeGouraud[g] = (c << 10) | (c << 5) | c;
+    }
+}
+
 void flush_c()
 {
     uint32 start = timerTicks();
@@ -954,6 +976,7 @@ void flush_c()
     calls.matrixLights = gGivenLights;
     calls.inventory = gInventoryFrame;
     calls.started = gWalked;
+    shadesFade();
     render::FrameTimes s = render::frameRun(calls, gBias);
     gBias = X_MAX(X_MIN(gBias + s.late / 2, BIAS_MAX), -BIAS_MAX);
     gStats.detailUploads = render::gFrameTextures.count;
@@ -1075,6 +1098,7 @@ void flush_c()
     // the inventory's frames and the one after go up at once, as the cache
     // changes hands; the scene to go behind it too, held till it's copied
     gListPending = true;
+    planeListMade();
     if (gCapture) {
         vdp1Hold();
     }

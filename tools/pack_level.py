@@ -73,6 +73,7 @@ import sfx  # noqa: E402
 import texart  # noqa: E402
 import trpsx  # noqa: E402
 import meshstore  # noqa: E402
+import planepack  # noqa: E402
 import roomrank  # noqa: E402
 import trsat  # noqa: E402
 
@@ -1275,9 +1276,12 @@ def main():
     if triggered:
         start_trigger(lvl, [int(i) for i in triggered if not i.startswith("flip")],
                       [int(i[4:]) for i in triggered if i.startswith("flip")])
+    plan = planepack.plan_for(name)
+    plane_tiles = planepack.take_faces(lvl, plan) if plan else None
     sounds = sfx.Sfx(lvl, load_ps1(sys.argv[4] if len(sys.argv) > 4 else None, name))
     packer = Packer(lvl, sounds, os.environ.get("OBJECT_ART") == "1")
     data = packer.pack()
+    planepack.write_art(os.path.splitext(out_path)[0], lvl, packer.textures, plane_tiles)
     report_sounds(name, sounds, len(packer.sfx))
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with open(out_path, "wb") as f:

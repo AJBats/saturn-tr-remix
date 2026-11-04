@@ -73,6 +73,8 @@ static volatile bool gHolding;             // this plot's does, until vdp1Releas
 static uint32_t gPlotStart;
 static void (*volatile gOnNextFrame)();
 static void (*volatile gOnShown)(uint32_t plot);
+static void (*volatile gOnChange)(uint32_t plot);
+static volatile bool gChangeUntold;        // a change asked, its vertical blank not yet come or told
 static volatile uint32_t gFieldsShown = 2; // vblank-ins since the last change
 static volatile uint32_t gPlotsAsked;      // vdp1Plot calls
 static volatile uint32_t gPlotsStarted;    // plots started: the one drawing or last drawn
@@ -135,6 +137,7 @@ static void changeAsk(bool sweep)
     }
     VDP1_FBCR = FBCR_FCM | FBCR_FCT;
     gVdp1State = VDP1_CHANGING;
+    gChangeUntold = true;
     traceBegin(TRACE_IRQ, TR_CHANGE);
 }
 
@@ -143,6 +146,18 @@ static void changeRequest(bool sweep)
 {
     if (gFieldsShown >= MIN_FIELDS_SHOWN) {
         changeAsk(sweep);
+    }
+}
+
+// In the vertical blank: the change asked goes with this one's end.
+static inline void changeTell()
+{
+    if (gChangeUntold)
+    {
+        gChangeUntold = false;
+        if (gOnChange) {
+            gOnChange(gPlotsStarted);
+        }
     }
 }
 
@@ -178,6 +193,7 @@ extern "C" void vblankInHandler(const uint32_t* irqStack)
             gStats.vdp1Late++;
         }
     }
+    changeTell();
     if (gOnVblank) {
         gOnVblank();
     }
@@ -291,6 +307,7 @@ extern "C" void spriteEndHandler()
     {
         if (VDP2_TVSTAT & TVSTAT_VBLANK) {
             changeRequest(false);
+            changeTell();
         } else if (gEraseFrames && gFieldsShown + 1 >= MIN_FIELDS_SHOWN && vdp2Line() < SCREEN_HEIGHT) {
             changeAsk(true);
         }
@@ -338,6 +355,11 @@ bool vdp1Drawn()
 uint32_t vdp1Plots()
 {
     return gPlotsAsked;
+}
+
+void vdp1OnChange(void (*fn)(uint32_t plot))
+{
+    gOnChange = fn;
 }
 
 void vdp1OnShown(void (*fn)(uint32_t plot))
