@@ -31,7 +31,10 @@
 //         occmodel LEVEL.bin boxes FILE VIEWS SEED   solid boxes (x0 x1 y0 y1 z0 z1 a line) as the game has them
 //         occmodel LEVEL.bin boxsearch OUT COUNT VIEWS SEED [HAND]   big boxes in the rock between rooms (no room's air in
 //                                 them, every room and alternate), picked one at a time over heavy views; HAND: boxes to start from
-//         occmodel LEVEL.bin planes VIEWS SEED FLOOR_Y CEILING_Y  (OCC_PLANE_KEEP=rooms,staying,on,VDP1)
+//         occmodel LEVEL.bin planes VIEWS SEED FLOOR_Y CEILING_Y  (OCC_PLANE_KEEP=rooms,staying,on,VDP1; what's past
+//                  a plane, OCC_PLANE_CLIP=1 trimmed to its room's window, =2 in a room wholly under the floor, to what of it
+//                  the openings at the floor's height show, a rectangle a face, or OCC_PLANE_RIM=FILE left out where it touches a
+//                  named flat rectangle, x0 x1 z0 z1 y a line, OCC_PLANE_RIM_ALL=1 only wholly inside one)
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -919,6 +922,7 @@ static int faceRoom(int id)
 }
 
 static float (*gBehind)[ZW];      // if set, only what lies behind this depth is filled
+static const Rect* gFillRect;     // if set, only what lies inside this is filled
 
 static void fillTri(float x0, float y0, float iz0, float x1, float y1, float iz1, float x2, float y2, float iz2, int room)
 {
@@ -938,6 +942,8 @@ static void fillTri(float x0, float y0, float iz0, float x1, float y1, float iz1
         for (int x = minx; x <= maxx; x++)
         {
             float px = x + 0.5f;
+            if (gFillRect && (px * 2 < gFillRect->x0 || px * 2 > gFillRect->x1 || py * 2 < gFillRect->y0 || py * 2 > gFillRect->y1))
+                continue;
             float w0 = ((x1 - px) * (y2 - py) - (y1 - py) * (x2 - px)) * inv;
             float w1 = ((x2 - px) * (y0 - py) - (y2 - py) * (x0 - px)) * inv;
             float w2 = 1.0f - w0 - w1;
@@ -2957,9 +2963,239 @@ static void foldCount(int x, int y, int planeY)
     }
 }
 
+// Named flat rectangles for what's past a plane, as one mask of the frame a view.
+typedef struct { float x0, x1, z0, z1, y; } RimRect;
+static RimRect gRim[64];
+static int gRimCount;
+static uint8_t gRimMask[ZH][ZW];
+static uint8_t* gLeftOut;
+static Rect** gAllowed;     // by face, this view: the rectangle it's trimmed to
+
+static void rimLoad(const char* file)
+{
+    FILE* f = file ? fopen(file, "r") : NULL;
+    char line[128];
+    while (f && gRimCount < 64 && fgets(line, sizeof(line), f))
+    {
+        RimRect r;
+        if (sscanf(line, "%f %f %f %f %f", &r.x0, &r.x1, &r.z0, &r.z1, &r.y) == 5)
+            gRim[gRimCount++] = r;
+    }
+    if (f) fclose(f);
+    printf("%d rim rectangles\n", gRimCount);
+}
+
+static inline int inConvex(const float* sx, const float* sy, int n, float x, float y)
+{
+    int pos = 0, neg = 0;
+    for (int i = 0; i < n; i++)
+    {
+        int j = (i + 1) % n;
+        float e = (sx[j] - sx[i]) * (y - sy[i]) - (sy[j] - sy[i]) * (x - sx[i]);
+        pos |= e > 0;
+        neg |= e < 0;
+    }
+    return !(pos && neg);
+}
+
+static void rimMaskMake(void)
+{
+    memset(gRimMask, 0, sizeof(gRimMask));
+    for (int k = 0; k < gRimCount; k++)
+    {
+        const RimRect* r = &gRim[k];
+        V3 c[4] = { { r->x0, r->y, r->z0 }, { r->x1, r->y, r->z0 }, { r->x1, r->y, r->z1 }, { r->x0, r->y, r->z1 } };
+        V3 v[4], t[8];
+        for (int i = 0; i < 4; i++)
+        {
+            float dx = c[i].x - cam.x, dy = c[i].y - cam.y, dz = c[i].z - cam.z;
+            v[i].x = R[0][0] * dx + R[0][1] * dy + R[0][2] * dz;
+            v[i].y = R[1][0] * dx + R[1][1] * dy + R[1][2] * dz;
+            v[i].z = R[2][0] * dx + R[2][1] * dy + R[2][2] * dz;
+        }
+        int m = 0;
+        for (int i = 0; i < 4; i++)
+        {
+            V3 a = v[i], b = v[(i + 1) % 4];
+            if (a.z >= NEAR) t[m++] = a;
+            if ((a.z >= NEAR) != (b.z >= NEAR)) {
+                float q = (NEAR - a.z) / (b.z - a.z);
+                t[m++] = (V3){ a.x + (b.x - a.x) * q, a.y + (b.y - a.y) * q, NEAR };
+            }
+        }
+        if (m < 3)
+            continue;
+        float sx[8], sy[8];
+        for (int i = 0; i < m; i++) {
+            sx[i] = (t[i].x / t[i].z * F + W / 2) * 0.5f;
+            sy[i] = (t[i].y / t[i].z * F + H / 2) * 0.5f;
+        }
+        for (int y = 0; y < ZH; y++)
+            for (int x = 0; x < ZW; x++)
+                if (inConvex(sx, sy, m, x + 0.5f, y + 0.5f))
+                    gRimMask[y][x] = 1;
+    }
+}
+
+// A face touching the rim's mask on screen, or with all to be wholly inside it. Corners behind
+// the near plane: not known, left in.
+static int rimTouches(const Room* r, const int* idx, int n, int all)
+{
+    float sx[4], sy[4];
+    float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+    for (int i = 0; i < n; i++)
+    {
+        if (r->vv[idx[i]].z < NEAR)
+            return 0;
+        sx[i] = r->sx[idx[i]] * 0.5f;
+        sy[i] = r->sy[idx[i]] * 0.5f;
+        x0 = fminf(x0, sx[i]); x1 = fmaxf(x1, sx[i]);
+        y0 = fminf(y0, sy[i]); y1 = fmaxf(y1, sy[i]);
+    }
+    int ax = x0 < 0 ? 0 : (int)x0, bx = x1 >= ZW ? ZW - 1 : (int)x1;
+    int ay = y0 < 0 ? 0 : (int)y0, by = y1 >= ZH ? ZH - 1 : (int)y1;
+    int some = 0;
+    for (int y = ay; y <= by; y++)
+        for (int x = ax; x <= bx; x++)
+            if (inConvex(sx, sy, n, x + 0.5f, y + 0.5f))
+            {
+                if (gRimMask[y][x]) {
+                    if (!all) return 1;
+                    some = 1;
+                } else if (all) {
+                    return 0;
+                }
+            }
+    return some;
+}
+
+// The openings at a plane's height the walk went through, as outlines on the frame.
+static Poly gHoles[64];
+static int gHoleCount;
+
+static void holesMake(const Walk* w, int floorY, int ceilingY)
+{
+    gHoleCount = 0;
+    for (int l = 0; l < w->nlist; l++)
+    {
+        const Room* r = &rooms[w->list[l]];
+        for (int k = 0; k < r->np; k++)
+        {
+            const Portal* q = &r->p[k];
+            if (q->n[1] == 0 || gHoleCount == 64 || !portalFacing(r, q))
+                continue;
+            float y = q->c[0].y;
+            if (fabsf(y - floorY) > 2 && fabsf(y - ceilingY) > 2)
+                continue;
+            V3 v[4], t[8];
+            for (int i = 0; i < 4; i++)
+            {
+                float dx = q->c[i].x - cam.x, dy = q->c[i].y - cam.y, dz = q->c[i].z - cam.z;
+                v[i].x = R[0][0] * dx + R[0][1] * dy + R[0][2] * dz;
+                v[i].y = R[1][0] * dx + R[1][1] * dy + R[1][2] * dz;
+                v[i].z = R[2][0] * dx + R[2][1] * dy + R[2][2] * dz;
+            }
+            int m = 0;
+            for (int i = 0; i < 4; i++)
+            {
+                V3 a = v[i], b = v[(i + 1) % 4];
+                if (a.z >= NEAR) t[m++] = a;
+                if ((a.z >= NEAR) != (b.z >= NEAR)) {
+                    float f = (NEAR - a.z) / (b.z - a.z);
+                    t[m++] = (V3){ a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, NEAR };
+                }
+            }
+            if (m < 3)
+                continue;
+            Poly* h = &gHoles[gHoleCount++];
+            h->n = m;
+            for (int i = 0; i < m; i++) {
+                h->x[i] = t[i].x / t[i].z * F + W / 2;
+                h->y[i] = t[i].y / t[i].z * F + H / 2;
+            }
+            if (polyArea(h) < 0)
+                for (int i = 0, j = m - 1; i < j; i++, j--) {
+                    float a = h->x[i]; h->x[i] = h->x[j]; h->x[j] = a;
+                    a = h->y[i]; h->y[i] = h->y[j]; h->y[j] = a;
+                }
+        }
+    }
+}
+
+// The rectangle round what of a face lies in the openings; 0 if none does.
+static int holesAllow(const Room* r, const int* idx, int n, Rect* out)
+{
+    V3 t[8];
+    int m = 0;
+    for (int i = 0; i < n; i++)
+    {
+        V3 a = r->vv[idx[i]], b = r->vv[idx[(i + 1) % n]];
+        if (a.z >= NEAR) t[m++] = a;
+        if ((a.z >= NEAR) != (b.z >= NEAR)) {
+            float f = (NEAR - a.z) / (b.z - a.z);
+            t[m++] = (V3){ a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, NEAR };
+        }
+    }
+    if (m < 3)
+        return 0;
+    Poly face;
+    face.n = m;
+    for (int i = 0; i < m; i++) {
+        face.x[i] = t[i].x / t[i].z * F + W / 2;
+        face.y[i] = t[i].y / t[i].z * F + H / 2;
+    }
+    int any = 0;
+    Rect u = { 1e9f, 1e9f, -1e9f, -1e9f };
+    for (int k = 0; k < gHoleCount; k++)
+    {
+        const Poly* h = &gHoles[k];
+        Poly a = face;
+        for (int i = 0; i < h->n && a.n; i++)
+        {
+            int j = (i + 1) % h->n;
+            float ex = h->x[j] - h->x[i], ey = h->y[j] - h->y[i];
+            polyCut(&a, -ey, ex, ey * h->x[i] - ex * h->y[i]);
+        }
+        if (a.n < 3)
+            continue;
+        any = 1;
+        for (int i = 0; i < a.n; i++) {
+            u.x0 = fminf(u.x0, a.x[i]); u.x1 = fmaxf(u.x1, a.x[i]);
+            u.y0 = fminf(u.y0, a.y[i]); u.y1 = fmaxf(u.y1, a.y[i]);
+        }
+    }
+    *out = u;
+    return any;
+}
+
+// Past a plane from the camera: below the floor seen from above it, above the ceiling seen from under it.
+static inline int pastPlane(const Room* r, const int* idx, int n, int floorY, int ceilingY)
+{
+    int below = cam.y < floorY, above = cam.y > ceilingY;
+    for (int i = 0; i < n; i++)
+    {
+        float y = r->v[idx[i]].y;
+        if (y < floorY) below = 0;
+        if (y > ceilingY) above = 0;
+    }
+    return below || above;
+}
+
+static inline int sticksOut(const Room* r, const int* idx, int n, Rect c)
+{
+    for (int i = 0; i < n; i++)
+    {
+        float x = r->sx[idx[i]], y = r->sy[idx[i]];
+        if (x < c.x0 || x > c.x1 || y < c.y0 || y > c.y1)
+            return 1;
+    }
+    return 0;
+}
+
 static void planes(const char* name, int views, int floorY, int ceilingY)
 {
-    static double leakBy[MAXROOMS], leakOnRoom[MAXROOMS];
+    static double leakByRoom[MAXROOMS], leakOnRoom[MAXROOMS];
+    static int gBehindOwner[ZH][ZW];
     long leak64 = 0, leak400 = 0, leak2000 = 0, sees = 0, dark400 = 0, extra400 = 0;
     double planePx = 0, shownPx = 0, leakPx = 0, facesGone = 0, facesAll = 0, bestLeak = 0;
     double darkPx = 0, darkBright = 0, extraPx = 0, bestDark = 0, darkFaces = 0;
@@ -2968,7 +3204,14 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
     static float trueDepth[ZH][ZW];
     const char* from = getenv("OCC_PLANE_FROM");
     int darkLimit = getenv("OCC_DARK") ? atoi(getenv("OCC_DARK")) : 0;
+    int clipPast = getenv("OCC_PLANE_CLIP") ? atoi(getenv("OCC_PLANE_CLIP")) : 0, rimAll = getenv("OCC_PLANE_RIM_ALL") != NULL;
+    double trimmedFaces = 0, leftOutFaces = 0, lostPx = 0, bestLost = 0, pastFaces = 0;
+    long lost400 = 0, lost64 = 0;
+    rimLoad(getenv("OCC_PLANE_RIM"));
     planesMark(floorY, ceilingY);
+    gLeftOut = calloc(nfaces + 1, 1);
+    gAllowed = calloc(nfaces + 1, sizeof(Rect*));
+    Rect* allowedRects = calloc(nfaces + 1, sizeof(Rect));
     foldMake();
     gFar = VIEW_MAX;
     F = 209.75f;
@@ -2982,6 +3225,9 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
             if (r->alt || r->ns == 0 || !r->np || (from && !inList(from, room)))
                 continue;
             sector = rng() % r->ns;
+            // not a room's edge sector: what looks like one is the next room's
+            if (sector / r->zs == 0 || sector / r->zs == r->xs - 1 || sector % r->zs == 0 || sector % r->zs == r->zs - 1)
+                continue;
             floor = r->s[sector][0];
             ceil = r->s[sector][1];
             if (floor != -127 * 256 && ceil != -127 * 256 && floor - 300 - 64 > ceil)
@@ -3009,6 +3255,12 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
                 owner[y][x] = -1;
             }
         int gone = 0, all = 0, dropped = 0;
+        memset(gLeftOut, 0, nfaces + 1);
+        if (gRimCount)
+            rimMaskMake();
+        if (clipPast == 2)
+            holesMake(&gBase, floorY, ceilingY);
+        memset(gAllowed, 0, (nfaces + 1) * sizeof(Rect*));
         for (int pass = 0; pass < 2; pass++)
         {
             gBehind = pass ? NULL : trueDepth;
@@ -3016,6 +3268,7 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
                 for (int y = 0; y < ZH; y++)
                     for (int x = 0; x < ZW; x++) {
                         gTrue[y][x] |= owner[y][x] >= 0 ? 4 : 0;
+                        gBehindOwner[y][x] = owner[y][x];
                         if (gTrue[y][x] & 4) trueOwner[y][x] |= 0;
                         zbuf[y][x] = 0;
                         owner[y][x] = -1;
@@ -3041,6 +3294,39 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
                         dropped += !pass;
                         continue;
                     }
+                    if ((clipPast || gRimCount) && pastPlane(q, idx, 4, floorY, ceilingY))
+                    {
+                        pastFaces += !pass;
+                        if (gRimCount && rimTouches(q, idx, 4, rimAll)) {
+                            gLeftOut[id] = 1;
+                            leftOutFaces += !pass;
+                            continue;
+                        }
+                        if (clipPast == 2 && q->ytop >= floorY - 2 && cam.y < floorY && at != room && gHoleCount)
+                        {
+                            Rect a;
+                            if (!holesAllow(q, idx, 4, &a)) {
+                                gLeftOut[id] = 1;
+                                leftOutFaces += !pass;
+                                continue;
+                            }
+                            allowedRects[id] = a;
+                            gAllowed[id] = &allowedRects[id];
+                            trimmedFaces += !pass && sticksOut(q, idx, 4, a);
+                            gFillRect = &a;
+                            fillFace(q, idx, 4, id);
+                            gFillRect = NULL;
+                            continue;
+                        }
+                        if (clipPast == 1 && at != room && sticksOut(q, idx, 4, c))
+                        {
+                            trimmedFaces += !pass;
+                            gFillRect = &c;
+                            fillFace(q, idx, 4, id);
+                            gFillRect = NULL;
+                            continue;
+                        }
+                    }
                     fillFace(q, idx, 4, id);
                 }
                 for (int i = 0; i < q->nt; i++)
@@ -3053,11 +3339,66 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
                         dropped += !pass;
                         continue;
                     }
+                    if ((clipPast || gRimCount) && pastPlane(q, idx, 3, floorY, ceilingY))
+                    {
+                        pastFaces += !pass;
+                        if (gRimCount && rimTouches(q, idx, 3, rimAll)) {
+                            gLeftOut[q->faceBase + q->nq + i] = 1;
+                            leftOutFaces += !pass;
+                            continue;
+                        }
+                        int tid = q->faceBase + q->nq + i;
+                        if (clipPast == 2 && q->ytop >= floorY - 2 && cam.y < floorY && at != room && gHoleCount)
+                        {
+                            Rect a;
+                            if (!holesAllow(q, idx, 3, &a)) {
+                                gLeftOut[tid] = 1;
+                                leftOutFaces += !pass;
+                                continue;
+                            }
+                            allowedRects[tid] = a;
+                            gAllowed[tid] = &allowedRects[tid];
+                            trimmedFaces += !pass && sticksOut(q, idx, 3, a);
+                            gFillRect = &a;
+                            fillFace(q, idx, 3, tid);
+                            gFillRect = NULL;
+                            continue;
+                        }
+                        if (clipPast == 1 && at != room && sticksOut(q, idx, 3, c))
+                        {
+                            trimmedFaces += !pass;
+                            gFillRect = &c;
+                            fillFace(q, idx, 3, q->faceBase + q->nq + i);
+                            gFillRect = NULL;
+                            continue;
+                        }
+                    }
                     fillFace(q, idx, 3, q->faceBase + q->nq + i);
                 }
             }
         }
         gBehind = NULL;
+        if (gRimCount || clipPast == 2)
+        {
+            // what the true picture has of the faces left out or outside their rectangles
+            double lost = 0;
+            for (int y = 0; y < ZH; y++)
+                for (int x = 0; x < ZW; x++)
+                {
+                    int o = trueOwner[y][x];
+                    if (o < 0)
+                        continue;
+                    if (gLeftOut[o])
+                        lost += 4;
+                    else if (gAllowed[o] && ((x + 0.5f) * 2 < gAllowed[o]->x0 - 1 || (x + 0.5f) * 2 > gAllowed[o]->x1 + 1 ||
+                                             (y + 0.5f) * 2 < gAllowed[o]->y0 - 1 || (y + 0.5f) * 2 > gAllowed[o]->y1 + 1))
+                        lost += 4;
+                }
+            lostPx += lost;
+            bestLost = lost > bestLost ? lost : bestLost;
+            lost64 += lost >= 64;
+            lost400 += lost >= 400;
+        }
         double px = 0, shown = 0, leaked = 0, dark = 0, bright = 0, extra = 0;
         for (int y = 0; y < ZH; y++)
             for (int x = 0; x < ZW; x++)
@@ -3075,6 +3416,8 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
                         leaked++;
                         gLeakOn[trueOwner[y][x]] += 4;
                         leakOnRoom[faceRoom(trueOwner[y][x])] += 4;
+                        if (gBehindOwner[y][x] >= 0)
+                            leakByRoom[faceRoom(gBehindOwner[y][x])] += 4;
                     }
                     continue;
                 }
@@ -3122,6 +3465,9 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
     printf("  faces a view: %.1f of %.1f on the plane\n", facesGone / views, facesAll / views);
     printf("  painted over: mean %.1f px a view, %.2f%% of plane px; views >=64 px %ld, >=400 %ld, >=2000 %ld, worst %.0f\n",
            leakPx / views, 100 * leakPx / (planePx + 1), leak64, leak400, leak2000, bestLeak);
+    if (clipPast || gRimCount)
+        printf("  past a plane: %.1f faces a view; trimmed to a window %.1f; left out %.1f; true picture lost with them: mean %.1f px, views >=64 %ld, >=400 %ld, worst %.0f\n",
+               pastFaces / views, trimmedFaces / views, leftOutFaces / views, lostPx / views, lost64, lost400, bestLost);
     if (darkLimit)
         printf("  dark faces dropped %.1f a view; plane through them: mean %.1f px, bright %.1f px; views bright >=400 %ld, worst %.0f\n",
                darkFaces / views, darkPx / views, darkBright / views, dark400, bestDark);
@@ -3133,6 +3479,19 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
     for (int way = MAP_BLOCKS; way < MAP_WAYS; way++)
         printf("  the level's tile out of the map's reach, %s: mean %.1f px a view, bright %.1f px; views >=400 px %ld\n", wayNames[way],
                gShortPx[way] / views, gShortBright[way] / views, gShort400[way]);
+    printf("  by the room painting:");
+    for (int k = 0; k < 14; k++)
+    {
+        int b = -1;
+        for (int i = 0; i < nrooms; i++)
+            if (leakByRoom[i] > 0 && (b < 0 || leakByRoom[i] > leakByRoom[b]))
+                b = i;
+        if (b < 0)
+            break;
+        printf(" %d:%.0f", b, leakByRoom[b]);
+        leakByRoom[b] = 0;
+    }
+    printf("\n");
     printf("  by the room painted on:");
     for (int k = 0; k < 14; k++)
     {

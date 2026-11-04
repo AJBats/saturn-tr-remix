@@ -24,6 +24,8 @@
 #   cistern-flood LEVEL7A flooded, room 103's stamp spot: under water in the hall
 #   cistern-flood-above LEVEL7A flooded, room 99 along the hall, standing over
 #               the water
+#   cistern-flood-down the same spot, Lara turned to the water: looking down (Z + UP) near sparkles
+#               fill the frame
 #   cistern-pillar LEVEL7A, room 106, a pillar to Lara's right: looking up
 #               (Z + DOWN) the walk lists more vertices than the jobs had room for
 #   cistern-platform LEVEL7A, room 102, the walk over that room standing still
@@ -71,6 +73,7 @@
 #               a kind standing in view, still: what each kind costs
 #   bear        LEVEL1, room 17: the bear awake, about three blocks off
 #
+#   valley-under LEVEL3A, room 31: a polygon from under the ground showing at the lower right
 #   valley-music LEVEL3A, room 56, on the trigger that wakes the T-rex and asks for his music
 #   valley-end  LEVEL3A, room 51, the level ending at once: from a level with a plane to one without
 #   vilcabamba-end LEVEL2's stone houses, the level ending at once: on into LEVEL3A's plane
@@ -99,6 +102,7 @@ case "${1:-ledge}" in
     cistern-water) level=LEVEL7A id=LVL_TR1_7A start=108@44105:-256:62852 yaw=0x91E7 ;;
     cistern-flood) level=LEVEL7A id=LVL_TR1_7A start=103@47529:0:52129 yaw=0xDB9F trigger=flip0 ;;
     cistern-flood-above) level=LEVEL7A id=LVL_TR1_7A start=99@45157:-3328:63405 yaw=0x81B6 trigger=flip0 ;;
+    cistern-flood-down) level=LEVEL7A id=LVL_TR1_7A start=99@45157:-3328:63405 yaw=0x9ACB trigger=flip0 ;;
     cistern-pillar) level=LEVEL7A id=LVL_TR1_7A start=106@47461:0:64619 yaw=0xA15E ;;
     cistern-platform) level=LEVEL7A id=LVL_TR1_7A start=102@34112:-3328:55667 yaw=0x3962 ;;
     cistern-balcony) level=LEVEL7A id=LVL_TR1_7A start=84@40578:-5120:49157 yaw=0x139C ;;
@@ -122,6 +126,7 @@ case "${1:-ledge}" in
     valley-cave) level=LEVEL3A id=LVL_TR1_3A start=27@36389:113:46532 yaw=0x3D3B ;;
     valley-plants) level=LEVEL3A id=LVL_TR1_3A start=51@41453:3584:35241 yaw=0x8143 ;;
     valley-ledge) level=LEVEL3A id=LVL_TR1_3A start=56@37787:230:20847 yaw=0x3FFC ;;
+    valley-under) level=LEVEL3A id=LVL_TR1_3A start=31@38567:3584:8468 yaw=0x5E78 ;;
     valley-music) level=LEVEL3A id=LVL_TR1_3A start=56:5:3 yaw=0x4000 ;;
     valley-end) level=LEVEL3A id=LVL_TR1_3A start=51@41453:3584:35241 yaw=0x8143 trigger=end ;;
     vilcabamba-end) level=LEVEL2 id=LVL_TR1_2 start=15@66372:0:26074 yaw=0x1ADC trigger=end ;;
@@ -133,7 +138,7 @@ case "${1:-ledge}" in
     zoo-crocs)  level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 place=36@32:62976:-1280:52736,37@32:60928:-1280:52736,39@32:59904:-1280:54784 ;;
     zoo-gorillas) level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 place=36@5:45568:-5632:76288,37@5:45568:-5632:76288,39@5:45568:-5632:76288,21@32:62976:-1280:52736,27@32:60928:-1280:52736,28@32:59904:-1280:54784 ;;
     bear)       level=LEVEL1 id=LVL_TR1_1 start=17@16896:6656:60928 yaw=0xA000 trigger=30 ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-dark|cistern-tunnel|cistern-look|cistern-water|cistern-flood|cistern-flood-above|valley|valley-trex|valley-sky|valley-cave|valley-plants|valley-dark|valley-ledge|valley-music|valley-end|vilcabamba-end|zoo|zoo-wolves|zoo-none|zoo-rats|zoo-crocs|zoo-gorillas|bear]" >&2; exit 1 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-dark|cistern-tunnel|cistern-look|cistern-water|cistern-flood|cistern-flood-above|cistern-flood-down|valley|valley-trex|valley-sky|valley-cave|valley-plants|valley-dark|valley-ledge|valley-under|valley-music|valley-end|vilcabamba-end|zoo|zoo-wolves|zoo-none|zoo-rats|zoo-crocs|zoo-gorillas|bear]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 

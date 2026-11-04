@@ -3447,6 +3447,8 @@ over 14.6, at most 188 · Fix: medium, parked*
   face of up to 14.7 ms (Cistern look) and more at the tunnel. Tile by tile, near
   flecks go as the camera comes within about 1400 units. A fade before the limit
   (gouraud) could hide the edge, untried. Not yet judged on the Saturn.
+- 2026-11-04: the user wants them back near the camera. Why they cost so: VDP1 walks every pixel of a face whether its texel is empty or not, so a sparkle tile costs what a solid one does, and cost follows the water's area on screen, not the tiles' count. Flooded, room 99 looking over the water (`cistern-flood-down`, Z + UP 14 frames, Mednafen, `tools/stepwise.py` capture flood-down2): list 36.33 ms, without sparkles 26.83; 169 faces walk 65,630 px to write about 7,000.
+- Offline with Mednafen's VDP1 code, list ms there: end codes after each row's last fleck 34.88; half the faces a frame 31.39; every run of a texture's rows a flat polygon 45.36 (+7,897 commands); the 24 longest a tile 29.18 (+801); the 12 longest 28.10 (+351); thin lines, 24 a tile 28.50 (+801), one a 128 px of face 27.42 (+167). The textures are one bit, a single colour. Far cut, test branch `water`, in the hall from Lara's start: today 24.8; near on 27.6, cut at 12 26.75, 10 25.87, 8 25.04, 6 23.68, 4 21.75.
 
 ### 255. The Cistern's long views put the CPUs and VDP1 over budget together
 *Kind: speed · Size: Saturn photos below, 20-27 fps · Fix: unknown, not traced*
@@ -3622,6 +3624,11 @@ over 14.6, at most 188 · Fix: medium, parked*
 - VDP1 is always in front of VDP2. A floor face used to hide what lay past it; on the plane (269) it can't, so a pit's far wall paints over the near floor when it reaches past the rim on screen.
 - The user's plan, 2026-11-04: nearly all of them just want trimming, which solid boxes (281) can do with a flat rectangle at the floor's height. A face flush against a ledge, straddling a view above and below the plane, can't be trimmed that way and wants a mask: a colour 0 polygon in its place in the list, as Sonic World does at its river (docs/vdp2-lab.md). Pinned till solid boxes are better understood.
 - A census by `tools/occmodel` `planes` mode: Cistern hall 241 px a view, valley 99, 8% of random views past 400 px. It's been judged by eye only at the spots played so far.
+- Two spots from the user, 2026-11-04: `tools/hwtest.sh cistern-stamp` (room 0's far wall over room 105's floor) and `valley-under` (room 38's wall over room 31's ground, seen through a hole 2 sectors by 1).
+- Census again, 4000 views, cameras in the plane's rooms, off rooms' edge sectors (`tools/occmodel`, `OCC_PLANE_CLIP`, `OCC_PLANE_RIM`), px painted over a view / views past 400 px / real pixels lost a view: hall today 219 / 301 / 0; four rim planes 2 sectors wide, any overlap 44 / 62 / 64; 4 wide, any overlap 3.3 / 8 / 64 (174 views lose 400+ px of pool wall, worst 5144); 4 wide, wholly inside 57 / 177 / 0; faces trimmed to their room's window 160 / 178 / 0.
+- Rooms wholly under the floor kept to the openings at the floor's height the walk went through: a face none of whose outline falls in an opening is left out, others are drawn clipped to a rectangle round what falls in one (VDP1 user clip, one more command for those that need it). Hall 0.1 / 0 / 0, worst 28 px, 2.5 faces clipped and 1.2 left out a view, of 14.9. Valley 77 -> 25 / 259 -> 63 / 2 (4 views past 400 px lost, not looked at). Replayed on both real lists with Mednafen's VDP1 code, the patch and the wall gone, the pool's true strip kept: room 103 27.21 -> 26.92 ms, 9 clipped; valley 25.25 -> 24.78 ms, 3 clipped. Not in the game.
+- What's left in the valley is rooms 56 and 51 painting over themselves, a dip 256 deep with no opening to go by. Their worst 10 floor faces back on VDP1 (`tools/floor_paint.py`) take 96% of it for 2.6% of the plane's pixels.
+- Neither way covers meshes: items and creatures under the floor still paint over it.
 
 ### 284. On a plane level the trace holds about 8 frames
 *Kind: test discs alone · Size: 8 frames against 120 · Fix: small, if it gets in the way*
