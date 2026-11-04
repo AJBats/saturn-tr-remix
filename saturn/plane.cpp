@@ -135,33 +135,6 @@ static void lineColoursWrite(bool water)
     gLineWater = water;
 }
 
-#ifdef HW_LOG
-#define WRITE_COST_EVERY    32      // lists
-#define WRITE_COST_LONGS    512     // what a row of 32 sectors comes to
-#define BLANK_NAME          0x00772000  // page 0's, tools/planepack.py's: rewriting it changes nothing
-
-static PlaneWriteCost gWriteCost;
-
-static void writeCostMeasure(uint32_t plot)
-{
-    if (plot % WRITE_COST_EVERY)
-        return;
-    const uint32_t t0 = timerTicks();
-    volatile uint32_t* names = vram32(NAMES_AT);
-    for (int32_t i = 0; i < WRITE_COST_LONGS; i++) {
-        names[i] = BLANK_NAME;
-    }
-    gWriteCost.last = (timerTicks() - t0) & 0xFFFF;
-    gWriteCost.line = vdp2Line();
-    gWriteCost.most = gWriteCost.last > gWriteCost.most ? gWriteCost.last : gWriteCost.most;
-}
-
-PlaneWriteCost planeWriteCost()
-{
-    return gWriteCost;
-}
-#endif
-
 // The buffers are changing to this list's frame, in this vertical blank.
 static void listChanging(uint32_t plot)
 {
@@ -195,9 +168,6 @@ static void listChanging(uint32_t plot)
         gLineStale = false;
         lineColoursWrite(f.water);
     }
-#ifdef HW_LOG
-    writeCostMeasure(plot);
-#endif
 }
 
 void* planeCellsAt()

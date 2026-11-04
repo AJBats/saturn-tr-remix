@@ -58,9 +58,11 @@ A face goes on the plane if it is flat at that height, faces the right way, is a
 
 **The tile map.** A plane is infinite only because it repeats: the map holds 32 x 32 sectors, then starts again. The Cistern fits. The valley runs 82 sectors north to south, so 17 of its 482 tiles want the same spot in the map as another (always 32 sectors apart). Those 17 stay on VDP1, drawn over the plane, so the spot shows right in both places. That's one fixed map, as in the Cistern, with no code at run time, and it's 16 blocks of names where the valley would otherwise need 24.
 
-- **What this lacks:** the plane shows a tile of its map wherever VDP1 draws nothing below the horizon. A hole in the rock can show a piece of floor from 32 sectors away, where today it's black. The census has this common: 775 px a view, 630 of them bright, up close (below). That's why the valley needs the map to move.
+- **What this lacks:** the plane shows a tile of its map wherever VDP1 draws nothing below the horizon. A hole in the rock can show a piece of floor from 32 sectors away, where today it's black. The census has this common: 775 px a view, 630 of them bright, up close (below). **But on the Saturn (2026-11-04) the user can't tell where the ground starts looping**, and the fixed map stays unless a side-by-side look finds something obvious. The census counted views from random places, so it overstated what play shows.
 
-### A map that moves, priced (Lost Valley)
+### A map that moves, priced (Lost Valley): parked
+
+Built and running in Mednafen on branch `vdp2-scroll`, parked at the user's word: not needed unless the loop shows.
 
 `tools/occmodel` `planes` mode, 30,000 random views, the camera on the open floor; the floor is 10,310 px a view. "Wrong" counts both a false tile where the level has none and a real tile the map doesn't reach; bright means light and fog leave it above near black. Names costs are Mednafen's measure (`names us` on the frames page: 2 KB in 125-160 us at the vblank), to be replaced by the Saturn's.
 
@@ -72,12 +74,12 @@ A face goes on the plane if it is flat at that height, faces the right way, is a
 | Tiles left as polygons | 17 | 0 | 0 |
 | Names in VRAM | 64 KB | 96 KB | 64 KB |
 | Bank B | 208 KB | 240 KB, item textures across B0 and B1 | 208 KB + its source |
-| Source data | none | about 60 bytes | 30 KB of whole names in B0's spare 43 KB, 0.56 KB to find them; or 2.5 KB of RAM and a small sum per tile |
+| Source data | none | about 60 bytes | 31.5 KB of low work RAM as built: reading the names from VRAM cost half as much again (362-469 us a crossing) |
 | A crossing | - | 8 registers, every 8 sectors | Mean 5.9 sectors (378 bytes), 90% 13, most 32 (2 KB); 35% write nothing |
-| Time, Mednafen | none | a few us | Mean about 25 us to write; reads from B0 double it. Worst 160 us, or 320 |
+| Time a crossing, as built, Mednafen | none | a few us | 286-362 us (5 to 7 sectors), most seen 500 us. Writing is cheap (the Saturn: 2 KB in 120 us); the C that finds the tiles is most of it |
 | Code | none | about 25 lines | about 80 lines |
 
-**Recommended: names rewritten by sector, the source in B0's spare space.** It's the only one that scales past this level, it needs no work RAM and no sums at run time, and the far edge moves a sector at a time, not 8 sectors of floor at once. Writes go in the vblank with the list's other numbers, capped a list, nearest first after a camera cut: a whole map is 1,024 sectors, about 4 ms, so a cut takes a few lists to finish, nearest sectors first. To check on the Saturn: the real names cost.
+If it's ever wanted: names rewritten by sector is the only one that scales past this level, and the far edge moves a sector at a time, not 8 sectors of floor at once. Writes go in the vblank with the list's other numbers, capped a list; after a camera cut the whole map (1,024 sectors) takes a few lists to catch up, unordered as built. Finding tiles wants a bitmap of each row before it runs on a Saturn frame budget.
 
 **VRAM, bank B, 256 KB (from `tools/planepack.py` on the real levels):**
 
@@ -187,4 +189,6 @@ Each step in Mednafen first, with the same hwtest spots packed with and without 
 | Valley T-rex floor (`valley-trex`) | 27.8 -> 15.5 | 14.4 -> 10.4 | 30 -> 30 |
 | Valley, the waterfall (`valley-sky`) | 27.1 -> 16.2 | 15.4 -> 12.4 | 30 -> 30 |
 
-The Saturn figures to compare are still to come.
+**Saturn, 2026-11-04, with planes:** Cistern room 103, about 22 degrees up: VDP1 20.5 ms, master 27.4, slave 24.7, 30.0 fps over 5 seconds (last without planes, about 12 degrees up: VDP1 30.7, master 40, slave 34.7, 25 fps). The inventory was not reported as a problem. Lost Valley: the user reports the whole valley and the T-rex fight sitting on 30 fps far more consistently.
+
+**Found on the Saturn:** looking up, the floor's lines read wrong memory before the floor leaves the frame (flat green bands): a reading of the depth table that started below address 0. Fixed by the table's place at the top of B0; Mednafen showed it as a missing floor. To be read again on the Saturn.

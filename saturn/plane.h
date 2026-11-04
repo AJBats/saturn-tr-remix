@@ -41,16 +41,6 @@ void planeWater(bool under);
 void planeListMade();
 void planeListPlot(uint32_t plot);
 
-#ifdef HW_LOG
-// What a block of names costs written in the vertical blank, in timer ticks (128 cycles),
-// the last and the most, and the line it ended on: the price of rewriting names as the camera moves.
-struct PlaneWriteCost
-{
-    uint32_t last, most, line;
-};
-PlaneWriteCost planeWriteCost();
-#endif
-
 // The plane's constant offset: what its line colours add back, in 8-bit colour.
 #define PLANE_OFFSET    (-14 * 8)
 

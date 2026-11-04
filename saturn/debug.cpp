@@ -18,7 +18,6 @@
 #include "slave.h"
 #include "input.h"
 #include "overlay.h"
-#include "plane.h"
 #include "render.h"
 #include "screen.h"
 #include "sound.h"
@@ -478,7 +477,7 @@ static bool gBenchChanged = true;   // the bench's rows to compose again
 // With the bench's rows hidden: where Lara stands (room, x, y, z, heading, as
 // LARA_START and START_YAW take them) and what the scene costs, averaged
 // over half a second, so that two views can be compared and reproduced.
-#define SCENE_ROWS      6
+#define SCENE_ROWS      5
 #define SCENE_WINDOW    30      // vblanks averaged
 static char gSceneRows[SCENE_ROWS][OVERLAY_COLUMNS + 1];
 
@@ -508,15 +507,6 @@ static void eraseUpdate()
         return;
     const EraseCounts c = vdp1EraseTake();
     gSceneRows[4][0] = 0;
-    gSceneRows[5][0] = 0;
-    if (planeLevel())
-    {
-        // a row of names written in the vertical blank, in microseconds
-        const PlaneWriteCost w = planeWriteCost();
-        char* p = appendStat(gSceneRows[5], "names us ", w.last * 447 / 100);
-        p = appendStat(p, "most ", w.most * 447 / 100);
-        appendStat(p, "line ", w.line);
-    }
     if (c.swept || c.unswept)
     {
         char* p = appendStat(gSceneRows[4], "er ", c.swept);
