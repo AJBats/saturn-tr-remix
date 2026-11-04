@@ -354,6 +354,7 @@ def animal_json(lvl, meshes, atlas, type_, title, states, names, fuses, choices,
             out["join"][j]["fit"] = {str(k): v for k, v in outside.items()}
             out["join"][j]["fitIn"] = {str(k): v for k, v in inside.items()}
     out["ribbon"] = ribbon_json(meshes, start, tail, out["meshes"]) if tail else None
+    out["legSeams"] = list(spec.get("fit", ()))
     out["foot"] = foot
     return out
 
