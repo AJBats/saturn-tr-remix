@@ -3589,13 +3589,14 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Under water the same hall is the lightest it gets (`cistern-flood`): 5 to 7 rooms, VDP1 16.7-23.4 ms, CPU 12-14 ms, 30 fps.
 - With floors on VDP2 (269), the wet floor gone from under the surface, the same view: VDP1 24.0 ms, 30 fps. See also 253, the flecks.
 
-### 281. Solid boxes: three pillars named, and what's left of the idea
+### 281. Solid boxes: tried on three pillars, none in the game yet, and what's left of the idea
 *Kind: speed - Size: Mednafen, VDP1 -4.41 ms at room 103, little elsewhere - Fix: built for faces and portals, objects to come*
 
 - `saturn/occluders.txt` names shapes nothing can be seen through, a box or a flat rectangle with the side it's seen from.
   Each frame each gets a rectangle inside its outline (`rooms.s roomsBoxesAsm`). A portal or a room face wholly in the rectangle
   and past the sides that face the camera is left out; so the rule works for a long wall or a floor, not only a pillar. HW_LOG
   menu row `Boxes`. `python -I tools/occluders.py check LEVEL` tests a level's boxes against its rooms.
+- Commented out of `saturn/occluders.txt` at the user's word (589979b): a tool in the belt, the Saturn saw about 3.3 ms of VDP1 saved at room 103.
 - Three Cistern pillars, on against off, Mednafen, list ms: room 103 33.83 -> 29.42 (20 -> 30 fps), water 38.62 -> 36.90 (the
   texture cache has room, a strip that was flat colour keeps its texture), room 99 28.50 -> 27.32. Steps, room 2: nothing. The
   CPUs: the slave's faces -0.23 ms at room 99, the finding +0.17 to +0.27 ms wherever a box is in view. Levels with no boxes:
@@ -3638,6 +3639,14 @@ over 14.6, at most 188 · Fix: medium, parked*
 
 - Reported in play as trees flickering on unpausing, at room 51, 41188, 3584, 36270. Mednafen, the same pause with and without floors on VDP2, pixels changed from frame to frame in the top of the frame: with 569, 2,789, 2,493, then 22; without 774, 3,349, 2,575, then 761: VDP2 isn't the cause.
 - The inventory takes the texture cache's first slots for the item textures (`detailSuspend`, `saturn/detail.cpp`). Back in the game the faces whose textures those were draw lower detail till theirs are uploaded again. To read on the Saturn, where it may differ: a disc with no plane at the same spot.
+
+### 287. The T-rex's music isn't heard on the Saturn
+*Kind: audible - Size: the track that plays as he wakes - Fix: root cause not found yet, one Saturn run to settle it*
+
+- Reported in play. The trigger is the row of sectors room 56 x 4-9, z 3 and room 57 x 1-3, z 3: `SOUNDTRACK(16)`, and it wakes item 55. The bench page reads track 16 on the Saturn, so the game asks and the CD block didn't refuse: a refusal or an end of play would put the level's track 5 back within a frame (`game.h gameUpdate`).
+- Mednafen plays it (`tools/hwtest.sh valley-music`, level started on the trigger, sound recorded): silence to loud from the trigger, loudness about 11,000 RMS, then track 5 again 38.8 s later, the track's length. The track's file on the disc is loud and whole. So game logic and data are right, and the fault is the Saturn's alone.
+- Differences to test: since pipelining (33102ae) the trigger's CD command comes from the slave, mid-frame, where the level's start track comes from the master. And the original asks for index 0 up to index 1 of the track (0603c75c, 06043c8c), ours index 1 up to index 99.
+- Test build on branch `water` (../trs_water, disc `build/disc_w_valley-music`): the bench page's bottom row reads the CD block's own status, track and position (Mednafen, playing: `cd 03 trk 10 idx 01 fad 026459`, track in hex), and the menu row `CD play` plays 16 or 5 from the master, as ours, as the original or stopping first.
 
 ## Production code: clean-up
 
