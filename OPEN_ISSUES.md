@@ -3585,6 +3585,32 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Under water the same hall is the lightest it gets (`cistern-flood`): 5 to 7 rooms, VDP1 16.7-23.4 ms, CPU 12-14 ms, 30 fps.
 - Floors on VDP2 (269) take the wet floor out from under the surface, and not the surface. See also 253, the flecks.
 
+### 281. Solid boxes: three pillars named, and what's left of the idea
+*Kind: speed - Size: Mednafen, VDP1 -4.41 ms at room 103, little elsewhere - Fix: built for faces and portals, objects to come*
+
+- `saturn/occluders.txt` names shapes nothing can be seen through, a box or a flat rectangle with the side it's seen from.
+  Each frame each gets a rectangle inside its outline (`rooms.s roomsBoxesAsm`). A portal or a room face wholly in the rectangle
+  and past the sides that face the camera is left out; so the rule works for a long wall or a floor, not only a pillar. HW_LOG
+  menu row `Boxes`. `python -I tools/occluders.py check LEVEL` tests a level's boxes against its rooms.
+- Three Cistern pillars, on against off, Mednafen, list ms: room 103 33.83 -> 29.42 (20 -> 30 fps), water 38.62 -> 36.90 (the
+  texture cache has room, a strip that was flat colour keeps its texture), room 99 28.50 -> 27.32. Steps, room 2: nothing. The
+  CPUs: the slave's faces -0.23 ms at room 99, the finding +0.17 to +0.27 ms wherever a box is in view. Levels with no boxes:
+  under 0.1 ms. 8000 random views in tools/occmodel: 0 pixels lost.
+- Not done: objects behind a box are still drawn. A box with a corner within 128 of the camera or past the far plane is off.
+- Finding more: tools/occmodel `boxsearch` tried 493 boxes of rock and 651 rectangles of faces over 300 heavy Cistern views:
+  the best 16 save 0.08 ms of room work and 0.19 ms of VDP1 on average. So a spot tool, placed by hand where a view is heavy; no
+  automatic list. The rock between rooms is thin, and what looks solid is mostly sectors of air closed by faces.
+- For VDP2 planes (269): a flat rectangle at the plane's height, seen from above, hides what's below it wholly inside its rectangle.
+  It can't help a face that pokes out over the rim, which is what the kept faces are for.
+
+### 282. The room walk does half its corner sums twice
+*Kind: speed - Size: Saturn walk 7.4 ms at room 103 looking up; estimated -0.8 ms mean, -1.9 ms worst, heavy Cistern views - Fix: to be built*
+
+- tools/occmodel `walkstat`, heavy views (2000+ room vertices), portals checked / facing the camera / different ones of those:
+  Cistern 235 / 108 / 57, worst 395 / 187 / 69; Lost Valley 112 / 54 / 35, worst 216 / 98 / 50; level 5 135 / 71 / 45; 8A 69 / 39 / 32.
+- A room is walked again when its window grows, and every portal of it is rotated and projected again though nothing about it has
+  changed in the frame. Keeping each portal's projected bounds for the frame leaves only the clip against the window to redo.
+
 ## Production code: clean-up
 
 Not differences from retail, and not open work on the picture: what a shipping build still
