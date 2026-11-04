@@ -425,7 +425,6 @@ void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth)
 
 static int32_t gViewFar = VIEW_FAR; // facesFar's
 extern "C" { volatile int32_t gFacesVoidWay; }
-extern "C" { volatile int32_t gFacesLastBox[4] = { 0x7FFF, 0x7FFF, -1, -1 }; }
 
 void facesFar(int32_t far)
 {
@@ -1157,7 +1156,7 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, pieceMaterial) == 300 && offsetof(RoomRun, wibble) == 304 &&
               offsetof(RoomRun, phase) == 308 && offsetof(RoomRun, window) == 312 &&
               offsetof(RoomRun, tiles) == 328 && offsetof(RoomRun, near) == 332 &&
-              offsetof(RoomRun, voidWay) == 336 && offsetof(RoomRun, lastBox) == 340 &&
+              offsetof(RoomRun, voidWay) == 336 &&
               offsetof(CommandList, voidX0) == 48 &&
               offsetof(CommandList, voidArea) == 64 &&
               offsetof(RoomMaterial, quadrant) == 30 && offsetof(RoomMaterial, quads) == 60 &&
@@ -1276,9 +1275,6 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.split = &split;
     run.farBucket = gViewFar >> OT_SHIFT;
     run.voidWay = *uncached(&gFacesVoidWay);
-    for (int32_t i = 0; i < 4; i++) {
-        run.lastBox[i] = uncached(gFacesLastBox)[i];
-    }
 }
 
 #ifdef STEPWISE

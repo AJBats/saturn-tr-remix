@@ -200,7 +200,8 @@ struct RoomMaterial
     uint8_t mips;               // +12 the mip levels it takes: 0 .. 2
     uint8_t skip;               // +13 see-through texels: left out without the cache; bit 1
                                 // sparse (TEX_ATTR_SPARSE); bits 2 .. 7 the shade from which, at every
-                                // corner, a face of it can't be seen (63 none: render.cpp)
+                                // corner, a face of it can't be seen, so black will do (63 none:
+                                // render.cpp)
     uint16_t lines[2];          // +14 4 x its texels along a face's lines, as it is and turned
     uint16_t sizes[6];          // +18 CMDSIZE by variant: mip level * 2 + turned
     uint16_t quadrant;          // +30 a quadrant's characters / 8
@@ -311,7 +312,6 @@ struct RoomRun
                                 // character / 8, 0 when the cache can't have them
     void (*near)();             // +332 facesRoomNear; the lab has none
     int32_t voidWay;            // +336 gFacesVoidWay, for the run
-    int32_t lastBox[4];         // +340 gFacesLastBox, for the run
 };
 
 // What room faces and the walk do where a plane cuts a face away, to keep old
@@ -321,12 +321,6 @@ struct RoomRun
 // the buffer is clear: they're few.
 enum FaceVoidWay { FACE_VOIDS_DRAWN, FACE_VOIDS_BOXED, FACE_VOIDS_NONE };
 extern "C" volatile int32_t gFacesVoidWay;
-
-// With FACE_VOIDS_BOXED, the last frame's box (x0 y0 x1 y1, x0 > x1 none): a room face too
-// dark to see that lies in it is left out and adds to this frame's, which can't then
-// grow past it for that. Without knowing the box beforehand, that's how a few dark faces
-// far apart are kept from making it big.
-extern "C" volatile int32_t gFacesLastBox[4];
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);
 extern "C" void facesRoomNear();    // facesroom.s's, as it calls it

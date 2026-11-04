@@ -559,8 +559,8 @@ void renderHolesShown(bool shown)
 }
 #endif
 
-// A face no brighter than this of 31 at its brightest can't be seen, and its colour
-// is hardly missed where it hides something: left out (faces.h RoomMaterial.skip).
+// A face no brighter than this of 31 at its brightest can't be seen: a plain black polygon
+// will do (faces.h RoomMaterial.skip), still hiding what it hides.
 #define DARK_LIMIT  3
 
 // From the colour tables as VDP1's memory has them, every mip level's: the shade from
@@ -1032,11 +1032,6 @@ void flush_c()
             const int32 box = (voids.x1 - voids.x0 + 1) * (voids.y1 - voids.y0 + 1);
             *uncached(&render::gFacesVoidWay) = voids.x0 > voids.x1 || 3 * voids.area > box
                 ? render::FACE_VOIDS_BOXED : render::FACE_VOIDS_DRAWN;
-            volatile int32_t* last = uncached(render::gFacesLastBox);
-            last[0] = voids.x0;
-            last[1] = voids.y0;
-            last[2] = voids.x1;
-            last[3] = voids.y1;
 #ifdef HW_LOG
             if (gHolesShown) {
                 *uncached(&render::gFacesVoidWay) = render::FACE_VOIDS_DRAWN;   // to tell them from holes
