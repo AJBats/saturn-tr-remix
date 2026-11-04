@@ -33,7 +33,7 @@
 //                                 them, every room and alternate), picked one at a time over heavy views; HAND: boxes to start from
 //         occmodel LEVEL.bin planes VIEWS SEED FLOOR_Y CEILING_Y  (OCC_PLANE_KEEP=rooms,staying,on,VDP1; what's past
 //                  a plane, OCC_PLANE_CLIP=1 trimmed to its room's window, =2 in a room wholly under the floor, to what of it
-//                  the openings at the floor's height show, a rectangle a face, or OCC_PLANE_RIM=FILE left out where it touches a
+//                  the openings at the floor's height show, a rectangle a face, =3 the same from the face's box alone, =4 from a table of the frame's columns, or OCC_PLANE_RIM=FILE left out where it touches a
 //                  named flat rectangle, x0 x1 z0 z1 y a line, OCC_PLANE_RIM_ALL=1 only wholly inside one)
 #include <math.h>
 #include <stdint.h>
@@ -3168,6 +3168,117 @@ static int holesAllow(const Room* r, const int* idx, int n, Rect* out)
     return any;
 }
 
+// What y an outline covers across columns x0 .. x1 (axis 0), or what x across rows (axis 1). 0: none.
+static int outlineBand(const Poly* h, int axis, float a0, float a1, float* lo, float* hi)
+{
+    const float* u = axis ? h->y : h->x;
+    const float* w = axis ? h->x : h->y;
+    int any = 0;
+    float l = 1e9f, r = -1e9f;
+    for (int i = 0; i < h->n; i++)
+    {
+        int j = (i + 1) % h->n;
+        float ua = u[i], ub = u[j], wa = w[i], wb = w[j];
+        if ((ua < a0 && ub < a0) || (ua > a1 && ub > a1))
+            continue;
+        any = 1;
+        float slope = ub != ua ? (wb - wa) / (ub - ua) : 0;
+        float p0 = ua < a0 ? wa + slope * (a0 - ua) : ua > a1 ? wa + slope * (a1 - ua) : wa;
+        float p1 = ub < a0 ? wa + slope * (a0 - ua) : ub > a1 ? wa + slope * (a1 - ua) : wb;
+        l = fminf(l, fminf(p0, p1));
+        r = fmaxf(r, fmaxf(p0, p1));
+    }
+    *lo = l;
+    *hi = r;
+    return any;
+}
+
+// The rectangle from the face's box alone; 0 if none of the box lies in an opening.
+static int holesBand(const Room* r, const int* idx, int n, Rect* out)
+{
+    float fx0 = 1e9f, fx1 = -1e9f, fy0 = 1e9f, fy1 = -1e9f;
+    for (int i = 0; i < n; i++)
+    {
+        if (r->vv[idx[i]].z < NEAR) {
+            fx0 = fy0 = -1e9f;
+            fx1 = fy1 = 1e9f;
+            break;
+        }
+        fx0 = fminf(fx0, r->sx[idx[i]]); fx1 = fmaxf(fx1, r->sx[idx[i]]);
+        fy0 = fminf(fy0, r->sy[idx[i]]); fy1 = fmaxf(fy1, r->sy[idx[i]]);
+    }
+    int any = 0;
+    Rect u = { 1e9f, 1e9f, -1e9f, -1e9f };
+    for (int k = 0; k < gHoleCount; k++)
+    {
+        float lo, hi, lo2, hi2;
+        if (!outlineBand(&gHoles[k], 0, fx0, fx1, &lo, &hi))
+            continue;
+        float y0 = fmaxf(fy0, lo), y1 = fminf(fy1, hi);
+        if (y0 > y1 || !outlineBand(&gHoles[k], 1, y0, y1, &lo2, &hi2))
+            continue;
+        float x0 = fmaxf(fx0, lo2), x1 = fminf(fx1, hi2);
+        if (x0 > x1)
+            continue;
+        any = 1;
+        u.x0 = fminf(u.x0, x0); u.x1 = fmaxf(u.x1, x1);
+        u.y0 = fminf(u.y0, y0); u.y1 = fmaxf(u.y1, y1);
+    }
+    *out = u;
+    return any;
+}
+
+// The frame's columns: the rows any opening covers in each.
+#define OPEN_COLUMN 16
+#define OPEN_COLUMNS 23
+static float gColumnLo[OPEN_COLUMNS], gColumnHi[OPEN_COLUMNS];
+
+static void columnsMake(void)
+{
+    for (int c = 0; c < OPEN_COLUMNS; c++)
+    {
+        gColumnLo[c] = 1e9f;
+        gColumnHi[c] = -1e9f;
+        for (int k = 0; k < gHoleCount; k++)
+        {
+            float lo, hi;
+            if (outlineBand(&gHoles[k], 0, c * OPEN_COLUMN, (c + 1) * OPEN_COLUMN, &lo, &hi))
+            {
+                gColumnLo[c] = fminf(gColumnLo[c], lo);
+                gColumnHi[c] = fmaxf(gColumnHi[c], hi);
+            }
+        }
+    }
+}
+
+static int holesColumns(const Room* r, const int* idx, int n, Rect* out)
+{
+    float fx0 = 1e9f, fx1 = -1e9f, fy0 = 1e9f, fy1 = -1e9f;
+    for (int i = 0; i < n; i++)
+    {
+        if (r->vv[idx[i]].z < NEAR) {
+            fx0 = fy0 = -1e9f;
+            fx1 = fy1 = 1e9f;
+            break;
+        }
+        fx0 = fminf(fx0, r->sx[idx[i]]); fx1 = fmaxf(fx1, r->sx[idx[i]]);
+        fy0 = fminf(fy0, r->sy[idx[i]]); fy1 = fmaxf(fy1, r->sy[idx[i]]);
+    }
+    int c0 = fx0 < 0 ? 0 : fx0 >= OPEN_COLUMN * OPEN_COLUMNS ? OPEN_COLUMNS - 1 : (int)fx0 / OPEN_COLUMN;
+    int c1 = fx1 < 0 ? 0 : fx1 >= OPEN_COLUMN * OPEN_COLUMNS ? OPEN_COLUMNS - 1 : (int)fx1 / OPEN_COLUMN;
+    float lo = 1e9f, hi = -1e9f;
+    for (int c = c0; c <= c1; c++)
+    {
+        lo = fminf(lo, gColumnLo[c]);
+        hi = fmaxf(hi, gColumnHi[c]);
+    }
+    float y0 = fmaxf(fy0, lo), y1 = fminf(fy1, hi);
+    if (y0 > y1)
+        return 0;
+    *out = (Rect){ fx0, y0, fx1, y1 };
+    return 1;
+}
+
 // Past a plane from the camera: below the floor seen from above it, above the ceiling seen from under it.
 static inline int pastPlane(const Room* r, const int* idx, int n, int floorY, int ceilingY)
 {
@@ -3258,8 +3369,10 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
         memset(gLeftOut, 0, nfaces + 1);
         if (gRimCount)
             rimMaskMake();
-        if (clipPast == 2)
+        if (clipPast >= 2)
             holesMake(&gBase, floorY, ceilingY);
+        if (clipPast == 4)
+            columnsMake();
         memset(gAllowed, 0, (nfaces + 1) * sizeof(Rect*));
         for (int pass = 0; pass < 2; pass++)
         {
@@ -3302,10 +3415,10 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
                             leftOutFaces += !pass;
                             continue;
                         }
-                        if (clipPast == 2 && q->ytop >= floorY - 2 && cam.y < floorY && at != room && gHoleCount)
+                        if (clipPast >= 2 && q->ytop >= floorY - 2 && cam.y < floorY && at != room && gHoleCount)
                         {
                             Rect a;
-                            if (!holesAllow(q, idx, 4, &a)) {
+                            if (!(clipPast == 4 ? holesColumns(q, idx, 4, &a) : clipPast == 3 ? holesBand(q, idx, 4, &a) : holesAllow(q, idx, 4, &a))) {
                                 gLeftOut[id] = 1;
                                 leftOutFaces += !pass;
                                 continue;
@@ -3348,10 +3461,10 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
                             continue;
                         }
                         int tid = q->faceBase + q->nq + i;
-                        if (clipPast == 2 && q->ytop >= floorY - 2 && cam.y < floorY && at != room && gHoleCount)
+                        if (clipPast >= 2 && q->ytop >= floorY - 2 && cam.y < floorY && at != room && gHoleCount)
                         {
                             Rect a;
-                            if (!holesAllow(q, idx, 3, &a)) {
+                            if (!(clipPast == 4 ? holesColumns(q, idx, 3, &a) : clipPast == 3 ? holesBand(q, idx, 3, &a) : holesAllow(q, idx, 3, &a))) {
                                 gLeftOut[tid] = 1;
                                 leftOutFaces += !pass;
                                 continue;
@@ -3378,7 +3491,7 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
             }
         }
         gBehind = NULL;
-        if (gRimCount || clipPast == 2)
+        if (gRimCount || clipPast >= 2)
         {
             // what the true picture has of the faces left out or outside their rectangles
             double lost = 0;

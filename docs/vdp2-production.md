@@ -36,7 +36,15 @@ What's known:
 
 **Seen in Mednafen, 2026-11-04:** the user finds the plane itself without visible fault, and the faces sneaking under it the one big quirk, as expected: in the Cistern they just need trimming, which occlusion primitives would do, and masks are for a face flush against a ledge that straddles a view above and below the plane. **Pinned** until the main chat has occlusion primitives better understood.
 
-**So: nothing kept for now.** What we can reach for, in order of work:
+**Built, 2026-11-04: rooms under the floor kept to its openings** (`renderer/faces.cpp`, menu row `Under floor`). From above the floor, a room wholly under it (its top at or below the floor) shows only through the openings at the floor's height, the horizontal portals from a room above it to a room under it. So once the buckets are joined, the master projects those portals and fills a table of the frame's 16-pixel columns with the rows they cover. A command of such a room is then left out if its box misses those rows, or drawn with VDP1's user clip set to them: its slot becomes the clip, jumping to a copy of the face at the list's end. No hand data, no change to the walk or the face loop, and a frame with no such room pays nothing.
+
+- Mednafen, the two spots the user found: the patch and the wall gone, the pool's real strip kept; room 103 VDP1 24.37 -> 24.12 ms, valley 22.36 -> 21.91 ms; the pool in front of Lara (`cistern-water`) 34.68 -> 33.68 ms. The master: 0.5 ms at room 103, 1.2 ms at `cistern-water` (104 commands), about 10,000 cycles of each being the table. In C.
+- `tools/occmodel` `planes` mode, 4,000 views, px painted over a view / views past 400 px / real pixels lost a view: hall today 219 / 301 / 0, kept to the openings 0.7 / 0 / 0, worst 260 px; valley 77 / 259 / 0 -> 25 / 63 / 2.
+- Against four named planes round the rim: 4 sectors wide, any overlap 3.3 / 8 / 64, 174 views losing 400+ px of pool wall once the camera can see over the ledge.
+
+What it doesn't do: items and creatures under the floor still paint over it. A room with a dip and no opening (Lost Valley's 56 and 51, 256 deep, most of the valley's 25 px) has nothing to go by: its worst 10 floor faces back on VDP1 with `tools/floor_paint.py` would take 96% of that for 2.6% of the plane's pixels, not done. Only the floor: nothing has been seen to need the same for the ceiling.
+
+What else we could reach for, in order of work:
 
 1. Keep that floor face on VDP1 (a line in the list). Keeping the worst 80 in each level cuts the census's mean by 60 times in the hall and 10 in the valley, at about a quarter of the floor's gain, and can show a small step of light at the join.
 2. Draw it as a colour 0 polygon in its place in the list, Sonic's mask: the plane shows through it, with no seam, at about a quarter of a textured pixel's cost. It needs a kind of face the pack step can name.

@@ -3619,7 +3619,7 @@ over 14.6, at most 188 · Fix: medium, parked*
   changed in the frame. Keeping each portal's projected bounds for the frame leaves only the clip against the window to redo.
 
 ### 283. VDP1's faces show through a plane where they lie past it
-*Kind: look · Size: Cistern room 103 from the start, a green patch of pool wall on the floor · Fix: pinned, the user's plan below*
+*Kind: look · Size: Cistern room 103 from the start, a green patch of pool wall on the floor · Fix: rooms under the floor built, Saturn read to come; dips and meshes left*
 
 - VDP1 is always in front of VDP2. A floor face used to hide what lay past it; on the plane (269) it can't, so a pit's far wall paints over the near floor when it reaches past the rim on screen.
 - The user's plan, 2026-11-04: nearly all of them just want trimming, which solid boxes (281) can do with a flat rectangle at the floor's height. A face flush against a ledge, straddling a view above and below the plane, can't be trimmed that way and wants a mask: a colour 0 polygon in its place in the list, as Sonic World does at its river (docs/vdp2-lab.md). Pinned till solid boxes are better understood.
@@ -3629,6 +3629,7 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Rooms wholly under the floor kept to the openings at the floor's height the walk went through: a face none of whose outline falls in an opening is left out, others are drawn clipped to a rectangle round what falls in one (VDP1 user clip, one more command for those that need it). Hall 0.1 / 0 / 0, worst 28 px, 2.5 faces clipped and 1.2 left out a view, of 14.9. Valley 77 -> 25 / 259 -> 63 / 2 (4 views past 400 px lost, not looked at). Replayed on both real lists with Mednafen's VDP1 code, the patch and the wall gone, the pool's true strip kept: room 103 27.21 -> 26.92 ms, 9 clipped; valley 25.25 -> 24.78 ms, 3 clipped. Not in the game.
 - What's left in the valley is rooms 56 and 51 painting over themselves, a dip 256 deep with no opening to go by. Their worst 10 floor faces back on VDP1 (`tools/floor_paint.py`) take 96% of it for 2.6% of the plane's pixels.
 - Neither way covers meshes: items and creatures under the floor still paint over it.
+- Built on that rule with a table of the frame's columns in place of a rectangle cut per face (docs/vdp2-production.md, `Under floor` in the menu): hall 0.7 / 0 / 0, worst 260 px. Master 0.5 ms at room 103, 1.2 ms with the pool in front of Lara, in C.
 
 ### 284. On a plane level the trace holds about 8 frames
 *Kind: test discs alone · Size: 8 frames against 120 · Fix: small, if it gets in the way*
