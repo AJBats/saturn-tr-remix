@@ -80,12 +80,18 @@ RAT_TAIL_CARDS = [10, 11, 12, 13, 14]
 RAT_EAR_CARDS = [4, 5]
 _RAT = {"held": RAT_EAR_CARDS, "cards": RAT_LOWER_CARDS + RAT_UPPER_CARDS + RAT_TAIL_CARDS + RAT_EAR_CARDS,
         "facing": RAT_EAR_CARDS, "apart": [3], "wide": {1: 20, 2: 25, 8: 25, 18: 25, 22: 25, 25: 25}}
+RAPTOR_CLAWS = [12, 13, 14, 18, 19, 20]
 # What the game's diet does to each animal, by model (the user's choices,
 # 2026-11-03; the wolf's cards from 2026-10-28): joints held still and merged
 # into their parent ("held": a leaf chain's, renderer/pose.s), joints drawn as
 # cards ("cards"), those of them that keep their length across the view
 # ("facing"), segments left apart though they meet ("apart": a jaw, which
-# opens) and seams reaching further than JOIN_REACH ("wide").
+# opens) and seams reaching further than JOIN_REACH ("wide"). Of a seam: the
+# only corners it takes ("only": a throat), what of the parent stays past it
+# ("stay") and vertices it takes besides its ring ("attach": a crest's root on
+# the ridge it stands on). "plates": joints drawn as those two faces of a flat
+# box (plate_of). The raptor's and T-rex's legs stay apart: their knees and
+# ankles bend too far for a seam, and fixed to a bend a leg loses its feel.
 ANIMALS = {
     "WOLF": {"held": [j for k in WOLF_DIET_MERGES for j in WOLF_MERGES[k]], "cards": WOLF_DIET_CARDS,
              "apart": WOLF_MERGES["jaw"], "wide": {2: 35, 3: 32}},
@@ -95,6 +101,10 @@ ANIMALS = {
     "CROCODILE_WATER": {"apart": [9]},
     "GORILLA": {"apart": [15], "wide": {14: 50}},
     "BEAR": {"apart": [17], "wide": {3: 25, 6: 25, 9: 25, 12: 25, 14: 36}},
+    "RAPTOR": {"held": RAPTOR_CLAWS, "cards": RAPTOR_CLAWS + [9, 10, 11, 15, 16, 17], "apart": [23, 2, 3, 4, 6, 7, 8],
+               "wide": {21: 20, 22: 40}, "only": {22: [1, 5, 13, 14]}, "stay": {22: [16, 17, 18]},
+               "attach": {21: {23: 17}}},
+    "REX": {"held": [16, 19], "plates": {16: [1, 3], 19: [1, 3]}, "apart": [13, 2, 3, 6, 7, 15, 18], "wide": {9: 25}},
 }
 
 CARD_UNITS = 5      # model units a texel along a card, about the wolf's own textures
@@ -319,27 +329,6 @@ def face_area(mesh, idx):
     return a
 
 
-def face_image(mesh, atlas, fi, along, across):
-    """Quad fi's own texture as a card's image: x along the card from its low
-    end, rows from the low end across it, every texel kept."""
-    ftype, idx, flags = mesh.faces[fi]
-    P = [mesh.vertices[i] for i in idx]
-    tw, th, px = atlas.images[atlas.object(flags >> 4, 0, False, False)]
-    u_along = abs(P[1][along] - P[0][along]) > abs(P[3][along] - P[0][along])
-    long_end, side_end = (P[1], P[3]) if u_along else (P[3], P[1])
-    w, h = (tw, th) if u_along else (th, tw)
-    out = bytearray()
-    for r in range(h):
-        for c in range(w):
-            a = c if long_end[along] > P[0][along] else w - 1 - c
-            b = r if side_end[across] > P[0][across] else h - 1 - r
-            u, v = (a, b) if u_along else (b, a)
-            if ftype in FLIP_TYPES:
-                u = tw - 1 - u
-            out += px[(v * tw + u) * 4:(v * tw + u) * 4 + 4]
-    return w, h, bytes(out)
-
-
 def plate_of(mesh, keep):
     """A flat box as a flat plate: keep's two faces, opposite each other, drawn
     on the plane between them, each seen from its own side, its own texture and
@@ -364,15 +353,14 @@ def plate_of(mesh, keep):
     return plate
 
 
-def card_of(mesh, atlas, axis=None, view=None, face=None):
+def card_of(mesh, atlas, axis=None, view=None):
     """A box-like mesh as a card: the middle of each end of its long side
     (or of the given axis), half its thickness across, its faces' mean
     colour by area, an image of it seen from the side (along x, or z when x
     is its length, or along the given view) shaded a little across so the
     flat card reads as round, and each end's light: its corners' normals
     averaged (along the bone, for a box), or None, and the corners' normals
-    themselves (ns0, ns1). With face, the image is that quad's own texture
-    (face_image)."""
+    themselves (ns0, ns1)."""
     xs = list(zip(*mesh.vertices))
     lo, hi = [min(a) for a in xs], [max(a) for a in xs]
     ext = [h - l for l, h in zip(lo, hi)]
@@ -395,7 +383,7 @@ def card_of(mesh, atlas, axis=None, view=None, face=None):
     if view is None:
         view = 0 if axis != 0 else 2
     across = 3 - axis - view
-    image = bake_side(mesh, atlas, view, across, axis, lo, hi) if face is None else face_image(mesh, atlas, face, axis, across)
+    image = bake_side(mesh, atlas, view, across, axis, lo, hi)
     ends = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
     if mesh.normals:
         for v, n in zip(mesh.vertices, mesh.normals):
@@ -886,6 +874,8 @@ def animal_diet(lvl, model, meshes, atlas, spec):
         k = kept(j)
         M = held(parents, offsets, pose, j, k) if j != k else None
         mesh = meshes[start + j]
+        if j in spec.get("plates", {}):
+            mesh = plate_of(mesh, spec["plates"][j])
         if j in cards:
             c = card_of(mesh, atlas, axis=1, view=2) if j in facing else pin_card(card_of(mesh, atlas), parents, offsets, j)
             if j in facing and norm(c["e1"]) > norm(c["e0"]):

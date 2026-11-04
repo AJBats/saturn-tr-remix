@@ -72,6 +72,9 @@
 #   zoo-none zoo-rats zoo-crocs zoo-gorillas  room 32 with none of them, or three of
 #               a kind standing in view, still: what each kind costs
 #   bear        LEVEL1, room 17: the bear awake, about three blocks off
+#   zoo-dinos   LEVEL3A, room 60: the T-rex and three raptors, still until Lara steps a block forward
+#   zoo-rex zoo-raptors zoo-dinos-none  LEVEL3A, room 60: the T-rex, or three raptors, standing in
+#               view, still, or neither: what each costs
 #
 #   valley-under LEVEL3A, room 31: a polygon from under the ground showing at the lower right
 #   valley-music LEVEL3A, room 56, on the trigger that wakes the T-rex and asks for his music
@@ -137,8 +140,12 @@ case "${1:-ledge}" in
     zoo-rats)   level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 place=36@5:45568:-5632:76288,37@5:45568:-5632:76288,39@5:45568:-5632:76288,41@32:62976:-1280:52736,30@32:60928:-1280:52736,31@32:64000:-1280:51712 ;;
     zoo-crocs)  level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 place=36@32:62976:-1280:52736,37@32:60928:-1280:52736,39@32:59904:-1280:54784 ;;
     zoo-gorillas) level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 place=36@5:45568:-5632:76288,37@5:45568:-5632:76288,39@5:45568:-5632:76288,21@32:62976:-1280:52736,27@32:60928:-1280:52736,28@32:59904:-1280:54784 ;;
+    zoo-dinos)  level=LEVEL3A id=LVL_TR1_3A start=60@45568:3584:15872 yaw=0x4000 trigger=55,42,43,56 wake=60:46592:15872 place=55@60:50688:3584:15872,42@60:48640:3584:14848,43@60:49664:3584:13824,56@60:50688:3584:15360,32@30:39424:3584:42496,34@30:39424:3584:42496,57@30:39424:3584:42496 ;;
+    zoo-dinos-none) level=LEVEL3A id=LVL_TR1_3A start=60@45568:3584:15872 yaw=0x4000 place=55@30:39424:3584:42496,32@30:39424:3584:42496,34@30:39424:3584:42496,42@30:39424:3584:42496,43@30:39424:3584:42496,56@30:39424:3584:42496,57@30:39424:3584:42496 ;;
+    zoo-rex)    level=LEVEL3A id=LVL_TR1_3A start=60@45568:3584:15872 yaw=0x4000 place=55@60:48640:3584:15872,32@30:39424:3584:42496,34@30:39424:3584:42496,42@30:39424:3584:42496,43@30:39424:3584:42496,56@30:39424:3584:42496,57@30:39424:3584:42496 ;;
+    zoo-raptors) level=LEVEL3A id=LVL_TR1_3A start=60@45568:3584:15872 yaw=0x4000 place=55@30:39424:3584:42496,32@30:39424:3584:42496,34@30:39424:3584:42496,57@30:39424:3584:42496,42@60:48640:3584:14848,43@60:49664:3584:13824,56@60:50688:3584:15360 ;;
     bear)       level=LEVEL1 id=LVL_TR1_1 start=17@16896:6656:60928 yaw=0xA000 trigger=30 ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-dark|cistern-tunnel|cistern-look|cistern-water|cistern-flood|cistern-flood-above|cistern-flood-down|valley|valley-trex|valley-sky|valley-cave|valley-plants|valley-dark|valley-ledge|valley-under|valley-music|valley-end|vilcabamba-end|zoo|zoo-wolves|zoo-none|zoo-rats|zoo-crocs|zoo-gorillas|bear]" >&2; exit 1 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-dark|cistern-tunnel|cistern-look|cistern-water|cistern-flood|cistern-flood-above|cistern-flood-down|valley|valley-trex|valley-sky|valley-cave|valley-plants|valley-dark|valley-ledge|valley-under|valley-music|valley-end|vilcabamba-end|zoo|zoo-wolves|zoo-none|zoo-rats|zoo-crocs|zoo-gorillas|zoo-dinos|zoo-rex|zoo-raptors|zoo-dinos-none|bear]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 
