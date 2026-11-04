@@ -401,20 +401,31 @@ static void slaveRooms(void*)
     }
     stageBegin(STAGE_ROOMS);
     void (*work)() = *uncached(&gNextWork);
+    // the next frame's work while the master projects a room's chunks
+    auto workNow = [&]() {
+        stageEnd(STAGE_ROOMS);
+        work();
+        work = nullptr;
+        stageBegin(STAGE_ROOMS);
+    };
+    // room i's vertices; the master's claims, coming as it's begun, can leave
+    // it chunks the master won't reach for a while: that work meanwhile
+    auto project = [&](uint32_t i) {
+        int32_t from = 0;
+        if (work && i && !verticesRoomMine(i, wait, from)) {
+            workNow();
+        }
+        verticesRoom(i, wait, from);
+    };
     uint32_t projected = 0;     // rooms projected, ahead of their faces while the last list holds the commands
     for (uint32_t i = 0; i < gFrameRoomCount; i++)
     {
-        if (work && i >= projected && i && shared->drawListDone && verticesRoomMasters(i))
-        {
-            // the next frame's work while the master projects this room's chunks
-            stageEnd(STAGE_ROOMS);
-            work();
-            work = nullptr;
-            stageBegin(STAGE_ROOMS);
+        if (work && i >= projected && i && shared->drawListDone && verticesRoomMasters(i)) {
+            workNow();
         }
         if (i >= projected)
         {
-            verticesRoom(i, wait);
+            project(i);
             projected = i + 1;
         }
         if (!i)
@@ -424,7 +435,7 @@ static void slaveRooms(void*)
             // master has chunks of; faces wait for the commands
             while (!shared->listFree && projected < gFrameRoomCount && !verticesRoomMasters(projected))
             {
-                verticesRoom(projected, wait);
+                project(projected);
                 projected++;
             }
             if (!shared->listFree)

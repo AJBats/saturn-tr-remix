@@ -128,8 +128,11 @@ void verticesDspStarts(uint32_t &rooms, uint32_t &meshes);
 // - the master's chunks projected, each once the DSP has turned its room
 //   (the cycles waiting added to wait), the meshes' DSP run started as soon
 //   as the rooms' has ended (meshes: whether it has been);
-// - room i's chunks for the slave: those it claims projected, the master's
-//   waited for (their lines dropped from its cache);
+// - room i's chunks for the slave, past the first from: those it claims
+//   projected, the master's waited for (their lines dropped from its cache);
+// - room i's chunks for the slave up to one the master has, which the master's
+//   claims can make of a room begun: those projected, from how many that was,
+//   whether it came to the room's end without one;
 // - the meshes fed and their jobs marked (from to to: a feed can come in
 //   parts); the meshes' DSP run started if the rooms' has ended (whether it
 //   did), or once it has;
@@ -141,7 +144,8 @@ void verticesPlan(int32_t bias, int32_t ahead = 0, bool started = false);
 void verticesRoomsBegin();
 void verticesClaimMasters();
 void verticesMasterRooms(uint32_t &wait, bool &meshes);
-void verticesRoom(uint32_t i, uint32_t &wait);
+void verticesRoom(uint32_t i, uint32_t &wait, int32_t from = 0);
+bool verticesRoomMine(uint32_t i, uint32_t &wait, int32_t &from);
 
 // Room i has chunks claimed before the slave came to it: the master's.
 bool verticesRoomMasters(uint32_t i);
