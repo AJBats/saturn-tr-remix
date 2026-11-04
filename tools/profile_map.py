@@ -25,7 +25,7 @@ START = 0x06004000
 SHIFT = 6
 TRACE_HEADER = 0x002FFF00
 TRACE_LANES = 4                 # trace.h: the header's profile pointer and block count follow the lanes
-VDP2_AREA = 0x25E40000          # trace.cpp TRACE_AREA
+VDP2_AREA = 0x25E30000          # tools/trace.py VDP2_AREA: where its _vdp2.bin starts
 
 
 def symbols(elf):
