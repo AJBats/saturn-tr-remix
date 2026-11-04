@@ -41,6 +41,12 @@ Inventory item textures go to another file, which the game puts in the VRAM
 after the blob (where full-res room textures are cached during play) while
 the inventory is open.
 
+A level holds each mesh once: its record, the diet's where it has one
+(tools/diet.py), in the renderer's store (<out>.MSH). The PKD keeps the
+original's collision sphere, all the game's code reads of a mesh. The blob
+holds of the level's object textures what those records' faces read
+(TextureTable.drop_unread).
+
 usage: python tools/pack_level.py <DATA dir> <LEVEL> <out.PKD> [<PSXDATA dir>]
        (also writes <out>.TEX, the texture blob loaded at VRAM_TEX_BASE,
        <out>.SUB, the full-resolution room textures and their mip levels, <out>.SFX, the sound
@@ -61,6 +67,7 @@ OBJECT_ART=1 draws the meshes' textures (Lara, enemies, bridges, statics)
 with the room textures' grain rework too, each in place in its own colour
 table (TextureTable.object_art); they have no mip levels.
 """
+import bisect
 import math
 import os
 import re
@@ -349,7 +356,7 @@ class TextureTable:
             self.turned[tex] = copies[t["tile"]]
             segment += transposed(src, w, h)
         if segment:
-            self.turned_off = self.add_segment(bytes(segment))
+            self.add_segment(bytes(segment))
             self.cache_off = (len(self.blob) + 31) & ~31
 
     def turned_entry(self, tex, attr):
@@ -479,6 +486,58 @@ class TextureTable:
             n = t["w"] * t["h"] // 2
             self.blob[at:at + n] = transposed(bytes(self.blob[pix:pix + n]), t["w"], t["h"])
 
+    def drop_unread(self):
+        """The object textures' segment, first in the blob, cut to the texels
+        and colour tables the entries read, and everything after it moved
+        down: the level's data holds them all as one block, among them those
+        only the meshes the diet replaced read. A colour table stays 32-byte
+        aligned and texels 8-byte. Call when the faces are packed and the art
+        done, before pack."""
+        end = len(self.lvl.object_tex_data)
+        spans = []
+        for srca, colr, size, *_ in self.entries:
+            pix, lut = (srca << 3) - VRAM_TEX_BASE, (colr << 3) - VRAM_TEX_BASE
+            if srca and pix < end:
+                spans.append((pix, pix + (size >> 8) * 8 * (size & 0xFF) // 2, False))
+            if lut < end:
+                if lut % TABLE_BYTES:
+                    raise ValueError(f"colour table at {lut:#x} not aligned")
+                spans.append((lut, lut + TABLE_BYTES, True))
+        joined = []
+        for start, stop, table in sorted(spans):
+            if joined and start <= joined[-1][1]:
+                joined[-1][1:] = max(stop, joined[-1][1]), table or joined[-1][2]
+            else:
+                joined.append([start, stop, table])
+        if joined and joined[-1][1] > end:
+            raise ValueError(f"an object texture runs past the data's end, to {joined[-1][1]:#x}")
+        kept = bytearray()
+        moves = []          # each span's old start, new start
+        for start, stop, table in joined:
+            kept += bytes((start - len(kept)) % (TABLE_BYTES if table else 8))
+            moves.append((start, len(kept)))
+            kept += self.blob[start:stop]
+        kept += bytes(-len(kept) % TABLE_BYTES)
+        shift = self.room_off - len(kept)
+        starts = [m[0] for m in moves]
+
+        def moved(at):
+            if at >= end:
+                return at - shift
+            old, new = moves[bisect.bisect_right(starts, at) - 1]
+            return new + at - old
+        for e in self.entries:
+            if e[0]:
+                e[0] = (VRAM_TEX_BASE + moved((e[0] << 3) - VRAM_TEX_BASE)) >> 3
+            e[1] = (VRAM_TEX_BASE + moved((e[1] << 3) - VRAM_TEX_BASE)) >> 3
+        self.sources = [(pixels, colors, None if lut is None else moved(lut), ends)
+                        for pixels, colors, lut, ends in self.sources]
+        self.turned = {tex: moved(at) for tex, at in self.turned.items()}
+        self.blob = kept + self.blob[self.room_off:]
+        self.room_off -= shift
+        self.spr_off -= shift
+        self.cache_off -= shift
+
     def pack(self):
         """Each entry: srca, colr, size, attr, mean colour, full-res key, 0
         (Texture.pad), and 0 for the game to fill (Texture.contrast)."""
@@ -552,19 +611,6 @@ class Packer:
             name = next((n for n, v in ITEM.items() if v == m["type"]), "")
             if name.startswith("INV_") and lvl.item_textures:
                 self.inventory_meshes.update(range(m["start"], m["start"] + m["count"]))
-        # the object textures quads turn through, each mesh once as written
-        turn, seen = [], set()
-        for i, (src_offset, mesh) in enumerate(zip(lvl.mesh_offsets, self.meshes)):
-            if src_offset in seen or i in self.inventory_meshes:
-                continue
-            seen.add(src_offset)
-            for ftype, idx, flags in mesh.faces:
-                tex = flags >> 4
-                if (len(idx) == 4 and ftype in (trsat.MESH_R_TEX, trsat.MESH_R_TRANSP) and
-                        tex < len(lvl.object_textures) and tex not in turn and
-                        TextureTable.turnable(lvl.object_textures[tex])):
-                    turn.append(tex)
-        self.textures.add_turned(turn)
 
     def color_index(self, color):
         if color not in self.palette:
@@ -683,14 +729,15 @@ class Packer:
         """A quad of mesh index: its face flags and corners, through its
         texture's transposed copy (its corners taken round by one) where it
         has one."""
-        face = self.mesh_face_flags(index, ftype, flags)
         tex = flags >> 4
-        if (index not in self.inventory_meshes and ftype in (trsat.MESH_R_TEX, trsat.MESH_R_TRANSP) and
-                tex in self.textures.turned):
-            attr = TEX_ATTR_AKILL if ftype == trsat.MESH_R_TRANSP else 0
-            face = (face & ~FACE_TEXTURE_MAX) | self.textures.turned_entry(tex, attr)
-            idx = (idx[3], idx[0], idx[1], idx[2])
-        return face, idx
+        if (index in self.inventory_meshes or ftype not in (trsat.MESH_R_TEX, trsat.MESH_R_TRANSP) or
+                tex not in self.textures.turned):
+            return self.mesh_face_flags(index, ftype, flags), idx
+        transp = ftype == trsat.MESH_R_TRANSP
+        entry = self.textures.turned_entry(tex, TEX_ATTR_AKILL if transp else 0)
+        if entry > FACE_TEXTURE_MAX:
+            raise ValueError("texture index does not fit the face flags")
+        return ((FACE_TYPE_FTA if transp else FACE_TYPE_FT) << FACE_TYPE_SHIFT) | entry, (idx[3], idx[0], idx[1], idx[2])
 
     def mesh_triangle(self, index, ftype, flags, idx):
         """A triangle of mesh index: its face flags, corners and arrangement."""
@@ -702,18 +749,55 @@ class Packer:
             arrangement = TRIANGLE_ARRANGEMENT[flags >> 12]
         return self.mesh_face_flags(index, ftype, flags), idx, arrangement
 
-    def write_mesh(self, out, index, mesh):
+    def mesh_record(self, index, mesh):
         quads = [self.mesh_quad(index, ftype, flags, idx) for ftype, idx, flags in mesh.faces if len(idx) == 4]
         tris = [self.mesh_triangle(index, ftype, flags, idx) for ftype, idx, flags in mesh.faces if len(idx) == 3]
+        out = Out()
         write_mesh_record(out, f"mesh {index}", mesh.center, mesh.radius, mesh.vertices, mesh.normals or None,
                           mesh.intensities or None, quads, tris)
+        return bytes(out.b)
+
+    def turn_textures(self, simplified):
+        """The object textures whose quads turn through a transposed copy:
+        those of the quads the store will hold (simplified: the diet's meshes,
+        by original index), each mesh once."""
+        lvl = self.lvl
+        turn, seen = [], set()
+        for i, (src_offset, mesh) in enumerate(zip(lvl.mesh_offsets, self.meshes)):
+            if i in simplified:
+                faces = [f[:3] for f in simplified[i].faces if not isinstance(f, dict)]
+            elif src_offset in seen or i in self.inventory_meshes:
+                continue
+            else:
+                seen.add(src_offset)
+                faces = mesh.faces
+            for ftype, idx, flags in faces:
+                tex = flags >> 4
+                if (len(idx) == 4 and ftype in (trsat.MESH_R_TEX, trsat.MESH_R_TRANSP) and
+                        tex < len(lvl.object_textures) and tex not in turn and
+                        TextureTable.turnable(lvl.object_textures[tex])):
+                    turn.append(tex)
+        self.textures.add_turned(turn)
+
+    def mesh_records(self, simplified):
+        """Each level mesh's record for the store: the diet's (made first, its
+        textures going in before the inventory's), or its original's, once
+        for the indices sharing it."""
+        diet_records = {i: self.diet_mesh(dm) for i, dm in simplified.items()}
+        originals = {}
+        records = []
+        for i, (src_offset, mesh) in enumerate(zip(self.lvl.mesh_offsets, self.meshes)):
+            if i not in diet_records and src_offset not in originals:
+                originals[src_offset] = self.mesh_record(i, mesh)
+            records.append(diet_records[i] if i in diet_records else originals[src_offset])
+        return records
 
     # --- the diet (tools/diet.py) -----------------------------------------
 
     def diet(self):
         """The simplified meshes the renderer draws instead of the originals:
-        {original index: DietMesh}. The game's own mesh table keeps the
-        originals (their collision spheres). The joints it holds still to
+        {original index: DietMesh}; collision keeps the originals' spheres.
+        The joints it holds still to
         self.still ({model type: joints}). DIET=0 in the environment packs
         none."""
         self.still = {}
@@ -871,15 +955,19 @@ class Packer:
         floors = out.align4()
         out.pack(f"{len(lvl.floors)}H", *lvl.floors)
 
-        self.diet_records = {index: self.diet_mesh(dm) for index, dm in self.diet().items()}
+        simplified = self.diet()
+        self.turn_textures(simplified)
+        self.records = self.mesh_records(simplified)
 
+        # the game's own table: each mesh's collision sphere (common.h Mesh's
+        # first fields), once for the indices sharing it
         mesh_base = out.align4()
         mesh_offsets = []
         written = {}
-        for i, (src_offset, mesh) in enumerate(zip(lvl.mesh_offsets, self.meshes)):
+        for src_offset, mesh in zip(lvl.mesh_offsets, self.meshes):
             if src_offset not in written:
-                written[src_offset] = out.align4() - mesh_base
-                self.write_mesh(out, i, mesh)
+                written[src_offset] = out.pos() - mesh_base
+                out.pack("4h", *mesh.center, mesh.radius)
             mesh_offsets.append(written[src_offset])
 
         mesh_offsets_pos = out.align4()
@@ -931,6 +1019,7 @@ class Packer:
         self.textures.room_art()
         if self.object_art:
             self.textures.object_art()
+        self.textures.drop_unread()
         out.raw(self.textures.pack())
         textures_count = len(self.textures.entries)
 
@@ -1198,37 +1287,24 @@ def report_sounds(name, sounds, size):
 TEXTURE_PMOD = 0x100C
 
 
-def mesh_store(data, diet_records):
+def mesh_store(data, records):
     """The packed level's meshes as the renderer reads them (meshstore.py):
-    each one once, the level's mesh indices to them, the diet's (records in
-    the game's layout by mesh index) in place of those it simplifies, each
-    different one once (a land and a water animal's meshes are the same)."""
+    records, each level mesh's in order (Packer.mesh_records), each different
+    one once, with the level's mesh indices to them."""
     counts = struct.unpack_from(">I14H", data, 0)[1:]
     offsets = struct.unpack_from(">35I", data, 32)
-    mesh_base, table, meshes = offsets[5], offsets[6], counts[3]
-    mesh_offsets = struct.unpack_from(f">{meshes}i", data, table)
-    unique = sorted(set(at for i, at in enumerate(mesh_offsets) if i not in diet_records))
-    place = {at: i for i, at in enumerate(unique)}
-    records = [data[mesh_base + at:] for at in unique]
-    index = []
-    diet_places = {}
-    for i, at in enumerate(mesh_offsets):
-        if i in diet_records:
-            if diet_records[i] not in diet_places:
-                diet_places[diet_records[i]] = len(records)
-                records.append(diet_records[i])
-            index.append(diet_places[diet_records[i]])
-        else:
-            index.append(place[at])
+    place = {}
+    index = [place.setdefault(record, len(place)) for record in records]
     textures = [struct.unpack_from(">5H", data, offsets[15] + 16 * i) for i in range(counts[8])]
     palette = struct.unpack_from(">256H", data, offsets[0])
-    return meshstore.build(records, index, textures, palette, TEXTURE_PMOD)
+    return meshstore.build(list(place), index, textures, palette, TEXTURE_PMOD)
 
 
 def write_mesh_record(out, name, center, radius, vertices, normals, intensities, quads, tris, cards=(), back=0,
                       seam_reach=0):
-    """A mesh as the game reads it (common.h Mesh): the header (how far back
-    its parent's job lies, in groups of 4 vertices, and its cards' count last),
+    """A mesh's record for the renderer's store (common.h Mesh's layout): the
+    header (how far back its parent's job lies, in groups of 4 vertices, and
+    its cards' count last),
     vertices, their lighting (normals as 8-bit vectors for meshes lit by the
     room's lights, or shades for pre-lit ones, or neither), quads
     [(flags, idx)], triangles [(flags, idx, arrangement)], and cards
@@ -1316,7 +1392,7 @@ def main():
         f.write(packer.sfx)
     with open(os.path.splitext(out_path)[0] + ".ITX", "wb") as f:
         f.write(lvl.item_tex_data)
-    store = mesh_store(data, packer.diet_records)
+    store = mesh_store(data, packer.records)
     with open(os.path.splitext(out_path)[0] + ".MSH", "wb") as f:
         f.write(store)
     print(f"{name}: {len(data)} bytes -> {out_path}, {len(packer.textures.blob)} bytes -> {tex_path}, "

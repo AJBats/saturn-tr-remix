@@ -1045,6 +1045,15 @@ enum MeshLighting {
     MESH_LIGHT_SHADES
 };
 
+#ifdef __SATURN__
+// The level file's: a mesh's collision sphere, its original's where the diet
+// simplifies it (tools/diet.py); its geometry is the renderer's mesh store's
+// alone (tools/meshstore.py).
+struct Mesh {
+    vec3s center;
+    int16 radius;   // not every vertex lies within it
+};
+#else
 struct Mesh {
     vec3s center;
     int16 radius;   // for collision: not every vertex lies within it
@@ -1053,16 +1062,11 @@ struct Mesh {
     uint8 hasNormals; // MeshLighting
     int16 rCount;
     int16 tCount;
-#ifdef __SATURN__
-    int16 bound;    // radius about the centre that every vertex lies within
-    uint8 spare;
-    uint8 cards;    // the renderer's mesh store's alone (tools/diet.py, renderer/faces.h)
-#else
     int16 crCount;
     int16 ctCount;
-#endif
     // data...
 };
+#endif
 
 struct Sphere16 {
     uint32 xy;

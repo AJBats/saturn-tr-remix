@@ -3435,6 +3435,13 @@ over 14.6, at most 188 · Fix: medium, parked*
   within 0.3 ms. Awake, three rats, a gorilla and two crocodiles at Lara's feet (`zoo`): 28.05 to 28.95 fps, VDP1
   31.50 to 27.47 ms. What's left of a rat: draws 1.53, feed 0.44, pose 0.40, draw list 0.20: feed, pose and the
   draw list go by joints, and joints are what's left. Saturn run pending.
+- The diet's originals are out of the level (branch `shell`). `tools/pack_level.py` kept every mesh whole in the
+  PKD beside the renderer's store, though the game's code reads only its collision sphere, and loaded the level's
+  object textures as one block, read or not. Now the PKD has the spheres, the store the geometry, and the blob what
+  the store's faces read (`TextureTable.drop_unread`). Low work RAM, all meshes: 48-88 KB a level (LEVEL7B 1.0 KB
+  free to 87 KB). VDP1 VRAM, for the room texture cache: LEVEL1 12.4 KB, LEVEL7A 9.4 KB, none where nothing was
+  unread. Every mesh of every level compared with before, face by face: same bytes read, same spheres. The program
+  is byte-identical; frame costs within 0.03 ms (Mednafen, `zoo`, `zoo-wolves`). Not yet run on the Saturn.
 
 ### 257. Creatures that paint nothing cost as much as those that do
 *Kind: speed · Size: 6.9 ms at one spot, Mednafen · Fix: open*

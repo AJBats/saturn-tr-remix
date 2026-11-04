@@ -1,6 +1,6 @@
 """The mesh store: a level's meshes as the renderer reads them
 (renderer/types.h MeshStore), made from the meshes in the game's layout
-(pack_level.py write_mesh: the Mesh header, its vertices, normals or shades,
+(pack_level.py write_mesh_record: the Mesh header, its vertices, normals or shades,
 quads and triangles). The level packer writes one for the whole level
 (DATA/<level>.MSH); the lab's scenes carry one of the meshes they draw.
 
