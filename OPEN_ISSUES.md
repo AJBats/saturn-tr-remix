@@ -44,6 +44,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
 | 219-247, 251-255 | Rendering: the new renderer's open work |
+| 273-279 | Production code: clean-up |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -490,6 +491,8 @@ CAM-22*
   per line; a floor hides what VDP1 drew behind it, and a plane under the frame can't, so rooms below the
   floor would show until those pixels are written colour 0, which gives back part of the saving; VDP2
   VRAM and cycles for the plane's cells, map and coefficients.
+- **Now:** proven on the Saturn in the lab, 2026-11-04, and on its way into the game: the design is
+  `docs/vdp2-production.md`, the lab's notes `docs/vdp2-lab.md`, branch `vdp2-lab`; the build on branch `vdp2-planes`.
 - **First test on the Saturn, not in Mednafen:** no display read from VDP2 bank B has ever worked on this
   Saturn (mednafen-vdp2 notes), and new layouts have looked right in Mednafen and broken on the console.
 
@@ -3570,6 +3573,73 @@ over 14.6, at most 188 · Fix: medium, parked*
   colour 0 is transparent. The VDP2 support is coming along on branch `vdp2-lab` (`docs/vdp2-lab.md`).
 - The catch: under the erase (267) a face at the fog's floor draws nothing, so sky would show through far rock that should
   stand black against it. Those faces would need real black (0x8000) above the horizon, at some of what the erase saved.
+
+## Production code: clean-up
+
+Not differences from retail, and not open work on the picture: what a shipping build still
+carries from how it was built, debug reads and lab paths and spare memory. From an audit of
+`saturn/` and `renderer/` on 2026-11-04 (code at 7cac8a9), to be taken on later at the user's
+word. Of the same kind and already open: 264, 265, 266.
+
+### 273. Timer reads a shipping build doesn't use
+*Kind: speed · Size: perhaps 0.3 to 0.5 ms across both CPUs at a heavy view, not measured · Fix: small*
+
+- `ticks()` (`saturn/system.cpp:620`, about 110 cycles by the audit's reading) is taken twice round every
+  wait on the frame's path: `roomTurned` (`renderer/vertices.cpp:322`), each chunk of a room, up to 119
+  a frame; each draw (`vertices.cpp:757-775`, `806-822`); the stages' waits (`renderer/frame.cpp:387-513`,
+  `579-738`). The sums go to `gStats` for the debug page (`saturn/render.cpp:1057`) and no further.
+- **Some stay:** `s.late` steers the master and slave's split each frame (`saturn/render.cpp:958`, by
+  `drawsEnd`, `slaveEnd`, `gNextAfter`), so those reads aren't debug. The fix is the wait pairs behind `HW_LOG`.
+
+### 274. 16 KB at the bottom of gVertices that nothing seems to use
+*Kind: memory · Size: 16 KB of high work RAM · Fix: small, to confirm first*
+
+- `saturn/render.cpp:417`: 5,376 entries of 8 bytes. The walk places rooms from entry 2,048 up
+  (`renderer/rooms.s:958`, `MASTER_VERTICES`), and the game's meshes go to `gMeshOut`
+  (`renderer/vertices.cpp:152`). The bottom 2,048 look left over from when the meshes shared the buffer.
+- From reading the code, not from a run. A Mednafen write watch over those 16 KB through a level settles it.
+- What it frees goes to the rooms' faces (244).
+
+### 275. Two tables bigger than any level has asked
+*Kind: memory · Size: about 8 KB of high work RAM · Fix: small*
+
+- `gSeen` (`renderer/rooms.cpp:46`): `ROOMS_LISTED` 128, 8.7 KB, where the game has been seen to reach 38.
+  `gList` and `gListCopy` go by the same number. The lab wants more, so the game's limit goes behind `RENDER_LAB`.
+- `made` in `facesMeshHinted` (`renderer/faces.cpp:329`, `MAX_MADE_FACES` 512), 8 KB, where the largest mesh has
+  163 faces.
+- Both need a limit known to hold in every level: the packer can check the meshes' and the rooms' worst case
+  is the walk's own, as in issue 254. What it frees goes to 244.
+
+### 276. Options only the lab or the debug menu changes, read on every vertex, face or room
+*Kind: speed · Size: a cycle or two each, not measured · Fix: small*
+
+- `farScaled` (`renderer/roomproject.s`, `renderer/meshproject.s`, set by `vertices.cpp:366`): only the lab turns
+  it off. `lod` (`renderer/faces.cpp:1133`): the menu's Texels, which waits on the user's read on the Saturn
+  (`texel-lod-door`). `black` (`gBlack`, `saturn/render.cpp:436`): the menu's. `hidden` (`renderer/rooms.cpp:90`):
+  the stamps' menu. `posed` (`renderer/frame.cpp:544`): false only for the lab's `frameDraws` (277).
+- These become constants in a shipping build, as `RENDER_LAB` already does in the assembly.
+
+### 277. The lab's paths compiled into the game, and dead code
+*Kind: code and memory · Size: not measured · Fix: small*
+
+- Lab only, in the game's build: `frameDraws` (`renderer/frame.cpp:876`, its one caller `lab/lab.cpp:715`) and the
+  `given` branches it needs in `stagesTogether` (`frame.cpp:542-691`).
+- No caller anywhere: `detailMips` (`saturn/detail.cpp:79`), `slaveDone` (`saturn/slave.cpp:134`).
+
+### 278. C on the frame's path with assembly beside it
+*Kind: speed · Size: below, Mednafen · Fix: medium each, only if the frame still needs the CPU*
+
+- `verticesDrawsSet` (`renderer/vertices.cpp:207`) 0.29 ms and the frame's plan (`framePlan`, `verticesPlan`) 0.18 ms
+  at the ledge; `facesMeshHinted` (`renderer/faces.cpp:319`) about 0.15 ms at LEVEL1.
+- The near faces' split: about 1.2 to 1.5 ms at the ledge and Cistern room 103, measured before its assembly half
+  existed, so to be measured again first.
+
+### 279. The DMA wait doesn't count a level 0 transfer that was interrupted
+*Kind: correctness · Size: not seen to fail · Fix: one line, then a run on the Saturn*
+
+- `DSTA_D0_BUSY` (`saturn/hw.h:62`) is 0x00000030, waiting or moving. libyaul's level 0 mask (`scu/dma.h`) also has bit
+  16, interrupted, so 0x00010030. `dmaWait` (`saturn/system.cpp:615`) can return while a transfer is held up by a higher
+  level, and the next `dmaCopy` writes its registers over it. The lab found it (`docs/vdp2-production.md`, branch `vdp2-lab`).
 
 ---
 
