@@ -454,6 +454,7 @@ static void slaveRooms(void*)
                 stageBegin(STAGE_ROOMS);
             }
             facesRoomsBegin(gRoomRun, gRoomTextures, gSplit, gRoomList);
+            gRoomRun.seen = roomsBoxes(gFrameRooms, gRoomRun.seenCount);
         }
 #ifdef HW_LOG
         gRoomSlots[i][0] = facesSlot(gRoomList.link);

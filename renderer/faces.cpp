@@ -425,7 +425,6 @@ void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth)
 
 static int32_t gViewFar = VIEW_FAR; // facesFar's
 extern "C" { volatile int32_t gFacesVoidWay; }
-extern "C" { volatile int32_t gFacesLastBox[4] = { 0x7FFF, 0x7FFF, -1, -1 }; }
 
 void facesFar(int32_t far)
 {
@@ -1157,7 +1156,10 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, pieceMaterial) == 300 && offsetof(RoomRun, wibble) == 304 &&
               offsetof(RoomRun, phase) == 308 && offsetof(RoomRun, window) == 312 &&
               offsetof(RoomRun, tiles) == 328 && offsetof(RoomRun, near) == 332 &&
-              offsetof(RoomRun, voidWay) == 336 && offsetof(RoomRun, lastBox) == 340 &&
+              offsetof(RoomRun, voidWay) == 336 &&
+              offsetof(RoomRun, boxNear) == 340 && offsetof(RoomRun, boxCount) == 344 &&
+              offsetof(RoomRun, boxes) == 348 && offsetof(RoomRun, points) == 352 &&
+              sizeof(RoomBox) == 20 && offsetof(RoomBox, lo) == 8 && offsetof(RoomBox, hi) == 14 &&
               offsetof(CommandList, voidX0) == 48 &&
               offsetof(CommandList, voidArea) == 64 &&
               offsetof(RoomMaterial, quadrant) == 30 && offsetof(RoomMaterial, quads) == 60 &&
@@ -1276,15 +1278,64 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.split = &split;
     run.farBucket = gViewFar >> OT_SHIFT;
     run.voidWay = *uncached(&gFacesVoidWay);
-    for (int32_t i = 0; i < 4; i++) {
-        run.lastBox[i] = uncached(gFacesLastBox)[i];
-    }
+    run.boxes = run.roomBoxes;
+    run.seen = nullptr;
+    run.seenCount = 0;
 }
 
 #ifdef STEPWISE
 StepMark gStepMarks[2][STEP_MARKS];
 uint32_t gStepHead[2], gStepUploaded[2];
 #endif
+
+// A room point's coordinate is its byte << 8, so past a side at v is a byte over
+// roomByteUnder(v) or under roomByteOver(v), held to what's beyond any byte.
+#define ROOM_BYTES  256
+
+static inline int32_t roomByteUnder(int32_t v)
+{
+    v >>= 8;
+    return v < -1 ? -1 : v > ROOM_BYTES ? ROOM_BYTES : v;
+}
+
+static inline int32_t roomByteOver(int32_t v)
+{
+    v = -(-v >> 8);
+    return v < -1 ? -1 : v > ROOM_BYTES ? ROOM_BYTES : v;
+}
+
+// The frame's boxes over the room's window that some of it can lie behind.
+static void facesRoomBoxes(const FaceRoom &room, RoomRun &run)
+{
+    int32_t n = 0, nearest = 0x7FFF;
+    const int32_t* w = room.clip;
+    for (int32_t i = 0; i < run.seenCount; i++)
+    {
+        const BoxSeen &s = run.seen[i];
+        if (s.x1 < w[0] || s.x0 > w[2] || s.y1 < w[1] || s.y0 > w[3])
+            continue;
+        RoomBox &b = run.roomBoxes[n];
+        bool some = true;
+        for (int32_t k = 0; k < 3; k++)
+        {
+            int32_t lo = roomByteUnder(s.lo[k] + room.camera[k]);
+            int32_t hi = roomByteOver(s.hi[k] + room.camera[k]);
+            some = some && lo < ROOM_BYTES - 1 && hi > 0;
+            b.lo[k] = int16_t(lo);
+            b.hi[k] = int16_t(hi);
+        }
+        if (!some)
+            continue;
+        b.x0 = s.x0;
+        b.y0 = s.y0;
+        b.x1 = s.x1;
+        b.y1 = s.y1;
+        nearest = s.near < nearest ? s.near : nearest;
+        n++;
+    }
+    run.boxCount = n;
+    run.boxNear = nearest;
+}
 
 void facesRoom(const FaceRoom &room, RoomRun &run)
 {
@@ -1301,6 +1352,8 @@ void facesRoom(const FaceRoom &room, RoomRun &run)
     for (int32_t i = 0; i < 4; i++) {
         run.window[i] = room.clip[i];
     }
+    run.points = room.points;
+    facesRoomBoxes(room, run);
     facesRoomAsm(&room, &run);
 }
 

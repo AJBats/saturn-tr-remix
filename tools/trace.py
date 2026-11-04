@@ -375,13 +375,16 @@ def capture(cue, frame, keys, name, fps_window=0, shots=0, playback=0, record=0)
         sys.exit(f'{cmd}: no reply with "{expect}" (last: {ack()})')
 
     env = dict(os.environ, MEDNAFEN_HOME=home)
-    proc = subprocess.Popen([exe, '--sound', '0', '-cd.image_memcache', '1', '--automation', ipc, cue],
-                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+    stderr_path = os.path.join(ROOT, 'build/trace_stderr.txt')
+    with open(stderr_path, 'w') as stderr:
+        proc = subprocess.Popen([exe, '--sound', '0', '-cd.image_memcache', '1', '--automation', ipc, cue],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=stderr, env=env)
     try:
         deadline = time.time() + 60
         while 'ready' not in ack():
             if proc.poll() is not None or time.time() > deadline:
-                sys.exit('Mednafen did not start')
+                with open(stderr_path) as f:
+                    sys.exit(f'Mednafen did not start: {f.read().strip()}')
             time.sleep(0.2)
         send('deterministic', 'deterministic', 10)
         if keys:

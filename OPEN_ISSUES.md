@@ -44,6 +44,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
 | 219-247, 251-255 | Rendering: the new renderer's open work |
+| 273-279 | Production code: clean-up |
 
 The section at the very end lists the issues that need a decision first.
 
@@ -490,6 +491,8 @@ CAM-22*
   per line; a floor hides what VDP1 drew behind it, and a plane under the frame can't, so rooms below the
   floor would show until those pixels are written colour 0, which gives back part of the saving; VDP2
   VRAM and cycles for the plane's cells, map and coefficients.
+- **Now:** proven on the Saturn in the lab, 2026-11-04, and on its way into the game: the design is
+  `docs/vdp2-production.md`, the lab's notes `docs/vdp2-lab.md`, branch `vdp2-lab`; the build on branch `vdp2-planes`.
 - **First test on the Saturn, not in Mednafen:** no display read from VDP2 bank B has ever worked on this
   Saturn (mednafen-vdp2 notes), and new layouts have looked right in Mednafen and broken on the console.
 
@@ -3570,6 +3573,110 @@ over 14.6, at most 188 · Fix: medium, parked*
   colour 0 is transparent. The VDP2 support is coming along on branch `vdp2-lab` (`docs/vdp2-lab.md`).
 - The catch: under the erase (267) a face at the fog's floor draws nothing, so sky would show through far rock that should
   stand black against it. Those faces would need real black (0x8000) above the horizon, at some of what the erase saved.
+
+### 280. The flooded Cistern from above the water holds 22 fps where the dry one holds 30
+*Kind: speed · Size: Mednafen, VDP1 +8.7 ms at one view · Fix: to be looked at*
+
+- Room 99 along the hall, the frames page: dry (`tools/hwtest.sh cistern-straight`) 24 rooms, 769 commands, VDP1 24.4 ms,
+  CPU 25.7 ms, 30 fps. Flooded (`cistern-flood-above`, branch `vdp2-planes` for now) 24 rooms, 936 commands, VDP1 33.0 ms,
+  CPU 25-30 ms, 22-23 fps. Not read on the Saturn.
+- What the flood adds is the water's surface: 293 quads at y -3072 and 14 at -3328, one each way, transparent, four frames of
+  animated texture. VDP1 walks each one whole for the flecks it holds.
+- Under water the same hall is the lightest it gets (`cistern-flood`): 5 to 7 rooms, VDP1 16.7-23.4 ms, CPU 12-14 ms, 30 fps.
+- Floors on VDP2 (269) take the wet floor out from under the surface, and not the surface. See also 253, the flecks.
+
+### 281. Solid boxes: three pillars named, and what's left of the idea
+*Kind: speed - Size: Mednafen, VDP1 -4.41 ms at room 103, little elsewhere - Fix: built for faces and portals, objects to come*
+
+- `saturn/occluders.txt` names shapes nothing can be seen through, a box or a flat rectangle with the side it's seen from.
+  Each frame each gets a rectangle inside its outline (`rooms.s roomsBoxesAsm`). A portal or a room face wholly in the rectangle
+  and past the sides that face the camera is left out; so the rule works for a long wall or a floor, not only a pillar. HW_LOG
+  menu row `Boxes`. `python -I tools/occluders.py check LEVEL` tests a level's boxes against its rooms.
+- Three Cistern pillars, on against off, Mednafen, list ms: room 103 33.83 -> 29.42 (20 -> 30 fps), water 38.62 -> 36.90 (the
+  texture cache has room, a strip that was flat colour keeps its texture), room 99 28.50 -> 27.32. Steps, room 2: nothing. The
+  CPUs: the slave's faces -0.23 ms at room 99, the finding +0.17 to +0.27 ms wherever a box is in view. Levels with no boxes:
+  under 0.1 ms. 8000 random views in tools/occmodel: 0 pixels lost.
+- Not done: objects behind a box are still drawn. A box with a corner within 128 of the camera or past the far plane is off.
+- Finding more: tools/occmodel `boxsearch` tried 493 boxes of rock and 651 rectangles of faces over 300 heavy Cistern views:
+  the best 16 save 0.08 ms of room work and 0.19 ms of VDP1 on average. So a spot tool, placed by hand where a view is heavy; no
+  automatic list. The rock between rooms is thin, and what looks solid is mostly sectors of air closed by faces.
+- For VDP2 planes (269): a flat rectangle at the plane's height, seen from above, hides what's below it wholly inside its rectangle.
+  It can't help a face that pokes out over the rim, which is what the kept faces are for.
+
+### 282. The room walk does half its corner sums twice
+*Kind: speed - Size: Saturn walk 7.4 ms at room 103 looking up; estimated -0.8 ms mean, -1.9 ms worst, heavy Cistern views - Fix: to be built*
+
+- tools/occmodel `walkstat`, heavy views (2000+ room vertices), portals checked / facing the camera / different ones of those:
+  Cistern 235 / 108 / 57, worst 395 / 187 / 69; Lost Valley 112 / 54 / 35, worst 216 / 98 / 50; level 5 135 / 71 / 45; 8A 69 / 39 / 32.
+- A room is walked again when its window grows, and every portal of it is rotated and projected again though nothing about it has
+  changed in the frame. Keeping each portal's projected bounds for the frame leaves only the clip against the window to redo.
+
+## Production code: clean-up
+
+Not differences from retail, and not open work on the picture: what a shipping build still
+carries from how it was built, debug reads and lab paths and spare memory. From an audit of
+`saturn/` and `renderer/` on 2026-11-04 (code at 7cac8a9), to be taken on later at the user's
+word. Of the same kind and already open: 264, 265, 266.
+
+### 273. Timer reads a shipping build doesn't use
+*Kind: speed · Size: perhaps 0.3 to 0.5 ms across both CPUs at a heavy view, not measured · Fix: small*
+
+- `ticks()` (`saturn/system.cpp:620`, about 110 cycles by the audit's reading) is taken twice round every
+  wait on the frame's path: `roomTurned` (`renderer/vertices.cpp:322`), each chunk of a room, up to 119
+  a frame; each draw (`vertices.cpp:757-775`, `806-822`); the stages' waits (`renderer/frame.cpp:387-513`,
+  `579-738`). The sums go to `gStats` for the debug page (`saturn/render.cpp:1057`) and no further.
+- **Some stay:** `s.late` steers the master and slave's split each frame (`saturn/render.cpp:958`, by
+  `drawsEnd`, `slaveEnd`, `gNextAfter`), so those reads aren't debug. The fix is the wait pairs behind `HW_LOG`.
+
+### 274. 16 KB at the bottom of gVertices that nothing seems to use
+*Kind: memory · Size: 16 KB of high work RAM · Fix: small, to confirm first*
+
+- `saturn/render.cpp:417`: 5,376 entries of 8 bytes. The walk places rooms from entry 2,048 up
+  (`renderer/rooms.s:958`, `MASTER_VERTICES`), and the game's meshes go to `gMeshOut`
+  (`renderer/vertices.cpp:152`). The bottom 2,048 look left over from when the meshes shared the buffer.
+- From reading the code, not from a run. A Mednafen write watch over those 16 KB through a level settles it.
+- What it frees goes to the rooms' faces (244).
+
+### 275. Two tables bigger than any level has asked
+*Kind: memory · Size: about 8 KB of high work RAM · Fix: small*
+
+- `gSeen` (`renderer/rooms.cpp:46`): `ROOMS_LISTED` 128, 8.7 KB, where the game has been seen to reach 38.
+  `gList` and `gListCopy` go by the same number. The lab wants more, so the game's limit goes behind `RENDER_LAB`.
+- `made` in `facesMeshHinted` (`renderer/faces.cpp:329`, `MAX_MADE_FACES` 512), 8 KB, where the largest mesh has
+  163 faces.
+- Both need a limit known to hold in every level: the packer can check the meshes' and the rooms' worst case
+  is the walk's own, as in issue 254. What it frees goes to 244.
+
+### 276. Options only the lab or the debug menu changes, read on every vertex, face or room
+*Kind: speed · Size: a cycle or two each, not measured · Fix: small*
+
+- `farScaled` (`renderer/roomproject.s`, `renderer/meshproject.s`, set by `vertices.cpp:366`): only the lab turns
+  it off. `lod` (`renderer/faces.cpp:1133`): the menu's Texels, which waits on the user's read on the Saturn
+  (`texel-lod-door`). `black` (`gBlack`, `saturn/render.cpp:436`): the menu's. `hidden` (`renderer/rooms.cpp:90`):
+  the stamps' menu. `posed` (`renderer/frame.cpp:544`): false only for the lab's `frameDraws` (277).
+- These become constants in a shipping build, as `RENDER_LAB` already does in the assembly.
+
+### 277. The lab's paths compiled into the game, and dead code
+*Kind: code and memory · Size: not measured · Fix: small*
+
+- Lab only, in the game's build: `frameDraws` (`renderer/frame.cpp:876`, its one caller `lab/lab.cpp:715`) and the
+  `given` branches it needs in `stagesTogether` (`frame.cpp:542-691`).
+- No caller anywhere: `detailMips` (`saturn/detail.cpp:79`), `slaveDone` (`saturn/slave.cpp:134`).
+
+### 278. C on the frame's path with assembly beside it
+*Kind: speed · Size: below, Mednafen · Fix: medium each, only if the frame still needs the CPU*
+
+- `verticesDrawsSet` (`renderer/vertices.cpp:207`) 0.29 ms and the frame's plan (`framePlan`, `verticesPlan`) 0.18 ms
+  at the ledge; `facesMeshHinted` (`renderer/faces.cpp:319`) about 0.15 ms at LEVEL1.
+- The near faces' split: about 1.2 to 1.5 ms at the ledge and Cistern room 103, measured before its assembly half
+  existed, so to be measured again first.
+
+### 279. The DMA wait doesn't count a level 0 transfer that was interrupted
+*Kind: correctness · Size: not seen to fail · Fix: one line, then a run on the Saturn*
+
+- `DSTA_D0_BUSY` (`saturn/hw.h:62`) is 0x00000030, waiting or moving. libyaul's level 0 mask (`scu/dma.h`) also has bit
+  16, interrupted, so 0x00010030. `dmaWait` (`saturn/system.cpp:615`) can return while a transfer is held up by a higher
+  level, and the next `dmaCopy` writes its registers over it. The lab found it (`docs/vdp2-production.md`, branch `vdp2-lab`).
 
 ---
 

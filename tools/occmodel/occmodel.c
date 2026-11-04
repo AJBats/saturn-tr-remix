@@ -28,6 +28,9 @@
 //         occmodel LEVEL.bin region x y z room r00..r22 focal RADIUS ARC_DEGREES PITCH_DEGREES VIEWS
 //         occmodel LEVEL.bin cameras VIEWS SEED
 //         occmodel LEVEL.bin holes VIEWS SEED
+//         occmodel LEVEL.bin boxes FILE VIEWS SEED   solid boxes (x0 x1 y0 y1 z0 z1 a line) as the game has them
+//         occmodel LEVEL.bin boxsearch OUT COUNT VIEWS SEED [HAND]   big boxes in the rock between rooms (no room's air in
+//                                 them, every room and alternate), picked one at a time over heavy views; HAND: boxes to start from
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -321,8 +324,171 @@ static int maskHides(Rect w, float zmin)
     return 1;
 }
 
+// --- solid boxes -------------------------------------------------------------------------
+// As the game's (renderer/rooms.cpp boxSee): a rectangle wholly inside a box's outline, from two
+// opposite sides of it, and where a point lies if it's behind the box: past each side of it that
+// faces the camera.
+#define MAXBOXES 4096
+#define BOXES_SEEN 6
+#define BOX_NEAR_Z 128.0f
+#define BOX_LEAST 16.0f
+typedef struct { float lo[3], hi[3]; int side; } SolidBox;     // side: flat, seen only from k + 1 above (+) or below (-) its plane on axis k
+typedef struct { float x0, y0, x1, y1, lo[3], hi[3], area; } BoxSeen;
+static SolidBox gSolid[MAXBOXES];
+static int gSolidN;
+static BoxSeen gBoxSeen[BOXES_SEEN];
+static int gBoxSeenN;
+static int gBoxFaces;       // room faces behind them left out
+
+static void boxRectTry(BoxSeen* b, float x0, float y0, float x1, float y1)
+{
+    float w = fminf(x1, W) - fmaxf(x0, 0), h = fminf(y1, H) - fmaxf(y0, 0);
+    if (w < BOX_LEAST || h < BOX_LEAST || w * h <= b->area)
+        return;
+    b->x0 = x0 + 1; b->y0 = y0 + 1; b->x1 = x1 - 1; b->y1 = y1 - 1;
+    b->area = w * h;
+}
+
+static int boxSee(const SolidBox* whole, BoxSeen* o)
+{
+    float camera[3] = { cam.x, cam.y, cam.z };
+    int inside = 1;
+    for (int k = 0; k < 3; k++)
+        inside = inside && camera[k] >= whole->lo[k] && camera[k] <= whole->hi[k];
+    if (inside)
+        return 0;
+    int flat = -1;
+    if (whole->side)
+    {
+        flat = abs(whole->side) - 1;
+        float at = camera[flat] - whole->lo[flat];
+        if (whole->side > 0 ? at <= 0 : at >= 0)
+            return 0;
+    }
+    // what part of it lies between the near limit and the far plane: a part of a solid box is one
+    SolidBox part = *whole;
+    SolidBox* b = &part;
+    for (int pass = 0; pass < 2; pass++)
+    {
+        float zlo = 0, zhi = 0;
+        float at[3][2];
+        for (int k = 0; k < 3; k++)
+        {
+            at[k][0] = R[2][k] * (b->lo[k] - camera[k]);
+            at[k][1] = R[2][k] * (b->hi[k] - camera[k]);
+            zlo += fminf(at[k][0], at[k][1]);
+            zhi += fmaxf(at[k][0], at[k][1]);
+        }
+        // the longest way along the view first
+        for (int n = 0; n < 3 && (zlo < BOX_NEAR_Z || zhi >= gFar - 16); n++)
+        {
+            int k = -1;
+            float reach = 0;
+            for (int j = 0; j < 3; j++)
+                if (fabsf(at[j][1] - at[j][0]) > reach) {
+                    reach = fabsf(at[j][1] - at[j][0]);
+                    k = j;
+                }
+            if (k < 0)
+                return 0;
+            float rk = R[2][k];
+            if (zlo < BOX_NEAR_Z)
+            {
+                float more = BOX_NEAR_Z - zlo;
+                if (more >= reach)
+                    return 0;
+                if (rk > 0) b->lo[k] += more / rk; else b->hi[k] += more / rk;
+                zlo += more;
+                reach -= more;
+            }
+            if (zhi >= gFar - 16)
+            {
+                float less = zhi - (gFar - 16);
+                if (less >= reach)
+                    return 0;
+                if (rk > 0) b->hi[k] -= less / rk; else b->lo[k] -= less / rk;
+                zhi -= less;
+            }
+            at[k][0] = at[k][1] = 0;
+        }
+        if (zlo >= BOX_NEAR_Z && zhi < gFar - 16)
+            break;
+    }
+    float sx[8], sy[8];
+    for (int c = 0; c < 8; c++)
+    {
+        V3 p = { c & 1 ? b->hi[0] : b->lo[0], c & 2 ? b->hi[1] : b->lo[1], c & 4 ? b->hi[2] : b->lo[2] };
+        V3 v = toView(p);
+        if (v.z < BOX_NEAR_Z || v.z >= gFar)
+            return 0;
+        sx[c] = v.x / v.z * F + W / 2;
+        sy[c] = v.y / v.z * F + H / 2;
+    }
+    o->area = 0;
+    for (int bit = 1; bit < 8; bit <<= 1)
+    {
+        float x0[2] = { 1e30f, 1e30f }, x1[2] = { -1e30f, -1e30f }, y0[2] = { 1e30f, 1e30f }, y1[2] = { -1e30f, -1e30f };
+        for (int c = 0; c < 8; c++)
+        {
+            int side = (c & bit) != 0;
+            x0[side] = fminf(x0[side], sx[c]);
+            x1[side] = fmaxf(x1[side], sx[c]);
+            y0[side] = fminf(y0[side], sy[c]);
+            y1[side] = fmaxf(y1[side], sy[c]);
+        }
+        for (int a = 0; a < 2; a++)
+        {
+            int d = a ^ 1;
+            if (y1[a] < y0[d])
+                boxRectTry(o, fmaxf(x0[a], x0[d]), y1[a], fminf(x1[a], x1[d]), y0[d]);
+            if (x1[a] < x0[d])
+                boxRectTry(o, x1[a], fmaxf(y0[a], y0[d]), x0[d], fminf(y1[a], y1[d]));
+        }
+    }
+    if (o->area <= 0)
+        return 0;
+    for (int k = 0; k < 3; k++)
+    {
+        // a flat one's past its plane alone: a ray through the rectangle has crossed the plane on it
+        int counts = flat < 0 || flat == k;
+        o->lo[k] = counts && camera[k] < b->lo[k] ? b->lo[k] : -1e30f;
+        o->hi[k] = counts && camera[k] > b->hi[k] ? b->hi[k] : 1e30f;
+    }
+    return 1;
+}
+
+static void boxesSee(const SolidBox* list, int count)
+{
+    gBoxSeenN = 0;
+    for (int i = 0; i < count; i++)
+    {
+        BoxSeen s;
+        if (!boxSee(&list[i], &s))
+            continue;
+        int at = gBoxSeenN;
+        if (gBoxSeenN == BOXES_SEEN)
+        {
+            at = 0;
+            for (int j = 1; j < gBoxSeenN; j++)
+                if (gBoxSeen[j].area < gBoxSeen[at].area)
+                    at = j;
+            if (gBoxSeen[at].area >= s.area)
+                continue;
+        }
+        else
+            gBoxSeenN++;
+        gBoxSeen[at] = s;
+    }
+}
+
+static inline int pointPast(const BoxSeen* b, V3 p)
+{
+    return p.x > b->lo[0] && p.x < b->hi[0] && p.y > b->lo[1] && p.y < b->hi[1] && p.z > b->lo[2] && p.z < b->hi[2];
+}
+
 // --- the walks ---------------------------------------------------------------------------
 typedef struct {
+    int useBoxes;
     int useMask, occK, usePoly;
     float minArea;      // a window smaller is filled, its room not entered
     int darkShade;      // a room whose portal lies past where its brightest vertex reaches this isn't drawn
@@ -353,11 +519,26 @@ static int portalFacing(const Room* r, const Portal* p)
 }
 
 // the rectangle walk (rooms.s): true when the room is to be entered
+static long gWalkChecks, gWalkFacing, gWalkUnique;
+static const Portal* gWalkSeen[4096];
+static int gWalkSeenN;
+
 static int checkRect(Walk* w, int room, const Portal* p, Rect* out)
 {
     w->checks++;
+    gWalkChecks++;
     if (!portalFacing(&rooms[room], p))
         return 0;
+    gWalkFacing++;
+    {
+        int k = 0;
+        while (k < gWalkSeenN && gWalkSeen[k] != p)
+            k++;
+        if (k == gWalkSeenN && gWalkSeenN < 4096) {
+            gWalkSeen[gWalkSeenN++] = p;
+            gWalkUnique++;
+        }
+    }
     V3 pv[4];
     float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f, zmin = 1e30f;
     int near = 0, far = 0;
@@ -407,6 +588,16 @@ static int checkRect(Walk* w, int room, const Portal* p, Rect* out)
     if (!(x0 < x1 && y0 < y1))
         return 0;
     Rect win = { x0, y0, x1, y1 };
+    if (w->useBoxes && !near)
+    {
+        for (int i = 0; i < gBoxSeenN; i++)
+        {
+            const BoxSeen* b = &gBoxSeen[i];
+            if (x0 >= b->x0 && y0 >= b->y0 && x1 <= b->x1 && y1 <= b->y1 && pointPast(b, p->c[0]) &&
+                pointPast(b, p->c[1]) && pointPast(b, p->c[2]) && pointPast(b, p->c[3]))
+                return 0;
+        }
+    }
     if (w->useMask && !near && maskHides(win, zmin))
         return 0;
     if (w->minArea > 0 && !near && (x1 - x0) * (y1 - y0) < w->minArea) {
@@ -642,6 +833,24 @@ static inline int faceCulled(const Room* r, const int* idx, int n, Rect w)
     return l || rr || t || b || nz || fz || bk;
 }
 
+// A face wholly behind a solid box: every corner in its rectangle and past its sides that face the camera.
+static int faceBehind(const Room* r, const int* idx, int n)
+{
+    for (int i = 0; i < gBoxSeenN; i++)
+    {
+        const BoxSeen* b = &gBoxSeen[i];
+        int all = 1;
+        for (int k = 0; k < n && all; k++)
+        {
+            float x = r->sx[idx[k]], y = r->sy[idx[k]];
+            all = r->vv[idx[k]].z >= NEAR && x >= b->x0 && x <= b->x1 && y >= b->y0 && y <= b->y1 && pointPast(b, r->v[idx[k]]);
+        }
+        if (all)
+            return 1;
+    }
+    return 0;
+}
+
 static const uint8_t* gFaceSet;     // the faces drawn, if not all of them
 
 static inline int faceOut(int id)
@@ -660,6 +869,7 @@ static void roomWork(int room, Rect w, Work* out)
         if (!faceFacing(r, idx))
             continue;
         if (faceCulled(r, idx, 4, w) || (!r->q[i].transp && faceOut(r->faceBase + i))) { dropped++; continue; }
+        if (gBoxFaces && faceBehind(r, idx, 4)) { dropped++; continue; }
         kept++;
         px += faceArea(r, idx, 4);
     }
@@ -669,6 +879,7 @@ static void roomWork(int room, Rect w, Work* out)
         if (!faceFacing(r, idx))
             continue;
         if (faceCulled(r, idx, 3, w) || faceOut(r->faceBase + r->nq + i)) { dropped++; continue; }
+        if (gBoxFaces && faceBehind(r, idx, 3)) { dropped++; continue; }
         kept++;
         px += faceArea(r, idx, 3);
     }
@@ -783,13 +994,13 @@ static void oracle(const Walk* w)
             if (r->q[i].transp)
                 continue;
             int idx[4] = { r->q[i].a, r->q[i].b, r->q[i].c, r->q[i].d };
-            if (faceFacing(r, idx) && !faceCulled(r, idx, 4, c))
+            if (faceFacing(r, idx) && !faceCulled(r, idx, 4, c) && !(gBoxFaces && faceBehind(r, idx, 4)))
                 fillFace(r, idx, 4, r->faceBase + i);
         }
         for (int i = 0; i < r->nt; i++)
         {
             int* idx = r->t[i];
-            if (faceFacing(r, idx) && !faceCulled(r, idx, 3, c))
+            if (faceFacing(r, idx) && !faceCulled(r, idx, 3, c) && !(gBoxFaces && faceBehind(r, idx, 3)))
                 fillFace(r, idx, 3, r->faceBase + r->nq + i);
         }
     }
@@ -826,6 +1037,8 @@ static void viewSet(V3 pos, float yaw, float pitch)
     viewStamp++;
 }
 
+static int gPlaceInner;
+
 // a place in a room's air
 static int placeIn(int room, int sector, V3* pos)
 {
@@ -834,6 +1047,9 @@ static int placeIn(int room, int sector, V3* pos)
     if (floor <= ceil + 200 || floor == -127 * 256 || ceil == -127 * 256)
         return 0;
     int sx = sector / r->zs, sz = sector % r->zs;
+    // a room's edge sectors are its portals': a camera there is really in the room next door
+    if (gPlaceInner && (sx == 0 || sz == 0 || sx == r->xs - 1 || sz == r->zs - 1))
+        return 0;
     pos->x = r->x + (sx + urand(0.02f, 0.98f)) * 1024;
     pos->z = r->z + (sz + urand(0.02f, 0.98f)) * 1024;
     pos->y = urand(ceil + 80, floor - 80);
@@ -1864,6 +2080,681 @@ static void holes(const char* name, int views)
     }
 }
 
+// --- solid boxes over random views ---------------------------------------------------------
+typedef struct { double views, rooms, verts, kept, cycles, vdp1, rooms0, verts0, kept0, cycles0, vdp10, test, lost, lostViews, lost64, worst, bigLost; } BoxSum;
+
+static int32_t gOwnerBase[ZH][ZW];
+
+static void boxesLoad(const char* path)
+{
+    FILE* f = fopen(path, "r");
+    if (!f) { perror(path); exit(1); }
+    float v[6];
+    int side = 0;
+    gSolidN = 0;
+    char line[256];
+    while (fgets(line, sizeof(line), f) && gSolidN < MAXBOXES)
+    {
+        side = 0;
+        if (sscanf(line, "%f %f %f %f %f %f %d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &side) < 6)
+            continue;
+        SolidBox* b = &gSolid[gSolidN++];
+        b->lo[0] = v[0]; b->hi[0] = v[1];
+        b->lo[1] = v[2]; b->hi[1] = v[3];
+        b->lo[2] = v[4]; b->hi[2] = v[5];
+        b->side = side;
+    }
+    fclose(f);
+}
+
+// cycles a box on the frame takes to find, and a face in a room it lies over to test (renderer: to be measured)
+#define BOX_SEE_CYCLES  1200.0
+#define BOX_FACE_CYCLES 15.0
+
+static void boxesRow(const char* name, const char* band, const BoxSum* b)
+{
+    double n = b->views > 0 ? b->views : 1;
+    printf("%s %s views %.0f rooms %.1f -> %.1f verts %.0f -> %.0f kept %.0f -> %.0f cycles %.0f -> %.0f test %.0f vdp1 %.0f -> %.0f lost %.1f lostviews %.0f lost64 %.0f worst %.0f\n",
+           name, band, b->views, b->rooms0 / n, b->rooms / n, b->verts0 / n, b->verts / n, b->kept0 / n, b->kept / n,
+           b->cycles0 / n, b->cycles / n, b->test / n, b->vdp10 / n, b->vdp1 / n, b->lost / n, b->lostViews, b->lost64, b->worst);
+}
+
+// How much of a walk is done twice: portals checked, those facing the camera, the different ones of those.
+static void walkStat(const char* name, int views)
+{
+    double checks = 0, facing = 0, unique = 0, visits = 0, rooms_ = 0, verts = 0;
+    int n = 0, worstChecks = 0, worstFacing = 0, worstUnique = 0;
+    for (int v = 0; v < views; v++)
+    {
+        V3 pos;
+        int room = randomPlace(&pos);
+        viewSet(pos, urand(0, 2 * (float)M_PI), urand(-0.5f, 0.5f));
+        gBase.useMask = 0; gBase.usePoly = 0; gBase.minArea = 256; gBase.useBoxes = 0;
+        gWalkChecks = gWalkFacing = gWalkUnique = 0;
+        gWalkSeenN = 0;
+        walkRun(&gBase, room, 0);
+        Work w = listWork(&gBase);
+        if (w.verts < 2000)
+            continue;
+        n++;
+        checks += gWalkChecks; facing += gWalkFacing; unique += gWalkUnique; visits += gBase.visits; rooms_ += w.rooms; verts += w.verts;
+        if (gWalkFacing > worstFacing) {
+            worstFacing = gWalkFacing; worstChecks = gWalkChecks; worstUnique = gWalkUnique;
+        }
+    }
+    printf("%s heavy views %d: rooms %.1f verts %.0f room visits %.1f portals checked %.1f facing %.1f different %.1f; worst facing %d (checked %d, different %d)\n", name, n, rooms_ / n, verts / n, visits / n, checks / n, facing / n, unique / n, worstFacing, worstChecks, worstUnique);
+}
+
+static void boxes(const char* name, int views)
+{
+    BoxSum all, heavy;
+    memset(&all, 0, sizeof(all));
+    memset(&heavy, 0, sizeof(heavy));
+    for (int v = 0; v < views; v++)
+    {
+        V3 pos;
+        int room = randomPlace(&pos);
+        viewSet(pos, urand(0, 2 * (float)M_PI), urand(-0.5f, 0.5f));
+        gBase.useMask = 0; gBase.usePoly = 0; gBase.minArea = 256; gBase.useBoxes = 0;
+        gBoxFaces = 0;
+        walkRun(&gBase, room, 0);
+        Work wb = listWork(&gBase);
+        oracle(&gBase);
+        memcpy(gOwnerBase, owner, sizeof(owner));
+        boxesSee(gSolid, gSolidN);
+        gTry = gBase;
+        gTry.useBoxes = 1;
+        walkRun(&gTry, room, 0);
+        gBoxFaces = 1;
+        Work wt = listWork(&gTry);
+        oracle(&gTry);
+        gBoxFaces = 0;
+        long lost = 0;
+        for (int y = 0; y < ZH; y++)
+            for (int x = 0; x < ZW; x++)
+                if (owner[y][x] != gOwnerBase[y][x])
+                    lost += 4;
+        if (lost && getenv("OCC_BOXLOG"))
+        {
+            printf("lost %ld room %d cam %.0f %.0f %.0f forward %.3f %.3f %.3f\n", lost, room, cam.x, cam.y, cam.z, R[2][0], R[2][1], R[2][2]);
+            for (int i = 0; i < gBoxSeenN; i++)
+                printf("  box %.0f %.0f .. %.0f %.0f past x %.0f %.0f y %.0f %.0f z %.0f %.0f\n", gBoxSeen[i].x0, gBoxSeen[i].y0, gBoxSeen[i].x1, gBoxSeen[i].y1,
+                       gBoxSeen[i].lo[0], gBoxSeen[i].hi[0], gBoxSeen[i].lo[1], gBoxSeen[i].hi[1], gBoxSeen[i].lo[2], gBoxSeen[i].hi[2]);
+            // the faces that lost pixels, and what shows there now
+            static int ids[64], counts[64], now[64];
+            int n = 0;
+            float bx0 = 1e30f, by0 = 1e30f, bx1 = -1e30f, by1 = -1e30f;
+            for (int y = 0; y < ZH; y++)
+                for (int x = 0; x < ZW; x++)
+                    if (owner[y][x] != gOwnerBase[y][x])
+                    {
+                        bx0 = fminf(bx0, x * 2); by0 = fminf(by0, y * 2); bx1 = fmaxf(bx1, x * 2); by1 = fmaxf(by1, y * 2);
+                        int k = 0;
+                        while (k < n && !(ids[k] == gOwnerBase[y][x] && now[k] == owner[y][x]))
+                            k++;
+                        if (k == n && n < 64) {
+                            ids[n] = gOwnerBase[y][x]; now[n] = owner[y][x]; counts[n] = 0; n++;
+                        }
+                        if (k < 64)
+                            counts[k]++;
+                    }
+            printf("  changed px within %.0f %.0f .. %.0f %.0f; listed", bx0, by0, bx1, by1);
+            for (int i = 0; i < gBase.nlist; i++)
+                if (!gTry.listed[gBase.list[i]])
+                    printf(" -%d", gBase.list[i]);
+            printf("\n");
+            for (int k = 0; k < n && k < 12; k++)
+            {
+                int ra = ids[k] >= 0 ? faceRoom(ids[k]) : -1, rb = now[k] >= 0 ? faceRoom(now[k]) : -1;
+                printf("    %d px: room %d face %d -> room %d face %d\n", counts[k] * 4, ra, ra >= 0 ? ids[k] - rooms[ra].faceBase : -1, rb, rb >= 0 ? now[k] - rooms[rb].faceBase : -1);
+            }
+        }
+        double test = BOX_SEE_CYCLES * gBoxSeenN + (gBoxSeenN ? BOX_FACE_CYCLES * (wt.kept + wt.dropped) : 0);
+        BoxSum* bands[2] = { &all, wb.verts >= 2000 ? &heavy : NULL };
+        for (int k = 0; k < 2; k++)
+        {
+            BoxSum* b = bands[k];
+            if (!b)
+                continue;
+            b->views++;
+            b->rooms0 += wb.rooms; b->verts0 += wb.verts; b->kept0 += wb.kept; b->cycles0 += wb.cycles; b->vdp10 += wb.vdp1;
+            b->rooms += wt.rooms; b->verts += wt.verts; b->kept += wt.kept; b->cycles += wt.cycles; b->vdp1 += wt.vdp1;
+            b->test += test;
+            b->lost += lost;
+            b->lostViews += lost > 0;
+            b->lost64 += lost >= 64;
+            if (lost > b->worst)
+                b->worst = lost;
+        }
+    }
+    boxesRow(name, "all", &all);
+    boxesRow(name, "heavy", &heavy);
+}
+
+// --- boxes found in the rock ----------------------------------------------------------------
+// Air: each sector's column between its ceiling and floor, a click or two over for slopes, in any room,
+// alternates too. What's left is rock, or nothing at all; a box wholly in it hides what's behind as long
+// as the rooms round it are closed, which the search's lost pixels check.
+#define AIR_Y 256
+#define AIR_MARGIN 512
+#define SEARCH_VERTS 1500
+#define SEARCH_KEEP 400
+
+static uint8_t* gAir;
+static int gAx, gAy, gAz, gAx0, gAy0, gAz0;
+
+static inline uint8_t* airAt(int x, int y, int z)
+{
+    return &gAir[(y * gAz + z) * gAx + x];
+}
+
+static void airMap(void)
+{
+    int x0 = 1 << 30, x1 = -(1 << 30), z0 = 1 << 30, z1 = -(1 << 30), y0 = 1 << 30, y1 = -(1 << 30);
+    for (int i = 0; i < nrooms; i++)
+    {
+        Room* r = &rooms[i];
+        x0 = r->x < x0 ? r->x : x0;
+        z0 = r->z < z0 ? r->z : z0;
+        x1 = r->x + r->xs * 1024 > x1 ? r->x + r->xs * 1024 : x1;
+        z1 = r->z + r->zs * 1024 > z1 ? r->z + r->zs * 1024 : z1;
+        y0 = r->ytop < y0 ? r->ytop : y0;
+        y1 = r->ybot > y1 ? r->ybot : y1;
+    }
+    gAx0 = x0; gAz0 = z0;
+    gAy0 = (y0 - 2048) / AIR_Y * AIR_Y;
+    gAx = (x1 - x0) / 1024;
+    gAz = (z1 - z0) / 1024;
+    gAy = (y1 + 2048 - gAy0) / AIR_Y + 1;
+    gAir = calloc(gAx * gAy * gAz, 1);
+    for (int i = 0; i < nrooms; i++)
+    {
+        Room* r = &rooms[i];
+        for (int sx = 0; sx < r->xs; sx++)
+            for (int sz = 0; sz < r->zs; sz++)
+            {
+                int k = sx * r->zs + sz;
+                if (k >= r->ns)
+                    continue;
+                int floor = r->s[k][0], ceil = r->s[k][1];
+                if (floor == -127 * 256 || ceil == -127 * 256)
+                    continue;
+                int a = (ceil - AIR_MARGIN - gAy0) / AIR_Y, b = (floor + AIR_MARGIN - gAy0) / AIR_Y;
+                a = a < 0 ? 0 : a;
+                b = b >= gAy ? gAy - 1 : b;
+                int x = (r->x - gAx0) / 1024 + sx, z = (r->z - gAz0) / 1024 + sz;
+                for (int y = a; y <= b; y++)
+                    *airAt(x, y, z) = 1;
+            }
+    }
+}
+
+static SolidBox* gCands;
+static int gCandN;
+
+static void candAdd(int x0, int x1, int y0, int y1, int z0, int z1)
+{
+    if (gCandN == 200000)
+        return;
+    SolidBox* b = &gCands[gCandN++];
+    b->lo[0] = gAx0 + x0 * 1024.0f; b->hi[0] = gAx0 + x1 * 1024.0f;
+    b->lo[1] = gAy0 + y0 * (float)AIR_Y; b->hi[1] = gAy0 + y1 * (float)AIR_Y;
+    b->lo[2] = gAz0 + z0 * 1024.0f; b->hi[2] = gAz0 + z1 * 1024.0f;
+    b->side = 0;
+}
+
+// Every box of rock that can't grow: in x and z by the rectangles of each range of heights
+// in steps of 1024, a rectangle the next step up or down also has left to the taller range.
+static int rockRow(int x0, int x1, int y0, int y1, int z0, int z1)
+{
+    if (y0 < 0 || y1 > gAy)
+        return 0;
+    for (int y = y0; y < y1; y++)
+        for (int z = z0; z < z1; z++)
+            for (int x = x0; x < x1; x++)
+                if (*airAt(x, y, z))
+                    return 0;
+    return 1;
+}
+
+static void candsFind(void)
+{
+    gCands = malloc(sizeof(SolidBox) * 200000);
+    int* height = malloc(sizeof(int) * (gAz + 1));
+    int* stStart = malloc(sizeof(int) * (gAz + 2));
+    int* stH = malloc(sizeof(int) * (gAz + 2));
+    uint8_t* mask = malloc(gAx * gAz);
+    const int step = 1024 / AIR_Y;
+    for (int y0 = 0; y0 + step <= gAy; y0 += step)
+    {
+        memset(mask, 1, gAx * gAz);
+        for (int y1 = y0 + step; y1 <= gAy; y1 += step)
+        {
+            int any = 0;
+            for (int z = 0; z < gAz; z++)
+                for (int x = 0; x < gAx; x++)
+                {
+                    uint8_t* m = &mask[z * gAx + x];
+                    for (int y = y1 - step; *m && y < y1; y++)
+                        if (*airAt(x, y, z))
+                            *m = 0;
+                    any |= *m;
+                }
+            if (!any)
+                break;
+            memset(height, 0, sizeof(int) * (gAz + 1));
+            for (int x = 0; x < gAx; x++)
+            {
+                for (int z = 0; z < gAz; z++)
+                    height[z] = mask[z * gAx + x] ? height[z] + 1 : 0;
+                height[gAz] = 0;
+                int top = 0;
+                for (int z = 0; z <= gAz; z++)
+                {
+                    int start = z;
+                    while (top && stH[top - 1] > height[z])
+                    {
+                        int h = stH[top - 1];
+                        start = stStart[top - 1];
+                        top--;
+                        int grows = x + 1 < gAx;
+                        for (int k = start; grows && k < z; k++)
+                            if (!mask[k * gAx + x + 1])
+                                grows = 0;
+                        if (grows)
+                            continue;
+                        int xa = x + 1 - h, xb = x + 1;
+                        long tall = (long)(y1 - y0) * AIR_Y / 1024;
+                        long sideX = h * tall, sideZ = (z - start) * tall, flat = (long)h * (z - start);
+                        long big = sideX > sideZ ? sideX : sideZ;
+                        big = flat > big ? flat : big;
+                        if (big < 6)
+                            continue;
+                        if (rockRow(xa, xb, y0 - step, y0, start, z) || rockRow(xa, xb, y1, y1 + step, start, z))
+                            continue;
+                        candAdd(xa, xb, y0, y1, start, z);
+                    }
+                    if (height[z] && (!top || stH[top - 1] < height[z]))
+                    {
+                        stStart[top] = start;
+                        stH[top++] = height[z];
+                    }
+                }
+            }
+        }
+    }
+    free(height);
+    free(stStart);
+    free(stH);
+    free(mask);
+    fprintf(stderr, "%d boxes of rock\n", gCandN);
+}
+
+// Runs of a level's own opaque faces on one plane, all facing one way: a flat rectangle seen from its front
+// that hides what's past its plane. On each plane a grid of cells a face wholly covers (1024 along a
+// sector's side, 256 up a wall), and the rectangles of it that can't grow. A dry level's rooms only.
+#define WALL_CELLS 512
+typedef struct { int axis, value, front; } WallPlane;
+typedef struct { WallPlane plane; int a0, a1, b0, b1; } WallFace;
+
+static WallFace* gWalls;
+static int gWallN;
+
+static int wallCmp(const void* pa, const void* pb)
+{
+    const WallFace* a = pa, *b = pb;
+    if (a->plane.axis != b->plane.axis) return a->plane.axis - b->plane.axis;
+    if (a->plane.value != b->plane.value) return a->plane.value - b->plane.value;
+    return a->plane.front - b->plane.front;
+}
+
+static void wallsCollect(void)
+{
+    gWalls = malloc(sizeof(WallFace) * (nfaces + 1));
+    gWallN = 0;
+    for (int i = 0; i < nrooms; i++)
+    {
+        Room* r = &rooms[i];
+        if (r->alt)
+            continue;
+        for (int q = 0; q < r->nq; q++)
+        {
+            if (r->q[q].transp)
+                continue;
+            int idx[4] = { r->q[q].a, r->q[q].b, r->q[q].c, r->q[q].d };
+            V3 c[4];
+            for (int k = 0; k < 4; k++)
+                c[k] = r->v[idx[k]];
+            float at[4][3];
+            for (int k = 0; k < 4; k++) {
+                at[k][0] = c[k].x; at[k][1] = c[k].y; at[k][2] = c[k].z;
+            }
+            for (int k = 0; k < 3; k++)
+            {
+                if (at[0][k] != at[1][k] || at[0][k] != at[2][k] || at[0][k] != at[3][k])
+                    continue;
+                int ua = k == 0 ? 2 : 0, ub = k == 1 ? 2 : 1;   // a: 1024 steps along the ground, b: up a wall, or the ground's other way
+                float a0 = 1e30f, a1 = -1e30f;
+                for (int n = 0; n < 4; n++) {
+                    a0 = fminf(a0, at[n][ua]);
+                    a1 = fmaxf(a1, at[n][ua]);
+                }
+                // the part of b every a covers: the highest of each end's lows, the lowest of its highs
+                float lo0 = 1e30f, hi0 = -1e30f, lo1 = 1e30f, hi1 = -1e30f;
+                for (int n = 0; n < 4; n++)
+                {
+                    if (at[n][ua] == a0) { lo0 = fminf(lo0, at[n][ub]); hi0 = fmaxf(hi0, at[n][ub]); }
+                    else { lo1 = fminf(lo1, at[n][ub]); hi1 = fmaxf(hi1, at[n][ub]); }
+                }
+                float b0 = fmaxf(lo0, lo1), b1 = fminf(hi0, hi1);
+                if (a1 <= a0 || b1 <= b0)
+                    continue;
+                // its normal, from the winding: the side it's seen from (faceFacing)
+                float e1[3] = { at[1][0] - at[0][0], at[1][1] - at[0][1], at[1][2] - at[0][2] };
+                float e2[3] = { at[2][0] - at[0][0], at[2][1] - at[0][1], at[2][2] - at[0][2] };
+                float n[3] = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
+                WallFace* w = &gWalls[gWallN++];
+                w->plane.axis = k;
+                w->plane.value = (int)at[0][k];
+                w->plane.front = n[k] < 0 ? 1 : -1;
+                w->a0 = (int)a0; w->a1 = (int)a1; w->b0 = (int)b0; w->b1 = (int)b1;
+                break;
+            }
+        }
+    }
+    qsort(gWalls, gWallN, sizeof(WallFace), wallCmp);
+}
+
+static void wallCand(const WallPlane* p, int a0, int a1, int b0, int b1)
+{
+    if (gCandN == 200000)
+        return;
+    SolidBox* b = &gCands[gCandN++];
+    int ua = p->axis == 0 ? 2 : 0, ub = p->axis == 1 ? 2 : 1;
+    b->lo[p->axis] = b->hi[p->axis] = p->value;
+    b->lo[ua] = a0; b->hi[ua] = a1;
+    b->lo[ub] = b0; b->hi[ub] = b1;
+    b->side = p->front > 0 ? p->axis + 1 : -(p->axis + 1);
+}
+
+static void wallsFind(void)
+{
+    wallsCollect();
+    int before = gCandN;
+    static uint8_t grid[WALL_CELLS][WALL_CELLS];
+    static int height[WALL_CELLS + 1], stStart[WALL_CELLS + 2], stH[WALL_CELLS + 2];
+    for (int i = 0; i < gWallN; )
+    {
+        int j = i;
+        while (j < gWallN && !wallCmp(&gWalls[i], &gWalls[j]))
+            j++;
+        const WallPlane* p = &gWalls[i].plane;
+        const int stepB = p->axis == 1 ? 1024 : 256;
+        int a0 = 1 << 30, a1 = -(1 << 30), b0 = 1 << 30, b1 = -(1 << 30);
+        for (int k = i; k < j; k++)
+        {
+            a0 = gWalls[k].a0 < a0 ? gWalls[k].a0 : a0;
+            a1 = gWalls[k].a1 > a1 ? gWalls[k].a1 : a1;
+            b0 = gWalls[k].b0 < b0 ? gWalls[k].b0 : b0;
+            b1 = gWalls[k].b1 > b1 ? gWalls[k].b1 : b1;
+        }
+        int na = (a1 - a0) / 1024, nb = (b1 - b0) / stepB;
+        if (na > WALL_CELLS || nb > WALL_CELLS || na <= 0 || nb <= 0) { i = j; continue; }
+        for (int a = 0; a < na; a++)
+            memset(grid[a], 0, nb);
+        for (int k = i; k < j; k++)
+            for (int a = (gWalls[k].a0 - a0) / 1024; a < (gWalls[k].a1 - a0) / 1024; a++)
+                for (int b = (gWalls[k].b0 - b0 + stepB - 1) / stepB; b < (gWalls[k].b1 - b0) / stepB; b++)
+                    grid[a][b] = 1;
+        memset(height, 0, sizeof(int) * (nb + 1));
+        for (int a = 0; a < na; a++)
+        {
+            for (int b = 0; b < nb; b++)
+                height[b] = grid[a][b] ? height[b] + 1 : 0;
+            height[nb] = 0;
+            int top = 0;
+            for (int b = 0; b <= nb; b++)
+            {
+                int start = b;
+                while (top && stH[top - 1] > height[b])
+                {
+                    int h = stH[top - 1];
+                    start = stStart[top - 1];
+                    top--;
+                    int grows = a + 1 < na;
+                    for (int k = start; grows && k < b; k++)
+                        if (!grid[a + 1][k])
+                            grows = 0;
+                    if (grows)
+                        continue;
+                    long area = (long)h * 1024 * (b - start) * stepB / (1024 * 1024);
+                    if (area >= 4)
+                        wallCand(p, a0 + (a + 1 - h) * 1024, a0 + (a + 1) * 1024, b0 + start * stepB, b0 + b * stepB);
+                }
+                if (height[b] && (!top || stH[top - 1] < height[b]))
+                {
+                    stStart[top] = start;
+                    stH[top++] = height[b];
+                }
+            }
+        }
+        i = j;
+    }
+    fprintf(stderr, "%d rectangles of faces\n", gCandN - before);
+}
+
+typedef struct { V3 pos; float R[3][3]; int room; float cycles, vdp1; } SearchView;
+static SearchView* gViews;
+static int gViewN;
+
+static void viewsFind(int want)
+{
+    gViews = malloc(sizeof(SearchView) * want);
+    gViewN = 0;
+    long tries = 0;
+    while (gViewN < want && tries < 4000000)
+    {
+        tries++;
+        V3 pos;
+        int room = randomPlace(&pos);
+        viewSet(pos, urand(0, 2 * (float)M_PI), urand(-0.5f, 0.5f));
+        gBase.useMask = 0; gBase.usePoly = 0; gBase.minArea = 256; gBase.useBoxes = 0;
+        gBoxFaces = 0;
+        walkRun(&gBase, room, 0);
+        Work w = listWork(&gBase);
+        if (w.verts < SEARCH_VERTS)
+            continue;
+        SearchView* v = &gViews[gViewN++];
+        v->pos = pos;
+        memcpy(v->R, R, sizeof(R));
+        v->room = room;
+        v->cycles = w.cycles;
+        v->vdp1 = w.vdp1;
+    }
+}
+
+static inline void viewUse(const SearchView* v)
+{
+    cam = v->pos;
+    memcpy(R, v->R, sizeof(R));
+    viewStamp++;
+}
+
+static SolidBox gPicked[MAXBOXES];
+static int gPickedN;
+
+// What a view saves with these boxes on, in cycles of room work and of VDP1.
+static void viewSaves(const SearchView* v, const SolidBox* list, int count, double* cpu, double* vdp1)
+{
+    viewUse(v);
+    boxesSee(list, count);
+    gTry.useMask = 0; gTry.usePoly = 0; gTry.minArea = 256; gTry.useBoxes = 1;
+    walkRun(&gTry, v->room, 0);
+    gBoxFaces = 1;
+    Work w = listWork(&gTry);
+    gBoxFaces = 0;
+    *cpu = v->cycles - w.cycles;
+    *vdp1 = v->vdp1 - w.vdp1;
+}
+
+// Pixels a view shows differently with these boxes on.
+static long viewLost(const SearchView* v, const SolidBox* list, int count)
+{
+    viewUse(v);
+    gBase.useMask = 0; gBase.usePoly = 0; gBase.minArea = 256; gBase.useBoxes = 0;
+    gBoxFaces = 0;
+    walkRun(&gBase, v->room, 0);
+    oracle(&gBase);
+    memcpy(gOwnerBase, owner, sizeof(owner));
+    boxesSee(list, count);
+    gTry.useMask = 0; gTry.usePoly = 0; gTry.minArea = 256; gTry.useBoxes = 1;
+    walkRun(&gTry, v->room, 0);
+    gBoxFaces = 1;
+    oracle(&gTry);
+    gBoxFaces = 0;
+    long lost = 0;
+    for (int y = 0; y < ZH; y++)
+        for (int x = 0; x < ZW; x++)
+            if (owner[y][x] != gOwnerBase[y][x])
+                lost += 4;
+    return lost;
+}
+
+static void boxSearch(const char* name, const char* out, int count, int views, const char* hand)
+{
+    const double MS = 1 / 28636.36;
+    airMap();
+    candsFind();
+    wallsFind();
+    viewsFind(views);
+    fprintf(stderr, "%d heavy views\n", gViewN);
+    gPickedN = 0;
+    if (hand)
+    {
+        boxesLoad(hand);
+        for (int i = 0; i < gSolidN; i++)
+            gPicked[gPickedN++] = gSolid[i];
+    }
+    // first pass: each alone, what it saves over the views where it's seen at all
+    double* score = calloc(gCandN, sizeof(double));
+    SolidBox one[1];
+    for (int c = 0; c < gCandN; c++)
+    {
+        one[0] = gCands[c];
+        for (int v = 0; v < gViewN; v++)
+        {
+            viewUse(&gViews[v]);
+            BoxSeen seen;
+            if (!boxSee(&one[0], &seen))
+                continue;
+            double cpu, vdp1;
+            viewSaves(&gViews[v], one, 1, &cpu, &vdp1);
+            score[c] += cpu + vdp1;
+        }
+        if (c % 1000 == 0)
+            fprintf(stderr, "%d of %d\n", c, gCandN);
+    }
+    // the best SEARCH_KEEP go on
+    int* order = malloc(sizeof(int) * gCandN);
+    int n = 0;
+    for (int c = 0; c < gCandN; c++)
+        if (score[c] > 0)
+            order[n++] = c;
+    for (int i = 0; i < n && i < SEARCH_KEEP; i++)
+    {
+        int best = i;
+        for (int j = i + 1; j < n; j++)
+            if (score[order[j]] > score[order[best]])
+                best = j;
+        int t = order[i]; order[i] = order[best]; order[best] = t;
+    }
+    n = n < SEARCH_KEEP ? n : SEARCH_KEEP;
+    fprintf(stderr, "%d candidates kept\n", n);
+    uint8_t* banned = calloc(n, 1);
+    double total[2] = { 0, 0 };
+    for (int v = 0; v < gViewN; v++)
+    {
+        total[0] += gViews[v].cycles;
+        total[1] += gViews[v].vdp1;
+    }
+    double base[2] = { 0, 0 };
+    for (int v = 0; v < gViewN && gPickedN; v++)
+    {
+        double cpu, vdp1;
+        viewSaves(&gViews[v], gPicked, gPickedN, &cpu, &vdp1);
+        base[0] += cpu;
+        base[1] += vdp1;
+    }
+    printf("%s %d heavy views, room work %.2f ms, VDP1 %.2f ms a view (Mednafen cycles, modelled); from the start saved %.2f, %.2f\n", name, gViewN,
+           total[0] / gViewN * MS, total[1] / gViewN * MS, base[0] / gViewN * MS, base[1] / gViewN * MS);
+    FILE* f = fopen(out, "w");
+    for (int i = 0; i < gPickedN; i++)
+        fprintf(f, "%.0f %.0f %.0f %.0f %.0f %.0f %d\n", gPicked[i].lo[0], gPicked[i].hi[0], gPicked[i].lo[1], gPicked[i].hi[1], gPicked[i].lo[2], gPicked[i].hi[2], gPicked[i].side);
+    for (int round = 0; round < count; round++)
+    {
+        int best = -1;
+        double bestGain = 0, bestCpu = 0, bestVdp1 = 0;
+        for (int i = 0; i < n; i++)
+        {
+            if (banned[i])
+                continue;
+            gPicked[gPickedN] = gCands[order[i]];
+            double a = 0, b = 0;
+            for (int v = 0; v < gViewN; v++)
+            {
+                viewUse(&gViews[v]);
+                BoxSeen seen;
+                if (!boxSee(&gPicked[gPickedN], &seen))
+                {
+                    continue;
+                }
+                double cpu, vdp1, cpu0, vdp10;
+                viewSaves(&gViews[v], gPicked, gPickedN + 1, &cpu, &vdp1);
+                viewSaves(&gViews[v], gPicked, gPickedN, &cpu0, &vdp10);
+                a += cpu - cpu0;
+                b += vdp1 - vdp10;
+            }
+            if (a + b > bestGain)
+            {
+                bestGain = a + b;
+                best = i;
+                bestCpu = a;
+                bestVdp1 = b;
+            }
+        }
+        if (best < 0)
+            break;
+        gPicked[gPickedN] = gCands[order[best]];
+        long worst = 0, lost = 0;
+        int lostViews = 0;
+        for (int v = 0; v < gViewN; v++)
+        {
+            long l = viewLost(&gViews[v], gPicked, gPickedN + 1);
+            lost += l;
+            lostViews += l > 0;
+            worst = l > worst ? l : worst;
+        }
+        const SolidBox* b = &gPicked[gPickedN];
+        if (lost > 64 * gViewN / 100)
+        {
+            banned[best] = 1;
+            printf("  no: x %.0f %.0f y %.0f %.0f z %.0f %.0f loses %ld px over %d views, worst %ld\n", b->lo[0], b->hi[0], b->lo[1], b->hi[1], b->lo[2], b->hi[2], lost, lostViews, worst);
+            fflush(stdout);
+            round--;
+            continue;
+        }
+        base[0] += bestCpu;
+        base[1] += bestVdp1;
+        gPickedN++;
+        printf("  box %d: x %.0f %.0f y %.0f %.0f z %.0f %.0f side %d: +%.2f ms room work, +%.2f ms VDP1; in all %.2f, %.2f; lost %ld px over %d views, worst %ld\n", round + 1,
+               b->lo[0], b->hi[0], b->lo[1], b->hi[1], b->lo[2], b->hi[2], b->side, bestCpu / gViewN * MS, bestVdp1 / gViewN * MS, base[0] / gViewN * MS, base[1] / gViewN * MS, lost, lostViews, worst);
+        fflush(stdout);
+        fprintf(f, "%.0f %.0f %.0f %.0f %.0f %.0f %d\n", b->lo[0], b->hi[0], b->lo[1], b->hi[1], b->lo[2], b->hi[2], b->side);
+        fflush(f);
+    }
+    fclose(f);
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 4) {
@@ -2012,6 +2903,31 @@ int main(int argc, char** argv)
         rngState = (uint32_t)atoi(argv[4]) * 2654435761u + 12345u;
         const char* name = strrchr(argv[1], '/');
         holes(name ? name + 1 : argv[1], atoi(argv[3]));
+        return 0;
+    }
+    if (!strcmp(argv[2], "walkstat"))
+    {
+        gPlaceInner = 1;
+        rngState = (uint32_t)atoi(argv[4]) * 2654435761u + 12345u;
+        const char* name = strrchr(argv[1], '/');
+        walkStat(name ? name + 1 : argv[1], atoi(argv[3]));
+        return 0;
+    }
+    if (!strcmp(argv[2], "boxes"))
+    {
+        boxesLoad(argv[3]);
+        gPlaceInner = 1;
+        rngState = (uint32_t)atoi(argv[5]) * 2654435761u + 12345u;
+        const char* name = strrchr(argv[1], '/');
+        boxes(name ? name + 1 : argv[1], atoi(argv[4]));
+        return 0;
+    }
+    if (!strcmp(argv[2], "boxsearch"))
+    {
+        gPlaceInner = 1;
+        rngState = (uint32_t)atoi(argv[6]) * 2654435761u + 12345u;
+        const char* name = strrchr(argv[1], '/');
+        boxSearch(name ? name + 1 : argv[1], argv[3], atoi(argv[4]), atoi(argv[5]), argc > 7 ? argv[7] : NULL);
         return 0;
     }
     if (!strcmp(argv[2], "cameras"))

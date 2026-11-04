@@ -52,6 +52,8 @@
 #               was when the floor went
 #   cistern-bright LEVEL7A, room 32: where a light's falloff overflowed and
 #               Lara and the crocodiles blew out white (issue 205)
+#   cistern-dark LEVEL7A, room 2: a dark wall (room 111 q89) with bright stone behind it,
+#               at the top left of the frame
 #   valley      LEVEL3A, room 30, at the mouth of the valley with nothing awake:
 #               a raptor wakes at the first steps in, the T-rex further north
 #   valley-trex LEVEL3A, room 60, across the floor from the T-rex, him awake and
@@ -59,6 +61,8 @@
 #   valley-sky  LEVEL3A, room 56: looking up (Z + DOWN), the sky a hall of mirrors
 #   valley-cave LEVEL3A, room 27: a hall of mirrors in the rock by the way in
 #   valley-plants LEVEL3A, room 51, among the plants: VDP1 at 115 on the Saturn
+#   valley-dark LEVEL3A, room 63: dark rock with a bright cave behind it, in the middle of
+#               the frame
 #
 # OBJECT_ART=1 in the environment reworks the meshes' textures too
 # (tools/pack_level.py), in every level.
@@ -98,12 +102,18 @@ case "${1:-ledge}" in
     cistern-feet) level=LEVEL7A id=LVL_TR1_7A start=97@50480:-3328:60035 yaw=0x31D0 ;;
     cistern-feet-door) level=LEVEL7A id=LVL_TR1_7A start=97@50480:-3328:60035 yaw=0x31D0 trigger=25 ;;
     cistern-bright) level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 ;;
+    cistern-dark) level=LEVEL7A id=LVL_TR1_7A start=2@38785:0:52052 yaw=0x0368 ;;
     valley)     level=LEVEL3A id=LVL_TR1_3A start=30@39424:3584:42496 yaw=0x6000 ;;
     valley-trex) level=LEVEL3A id=LVL_TR1_3A start=60@45568:3584:15872 yaw=0x4000 trigger=55 ;;
     valley-sky) level=LEVEL3A id=LVL_TR1_3A start=56@41167:3584:27288 yaw=0xA136 ;;
     valley-cave) level=LEVEL3A id=LVL_TR1_3A start=27@36389:113:46532 yaw=0x3D3B ;;
     valley-plants) level=LEVEL3A id=LVL_TR1_3A start=51@41453:3584:35241 yaw=0x8143 ;;
+<<<<<<< HEAD
     *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-tunnel|cistern-look|cistern-water|cistern-flood|cistern-flood-above|valley|valley-trex|valley-sky|valley-cave|valley-plants]" >&2; exit 1 ;;
+=======
+    valley-dark) level=LEVEL3A id=LVL_TR1_3A start=63@60614:3584:15342 yaw=0x0000 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-dark|cistern-tunnel|cistern-look|cistern-water|valley|valley-trex|valley-sky|valley-cave|valley-plants|valley-dark]" >&2; exit 1 ;;
+>>>>>>> main
 esac
 art=${OBJECT_ART:-0}
 
