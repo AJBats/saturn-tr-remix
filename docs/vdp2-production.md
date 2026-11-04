@@ -1,11 +1,12 @@
-# Floors and ceilings on VDP2, in the game: the design
+# Floors and ceilings on VDP2, in the game
 
-The lab proved the plane on the Saturn (`docs/vdp2-design.md` and `docs/vdp2-lab.md`, branch `vdp2-lab`). This is how it goes in the game, in the Cistern and Lost Valley, with the user's decisions of 2026-11-04. Numbers are from the Saturn only where they say so.
+The lab proved the plane on the Saturn (`docs/vdp2-design.md`, `docs/vdp2-lab.md`; its code stays on branch `vdp2-lab`). This is how it went into the game, in the Cistern and Lost Valley, with the user's decisions of 2026-11-04. Numbers are from the Saturn only where they say so.
 
 ## The short version
 
 - **Each level names a floor height and a ceiling height.** The pack step takes those faces out of the level for good, dry rooms and flooded copies alike, and writes them as VDP2 tiles. Nothing in the room or face code changes or branches: the faces just aren't there. That saves their CPU time, their VDP1 time and their memory together.
 - **Everything else stays polygons:** pits, dips, ramps, water surfaces, walls. Only a flat, opaque face at exactly that height moves.
+- **It's a pack-time step.** `tools/pack_level.py` makes every level from the retail disc's files at build time, and this is part of it: the repo holds the rules and the hand's changes, never level data.
 - **No exceptions to start with.** We look in the game. If a spot looks wrong, a line in the level's list keeps that face on VDP1.
 - **New code is one file, `saturn/plane.cpp`, about 200 lines:** load, on and off, and a few numbers a frame.
 
@@ -15,7 +16,7 @@ The lab proved the plane on the Saturn (`docs/vdp2-design.md` and `docs/vdp2-lab
 |---|---|---|---|
 | **Cistern floor, y 0** | 209 + their 209 flooded copies | The ring round the great pool, 22 x 21 sectors | Below |
 | **Cistern ceiling, y -7168** | 340 | The hall's roof, 31 x 27 sectors | Dry, and no room of it flips |
-| **Lost Valley floor, y 3584** | 482 | From the mouth to the T-rex, 37 x 82 sectors in all | A deep pool in room 38, dips in 51, 56 and 15, all polygons |
+| **Lost Valley floor, y 3584** | 462 of its 482 | The main stretch, from the mouth to the T-rex: x 35-66, z 4-41 | A deep pool in room 38, dips in 51, 56 and 15, all polygons. The 20 elsewhere (rooms 15, 18, 19, 21, 24) stay polygons |
 | Lost Valley ceiling | none | Open sky | The second plane is free: issue 272's skybox could use it later |
 
 None of these faces is animated (checked against each level's `anim_ranges`). All are sector squares. Next biggest in the Cistern: ceiling -11264 (157), floor -6400 (150), the walkway -3328 (130). They stay on VDP1.
@@ -43,20 +44,21 @@ What's known:
 
 ## How it goes into level data
 
-`saturn/planes.txt`, read by `tools/pack_level.py`:
+`saturn/planes.txt`, read by `tools/planepack.py` from `tools/pack_level.py`:
 
 ```
-LEVEL7A  floor 0     ceiling -7168
-LEVEL3A  floor 3584
-keep LEVEL7A 105 q12 q13 ...      # none to start with
+LEVEL7A floor 0 ceiling -7168
+LEVEL3A floor 3584 x 35 66 z 4 41
 ```
 
-A face goes on the plane if it is flat at that height, faces the right way, is a sector square, is opaque and isn't animated. The pack step, before the packer runs:
+`x` and `z` are the stretch the plane is for. Leaving them out takes every face at that height that fits: "VDP2 everywhere it can fit", a backup for a last few drops of speed, to be judged by eye (Lost Valley: 482 faces, 17 clashes, 26 pictures, 206 KB). What the hand changes, `tools/floor_paint.py` saves in `saturn/plane_paint/LEVEL.txt`.
+
+A face goes on the plane if it is flat at that height, faces the right way, is a sector square, is opaque, isn't animated, and is in the stretch. The pack step, before the packer runs:
 
 1. **Takes those faces out of `room.quads`** and drops vertices nothing else uses. Everything downstream (the facing runs, counts, textures used) follows from the shorter lists. About 12 bytes a face.
 2. **Writes two files:** `.PLC` (cells, colours, a small header) and `.PLN` (the tile names). No file means no plane, so no level is named in the code.
 
-**The tile map.** A plane is infinite only because it repeats: the map holds 32 x 32 sectors, then starts again. The Cistern fits. The valley runs 82 sectors north to south, so 17 of its 482 tiles want the same spot in the map as another (always 32 sectors apart). Those 17 stay on VDP1, drawn over the plane, so the spot shows right in both places. That's one fixed map, as in the Cistern, with no code at run time, and it's 16 blocks of names where the valley would otherwise need 24.
+**The tile map.** A plane is infinite only because it repeats: the map holds 32 x 32 sectors, then starts again. The Cistern fits. The valley's main stretch is 32 wide and 38 long, so 7 of its 462 tiles want the same spot as another, room 31's at the far south against room 30's at the mouth. Those 7 stay on VDP1, drawn over the plane, so the spot shows right in both places. That's one fixed map, as in the Cistern, with no code at run time.
 
 - **What this lacks:** the plane shows a tile of its map wherever VDP1 draws nothing below the horizon. A hole in the rock can show a piece of floor from 32 sectors away, where today it's black. The census has this common: 775 px a view, 630 of them bright, up close (below). **But on the Saturn (2026-11-04) the user can't tell where the ground starts looping**, and the fixed map stays unless a side-by-side look finds something obvious. The census counted views from random places, so it overstated what play shows.
 
@@ -85,13 +87,13 @@ If it's ever wanted: names rewritten by sector is the only one that scales past 
 
 | | Cistern | Valley |
 |---|---|---|
-| Cells (16-colour, each texture and its turned copy) | 26 KB | 52 KB |
+| Cells (16-colour, each texture and its turned copy) | 26 KB | 42 KB |
 | Depth table, built at load, 8,192 entries | 32 KB | 32 KB |
 | Parameters | under 1 KB | under 1 KB |
 | Inventory item textures, there today | 66 KB | 59 KB |
-| Tile names, blocks of 8 x 8 sectors + one blank | 104 KB | 64 KB |
-| **Total** | 229 KB | 208 KB |
-| Palettes, of 119, and the light's steps | 107, every step | 110, every 2nd |
+| Tile names, blocks of 8 x 8 sectors + one blank | 104 KB | 60 KB |
+| **Total** | 229 KB | 194 KB |
+| Palettes, of 119, and the light's steps | 107, every step | 93, every 2nd |
 
 The trace on test discs can't stay in bank B: writes there would disturb the plane. On plane levels it moves to bank A's last 32 lines, 32 KB, about 25 frames instead of 120.
 
@@ -112,7 +114,7 @@ One switch (room 9) flips 36 rooms. What changes, by the level's data:
 | Flooded, the same view, above the water (`cistern-flood-above`) | 24 | 936 | 33.0 | 25-30 | 22-23 |
 | Flooded, under water in the hall (`cistern-flood`), a few views | 5-7 | 290-344 | 16.7-23.4 | 12-14 | 30 |
 
-So the flood splits in two: under water it's the lightest the hall gets, and from above the water it's the heaviest, because of the surface (issue 280). The plane takes the wet floor out from under the surface, not the surface.
+So the flood splits in two: under water it's the lightest the hall gets, and from above the water it's the heaviest, because of the surface. With the plane, the wet floor gone from under the surface: above the water VDP1 33.0 -> 24.0 ms, 22-23 -> 30 fps; under water VDP1 10.5 ms (Mednafen).
 
 **Colour.** The game tints a face for water if its room is wet or the camera is under water, with red fading by distance. The two planes share one set of line colours, so the rule is the camera's alone: under water, the table's 7-bit index is depth in steps of 256, and 81 colours are rewritten once as the camera enters or leaves water. That's exact everywhere but one place: flooded, camera above the water, looking down through the surface, the floor stays untinted. If that shows: line colours by line, a table of 224 words picking a set for the ceiling's lines and one for the floor's.
 
@@ -124,7 +126,7 @@ So the flood splits in two: under water it's the lightest the hall gets, and fro
 
 **Erase**: the Cistern goes on the vblank erase, as Lost Valley is. The rule "a plane level is an erased level" replaces today's level check. The one black rectangle can't be used on a plane level: it would cover the plane.
 
-**Dark faces**: main leaves out faces too dark to see on an erased buffer (a0f11be). Nothing special is built for them. The plane has the same fog as the faces, so what's behind a wall dark with distance is at least as dark. A wall dark in its own light can show lit floor: the census has that rare (1.6 to 2.6% of views past 400 px). We look.
+**Dark faces**: main draws faces too dark to see as black polygons in their place (c987059), which hide the plane as they hide anything else. Nothing special is built for them.
 
 **Colour offset**: the plane takes offset A. The debug overlay leaves the offset on test discs so it isn't darkened.
 
@@ -162,21 +164,21 @@ A works in Mednafen first time. B is the fallback if the Saturn disagrees.
 
 ## Removed from the lab's version
 
-None of it goes to main: the timer fog and its interrupts, the per-line scale table, the `VDP1 draws all` row, the red tint, the page, and copying faces around in low RAM at run time. `lab/plane.cpp` stays on the research branch. What moves: `tools/planepack.py` in a production form, `tools/occmodel`'s `planes` mode, `tools/vdp2spy/planesurvey.py`.
+None of it goes to main: the timer fog and its interrupts, the per-line scale table, the `VDP1 draws all` row, the red tint, the page, and copying faces around in low RAM at run time. `lab/plane.cpp` stays on the research branch. What came over: `tools/planepack.py` in a production form, `tools/occmodel`'s `planes` mode, and from `tools/vdp2spy/` the private Mednafen (`spy.py`, `go.py`), the VDP2 register reader and survey, and `planesurvey.py`.
 
 ## Clean-up found on main
 
-Filed as OPEN_ISSUES 273-279, "Production code", for later: timer reads, 16 KB of `gVertices`, oversized tables, options read per face, lab paths, C beside assembly, the DMA wait's mask. The plane needs 279's fix in its own code and doesn't wait for the rest.
+Filed as OPEN_ISSUES 273-279, "Production code", for later: timer reads, 16 KB of `gVertices`, oversized tables, options read per face, lab paths, C beside assembly, the DMA wait's mask.
 
 ## The risks, and how each gets tested
 
-1. **The late buffer change under the erase.** The lab's vanishing came from a late change with slow work before FBCR. Main writes FBCR first, and the lab's cure also held off the vblank's last lines, which main doesn't. A plane level's lists are shorter, so late changes get rarer but don't stop. If the Saturn vanishes, that margin is the next thing, by libyaul's rule.
-2. **NBG0's bitmap with the plane on**, for the inventory and test discs' overlay. Ran under the lab's text page on the Saturn; not yet as a picture under the frames.
-3. **The CPU reading bank B under the plane**, for the item textures.
+1. **The late buffer change under the erase.** The lab's vanishing came from a late change with slow work before FBCR. Main writes FBCR first, and the lab's cure also held off the vblank's last lines, which main doesn't. Not seen on the Saturn in the first runs of either level. If it vanishes, that margin is the next thing, by libyaul's rule.
+2. **NBG0's bitmap with the plane on**, for the inventory and test discs' overlay: the overlay and the first Saturn runs show nothing wrong.
+3. **The CPU reading bank B under the plane**, for the item textures: the same.
 
 ## The test
 
-Each step in Mednafen first, with the same hwtest spots packed with and without planes (a pack-time switch, nothing at run time): `cistern`, `cistern-stamp`, `cistern-water`, `cistern-flood`, `cistern-flood-above`, `valley`, `valley-plants`, `valley-trex`, `valley-sky`, `valley-cave`, and the inventory at each level. For each: the VDP1 and CPU time, and the picture. Then one disc of each level on the Saturn, when nothing is known to be missing.
+Each step in Mednafen first, with the same hwtest spots packed with and without planes (`PLANES=0 tools/hwtest.sh SPOT`, nothing at run time): `cistern`, `cistern-stamp`, `cistern-water`, `cistern-flood`, `cistern-flood-above`, `valley`, `valley-plants`, `valley-trex`, `valley-sky`, `valley-cave`, and the inventory at each level. `valley-end` and `vilcabamba-end` cross out of a plane level and into one, and VDP2's registers came out right both ways.
 
 **Mednafen, without planes and with, one standing view each, 2026-11-04 (ms, 100% = 33.4):**
 

@@ -31,6 +31,7 @@
 //         occmodel LEVEL.bin boxes FILE VIEWS SEED   solid boxes (x0 x1 y0 y1 z0 z1 a line) as the game has them
 //         occmodel LEVEL.bin boxsearch OUT COUNT VIEWS SEED [HAND]   big boxes in the rock between rooms (no room's air in
 //                                 them, every room and alternate), picked one at a time over heavy views; HAND: boxes to start from
+//         occmodel LEVEL.bin planes VIEWS SEED FLOOR_Y CEILING_Y  (OCC_PLANE_KEEP=rooms,staying,on,VDP1)
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -917,6 +918,8 @@ static int faceRoom(int id)
     return lo;
 }
 
+static float (*gBehind)[ZW];      // if set, only what lies behind this depth is filled
+
 static void fillTri(float x0, float y0, float iz0, float x1, float y1, float iz1, float x2, float y2, float iz2, int room)
 {
     float area = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0);
@@ -941,6 +944,8 @@ static void fillTri(float x0, float y0, float iz0, float x1, float y1, float iz1
             if (w0 < 0 || w1 < 0 || w2 < 0)
                 continue;
             float iz = w0 * iz0 + w1 * iz1 + w2 * iz2;
+            if (gBehind && iz >= gBehind[y][x] * 0.998f)
+                continue;
             if (iz > zbuf[y][x]) {
                 zbuf[y][x] = iz;
                 owner[y][x] = room;
@@ -2755,6 +2760,429 @@ static void boxSearch(const char* name, const char* out, int count, int views, c
     fclose(f);
 }
 
+// --- a plane in the place of its faces --------------------------------------------------
+// What a floor or ceiling on VDP2 would get wrong. A plane sits under all of VDP1, so:
+//   painted over  a face past the plane (down a pit, up a shaft) that a plane's face used to
+//                 hide: the nearest face is the plane's, and another lies behind it on the ray
+//   through dark  a face too dark to draw (a0f11be) leaves the plane showing where it was
+//   extra         no face at all here, as the game has it black, and the plane has a tile
+// OCC_PLANE_KEEP lists rooms whose faces stay on VDP1, OCC_PLANE_KEEP_FILE faces (room quad
+// a line). OCC_PLANE_FROM lists the rooms the camera may be in. OCC_DARK the shade from which
+// a face goes (0: none go). OCC_PLANE_OUT gets the faces painted over, worst first, for a keep
+// file: room quad px_painted px_shown.
+static uint8_t* gPlaneFace;     // by face: on a plane
+static uint8_t* gKept;          // by face: on a plane, but stays on VDP1
+static long* gLeakOn;           // px painted over, by plane face
+static long* gPlanePxOf;        // px shown, by plane face
+static uint8_t gTile[2][256][256];  // by plane, world sector: 1 + the tile's shade
+static int8_t gTrue[ZH][ZW];
+
+static int inList(const char* list, int room)
+{
+    char buf[2048];
+    if (!list)
+        return 0;
+    strncpy(buf, list, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = 0;
+    for (char* t = strtok(buf, ","); t; t = strtok(NULL, ","))
+        if (atoi(t) == room)
+            return 1;
+    return 0;
+}
+
+static void planesMark(int floorY, int ceilingY)
+{
+    const char* keep = getenv("OCC_PLANE_KEEP");
+    gPlaneFace = calloc(nfaces + 1, 1);
+    gKept = calloc(nfaces + 1, 1);
+    gLeakOn = calloc(nfaces + 1, sizeof(long));
+    gPlanePxOf = calloc(nfaces + 1, sizeof(long));
+    int floors = 0, ceilings = 0, kept = 0;
+    for (int i = 0; i < nrooms; i++)
+    {
+        Room* r = &rooms[i];
+        if (r->alt)
+            continue;
+        for (int q = 0; q < r->nq; q++)
+        {
+            Quad f = r->q[q];
+            V3 a = r->v[f.a], b = r->v[f.b], c = r->v[f.c], d = r->v[f.d];
+            if (f.transp || a.y != b.y || a.y != c.y || a.y != d.y)
+                continue;
+            float cross = (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x);
+            int plane = cross < 0 && a.y == floorY ? 1 : cross > 0 && a.y == ceilingY ? 2 : 0;
+            if (!plane)
+                continue;
+            int id = r->faceBase + q;
+            gPlaneFace[id] = plane;
+            if (inList(keep, i))
+                gKept[id] = 1;
+            if (plane == 1) floors++; else ceilings++;
+            int sx = (int)fminf(fminf(a.x, b.x), fminf(c.x, d.x)) >> 10, sz = (int)fminf(fminf(a.z, b.z), fminf(c.z, d.z)) >> 10;
+            int shade = (r->shade[f.a] + r->shade[f.b] + r->shade[f.c] + r->shade[f.d]) / 4;
+            if (sx >= 0 && sx < 256 && sz >= 0 && sz < 256)
+                gTile[plane - 1][sx][sz] = 1 + shade;
+        }
+    }
+    const char* file = getenv("OCC_PLANE_KEEP_FILE");
+    if (file)
+    {
+        FILE* f = fopen(file, "r");
+        int room, quad;
+        char line[128];
+        while (f && fgets(line, sizeof(line), f))
+            if (sscanf(line, "%d %d", &room, &quad) == 2 && gPlaneFace[rooms[room].faceBase + quad])
+                gKept[rooms[room].faceBase + quad] = 1;
+        if (f) fclose(f);
+    }
+    for (int i = 0; i < nfaces; i++)
+        kept += gKept[i];
+    printf("plane faces: %d floor, %d ceiling, %d of them kept on VDP1\n", floors, ceilings, kept);
+}
+
+// A face wholly at or past that shade, its light and the fog's
+static inline int faceDark(const Room* r, const int* idx, int n, int limit)
+{
+    for (int i = 0; i < n; i++)
+    {
+        float z = r->vv[idx[i]].z;
+        if (r->shade[idx[i]] + (z > FOG_MIN ? (int)((z - FOG_MIN) / 256) : 0) < limit)
+            return 0;
+    }
+    return 1;
+}
+
+// The tile the ray through a half-resolution pixel meets, and its shade with the fog; 0 none.
+static int rayTile(int x, int y, int plane, int planeY, int* shade)
+{
+    float sx = (x * 2 + 1) - W / 2.0f, sy = (y * 2 + 1) - H / 2.0f;
+    float d[3];
+    for (int k = 0; k < 3; k++)
+        d[k] = R[0][k] * sx + R[1][k] * sy + R[2][k] * F;
+    float reach = planeY - cam.y;
+    if (d[1] == 0 || reach / d[1] <= 0)
+        return 0;
+    float t = reach / d[1];
+    float wx = cam.x + d[0] * t, wz = cam.z + d[2] * t;
+    float depth = t * F;
+    if (depth > VIEW_MAX || wx < 0 || wz < 0)
+        return 0;
+    int tx = (int)wx >> 10, tz = (int)wz >> 10;
+    if (tx >= 256 || tz >= 256 || !gTile[plane][tx][tz])
+        return 0;
+    *shade = gTile[plane][tx][tz] - 1 + (depth > FOG_MIN ? (int)((depth - FOG_MIN) / 256) : 0);
+    return 1;
+}
+
+// The floor's tile the plane shows where a ray meets it, under each way of laying out the map,
+// where the level itself has no tile there: a tile from 32 sectors away. Bright: light and fog
+// (the plane's stops at 14 steps) leave it above near black.
+enum { MAP_FIXED, MAP_BLOCKS, MAP_ROWS, MAP_WAYS };
+static uint8_t gSpot[32][32];
+static uint8_t gSpotBlock[256][256];
+static double gFalsePx[MAP_WAYS], gFalseBright[MAP_WAYS], gFalseDepth[MAP_WAYS];
+static long gFalse400[MAP_WAYS];
+static double gFalseView[MAP_WAYS];
+static double gShortPx[MAP_WAYS], gShortBright[MAP_WAYS], gShortView[MAP_WAYS];
+static long gShort400[MAP_WAYS];
+
+static void foldMake(void)
+{
+    for (int x = 0; x < 256; x++)
+        for (int z = 0; z < 256; z++)
+            if (gTile[0][x][z] && !gSpot[x & 31][z & 31])
+                gSpot[x & 31][z & 31] = gTile[0][x][z];
+}
+
+static void foldCount(int x, int y, int planeY)
+{
+    float sx = (x * 2 + 1) - W / 2.0f, sy = (y * 2 + 1) - H / 2.0f;
+    float d[3];
+    for (int k = 0; k < 3; k++)
+        d[k] = R[0][k] * sx + R[1][k] * sy + R[2][k] * F;
+    float reach = planeY - cam.y;
+    if (d[1] == 0 || reach / d[1] <= 0)
+        return;
+    float t = reach / d[1];
+    float wx = cam.x + d[0] * t, wz = cam.z + d[2] * t;
+    float depth = t * F;
+    if (depth > VIEW_MAX)
+        return;
+    int tx = (int)floorf(wx / 1024), tz = (int)floorf(wz / 1024);
+    int inLevel = tx >= 0 && tz >= 0 && tx < 256 && tz < 256;
+    int cx = (int)floorf(cam.x / 1024), cz = (int)floorf(cam.z / 1024);
+    int fog = depth > FOG_MIN ? (int)((depth - FOG_MIN) / 256) : 0;
+    fog = fog > 14 ? 14 : fog;
+    if (inLevel && gTile[0][tx][tz])
+    {
+        // the level's own tile: a moving map may not reach it, and shows what it holds there instead
+        for (int way = MAP_BLOCKS; way < MAP_WAYS; way++)
+        {
+            int x0 = way == MAP_ROWS ? cx - 16 : ((cx + 4) >> 3) * 8 - 16;
+            int z0 = way == MAP_ROWS ? cz - 16 : ((cz + 4) >> 3) * 8 - 16;
+            int wrappedX = x0 + ((tx - x0) & 31), wrappedZ = z0 + ((tz - z0) & 31);
+            if (wrappedX == tx && wrappedZ == tz)
+                continue;
+            gShortView[way] += 4;
+            if (gTile[0][tx][tz] - 1 + fog < 26)
+                gShortBright[way] += 4;
+        }
+        return;
+    }
+    for (int way = 0; way < MAP_WAYS; way++)
+    {
+        int shown = 0;
+        if (way == MAP_FIXED)
+        {
+            shown = gSpot[tx & 31][tz & 31];
+        }
+        else
+        {
+            // the 32 x 32 sectors the map holds right now, from this corner: inside, the map holds the
+            // level as it is; outside, it repeats what's inside
+            int x0 = way == MAP_ROWS ? cx - 16 : ((cx + 4) >> 3) * 8 - 16;
+            int z0 = way == MAP_ROWS ? cz - 16 : ((cz + 4) >> 3) * 8 - 16;
+            int wrappedX = x0 + ((tx - x0) & 31), wrappedZ = z0 + ((tz - z0) & 31);
+            if (wrappedX == tx && wrappedZ == tz)
+                continue;
+            if (wrappedX >= 0 && wrappedZ >= 0 && wrappedX < 256 && wrappedZ < 256)
+                shown = gTile[0][wrappedX][wrappedZ];
+        }
+        if (!shown)
+            continue;
+        gFalseView[way] += 4;
+        gFalseDepth[way] += 4 * depth;
+        if (shown - 1 + fog < 26)
+            gFalseBright[way] += 4;
+    }
+}
+
+static void planes(const char* name, int views, int floorY, int ceilingY)
+{
+    static double leakBy[MAXROOMS], leakOnRoom[MAXROOMS];
+    long leak64 = 0, leak400 = 0, leak2000 = 0, sees = 0, dark400 = 0, extra400 = 0;
+    double planePx = 0, shownPx = 0, leakPx = 0, facesGone = 0, facesAll = 0, bestLeak = 0;
+    double darkPx = 0, darkBright = 0, extraPx = 0, bestDark = 0, darkFaces = 0;
+    double planeHistogram[6] = { 0 };
+    static int trueOwner[ZH][ZW];
+    static float trueDepth[ZH][ZW];
+    const char* from = getenv("OCC_PLANE_FROM");
+    int darkLimit = getenv("OCC_DARK") ? atoi(getenv("OCC_DARK")) : 0;
+    planesMark(floorY, ceilingY);
+    foldMake();
+    gFar = VIEW_MAX;
+    F = 209.75f;
+    for (int v = 0; v < views; v++)
+    {
+        int room, sector, floor, ceil;
+        for (;;)
+        {
+            room = rng() % nrooms;
+            Room* r = &rooms[room];
+            if (r->alt || r->ns == 0 || !r->np || (from && !inList(from, room)))
+                continue;
+            sector = rng() % r->ns;
+            floor = r->s[sector][0];
+            ceil = r->s[sector][1];
+            if (floor != -127 * 256 && ceil != -127 * 256 && floor - 300 - 64 > ceil)
+                break;
+        }
+        Room* r = &rooms[room];
+        V3 pos;
+        pos.x = r->x + (sector / r->zs + urand(0.02f, 0.98f)) * 1024;
+        pos.z = r->z + (sector % r->zs + urand(0.02f, 0.98f)) * 1024;
+        pos.y = floor - urand(300, 1400);
+        if (pos.y < ceil + 64)
+            pos.y = ceil + 64;
+        viewSet(pos, urand(0, 6.2832f), urand(-0.5f, 0.3f));
+        gBase.useMask = 0; gBase.usePoly = 0; gBase.minArea = 0;
+        walkRun(&gBase, room, 0);
+        // the true picture, then what all but the plane's faces paint behind it
+        oracle(&gBase);
+        for (int y = 0; y < ZH; y++)
+            for (int x = 0; x < ZW; x++) {
+                int o = owner[y][x];
+                trueOwner[y][x] = o;
+                trueDepth[y][x] = zbuf[y][x];
+                gTrue[y][x] = o >= 0 && gPlaneFace[o] && !gKept[o] ? 1 : o >= 0 ? 0 : -1;
+                zbuf[y][x] = 0;
+                owner[y][x] = -1;
+            }
+        int gone = 0, all = 0, dropped = 0;
+        for (int pass = 0; pass < 2; pass++)
+        {
+            gBehind = pass ? NULL : trueDepth;
+            if (pass)
+                for (int y = 0; y < ZH; y++)
+                    for (int x = 0; x < ZW; x++) {
+                        gTrue[y][x] |= owner[y][x] >= 0 ? 4 : 0;
+                        if (gTrue[y][x] & 4) trueOwner[y][x] |= 0;
+                        zbuf[y][x] = 0;
+                        owner[y][x] = -1;
+                    }
+            for (int l = 0; l < gBase.nlist; l++)
+            {
+                int at = gBase.list[l];
+                Room* q = &rooms[at];
+                Rect c = gBase.clip[at];
+                for (int i = 0; i < q->nq; i++)
+                {
+                    int idx[4] = { q->q[i].a, q->q[i].b, q->q[i].c, q->q[i].d };
+                    if (!faceFacing(q, idx) || faceCulled(q, idx, 4, c))
+                        continue;
+                    int id = q->faceBase + i;
+                    if (gPlaneFace[id] && !gKept[id]) {
+                        gone += !pass;
+                        all += !pass;
+                        continue;
+                    }
+                    all += !pass;
+                    if (darkLimit && !q->q[i].transp && faceDark(q, idx, 4, darkLimit)) {
+                        dropped += !pass;
+                        continue;
+                    }
+                    fillFace(q, idx, 4, id);
+                }
+                for (int i = 0; i < q->nt; i++)
+                {
+                    int* idx = q->t[i];
+                    if (!faceFacing(q, idx) || faceCulled(q, idx, 3, c))
+                        continue;
+                    all += !pass;
+                    if (darkLimit && faceDark(q, idx, 3, darkLimit)) {
+                        dropped += !pass;
+                        continue;
+                    }
+                    fillFace(q, idx, 3, q->faceBase + q->nq + i);
+                }
+            }
+        }
+        gBehind = NULL;
+        double px = 0, shown = 0, leaked = 0, dark = 0, bright = 0, extra = 0;
+        for (int y = 0; y < ZH; y++)
+            for (int x = 0; x < ZW; x++)
+            {
+                int was = gTrue[y][x] & 3, behind = gTrue[y][x] & 4;
+                if (gTrue[y][x] == -1 || gTrue[y][x] == (int8_t)(-1 | 4)) was = 3;
+                shown += was != 3;
+                if (was == 1)
+                {
+                    foldCount(x, y, floorY);
+                    px++;
+                    gPlanePxOf[trueOwner[y][x]] += 4;
+                    if (behind)
+                    {
+                        leaked++;
+                        gLeakOn[trueOwner[y][x]] += 4;
+                        leakOnRoom[faceRoom(trueOwner[y][x])] += 4;
+                    }
+                    continue;
+                }
+                if (owner[y][x] >= 0)
+                    continue;       // VDP1 paints here
+                // nothing of VDP1's: what does the plane show?
+                int shade, hit = 0, sh = 99;
+                if (rayTile(x, y, 0, floorY, &shade)) { hit = 1; sh = shade; }
+                if (rayTile(x, y, 1, ceilingY, &shade)) { hit = 1; if (shade < sh) sh = shade; }
+                if (was == 3) {
+                    extra += hit;
+                    foldCount(x, y, floorY);
+                } else {
+                    dark += hit;
+                    bright += hit && sh <= darkLimit - 2;
+                }
+            }
+        px *= 4; shown *= 4; leaked *= 4; dark *= 4; bright *= 4; extra *= 4;
+        for (int way = 0; way < MAP_WAYS; way++)
+        {
+            gFalsePx[way] += gFalseView[way];
+            gFalse400[way] += gFalseView[way] >= 400;
+            gFalseView[way] = 0;
+            gShortPx[way] += gShortView[way];
+            gShort400[way] += gShortView[way] >= 400;
+            gShortView[way] = 0;
+        }
+        planePx += px; shownPx += shown; leakPx += leaked;
+        darkPx += dark; darkBright += bright; extraPx += extra; darkFaces += dropped;
+        bestDark = bright > bestDark ? bright : bestDark;
+        dark400 += bright >= 400;
+        extra400 += extra >= 400;
+        facesGone += gone; facesAll += all;
+        sees += px > 0;
+        leak64 += leaked >= 64;
+        leak400 += leaked >= 400;
+        leak2000 += leaked >= 2000;
+        bestLeak = leaked > bestLeak ? leaked : bestLeak;
+        int b = px < 1 ? 0 : px < 2000 ? 1 : px < 8000 ? 2 : px < 16000 ? 3 : px < 32000 ? 4 : 5;
+        planeHistogram[b]++;
+    }
+    printf("%s views %d, floor %d ceiling %d\n", name, views, floorY, ceilingY);
+    printf("  views seeing the plane %ld; plane px a view: mean %.0f of %.0f shown; views 0 / <2k / <8k / <16k / <32k / more: %.0f %.0f %.0f %.0f %.0f %.0f\n",
+           sees, planePx / views, shownPx / views, planeHistogram[0], planeHistogram[1], planeHistogram[2], planeHistogram[3], planeHistogram[4], planeHistogram[5]);
+    printf("  faces a view: %.1f of %.1f on the plane\n", facesGone / views, facesAll / views);
+    printf("  painted over: mean %.1f px a view, %.2f%% of plane px; views >=64 px %ld, >=400 %ld, >=2000 %ld, worst %.0f\n",
+           leakPx / views, 100 * leakPx / (planePx + 1), leak64, leak400, leak2000, bestLeak);
+    if (darkLimit)
+        printf("  dark faces dropped %.1f a view; plane through them: mean %.1f px, bright %.1f px; views bright >=400 %ld, worst %.0f\n",
+               darkFaces / views, darkPx / views, darkBright / views, dark400, bestDark);
+    printf("  extra: plane tile where the game has no face: mean %.1f px; views >=400 %ld\n", extraPx / views, extra400);
+    static const char* const wayNames[MAP_WAYS] = { "fixed map", "slots by block", "rewritten by sector" };
+    for (int way = 0; way < MAP_WAYS; way++)
+        printf("  false tiles, %s: mean %.1f px a view, bright %.1f px, mean depth %.0f; views >=400 px %ld\n", wayNames[way],
+               gFalsePx[way] / views, gFalseBright[way] / views, gFalseDepth[way] / (gFalsePx[way] + 1), gFalse400[way]);
+    for (int way = MAP_BLOCKS; way < MAP_WAYS; way++)
+        printf("  the level's tile out of the map's reach, %s: mean %.1f px a view, bright %.1f px; views >=400 px %ld\n", wayNames[way],
+               gShortPx[way] / views, gShortBright[way] / views, gShort400[way]);
+    printf("  by the room painted on:");
+    for (int k = 0; k < 14; k++)
+    {
+        int b = -1;
+        for (int i = 0; i < nrooms; i++)
+            if (leakOnRoom[i] > 0 && (b < 0 || leakOnRoom[i] > leakOnRoom[b]))
+                b = i;
+        if (b < 0)
+            break;
+        printf(" %d:%.0f", b, leakOnRoom[b]);
+        leakOnRoom[b] = 0;
+    }
+    printf("\n");
+    // how few of the plane's faces, kept on VDP1, take most of it, and what share of the plane's
+    // pixels they are
+    double left = 0, pxAll = 0, pxLeft;
+    for (int i = 0; i < nfaces; i++) {
+        left += gLeakOn[i];
+        pxAll += gPlanePxOf[i];
+    }
+    pxLeft = pxAll;
+    double total = left;
+    FILE* out = getenv("OCC_PLANE_OUT") ? fopen(getenv("OCC_PLANE_OUT"), "w") : NULL;
+    int taken = 0, marks[] = { 5, 10, 20, 40, 60, 80, 120, 160, 240, 320, 500 };
+    for (int m = 0; m < 11; m++)
+    {
+        while (taken < marks[m])
+        {
+            int b = -1;
+            for (int i = 0; i < nfaces; i++)
+                if (gLeakOn[i] > 0 && (b < 0 || gLeakOn[i] > gLeakOn[b]))
+                    b = i;
+            if (b < 0)
+                break;
+            left -= gLeakOn[b];
+            pxLeft -= gPlanePxOf[b];
+            if (out) {
+                int room = faceRoom(b);
+                fprintf(out, "%d %d %ld %ld\n", room, b - rooms[room].faceBase, gLeakOn[b], gPlanePxOf[b]);
+            }
+            gLeakOn[b] = 0;
+            taken++;
+        }
+        printf("  keep the worst %d faces: %.2f%% of it left, %.1f%% of the plane's px left\n", taken,
+               total > 0 ? 100 * left / total : 0, pxAll > 0 ? 100 * pxLeft / pxAll : 0);
+    }
+    if (out)
+        fclose(out);
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 4) {
@@ -2765,6 +3193,12 @@ int main(int argc, char** argv)
         F = atof(getenv("OCC_FOCAL"));
     loadLevel(argv[1]);
     facePx = malloc(sizeof(uint16_t) * (nfaces + 1));
+    if (!strcmp(argv[2], "planes"))
+    {
+        rngState = atoi(argv[4]) * 2654435761u + 1;
+        planes(argv[1], atoi(argv[3]), atoi(argv[5]), atoi(argv[6]));
+        return 0;
+    }
     if (!strcmp(argv[2], "region"))
     {
         int k = 3;

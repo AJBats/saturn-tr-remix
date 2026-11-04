@@ -478,24 +478,6 @@ CAM-22*
   The next dearest in that list is 2.04 ms. Room faces got retail's near pieces (issue 263); meshes didn't.
 - Only when a near mesh face reaches far off the frame, so this is a spike and not the level's steady cost.
 
-### 269. Flat floors and ceilings on a VDP2 plane
-*Kind: speed, look · Size: see below · Fix: large, only if it pays*
-
-- The user's idea (2026-11-03): one big flat floor, Lost Valley's or the Cistern's, drawn by a VDP2 rotation
-  plane under VDP1's frame, with correct perspective and no VDP1 warp.
-- What the biggest plane holds (`occmodel one` with OCC_PLANES, priced at each view's VDP1 time a pixel;
-  Mednafen): among the plants 134 faces, 33,435 px, about 8.0 of 42.7 ms; Cistern room 103 floor 107 faces,
-  26,011 px, about 5.3 of 35.5 ms, its ceiling at -7168 95 faces, about 1.5 ms. At about 570 cycles a kept
-  face that is also about 2.7 and 4.0 ms of slave work. Floors elsewhere at other heights stay on VDP1.
-- **What it lacks that VDP1 floors have:** each vertex's light and the moving caustics, so light is baked or
-  per line; a floor hides what VDP1 drew behind it, and a plane under the frame can't, so rooms below the
-  floor would show until those pixels are written colour 0, which gives back part of the saving; VDP2
-  VRAM and cycles for the plane's cells, map and coefficients.
-- **Now:** proven on the Saturn in the lab, 2026-11-04, and on its way into the game: the design is
-  `docs/vdp2-production.md`, the lab's notes `docs/vdp2-lab.md`, branch `vdp2-lab`; the build on branch `vdp2-planes`.
-- **First test on the Saturn, not in Mednafen:** no display read from VDP2 bank B has ever worked on this
-  Saturn (mednafen-vdp2 notes), and new layouts have looked right in Mednafen and broken on the console.
-
 ### 270. Plants walk far more pixels than they write
 *Kind: speed (VDP1) · Size: among the plants, statics 12.7 of 42.7 ms for 17% of the frame's pixels · Fix: assets*
 
@@ -3583,7 +3565,7 @@ over 14.6, at most 188 Â· Fix: medium, parked*
 - What the flood adds is the water's surface: 293 quads at y -3072 and 14 at -3328, one each way, transparent, four frames of
   animated texture. VDP1 walks each one whole for the flecks it holds.
 - Under water the same hall is the lightest it gets (`cistern-flood`): 5 to 7 rooms, VDP1 16.7-23.4 ms, CPU 12-14 ms, 30 fps.
-- Floors on VDP2 (269) take the wet floor out from under the surface, and not the surface. See also 253, the flecks.
+- With floors on VDP2 (269), the wet floor gone from under the surface, the same view: VDP1 24.0 ms, 30 fps. See also 253, the flecks.
 
 ### 281. Solid boxes: three pillars named, and what's left of the idea
 *Kind: speed - Size: Mednafen, VDP1 -4.41 ms at room 103, little elsewhere - Fix: built for faces and portals, objects to come*
@@ -3610,6 +3592,18 @@ over 14.6, at most 188 Â· Fix: medium, parked*
   Cistern 235 / 108 / 57, worst 395 / 187 / 69; Lost Valley 112 / 54 / 35, worst 216 / 98 / 50; level 5 135 / 71 / 45; 8A 69 / 39 / 32.
 - A room is walked again when its window grows, and every portal of it is rotated and projected again though nothing about it has
   changed in the frame. Keeping each portal's projected bounds for the frame leaves only the clip against the window to redo.
+
+### 283. VDP1's faces show through a plane where they lie past it
+*Kind: look Â· Size: Cistern room 103 from the start, a green patch of pool wall on the floor Â· Fix: pinned, the user's plan below*
+
+- VDP1 is always in front of VDP2. A floor face used to hide what lay past it; on the plane (269) it can't, so a pit's far wall paints over the near floor when it reaches past the rim on screen.
+- The user's plan, 2026-11-04: nearly all of them just want trimming, which solid boxes (281) can do with a flat rectangle at the floor's height. A face flush against a ledge, straddling a view above and below the plane, can't be trimmed that way and wants a mask: a colour 0 polygon in its place in the list, as Sonic World does at its river (docs/vdp2-lab.md). Pinned till solid boxes are better understood.
+- A census by `tools/occmodel` `planes` mode: Cistern hall 241 px a view, valley 99, 8% of random views past 400 px. It's been judged by eye only at the spots played so far.
+
+### 284. On a plane level the trace holds about 8 frames
+*Kind: test discs alone Â· Size: 8 frames against 120 Â· Fix: small, if it gets in the way*
+
+- CPU writes to bank B would disturb the plane, so the trace goes to the bitmap's last 32 lines, 32 KB (`saturn/os.cpp`), and the profile's blocks take a third of that. Without them about 15 frames.
 
 ## Production code: clean-up
 
@@ -3698,6 +3692,26 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 269. Flat floors and ceilings on a VDP2 plane
+*Closed 2026-11-04: branch vdp2-planes, docs/vdp2-production.md. The Cistern (floor, ceiling) and Lost Valley (floor) are on it. Saturn, room 103 about 22 degrees up: VDP1 20.5, master 27.4, slave 24.7 ms, 30.0 fps.*
+
+*Kind: speed, look · Size: see below · Fix: large, only if it pays*
+
+- The user's idea (2026-11-03): one big flat floor, Lost Valley's or the Cistern's, drawn by a VDP2 rotation
+  plane under VDP1's frame, with correct perspective and no VDP1 warp.
+- What the biggest plane holds (`occmodel one` with OCC_PLANES, priced at each view's VDP1 time a pixel;
+  Mednafen): among the plants 134 faces, 33,435 px, about 8.0 of 42.7 ms; Cistern room 103 floor 107 faces,
+  26,011 px, about 5.3 of 35.5 ms, its ceiling at -7168 95 faces, about 1.5 ms. At about 570 cycles a kept
+  face that is also about 2.7 and 4.0 ms of slave work. Floors elsewhere at other heights stay on VDP1.
+- **What it lacks that VDP1 floors have:** each vertex's light and the moving caustics, so light is baked or
+  per line; a floor hides what VDP1 drew behind it, and a plane under the frame can't, so rooms below the
+  floor would show until those pixels are written colour 0, which gives back part of the saving; VDP2
+  VRAM and cycles for the plane's cells, map and coefficients.
+- **Now:** proven on the Saturn in the lab, 2026-11-04, and on its way into the game: the design is
+  `docs/vdp2-production.md`, the lab's notes `docs/vdp2-lab.md`, branch `vdp2-lab`; the build on branch `vdp2-planes`.
+- **First test on the Saturn, not in Mednafen:** no display read from VDP2 bank B has ever worked on this
+  Saturn (mednafen-vdp2 notes), and new layouts have looked right in Mednafen and broken on the console.
 
 ### 205. Room light falloff is doubled, and in 11 rooms the square overflows
 *Severity: visible Â· Confidence: confirmed (data plus arithmetic) Â· Fix: small
