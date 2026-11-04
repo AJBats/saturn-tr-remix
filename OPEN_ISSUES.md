@@ -469,26 +469,6 @@ CAM-22*
 - The exact worst case isn't worked out: the item data's size goes by each item's kind (`ItemSave`, plus
   `EnemySave` or `LaraSave`), over `level.itemsCount`. Size it from the levels, checked by the packer.
 
-### 267. Open skies and gaps in the rock show the last frame: Lost Valley's hall of mirrors
-*Kind: visible · Size: most of the frame looking up in Lost Valley · Fix: bba39c3, VDP1's vblank erase in this level; the final build's Saturn check to come, then Closed*
-
-- Reported on the Saturn, 2026-11-03: room 56 looking up (`tools/hwtest.sh valley-sky`), and a smaller
-  one at room 27 (`valley-cave`). Retail clears its frame, so what no face covers is black there. We
-  had no clear (fd12447), which is fine in closed rooms.
-- Pixels no command writes, Mednafen, `tools/stepwise.py`: looking up 33,887 (43% of the frame), among the
-  plants 3,100, walking in 2,013, T-rex 1,846, the cave 265 in one triangle.
-- Bake-off, branch `clear-bakeoff` (`../trs_clear`). Saturn, room 51 (41347 3584 32913 8892), list ms, all
-  20 fps: no clear 37.46, quads and a fill 38.37, quads with the black fills in one box 35.67, a polygon over
-  the frame 37.40, vblank erase 34.60, manual erase 34.01 (flickers). The black fills are 3.45 ms there, the strip 0.59,
-  a whole frame 3.39. Ceiling quads (`tools/level_view.py`) were never reviewed: they lost.
-- A first fill round each open room's box (23559a1) was reverted the same day: close to a whole clear looking up.
-- What the erase gives up: a list must end 2.47 ms sooner to be erased. Ending in that gap, it still changes on
-  time and the next list pays 2.80 ms for a whole-frame polygon. Cost and gain elsewhere: issue 271.
-- Asked at vblank-in, the erase smeared on the Saturn with lists ending just before it, and not in Mednafen:
-  the upload that starts as a list ends is suspected of holding the write to VDP1 past the sweep's start, the
-  bench having asked first and started its DMA after. Asked as the list ends, the user saw no smearing:
-  103 erased, 5 late, 0 too late in 5 seconds.
-
 ### 268. A mesh's face near the camera can walk thousands of lines off the frame
 *Kind: speed (VDP1) � Size: 9.97 ms of one list, Mednafen, one face that drew nothing � Fix: to be costed*
 
@@ -3832,6 +3812,28 @@ CAM-9*
 - Now the rooms showing least make way (`renderer/rooms.cpp` roomsMakeWay), their windows filled and
   what stands in them dropped: there, a room of 133 vertices seen through 3 pixels. Holes in
   Mednafen, lists drawn offline over magenta: 6,289 to 5 or fewer.
+
+### 267. Open skies and gaps in the rock show the last frame: Lost Valley's hall of mirrors
+*Closed 2026-11-04: bba39c3*
+
+- Reported on the Saturn, 2026-11-03: room 56 looking up (`tools/hwtest.sh valley-sky`), and a smaller
+  one at room 27 (`valley-cave`). Retail clears its frame, so what no face covers is black there. We
+  had no clear (fd12447), which is fine in closed rooms.
+- Pixels no command writes, Mednafen, `tools/stepwise.py`: looking up 33,887 (43% of the frame), among the
+  plants 3,100, walking in 2,013, T-rex 1,846, the cave 265 in one triangle.
+- Bake-off, branch `clear-bakeoff` (`../trs_clear`). Saturn, room 51 (41347 3584 32913 8892), list ms, all
+  20 fps: no clear 37.46, quads and a fill 38.37, quads with the black fills in one box 35.67, a polygon over
+  the frame 37.40, vblank erase 34.60, manual erase 34.01 (flickers). The black fills are 3.45 ms there, the strip 0.59,
+  a whole frame 3.39. Ceiling quads (`tools/level_view.py`) were never reviewed: they lost.
+- A first fill round each open room's box (23559a1) was reverted the same day: close to a whole clear looking up.
+- What the erase gives up: a list must end 2.47 ms sooner to be erased. Ending in that gap, it still changes on
+  time and the next list pays 2.80 ms for a whole-frame polygon. Cost and gain elsewhere: issue 271.
+- Asked at vblank-in, the erase smeared on the Saturn with lists ending just before it, and not in Mednafen:
+  the upload that starts as a list ends is suspected of holding the write to VDP1 past the sweep's start, the
+  bench having asked first and started its DMA after. Asked as the list ends, the user saw no smearing:
+  103 erased, 5 late, 0 too late in 5 seconds.
+- The final build on the Saturn (a0f11be, valley mouth, on to the T-rex), 2026-11-03: the user saw no smearing or
+  flicker, and nothing missing.
 
 ### 260. The game crashed when Pierre ran off
 *Kind: crash · Fixed · Found by the user, 2026-11-02*
