@@ -118,6 +118,12 @@ class Mednafen:
             os.makedirs(home, exist_ok=True)
             shutil.copy(os.path.join(seed, 'mednafen.cfg'), home)
             shutil.copytree(os.path.join(seed, 'firmware'), os.path.join(home, 'firmware'))
+        lock = os.path.join(home, 'mednafen.lck')
+        try:
+            if os.path.exists(lock):
+                os.remove(lock)
+        except PermissionError:     # the running Mednafen holds it open
+            sys.exit(f'another Mednafen is running on {home}: give this one a different name')
         self.action = os.path.join(self.ipc, 'mednafen_action.txt')
         self.ack_file = os.path.join(self.ipc, 'mednafen_ack.txt')
         for f in (self.action, self.ack_file):
@@ -132,9 +138,14 @@ class Mednafen:
                                          stderr=stderr, env=env)
         deadline = time.time() + 60
         while 'ready' not in self.ack():
-            if self.proc.poll() is not None or time.time() > deadline:
-                with open(stderr_path) as f:
-                    sys.exit(f'Mednafen did not start: {f.read().strip()}')
+            exited = self.proc.poll() is not None
+            if exited or time.time() > deadline:
+                if not exited:      # stuck: it would keep the lock on this name
+                    self.proc.kill()
+                    self.proc.wait()
+                why = f'exited with code {self.proc.returncode}' if exited else 'was not ready in 60 s, stopped it'
+                with open(stderr_path, encoding='utf-8', errors='replace') as f:
+                    sys.exit(f'Mednafen {why}: {f.read().strip()}')
             time.sleep(0.2)
 
     def ack(self):
@@ -184,14 +195,19 @@ class Mednafen:
         return struct.unpack('>I', self.read(address, 4))[0]
 
     def quit(self):
-        try:
-            self.send('quit', 'quit', 5)
-        except SystemExit:
-            pass
-        try:
-            self.proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            print('Mednafen still running after quit', file=sys.stderr)
+        # Only while ours is alive: once it has gone, the automation folder may
+        # be another instance's, and a quit sent there would shut that one down.
+        if self.proc.poll() is None:
+            try:
+                self.send('quit', 'quit', 5)
+            except SystemExit:
+                pass
+            try:
+                self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                # stuck: it would keep the lock on this name
+                self.proc.kill()
+                self.proc.wait()
 
 
 class Memory:
