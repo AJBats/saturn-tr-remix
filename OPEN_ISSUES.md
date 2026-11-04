@@ -3508,7 +3508,7 @@ over 14.6, at most 188 · Fix: medium, parked*
   T-rex: full arms, hands flat plates fused to the forearms. Arm cards on it saved 0.10 ms of CPU and 0.18 of VDP1 against
   full arms, not worth the code to keep their dark band in place. Standing still, Mednafen, less the room (`zoo-rex`,
   `zoo-raptors`, `zoo-dinos-none`), ms a frame, CPU then VDP1: T-rex 3.49 to 3.12, 5.03 to 4.40; a raptor of three 4.31 to
-  3.03, 0.93 to 0.72. Mesh store: LEVEL3A 3.0 KB less, LEVEL3B 2.2 KB. No new code, packer only. Saturn run pending.
+  3.03, 0.93 to 0.72. Mesh store: LEVEL3A 3.0 KB less, LEVEL3B 2.2 KB. No new code, packer only. On the Saturn (`zoo-dinos`, 2026-11-04) the user found they look right; no Saturn trace yet.
 
 ### 257. Creatures that paint nothing cost as much as those that do
 *Kind: speed · Size: 6.9 ms at one spot, Mednafen · Fix: open*
