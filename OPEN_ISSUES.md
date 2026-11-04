@@ -470,23 +470,24 @@ CAM-22*
   `EnemySave` or `LaraSave`), over `level.itemsCount`. Size it from the levels, checked by the packer.
 
 ### 267. Open skies and gaps in the rock show the last frame: Lost Valley's hall of mirrors
-*Kind: visible · Size: most of the frame looking up in Lost Valley · Fix: medium, the approach the user's call*
+*Kind: visible Â· Size: most of the frame looking up in Lost Valley Â· Fix: bba39c3, VDP1's vblank erase in this level; the final build's Saturn check to come, then Closed*
 
-- Tried and taken out, 2026-11-03: one fill round each listed open room's box (23559a1, reverted at the user's
-  call). 0 pixels left unwritten, but looking up it filled 69,344 of the frame's 78,848 pixels, close to a whole
-  clear, and it ran at the Cistern where it isn't needed. The approach is to be talked through first.
 - Reported on the Saturn, 2026-11-03: room 56 looking up (`tools/hwtest.sh valley-sky`), and a smaller
   one at room 27 (`valley-cave`). Retail clears its frame, so what no face covers is black there. We
-  have no clear (fd12447), which is fine in closed rooms: Cistern and the ledge have 0 pixels unwritten.
-- Pixels no command writes, Mednafen, `tools/stepwise.py`: looking up 33,887 (43% of the frame, down to
-  line 170), among the plants 3,100 (down to line 30), walking in 2,013 (line 27), T-rex 1,846, the cave
-  265 in one triangle. Costing nothing, they are what isn't drawn.
-- Whole rooms have no top: LEVEL3A 6, 32, 39, 52, 53, 54, 64, 65, 66 and others. LEVEL5 19, 74, 78 and LEVEL8C 3
-  look the same on a first scan; other levels' counts may be false positives, not checked.
-- **Plan to cost:** rooms flagged open at packing; a rectangle of colour 0 behind everything, over the
-  box of each listed open room's top on the screen. A whole-frame clear is 3.49 ms, so about 0.5 ms among
-  the plants and 2.7 ms looking up, where VDP1 has room. What it lacks: a gap that isn't a room's top, as in the
-  cave's rock, which needs its own patch of colour 0 in the level's data.
+  had no clear (fd12447), which is fine in closed rooms.
+- Pixels no command writes, Mednafen, `tools/stepwise.py`: looking up 33,887 (43% of the frame), among the
+  plants 3,100, walking in 2,013, T-rex 1,846, the cave 265 in one triangle.
+- Bake-off, branch `clear-bakeoff` (`../trs_clear`). Saturn, room 51 (41347 3584 32913 8892), list ms, all
+  20 fps: no clear 37.46, quads and a fill 38.37, quads with the black fills in one box 35.67, a polygon over
+  the frame 37.40, vblank erase 34.60, manual erase 34.01 (flickers). The black fills are 3.45 ms there, the strip 0.59,
+  a whole frame 3.39. Ceiling quads (`tools/level_view.py`) were never reviewed: they lost.
+- A first fill round each open room's box (23559a1) was reverted the same day: close to a whole clear looking up.
+- What the erase gives up: a list must end 2.47 ms sooner to be erased. Ending in that gap, it still changes on
+  time and the next list pays 2.80 ms for a whole-frame polygon. Cost and gain elsewhere: issue 271.
+- Asked at vblank-in, the erase smeared on the Saturn with lists ending just before it, and not in Mednafen:
+  the upload that starts as a list ends is suspected of holding the write to VDP1 past the sweep's start, the
+  bench having asked first and started its DMA after. Asked as the list ends, the user saw no smearing:
+  103 erased, 5 late, 0 too late in 5 seconds.
 
 ### 268. A mesh's face near the camera can walk thousands of lines off the frame
 *Kind: speed (VDP1) · Size: 9.97 ms of one list, Mednafen, one face that drew nothing · Fix: to be costed*
@@ -3559,6 +3560,25 @@ over 14.6, at most 188 Â· Fix: medium, parked*
 - Open: Far 16 against the black test on the Saturn, in Lara's Home and at both spots; the stamps'
   hall of mirrors (the user, turning back to a stamped view): hidden rooms' windows are now
   filled too, to be looked at again.
+
+### 271. Other levels could have the vblank erase; each must pay for its earlier deadline
+*Kind: speed Â· Size: below Â· Fix: small per level, the user's call, each read on the Saturn first*
+
+- Lost Valley alone has it (267). `renderLevelInit` chooses by level; rooms flagged instead would have to choose a
+  list ahead, so walking into an open room could show old pixels for a frame.
+- The rule at the 30 fps line: it gains the black fills F (ms of VDP1), costs the strip 0.59 and the 2.47 ms deadline, so
+  lists right at the line gain F - 3.06. Past the line it helps: a list that misses 30 fps by less than F - 0.59
+  goes from 20 fps to 2 and 3 fields in turn, 24. The slave gains about 5 us a fill.
+- Mednafen (`../trs_clear`, lists read long there), list ms and fps, no clear against the erase: Cistern room 103
+  35.49, 20.00 / 35.20, 23.64 (half the lists late); Cistern water 39.70, 20 / 37.60, 20; Cistern room 99
+  30.17, 30 / 27.68, 30; Cistern steps 31.14, 30 / 32.37, 30 (every list late, a polygon every list); the ledge
+  31.72, 30 / 32.45, 24.24; wolves 28.18 fps / 26.97; Vilcabamba 26.55, 30 / 27.10, 30; the pool 19.72, 30 /
+  20.32, 30. F is about 2.3-3.1 at the Cistern, 0.7 at the ledge, 0 at Vilcabamba and the pool.
+- Open places on a first scan (`tools/levelgaps.py`): LEVEL5 346 sectors, LEVEL8C 289, LEVEL6 76, LEVEL7B 67.
+  The Colosseum and the Sanctuary may need it for their holes, as Lost Valley did.
+- Not measured: cracks. Where seams open, closed rooms show the last frame now, nearly the same picture, and
+  would show black. Stills of Cistern room 103 and the water differ by about 30 pixels that way.
+- If every level had it, the fills' code could go: the walk's, `.Lvoid` in two files, `faceVoid`, about 150 lines.
 
 ---
 
