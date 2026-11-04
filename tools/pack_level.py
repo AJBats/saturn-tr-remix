@@ -245,6 +245,69 @@ def texture_average(pixels, colors, transparent, end_codes=False):
     return 0x8000 | ((b // n) << 10) | ((g // n) << 5) | (r // n)
 
 
+def take_water(lvl):
+    """Water's sparkle quads out of the rooms, with the vertices only they used: flat, a sector each, of
+    an animated texture mostly empty. Left in each room as room.water, for the shimmers."""
+    sub = whole_textures(lvl)
+    animated = set()
+    for first, last in lvl.anim_ranges:
+        animated.update(range(first, last + 1))
+    sparse = set()
+    for i in animated:
+        t = lvl.room_textures[i]
+        pix = t["sub"][0] * 8
+        if empty_share(bytes(sub[pix:pix + t["w"] * t["h"] * 2])) >= SPARSE_EMPTY:
+            sparse.add(i)
+    quads_out = vertices_out = runs_out = 0
+    for room in lvl.rooms:
+        cells = {}      # (y, up) -> {(z, x): shade}
+        kept = []
+        for q in room.quads:
+            vs = [room.vertices[i] for i in q[:4]]
+            xs, ys, zs = [v[0] for v in vs], [v[1] for v in vs], [v[2] for v in vs]
+            square = max(xs) - min(xs) == 1024 and max(zs) - min(zs) == 1024 and not min(xs) % 1024 and not min(zs) % 1024
+            if q[4] not in sparse or len(set(ys)) != 1 or not square:
+                kept.append(q)
+                continue
+            ax, az = vs[1][0] - vs[0][0], vs[1][2] - vs[0][2]
+            bx, bz = vs[2][0] - vs[0][0], vs[2][2] - vs[0][2]
+            up = 1 if ax * bz - az * bx < 0 else 0
+            shade = sum(shade_from_color16(v[3]) for v in vs) // 4
+            cells.setdefault((ys[0], up), {})[(min(zs) >> 10, min(xs) >> 10)] = shade
+        if not cells:
+            continue
+        quads_out += len(room.quads) - len(kept)
+        all_ys = [v[1] for v in room.vertices]
+        room.water_ys = (min(all_ys), max(all_ys))
+        room.quads = kept
+        room.water = []
+        for (y, up), sheet in sorted(cells.items()):
+            runs = []
+            for (z, x), shade in sorted(sheet.items()):
+                if runs and runs[-1][0] == z and runs[-1][1] + runs[-1][2] == x and abs(runs[-1][3] - shade) <= 1:
+                    runs[-1][2] += 1
+                else:
+                    runs.append([z, x, 1, shade])
+            room.water.append((y, up, runs))
+            runs_out += len(runs)
+        used = set()
+        for q in room.quads:
+            used.update(q[:4])
+        for t in room.triangles:
+            used.update(t[:3])
+        for vertex, _ in room.sprites:
+            used.add(vertex)
+        order = [i for i in range(len(room.vertices)) if i in used]
+        renumber = {old: new for new, old in enumerate(order)}
+        vertices_out += len(room.vertices) - len(order)
+        room.vertices = [room.vertices[i] for i in order]
+        room.quads = [(*[renumber[v] for v in q[:4]], q[4], q[5]) for q in room.quads]
+        room.triangles = [(*[renumber[v] for v in t[:3]], t[3]) for t in room.triangles]
+        room.sprites = [(renumber[vertex], tex) for vertex, tex in room.sprites]
+    if quads_out:
+        print(f"{lvl.name}: water textures {sorted(sparse)}: {quads_out} quads, {vertices_out} vertices out, {runs_out} runs of sectors")
+
+
 def empty_share(pixels):
     """The share of 4-bit pixels that are colour 0."""
     return sum((byte >> 4 == 0) + (byte & 15 == 0) for byte in pixels) / (2 * len(pixels))
@@ -631,7 +694,7 @@ class Packer:
         for room in lvl.rooms:
             if room.x % 256 or room.z % 256:
                 raise ValueError(f"room {room.index}: origin not on a 256 grid")
-            ys = [v[1] for v in room.vertices]
+            ys = [v[1] for v in room.vertices] + list(getattr(room, "water_ys", ()))
             y_top = min(ys) if ys else room.y_top
             y_bottom = max(ys) if ys else room.y_bottom
             packed = [(x >> 8, (y - y_top) >> 8, z >> 8) for x, y, z, _ in room.vertices]
@@ -663,6 +726,15 @@ class Packer:
             for vertex, tex in room.sprites:
                 x, y, z, color = room.vertices[vertex]
                 out.pack("3h2B", x, y, z, shade_from_color16(color) * 8, tex)
+
+            # its water, right after its sprites (faces.h facesShimmers): sheets at a height, seen from
+            # above or below, each a list of runs of sectors along x
+            sheets = getattr(room, "water", [])
+            out.pack("H", len(sheets))
+            for y, up, runs in sheets:
+                out.pack("hBB", y, up, len(runs))
+                for z, x0, count, shade in runs:
+                    out.pack("4B", z, x0, count, shade)
 
             portals = out.align4()
             for p_room, normal, verts in room.portals:
@@ -1380,6 +1452,8 @@ def main():
                       "end" in triggered)
     plan = planepack.plan_for(name)
     plane_tiles = planepack.take_faces(lvl, plan) if plan else None
+    if os.environ.get("SHIMMERS") != "0":
+        take_water(lvl)
     sounds = sfx.Sfx(lvl, load_ps1(sys.argv[4] if len(sys.argv) > 4 else None, name))
     packer = Packer(lvl, sounds, os.environ.get("OBJECT_ART") == "1")
     data = packer.pack()

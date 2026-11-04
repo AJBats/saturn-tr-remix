@@ -97,6 +97,7 @@ void roomsInit(const RoomsLevel &level);
 // The tables roomsInit was given, for the frame's faces.
 const RoomLevel* roomsLevelTable();
 const void* roomsPortalTable();
+const RoomGeometry* roomsGeometryTable();
 
 // The frame's view: the camera, the view's matrix (12 int32, no translation),
 // the viewport (x0 y0 x1 y1), the camera's room.

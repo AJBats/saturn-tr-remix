@@ -121,6 +121,11 @@ const void* roomsPortalTable()
 {
     return gCtx.portals;
 }
+
+const RoomGeometry* roomsGeometryTable()
+{
+    return gCtx.geometry;
+}
 #endif
 
 void roomsTiny(int32_t pixels)

@@ -58,6 +58,8 @@ void renderTexels(int32 lod);
 
 // What lies wholly behind the level's solid boxes left out (renderer/rooms.h roomsSolidBoxes).
 void renderBoxes(bool on);
+// Water's shimmers: one lit for so many pixels of water on the frame; 0 none.
+void renderShimmers(int32 oneIn);
 // Rooms under a floor on VDP2 kept to the floor's openings (renderer/faces.h).
 void renderUnderFloor(bool on);
 

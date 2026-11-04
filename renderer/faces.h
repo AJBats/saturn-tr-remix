@@ -287,6 +287,17 @@ void facesRoom(const FaceRoom &room, RoomRun &run);
 // frame, as the rows they cover in each of its columns, and keeps those commands to them: a face
 // that misses them is left out, one partly in them is drawn clipped to those rows.
 #define FACES_NO_FLOOR  0x7FFFFFFF
+
+// Water's sparkle as a few flat shimmers. The level has no quads for it: a room's table (RoomGeometry.water)
+// says where its water lies: int16 sheets, each int16 y, uint8 seen from above, uint8 runs, each a run of
+// sectors in the room: uint8 z, x, count, shade. Each sector in view that's owed some by its size on the
+// frame places them, stuck to the water, flat on the frame, at the sector's depth; the far ones a pixel or a
+// line, the near a piece of art, in half tones as they come and go. A frame's count follows the water's
+// area on the frame, whatever the sectors'.
+#define SHIMMER_VRAM_BYTES  1024
+void facesShimmersInit(uint32_t vram);  // their art and colour tables go here in VDP1 VRAM; 0, lines alone
+void facesShimmersDensity(int32_t oneIn);
+void facesShimmers(const FaceRoom &room, const uint8_t* water, int32_t yTop, RoomRun &run);
 void facesFloorSet(int32_t y);          // the level's floor, or FACES_NO_FLOOR
 void facesFloorKeep(bool on);           // the menu's
 void facesFloorBegin();

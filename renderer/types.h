@@ -330,7 +330,7 @@ struct RoomGeometry
     uint32_t quads, triangles, points;  // offsets in RGEO; NO_GEOMETRY: none in the scene
     uint16_t quadsCount, trianglesCount;
     uint16_t facing[6];     // RoomInfo.facing
-    uint32_t pad;
+    uint32_t water;         // where its water lies (faces.h facesShimmers), 0 none
 };
 
 #define NO_GEOMETRY     0xFFFFFFFF

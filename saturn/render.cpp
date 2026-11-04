@@ -500,7 +500,8 @@ static void roomTables()
         for (int32 k = 0; k < 6; k++) {
             g.facing[k] = info->facing[k];
         }
-        g.pad = 0;
+        const uint16* water = (const uint16*)(room.data.sprites + info->spritesCount);
+        g.water = *water ? uint32(water) : 0;
     }
 }
 
@@ -537,6 +538,11 @@ void renderTiny(int32 pixels)
 {
     gTiny = pixels;
     render::roomsTiny(pixels);
+}
+
+void renderShimmers(int32 oneIn)
+{
+    render::facesShimmersDensity(oneIn);
 }
 
 void renderBoxes(bool on)
@@ -645,6 +651,8 @@ void renderLevelInit()
     render::facesFloorSet(planeFloorY());
     vdp1EraseFrames(gSceneSwept);
     *uncached(&render::gFacesVoidWay) = gSceneSwept ? render::FACE_VOIDS_NONE : render::FACE_VOIDS_BOXED;
+
+    render::facesShimmersInit(detailSpareBytes() >= SHIMMER_VRAM_BYTES ? detailReserveTop(SHIMMER_VRAM_BYTES) : 0);
 
     // the shaded copies, at the top of the cache, if it can spare them
     uint32 shadeBytes = 2 * 256 * SHADE_TABLE_SIZE;

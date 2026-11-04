@@ -467,6 +467,9 @@ static void slaveRooms(void*)
         facesRoom(gFrameRooms[i], gRoomRun);
 #ifndef RENDER_LAB
         facesFloorRoom(gFrameRooms[i], roomsLevelTable(), slot, facesSlot(gRoomList.link));
+        if (const uint32_t water = roomsGeometryTable()[gFrameRooms[i].room].water) {
+            facesShimmers(gFrameRooms[i], (const uint8_t*)water, roomsLevelTable()[gFrameRooms[i].room].yTop, gRoomRun);
+        }
 #endif
 #ifdef HW_LOG
         gRoomSlots[i][1] = facesSlot(gRoomList.link);
