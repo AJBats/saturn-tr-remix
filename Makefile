@@ -107,9 +107,10 @@ DSP_HEADERS := $(patsubst saturn/%.dsp,$(BUILD)/gen/%_dsp.h,$(wildcard saturn/*.
 # The sound CPU's programs, assembled into headers (tools/m68kasm.py):
 # saturn/NAME.68k to NAME_m68k.h holding NAME_m68k[]
 M68K_HEADERS := $(patsubst saturn/%.68k,$(BUILD)/gen/%_m68k.h,$(wildcard saturn/*.68k))
-# draw order hints (tools/depth_hints.py): saturn/depth_hints.txt
+# draw order hints (tools/depth_hints.py): saturn/depth_hints.txt; solid boxes
+# (tools/occluders.py): saturn/occluders.txt
 HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h renderer/*.h) $(DSP_HEADERS) $(M68K_HEADERS) \
-	$(BUILD)/gen/depth_hints.h $(FLAGS_FILE)
+	$(BUILD)/gen/depth_hints.h $(BUILD)/gen/occluders.h $(FLAGS_FILE)
 
 .PHONY: all disc levels dspbench vdp1bench lab extract ghidra check-toolchain
 
@@ -151,6 +152,10 @@ $(BUILD)/gen/%_m68k.h: saturn/%.68k tools/m68kasm.py
 $(BUILD)/gen/depth_hints.h: saturn/depth_hints.txt tools/depth_hints.py
 	@mkdir -p $(@D)
 	$(PY) tools/depth_hints.py $< $@
+
+$(BUILD)/gen/occluders.h: saturn/occluders.txt tools/occluders.py
+	@mkdir -p $(@D)
+	$(PY) tools/occluders.py $< $@
 
 %/0MAIN.BIN: %/0MAIN.elf
 	$(OBJCOPY) -O binary $< $@

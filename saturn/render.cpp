@@ -402,6 +402,17 @@ enum DepthHintKind { DEPTH_HINT_ITEM, DEPTH_HINT_STATIC };
 #define MAX_LEVEL_HINTS 32
 static DepthHint gLevelHints[MAX_LEVEL_HINTS];
 
+// The solid boxes (saturn/occluders.txt), the level's.
+struct Occluder
+{
+    uint8 level;
+    render::SolidBox box;
+};
+#include "occluders.h"
+
+#define MAX_LEVEL_BOXES 32
+static render::SolidBox gLevelBoxes[MAX_LEVEL_BOXES];
+
 // The walk's and the pose's tables of the level's rooms, in high work RAM:
 // each room as the walk reads it, the portals and lights gathered (each
 // room's from its first), each room's geometry (its faces' and vertices'
@@ -523,6 +534,11 @@ void renderTiny(int32 pixels)
 {
     gTiny = pixels;
     render::roomsTiny(pixels);
+}
+
+void renderBoxes(bool on)
+{
+    render::roomsBoxesOn(on);
 }
 
 void renderBlack(int32 mode)
@@ -723,6 +739,15 @@ void renderLevelInit()
         }
     }
     render::hintsInit(gLevelHints, hints);
+
+    uint32 boxes = 0;
+    for (uint32 i = 0; i < sizeof(gOccluders) / sizeof(gOccluders[0]) && boxes < MAX_LEVEL_BOXES; i++)
+    {
+        if (gOccluders[i].level == gLevelID) {
+            gLevelBoxes[boxes++] = gOccluders[i].box;
+        }
+    }
+    render::roomsSolidBoxes(gLevelBoxes, boxes);
 
     // the room textures: those the rooms' faces take
     uint32 roomTextures = 0;

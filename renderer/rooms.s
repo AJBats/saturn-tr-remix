@@ -44,7 +44,12 @@
 ! the room it was seen from, the portal it was seen by), +148 their count
 ! (all of them: ROOM_ENTRIES kept); +152 where the vertices stop; +156 by room,
 ! hidden; +160 by room, seen nearer than where it is all at the fog's floor;
-! +164 windows under so many pixels aren't entered (rooms.h roomsTiny).
+! +164 windows under so many pixels aren't entered (rooms.h roomsTiny); +168 the
+! solid boxes on the frame (BoxSeen), +172 their count.
+!
+! A portal whose window lies in a box's rectangle and whose corners are all past
+! the box's sides that face the camera isn't entered: whatever is seen through it
+! is behind the box.
 !
 ! A point seen through a portal is no nearer than the portal's nearest corner,
 ! so a room seen by no portal with a corner nearer than RoomLevel.black shows
@@ -84,6 +89,15 @@
     .equ    R_HIDDEN,       156
     .equ    R_SEEN_NEAR,    160
     .equ    R_TINY,         164
+    .equ    R_BOXES,        168
+    .equ    R_BOX_COUNT,    172
+    .equ    R_SOLID,        176
+    .equ    R_SOLID_COUNT,  180
+    .equ    BOX,            40      ! BoxSeen
+    .equ    BOX_NEAR,       8
+    .equ    BOX_LO,         12
+    .equ    BOX_HI,         24
+    .equ    BOX_AREA,       36
     .equ    TINY_UNFILLED,  16      ! a window under these pixels isn't even filled
     .equ    ROOM_ENTRIES,   128
     .equ    ROOM_FILLS,     64
@@ -101,6 +115,16 @@
 
     .text
     .align  2
+
+! r12 r13 r14 (roomsBoxesAsm) on along axis k, side to side (op add), or back (sub); r0
+    .macro  BOX_STEP op, k
+    mov.l   @(B_DELTA+0*12+\k*4,r15), r0
+    \op     r0, r12
+    mov.l   @(B_DELTA+1*12+\k*4,r15), r0
+    \op     r0, r13
+    mov.l   @(B_DELTA+2*12+\k*4,r15), r0
+    \op     r0, r14
+    .endm
 
 ! The checks' frame: the corners' view places (x y z each) from +0, the
 ! window x0 y0 x1 y1 from +48.
@@ -442,7 +466,9 @@
     mov.l   r0, @(\f,r15)
     .endr
     tst     r10, r10
-    bf      .Ledges
+    bt      .Lnoedges
+    bra     .Ledges
+    nop
     ! cut to the room's window; empty, or the next room's grown to it
 .Lnoedges:
     mov.l   @(R_CLIP,gbr), r0
@@ -476,8 +502,15 @@
     nop
 19: cmp/gt  r2, r4
     bf      20b
+    mov.l   @(R_BOX_COUNT,gbr), r0
+    tst     r0, r0
+    bt      24f
+    tst     r10, r10
+    bf      24f
+    bra     .Lboxes
+    nop
     ! too small to matter: nothing behind it, its window filled if it's worth it
-    mov.l   @(R_TINY,gbr), r0
+24: mov.l   @(R_TINY,gbr), r0
     tst     r0, r0
     bt      21f
     tst     r10, r10
@@ -603,6 +636,81 @@
     EDGE    2, 1
     EDGE    3, 2
     bra     .Lnoedges
+    nop
+
+    ! the window r1 r2 r3 r4 of the portal at r9, no corner behind the camera:
+    ! behind a box it isn't entered, else on as it was; r0, r5, r6, r7
+.Lboxes:
+    mov.l   @(R_BOXES,gbr), r0
+    mov     r0, r5
+    mov.l   @(R_BOX_COUNT,gbr), r0
+    mov     r0, r6
+1:  mov.w   @r5, r0                 ! in its rectangle
+    cmp/gt  r1, r0
+    bt      4f
+    mov.w   @(4,r5), r0
+    cmp/gt  r0, r3
+    bt      4f
+    mov.w   @(2,r5), r0
+    cmp/gt  r2, r0
+    bt      4f
+    mov.w   @(6,r5), r0
+    cmp/gt  r0, r4
+    bf      5f
+4:  dt      r6
+    bf/s    1b
+    add     #BOX, r5
+    bra     24b
+    nop
+    ! the room's origin from the camera in r1 r2 r3
+5:
+    mov.l   r1, @-r15
+    mov.l   r2, @-r15
+    mov.l   r3, @-r15
+    mov     r8, r7
+    shll2   r7
+    shll2   r7
+    mov.l   @(R_LEVEL,gbr), r0
+    add     r0, r7
+    mov.w   @(L_X,r7), r0
+    shll8   r0
+    mov     r0, r1
+    mov.l   @(R_CAMERA,gbr), r0
+    sub     r0, r1
+    mov.l   @(R_CAMERA+4,gbr), r0
+    neg     r0, r2
+    mov.w   @(L_Z,r7), r0
+    shll8   r0
+    mov     r0, r3
+    mov.l   @(R_CAMERA+8,gbr), r0
+    sub     r0, r3
+    ! each corner past the box's sides that face the camera
+    .irp    c, 0, 1, 2, 3
+    .irp    k, 0, 1, 2
+    mov.w   @(P_CORNERS+6*\c+2*\k,r9), r0
+    .if \k == 0
+    add     r1, r0
+    .elseif \k == 1
+    add     r2, r0
+    .else
+    add     r3, r0
+    .endif
+    mov     r0, r7
+    mov.l   @(BOX_LO+4*\k,r5), r0
+    cmp/gt  r0, r7
+    bf      3f
+    mov.l   @(BOX_HI+4*\k,r5), r0
+    cmp/gt  r7, r0
+    bf      3f
+    .endr
+    .endr
+    add     #12, r15
+    bra     .Lnot
+    nop
+3:  mov.l   @r15+, r3
+    mov.l   @r15+, r2
+    mov.l   @r15+, r1
+    bra     4b
     nop
 
 
@@ -902,6 +1010,525 @@ _roomsSeenAsm:
     mov.l   @r15+, r9
     rts
     mov.l   @r15+, r8
+
+    .ifndef RENDER_LAB              ! the lab has none, and no room
+! void roomsBoxesAsm(RoomsContext* ctx)
+!
+! The level's solid boxes (SolidBox) on the frame (BoxSeen, the biggest BOXES_SEEN): for each
+! in front of the camera and short of the far plane all over, a rectangle wholly inside its
+! outline. Two opposite sides, one wholly above the other on the frame: over the x both cover,
+! every point between them lies on a line from one to the other, so inside the outline; or
+! the same across. Top and bottom first, as most boxes stand; failing that the biggest of the
+! rest, which is how a flat one is seen.
+
+    .equ    SOLID,          28
+    .equ    SOLID_SIDE,     24
+    .equ    BOXES_SEEN,     6
+    .equ    BOX_REACH,      1       ! << 16: further along an axis isn't looked at, the products fit
+    .equ    BOX_NEAR_Z,     128     ! a corner nearer: its projection isn't the box's outline
+    .equ    BOX_LEAST,      24      ! a rectangle narrower or lower on the frame isn't worth its test
+    .equ    BOX_AREA_LEAST, 2000    ! ... or with fewer pixels on it: too little lies wholly inside
+    .equ    BOX_COORD,      1022    ! a rectangle's reach, inside what a vertex is clamped to
+
+    ! the frame: at r15 each box's sides from the camera (k * 8 + side * 4), what a row of the
+    ! view adds along each axis, side to side (row * 12 + k * 4); at r11 the corners on the
+    ! frame, x by corner * 4, y 32 on; at r10 the best rectangle, the nearest depth, two
+    ! sides' ranges
+    .equ    B_D,            0
+    .equ    B_DELTA,        24
+    .equ    B_X0,           0
+    .equ    B_Y0,           4
+    .equ    B_X1,           8
+    .equ    B_Y1,           12
+    .equ    B_AREA,         16
+    .equ    B_NEAR,         20
+    .equ    B_A,            24      ! x0 x1 y0 y1
+    .equ    B_B,            40
+
+    .align  2
+    ! the corner by r12 r13 r14, its view place << 14, to the frame's corner r6 (by 4); r0 .. r5
+.LboxCorner:
+    mov     r14, r3
+    shlr16  r3
+    shlr2   r3
+    shll    r3
+    mov.l   @(R_DIV,gbr), r0
+    add     r0, r3
+    mov.w   @r3, r3
+    extu.w  r3, r3                  ! the divide table's
+    mov.l   @(R_K18,gbr), r0
+    mov     r0, r4
+    mov.l   @(R_K20,gbr), r0
+    mov     r0, r5
+    dmuls.l r12, r4
+    sts     mach, r1
+    mul.l   r3, r1
+    sts     macl, r1
+    dmuls.l r1, r5
+    sts     mach, r1
+    mov     #88, r0
+    shll    r0
+    add     r0, r1
+    mov     r6, r0
+    mov.l   r1, @(r0,r11)
+    dmuls.l r13, r4
+    sts     mach, r1
+    mul.l   r3, r1
+    sts     macl, r1
+    dmuls.l r1, r5
+    sts     mach, r1
+    mov     #112, r0
+    add     r0, r1
+    mov     r6, r0
+    add     #32, r0
+    rts
+    mov.l   r1, @(r0,r11)
+
+    ! the range of the 4 corners listed at r4 into the 4 words at r5; r0 .. r3, r6, r7, r12, r13, r14
+.LboxSide:
+    mov.b   @r4+, r0
+    mov.l   @(r0,r11), r1           ! x: least
+    mov     r1, r2                  ! ... most
+    add     #32, r0
+    mov.l   @(r0,r11), r3           ! y: least
+    mov     r3, r7                  ! ... most
+    mov     #3, r14
+1:  mov.b   @r4+, r0
+    mov.l   @(r0,r11), r12
+    add     #32, r0
+    mov.l   @(r0,r11), r13
+    cmp/gt  r12, r1
+    bf      2f
+    mov     r12, r1
+2:  cmp/gt  r2, r12
+    bf      3f
+    mov     r12, r2
+3:  cmp/gt  r13, r3
+    bf      4f
+    mov     r13, r3
+4:  cmp/gt  r7, r13
+    bf      5f
+    mov     r13, r7
+5:  dt      r14
+    bf      1b
+    mov.l   r1, @r5
+    mov.l   r2, @(4,r5)
+    mov.l   r3, @(8,r5)
+    rts
+    mov.l   r7, @(12,r5)
+
+    ! rectangle r1 r2 to r3 r4 kept if it shows more of the frame than the best; r0, r5, r6, r7
+.LboxTry:
+    mov     r1, r5
+    cmp/pz  r5
+    bt      1f
+    mov     #0, r5
+1:  mov     #88, r0
+    shll2   r0                      ! FRAME_WIDTH
+    mov     r3, r6
+    cmp/gt  r0, r6
+    bf      2f
+    mov     r0, r6
+2:  sub     r5, r6                  ! its width on the frame
+    mov     #BOX_LEAST, r0
+    cmp/ge  r0, r6
+    bf      9f
+    mov     r2, r5
+    cmp/pz  r5
+    bt      3f
+    mov     #0, r5
+3:  mov     #112, r0
+    shll    r0                      ! FRAME_HEIGHT
+    mov     r4, r7
+    cmp/gt  r0, r7
+    bf      4f
+    mov     r0, r7
+4:  sub     r5, r7                  ! its height
+    mov     #BOX_LEAST, r0
+    cmp/ge  r0, r7
+    bf      9f
+    mulu.w  r6, r7
+    mov.l   @(B_AREA,r10), r0
+    sts     macl, r5
+    cmp/gt  r0, r5
+    bf      9f
+    mov.l   r5, @(B_AREA,r10)
+    mov.l   r1, @(B_X0,r10)
+    mov.l   r2, @(B_Y0,r10)
+    mov.l   r3, @(B_X1,r10)
+    mov.l   r4, @(B_Y1,r10)
+9:  rts
+    nop
+
+    ! r low of a and b's at their offsets; r0
+    .macro  BOX_MOST r, a, b
+    mov.l   @(\a,r10), \r
+    mov.l   @(\b,r10), r0
+    cmp/gt  \r, r0
+    bf      1f
+    mov     r0, \r
+1:
+    .endm
+
+    .macro  BOX_LEAST_OF r, a, b
+    mov.l   @(\a,r10), \r
+    mov.l   @(\b,r10), r0
+    cmp/gt  r0, \r
+    bf      1f
+    mov     r0, \r
+1:
+    .endm
+
+    ! side at offset a (x0 x1 y0 y1) wholly above that at b, or wholly left of it: a rectangle
+    .macro  BOX_APART a, b
+    mov.l   @(\a+12,r10), r2
+    mov.l   @(\b+8,r10), r4
+    cmp/ge  r4, r2
+    bt      7f
+    BOX_MOST r1, \a, \b
+    BOX_LEAST_OF r3, \a+4, \b+4
+    bsr     .LboxTry
+    nop
+7:  mov.l   @(\a+4,r10), r1
+    mov.l   @(\b,r10), r3
+    cmp/ge  r3, r1
+    bt      8f
+    BOX_MOST r2, \a+8, \b+8
+    BOX_LEAST_OF r4, \a+12, \b+12
+    bsr     .LboxTry
+    nop
+8:
+    .endm
+
+    ! the two sides listed at r4, 8 corners by 4 each; r0 .. r7, r12, r13, r14
+.LboxPair:
+    sts.l   pr, @-r15
+    mov     r10, r5
+    bsr     .LboxSide
+    add     #B_A, r5
+    mov     r10, r5
+    bsr     .LboxSide
+    add     #B_B, r5
+    BOX_APART B_A, B_B
+    BOX_APART B_B, B_A
+    lds.l   @r15+, pr
+    rts
+    nop
+
+    .align  2
+    .global _roomsBoxesAsm
+_roomsBoxesAsm:
+    mov.l   r8, @-r15
+    mov.l   r9, @-r15
+    mov.l   r10, @-r15
+    mov.l   r11, @-r15
+    mov.l   r12, @-r15
+    mov.l   r13, @-r15
+    mov.l   r14, @-r15
+    sts.l   pr, @-r15
+    stc.l   gbr, @-r15
+    add     #-120, r15
+    add     #-64, r15
+    ldc     r4, gbr
+    mov     r15, r11
+    add     #64, r11
+    mov     r15, r10
+    add     #127, r10
+    add     #1, r10
+    mov     #0, r0
+    mov.l   r0, @(R_BOX_COUNT,gbr)
+    mov.l   @(R_SOLID,gbr), r0
+    mov     r0, r8
+    mov.l   @(R_SOLID_COUNT,gbr), r0
+    tst     r0, r0
+    bf/s    .LboxOne
+    mov     r0, r9
+    bra     .LboxesDone
+    nop
+
+.LboxNext:
+    dt      r9
+    bf/s    .LboxOne
+    add     #SOLID, r8
+    bra     .LboxesDone
+    nop
+
+    ! from the camera; it, or too far along an axis: not looked at
+.LboxOne:
+    mov     #0, r4                  ! axes the camera lies within
+    mov     #BOX_REACH, r5
+    shll16  r5                      ! the reach
+    neg     r5, r6
+    .irp    k, 0, 1, 2
+    mov.l   @(\k*4,r8), r1
+    mov.l   @(R_CAMERA+\k*4,gbr), r0
+    sub     r0, r1
+    mov.l   r1, @(B_D+\k*8,r15)
+    mov.l   @(12+\k*4,r8), r2
+    sub     r0, r2
+    mov.l   r2, @(B_D+\k*8+4,r15)
+    cmp/gt  r6, r1
+    bf      .LboxNext
+    cmp/gt  r2, r5
+    bf      .LboxNext
+    cmp/pl  r1
+    bt      1f
+    cmp/pz  r2
+    bf      1f
+    add     #1, r4
+1:
+    .endr
+    mov     r4, r0
+    cmp/eq  #3, r0
+    bt      .LboxNext
+    ! a flat one from its side
+    mov.l   @(SOLID_SIDE,r8), r0
+    tst     r0, r0
+    bt      .LboxSolid
+    mov     r0, r1
+    cmp/pz  r1
+    bt      2f
+    neg     r0, r0
+2:  add     #-1, r0
+    shll2   r0
+    shll    r0
+    mov.l   @(r0,r15), r2           ! its plane from the camera
+    cmp/pz  r1
+    bf      3f
+    neg     r2, r2
+3:  cmp/pl  r2
+    bf      .LboxNext
+.LboxSolid:
+    ! the depth at its low corner, the most and least its axes can take that to: all in view
+    mov.l   @(R_VIEW,gbr), r0
+    mov     r0, r7                  ! the view, row 2 at +32
+    mov     #0, r14                 ! at the low corner
+    mov     #0, r12                 ! less, along the axes
+    mov     #0, r13                 ! more
+    .irp    k, 0, 1, 2
+    mov     #32+\k*4, r0
+    mov.l   @(r0,r7), r1
+    mov.l   @(B_D+\k*8,r15), r2
+    mul.l   r1, r2
+    mov.l   @(B_D+\k*8+4,r15), r3
+    sts     macl, r4
+    add     r4, r14
+    sub     r2, r3
+    mul.l   r1, r3
+    sts     macl, r3
+    mov.l   r3, @(B_DELTA+2*12+\k*4,r15)
+    cmp/pl  r3
+    bt      1f
+    bra     2f
+    add     r3, r12
+1:  add     r3, r13
+2:
+    .endr
+    add     r14, r12
+    mov     #BOX_NEAR_Z, r0
+    extu.b  r0, r0
+    shll8   r0
+    shll2   r0
+    shll2   r0
+    shll2   r0                      ! << 14
+    cmp/ge  r0, r12
+    bt      1f
+    bra     .LboxNext
+    nop
+1:  add     r14, r13
+    mov.l   @(R_VIEW_MAX,gbr), r0
+    cmp/gt  r13, r0
+    bt      2f
+    bra     .LboxNext
+    nop
+2:
+    mov.l   @(R_K18,gbr), r0
+    dmuls.l r12, r0
+    sts     mach, r0
+    mov.l   r0, @(B_NEAR,r10)
+    ! the other rows at the low corner and along the axes
+    mov     #0, r12
+    mov     #0, r13
+    .irp    k, 0, 1, 2
+    mov.l   @(\k*4,r7), r1
+    mov.l   @(B_D+\k*8,r15), r2
+    mul.l   r1, r2
+    mov.l   @(B_D+\k*8+4,r15), r3
+    sts     macl, r4
+    add     r4, r12
+    sub     r2, r3
+    mul.l   r1, r3
+    sts     macl, r4
+    mov.l   r4, @(B_DELTA+0*12+\k*4,r15)
+    mov     r7, r0
+    add     #16, r0
+    mov.l   @(\k*4,r0), r1
+    mul.l   r1, r2
+    sts     macl, r4
+    add     r4, r13
+    mul.l   r1, r3
+    sts     macl, r4
+    mov.l   r4, @(B_DELTA+1*12+\k*4,r15)
+    .endr
+    ! the corners, one axis on at a time
+    mov     #0, r6
+    bsr     .LboxCorner
+    nop
+    .irp    step, 0x01, 0x03, 0x02, 0x06, 0x07, 0x05, 0x04
+    .if \step == 0x01
+    BOX_STEP add, 0
+    .elseif \step == 0x03
+    BOX_STEP add, 1
+    .elseif \step == 0x02
+    BOX_STEP sub, 0
+    .elseif \step == 0x06
+    BOX_STEP add, 2
+    .elseif \step == 0x07
+    BOX_STEP add, 0
+    .elseif \step == 0x05
+    BOX_STEP sub, 1
+    .else
+    BOX_STEP sub, 0
+    .endif
+    mov     #\step*4, r6
+    bsr     .LboxCorner
+    nop
+    .endr
+    ! its rectangle
+    mov.w   .LboxAreaLeast, r0
+    mov.l   r0, @(B_AREA,r10)
+    mova    .LboxSidesY, r0
+    bsr     .LboxPair
+    mov     r0, r4
+    mov.l   @(B_AREA,r10), r0
+    mov.w   .LboxAreaLeast, r1
+    cmp/eq  r1, r0
+    bf      .LboxFound
+    mova    .LboxSidesZ, r0
+    bsr     .LboxPair
+    mov     r0, r4
+    mova    .LboxSidesX, r0
+    bsr     .LboxPair
+    mov     r0, r4
+    mov.l   @(B_AREA,r10), r0
+    mov.w   .LboxAreaLeast, r1
+    cmp/eq  r1, r0
+    bf      .LboxFound
+.LboxNextFar:
+    bra     .LboxNext
+    nop
+
+    ! its place in the list, the smallest's when that's full, unless it's smaller
+.LboxFound:
+    mov     r0, r5                  ! its area
+    mov.l   @(R_BOXES,gbr), r0
+    mov     r0, r3                  ! the list
+    mov.l   @(R_BOX_COUNT,gbr), r0
+    mov     r0, r2
+    cmp/eq  #BOXES_SEEN, r0
+    bt      1f
+    add     #1, r0
+    mov.l   r0, @(R_BOX_COUNT,gbr)
+    mov     #BOX, r0
+    mulu.w  r0, r2
+    sts     macl, r0
+    bra     .LboxPlace
+    add     r0, r3
+1:  mov     r3, r6                  ! the smallest so far
+    mov.l   @(BOX_AREA,r6), r7
+    mov     #BOXES_SEEN-1, r2
+2:  add     #BOX, r3
+    mov.l   @(BOX_AREA,r3), r1
+    cmp/gt  r1, r7
+    bf      3f
+    mov     r1, r7
+    mov     r3, r6
+3:  dt      r2
+    bf      2b
+    mov     r6, r3
+    cmp/gt  r7, r5
+    bf      .LboxNextFar
+.LboxPlace:                         ! r3 its place, r5 its area; a pixel in from each edge
+    mov.l   r5, @(BOX_AREA,r3)
+    mov.w   .LboxCoord, r4          ! the most
+    neg     r4, r5                  ! the least
+    .irp    k, 0, 2
+    mov.l   @(B_X0+\k*2,r10), r1
+    add     #1, r1
+    cmp/gt  r5, r1
+    bt      1f
+    mov     r5, r1
+1:  mov     r1, r0
+    mov.w   r0, @(\k,r3)
+    mov.l   @(B_X1+\k*2,r10), r1
+    add     #-1, r1
+    cmp/gt  r4, r1
+    bf      2f
+    mov     r4, r1
+2:  mov     r1, r0
+    mov.w   r0, @(4+\k,r3)
+    .endr
+    mov.l   @(B_NEAR,r10), r0
+    mov.l   r0, @(BOX_NEAR,r3)
+    ! past its sides that face the camera: a flat one's plane alone
+    mov.l   @(SOLID_SIDE,r8), r0
+    cmp/pz  r0
+    bt      4f
+    neg     r0, r0
+4:  mov     r0, r6                  ! the plane's axis + 1, or 0
+    mov     #1, r1
+    shll16  r1
+    shll8   r1
+    shll2   r1
+    shll2   r1                      ! no limit: 1 << 28
+    neg     r1, r2
+    .irp    k, 0, 1, 2
+    mov     r2, r4                  ! lo
+    mov     r1, r5                  ! hi
+    tst     r6, r6
+    bt      5f
+    mov     r6, r0
+    cmp/eq  #\k+1, r0
+    bf      7f
+5:  mov.l   @(B_D+\k*8,r15), r0
+    cmp/pl  r0
+    bf      6f
+    mov     r0, r4
+6:  mov.l   @(B_D+\k*8+4,r15), r0
+    cmp/pz  r0
+    bt      7f
+    mov     r0, r5
+7:  mov.l   r4, @(BOX_LO+\k*4,r3)
+    mov.l   r5, @(BOX_HI+\k*4,r3)
+    .endr
+    bra     .LboxNext
+    nop
+
+    .align  2
+.LboxCoord: .short  BOX_COORD
+.LboxAreaLeast: .short  BOX_AREA_LEAST
+    .align  2
+    ! corners by 4 (bit 0 x high, bit 1 y high, bit 2 z high): low then high side, by axis
+.LboxSidesY:    .byte   0, 4, 16, 20, 8, 12, 24, 28
+.LboxSidesZ:    .byte   0, 4, 8, 12, 16, 20, 24, 28
+.LboxSidesX:    .byte   0, 8, 16, 24, 4, 12, 20, 28
+
+    .align  2
+
+.LboxesDone:
+    add     #120, r15
+    add     #64, r15
+    ldc.l   @r15+, gbr
+    lds.l   @r15+, pr
+    mov.l   @r15+, r14
+    mov.l   @r15+, r13
+    mov.l   @r15+, r12
+    mov.l   @r15+, r11
+    mov.l   @r15+, r10
+    mov.l   @r15+, r9
+    rts
+    mov.l   @r15+, r8
+    .endif
 
 ! rooms.cpp roomsQueue, placeRooms and roomBegin's caustics: each room listed
 ! with vertices (at most ROOM_JOBS), its vertices placed from MASTER_VERTICES

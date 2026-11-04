@@ -56,6 +56,11 @@
     .equ    RUN_CAREFUL_TRI, 272
     .equ    RUN_NEAR,       332
     .equ    RUN_VOID_WAY,   336     ! faces.h FaceVoidWay
+    .equ    RUN_BOX_NEAR,   340
+    .equ    RUN_BOX_COUNT,  344
+    .equ    RUN_BOXES,      348
+    .equ    RUN_POINTS,     352
+    .equ    BOX_BYTES,      20      ! RoomBox
     .equ    VOIDS_NONE,     2
     .equ    CLIP_LEFT,      2
     .equ    CLIP_RIGHT,     4
@@ -524,6 +529,20 @@
     nop
     .endif
 
+    ! corner A far enough to be behind a solid box
+.LfaceBoxes\sfx:
+    mov.l   .LbehindAt\sfx, r0
+    jsr     @r0
+    nop
+    bf      1f
+    bra     .Lnext\sfx
+    nop
+1:  mov.w   @(4, r1), r0
+    bra     .LFaceSeen\sfx
+    nop
+    .align 2
+.LbehindAt\sfx: .long   .Lbehind
+
 .LtoPlain\sfx:
     bra     .Lplain\sfx
     nop
@@ -545,7 +564,12 @@
     CULL    \tri, .Lculled\sfx
 .LFaceNear\sfx:
     mov.l   r13, @r15           ! the clip flags ored
+    mov.l   @(RUN_BOX_NEAR, gbr), r0
+    mov     r0, r6
     mov.w   @(4, r1), r0
+    cmp/ge  r6, r0
+    bt      .LfaceBoxes\sfx
+.LFaceSeen\sfx:
     shlr8   r0
     tst     #0xF0, r0
     bt      .LfaceClose\sfx     ! corner A within the distance faces.cpp splits at
@@ -2084,6 +2108,72 @@ _facesRoomNear:
     mov     #0, r0
 9:  rts
     mov     #-1, r0
+
+    ! the face with corners r1 r2 r3 r7 wholly behind a solid box (faces.h RoomBox): every
+    ! corner in the box's rectangle and past its sides that face the camera: T set.
+    ! r0, r6, r8, r13, r14
+    .macro  BOX_INSIDE v, miss
+    mov.w   @\v, r6
+    mov.w   @r13, r0
+    cmp/ge  r0, r6
+    bf      \miss
+    mov.w   @(4, r13), r0
+    cmp/ge  r6, r0
+    bf      \miss
+    mov.w   @(2, \v), r0
+    mov     r0, r6
+    mov.w   @(2, r13), r0
+    cmp/ge  r0, r6
+    bf      \miss
+    mov.w   @(6, r13), r0
+    cmp/ge  r6, r0
+    bf      \miss
+    .endm
+
+    ! a vertex's byte offset by half is its point's
+    .macro  BOX_PAST v, miss
+    mov.l   @(RUN_VERTICES, gbr), r0
+    mov     \v, r6
+    sub     r0, r6
+    shlr    r6
+    mov.l   @(RUN_POINTS, gbr), r0
+    add     r0, r6
+    .irp    k, 0, 1, 2
+    mov.b   @(\k, r6), r0
+    extu.b  r0, r8
+    mov.w   @(8 + 2 * \k, r13), r0
+    cmp/gt  r0, r8
+    bf      \miss
+    mov.w   @(14 + 2 * \k, r13), r0
+    cmp/gt  r8, r0
+    bf      \miss
+    .endr
+    .endm
+
+.Lbehind:
+    mov.l   @(RUN_BOX_COUNT, gbr), r0
+    mov     r0, r14
+    mov.l   @(RUN_BOXES, gbr), r0
+    mov     r0, r13
+1:  BOX_INSIDE r1, 5f
+    BOX_INSIDE r2, 5f
+    BOX_INSIDE r3, 5f
+    BOX_INSIDE r7, 5f
+    bra     6f
+    nop
+5:  dt      r14
+    bf/s    1b
+    add     #BOX_BYTES, r13
+    rts
+    clrt
+6:  BOX_PAST r1, 7f
+    BOX_PAST r2, 7f
+    BOX_PAST r3, 7f
+    BOX_PAST r7, 7f
+    rts
+    sett
+7:  bra     5b
+    nop
 
     ! a piece's command: corners r1 r2 r3 r7, word 2 r8, clip flags ored r13;
     ! T set when the list is full

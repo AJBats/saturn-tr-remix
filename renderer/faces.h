@@ -245,6 +245,15 @@ struct RoomSplit
 
 struct RoomRun;
 
+// A solid box over a room's window (facesRoom, from a BoxSeen): its rectangle, and where a
+// face's corners must lie to be behind it, in the coordinates of the room's points:
+// lo < p < hi on each axis.
+struct RoomBox
+{
+    int16_t x0, y0, x1, y1;
+    int16_t lo[3], hi[3];
+};
+
 // A room's faces: its quads in their runs, then its triangles, as the game
 // adds them (faces.s, rooms.cpp roomFaces), each straight to its command,
 // through facesroom.s, the run made for the frame's rooms by
@@ -312,6 +321,13 @@ struct RoomRun
                                 // character / 8, 0 when the cache can't have them
     void (*near)();             // +332 facesRoomNear; the lab has none
     int32_t voidWay;            // +336 gFacesVoidWay, for the run
+    int32_t boxNear;            // +340 a face with corner A nearer isn't behind any of the room's boxes
+    int32_t boxCount;           // +344 those over the room's window
+    const RoomBox* boxes;       // +348 ... roomBoxes
+    const RoomVertex* points;   // +352 the room's
+    const BoxSeen* seen;        // the frame's solid boxes (rooms.h roomsBoxes), for facesRoom
+    int32_t seenCount;
+    RoomBox roomBoxes[BOXES_SEEN];
 };
 
 // What room faces and the walk do where a plane cuts a face away, to keep old

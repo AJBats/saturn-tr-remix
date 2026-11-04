@@ -37,8 +37,13 @@ static uint16_t gListCopy[ROOMS_LISTED];
 static int32_t gListCopied;
 
 static_assert(offsetof(RoomsContext, verticesTop) == 152 && offsetof(RoomsContext, hidden) == 156 &&
-              offsetof(RoomsContext, seenNear) == 160 && offsetof(RoomsContext, tiny) == 164,
+              offsetof(RoomsContext, seenNear) == 160 && offsetof(RoomsContext, tiny) == 164 &&
+              offsetof(RoomsContext, boxes) == 168 && offsetof(RoomsContext, boxCount) == 172 &&
+              offsetof(RoomsContext, solid) == 176 && offsetof(RoomsContext, solidCount) == 180,
               "rooms.s's RoomsContext");
+static_assert(sizeof(BoxSeen) == 40 && offsetof(BoxSeen, near) == 8 && offsetof(BoxSeen, lo) == 12 &&
+              offsetof(BoxSeen, hi) == 24 && offsetof(BoxSeen, area) == 36 && sizeof(SolidBox) == 28,
+              "rooms.s's BoxSeen, SolidBox");
 static int32_t gView[12];
 static int32_t gClip[MAX_LEVEL_ROOMS][4];
 static uint8_t gVisible[MAX_LEVEL_ROOMS];
@@ -55,6 +60,10 @@ static int16_t gEntryNext[ROOM_ENTRIES];
 static bool gEntriesListed;     // gEntryFirst made for the walk's entries
 static bool gItemsTest;
 static const uint32_t* gSines;
+static int32_t gSolidCount;
+static bool gBoxesOn = true;
+static BoxSeen gBoxes[2][BOXES_SEEN];       // two deep, as the jobs
+static int32_t gBoxCounts[2];
 
 void roomsInit(const RoomsLevel &level)
 {
@@ -126,6 +135,24 @@ RoomsContext& roomsContext()
     return gCtx;
 }
 
+void roomsSolidBoxes(const SolidBox* boxes, uint32_t count)
+{
+    gCtx.solid = boxes;
+    gSolidCount = count;
+}
+
+void roomsBoxesOn(bool on)
+{
+    gBoxesOn = on;
+}
+
+const BoxSeen* roomsBoxes(const FaceRoom* jobs, int32_t &count)
+{
+    int32_t set = jobs == gJobs[1];
+    count = gBoxCounts[set];
+    return gBoxes[set];
+}
+
 void roomsSeen(bool take)
 {
     int32_t set = gFrameSet ^ 1;
@@ -135,6 +162,12 @@ void roomsSeen(bool take)
     if (gHide) {
         gHide(gCtx.camera, gView, gCtx.cameraRoom, uncached(gHidden));
     }
+#ifndef RENDER_LAB
+    gCtx.boxes = gBoxes[set];
+    gCtx.solidCount = gBoxesOn ? gSolidCount : 0;
+    roomsBoxesAsm(&gCtx);
+    gBoxCounts[set] = gCtx.boxCount;
+#endif
     roomsSeenAsm(&gCtx);
     roomsJobsAsm(&gCtx);
     if (gHide)

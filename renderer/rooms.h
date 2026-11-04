@@ -61,9 +61,14 @@ struct RoomsContext
     const uint8_t* hidden;      // +156 by room: listed, but dropped (roomsHideWith)
     uint8_t* seenNear;          // +160 by room: seen nearer than RoomLevel.black (0 between frames)
     int32_t tiny;               // +164 roomsTiny's
+    const BoxSeen* boxes;       // +168 the solid boxes on the frame: a portal wholly behind one
+    int32_t boxCount;           // +172 ... isn't entered
+    const SolidBox* solid;      // +176 the level's solid boxes, for roomsBoxesAsm
+    int32_t solidCount;         // +180
 };
 
 extern "C" void roomsSeenAsm(RoomsContext* ctx);
+extern "C" void roomsBoxesAsm(RoomsContext* ctx);
 extern "C" void roomsJobsAsm(RoomsContext* ctx);
 
 // The rooms want over more vertices than there are: those showing least, by
@@ -141,6 +146,14 @@ void roomsFar(int32_t far);
 // pixels isn't entered: its window filled transparent, or under 16 pixels left
 // as it is. 0: every window entered.
 void roomsTiny(int32_t pixels);
+
+// The level's solid boxes, seen afresh for each walk. What lies wholly behind one on the
+// frame isn't drawn: a portal isn't entered, room faces aren't made (faces.h facesRoom).
+void roomsSolidBoxes(const SolidBox* boxes, uint32_t count);
+void roomsBoxesOn(bool on);
+
+// The boxes of a walk, by its jobs (roomsJobs, roomsJobsAhead).
+const BoxSeen* roomsBoxes(const FaceRoom* jobs, int32_t &count);
 
 // The walk's context, for checks.
 RoomsContext& roomsContext();

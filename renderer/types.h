@@ -303,6 +303,28 @@ struct RoomSeen
     int32_t m[12];
 };
 
+// A shape nothing can be seen through (saturn/occluders.txt), lo <= hi, world units: a solid
+// box, or a flat rectangle (lo = hi on one axis) with side k + 1 above its plane on axis k, or
+// -(k + 1) below, the side it can be seen from.
+struct SolidBox
+{
+    int32_t lo[3], hi[3];
+    int32_t side;
+};
+
+// One on the frame (rooms.s roomsBoxesAsm): a rectangle wholly inside its outline, its nearest
+// corner's depth, and where a point lies if it's behind it, from the camera: lo < p < hi on
+// each axis, past each side of a box that faces the camera, or past a flat one's plane. A ray
+// through the rectangle has met the shape by the time it's past them.
+#define BOXES_SEEN  6
+struct BoxSeen
+{
+    int16_t x0, y0, x1, y1;
+    int32_t near;
+    int32_t lo[3], hi[3];
+    int32_t area;
+};
+
 struct RoomGeometry
 {
     uint32_t quads, triangles, points;  // offsets in RGEO; NO_GEOMETRY: none in the scene
