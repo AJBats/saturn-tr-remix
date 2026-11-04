@@ -83,6 +83,8 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
     <h2>Cards</h2>
     <span class="sub">Flat polygons that turn round the bone to face the camera, in place of the bone's mesh.</span>
     <div id="cardGroups"></div>
+    <label id="refRow"><input type="checkbox" id="cardRef" checked><span>Arm cards keep their dark side where it is<span class="sub">off: the dark band swaps sides of the card as you walk round the arm. On needs a little new code a card in the game.</span></span></label>
+    <label id="platesRow"><input type="checkbox" id="plates" checked><span>Hands as flat plates<span class="sub">the box flattened to its two big faces with their own textures, staying where they are in 3D: 4 vertices, one of the two faces drawn. Edge on, it's a line.</span></span></label>
     <label id="ribbonRow"><input type="checkbox" id="ribbon"><span>Tail as one ribbon<span class="sub">one strip down the tail's middle facing the camera, narrowing with it, each piece's end shared with the next: no gaps or steps at the bends</span></span></label>
     <div class="row"><select id="cardLight"><option value="camera">Card light: with the side facing the camera</option><option value="ends">Card light: as the game has it now</option></select></div>
     <div class="row"><select id="cardLook"><option value="baked">Card texture: the segment from the side</option><option value="flat">Card texture: none, one colour</option></select></div>
@@ -92,10 +94,6 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
     <label><input type="checkbox" id="insideCopies" checked><span>Drop the inside copies<span class="sub" id="insideInfo"></span></span></label>
     <label><input type="checkbox" id="join" checked><span>Join the segments<span class="sub" id="joinInfo"></span></span></label>
     <div class="row"><select id="seamShade"><option value="mid">Seams: meet halfway, each segment's own shade</option><option value="own">Seams: on the parent's corner, each segment's own shade</option><option value="shared" selected>Seams: on the parent's corner, one shade, one vertex</option></select></div>
-    <label id="legsRow"><input type="checkbox" id="legsApart"><span>Legs stay in segments<span class="sub">the body, neck and tail one shell, each leg its original pieces: no seam from the knee down, so the fit below does nothing</span></span></label>
-    <div class="row"><span>Fit, outside of the bend <b id="fitV"></b></span><input type="range" id="fit" min="0" max="2" step="0.05" value="1"></div>
-    <div class="row"><span>Fit, inside of the bend <b id="fitInV"></b></span><input type="range" id="fitIn" min="0" max="1" step="0.05" value="0"></div>
-    <span class="sub">Raptor and T-rex legs: how far a seam's corners go towards where the two segments' edges meet at the joint's usual bend. 0: on the parent's corner. 100%: just there, where the limb keeps its width at that bend.</span>
     <span class="sub" id="seamInfo"></span>
     <details><summary class="sub">Each seam</summary><div id="seams"></div></details>
     <h2>Light, as the game's</h2>
@@ -312,10 +310,12 @@ function gouraudOf(n) {
 
 // a card: a polygon from e0 to e1, w wide, turned round that line to the camera.
 // off: each end's gouraud; else none (the bridges': drawn prelit by col)
-function card(e0, e1, w, cam, col, t, uAlong, b, tint, off) {
+// ref: the way the first row of its texture stays, of the two sides of its line
+function card(e0, e1, w, cam, col, t, uAlong, b, tint, off, ref) {
   const mid = scl(add(e0, e1), 0.5);
   let s = cross(sub(e1, e0), sub(cam, mid));
   s = scl(nrm(s), w / 2);
+  if (ref && dot(s, ref) > 0) s = scl(s, -1);
   const n = nrm(sub(cam, mid));
   const P = uAlong ? [sub(e0, s), sub(e1, s), add(e1, s), add(e0, s)]
                    : [add(e0, s), sub(e0, s), sub(e1, s), add(e1, s)];
@@ -506,7 +506,8 @@ function fillAnimal() {
   const rings = Object.values(W.join);
   const shared = rings.reduce((n, r) => n + Object.keys(r.map).length, 0), caps = rings.reduce((n, r) => n + r.caps.length + r.pcaps.length, 0);
   ui('ribbonRow').style.display = W.ribbon ? '' : 'none';
-  ui('legsRow').style.display = W.legSeams.length ? '' : 'none';
+  ui('platesRow').style.display = Object.keys(W.plates).length ? '' : 'none';
+  ui('refRow').style.display = Object.values(W.cards).some(c => c.ref) ? '' : 'none';
   ui('joinInfo').textContent = `${rings.length} joints where a segment's end meets its parent's: ${shared} corners on the parent's, up to ${caps} faces gone, the ends and the stubs that hid the bend (a thigh's knee, a chest's cone). The faces stretch across the bend instead of two boxes pivoting through each other`;
   ui('seamInfo').textContent = "Halfway: every vertex stays, turned and lit by its own joint as today, and each pair at a seam moves to the middle of the two: the shade steps at the joint as the original's does, a bend narrows but doesn't go flat, no vertices saved. On the parent's corner: the segment's end turns with the parent, so a right-angle bend goes flat. One vertex: saves vertices, the shade runs smooth across the seam.";
   ui('seams').innerHTML = Object.entries(W.join).map(([j, r]) => `<label><input type="checkbox" data-seam="${j}"${A.seamOff.has(+j) ? '' : ' checked'}><span>${W.names[j]} to ${W.names[r.p]}<span class="sub">${Object.keys(r.map).length} corners, moved ${r.gap} units at most, ${r.caps.length + r.pcaps.length} faces gone; ${motionText([+j])}</span></span></label>`).join('');
@@ -579,21 +580,14 @@ function buildAnimal(simplified) {
   const ribbonOn = simplified && W.ribbon && ui('ribbon').checked;
   const ribbonJoints = new Set(W.ribbon ? W.ribbon.seg.map(s => s.j) : []);
   const joinOn = simplified && ui('join').checked;
-  const legsApart = ui('legsApart').checked;
-  const joined = (j) => joinOn && W.join[j] && !A.seamOff.has(j) && !(legsApart && W.legSeams.includes(j)) && !isCard(j) && !isCard(W.join[j].p) && !(ribbonOn && (ribbonJoints.has(j) || ribbonJoints.has(W.join[j].p)));
+  const joined = (j) => joinOn && W.join[j] && !A.seamOff.has(j) && !isCard(j) && !isCard(W.join[j].p) && !(ribbonOn && (ribbonJoints.has(j) || ribbonJoints.has(W.join[j].p)));
   const seamMode = ui('seamShade').value;
   // where each seam puts its vertices, by joint and vertex
   const seamAt = W.meshes.map(() => ({}));
   const placed = (j, i) => { const v = W.meshes[j].v; return apply(M[j], [v[i*3], v[i*3+1], v[i*3+2]]); };
-  const fitOutside = +ui('fit').value, fitInside = +ui('fitIn').value;
-  ui('fitV').textContent = Math.round(fitOutside * 100) + '%';
-  ui('fitInV').textContent = Math.round(fitInside * 100) + '%';
-  const fitted = (p, k, to, s) => { const v = W.meshes[p].v; return apply(M[p], to.map((c, n) => v[k*3+n] + (c - v[k*3+n]) * s)); };
   for (let j = 1; j < NJ; j++) if (joined(j)) {
     const r = W.join[j];
     if (seamMode !== 'mid') {
-      if (r.fit) for (const k in r.fit) seamAt[r.p][k] = fitted(r.p, +k, r.fit[k], fitOutside);
-      if (r.fitIn) for (const k in r.fitIn) seamAt[r.p][k] = fitted(r.p, +k, r.fitIn[k], fitInside);
       for (const i in r.map) seamAt[j][i] = seamAt[r.p][r.map[i]] || placed(r.p, r.map[i]);
       continue;
     }
@@ -618,14 +612,14 @@ function buildAnimal(simplified) {
   const meshOwner = new Array(NJ).fill(false);   // kept joints that set up a mesh
   const keptOf = (j) => { while (simplified && merged.has(j)) j = W.parents[j]; return j; };
   for (let j = 0; j < NJ; j++) {
-    const mesh = W.meshes[j];
+    const mesh = simplified && W.plates[j] && ui('plates').checked && !isCard(j) ? W.plates[j] : W.meshes[j];
     if (opt.cardsOnly && !W.cards[j]) continue;
     if (isCard(j) && !(ribbonOn && ribbonJoints.has(j))) {
       const c = W.cards[j];
       const placedEnds = [apply(M[j], c.e0), apply(M[j], c.e1)];
       const [e0, e1] = c.face ? facingEnds(c, placedEnds[0], placedEnds[1], cam, screenUp) : placedEnds;
       card(e0, e1, c.w, cam, flat ? c.col.map(x => x / 255) : WHITE, flat ? 0 : c.t, true,
-           b.gameCard, true, [endLight(c.n0, M[j]), endLight(c.n1, M[j])]);
+           b.gameCard, true, [endLight(c.n0, M[j]), endLight(c.n1, M[j])], c.ref && ui('cardRef').checked ? rv(M[j].R, c.ref) : null);
       nCards++; sent++; faces++; verts += 4;    // its ends and their copies (renderer/faces.h)
       meshOwner[keptOf(j)] = true;
       continue;
@@ -812,8 +806,8 @@ ui('speed').oninput = (e) => A.state.speed = +e.target.value;
 ui('hold').onchange = (e) => { A.typical = e.target.value === 'typical'; dirty = true; };
 ui('anim').onchange = (e) => { A.state.anim = +e.target.value; A.state.time = 0; dirty = true; };
 ui('frame').oninput = (e) => { const a = A.W.anims[A.state.anim]; A.state.time = +e.target.value / 100 * animLength(a); dirty = true; };
-['ambient', 'lightRange', 'lightAz', 'lightEl', 'fit', 'fitIn'].forEach(id => ui(id).addEventListener('input', () => dirty = true));
-['insideCopies', 'join', 'seamShade', 'legsApart', 'ribbon', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
+['ambient', 'lightRange', 'lightAz', 'lightEl'].forEach(id => ui(id).addEventListener('input', () => dirty = true));
+['insideCopies', 'join', 'seamShade', 'plates', 'cardRef', 'ribbon', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
 controls.addEventListener('change', () => { dirty = true; syncDist(); });
 
 function resize() {
@@ -944,9 +938,9 @@ function fromHash() {
   if (kv.t) A.state.time = +kv.t * animLength(A.W.anims[A.state.anim]);
   if (kv.pause) A.state.playing = false;
   document.querySelector(`[data-tab=${start}]`).click();
-  for (const id of ['playAll', 'insideCopies', 'join', 'legsApart', 'ribbon', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
+  for (const id of ['playAll', 'insideCopies', 'join', 'plates', 'cardRef', 'ribbon', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
     if (id in kv) ui(id).checked = kv[id] !== '0';
-  for (const id of ['seamShade', 'cardLight', 'cardLook', 'ambient', 'lightRange', 'lightAz', 'lightEl', 'fit', 'fitIn']) if (kv[id]) ui(id).value = kv[id];
+  for (const id of ['seamShade', 'cardLight', 'cardLook', 'ambient', 'lightRange', 'lightAz', 'lightEl']) if (kv[id]) ui(id).value = kv[id];
   if (kv.seamOff) kv.seamOff.split(':').forEach(j => A.seamOff.add(+j));
   opt.cardsOnly = !!kv.cardsOnly;      // debugging: only the joints that can be cards
   if (kv.far) animalFar();

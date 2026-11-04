@@ -29,6 +29,7 @@ The geometry here is neutral: meshes as lists of vertices, lighting, faces
 and cards, which the packer turns into its records and the viewer into its
 page.
 """
+import copy
 import math
 import struct
 
@@ -318,14 +319,60 @@ def face_area(mesh, idx):
     return a
 
 
-def card_of(mesh, atlas, axis=None, view=None):
+def face_image(mesh, atlas, fi, along, across):
+    """Quad fi's own texture as a card's image: x along the card from its low
+    end, rows from the low end across it, every texel kept."""
+    ftype, idx, flags = mesh.faces[fi]
+    P = [mesh.vertices[i] for i in idx]
+    tw, th, px = atlas.images[atlas.object(flags >> 4, 0, False, False)]
+    u_along = abs(P[1][along] - P[0][along]) > abs(P[3][along] - P[0][along])
+    long_end, side_end = (P[1], P[3]) if u_along else (P[3], P[1])
+    w, h = (tw, th) if u_along else (th, tw)
+    out = bytearray()
+    for r in range(h):
+        for c in range(w):
+            a = c if long_end[along] > P[0][along] else w - 1 - c
+            b = r if side_end[across] > P[0][across] else h - 1 - r
+            u, v = (a, b) if u_along else (b, a)
+            if ftype in FLIP_TYPES:
+                u = tw - 1 - u
+            out += px[(v * tw + u) * 4:(v * tw + u) * 4 + 4]
+    return w, h, bytes(out)
+
+
+def plate_of(mesh, keep):
+    """A flat box as a flat plate: keep's two faces, opposite each other, drawn
+    on the plane between them, each seen from its own side, its own texture and
+    its place in 3D; the rest of the box gone. Four vertices, each the middle of
+    a corner of one face and the nearest of the other's."""
+    plate = copy.copy(mesh)
+    first, second = mesh.faces[keep[0]], mesh.faces[keep[1]]
+    pair = {}
+    for i in first[1]:
+        pair[i] = min(second[1], key=lambda k: norm(sub(mesh.vertices[i], mesh.vertices[k])))
+    order = list(first[1])
+    at = {i: n for n, i in enumerate(order)}
+    at.update({pair[i]: at[i] for i in order})
+    def middle(values, i):
+        return tuple(round((a + b) / 2) for a, b in zip(values[i], values[pair[i]]))
+    plate.vertices = [middle(mesh.vertices, i) for i in order]
+    if mesh.normals:
+        plate.normals = [middle(mesh.normals, i) for i in order]
+    if mesh.intensities:
+        plate.intensities = [(mesh.intensities[i] + mesh.intensities[pair[i]]) // 2 for i in order]
+    plate.faces = [(f[0], tuple(at[i] for i in f[1]), f[2]) for f in (first, second)]
+    return plate
+
+
+def card_of(mesh, atlas, axis=None, view=None, face=None):
     """A box-like mesh as a card: the middle of each end of its long side
     (or of the given axis), half its thickness across, its faces' mean
     colour by area, an image of it seen from the side (along x, or z when x
     is its length, or along the given view) shaded a little across so the
     flat card reads as round, and each end's light: its corners' normals
     averaged (along the bone, for a box), or None, and the corners' normals
-    themselves (ns0, ns1)."""
+    themselves (ns0, ns1). With face, the image is that quad's own texture
+    (face_image)."""
     xs = list(zip(*mesh.vertices))
     lo, hi = [min(a) for a in xs], [max(a) for a in xs]
     ext = [h - l for l, h in zip(lo, hi)]
@@ -348,7 +395,7 @@ def card_of(mesh, atlas, axis=None, view=None):
     if view is None:
         view = 0 if axis != 0 else 2
     across = 3 - axis - view
-    image = bake_side(mesh, atlas, view, across, axis, lo, hi)
+    image = bake_side(mesh, atlas, view, across, axis, lo, hi) if face is None else face_image(mesh, atlas, face, axis, across)
     ends = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
     if mesh.normals:
         for v, n in zip(mesh.vertices, mesh.normals):
@@ -787,71 +834,6 @@ def join_rings(meshes, start, parents, offsets, skip=(), wide=None, only=None, s
         out[j] = {"p": p, "map": {str(i): k for i, k in ring.items()}, "gap": round(gap), "caps": caps, "pcaps": pcaps,
                   "pull": pull}
     return out
-
-
-def usual_turn(lvl, model, j, dead=()):
-    """Joint j's turn from its parent in the awake keyframe nearest all the others."""
-    turns = [rot(*f["r"][j * 3:j * 3 + 3]) for ai in model_anims(lvl, model) if lvl.anims[ai]["state"] not in dead
-             for f in keyframes(lvl, model, ai)]
-
-    def apart(A, B):
-        return math.acos(max(-1, min(1, (sum(A[i][k] * B[i][k] for i in range(3) for k in range(3)) - 1) / 2)))
-    return min(turns, key=lambda A: sum(apart(A, B) for B in turns))
-
-
-def edge_away(mesh, v, ring, skip):
-    """The edge from v, a corner of ring, that runs furthest along its segment
-    away from the ring: the far end's vertex, or None."""
-    others = [q for i, q in enumerate(mesh.vertices) if i not in ring]
-    if not others:
-        return None
-    axis = unit(sub(mean(others), mean([mesh.vertices[i] for i in ring])))
-    ends = set()
-    for fi, f in enumerate(mesh.faces):
-        idx = f[1]
-        if fi not in skip and v in idx:
-            at = idx.index(v)
-            ends |= {idx[at - 1], idx[(at + 1) % len(idx)]}
-    ends -= set(ring)
-    if not ends:
-        return None
-    return max(ends, key=lambda i: dot(unit(sub(mesh.vertices[i], mesh.vertices[v])), axis))
-
-
-def fit_seam(lvl, model, meshes, ring, offset, j, dead=()):
-    """Where a seam's corners would make a mitre at the joint's usual bend, in
-    the parent's space: {parent's vertex: where}, those on the outside of the
-    bend and those on the inside. A ring fixed to the parent's end narrows the
-    child by the cosine of the bend; at these each corner stands where the
-    parent's edge and the child's meet as the joint usually stands, so the child
-    keeps its width then and the parent runs on to meet it. All the way in, the
-    inside's pull a web across the bend as the joint opens. No work at run time:
-    the same vertices, somewhere else. A seam that hardly bends stays as it is."""
-    start = model["start"]
-    R = usual_turn(lvl, model, j, dead)
-    parent, child = meshes[start + ring["p"]], meshes[start + j]
-    corners = {int(i): k for i, k in ring["map"].items()}
-    taken = set(corners.values())
-    outside, inside = {}, {}
-    for i, k in corners.items():
-        far_p = edge_away(parent, k, taken, set(ring["pcaps"]))
-        far_c = edge_away(child, i, set(corners), set(ring["caps"]))
-        if far_p is None or far_c is None or k in outside or k in inside:
-            continue
-        P = parent.vertices[k]
-        dp = unit(sub(parent.vertices[far_p], P))
-        C = apply((R, offset), child.vertices[i])
-        dc = unit(rotate((R, offset), sub(child.vertices[far_c], child.vertices[i])))
-        b = dot(dp, dc)
-        den = 1 - b * b
-        if den < 0.07:      # within about 15 degrees of straight
-            continue
-        w = sub(P, C)
-        d, e = dot(dp, w), dot(dc, w)
-        t, s = (b * e - d) / den, (e - b * d) / den
-        # towards the parent's far end: the bend's inside
-        (inside if t >= 0 else outside)[k] = [round((P[n] + t * dp[n] + C[n] + s * dc[n]) / 2) for n in range(3)]
-    return outside, inside
 
 
 def pin_card(card, parents, offsets, j):

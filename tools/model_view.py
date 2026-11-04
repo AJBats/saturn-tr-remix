@@ -131,9 +131,8 @@ RAPTOR_JOINTS = ["hips", "thigh L", "shin L", "ankle L", "foot L", "thigh R", "s
                  "upper arm L", "forearm L", "hand L", "claw L1", "claw L2", "claw L3",
                  "neck", "head", "jaw", "tail 1", "tail 2", "tail 3", "tail 4", "tail 5"]
 RAPTOR_STATES = "DEATH STOP WALK RUN ATTACK_1 UNUSED ROAR ATTACK_2 BITE".split()
-RAPTOR_SEAMS = {"apart": [23], "wide": {12: 25, 14: 25, 18: 25, 20: 25, 21: 20, 22: 40},
-                "only": {22: [1, 5, 13, 14]}, "stay": {22: [16, 17, 18]}, "attach": {21: {23: 17}},
-                "fit": [2, 3, 4, 6, 7, 8], "dead": [0]}
+RAPTOR_SEAMS = {"apart": [23, 2, 3, 4, 6, 7, 8], "wide": {12: 25, 14: 25, 18: 25, 20: 25, 21: 20, 22: 40},
+                "only": {22: [1, 5, 13, 14]}, "stay": {22: [16, 17, 18]}, "attach": {21: {23: 17}}}
 RAPTOR_FUSES = [("jaw", "Jaw into the head", [23]),
                 ("claws", "Claws into the hands", [12, 13, 14, 18, 19, 20]),
                 ("hands", "Hands into the forearms", [11, 17]),
@@ -161,7 +160,13 @@ REX_JOINTS = ["body", "thigh L", "shin L", "ankle L", "foot L", "thigh R", "shin
               "upper arm R", "forearm R", "hand R", "upper arm L", "forearm L", "hand L",
               "tail 1", "tail 2", "tail 3", "tail 4", "tail 5"]
 REX_STATES = "NONE STOP WALK RUN UNUSED DEATH ROAR BITE FATAL".split()
-REX_SEAMS = {"apart": [13], "wide": {2: 25, 6: 25, 9: 25}, "fit": [2, 3, 6, 7], "dead": [5]}
+# faces: joints whose card is that quad's own texture, the arm's outer side.
+# ref: the way, in the joint's space, the first row of its card's image stays:
+# the dark green of those textures runs down the arm's outer front corner.
+# plates: joints drawn as those two faces of a flat box (diet.plate_of).
+REX_SEAMS = {"apart": [13, 2, 3, 6, 7], "wide": {9: 25}, "faces": {14: 0, 15: 0, 17: 0, 18: 0},
+             "ref": {14: [-1, 0, -1], 15: [-1, 0, -1], 17: [1, 0, -1], 18: [1, 0, -1]}, "plates": {16: [1, 3], 19: [1, 3]}}
+REX_CHOSEN = ([], ["armLower", "armUpper"])
 REX_FUSES = [("jaw", "Jaw into the head", [13]),
              ("hands", "Hands into the forearms", [16, 19]),
              ("arms", "Arms into the chest, whole", [14, 15, 16, 17, 18, 19]),
@@ -172,7 +177,7 @@ REX_TAIL = ("tail", [("Tail: 5 pieces, as it is", []),
                      ("Tail: 3 pieces (tail 2 and 4 fused)", [21, 23]),
                      ("Tail: 2 pieces (tail 2, 3 and 5 fused)", [21, 22, 24]),
                      ("Tail: 1 piece", [21, 22, 23, 24])])
-REX_CARDS = [("armLower", "Forearms and hands as cards", [15, 16, 18, 19]),
+REX_CARDS = [("armLower", "Forearms as cards", [15, 18]),
              ("armUpper", "Upper arms as cards", [14, 17]),
              ("lower", "Ankles and feet as cards", [3, 4, 7, 8]),
              ("tailEnd", "End of the tail as cards", [23, 24])]
@@ -340,21 +345,19 @@ def animal_json(lvl, meshes, atlas, type_, title, states, names, fuses, choices,
             if j in flat_cards:
                 card = diet.card_of(meshes[start + j], atlas, axis=1, view=2)
             else:
-                card = diet.pin_card(diet.card_of(meshes[start + j], atlas), out["parents"], out["offsets"], j)
+                card = diet.card_of(meshes[start + j], atlas, face=spec.get("faces", {}).get(j))
+                card = diet.pin_card(card, out["parents"], out["offsets"], j)
             out["cards"][str(j)] = card_json(card, atlas)
+            if j in spec.get("ref", {}):
+                out["cards"][str(j)]["ref"] = spec["ref"][j]
             if j in flat_cards:
                 out["cards"][str(j)]["face"] = 1
     copies = {str(j): diet.inside_copies(meshes[start + j]) for j in range(model["count"])}
     out["insideCopies"] = {j: fis for j, fis in copies.items() if fis}
     out["join"] = diet.join_rings(meshes, start, out["parents"], out["offsets"], spec.get("apart", ()), spec.get("wide"),
                                   spec.get("only"), spec.get("stay"), spec.get("attach"))
-    for j in spec.get("fit", ()):
-        if j in out["join"]:
-            outside, inside = diet.fit_seam(lvl, model, meshes, out["join"][j], out["offsets"][j], j, spec.get("dead", ()))
-            out["join"][j]["fit"] = {str(k): v for k, v in outside.items()}
-            out["join"][j]["fitIn"] = {str(k): v for k, v in inside.items()}
+    out["plates"] = {str(j): mesh_json(diet.plate_of(meshes[start + j], keep), atlas) for j, keep in spec.get("plates", {}).items()}
     out["ribbon"] = ribbon_json(meshes, start, tail, out["meshes"]) if tail else None
-    out["legSeams"] = list(spec.get("fit", ()))
     out["foot"] = foot
     return out
 
@@ -451,7 +454,7 @@ def main():
     raptor = animal_json(valley, valley_meshes, atlas, "RAPTOR", "raptor", RAPTOR_STATES, RAPTOR_JOINTS, RAPTOR_FUSES,
                          [RAPTOR_TAIL], RAPTOR_CARDS, [], RAPTOR_TAIL_JOINTS, RAPTOR_CHOSEN, seams=RAPTOR_SEAMS)
     rex = animal_json(valley, valley_meshes, atlas, "REX", "T-rex", REX_STATES, REX_JOINTS, REX_FUSES,
-                      [REX_TAIL], REX_CARDS, [], REX_TAIL_JOINTS, seams=REX_SEAMS)
+                      [REX_TAIL], REX_CARDS, [], REX_TAIL_JOINTS, REX_CHOSEN, seams=REX_SEAMS)
     atlas.level(lvl)
 
     # the bridges: plank items with their model's first frame, rope statics
