@@ -2,7 +2,8 @@
 asked for it. For a study of overdraw and where it comes from.
 
     STEPWISE=1 BUILD=build/step tools/hwtest.sh SPOT
-    python -I tools/stepwise.py capture NAME "TITLE" [--disc build/step] [--frame 2300] [--hold KEYS:FRAMES]
+    python -I tools/stepwise.py capture NAME "TITLE" [--disc build/step] [--frame 2300] [--hold KEYS:FRAMES] [--freeze] [--boxes off]
+    python -I tools/stepwise.py boxes OFF_NAME ON_NAME      what the solid boxes cut: into OFF_NAME's frame
     python -I tools/stepwise.py page OUT.html NAME ...
 
 capture boots the disc in a private Mednafen, pages the overlay away, runs to the frame and takes the list VDP1 is
@@ -57,7 +58,7 @@ def symbol(syms, name):
     return next(a for s, a in syms.items() if s == name or s.startswith(name + '('))
 
 
-def capture(name, title, disc, frame, hold, level):
+def capture(name, title, disc, frame, hold, level, boxes='on', freeze=False):
     out = f'{OUT}/{name}'
     os.makedirs(out, exist_ok=True)
     elf = f'{ROOT}/{disc}/0MAIN.elf'
@@ -77,13 +78,25 @@ def capture(name, title, disc, frame, hold, level):
             m.send('frame_advance 10', 'done frame_advance', 30)
         if hold:
             keys, frames = hold.split(':')
-            m.send(f'run_to_frame {frame - int(frames)}', 'done run_to_frame', 900)
+            # frozen, the held look's camera stays (debug.cpp) well before the frame: it's the same with the boxes off
+            until = frame - 120 if freeze else frame
+            m.send(f'run_to_frame {until - int(frames)}', 'done run_to_frame', 900)
             keys = keys.split(',')
             m.send(f'input {keys[0]}', 'ok input', 10)
             if len(keys) > 1:
                 m.send('frame_advance 8', 'done frame_advance', 30)     # the look's key before its direction
             for k in keys[1:]:
                 m.send(f'input {k}', 'ok input', 10)
+            if freeze:
+                m.send(f'run_to_frame {until}', 'done run_to_frame', 900)
+                m.send('input L', 'ok input', 10)
+                m.send('frame_advance 10', 'done frame_advance', 30)
+                m.send('input_release L', 'ok input_release', 10)
+                for k in reversed(keys):
+                    m.send(f'input_release {k}', 'ok input_release', 10)
+        if boxes == 'off':
+            m.send(f'run_to_frame {frame - 60}', 'done run_to_frame', 900)
+            m.send(f'poke {syms["render::gBoxesOn"]:08x} 00', 'poke', 10)
         m.send(f'run_to_frame {frame}', 'done run_to_frame', 900)
         m.send(f'breakpoint {symbol(syms, "plotStart"):08X}', 'ok breakpoint', 10)
         m.send('run', 'break pc=', 120)
@@ -93,6 +106,11 @@ def capture(name, title, disc, frame, hold, level):
         store_at = struct.unpack('>I', dump(syms['gMeshStore'], 4))[0]
         header = struct.unpack('>8I', dump(store_at, 32))
         mesh_count = header[1]
+        counts = struct.unpack('>2i', dump(syms['render::gBoxCounts'], 8))
+        seen = dump(syms['render::gBoxes'], 2 * 6 * 40)
+        rects = []
+        for k in range(2):
+            rects.append([struct.unpack_from('>4hi', seen, (6 * k + i) * 40) for i in range(counts[k])])
         index = struct.unpack(f'>{mesh_count}H', dump(store_at + header[4], mesh_count * 2))
         m.send('breakpoint_clear', 'breakpoint', 10)
         shot = f'{out}/shot.png'
@@ -114,7 +132,7 @@ def capture(name, title, disc, frame, hold, level):
             slot_above = slot
         lists.append(got[::-1])
     open(f'{out}/vram.bin', 'wb').write(vram)
-    json.dump({'title': title, 'lists': lists, 'index': index, 'level': level, 'frame': frame}, open(f'{out}/capture.json', 'w'))
+    json.dump({'title': title, 'lists': lists, 'index': index, 'level': level, 'frame': frame, 'rects': rects}, open(f'{out}/capture.json', 'w'))
     os.remove(tmp)
     print(f'{name}: {len(lists[0])} rooms, {len(lists[1])} draws marked', flush=True)
     analyze(name)
@@ -352,6 +370,57 @@ def report(f):
     print('  pixels by times written:', ' '.join(f'{i}x:{h[i] * 100 / (W * H):.0f}%' for i in range(min(9, len(h)))), f'9+x:{sum(h[9:]) * 100 / (W * H):.0f}%' if len(h) > 9 else '')
 
 
+def boxes(off_name, on_name):
+    """The room commands of a frame with the boxes off that the same frame with them on hasn't: what they cut. Every
+    one should leave no pixel at the end of the off frame; 'seen' adds up any that do."""
+    off = json.load(open(f'{OUT}/{off_name}/frame.json'))
+    on = json.load(open(f'{OUT}/{on_name}/frame.json'))
+    cap = json.load(open(f'{OUT}/{on_name}/capture.json'))
+    rects = max(cap['rects'], key=len)
+
+    def key(f, c):
+        return f['owners'][c['owner']]['name'], tuple(sorted(zip(c['corners'][0::2], c['corners'][1::2])))
+
+    left = {}
+    for c in on['commands']:
+        if c['cat'] == 'room':
+            k = key(on, c)
+            left[k] = left.get(k, 0) + 1
+    drop, why = [], []
+    for i, c in enumerate(off['commands']):
+        if c['cat'] != 'room':
+            continue
+        k = key(off, c)
+        if left.get(k):
+            left[k] -= 1
+            continue
+        xs, ys = c['corners'][0::2], c['corners'][1::2]
+        inside = -1
+        for n, r in enumerate(rects):
+            if min(xs) >= r[0] and min(ys) >= r[1] and max(xs) <= r[2] and max(ys) <= r[3]:
+                inside = n
+                break
+        drop.append(i)
+        why.append(inside)
+    cmds = off['commands']
+    rooms_off = {off['owners'][c['owner']]['name'] for c in cmds if c['cat'] == 'room'}
+    rooms_on = {on['owners'][c['owner']]['name'] for c in on['commands'] if c['cat'] == 'room'}
+    hidden = [i for i, c in enumerate(cmds) if c['cat'] == 'room' and c['written'] and not c['seen']]
+    out = {'rects': rects, 'drop': drop, 'why': why, 'rooms': sorted(rooms_off - rooms_on), 'extra': sum(left.values()),
+           'seen': sum(cmds[i]['seen'] for i in drop), 'cycles': sum(cmds[i]['cycles'] for i in drop),
+           'hidden': len(hidden), 'hiddenCycles': sum(cmds[i]['cycles'] for i in hidden),
+           'onCycles': on['cycles'], 'onCommands': len(on['commands']), 'offCommands': len(cmds)}
+    off['boxes'] = out
+    off['black']['boxes'] = {'drop': drop, 'box': None, 'cycles': 0}
+    json.dump(off, open(f'{OUT}/{off_name}/frame.json', 'w'))
+    on['boxRects'] = rects
+    json.dump(on, open(f'{OUT}/{on_name}/frame.json', 'w'))
+    print(f'{off["title"]}: {len(rects)} rectangles {[r[:4] for r in rects]}')
+    print(f'  cut {len(drop)} of {len(cmds)} commands, {out["cycles"] * MS:.2f} ms ({sum(1 for w in why if w >= 0)} inside a rectangle, {sum(1 for w in why if w < 0)} of rooms skipped through a doorway: {out["rooms"]})')
+    print(f'  pixels of them still seen at the end of the off frame: {out["seen"]}; on the on frame but not the off: {out["extra"]} room commands')
+    print(f'  list off {off["cycles"] * MS:.2f} ms, on {on["cycles"] * MS:.2f} ms, {len(on["commands"])} commands; room faces wholly hidden in the off frame: {len(hidden)}, {out["hiddenCycles"] * MS:.2f} ms')
+
+
 def page(out_path, names):
     frames = []
     for name in names:
@@ -362,6 +431,9 @@ def page(out_path, names):
         frames.append(f)
     html = open(ROOT + '/tools/stepwise.html', encoding='utf-8').read()
     html = html.replace('/*FRAMES*/null', json.dumps(frames, separators=(',', ':')))
+    if any('boxes' in f for f in frames):
+        html = html.replace('<title>VDP1 Stepwise</title>', '<title>Solid Box Stepwise</title>')
+        html = html.replace('<h1>VDP1 Stepwise</h1>', '<h1>Solid Box Stepwise</h1>')
     with open(out_path, 'w', encoding='utf-8', newline='\n') as o:
         o.write(html)
     print(out_path, os.path.getsize(out_path) >> 10, 'KB')
@@ -386,6 +458,11 @@ def main():
     c.add_argument('--frame', type=int, default=2300)
     c.add_argument('--hold', default='')
     c.add_argument('--level', default='LEVEL7A')
+    c.add_argument('--boxes', default='on')
+    c.add_argument('--freeze', action='store_true')
+    b = sub.add_parser('boxes')
+    b.add_argument('off')
+    b.add_argument('on')
     a = sub.add_parser('analyze')
     a.add_argument('name')
     p = sub.add_parser('page')
@@ -393,7 +470,9 @@ def main():
     p.add_argument('names', nargs='+')
     args = ap.parse_args()
     if args.what == 'capture':
-        capture(args.name, args.title, args.disc, args.frame, args.hold, args.level)
+        capture(args.name, args.title, args.disc, args.frame, args.hold, args.level, args.boxes, args.freeze)
+    elif args.what == 'boxes':
+        boxes(args.off, args.on)
     elif args.what == 'analyze':
         analyze(args.name)
     else:
