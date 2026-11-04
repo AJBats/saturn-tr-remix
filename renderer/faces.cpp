@@ -58,6 +58,9 @@ void facesListStart(CommandList &list, Command* cmds, uint32_t (*grd)[2], int32_
     list.grd = grd[first];
     list.link = facesLink(first);
     list.grdLink = ((VRAM_GOURAUD_BASE >> 3) + first) << 16;
+    list.voidX0 = list.voidY0 = 0x7FFF;
+    list.voidX1 = list.voidY1 = -1;
+    list.voidArea = 0;
 }
 
 static inline const Vertex* corner(const Vertex* vertices, uint32_t offset)
@@ -421,7 +424,7 @@ void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth)
 #define DETAIL_DIST     4096    // quads crossing the near plane nearer than this split 2x2
 
 static int32_t gViewFar = VIEW_FAR; // facesFar's
-extern "C" { volatile int32_t gFacesNoVoids; }
+extern "C" { volatile int32_t gFacesVoidWay; }
 
 void facesFar(int32_t far)
 {
@@ -522,12 +525,23 @@ static void roomCommand(CommandList &list, const RoomTextures &t, uint32_t flags
 // where a plane cuts a room's or a mesh's face away.
 static void faceVoid(CommandList &list, const Vertex* a, const Vertex* b, const Vertex* c, const Vertex* d)
 {
-    if (list.cmd == list.end || *uncached(&gFacesNoVoids))
+    const int32_t way = *uncached(&gFacesVoidWay);
+    if (list.cmd == list.end || way == FACE_VOIDS_NONE)
         return;
     int32_t x0 = max(min(min(a->x, b->x), min(c->x, d->x)), 0);
     int32_t y0 = max(min(min(a->y, b->y), min(c->y, d->y)), 0);
     int32_t x1 = min(max(max(a->x, b->x), max(c->x, d->x)), FRAME_WIDTH - 1);
     int32_t y1 = min(max(max(a->y, b->y), max(c->y, d->y)), FRAME_HEIGHT - 1);
+    if (x0 <= x1 && y0 <= y1)
+    {
+        list.voidX0 = min(list.voidX0, x0);
+        list.voidY0 = min(list.voidY0, y0);
+        list.voidX1 = max(list.voidX1, x1);
+        list.voidY1 = max(list.voidY1, y1);
+        list.voidArea += (x1 - x0 + 1) * (y1 - y0 + 1);
+    }
+    if (way == FACE_VOIDS_BOXED)
+        return;
     uint32_t* w = list.cmd;
     w[1] = pair(PMOD_NO_ECD_SPD, 0);
     w[3] = pair(x0, y0);
@@ -1142,7 +1156,8 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, pieceMaterial) == 300 && offsetof(RoomRun, wibble) == 304 &&
               offsetof(RoomRun, phase) == 308 && offsetof(RoomRun, window) == 312 &&
               offsetof(RoomRun, tiles) == 328 && offsetof(RoomRun, near) == 332 &&
-              offsetof(RoomRun, noVoids) == 336 &&
+              offsetof(RoomRun, voidWay) == 336 && offsetof(CommandList, voidX0) == 48 &&
+              offsetof(CommandList, voidArea) == 64 &&
               offsetof(RoomMaterial, quadrant) == 30 && offsetof(RoomMaterial, quads) == 60 &&
               offsetof(FaceRoom, points) == 8 && offsetof(FaceRoom, quadsCount) == 16 &&
               offsetof(FaceRoom, facing) == 20 && offsetof(FaceRoom, camera) == 32 &&
@@ -1258,7 +1273,7 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.textures = &t;
     run.split = &split;
     run.farBucket = gViewFar >> OT_SHIFT;
-    run.noVoids = *uncached(&gFacesNoVoids);
+    run.voidWay = *uncached(&gFacesVoidWay);
 }
 
 #ifdef STEPWISE

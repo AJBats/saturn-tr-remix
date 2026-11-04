@@ -39,6 +39,7 @@
     .equ    CLIP_PLANE,     0x20
     .equ    VIEW_NEAR,      64      ! a corner's z behind the near plane
     .equ    FAR_BUCKET,     1280    ! faces.cpp's: behind everything
+    .equ    VOIDS_NONE,     2       ! faces.h FaceVoidWay
     .equ    MAT_SHADEABLE,  1
     .equ    MESH_INSIDE,    1
     .equ    MESH_WATER,     2
@@ -743,10 +744,10 @@ _facesMeshAsm:
     ! facesroom.s .Lvoid for rooms), and on to the next command; T set when the list is then
     ! full, else clear (a fill made or not). r0 .. r3, r5 .. r7, r14
 .Lvoid:
-    mov.l   .LnoVoids, r0
+    mov.l   .LvoidWay, r0
     mov.l   @r0, r0
-    tst     r0, r0
-    bf      .LvoidNone
+    cmp/eq  #VOIDS_NONE, r0
+    bt      .LvoidNone
     mov     #VIEW_NEAR, r5
     mov.w   @(4, r1), r0
     cmp/gt  r5, r0
@@ -764,7 +765,7 @@ _facesMeshAsm:
     rts
     clrt
     .align 2
-.LnoVoids:      .long   _gFacesNoVoids + 0x20000000
+.LvoidWay:      .long   _gFacesVoidWay + 0x20000000
 .LvoidMade:
     mov.w   @r1, r0
     mov     r0, r6              ! x: least

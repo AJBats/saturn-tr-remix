@@ -55,7 +55,8 @@
     .equ    RUN_FAR_BUCKET, 268
     .equ    RUN_CAREFUL_TRI, 272
     .equ    RUN_NEAR,       332
-    .equ    RUN_NO_VOIDS,   336
+    .equ    RUN_VOID_WAY,   336     ! faces.h FaceVoidWay
+    .equ    VOIDS_NONE,     2
     .equ    CLIP_LEFT,      2
     .equ    CLIP_RIGHT,     4
     .equ    CLIP_TOP,       8
@@ -1154,13 +1155,14 @@ _facesRoomAsm:
     rts
     clrt
 
-    ! a transparent fill over the box on the frame of corners r1, r2, r3, r7,
-    ! behind everything (faces.cpp faceVoid), unless the buffer is clear; T set
-    ! when the list is then full; r0, r6, r8, r13, r14
+    ! the box on the frame of corners r1, r2, r3, r7 (faces.cpp faceVoid): added
+    ! to the frame's box and area, then a transparent fill over it behind
+    ! everything if that's the way (FaceVoidWay); T set when the list is then
+    ! full; r0 .. r3, r6, r8, r13, r14
 .Lvoid:
-    mov.l   @(RUN_NO_VOIDS, gbr), r0
-    tst     r0, r0
-    bf      .LvoidNone
+    mov.l   @(RUN_VOID_WAY, gbr), r0
+    cmp/eq  #VOIDS_NONE, r0
+    bt      .LvoidNone
     mov.w   @r1, r6             ! x: least
     mov     r6, r8              ! ... most
     RANGE   r2, 0, r6, r8
@@ -1190,12 +1192,49 @@ _facesRoomAsm:
     cmp/gt  r0, r14
     bf      4f
     mov     r0, r14
-4:  mov     #0x10, r0           ! (CMD_POLYGON | CMD_JUMP) >> 8
-    cmp/gt  r8, r6
+4:  cmp/gt  r8, r6
     bt      5f
     cmp/gt  r14, r13
-    bf      6f
-5:  mov     #0x50, r0           ! empty: skipped
+    bt      5f
+    mov.l   @(RUN_LIST, gbr), r0
+    mov     r0, r1
+    mov.l   @(48, r1), r2       ! CommandList's box
+    cmp/ge  r2, r6
+    bt      1f
+    mov.l   r6, @(48, r1)
+1:  mov.l   @(52, r1), r2
+    cmp/ge  r2, r13
+    bt      2f
+    mov.l   r13, @(52, r1)
+2:  mov.l   @(56, r1), r2
+    cmp/gt  r2, r8
+    bf      3f
+    mov.l   r8, @(56, r1)
+3:  mov.l   @(60, r1), r2
+    cmp/gt  r2, r14
+    bf      4f
+    mov.l   r14, @(60, r1)
+4:  mov     r8, r2
+    sub     r6, r2
+    add     #1, r2
+    mov     r14, r3
+    sub     r13, r3
+    add     #1, r3
+    mulu.w  r2, r3
+    add     #64, r1
+    mov.l   @r1, r2
+    sts     macl, r3
+    add     r3, r2
+    mov.l   r2, @r1             ! its area
+    mov.l   @(RUN_VOID_WAY, gbr), r0
+    tst     r0, r0
+    bf      .LvoidNone          ! in the box alone
+    bra     6f
+    mov     #0x10, r0           ! (CMD_POLYGON | CMD_JUMP) >> 8
+5:  mov.l   @(RUN_VOID_WAY, gbr), r0
+    tst     r0, r0
+    bf      .LvoidNone
+    mov     #0x50, r0           ! empty: skipped
 6:  shll8   r0
     or      #4, r0
     shll16  r0

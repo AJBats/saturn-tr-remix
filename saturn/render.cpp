@@ -580,7 +580,7 @@ void renderLevelInit()
     // from showing where planes cut faces away have no work left.
     gSceneSwept = gLevelID == LVL_TR1_3A;
     vdp1EraseFrames(gSceneSwept);
-    *uncached(&render::gFacesNoVoids) = gSceneSwept;
+    *uncached(&render::gFacesVoidWay) = gSceneSwept ? render::FACE_VOIDS_NONE : render::FACE_VOIDS_BOXED;
 
     // the shaded copies, at the top of the cache, if it can spare them
     uint32 shadeBytes = 2 * 256 * SHADE_TABLE_SIZE;
@@ -940,6 +940,7 @@ void flush_c()
     dspEndsClear();     // read: from here the next frame's, whose rooms' run may be on already
     if (gWalked && !gSceneClear)
     {
+        const render::FrameVoids voids = render::frameVoids();
 #ifdef VOID_VIEW
         // magenta where nothing draws in the scene
         render::Command &c = render::gFrameCmds[0];
@@ -968,11 +969,36 @@ void flush_c()
             c.w[6] = FRAME_HEIGHT - 1;
             gListOpening = true;
         }
+        else if (*uncached(&render::gFacesVoidWay) == render::FACE_VOIDS_BOXED && voids.x0 <= voids.x1)
+        {
+            render::Command &c = render::gFrameCmds[0];
+            c.w[0] = (c.w[0] & ~(0xFu << 16)) | (CMD_POLYGON << 16);
+            c.w[1] = PMOD_NO_ECD_SPD << 16;
+            c.w[3] = (voids.x0 << 16) | voids.y0;
+            c.w[4] = (voids.x1 << 16) | voids.y0;
+            c.w[5] = (voids.x1 << 16) | voids.y1;
+            c.w[6] = (voids.x0 << 16) | voids.y1;
+        }
         else
         {
             render::gFrameCmds[0].w[0] |= CMD_SKIP << 16;
         }
 #endif
+
+        // the next frame's fills: one rectangle while it costs less than theirs,
+        // a small one's pixels costing about 3 times a big one's. Either way the
+        // picture is right; a change of scene pays for at most a frame.
+        if (!gSceneSwept)
+        {
+            const int32 box = (voids.x1 - voids.x0 + 1) * (voids.y1 - voids.y0 + 1);
+            *uncached(&render::gFacesVoidWay) = voids.x0 > voids.x1 || 3 * voids.area > box
+                ? render::FACE_VOIDS_BOXED : render::FACE_VOIDS_DRAWN;
+#ifdef HW_LOG
+            if (gHolesShown) {
+                *uncached(&render::gFacesVoidWay) = render::FACE_VOIDS_DRAWN;   // to tell them from holes
+            }
+#endif
+        }
     }
 
     gStats.faces = render::facesSlot(render::gRoomList.link) - 1 + render::gFrameEnd - render::gMeshFirst;

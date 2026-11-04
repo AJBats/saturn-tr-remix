@@ -96,6 +96,8 @@ struct CommandList
     ShadeCache* shade;      // +36 the CPU's shaded colour tables, or none
     const uint8_t* shadeLevel;      // +40 shade 0 .. 31 to its gouraud level, for water
     const Sprite* sprites;  // +44 the level's, for a sprite's face
+    int32_t voidX0, voidY0, voidX1, voidY1; // +48 the box round this frame's fills so far, x0 > x1 none
+    int32_t voidArea;       // +64 ... and their areas added up
 };
 
 // A command's place, as VDP1 links to it.
@@ -307,12 +309,16 @@ struct RoomRun
     int32_t (*tiles)(RoomRun* run, uint32_t key, uint32_t size);    // +328 the texture's tiles'
                                 // character / 8, 0 when the cache can't have them
     void (*near)();             // +332 facesRoomNear; the lab has none
-    int32_t noVoids;            // +336 gFacesNoVoids, for the run
+    int32_t voidWay;            // +336 gFacesVoidWay, for the run
 };
 
-// The frame buffer the lists draw on is clear (set between levels): no fills where
-// planes cut faces away, in the walk's or the faces', there being no old pixels.
-extern "C" volatile int32_t gFacesNoVoids;
+// What room faces and the walk do where a plane cuts a face away, to keep old
+// pixels from showing: each paints its own rectangle of colour 0 behind everything;
+// or adds to the list's box, for one rectangle round them all, painted first; or, on a
+// frame buffer already clear, nothing. Set between frames. Meshes' stay their own unless
+// the buffer is clear: they're few.
+enum FaceVoidWay { FACE_VOIDS_DRAWN, FACE_VOIDS_BOXED, FACE_VOIDS_NONE };
+extern "C" volatile int32_t gFacesVoidWay;
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);
 extern "C" void facesRoomNear();    // facesroom.s's, as it calls it

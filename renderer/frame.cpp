@@ -647,7 +647,7 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         // draws
         int32_t fills;
         const int32_t (*fill)[4] = roomsFills(fills);
-        for (int32_t k = 0; k < fills && !*uncached(&gFacesNoVoids); k++)
+        for (int32_t k = 0; k < fills && *uncached(&gFacesVoidWay) == FACE_VOIDS_DRAWN; k++)
         {
             Vertex v[2] = {};
             v[0].x = fill[k][0];
@@ -812,6 +812,41 @@ void frameRoomsStart(bool listFree)
 void frameListFree()
 {
     *uncached(&gSlaveStages.listFree) = 1;
+}
+
+static inline int32_t voidMin(int32_t a, int32_t b)
+{
+    return a < b ? a : b;
+}
+
+static inline int32_t voidMax(int32_t a, int32_t b)
+{
+    return a > b ? a : b;
+}
+
+FrameVoids frameVoids()
+{
+    const CommandList* rooms = uncached(&gRoomList);
+    const CommandList* meshes = uncached(&gMeshList);
+    FrameVoids v;
+    v.x0 = voidMin(rooms->voidX0, meshes->voidX0);
+    v.y0 = voidMin(rooms->voidY0, meshes->voidY0);
+    v.x1 = voidMax(rooms->voidX1, meshes->voidX1);
+    v.y1 = voidMax(rooms->voidY1, meshes->voidY1);
+    v.area = rooms->voidArea + meshes->voidArea;
+    int32_t fills;
+    const int32_t (*fill)[4] = roomsFills(fills);
+    for (int32_t k = 0; k < fills; k++)
+    {
+        if (fill[k][0] > fill[k][2] || fill[k][1] > fill[k][3])
+            continue;
+        v.x0 = voidMin(v.x0, fill[k][0]);
+        v.y0 = voidMin(v.y0, fill[k][1]);
+        v.x1 = voidMax(v.x1, fill[k][2]);
+        v.y1 = voidMax(v.y1, fill[k][3]);
+        v.area += (fill[k][2] - fill[k][0] + 1) * (fill[k][3] - fill[k][1] + 1);
+    }
+    return v;
 }
 
 void frameEnds()

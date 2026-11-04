@@ -38,6 +38,14 @@ extern CommandList gRoomList, gMeshList;
 // adds to the picture (-1 none): HW_LOG builds.
 void framePaintRoom(int32_t room);
 
+// This frame's fills, as faces.h FaceVoidWay has them: the box round them, x0 > x1
+// none, and their areas added up. With all its faces done.
+struct FrameVoids
+{
+    int32_t x0, y0, x1, y1, area;
+};
+FrameVoids frameVoids();
+
 // The colour rooms' fills are drawn in, to see them: 0, transparent, as played.
 void frameFillColour(uint16_t colour);
 
