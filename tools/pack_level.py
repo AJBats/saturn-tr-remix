@@ -1154,9 +1154,9 @@ def move_lara(lvl, room_index, sector=None):
     lara.update(room=room_index, x=room.x + sx * 1024 + 512, y=floor * 256, z=room.z + sz * 1024 + 512)
 
 
-def start_trigger(lvl, items, flips):
+def start_trigger(lvl, items, flips, end=False):
     """A trigger on Lara's sector activating items, every mask bit set, as
-    the level's floor triggers have it, and turning flip maps on."""
+    the level's floor triggers have it, turning flip maps on, and ending the level."""
     lara = next(it for it in lvl.items if it["type"] == ITEM["LARA"])
     room = lvl.rooms[lara["room"]]
     index = (lara["x"] - room.x) // 1024 * room.z_sectors + (lara["z"] - room.z) // 1024
@@ -1165,6 +1165,8 @@ def start_trigger(lvl, items, flips):
         raise ValueError(f"START_TRIGGER: Lara's sector already has floor data at {sector[0]}")
     words = [0x8004, 0x3E00] + [i & 0x3FF for i in items]     # trigger (ACTIVATE), its mask
     words += [3 << 10 | f for f in flips]                       # FLIP: the mask above completes it
+    if end:
+        words.append(7 << 10)                                   # END
     words[-1] |= 0x8000
     room.sectors[index] = (len(lvl.floors),) + sector[1:]
     lvl.floors += words
@@ -1274,8 +1276,8 @@ def main():
             lara["rotation"] = (round(start[3] / 90) * 0x4000) & 0xFFFF
     triggered = list(filter(None, os.environ.get("START_TRIGGER", "").split(",")))
     if triggered:
-        start_trigger(lvl, [int(i) for i in triggered if not i.startswith("flip")],
-                      [int(i[4:]) for i in triggered if i.startswith("flip")])
+        start_trigger(lvl, [int(i) for i in triggered if i.isdigit()],
+                      [int(i[4:]) for i in triggered if i.startswith("flip")], "end" in triggered)
     plan = planepack.plan_for(name)
     plane_tiles = planepack.take_faces(lvl, plan) if plan else None
     sounds = sfx.Sfx(lvl, load_ps1(sys.argv[4] if len(sys.argv) > 4 else None, name))
