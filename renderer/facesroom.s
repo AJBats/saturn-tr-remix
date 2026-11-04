@@ -56,6 +56,7 @@
     .equ    RUN_CAREFUL_TRI, 272
     .equ    RUN_NEAR,       332
     .equ    RUN_VOID_WAY,   336     ! faces.h FaceVoidWay
+    .equ    RUN_LAST_BOX,   340
     .equ    VOIDS_NONE,     2
     .equ    CLIP_LEFT,      2
     .equ    CLIP_RIGHT,     4
@@ -551,6 +552,24 @@
     bt      .LfaceClose\sfx     ! corner A within the distance faces.cpp splits at
 .LFaceMaterial\sfx:
     MATERIAL
+    ! too dark to see? Corner A settles it for most faces
+    mov.b   @(13, r14), r0
+    extu.b  r0, r0
+    shlr2   r0
+    mov     r0, r8
+    mov.b   @(6, r1), r0
+    extu.b  r0, r0
+    cmp/hs  r8, r0
+    bf      .LFaceLit\sfx
+    mov.l   .LdarkAt\sfx, r0
+    jsr     @r0
+    nop
+    bf      .LFaceLit\sfx
+    bra     .Lnext\sfx
+    nop
+    .align 2
+.LdarkAt\sfx:   .long   .Ldark
+.LFaceLit\sfx:
     mov.w   @(8, r14), r0
     cmp/pz  r0
     bf      .LtoPlain\sfx      ! a texture the cache can't take
@@ -755,7 +774,7 @@
     ! without the cache: in its mean colour, or left out
 .Lplain\sfx:                    ! r14 the material
     mov.b   @(13, r14), r0
-    tst     r0, r0
+    tst     #3, r0
     bf      .Lskip\sfx
     mov.w   @(10, r14), r0
     extu.w  r0, r6              ! the colour
@@ -2006,6 +2025,105 @@ _facesRoomNear:
 .LnearHoldX:    .short  480
 .LnearHoldY:    .short  352
     .align 2
+
+    ! a room face, corners r1, r2, r3, r7, corner A at the shade r8 from which its
+    ! texture can't be seen: T set if it's left out, as it can be with every corner
+    ! there on a clear buffer or inside the last frame's box (faces.h
+    ! gFacesLastBox), which then has it this frame too; never under water, whose
+    ! colours are worked another way. r0, r6, r8, r13
+.Ldark:
+    mov.b   @(6, r2), r0
+    extu.b  r0, r0
+    cmp/hs  r8, r0
+    bf      8f
+    mov.b   @(6, r3), r0
+    extu.b  r0, r0
+    cmp/hs  r8, r0
+    bf      8f
+    mov.b   @(6, r7), r0
+    extu.b  r0, r0
+    cmp/hs  r8, r0
+    bf      8f
+    mov.l   @(RUN_PLAIN, gbr), r0
+    cmp/pz  r0
+    bf      8f
+    mov.l   @(RUN_VOID_WAY, gbr), r0
+    cmp/eq  #VOIDS_NONE, r0
+    bt      9f
+    tst     r0, r0
+    bt      8f                  ! each fill its own: no box
+    mov.l   r14, @-r15
+    mov.w   @r1, r6             ! x: least
+    mov     r6, r8              ! ... most
+    RANGE   r2, 0, r6, r8
+    RANGE   r3, 0, r6, r8
+    RANGE   r7, 0, r6, r8
+    mov.w   @(2, r1), r0
+    mov     r0, r13             ! y: least
+    mov     r0, r14             ! ... most
+    RANGE   r2, 2, r13, r14
+    RANGE   r3, 2, r13, r14
+    RANGE   r7, 2, r13, r14
+    cmp/pz  r6                  ! on the frame
+    bt      1f
+    mov     #0, r6
+1:  cmp/pz  r13
+    bt      2f
+    mov     #0, r13
+2:  mov     #88, r0
+    shll2   r0
+    add     #-1, r0             ! FRAME_WIDTH - 1
+    cmp/gt  r0, r8
+    bf      3f
+    mov     r0, r8
+3:  mov     #56, r0
+    shll2   r0
+    add     #-1, r0             ! FRAME_HEIGHT - 1
+    cmp/gt  r0, r14
+    bf      4f
+    mov     r0, r14
+4:  mov.l   @(RUN_LAST_BOX, gbr), r0
+    cmp/ge  r0, r6
+    bf      7f
+    mov.l   @(RUN_LAST_BOX + 4, gbr), r0
+    cmp/ge  r0, r13
+    bf      7f
+    mov.l   @(RUN_LAST_BOX + 8, gbr), r0
+    cmp/ge  r8, r0
+    bf      7f
+    mov.l   @(RUN_LAST_BOX + 12, gbr), r0
+    cmp/ge  r14, r0
+    bf      7f
+    mov.l   @(RUN_LIST, gbr), r0
+    mov.l   r1, @-r15
+    mov.l   r2, @-r15
+    mov     r0, r1
+    mov.l   @(48, r1), r2
+    cmp/ge  r2, r6
+    bt      1f
+    mov.l   r6, @(48, r1)
+1:  mov.l   @(52, r1), r2
+    cmp/ge  r2, r13
+    bt      2f
+    mov.l   r13, @(52, r1)
+2:  mov.l   @(56, r1), r2
+    cmp/gt  r2, r8
+    bf      3f
+    mov.l   r8, @(56, r1)
+3:  mov.l   @(60, r1), r2
+    cmp/gt  r2, r14
+    bf      4f
+    mov.l   r14, @(60, r1)
+4:  mov.l   @r15+, r2
+    mov.l   @r15+, r1
+    mov.l   @r15+, r14
+    rts
+    sett
+7:  mov.l   @r15+, r14
+8:  rts
+    clrt
+9:  rts
+    sett
 
     ! a piece's command: corners r1 r2 r3 r7, word 2 r8, clip flags ored r13;
     ! T set when the list is full

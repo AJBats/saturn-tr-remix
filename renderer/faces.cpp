@@ -425,6 +425,7 @@ void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth)
 
 static int32_t gViewFar = VIEW_FAR; // facesFar's
 extern "C" { volatile int32_t gFacesVoidWay; }
+extern "C" { volatile int32_t gFacesLastBox[4] = { 0x7FFF, 0x7FFF, -1, -1 }; }
 
 void facesFar(int32_t far)
 {
@@ -1156,7 +1157,8 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, pieceMaterial) == 300 && offsetof(RoomRun, wibble) == 304 &&
               offsetof(RoomRun, phase) == 308 && offsetof(RoomRun, window) == 312 &&
               offsetof(RoomRun, tiles) == 328 && offsetof(RoomRun, near) == 332 &&
-              offsetof(RoomRun, voidWay) == 336 && offsetof(CommandList, voidX0) == 48 &&
+              offsetof(RoomRun, voidWay) == 336 && offsetof(RoomRun, lastBox) == 340 &&
+              offsetof(CommandList, voidX0) == 48 &&
               offsetof(CommandList, voidArea) == 64 &&
               offsetof(RoomMaterial, quadrant) == 30 && offsetof(RoomMaterial, quads) == 60 &&
               offsetof(FaceRoom, points) == 8 && offsetof(FaceRoom, quadsCount) == 16 &&
@@ -1177,7 +1179,7 @@ void facesRoomMaterials(const RoomTextures &t, RoomMaterial* materials, int32_t 
         m.key = cacheable(t, i) ? tex.reserved - 1 : -1;
         m.colour = tex.color;
         m.mips = tex.size & 7 ? 0 : tex.size & 0x010F ? 1 : 2;
-        m.skip = ((tex.attr & TEX_ATTR_AKILL) != 0) | (tex.attr & TEX_ATTR_SPARSE);
+        m.skip = ((tex.attr & TEX_ATTR_AKILL) != 0) | (tex.attr & TEX_ATTR_SPARSE) | (63 << 2);
         m.lines[0] = (tex.size >> 8) << 6;
         m.lines[1] = (tex.size & 0xFF) << 3;
         for (uint32_t v = 0; v < 6; v++)
@@ -1274,6 +1276,9 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.split = &split;
     run.farBucket = gViewFar >> OT_SHIFT;
     run.voidWay = *uncached(&gFacesVoidWay);
+    for (int32_t i = 0; i < 4; i++) {
+        run.lastBox[i] = uncached(gFacesLastBox)[i];
+    }
 }
 
 #ifdef STEPWISE

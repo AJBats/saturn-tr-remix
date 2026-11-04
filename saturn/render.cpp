@@ -559,6 +559,44 @@ void renderHolesShown(bool shown)
 }
 #endif
 
+// A face no brighter than this of 31 at its brightest can't be seen, and its colour
+// is hardly missed where it hides something: left out (faces.h RoomMaterial.skip).
+#define DARK_LIMIT  3
+
+// From the colour tables as VDP1's memory has them, every mip level's: the shade from
+// which each room texture's faces are that dark. A half-transparent one darkens what's
+// behind it however dark it is, so it stays.
+static void roomsDarkInit(uint32 count)
+{
+    for (uint32 i = 0; i < count; i++)
+    {
+        render::RoomMaterial &m = render::gRoomMaterials[i];
+        int32 from = 63;
+        if (((m.w1 >> 16) & 3) != 3)
+        {
+            int32 brightest = 0;
+            for (int32 level = 0; level <= m.mips; level++)
+            {
+                const volatile uint16* table = (const volatile uint16*)(VDP1_VRAM + ((m.w1 & 0xFFFF) + 4 * level) * 8);
+                for (int32 c = 0; c < 16; c++)
+                {
+                    uint32 colour = table[c];
+                    if (colour & 0x8000)
+                    {
+                        brightest = X_MAX(brightest, int32(colour & 31));
+                        brightest = X_MAX(brightest, int32((colour >> 5) & 31));
+                        brightest = X_MAX(brightest, int32((colour >> 10) & 31));
+                    }
+                }
+            }
+            for (int32 shade = 31; shade >= 0 && brightest + gShadeLevel[shade] - 16 <= DARK_LIMIT; shade--) {
+                from = shade;
+            }
+        }
+        m.skip = (m.skip & 3) | (from << 2);
+    }
+}
+
 // The clear: a scaled sprite of colour 0 over the frame, transparency off,
 // which writes 0 (VDP2 shows the back colour); skipped where rooms cover the
 // frame (what neither a face nor a portal of theirs would draw is filled
@@ -720,6 +758,7 @@ void renderLevelInit()
     f.clear = clearCommand();
     f.vertices = gVertices;
     render::frameInit(f);
+    roomsDarkInit(X_MIN(roomTextures, MAX_ROOM_TEXTURES));
 
     // the rooms' faces in what high work RAM is left, then where they are
     osPlaceRoomFaces();
@@ -993,6 +1032,11 @@ void flush_c()
             const int32 box = (voids.x1 - voids.x0 + 1) * (voids.y1 - voids.y0 + 1);
             *uncached(&render::gFacesVoidWay) = voids.x0 > voids.x1 || 3 * voids.area > box
                 ? render::FACE_VOIDS_BOXED : render::FACE_VOIDS_DRAWN;
+            volatile int32_t* last = uncached(render::gFacesLastBox);
+            last[0] = voids.x0;
+            last[1] = voids.y0;
+            last[2] = voids.x1;
+            last[3] = voids.y1;
 #ifdef HW_LOG
             if (gHolesShown) {
                 *uncached(&render::gFacesVoidWay) = render::FACE_VOIDS_DRAWN;   // to tell them from holes
