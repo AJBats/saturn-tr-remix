@@ -1163,7 +1163,7 @@ def start_trigger(lvl, items, flips):
     if sector[0]:
         raise ValueError(f"START_TRIGGER: Lara's sector already has floor data at {sector[0]}")
     words = [0x8004, 0x3E00] + [i & 0x3FF for i in items]     # trigger (ACTIVATE), its mask
-    words += [4 << 10 | f for f in flips]                       # FLIP_ON
+    words += [3 << 10 | f for f in flips]                       # FLIP: the mask above completes it
     words[-1] |= 0x8000
     room.sectors[index] = (len(lvl.floors),) + sector[1:]
     lvl.floors += words

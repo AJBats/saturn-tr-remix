@@ -21,6 +21,9 @@
 #               looking about with the guns out, one aimed at (issue 250)
 #   cistern-water LEVEL7A, room 108, looking across the green water: VDP1 just
 #               over its budget, the CPUs with room (issue 247)
+#   cistern-flood LEVEL7A flooded, room 103's stamp spot: under water in the hall
+#   cistern-flood-above LEVEL7A flooded, room 99 along the hall, standing over
+#               the water
 #   cistern-pillar LEVEL7A, room 106, a pillar to Lara's right: looking up
 #               (Z + DOWN) the walk lists more vertices than the jobs had room for
 #   cistern-platform LEVEL7A, room 102, the walk over that room standing still
@@ -77,6 +80,8 @@ case "${1:-ledge}" in
     cistern-tunnel) level=LEVEL7A id=LVL_TR1_7A start=0@43309:1183:53339 yaw=0x7A6A ;;
     cistern-look) level=LEVEL7A id=LVL_TR1_7A start=108@43468:-256:62565 yaw=0x905F trigger=0,1 ;;
     cistern-water) level=LEVEL7A id=LVL_TR1_7A start=108@44105:-256:62852 yaw=0x91E7 ;;
+    cistern-flood) level=LEVEL7A id=LVL_TR1_7A start=103@47529:0:52129 yaw=0xDB9F trigger=flip0 ;;
+    cistern-flood-above) level=LEVEL7A id=LVL_TR1_7A start=99@45157:-3328:63405 yaw=0x81B6 trigger=flip0 ;;
     cistern-pillar) level=LEVEL7A id=LVL_TR1_7A start=106@47461:0:64619 yaw=0xA15E ;;
     cistern-platform) level=LEVEL7A id=LVL_TR1_7A start=102@34112:-3328:55667 yaw=0x3962 ;;
     cistern-balcony) level=LEVEL7A id=LVL_TR1_7A start=84@40578:-5120:49157 yaw=0x139C ;;
@@ -98,7 +103,7 @@ case "${1:-ledge}" in
     valley-sky) level=LEVEL3A id=LVL_TR1_3A start=56@41167:3584:27288 yaw=0xA136 ;;
     valley-cave) level=LEVEL3A id=LVL_TR1_3A start=27@36389:113:46532 yaw=0x3D3B ;;
     valley-plants) level=LEVEL3A id=LVL_TR1_3A start=51@41453:3584:35241 yaw=0x8143 ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-tunnel|cistern-look|cistern-water|valley|valley-trex|valley-sky|valley-cave|valley-plants]" >&2; exit 1 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-tunnel|cistern-look|cistern-water|cistern-flood|cistern-flood-above|valley|valley-trex|valley-sky|valley-cave|valley-plants]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 
