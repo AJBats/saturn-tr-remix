@@ -64,7 +64,7 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
 <body>
 <header>
   <h1>Asset Diet Viewer</h1>
-  <div class="tabs"><button data-tab="wolf" class="on">Wolf</button><button data-tab="rat">Rat</button><button data-tab="croc">Crocodile</button><button data-tab="gorilla">Gorilla</button><button data-tab="bear">Bear</button><button data-tab="bridge">Bridges</button></div>
+  <div class="tabs"><button data-tab="wolf" class="on">Wolf</button><button data-tab="rat">Rat</button><button data-tab="croc">Crocodile</button><button data-tab="gorilla">Gorilla</button><button data-tab="bear">Bear</button><button data-tab="raptor">Raptor</button><button data-tab="rex">T-rex</button><button data-tab="bridge">Bridges</button></div>
   <span class="note">left: as the Saturn data has it · right: simplified · drag to orbit, wheel to zoom</span>
 </header>
 <main>
@@ -89,9 +89,9 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
     <span class="sub">The card textures, 8 texels across, a texel every 5 units along:</span>
     <canvas id="cardTex" height="1" style="width:100%;image-rendering:pixelated;margin-top:4px"></canvas>
     <h2>Geometry</h2>
-    <label><input type="checkbox" id="insideCopies"><span>Drop the inside copies<span class="sub" id="insideInfo"></span></span></label>
-    <label><input type="checkbox" id="join"><span>Join the segments<span class="sub" id="joinInfo"></span></span></label>
-    <div class="row"><select id="seamShade"><option value="mid">Seams: meet halfway, each segment's own shade</option><option value="own">Seams: on the parent's corner, each segment's own shade</option><option value="shared">Seams: on the parent's corner, one shade, one vertex</option></select></div>
+    <label><input type="checkbox" id="insideCopies" checked><span>Drop the inside copies<span class="sub" id="insideInfo"></span></span></label>
+    <label><input type="checkbox" id="join" checked><span>Join the segments<span class="sub" id="joinInfo"></span></span></label>
+    <div class="row"><select id="seamShade"><option value="mid">Seams: meet halfway, each segment's own shade</option><option value="own">Seams: on the parent's corner, each segment's own shade</option><option value="shared" selected>Seams: on the parent's corner, one shade, one vertex</option></select></div>
     <span class="sub" id="seamInfo"></span>
     <details><summary class="sub">Each seam</summary><div id="seams"></div></details>
     <h2>Light, as the game's</h2>
@@ -419,7 +419,7 @@ function makeAnimal(W, name) {
            fused: new Set(W.defaults.fuses), choice: {}, cards: new Set(W.defaults.cards), merged: new Set(), seamOff: new Set() };
 }
 const ANIMALS = {};
-for (const k of ['wolf', 'rat', 'croc', 'gorilla', 'bear']) ANIMALS[k] = makeAnimal(D[k], D[k].title);
+for (const k of ['wolf', 'rat', 'croc', 'gorilla', 'bear', 'raptor', 'rex']) ANIMALS[k] = makeAnimal(D[k], D[k].title);
 let A = ANIMALS.wolf;
 
 // per joint, the awake keyframe's turn closest to all the others (the medoid)
@@ -918,7 +918,7 @@ function draw() {
 function fromHash() {
   const tokens = decodeURIComponent(location.hash.slice(1)).split(',').filter(Boolean);
   const kv = Object.fromEntries(tokens.map(t => t.split('=')).map(([k, v]) => [k, v === undefined ? true : v]));
-  const start = ['bridge', 'rat', 'croc', 'gorilla', 'bear'].find(k => kv[k]) || 'wolf';
+  const start = ['bridge', 'rat', 'croc', 'gorilla', 'bear', 'raptor', 'rex'].find(k => kv[k]) || 'wolf';
   if (ANIMALS[start]) A = ANIMALS[start];
   if (kv.none) { A.fused.clear(); A.cards.clear(); }    // none of the animal's chosen toggles
   for (const f of A.W.fuses) if (kv[f.key]) A.fused.add(f.key);

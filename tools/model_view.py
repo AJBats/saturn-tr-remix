@@ -124,7 +124,58 @@ BEAR_CARDS = [("lower", "Lower limbs as cards", [2, 3, 5, 6, 8, 9, 11, 12]),
               ("earCards", "Ears as cards", [15, 16])]
 BEAR_EAR_CARDS = [15, 16]
 
-ANIMAL_FOOT = "Counts of what each side gives the renderer; for milliseconds, run it in the game."
+# The raptor and the T-rex, Lost Valley's: the seams the viewer offers until the
+# user has chosen and they go into diet.ANIMALS
+RAPTOR_JOINTS = ["hips", "thigh L", "shin L", "ankle L", "foot L", "thigh R", "shin R", "ankle R", "foot R",
+                 "upper arm R", "forearm R", "hand R", "claw R1", "claw R2", "claw R3",
+                 "upper arm L", "forearm L", "hand L", "claw L1", "claw L2", "claw L3",
+                 "neck", "head", "jaw", "tail 1", "tail 2", "tail 3", "tail 4", "tail 5"]
+RAPTOR_STATES = "DEATH STOP WALK RUN ATTACK_1 UNUSED ROAR ATTACK_2 BITE".split()
+RAPTOR_SEAMS = {"apart": [23], "wide": {1: 25, 5: 25, 12: 25, 14: 25, 18: 25, 20: 25}}
+RAPTOR_FUSES = [("jaw", "Jaw into the head", [23]),
+                ("claws", "Claws into the hands", [12, 13, 14, 18, 19, 20]),
+                ("hands", "Hands into the forearms", [11, 17]),
+                ("feet", "Feet into the ankles", [4, 8]),
+                ("ankles", "Ankles into the shins", [3, 7]),
+                ("neck", "Neck into the body", [21]),
+                ("head", "Head into the neck (the game turns it towards Lara; it would stop)", [22])]
+RAPTOR_TAIL = ("tail", [("Tail: 5 pieces, as it is", []),
+                        ("Tail: 3 pieces (tail 2 and 4 fused)", [25, 27]),
+                        ("Tail: 2 pieces (tail 2, 3 and 5 fused)", [25, 26, 28]),
+                        ("Tail: 1 piece", [25, 26, 27, 28])])
+RAPTOR_CARDS = [("clawCards", "Claws as cards", [12, 13, 14, 18, 19, 20]),
+                ("armLower", "Forearms and hands as cards", [10, 11, 16, 17]),
+                ("armUpper", "Upper arms as cards", [9, 15]),
+                ("legLower", "Shins and ankles as cards", [2, 3, 6, 7]),
+                ("feetCards", "Feet as cards", [4, 8]),
+                ("thighs", "Thighs as cards", [1, 5]),
+                ("tailEnd", "End of the tail as cards", [27, 28]),
+                ("tailCards", "Start of the tail as cards", [24, 25, 26])]
+RAPTOR_TAIL_JOINTS = [24, 25, 26, 27, 28]
+
+REX_JOINTS = ["body", "thigh L", "shin L", "ankle L", "foot L", "thigh R", "shin R", "ankle R", "foot R",
+              "chest", "neck", "neck 2", "head", "jaw",
+              "upper arm R", "forearm R", "hand R", "upper arm L", "forearm L", "hand L",
+              "tail 1", "tail 2", "tail 3", "tail 4", "tail 5"]
+REX_STATES = "NONE STOP WALK RUN UNUSED DEATH ROAR BITE FATAL".split()
+REX_SEAMS = {"apart": [13], "wide": {2: 25, 6: 25, 9: 25}}
+REX_FUSES = [("jaw", "Jaw into the head", [13]),
+             ("hands", "Hands into the forearms", [16, 19]),
+             ("arms", "Arms into the chest, whole", [14, 15, 16, 17, 18, 19]),
+             ("feet", "Feet into the ankles", [4, 8]),
+             ("neck", "Neck 2 into the neck (the game turns it towards Lara; it would stop)", [11]),
+             ("head", "Head into the neck (the game turns it towards Lara; it would stop)", [12])]
+REX_TAIL = ("tail", [("Tail: 5 pieces, as it is", []),
+                     ("Tail: 3 pieces (tail 2 and 4 fused)", [21, 23]),
+                     ("Tail: 2 pieces (tail 2, 3 and 5 fused)", [21, 22, 24]),
+                     ("Tail: 1 piece", [21, 22, 23, 24])])
+REX_CARDS = [("armLower", "Forearms and hands as cards", [15, 16, 18, 19]),
+             ("armUpper", "Upper arms as cards", [14, 17]),
+             ("lower", "Ankles and feet as cards", [3, 4, 7, 8]),
+             ("tailEnd", "End of the tail as cards", [23, 24])]
+REX_TAIL_JOINTS = [20, 21, 22, 23, 24]
+
+ANIMAL_FOOT ="Counts of what each side gives the renderer; for milliseconds, run it in the game."
 
 class Atlas(diet.Atlas):
     """diet.Atlas's images packed into one picture, from any level's textures
@@ -262,10 +313,10 @@ def end_normal(normals):
 
 
 def animal_json(lvl, meshes, atlas, type_, title, states, names, fuses, choices, card_groups, flat_cards, tail,
-                chosen=([], []), foot=ANIMAL_FOOT):
+                chosen=([], []), foot=ANIMAL_FOOT, seams=None):
     """model_json with what the viewer offers for an animal; tail: its joints,
     which may be drawn as one ribbon; chosen: the fuses and card groups on to
-    begin with."""
+    begin with; seams: for one not yet in the game's diet, as diet.ANIMALS has them."""
     out = model_json(lvl, meshes, atlas, ITEM[type_], states)
     model = next(m for m in lvl.models if m["type"] == ITEM[type_])
     start = model["start"]
@@ -291,8 +342,8 @@ def animal_json(lvl, meshes, atlas, type_, title, states, names, fuses, choices,
                 out["cards"][str(j)]["face"] = 1
     copies = {str(j): diet.inside_copies(meshes[start + j]) for j in range(model["count"])}
     out["insideCopies"] = {j: fis for j, fis in copies.items() if fis}
-    spec = diet.ANIMALS[type_]
-    out["join"] = diet.join_rings(meshes, start, out["parents"], out["offsets"], spec.get("apart", ()), spec.get("wide"))
+    spec = seams or diet.ANIMALS[type_]
+    out["join"] =diet.join_rings(meshes, start, out["parents"], out["offsets"], spec.get("apart", ()), spec.get("wide"))
     out["ribbon"] = ribbon_json(meshes, start, tail, out["meshes"]) if tail else None
     out["foot"] = foot
     return out
@@ -384,6 +435,13 @@ def main():
     add_water(croc, rat_level, rat_meshes, atlas, "CROCODILE_WATER", CROC_WATER_STATES)
     gorilla = animal_json(rat_level, rat_meshes, atlas, "GORILLA", "gorilla", GORILLA_STATES, GORILLA_JOINTS, GORILLA_FUSES, [],
                           GORILLA_CARDS, [], None)
+    valley = trsat.load(data_dir, "LEVEL3A")
+    valley_meshes = trsat.meshes(valley)
+    atlas.level(valley)
+    raptor = animal_json(valley, valley_meshes, atlas, "RAPTOR", "raptor", RAPTOR_STATES, RAPTOR_JOINTS, RAPTOR_FUSES,
+                         [RAPTOR_TAIL], RAPTOR_CARDS, [], RAPTOR_TAIL_JOINTS, seams=RAPTOR_SEAMS)
+    rex = animal_json(valley, valley_meshes, atlas, "REX", "T-rex", REX_STATES, REX_JOINTS, REX_FUSES,
+                      [REX_TAIL], REX_CARDS, [], REX_TAIL_JOINTS, seams=REX_SEAMS)
     atlas.level(lvl)
 
     # the bridges: plank items with their model's first frame, rope statics
@@ -431,7 +489,7 @@ def main():
     camera = {"pos": [30156, 3496, 49293],      # the game's view at the ledge (build ea032c9)
               "rot": [6455, 0, 15059, 2710, 16116, -1162, -14813, 2949, 6349]}
     data = {"atlas": {"png": png, "w": aw, "h": ah, "rects": rects},
-            "wolf": wolf, "rat": rat, "croc": croc, "gorilla": gorilla, "bear": bear,
+            "wolf": wolf, "rat": rat, "croc": croc, "gorilla": gorilla, "bear": bear, "raptor": raptor, "rex": rex,
             "bridge": {"planks": planks, "meshes": plank_out, "simple": plank_simple, "statics": statics,
                        "staticMeshes": static_out, "ropes": ropes, "rooms": rooms, "camera": camera}}
     template = open(os.path.join(HERE, "model_view.html"), encoding="utf-8").read()
@@ -440,7 +498,8 @@ def main():
         f.write(template.replace("/*DATA*/null", json.dumps(data, separators=(",", ":"))))
     print(f"{out_path}: {os.path.getsize(out_path) // 1024} KB, atlas {aw}x{ah}, {len(atlas.images)} images, "
           f"{len(planks)} planks, {len(statics)} statics; anims: wolf {len(wolf['anims'])}, rat {len(rat['anims'])}, "
-          f"crocodile {len(croc['anims'])}, gorilla {len(gorilla['anims'])}, bear {len(bear['anims'])}")
+          f"crocodile {len(croc['anims'])}, gorilla {len(gorilla['anims'])}, bear {len(bear['anims'])}, "
+          f"raptor {len(raptor['anims'])}, T-rex {len(rex['anims'])}")
 
 
 def quadrant_yaw(rotation):
