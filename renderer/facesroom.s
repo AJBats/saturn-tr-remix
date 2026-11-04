@@ -55,6 +55,7 @@
     .equ    RUN_FAR_BUCKET, 268
     .equ    RUN_CAREFUL_TRI, 272
     .equ    RUN_NEAR,       332
+    .equ    RUN_NO_VOIDS,   336
     .equ    CLIP_LEFT,      2
     .equ    CLIP_RIGHT,     4
     .equ    CLIP_TOP,       8
@@ -1149,10 +1150,17 @@ _facesRoomAsm:
     rts
     nop
 
+.LvoidNone:
+    rts
+    clrt
+
     ! a transparent fill over the box on the frame of corners r1, r2, r3, r7,
-    ! behind everything (faces.cpp faceVoid); T set when the list is then
-    ! full; r0, r6, r8, r13, r14
+    ! behind everything (faces.cpp faceVoid), unless the buffer is clear; T set
+    ! when the list is then full; r0, r6, r8, r13, r14
 .Lvoid:
+    mov.l   @(RUN_NO_VOIDS, gbr), r0
+    tst     r0, r0
+    bf      .LvoidNone
     mov.w   @r1, r6             ! x: least
     mov     r6, r8              ! ... most
     RANGE   r2, 0, r6, r8

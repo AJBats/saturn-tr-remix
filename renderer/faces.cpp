@@ -3,6 +3,7 @@
 // room materials, the shadows' faces.
 
 #include "faces.h"
+#include "platform.h"
 #include "hints.h"
 #include "hw.h"
 
@@ -420,6 +421,7 @@ void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth)
 #define DETAIL_DIST     4096    // quads crossing the near plane nearer than this split 2x2
 
 static int32_t gViewFar = VIEW_FAR; // facesFar's
+extern "C" { volatile int32_t gFacesNoVoids; }
 
 void facesFar(int32_t far)
 {
@@ -520,7 +522,7 @@ static void roomCommand(CommandList &list, const RoomTextures &t, uint32_t flags
 // where a plane cuts a room's or a mesh's face away.
 static void faceVoid(CommandList &list, const Vertex* a, const Vertex* b, const Vertex* c, const Vertex* d)
 {
-    if (list.cmd == list.end)
+    if (list.cmd == list.end || *uncached(&gFacesNoVoids))
         return;
     int32_t x0 = max(min(min(a->x, b->x), min(c->x, d->x)), 0);
     int32_t y0 = max(min(min(a->y, b->y), min(c->y, d->y)), 0);
@@ -1140,6 +1142,7 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, pieceMaterial) == 300 && offsetof(RoomRun, wibble) == 304 &&
               offsetof(RoomRun, phase) == 308 && offsetof(RoomRun, window) == 312 &&
               offsetof(RoomRun, tiles) == 328 && offsetof(RoomRun, near) == 332 &&
+              offsetof(RoomRun, noVoids) == 336 &&
               offsetof(RoomMaterial, quadrant) == 30 && offsetof(RoomMaterial, quads) == 60 &&
               offsetof(FaceRoom, points) == 8 && offsetof(FaceRoom, quadsCount) == 16 &&
               offsetof(FaceRoom, facing) == 20 && offsetof(FaceRoom, camera) == 32 &&
@@ -1255,6 +1258,7 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.textures = &t;
     run.split = &split;
     run.farBucket = gViewFar >> OT_SHIFT;
+    run.noVoids = *uncached(&gFacesNoVoids);
 }
 
 #ifdef STEPWISE

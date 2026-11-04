@@ -477,7 +477,7 @@ static bool gBenchChanged = true;   // the bench's rows to compose again
 // With the bench's rows hidden: where Lara stands (room, x, y, z, heading, as
 // LARA_START and START_YAW take them) and what the scene costs, averaged
 // over half a second, so that two views can be compared and reproduced.
-#define SCENE_ROWS      4
+#define SCENE_ROWS      5
 #define SCENE_WINDOW    30      // vblanks averaged
 static char gSceneRows[SCENE_ROWS][OVERLAY_COLUMNS + 1];
 
@@ -493,10 +493,43 @@ static char* appendHex(char* p, uint32 value, int32 digits)
     return p;
 }
 
+// With frames erased (vdp1EraseFrames): lists on a swept buffer, on one not swept,
+// sweeps asked too late, the list's time and the frame rate, 5 seconds at a time.
+#define ERASE_WINDOW    300
+
+static void eraseUpdate()
+{
+    static uint32 start, frames, vdp1;
+
+    frames++;
+    vdp1 += gStats.vdp1Ticks;
+    if (gVblankCount - start < ERASE_WINDOW)
+        return;
+    const EraseCounts c = vdp1EraseTake();
+    gSceneRows[4][0] = 0;
+    if (c.swept || c.unswept)
+    {
+        char* p = appendStat(gSceneRows[4], "er ", c.swept);
+        p = appendStat(p, "late ", c.unswept);
+        p = appendStat(p, "tl ", c.tooLate);
+        uint32 hundredths = vdp1 * 100 / frames * 100 / 22354;
+        p = appendStat(p, "ms ", hundredths / 100);
+        p -= 2;
+        *p++ = '.';
+        *p++ = '0' + hundredths / 10 % 10;
+        *p++ = '0' + hundredths % 10;
+        *p++ = ' ';
+        appendStat(p, "fps10 ", frames * 600 / (gVblankCount - start));
+    }
+    start = gVblankCount;
+    frames = vdp1 = 0;
+}
+
 static void sceneUpdate()
 {
     static uint32 start, frames, vdp1, cpu, drawn, roomVertices, vertices, faces, meshes;
 
+    eraseUpdate();
     frames++;
     vdp1 += gStats.vdp1Ticks;
     cpu += gStats.updateTicks + gStats.renderTicks - gStats.waitTicks;

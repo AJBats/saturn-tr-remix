@@ -738,11 +738,15 @@ _facesMeshAsm:
     .endm
 
     ! a face a plane cuts (corners r1, r2, r3, r7), unless a corner lies
-    ! behind the near plane: a transparent fill over the corners' box on the
-    ! frame, behind everything (labfaces.inc meshVoid, as facesroom.s .Lvoid
-    ! for rooms), and on to the next command; T set when the list is then
+    ! behind the near plane or the buffer is clear: a transparent fill over the
+    ! corners' box on the frame, behind everything (labfaces.inc meshVoid, as
+    ! facesroom.s .Lvoid for rooms), and on to the next command; T set when the list is then
     ! full, else clear (a fill made or not). r0 .. r3, r5 .. r7, r14
 .Lvoid:
+    mov.l   .LnoVoids, r0
+    mov.l   @r0, r0
+    tst     r0, r0
+    bf      .LvoidNone
     mov     #VIEW_NEAR, r5
     mov.w   @(4, r1), r0
     cmp/gt  r5, r0
@@ -759,6 +763,8 @@ _facesMeshAsm:
 .LvoidNone:
     rts
     clrt
+    .align 2
+.LnoVoids:      .long   _gFacesNoVoids + 0x20000000
 .LvoidMade:
     mov.w   @r1, r0
     mov     r0, r6              ! x: least

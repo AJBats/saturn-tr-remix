@@ -12,6 +12,8 @@ first proposal:
 
     python -I tools/level_view.py [LEVEL3A] [build/levelview/lost_valley.html]
 
+Nothing in the game reads these: VDP1's vblank erase won the comparison in Lost Valley (issue 267).
+
 The page holds level geometry, so it stays in build/.
 """
 import json

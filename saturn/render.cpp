@@ -62,6 +62,8 @@ static uint32 gDrawStart;       // the frame's drawing began (clear)
 #define gMeshFaceFlags  (cpuState()->meshFaceFlags)
 static bool gCameraWater;
 static bool gSceneClear;        // the scene's frame cleared all the same (setSceneClear)
+static bool gSceneSwept;        // the scene's frames cleared by VDP1's vblank erase, its strip by the list
+static bool gListOpening;       // the list built opens with the polygon for that
 
 static render::CallRecord* call(uint8 kind, uint32 index)
 {
@@ -573,6 +575,13 @@ static render::Command clearCommand()
 
 void renderLevelInit()
 {
+    // Lost Valley stands open to the sky, where no face covers the frame and the
+    // buffer has to be clear. So it's erased, and the fills that keep old pixels
+    // from showing where planes cut faces away have no work left.
+    gSceneSwept = gLevelID == LVL_TR1_3A;
+    vdp1EraseFrames(gSceneSwept);
+    *uncached(&render::gFacesNoVoids) = gSceneSwept;
+
     // the shaded copies, at the top of the cache, if it can spare them
     uint32 shadeBytes = 2 * 256 * SHADE_TABLE_SIZE;
     uint32 vram = detailSpareBytes() >= shadeBytes ? detailReserveTop(shadeBytes) : 0;
@@ -753,6 +762,11 @@ static void listUpload()
         detailResume();
         shadeTablesReset();     // the item textures may have covered them
         gListResume = false;
+    }
+    if (gListOpening)
+    {
+        gListOpening = false;
+        vdp1OpeningPolygonNext();
     }
     vdp1Plot();
     gListPending = false;
@@ -945,7 +959,19 @@ void flush_c()
         }
         else
 #endif
-        render::gFrameCmds[0].w[0] |= CMD_SKIP << 16;
+        if (gSceneSwept)
+        {
+            render::Command &c = render::gFrameCmds[0];
+            c.w[0] = (c.w[0] & ~(0xFu << 16)) | (CMD_POLYGON << 16);
+            c.w[1] = PMOD_NO_ECD_SPD << 16;
+            c.w[4] = (FRAME_WIDTH - 1) << 16;
+            c.w[6] = FRAME_HEIGHT - 1;
+            gListOpening = true;
+        }
+        else
+        {
+            render::gFrameCmds[0].w[0] |= CMD_SKIP << 16;
+        }
 #endif
     }
 

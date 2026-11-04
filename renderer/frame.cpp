@@ -647,7 +647,7 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         // draws
         int32_t fills;
         const int32_t (*fill)[4] = roomsFills(fills);
-        for (int32_t k = 0; k < fills; k++)
+        for (int32_t k = 0; k < fills && !*uncached(&gFacesNoVoids); k++)
         {
             Vertex v[2] = {};
             v[0].x = fill[k][0];

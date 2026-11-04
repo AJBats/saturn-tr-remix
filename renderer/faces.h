@@ -307,7 +307,12 @@ struct RoomRun
     int32_t (*tiles)(RoomRun* run, uint32_t key, uint32_t size);    // +328 the texture's tiles'
                                 // character / 8, 0 when the cache can't have them
     void (*near)();             // +332 facesRoomNear; the lab has none
+    int32_t noVoids;            // +336 gFacesNoVoids, for the run
 };
+
+// The frame buffer the lists draw on is clear (set between levels): no fills where
+// planes cut faces away, in the walk's or the faces', there being no old pixels.
+extern "C" volatile int32_t gFacesNoVoids;
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);
 extern "C" void facesRoomNear();    // facesroom.s's, as it calls it

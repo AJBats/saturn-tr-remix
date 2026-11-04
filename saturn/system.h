@@ -99,6 +99,28 @@ uint32_t vdp1Plots();
 // screen, with its number (vdp1Plots when it was asked for); nullptr stops.
 void vdp1OnShown(void (*fn)(uint32_t plot));
 
+// While on, each frame buffer change also erases the buffer the next list draws
+// on: VDP1 sweeps it in the vertical blank, costing the list no time, and reaches
+// 185 of the 224 lines. A change the erase can't catch (the list ended inside the
+// vertical blank, or the request reached VDP1 past its start) leaves the buffer
+// as it was.
+void vdp1EraseFrames(bool on);
+
+// The next vdp1Plot's list opens with a colour 0 polygon over the frame: cut at
+// plot time to the lines the sweep doesn't reach, or left whole if there was no
+// sweep.
+void vdp1OpeningPolygonNext();
+
+#ifdef HW_LOG
+// Since the last take: lists opening that way on a swept buffer, on one not swept,
+// and sweeps whose request reached VDP1 too late.
+struct EraseCounts
+{
+    uint32_t swept, unswept, tooLate;
+};
+EraseCounts vdp1EraseTake();
+#endif
+
 // The frame sequencing's state, for the crash screen (crash.cpp).
 uint32_t vdp1DebugState();
 
