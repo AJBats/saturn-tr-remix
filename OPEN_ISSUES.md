@@ -3574,6 +3574,17 @@ over 14.6, at most 188 · Fix: medium, parked*
 - The catch: under the erase (267) a face at the fog's floor draws nothing, so sky would show through far rock that should
   stand black against it. Those faces would need real black (0x8000) above the horizon, at some of what the erase saved.
 
+### 280. The flooded Cistern from above the water holds 22 fps where the dry one holds 30
+*Kind: speed · Size: Mednafen, VDP1 +8.7 ms at one view · Fix: to be looked at*
+
+- Room 99 along the hall, the frames page: dry (`tools/hwtest.sh cistern-straight`) 24 rooms, 769 commands, VDP1 24.4 ms,
+  CPU 25.7 ms, 30 fps. Flooded (`cistern-flood-above`, branch `vdp2-planes` for now) 24 rooms, 936 commands, VDP1 33.0 ms,
+  CPU 25-30 ms, 22-23 fps. Not read on the Saturn.
+- What the flood adds is the water's surface: 293 quads at y -3072 and 14 at -3328, one each way, transparent, four frames of
+  animated texture. VDP1 walks each one whole for the flecks it holds.
+- Under water the same hall is the lightest it gets (`cistern-flood`): 5 to 7 rooms, VDP1 16.7-23.4 ms, CPU 12-14 ms, 30 fps.
+- Floors on VDP2 (269) take the wet floor out from under the surface, and not the surface. See also 253, the flecks.
+
 ## Production code: clean-up
 
 Not differences from retail, and not open work on the picture: what a shipping build still
