@@ -111,6 +111,18 @@ void roomsFar(int32_t far)
     gCtx.viewMax = far << 14;
 }
 
+#ifndef RENDER_LAB
+const RoomLevel* roomsLevelTable()
+{
+    return gCtx.level;
+}
+
+const void* roomsPortalTable()
+{
+    return gCtx.portals;
+}
+#endif
+
 void roomsTiny(int32_t pixels)
 {
     gCtx.tiny = pixels;

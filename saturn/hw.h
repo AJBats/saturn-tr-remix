@@ -43,6 +43,7 @@ typedef struct {
 #define PMOD_GOURAUD_HALF 0x0006  /* gouraud, then half luminance */
 #define PMOD_LUT16      0x0008  /* 4-bit pixels through a 16-colour lookup table */
 #define PMOD_MESH       0x0100  /* every other pixel, a checkerboard */
+#define PMOD_USER_CLIP  0x0400  /* drawn only inside the last user clip's rectangle */
 #define PMOD_SPD_OFF    0x0040  /* pixel code 0 is drawn, not transparent */
 #define PMOD_ECD_OFF    0x0080  /* end codes are ordinary pixels */
 #define PMOD_HSS        0x1000  /* high-speed shrink: a reduced sprite reads every other texel */

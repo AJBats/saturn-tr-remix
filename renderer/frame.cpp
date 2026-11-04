@@ -456,11 +456,18 @@ static void slaveRooms(void*)
             }
             facesRoomsBegin(gRoomRun, gRoomTextures, gSplit, gRoomList);
             gRoomRun.seen = roomsBoxes(gFrameRooms, gRoomRun.seenCount);
+#ifndef RENDER_LAB
+            facesFloorBegin();
+#endif
         }
+        const int32_t slot = facesSlot(gRoomList.link);
 #ifdef HW_LOG
-        gRoomSlots[i][0] = facesSlot(gRoomList.link);
+        gRoomSlots[i][0] = slot;
 #endif
         facesRoom(gFrameRooms[i], gRoomRun);
+#ifndef RENDER_LAB
+        facesFloorRoom(gFrameRooms[i], roomsLevelTable(), slot, facesSlot(gRoomList.link));
+#endif
 #ifdef HW_LOG
         gRoomSlots[i][1] = facesSlot(gRoomList.link);
 #endif
@@ -758,6 +765,9 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         *farLast = shared->nearHead;
         *nearLast = facesLink(gFrameEnd);
     }
+#ifndef RENDER_LAB
+    facesUnderFloor(gFrameRooms, gFrameRoomCount, roomsLevelTable(), roomsPortalTable(), gRoomList, gFrameCmds);
+#endif
 #ifdef HW_LOG
     paintRoom();
 #endif

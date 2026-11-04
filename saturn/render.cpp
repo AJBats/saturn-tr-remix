@@ -544,6 +544,11 @@ void renderBoxes(bool on)
     render::roomsBoxesOn(on);
 }
 
+void renderUnderFloor(bool on)
+{
+    render::facesFloorKeep(on);
+}
+
 void renderBlack(int32 mode)
 {
     gBlack = mode;
@@ -637,6 +642,7 @@ void renderLevelInit()
     // those are erased, and the fills that keep old pixels from showing where planes
     // cut faces away have no work left.
     gSceneSwept = gLevelID == LVL_TR1_3A || planeLevel();
+    render::facesFloorSet(planeFloorY());
     vdp1EraseFrames(gSceneSwept);
     *uncached(&render::gFacesVoidWay) = gSceneSwept ? render::FACE_VOIDS_NONE : render::FACE_VOIDS_BOXED;
 

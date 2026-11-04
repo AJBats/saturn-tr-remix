@@ -1142,6 +1142,238 @@ NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const 
 
 #endif
 
+// --- under a floor on VDP2 ------------------------------------------------
+
+#ifndef RENDER_LAB
+
+#define UNDER_MAX       8
+#define OPENING_NEAR    (80 << 8)
+#define OPENING_LIMIT   32000
+#define COLUMN_SHIFT    4
+#define COLUMNS         ((FRAME_WIDTH >> COLUMN_SHIFT) + 1)
+
+static int32_t gFloorY = FACES_NO_FLOOR;
+static bool gFloorKeep = true;
+static struct { int16_t first, end; } gUnder[UNDER_MAX];    // the commands of the rooms under the floor
+static int32_t gUnderCount;
+static int16_t gColumnTop[COLUMNS], gColumnBottom[COLUMNS]; // the rows the openings cover, column by column
+
+void facesFloorSet(int32_t y)
+{
+    gFloorY = y;
+}
+
+void facesFloorKeep(bool on)
+{
+    gFloorKeep = on;
+}
+
+void facesFloorBegin()
+{
+    gUnderCount = 0;
+}
+
+void facesFloorRoom(const FaceRoom &room, const RoomLevel* level, int32_t first, int32_t end)
+{
+    if (first == end || level[room.room].yTop < gFloorY - 2 || gFloorY == FACES_NO_FLOOR || !gFloorKeep ||
+        gUnderCount == UNDER_MAX)
+        return;
+    gUnder[gUnderCount].first = int16_t(first);
+    gUnder[gUnderCount].end = int16_t(end);
+    gUnderCount++;
+}
+
+// a * b / c by the divider, its 64 bit dividend
+static inline int32_t mulDiv(int32_t a, int32_t b, int32_t c)
+{
+    const int64_t n = int64_t(a) * b;
+    volatile int32_t* const divider = (volatile int32_t*)0xFFFFFF00;
+    divider[0] = c;                 // DVSR
+    divider[4] = int32_t(n >> 32);  // DVDNTH
+    divider[5] = int32_t(n);        // DVDNTL: divides
+    return divider[5];
+}
+
+// a * b >> 16
+static inline int32_t mulQ16(int32_t a, int32_t b)
+{
+    int32_t high, low;
+    asm volatile("dmuls.l %2, %3\n\tsts mach, %0\n\tsts macl, %1\n\txtrct %0, %1"
+                 : "=&r"(high), "=&r"(low) : "r"(a), "r"(b) : "macl", "mach");
+    return low;
+}
+
+// An edge of an opening's outline into the columns it crosses.
+static void columnsEdge(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
+{
+    if (x0 > x1)
+    {
+        int32_t t = x0; x0 = x1; x1 = t;
+        t = y0; y0 = y1; y1 = t;
+    }
+    if (x1 < 0 || x0 >= FRAME_WIDTH)
+        return;
+    const int32_t slope = x1 > x0 ? mulDiv(y1 - y0, 1 << 16, x1 - x0) : 0;
+    const int32_t first = max(x0, 0) >> COLUMN_SHIFT, last = min(x1, FRAME_WIDTH - 1) >> COLUMN_SHIFT;
+    for (int32_t c = first; c <= last; c++)
+    {
+        const int32_t xa = max(x0, c << COLUMN_SHIFT), xb = min(x1, ((c + 1) << COLUMN_SHIFT) - 1);
+        int32_t ya = y0 + mulQ16(slope, xa - x0), yb = x1 > x0 ? y0 + mulQ16(slope, xb - x0) : y1;
+        if (ya > yb)
+        {
+            const int32_t t = ya; ya = yb; yb = t;
+        }
+        // an edge's end rounds: a row over, whichever way, is a row more kept
+        if (ya - 1 < gColumnTop[c]) {
+            gColumnTop[c] = int16_t(max(ya - 1, -OPENING_LIMIT));
+        }
+        if (yb + 1 > gColumnBottom[c]) {
+            gColumnBottom[c] = int16_t(min(yb + 1, OPENING_LIMIT));
+        }
+    }
+}
+
+// An opening's corners, in the room's coordinates, onto the frame and into the columns.
+static void columnsOpening(const FaceRoom &room, const int16_t* corners, int32_t yTop)
+{
+    int32_t v[4][3];
+    for (int32_t i = 0; i < 4; i++)
+    {
+        const int32_t px = corners[3 * i] >> 6, py = (corners[3 * i + 1] - yTop) >> 6, pz = corners[3 * i + 2] >> 6;
+        v[i][0] = dot3(room.m, px, py, pz, room.t[0]);
+        v[i][1] = dot3(room.m + 3, px, py, pz, room.t[1]);
+        v[i][2] = dot3(room.m + 6, px, py, pz, room.t[2]);
+    }
+    int32_t x[8], y[8];
+    int32_t n = 0;
+    for (int32_t i = 0; i < 4; i++)
+    {
+        const int32_t* a = v[i];
+        const int32_t* b = v[(i + 1) & 3];
+        int32_t cut[3];
+        const int32_t* out[2];
+        int32_t m = 0;
+        if (a[2] >= OPENING_NEAR) {
+            out[m++] = a;
+        }
+        if ((a[2] >= OPENING_NEAR) != (b[2] >= OPENING_NEAR))
+        {
+            const int32_t along = OPENING_NEAR - a[2], whole = b[2] - a[2];
+            cut[0] = a[0] + mulDiv(b[0] - a[0], along, whole);
+            cut[1] = a[1] + mulDiv(b[1] - a[1], along, whole);
+            cut[2] = OPENING_NEAR;
+            out[m++] = cut;
+        }
+        for (int32_t k = 0; k < m; k++)
+        {
+            volatile int32_t* const divider = (volatile int32_t*)0xFFFFFF00;
+            divider[0] = out[k][2] >> 8;    // DVSR
+            divider[1] = 1 << 20;           // DVDNT: divides
+            const int32_t dd = divider[1];
+            int32_t vx = out[k][0] >> 8, vy = out[k][1] >> 8;
+            vx = vx < -32767 ? -32767 : vx > 32767 ? 32767 : vx;
+            vy = vy < -32767 ? -32767 : vy > 32767 ? 32767 : vy;
+            const int32_t sx = ((vx * dd) >> 12) + (FRAME_WIDTH >> 1);
+            const int32_t sy = ((vy * dd) >> 12) + (FRAME_HEIGHT >> 1);
+            x[n] = sx < -OPENING_LIMIT ? -OPENING_LIMIT : sx > OPENING_LIMIT ? OPENING_LIMIT : sx;
+            y[n] = sy < -OPENING_LIMIT ? -OPENING_LIMIT : sy > OPENING_LIMIT ? OPENING_LIMIT : sy;
+            n++;
+        }
+    }
+    for (int32_t i = 0; n >= 3 && i < n; i++)
+    {
+        const int32_t j = i + 1 == n ? 0 : i + 1;
+        columnsEdge(x[i], y[i], x[j], y[j]);
+    }
+}
+
+// The rows the openings at the floor's height cover; false if the camera isn't above the floor.
+static bool columnsMake(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const void* portals)
+{
+    if (rooms[0].camera[1] + level[rooms[0].room].yTop >= gFloorY)
+        return false;
+    for (int32_t c = 0; c < COLUMNS; c++)
+    {
+        gColumnTop[c] = 0x7FFF;
+        gColumnBottom[c] = -0x7FFF;
+    }
+    for (uint32_t i = 0; i < count; i++)
+    {
+        const FaceRoom &room = rooms[i];
+        const RoomLevel &r = level[room.room];
+        if (r.yTop >= gFloorY - 2)
+            continue;
+        const int16_t* p = (const int16_t*)portals + r.first * 16;  // Portal: to, normal, corners
+        for (uint32_t k = 0; k < r.portals; k++, p += 16)
+        {
+            const int32_t y = p[5];
+            if (p[2] && y >= gFloorY - 2 && y <= gFloorY + 2 && level[uint16_t(p[0])].yTop >= gFloorY - 2) {
+                columnsOpening(room, p + 4, r.yTop);
+            }
+        }
+    }
+    return true;
+}
+
+// A room's commands kept to the openings. Its slot becomes the clip, jumping to the face at the
+// list's end, which goes on where it went; so the buckets are joined by now.
+static void underRoom(CommandList &list, Command* cmds, int32_t first, int32_t end)
+{
+    for (int32_t s = first; s < end; s++)
+    {
+        uint32_t* w = cmds[s].w;
+        if (w[0] & (CMD_SKIP << 16))
+            continue;
+        const int32_t ax = int16_t(w[3] >> 16), ay = int16_t(w[3]), bx = int16_t(w[4] >> 16), by = int16_t(w[4]);
+        const int32_t cx = int16_t(w[5] >> 16), cy = int16_t(w[5]), dx = int16_t(w[6] >> 16), dy = int16_t(w[6]);
+        const int32_t fx0 = max(min(min(ax, bx), min(cx, dx)), 0), fx1 = min(max(max(ax, bx), max(cx, dx)), FRAME_WIDTH - 1);
+        const int32_t fy0 = min(min(ay, by), min(cy, dy)), fy1 = max(max(ay, by), max(cy, dy));
+        if (fx0 > fx1)
+            continue;
+        int32_t top = 0x7FFF, bottom = -0x7FFF;
+        for (int32_t c = fx0 >> COLUMN_SHIFT; c <= fx1 >> COLUMN_SHIFT; c++)
+        {
+            top = min(top, gColumnTop[c]);
+            bottom = max(bottom, gColumnBottom[c]);
+        }
+        if (top <= fy0 && bottom >= fy1)
+            continue;       // all of it can show
+        top = max(top, fy0);
+        bottom = min(bottom, fy1);
+        if (top > bottom)
+        {
+            w[0] = (w[0] & 0xFFFF) | (CMD_SKIP_JUMP << 16);     // none of it can
+            continue;
+        }
+        if (list.cmd == list.end)
+            continue;
+        uint32_t* face = list.cmd;
+        for (int32_t i = 0; i < 8; i++) {
+            face[i] = w[i];
+        }
+        face[1] |= PMOD_USER_CLIP << 16;
+        w[0] = ((CMD_USER_CLIP | CMD_JUMP) << 16) | list.link;
+        w[3] = pair(fx0, max(top, 0));
+        w[5] = pair(fx1, min(bottom, FRAME_HEIGHT - 1));
+        list.cmd += 8;
+        list.grd += 2;
+        list.link += sizeof(Command) >> 3;
+        list.grdLink += 1 << 16;
+    }
+}
+
+void facesUnderFloor(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const void* portals, CommandList &list,
+                     Command* cmds)
+{
+    if (!gUnderCount || !columnsMake(rooms, count, level, portals))
+        return;
+    for (int32_t i = 0; i < gUnderCount; i++) {
+        underRoom(list, cmds, gUnder[i].first, gUnder[i].end);
+    }
+}
+
+#endif
+
 // --- rooms through facesroom.s ------------------------------------------
 
 static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&

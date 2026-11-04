@@ -197,6 +197,11 @@ bool planeLevel()
     return gLevel;
 }
 
+int32_t planeFloorY()
+{
+    return gLevel && gInfo.floorY != PLANE_NONE ? gInfo.floorY : 0x7FFFFFFF;
+}
+
 uint8_t* planeItemsAt(uint32_t bytes)
 {
     if (!gLevel) {

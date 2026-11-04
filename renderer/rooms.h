@@ -94,6 +94,10 @@ struct RoomsLevel
 };
 void roomsInit(const RoomsLevel &level);
 
+// The tables roomsInit was given, for the frame's faces.
+const RoomLevel* roomsLevelTable();
+const void* roomsPortalTable();
+
 // The frame's view: the camera, the view's matrix (12 int32, no translation),
 // the viewport (x0 y0 x1 y1), the camera's room.
 void roomsView(const int32_t camera[3], const int32_t view[12], const int32_t viewport[4], uint32_t cameraRoom);

@@ -19,6 +19,9 @@ void planeLoaded(uint32_t cellBytes, uint32_t nameBytes);
 // Whether this level has a plane.
 bool planeLevel();
 
+// Its floor's height; 0x7FFFFFFF, it has none.
+int32_t planeFloorY();
+
 // Where the level's item textures go in bank B, read by the CPU alone: its top, past the
 // names, or between the cells and the table in B0, whichever holds them. Null: neither does.
 uint8_t* planeItemsAt(uint32_t bytes);

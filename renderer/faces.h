@@ -280,6 +280,20 @@ void facesFar(int32_t far);
 
 void facesRoom(const FaceRoom &room, RoomRun &run);
 
+// A floor on VDP2 and what lies under it. VDP1 paints in front of VDP2, so a face past the floor
+// would paint over it where a polygon floor used to hide it. From above the floor, a room wholly
+// under it shows only through the openings at the floor's height. facesFloorRoom notes such a room's
+// commands as its faces are made; facesUnderFloor, the buckets joined, finds the openings on the
+// frame, as the rows they cover in each of its columns, and keeps those commands to them: a face
+// that misses them is left out, one partly in them is drawn clipped to those rows.
+#define FACES_NO_FLOOR  0x7FFFFFFF
+void facesFloorSet(int32_t y);          // the level's floor, or FACES_NO_FLOOR
+void facesFloorKeep(bool on);           // the menu's
+void facesFloorBegin();
+void facesFloorRoom(const FaceRoom &room, const RoomLevel* level, int32_t first, int32_t end);
+void facesUnderFloor(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const void* portals, CommandList &list,
+                     Command* cmds);
+
 // A face's shading in facesroom.s.
 enum RoomShading { SHADING_WATER = -1, SHADING_NEAR, SHADING_FAR, SHADING_PLAIN };
 
