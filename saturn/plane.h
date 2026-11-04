@@ -20,7 +20,7 @@ void planeLoaded(uint32_t cellBytes, uint32_t nameBytes);
 bool planeLevel();
 
 // Where the level's item textures go in bank B, read by the CPU alone: its top, past the
-// names, or past the plane's tables in B0, whichever holds them. Null: neither does.
+// names, or between the cells and the table in B0, whichever holds them. Null: neither does.
 uint8_t* planeItemsAt(uint32_t bytes);
 
 // Bank B RBG0's, from the coming vertical blank: for the level once its files are in. BGON

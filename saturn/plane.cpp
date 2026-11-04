@@ -16,6 +16,12 @@
 // top bit; and in its next 7 bits the ray's depth in steps of 256, which picks the colour the
 // line colour screen adds to the plane. A constant colour offset takes it off again, so the
 // plane darkens by what's missing: the game's fog, and under water its fading red.
+//
+// A set reads the table from line 0, and looking up that's far above a floor's horizon: its
+// start lies before the table, by as many entries as the lines above the horizon come to. An
+// address below 0 doesn't wrap on the Saturn: the floor's lines then read elsewhere, so the table
+// sits as high in its 16 bits of address as bank B0 allows, and a camera nearer the floor than
+// that leaves room for is taken for further off.
 
 #include "plane.h"
 #include "hw.h"
@@ -25,13 +31,14 @@
 
 extern "C" int32_t gFocalScale;
 
-#define CELLS_AT        0x40000     // bank B0: the cells, the table, the parameters at its top
+#define CELLS_AT        0x40000     // bank B0: the cells, the table and the parameters at its top
 #define PARAMS_AT       0x5FF00
+#define TABLE_AT        (PARAMS_AT - DEPTH_BYTES)
+#define TABLE_ROOM      ((TABLE_AT - CELLS_AT) / 4)     // entries below it in the address's 16 bits
 #define LINE_BASE_AT    0x5FFF0     // the line colour screen's one word: where its colours are
 #define SET_B_LONGS     (0x80 / 4)
 #define NAMES_AT        0x60000     // bank B1: the names, 4 KB a page
 #define NAMES_PAGE      0x1000
-#define B0_END          PARAMS_AT
 #define B1_END          0x7FF00
 
 #define RAMCTL_TEXT     0x0300      // banks split, none for rotation (screen.cpp)
@@ -101,7 +108,7 @@ struct Info
 
 static bool gLevel;
 static bool gBankOurs;
-static uint32_t gTableAt;   // VRAM: past the cells
+static uint32_t gCellsEnd;  // VRAM
 static uint32_t gNamesEnd;
 static Info gInfo;
 static bool gWater;
@@ -216,8 +223,8 @@ uint8_t* planeItemsAt(uint32_t bytes)
     if (gNamesEnd + bytes <= B1_END) {
         return (uint8_t*)(VDP2_VRAM + B1_END - bytes);
     }
-    if (gTableAt + DEPTH_BYTES + bytes <= B0_END) {
-        return (uint8_t*)(VDP2_VRAM + B0_END - bytes);
+    if (gCellsEnd + bytes <= TABLE_AT) {
+        return (uint8_t*)(VDP2_VRAM + TABLE_AT - bytes);
     }
     return nullptr;
 }
@@ -225,7 +232,7 @@ uint8_t* planeItemsAt(uint32_t bytes)
 // The table of k, far cut and depth.
 static void depthTableWrite()
 {
-    volatile uint32_t* table = vram32(gTableAt);
+    volatile uint32_t* table = vram32(TABLE_AT);
     for (int32_t i = 0; i < DEPTH_ENTRIES; i++)
     {
         int32_t z = i ? DEPTH_Z / i : DEPTH_FAR;
@@ -285,7 +292,7 @@ static void paramsWrite()
 
 static inline uint32_t tableBase()
 {
-    return ((gTableAt >> 2) & 0xFFFF) << 16;
+    return ((TABLE_AT >> 2) & 0xFFFF) << 16;
 }
 
 // No view yet: both sets read the far end of the table, transparent.
@@ -324,7 +331,7 @@ void planeLoaded(uint32_t cellBytes, uint32_t nameBytes)
         cram[i] = colours[i];
     }
 
-    gTableAt = CELLS_AT + cellsOnly;
+    gCellsEnd = CELLS_AT + cellsOnly;
     gNamesEnd = NAMES_AT + nameBytes;
     depthTableWrite();
     lineColoursMake(DEPTH_SCALE);
@@ -409,10 +416,16 @@ static inline uint32_t tableStep(int32_t value, int32_t height)
 }
 
 // How far a plane is for the table: the table ends at a depth of about 262, where a ray
-// looks steeply and the camera is near, and there the near floor is slightly off.
-static inline int32_t tableHeight(int32_t height, int32_t downMost)
+// looks steeply and the camera is near, and there the near floor is slightly off. No nearer than
+// leaves a reading from line 0 room before the table, if it starts above the horizon.
+static inline int32_t tableHeight(int32_t height, int32_t downMost, int32_t downFirst)
 {
-    const int32_t least = (downMost * TABLE_TIMES_5 >> DEPTH_LIMIT_SHIFT) + 1;
+    int32_t least = (downMost * TABLE_TIMES_5 >> DEPTH_LIMIT_SHIFT) + 1;
+    if (downFirst < 0)
+    {
+        const int32_t room = -downFirst * TABLE_TIMES_5 / (TABLE_OVER_8 * TABLE_ROOM) + 1;
+        least = room > least ? room : least;
+    }
     return height > least ? height : least;
 }
 
@@ -459,7 +472,7 @@ void planeView(const int32_t camera[3], const int32_t view[12])
     const int32_t toFloor = gInfo.floorY == PLANE_NONE ? 0 : gInfo.floorY - camera[1];
     if (toFloor > 0)
     {
-        const int32_t height = tableHeight(toFloor, downLast);
+        const int32_t height = tableHeight(toFloor, downLast, downTop);
         f.reads[0][0] = base + tableStep(downTop, height);
         f.reads[0][1] = tableStep(r[4], height);
     }
@@ -471,7 +484,7 @@ void planeView(const int32_t camera[3], const int32_t view[12])
     const int32_t toCeiling = gInfo.ceilingY == PLANE_NONE ? 0 : camera[1] - gInfo.ceilingY;
     if (toCeiling > 0)
     {
-        const int32_t height = tableHeight(toCeiling, -downTop);
+        const int32_t height = tableHeight(toCeiling, -downTop, 0);
         f.reads[1][0] = base + tableStep(-downTop, height);
         f.reads[1][1] = tableStep(-r[4], height);
     }
