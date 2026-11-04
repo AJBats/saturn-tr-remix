@@ -8,9 +8,10 @@ nothing from anywhere else.
 
 then http://127.0.0.1:8766/
 
-What goes on a plane (as tools/planepack.py in the lab, and docs/vdp2-production.md): a face flat
-at the level's height, facing the right way, opaque, a sector square, not animated, in a dry room
-that isn't an alternate. Everything else stays polygons, always drawn in front of the plane.
+What goes on a plane (as tools/planepack.py, and docs/vdp2-production.md): a face flat at the
+level's height, facing the right way, opaque, a sector square, not animated, in a dry room that isn't
+an alternate, in the stretch saturn/planes.txt gives the plane. Everything else stays polygons,
+always drawn in front of the plane.
 
 The map holds 32 x 32 sectors and repeats, so a world sector (sx, sz) lands on spot
 (sx % 32, sz % 32). Sectors that want one spot share it if their tile is identical (texture,
@@ -44,6 +45,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import planepack  # noqa: E402
 import trsat  # noqa: E402
 from pack_level import whole_textures  # noqa: E402
 
@@ -52,11 +54,8 @@ DATA = os.path.join(ROOT, 'external_resources', 'disc', 'files', 'DATA')
 PAGE = os.path.join(ROOT, 'tools', 'floor_paint.html')
 SAVE_DIR = os.path.join(ROOT, 'saturn', 'plane_paint')
 
-# The levels this opens, and their plane heights (world y grows down).
-PLANES = {
-    'LEVEL3A': {'floor': 3584},
-    'LEVEL7A': {'floor': 0, 'ceiling': -7168},
-}
+# The levels this opens, their plane heights (world y grows down) and stretches: saturn/planes.txt.
+PLANES = planepack.levels_planned()
 
 # Inventory item textures in bank B, in bytes, when build/data has no .ITX to measure.
 INVENTORY_BYTES = {'LEVEL3A': 58688, 'LEVEL7A': 65888}
@@ -145,7 +144,8 @@ class Model:
 
     def __init__(self, name, save_dir=SAVE_DIR):
         self.name = name
-        self.planes = PLANES[name]
+        self.plan = PLANES[name]
+        self.planes = self.plan.heights
         with contextlib.redirect_stdout(io.StringIO()):
             self.lvl = trsat.load(DATA, name)
         self.animated = {t for first, last in self.lvl.anim_ranges for t in range(first, last + 1)}
@@ -177,7 +177,7 @@ class Model:
                 if (w >= 0) if floor else (w <= 0):
                     continue
                 tile = tile_of(room, q)
-                if tile:
+                if tile and self.plan.within(tile['sx'], tile['sz']):
                     out.setdefault((tile['sx'], tile['sz']), dict(tile, room=room.index, quad=index, tex=q[4]))
         return out
 
@@ -569,7 +569,7 @@ def main():
     ap.add_argument('--save-dir', default=SAVE_DIR, help='read and save the paint here instead: a trial, or a test')
     args = ap.parse_args()
     if args.level not in PLANES:
-        sys.exit(f'{args.level}: no plane heights for it in PLANES, in {os.path.basename(__file__)}')
+        sys.exit(f'{args.level}: saturn/planes.txt has no plane for it')
     model = Model(args.level, os.path.abspath(args.save_dir))
     if args.budget:
         edits, boxes, _, problems = read_saved(model)

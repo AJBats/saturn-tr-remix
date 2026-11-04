@@ -2,8 +2,8 @@
 docs/vdp2-production.md): those faces out of its rooms for good, and their
 tiles, cells and colours for bank B of VDP2's VRAM.
 
-saturn/planes.txt names the levels and their heights. saturn/plane_paint/LEVEL.txt,
-tools/floor_paint.py's, holds what's been changed by hand:
+saturn/planes.txt names the levels, their heights and the stretch each plane is for.
+saturn/plane_paint/LEVEL.txt, tools/floor_paint.py's, holds what's been changed by hand:
 
     tile SET SX SZ TEX TURNED FLIPH FLIPV   this sector shows this tile
     blank SET SX SZ                         no tile here, and its face gone
@@ -68,14 +68,21 @@ FLIP_V = 0x8000
 
 
 class Plan:
-    def __init__(self, level, heights):
+    def __init__(self, level, heights, region):
         self.level = level
         self.heights = heights      # set -> y
+        self.region = region        # 'x', 'z' -> first and last sector of the stretch
         self.tile = {}              # (set, sx, sz) -> (tex, turned, flip_h, flip_v)
         self.blank = set()          # (set, sx, sz)
         self.keep = set()           # (set, sx, sz)
         self.flatten = {}           # (set, sx, sz) -> (room, quad)
         self.light = {}             # (set, sx, sz) -> levels
+
+
+    def within(self, sx, sz):
+        """A sector's in the stretch the plane is for."""
+        x, z = self.region.get('x'), self.region.get('z')
+        return (not x or x[0] <= sx <= x[1]) and (not z or z[0] <= sz <= z[1])
 
 
 class Tile:
@@ -87,16 +94,31 @@ class Tile:
                (other.tex, other.turned, other.flip_h, other.flip_v, other.levels)
 
 
+def levels_planned():
+    """Each level planes.txt names: its Plan, without what's been changed by hand."""
+    plans = {}
+    with open(PLANES_FILE) as f:
+        for line in f:
+            words = line.split('#')[0].split()
+            if not words:
+                continue
+            heights, region, i = {}, {}, 1
+            while i < len(words):
+                if words[i] in ('x', 'z'):
+                    region[words[i]] = (int(words[i + 1]), int(words[i + 2]))
+                    i += 3
+                else:
+                    heights[words[i]] = int(words[i + 1])
+                    i += 2
+            plans[words[0]] = Plan(words[0], heights, region)
+    return plans
+
+
 def plan_for(level):
     """The level's plan, or None if planes.txt doesn't name it."""
     if os.environ.get('PLANES') == '0':
         return None
-    plan = None
-    with open(PLANES_FILE) as f:
-        for line in f:
-            words = line.split('#')[0].split()
-            if words and words[0] == level:
-                plan = Plan(level, {words[i]: int(words[i + 1]) for i in range(1, len(words), 2)})
+    plan = levels_planned().get(level)
     if plan is None:
         return None
     path = os.path.join(PAINT_DIR, level + '.txt')
@@ -187,7 +209,7 @@ def take_faces(lvl, plan):
                     continue
                 c = flat_on(room, q, height, floor)
                 made = c and tile_of(q[4], c)
-                if not made:
+                if not made or not plan.within(*made[0]):
                     continue
                 if made[0] in wanted:
                     doubled += 1
