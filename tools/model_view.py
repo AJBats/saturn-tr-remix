@@ -131,7 +131,8 @@ RAPTOR_JOINTS = ["hips", "thigh L", "shin L", "ankle L", "foot L", "thigh R", "s
                  "upper arm L", "forearm L", "hand L", "claw L1", "claw L2", "claw L3",
                  "neck", "head", "jaw", "tail 1", "tail 2", "tail 3", "tail 4", "tail 5"]
 RAPTOR_STATES = "DEATH STOP WALK RUN ATTACK_1 UNUSED ROAR ATTACK_2 BITE".split()
-RAPTOR_SEAMS = {"apart": [23], "wide": {1: 25, 5: 25, 12: 25, 14: 25, 18: 25, 20: 25}}
+RAPTOR_SEAMS = {"apart": [23], "wide": {1: 25, 5: 25, 12: 25, 14: 25, 18: 25, 20: 25, 22: 40},
+                "only": {22: [1, 5, 13, 14]}, "stacked": [24, 25, 26, 27, 28], "up": [24, 25, 26, 27, 28]}
 RAPTOR_FUSES = [("jaw", "Jaw into the head", [23]),
                 ("claws", "Claws into the hands", [12, 13, 14, 18, 19, 20]),
                 ("hands", "Hands into the forearms", [11, 17]),
@@ -152,13 +153,14 @@ RAPTOR_CARDS = [("clawCards", "Claws as cards", [12, 13, 14, 18, 19, 20]),
                 ("tailEnd", "End of the tail as cards", [27, 28]),
                 ("tailCards", "Start of the tail as cards", [24, 25, 26])]
 RAPTOR_TAIL_JOINTS = [24, 25, 26, 27, 28]
+RAPTOR_CHOSEN = ([], ["clawCards", "armLower", "armUpper", "tailEnd", "tailCards"])
 
 REX_JOINTS = ["body", "thigh L", "shin L", "ankle L", "foot L", "thigh R", "shin R", "ankle R", "foot R",
               "chest", "neck", "neck 2", "head", "jaw",
               "upper arm R", "forearm R", "hand R", "upper arm L", "forearm L", "hand L",
               "tail 1", "tail 2", "tail 3", "tail 4", "tail 5"]
 REX_STATES = "NONE STOP WALK RUN UNUSED DEATH ROAR BITE FATAL".split()
-REX_SEAMS = {"apart": [13], "wide": {2: 25, 6: 25, 9: 25}}
+REX_SEAMS = {"apart": [13], "wide": {2: 25, 6: 25, 9: 25}, "stacked": [23, 24], "up": [23, 24]}
 REX_FUSES = [("jaw", "Jaw into the head", [13]),
              ("hands", "Hands into the forearms", [16, 19]),
              ("arms", "Arms into the chest, whole", [14, 15, 16, 17, 18, 19]),
@@ -331,19 +333,26 @@ def animal_json(lvl, meshes, atlas, type_, title, states, names, fuses, choices,
                       for k, options in choices]
     out["cardGroups"] = [{"key": k, "label": label, "joints": joints} for k, label, joints in card_groups]
     out["cards"] = {}
+    spec = seams or diet.ANIMALS[type_]
+    stacks = {}
     for _, _, joints in card_groups:
         for j in joints:
             if j in flat_cards:
                 card = diet.card_of(meshes[start + j], atlas, axis=1, view=2)
             else:
-                card = diet.pin_card(diet.card_of(meshes[start + j], atlas), out["parents"], out["offsets"], j)
+                card = diet.card_of(meshes[start + j], atlas, stacks=stacks if j in spec.get("stacked", ()) else None)
+                card = diet.pin_card(card, out["parents"], out["offsets"], j)
             out["cards"][str(j)] = card_json(card, atlas)
+            if j in spec.get("up", ()):
+                out["cards"][str(j)]["up"] = 1
+                out["cards"][str(j)]["w0"] = 2 * card["half0"]
+                out["cards"][str(j)]["w1"] = 2 * card["half1"]
             if j in flat_cards:
                 out["cards"][str(j)]["face"] = 1
     copies = {str(j): diet.inside_copies(meshes[start + j]) for j in range(model["count"])}
     out["insideCopies"] = {j: fis for j, fis in copies.items() if fis}
-    spec = seams or diet.ANIMALS[type_]
-    out["join"] =diet.join_rings(meshes, start, out["parents"], out["offsets"], spec.get("apart", ()), spec.get("wide"))
+    out["join"] = diet.join_rings(meshes, start, out["parents"], out["offsets"], spec.get("apart", ()), spec.get("wide"),
+                                  spec.get("only"))
     out["ribbon"] = ribbon_json(meshes, start, tail, out["meshes"]) if tail else None
     out["foot"] = foot
     return out
@@ -439,7 +448,7 @@ def main():
     valley_meshes = trsat.meshes(valley)
     atlas.level(valley)
     raptor = animal_json(valley, valley_meshes, atlas, "RAPTOR", "raptor", RAPTOR_STATES, RAPTOR_JOINTS, RAPTOR_FUSES,
-                         [RAPTOR_TAIL], RAPTOR_CARDS, [], RAPTOR_TAIL_JOINTS, seams=RAPTOR_SEAMS)
+                         [RAPTOR_TAIL], RAPTOR_CARDS, [], RAPTOR_TAIL_JOINTS, RAPTOR_CHOSEN, seams=RAPTOR_SEAMS)
     rex = animal_json(valley, valley_meshes, atlas, "REX", "T-rex", REX_STATES, REX_JOINTS, REX_FUSES,
                       [REX_TAIL], REX_CARDS, [], REX_TAIL_JOINTS, seams=REX_SEAMS)
     atlas.level(lvl)

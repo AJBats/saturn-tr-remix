@@ -318,14 +318,17 @@ def face_area(mesh, idx):
     return a
 
 
-def card_of(mesh, atlas, axis=None, view=None):
+def card_of(mesh, atlas, axis=None, view=None, stacks=None):
     """A box-like mesh as a card: the middle of each end of its long side
     (or of the given axis), half its thickness across, its faces' mean
     colour by area, an image of it seen from the side (along x, or z when x
     is its length, or along the given view) shaded a little across so the
     flat card reads as round, and each end's light: its corners' normals
     averaged (along the bone, for a box), or None, and the corners' normals
-    themselves (ns0, ns1)."""
+    themselves (ns0, ns1). With stacks, a prism's image is its own textures
+    (stack_side), stacks holding those made so far, and a mesh that comes to a
+    point takes the image before it: a tail's tip. half0, half1: half its width
+    at each end, for a card that narrows with it."""
     xs = list(zip(*mesh.vertices))
     lo, hi = [min(a) for a in xs], [max(a) for a in xs]
     ext = [h - l for l, h in zip(lo, hi)]
@@ -348,7 +351,13 @@ def card_of(mesh, atlas, axis=None, view=None):
     if view is None:
         view = 0 if axis != 0 else 2
     across = 3 - axis - view
-    image = bake_side(mesh, atlas, view, across, axis, lo, hi)
+    image = stack_side(mesh, atlas, view, across, axis, lo, hi, stacks) if stacks is not None else None
+    if not image and stacks:
+        image = next(iter(stacks.values()))
+    image = image or bake_side(mesh, atlas, view, across, axis, lo, hi)
+    def end_half(e):
+        near = [v for v in mesh.vertices if abs(v[axis] - e) < 0.15 * ext[axis]]
+        return sum(max(v[k] for v in near) - min(v[k] for v in near) for k in range(3) if k != axis) / 4
     ends = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
     if mesh.normals:
         for v, n in zip(mesh.vertices, mesh.normals):
@@ -360,8 +369,56 @@ def card_of(mesh, atlas, axis=None, view=None):
     if mesh.normals:
         for v, n in zip(mesh.vertices, mesh.normals):
             corners[0 if v[axis] < mid[axis] else 1].append(unit(n))
-    return {"e0": e0, "e1": e1, "half": width / 2, "col": [round(q / max(total, 1)) for q in colour],
+    return {"e0": e0, "e1": e1, "half": width / 2, "half0": end_half(lo[axis]), "half1": end_half(hi[axis]),
+            "col": [round(q / max(total, 1)) for q in colour],
             "image": image, "n0": normals[0], "n1": normals[1], "ns0": corners[0], "ns1": corners[1]}
+
+
+def stack_side(mesh, atlas, view, across, along, lo, hi, stacks):
+    """A prism's side as it is drawn: the textured quads that run its whole
+    length on the side seen from +view, one above the other, every texel of the
+    finest kept and the others' rows in proportion to the side they cover. Segments
+    with the same textures share one image (stacks, by textures). None if the
+    side isn't such quads."""
+    strips = []
+    for ftype, idx, flags in mesh.faces:
+        if len(idx) != 4 or ftype in COLOUR_TYPES or ftype in TRANSP_TYPES:
+            continue
+        P = [mesh.vertices[i] for i in idx]
+        spans_length = max(q[along] for q in P) - min(q[along] for q in P) > 0.8 * (hi[along] - lo[along])
+        if spans_length and mean(P)[view] > (lo[view] + hi[view]) / 2 + 1:
+            if abs(P[1][along] - P[0][along]) < abs(P[3][along] - P[0][along]):
+                return None
+            top = (P[0][across] + P[1][across]) / 2
+            bottom = (P[2][across] + P[3][across]) / 2
+            strips.append((min(top, bottom), abs(bottom - top), atlas.object(flags >> 4, 0, False, False),
+                           P[1][along] > P[0][along], bottom > top, ftype in FLIP_TYPES))
+    strips.sort(key=lambda s: s[0])
+    if sum(s[1] for s in strips) < 0.8 * (hi[across] - lo[across]):
+        return None
+    w = atlas.images[strips[0][2]][0]
+    if w % 8 or any(atlas.images[s[2]][0] != w for s in strips):
+        return None
+    key = tuple(s[2:] for s in strips)
+    if key in stacks:
+        return stacks[key]
+    per_unit = max(atlas.images[s[2]][1] / s[1] for s in strips)
+    out = bytearray()
+    h = 0
+    for _, span, img, forward, down, flip in strips:
+        tw, th, px = atlas.images[img]
+        rows = max(1, round(span * per_unit))
+        h += rows
+        for r in range(rows):
+            v = (r + 0.5) / rows
+            row = min(th - 1, int((v if down else 1 - v) * th))
+            for c in range(w):
+                u = (c + 0.5) / w
+                u = u if forward else 1 - u
+                column = min(tw - 1, int((1 - u if flip else u) * tw))
+                out += px[(row * tw + column) * 4:(row * tw + column) * 4 + 4]
+    stacks[key] = (w, h, bytes(out))
+    return stacks[key]
 
 
 def bake_side(mesh, atlas, view, across, along, lo, hi):
@@ -673,8 +730,10 @@ class DietMesh:
 def inside_copies(mesh):
     """The faces drawn twice, once each way round, whose copy faces into the
     mesh's middle: a closed box's, which nothing can ever see. A thin shape's
-    copies (an ear) lie about through the middle, and a face joined to nothing
-    (a row of teeth) can be seen from behind: both stay."""
+    copies (an ear) lie about through the middle, and a sheet with an open edge
+    (a row of teeth, the crest on a neck) can be seen from behind: both stay."""
+    def edges(idx):
+        return {frozenset((idx[i], idx[(i + 1) % len(idx)])) for i in range(len(idx))}
     centre = [sum(c) / len(mesh.vertices) for c in zip(*mesh.vertices)]
     sets = {}
     for fi, (ftype, idx, flags) in enumerate(mesh.faces):
@@ -683,8 +742,8 @@ def inside_copies(mesh):
     for fis in sets.values():
         if len(fis) < 2:
             continue
-        corners = set(mesh.faces[fis[0]][1])
-        if not any(corners & set(f[1]) for fi, f in enumerate(mesh.faces) if fi not in fis):
+        others = set().union(*(edges(f[1]) for fi, f in enumerate(mesh.faces) if fi not in fis))
+        if not edges(mesh.faces[fis[0]][1]) <= others:
             continue
         for fi in fis:
             v = [mesh.vertices[i] for i in mesh.faces[fi][1]]
@@ -702,7 +761,7 @@ def in_box(v, vs):
     return all(min(c) <= x <= max(c) for x, c in zip(v, zip(*vs)))
 
 
-def join_rings(meshes, start, parents, offsets, skip=(), wide=None):
+def join_rings(meshes, start, parents, offsets, skip=(), wide=None, only=None):
     """Where a segment's end meets its parent's in the model's rest pose (no
     joint turned): {joint: {p: parent, map: {vertex: the parent's}, caps: its
     faces that go, pcaps: the parent's, pull: the parent's vertices moved to a
@@ -712,7 +771,9 @@ def join_rings(meshes, start, parents, offsets, skip=(), wide=None):
     has more than the parent's. What goes: the faces on those corners alone, and
     the stubs that hid the bend, a thigh's knee or a chest's cone: faces on
     those corners and vertices lying past them inside the other segment. A face
-    that stays on such a vertex takes it to the nearest corner."""
+    that stays on such a vertex takes it to the nearest corner. A joint in only
+    joins those of its corners alone: a throat, where the rest of its end stands
+    free of the parent."""
     out = {}
     for j in range(1, len(parents)):
         if j in skip:
@@ -721,7 +782,9 @@ def join_rings(meshes, start, parents, offsets, skip=(), wide=None):
         child, parent = meshes[start + j], meshes[start + p]
         placed = [[c + o for c, o in zip(v, offsets[j])] for v in child.vertices]
         reach = (wide or {}).get(j, JOIN_REACH)
-        pairs = sorted((norm(sub(v, pv)), i, k) for i, v in enumerate(placed) for k, pv in enumerate(parent.vertices))
+        chosen = (only or {}).get(j)
+        pairs = sorted((norm(sub(v, pv)), i, k) for i, v in enumerate(placed) for k, pv in enumerate(parent.vertices)
+                       if chosen is None or i in chosen)
         taken, ring, gap = set(), {}, 0
         for d, i, k in pairs:
             if d > reach:
@@ -811,7 +874,7 @@ def animal_diet(lvl, model, meshes, atlas, spec):
     # seams between segments drawn whole, each joint's parent drawn too
     whole = cards | set(frozen)
     no_seam = set(spec.get("apart", ())) | whole | {j for j in range(1, count) if parents[j] in whole}
-    rings = join_rings(meshes, start, parents, offsets, no_seam, spec.get("wide"))
+    rings = join_rings(meshes, start, parents, offsets, no_seam, spec.get("wide"), spec.get("only"))
     out = {j: DietMesh(meshes[start + j]) for j in range(count)}
     remaps = {}
     for j in range(count):
