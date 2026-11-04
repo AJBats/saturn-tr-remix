@@ -1,0 +1,2156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Floor Paint</title>
+<link rel="icon" href="data:,">
+<style>
+/* A plain dark working layout that fits a desktop window: tools on the left, the maps above the
+   first-person views. Nothing on this page comes from outside this machine. */
+:root {
+  color-scheme: dark;
+  --bg: #11141a; --panel: #191d25; --panel2: #20252f; --line: #2d3442; --text: #dde2ec; --muted: #8f98ab;
+  --accent: #e8a33d; --red: #ff4d4d; --poly: #52c7e6; --ok: #6fce7c;
+  --sans: "Segoe UI", system-ui, sans-serif; --mono: Consolas, ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font: 12.5px/1.35 var(--sans); overflow: hidden; }
+body { display: grid; grid-template-rows: auto minmax(0, 1fr); user-select: none; }
+#fp:focus { outline: none; }
+#modalText, #info { user-select: text; }
+button, input, select { font: inherit; color: var(--text); }
+button { background: var(--panel2); border: 1px solid var(--line); border-radius: 3px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
+button:hover:not(:disabled) { border-color: var(--muted); }
+button:disabled { opacity: .4; cursor: default; }
+button.on, button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #17120a; font-weight: 600; }
+button.primary { border-color: var(--accent); color: var(--accent); }
+input[type=number] { width: 58px; background: var(--bg); border: 1px solid var(--line); border-radius: 3px; padding: 1px 3px; font-family: var(--mono); }
+label.check { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; cursor: pointer; }
+label.check input { margin: 0; }
+h2 { margin: 0; font-size: 12px; font-weight: 600; }
+.muted { color: var(--muted); }
+
+#top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 5px 8px; background: var(--panel); border-bottom: 1px solid var(--line); }
+#top .title { font-size: 14px; font-weight: 600; margin-right: 4px; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; margin-left: -1px; }
+.seg button:first-child { border-radius: 3px 0 0 3px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 3px 3px 0; }
+#saveState { min-width: 64px; color: var(--muted); }
+#saveState.dirty { color: var(--accent); }
+#budget { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-left: auto; align-items: center; }
+.stat { display: flex; align-items: baseline; gap: 4px; cursor: help; }
+.stat span { color: var(--muted); }
+.stat b { font-family: var(--mono); font-weight: 600; font-size: 13px; }
+.stat small { color: var(--muted); font-family: var(--mono); }
+.stat.bad b { color: var(--red); }
+#meter { width: 120px; height: 9px; background: var(--bg); border: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
+#meter i { display: block; height: 100%; background: var(--ok); }
+#meter i.over { background: var(--red); }
+
+#work { display: grid; grid-template-columns: 228px minmax(0, 1fr); min-height: 0; }
+#tools { display: flex; flex-direction: column; gap: 6px; padding: 6px; border-right: 1px solid var(--line); background: var(--panel); min-height: 0; overflow: hidden; }
+#brushes { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+#brushes button { text-align: left; padding: 2px 5px; overflow: hidden; text-overflow: ellipsis; }
+#brushes kbd { font-family: var(--mono); font-size: 11px; opacity: .65; margin-right: 3px; }
+#brushHint { min-height: 66px; color: var(--muted); }
+#brushBox { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 6px; align-items: start; }
+#brushPreview { width: 72px; height: 72px; image-rendering: pixelated; image-rendering: crisp-edges; background: #000; border: 1px solid var(--line); }
+#orientKeys { display: flex; gap: 3px; margin-top: 3px; }
+#orientText { font-family: var(--mono); }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; }
+#palette { flex: 1 1 0; min-height: 60px; overflow-x: hidden; overflow-y: auto; display: grid; grid-template-columns: repeat(4, 47px); grid-auto-rows: 47px; gap: 3px; align-content: start; border-top: 1px solid var(--line); padding-top: 5px; }
+.swatch { position: relative; width: 100%; height: 100%; padding: 0; border: 1px solid var(--line); border-radius: 0; background: #000; overflow: hidden; }
+.swatch canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+.swatch b { position: absolute; right: 0; bottom: 0; background: rgba(0, 0, 0, .78); color: #fff; font: 10px/1.2 var(--mono); padding: 0 2px; }
+.swatch i { position: absolute; left: 0; top: 0; background: rgba(0, 0, 0, .62); color: #bbb; font: 9px/1.2 var(--mono); padding: 0 2px; }
+.swatch.sel { border: 2px solid var(--accent); }
+.swatch:disabled { opacity: .3; }
+
+#centre { display: grid; grid-template-rows: auto minmax(120px, 1fr) auto auto; min-height: 0; min-width: 0; }
+#mapBar { display: flex; flex-wrap: wrap; gap: 2px 12px; padding: 3px 8px; border-bottom: 1px solid var(--line); }
+#maps { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 248px; gap: 4px; padding: 4px; min-height: 0; }
+.mapPanel { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 2px; }
+.mapHead { display: flex; gap: 8px; align-items: baseline; }
+.mapHead .muted { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.mapWrap { position: relative; flex: 1 1 0; min-height: 0; background: #000; border: 1px solid var(--line); overflow: hidden; }
+.mapWrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.mapWrap canvas.over { cursor: crosshair; touch-action: none; }
+#foldSide { display: flex; flex-direction: column; min-height: 0; gap: 4px; }
+#foldWrap { flex: 0 0 auto; aspect-ratio: 1; position: relative; background: #000; border: 1px solid var(--line); overflow: hidden; }
+#foldWrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#foldWrap canvas.over { cursor: crosshair; touch-action: none; }
+#conflictList { flex: 1 1 0; min-height: 0; overflow-y: auto; border: 1px solid var(--line); font-family: var(--mono); font-size: 11px; }
+#conflictList div { padding: 0 4px; cursor: pointer; white-space: nowrap; }
+#conflictList div:hover { background: var(--panel2); }
+#info { padding: 3px 8px; height: 50px; overflow: hidden; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 11.5px; background: var(--panel); }
+#info .msg { color: var(--accent); }
+
+#views { display: grid; grid-template-columns: auto minmax(280px, 1fr); grid-template-rows: minmax(0, 1fr); gap: 6px; padding: 4px 6px; min-height: 0; }
+#viewStage { display: flex; flex-direction: column; gap: 3px; }
+#viewLabels { display: flex; }
+#viewLabels div { flex: 1; color: var(--muted); }
+#fp { display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: grab; background: #000; touch-action: none; }
+#fp:active { cursor: grabbing; }
+#viewStats { font-family: var(--mono); font-size: 11.5px; min-height: 16px; }
+#viewSide { display: flex; flex-direction: column; gap: 4px; min-height: 0; overflow-y: auto; }
+#viewSide section { border-top: 1px solid var(--line); padding-top: 3px; }
+#boxList { display: flex; flex-direction: column; gap: 3px; }
+.boxRow { border: 1px solid var(--line); padding: 2px 4px; border-radius: 3px; }
+.boxRow.sel { border-color: var(--accent); }
+.boxRow .row { gap: 3px 4px; }
+.boxRow input[type=number] { width: 58px; }
+
+#pop { position: fixed; z-index: 10; background: var(--panel2); border: 1px solid var(--muted); border-radius: 4px; padding: 6px; max-width: 460px; box-shadow: 0 4px 18px rgba(0,0,0,.6); }
+#pop .choice { display: flex; align-items: center; gap: 6px; padding: 3px 0; border-top: 1px solid var(--line); }
+#pop .choice:first-of-type { border-top: 0; }
+#pop canvas { width: 40px; height: 40px; image-rendering: pixelated; image-rendering: crisp-edges; flex: none; }
+#pop .acts { display: flex; flex-direction: column; gap: 2px; margin-left: auto; }
+#modal { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, .6); display: flex; align-items: center; justify-content: center; }
+#modal > div { width: min(860px, 90vw); height: min(640px, 86vh); background: var(--panel); border: 1px solid var(--muted); border-radius: 4px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+#modalText { flex: 1; resize: none; background: var(--bg); color: var(--text); border: 1px solid var(--line); font-family: var(--mono); font-size: 12px; }
+[hidden] { display: none !important; }
+#fatal { position: fixed; inset: 30px; z-index: 30; background: #300; color: #fff; padding: 12px; white-space: pre-wrap; font-family: var(--mono); }
+</style>
+</head>
+<body>
+<header id="top">
+  <div class="title">Floor Paint <span id="levelName" class="muted"></span></div>
+  <div class="seg" id="kindSeg" title="Which plane you are looking at and painting: this level has a floor and a ceiling."></div>
+  <button id="undoBtn" title="Take back the last change (Ctrl+Z)">Undo</button>
+  <button id="redoBtn" title="Put back what Undo took (Ctrl+Y)">Redo</button>
+  <button id="saveBtn" class="primary" title="Write the changes to the file the pack step will read (Ctrl+S)">Save</button>
+  <span id="saveState" title="Whether the file on disk has every change"></span>
+  <button id="textBtn" title="Show the budget and the list of changes as text, to copy">Budget and changes as text</button>
+  <div id="budget">
+    <div class="stat" id="stPictures" title="Texture pictures VDP2 must hold. Each texture is 2 KB, and another 2 KB if any tile lays it turned by 90 degrees. A blank tile adds 128 bytes."><span>Pictures</span><b></b><small></small></div>
+    <div class="stat" id="stPalettes" title="A palette is one texture at one light level. The hardware has room for 119 here. When they don't fit, the light gets coarser."><span>Palettes</span><b></b></div>
+    <div class="stat" id="stStep" title="How coarse the tiles' light is, so the palettes fit. 1 is every level, 2 every second level."><span>Light step</span><b></b></div>
+    <div class="stat" id="stBlocks" title="The map has 16 blocks of 8 x 8 sectors. A block with any tile in it costs 4 KB of names, and one blank block costs 4 KB too."><span>Blocks</span><b></b><small></small></div>
+    <div class="stat" id="stConflicts" title="Map spots that two different tiles want. One wins; the other sectors stay polygons. In the text: spots, then tiles that lost."><span>Conflicts</span><b></b></div>
+    <div class="stat" id="stMoved" title="Faces taken off VDP1, because the plane now shows them or the sector is blank."><span>Faces off VDP1</span><b></b></div>
+    <div class="stat" id="stTotal" title="Bank B of VDP2's memory: cells, names, depth table 32 KB, parameters 1 KB, and the inventory's item textures that are there today. KB here is 1024 bytes."><span>Total</span><b></b><div id="meter"><i></i></div></div>
+  </div>
+</header>
+
+<div id="work">
+  <aside id="tools">
+    <div class="seg" id="modeSeg">
+      <button data-mode="paint" title="Paint tiles on the maps (key B switches)">Paint tiles</button>
+      <button data-mode="boxes" title="Drag on a top-down map to place an obstruction box (key B switches)">Place boxes</button>
+    </div>
+    <div id="brushes"></div>
+    <div id="brushHint"></div>
+    <div id="brushBox">
+      <canvas id="brushPreview" width="64" height="64" title="The tile the brush will paint, seen from above with world x to the right and z up"></canvas>
+      <div>
+        <div id="brushTexName"></div>
+        <div id="orientText" class="muted"></div>
+        <div id="orientKeys">
+          <button id="keyR" title="Turn the tile 90 degrees clockwise. A turned tile needs its own 2 KB copy of the texture (key R)">R</button>
+          <button id="keyH" title="Flip the tile left to right. Free on the hardware (key H)">H</button>
+          <button id="keyV" title="Flip the tile top to bottom. Free on the hardware (key V)">V</button>
+        </div>
+      </div>
+    </div>
+    <div class="row" title="The level the Light brush sets on all four corners. 16 leaves colours unchanged, higher is brighter, lower is darker.">
+      <span>Light level</span><input id="lightRange" type="range" min="0" max="31" value="16" style="width:78px"><input id="lightNumber" type="number" min="0" max="31" value="16" style="width:44px">
+    </div>
+    <label class="check" title="Also fill sectors in the rectangle that have no tile yet, such as rock or pits. Those cost map spots and may start conflicts."><input type="checkbox" id="fillEmpty"> Fill empty sectors too</label>
+    <div class="muted">Textures, the plane's first, with how many sectors show each</div>
+    <div id="palette"></div>
+  </aside>
+
+  <div id="centre">
+    <div id="mapBar">
+      <label class="check" title="Tint the Original map by height: orange above the plane, blue below it, none at the plane's height."><input type="checkbox" id="tHeight"> Shade by height</label>
+      <label class="check" title="Draw the floors that stay polygons on the On VDP2 map. Turn off to see the plane alone."><input type="checkbox" id="tPolys" checked> Polygons on top</label>
+      <label class="check" title="Tint the floors that stay polygons in blue, so you can tell them from the plane."><input type="checkbox" id="tTint" checked> Tint polygons</label>
+      <label class="check" title="A line round every sector, once zoomed in enough."><input type="checkbox" id="tGrid" checked> Sector grid</label>
+      <label class="check" title="The map's blocks of 8 x 8 sectors, and in a heavier line where the 32 x 32 map starts again."><input type="checkbox" id="tBlocks" checked> Block lines</label>
+      <label class="check" title="Red outline: a sector whose tile lost its spot. Thin dashed red: the sector holding that spot."><input type="checkbox" id="tConflicts" checked> Conflicts in red</label>
+      <label class="check" title="Orange outline on the On VDP2 map: a sector with nothing of its own and no polygon over it, where the plane shows a tile meant for somewhere else."><input type="checkbox" id="tCopies"> False copies</label>
+      <label class="check" title="Yellow outline and a letter on sectors you changed: T tile, B blank, K keep, F flatten, L light."><input type="checkbox" id="tMarks" checked> My changes</label>
+      <button id="fitBtn" title="Show the whole level on the maps again">Fit level</button>
+      <span class="muted" title="Hold Space and drag with the left button to move as well.">Wheel zooms, right-drag moves, Ctrl+click puts the camera there</span>
+    </div>
+    <div id="maps">
+      <section class="mapPanel" id="origPanel">
+        <div class="mapHead"><h2>Original</h2><span class="muted" id="origNote" title="Every face of the level that faces this way, the nearest to the camera winning: what you see from straight above today, flat faces and ramps alike."></span></div>
+        <div class="mapWrap"><canvas class="gl"></canvas><canvas class="over"></canvas></div>
+      </section>
+      <section class="mapPanel" id="planePanel">
+        <div class="mapHead"><h2>On VDP2</h2><span class="muted" title="What the plane shows at every sector, by the map's folding, with the floors that stay polygons over it.">the plane by its folding, with polygons left over it</span></div>
+        <div class="mapWrap"><canvas class="gl"></canvas><canvas class="over"></canvas></div>
+      </section>
+      <section class="mapPanel" id="foldSide">
+        <div class="mapHead"><h2>The map</h2><span class="muted" title="The 32 x 32 spots as VDP2 holds them. Painting here paints the spot, and every world sector sharing it, with the light of the one that holds it.">32 x 32 spots, as VDP2 holds them</span></div>
+        <div id="foldWrap"><canvas class="gl"></canvas><canvas class="over"></canvas></div>
+        <div class="muted" id="conflictHead" title="Click one to go there and choose what to do with it.">Conflicts</div>
+        <div id="conflictList"></div>
+      </section>
+    </div>
+    <div id="info"></div>
+    <div id="views">
+      <div id="viewStage">
+        <div id="viewLabels">
+          <div title="Every face as polygons, as the game draws them today.">Original: all polygons</div>
+          <div title="As the Saturn composites it: the plane first with no depth test, below the horizon only, then every polygon that remains over it. Anything past the floor, such as a pit's far wall, paints over the near floor.">Plane first, then the polygons that remain over it</div>
+        </div>
+        <canvas id="fp" tabindex="0" title="Drag to look. W A S D move, Q up, E down, Shift faster, wheel sets the speed, G drops to Lara's camera height."></canvas>
+        <div id="viewStats"></div>
+      </div>
+      <div id="viewSide">
+        <div class="row">
+          <span id="camText" style="font-family:var(--mono)" title="Camera x, y, z, then yaw and pitch in the game's units"></span>
+        </div>
+        <div class="row" id="spotRow"></div>
+        <div class="row">
+          <button id="dropBtn" title="Put the camera about 800 above the floor beneath it, or the plane where there is none (key G)">Lara's height (G)</button>
+          <label class="check" title="Hide every polygon in the right-hand view, leaving the plane alone."><input type="checkbox" id="tPlaneOnly"> Plane only</label>
+          <label class="check" title="The plane's fog needs a line colour added back and a fixed -14 steps, so colours above 17 of 31 clip near the camera. Off shows the texture without that limit."><input type="checkbox" id="tClip" checked> Bright colours clip</label>
+          <span class="seg" id="sizeSeg" title="How much of the window the first-person views take"><button data-size="0.30">Small</button><button data-size="0.42">Medium</button><button data-size="0.60">Large</button></span>
+        </div>
+        <div class="muted" title="What's left out, when judging a view.">Not drawn here: static meshes (plants, rocks), items, Lara, and a level's flipped rooms. Polygons use correct perspective, where VDP1 doesn't. Wet rooms have no water tint.</div>
+        <section>
+          <div class="row">
+            <h2 title="Hand-made boxes that stop what's behind them being drawn at all. An experiment: nothing here is built yet.">Obstruction boxes</h2>
+            <button id="boxModeBtn" title="Switch to placing boxes: drag a rectangle on a top-down map (key B)">Place boxes</button>
+            <label class="check" title="Show faces the boxes would hide in magenta, in the left view."><input type="checkbox" id="tTintHidden" checked> Tint hidden</label>
+            <label class="check" title="Don't draw faces the boxes would hide, in both views, so wrong removals show."><input type="checkbox" id="tRemoveHidden"> Remove hidden</label>
+          </div>
+          <div class="row" title="New boxes get this y range. World y grows down, so Top is the smaller number.">
+            <span>New box from y</span><input type="number" id="newTop" step="256"><span>to</span><input type="number" id="newBottom" step="256">
+          </div>
+          <div id="boxStats" style="font-family:var(--mono);font-size:11.5px"></div>
+          <div id="boxList"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="pop" hidden></div>
+<div id="modal" hidden><div>
+  <div class="row"><h2>Budget and changes</h2><button id="modalCopy">Copy</button><button id="modalClose">Close</button><span id="modalNote" class="muted"></span></div>
+  <textarea id="modalText" readonly spellcheck="false"></textarea>
+</div></div>
+<div id="fatal" hidden></div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const SECTOR = 1024, MAP_SECTORS = 32, BLOCK_SECTORS = 8, TILES = 4, MAP_TILES = 128;
+const FRAME_W = 352, FRAME_H = 224, FOCAL = 209.75, GAP = 8;
+const NEAR = 64, FAR = 20480, NEUTRAL = 16, LEVELS = 32;
+const TURN = Math.PI * 2 / 65536;
+const CAMERA_HEIGHT = 800;
+
+let LEVEL, ATLAS;
+const FACES = [];                   // every face of the rooms that aren't alternates
+const FACE_AT = new Map();          // "room:quad" -> face
+const SECTORS = new Map();          // "sx,sz" -> the faces over it: up (highest first), down (lowest first)
+const BASE = {};                    // kind -> Map("sx,sz" -> the level's own face on that plane), in level order
+let EXTENT;                         // the level's sectors: x0, z0, x1, z1 (x1, z1 past the end)
+
+const S = {
+  kind: 'floor',
+  mode: 'paint',
+  brush: 'paint',
+  tex: 0,
+  o: { t: 0, h: 0, v: 0 },
+  light: NEUTRAL,
+  edits: {},
+  boxes: [],
+  selBox: -1,
+  undo: [],
+  redo: [],
+  action: null,
+  changes: 0,
+  savedChanges: 0,
+  view: { cx: 0, cz: 0, s: 0.01 },
+  cam: { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 },
+  speed: 4096,
+  held: new Set(),
+  space: false,
+  drag: null,
+  hover: null,
+  folds: null,
+  budget: null,
+  hidden: new Set(),
+  viewFrac: 0.42,
+  t: { },
+  need: { fold: true, fp: true, maps: true, over: true, boxes: true },
+};
+
+function fail(text) {
+  const f = $('fatal');
+  f.hidden = false;
+  f.textContent = text;
+}
+function say(text, ms) { S.message = text; S.messageUntil = performance.now() + (ms || 4000); showInfo(); }
+
+const sectorKey = (sx, sz) => sx + ',' + sz;
+const parseKey = key => key.split(',').map(Number);
+const mod = (v, n) => ((v % n) + n) % n;
+const spotOf = (sx, sz) => mod(sz, MAP_SECTORS) * MAP_SECTORS + mod(sx, MAP_SECTORS);
+const hex = v => (v & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+
+// ---- the level's faces
+
+// How a tile lies on the map. A world sector's point (fx, fz), each 0 to 1, shows the texture at (tu, tv):
+// flip H mirrors fx, flip V mirrors fz, and turned swaps them. As lab/planepack.py's names, whole-sector.
+function orient(o, fx, fz) {
+  const px = o.h ? 1 - fx : fx, pz = o.v ? 1 - fz : fz;
+  return o.t ? [pz, px] : [px, pz];
+}
+// R, clockwise as seen on the maps (x right, z up).
+function turnClockwise(o) { return { t: o.t ? 0 : 1, h: o.v, v: o.h ? 0 : 1 }; }
+function orientText(o) {
+  const words = [];
+  if (o.t) words.push('turned');
+  if (o.h) words.push('flip H');
+  if (o.v) words.push('flip V');
+  return words.length ? words.join(', ') : 'as drawn';
+}
+
+// A quad as a tile, if its footprint is a sector square. tools/floor_paint.py tile_of.
+function faceTile(c) {
+  const ax = c[0][0], az = c[0][2], ux = c[1][0] - ax, uz = c[1][2] - az, vx = c[3][0] - ax, vz = c[3][2] - az;
+  const plain = Math.abs(ux) === SECTOR && uz === 0 && Math.abs(vz) === SECTOR && vx === 0;
+  const turned = Math.abs(uz) === SECTOR && ux === 0 && Math.abs(vx) === SECTOR && vz === 0;
+  if ((!plain && !turned) || c[2][0] !== ax + ux + vx || c[2][2] !== az + uz + vz) return null;
+  const x0 = Math.min(c[0][0], c[1][0], c[2][0], c[3][0]), z0 = Math.min(c[0][2], c[1][2], c[2][2], c[3][2]);
+  if (mod(x0, SECTOR) || mod(z0, SECTOR)) return null;
+  const L = [0, 0, 0, 0];
+  for (const p of c) {
+    const i = (p[0] - x0) / SECTOR, j = (p[2] - z0) / SECTOR;
+    L[i ? (j ? 2 : 1) : (j ? 3 : 0)] = p[3];
+  }
+  return {
+    sx: x0 / SECTOR, sz: z0 / SECTOR, L,
+    o: { t: turned ? 1 : 0, h: (turned ? vx < 0 : ux < 0) ? 1 : 0, v: (turned ? uz < 0 : vz < 0) ? 1 : 0 },
+  };
+}
+
+function addFace(room, index, ids, tex, transparent, triangle) {
+  const c = ids.map(i => [room.v[i * 4], room.v[i * 4 + 1], room.v[i * 4 + 2], room.v[i * 4 + 3]]);
+  const ux = c[1][0] - c[0][0], uy = c[1][1] - c[0][1], uz = c[1][2] - c[0][2];
+  const ax = c[2][0] - c[0][0], ay = c[2][1] - c[0][1], az = c[2][2] - c[0][2];
+  const winding = ux * az - uz * ax;
+  const face = {
+    id: FACES.length, room: room.i, index, tex, transparent, triangle, c,
+    up: winding < 0, down: winding > 0,
+    n: [uy * az - uz * ay, uz * ax - ux * az, ux * ay - uy * ax],
+    tile: triangle ? null : faceTile(c),
+    y: c.reduce((a, p) => a + p[1], 0) / c.length,
+    flat: c.every(p => p[1] === c[0][1]),
+  };
+  FACES.push(face);
+  if (!triangle) FACE_AT.set(room.i + ':' + index, face);
+  if (face.up || face.down) {
+    const cx = c.reduce((a, p) => a + p[0], 0) / c.length, cz = c.reduce((a, p) => a + p[2], 0) / c.length;
+    const key = sectorKey(Math.floor(cx / SECTOR), Math.floor(cz / SECTOR));
+    let e = SECTORS.get(key);
+    if (!e) SECTORS.set(key, e = { up: [], down: [] });
+    (face.up ? e.up : e.down).push(face);
+  }
+}
+
+function buildLevel() {
+  for (const room of LEVEL.rooms) {
+    if (room.alt) continue;
+    room.q.forEach((q, i) => addFace(room, i, q.slice(0, 4), q[4], !!q[5], false));
+    room.t.forEach((t, i) => addFace(room, i, t.slice(0, 3), t[3], false, true));
+  }
+  let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+  for (const [key, e] of SECTORS) {
+    e.up.sort((a, b) => a.y - b.y);
+    e.down.sort((a, b) => b.y - a.y);
+    const [sx, sz] = parseKey(key);
+    x0 = Math.min(x0, sx); z0 = Math.min(z0, sz); x1 = Math.max(x1, sx + 1); z1 = Math.max(z1, sz + 1);
+  }
+  EXTENT = { x0, z0, x1, z1 };
+  for (const kind of Object.keys(LEVEL.planes)) {
+    const m = new Map();
+    for (const f of LEVEL.base[kind]) {
+      const face = FACE_AT.get(f[2] + ':' + f[3]);
+      m.set(sectorKey(f[0], f[1]), {
+        sx: f[0], sz: f[1], room: f[2], quad: f[3], tex: f[4], o: { t: f[5], h: f[6], v: f[7] }, L: f.slice(8, 12), face,
+      });
+    }
+    BASE[kind] = m;
+    S.edits[kind] = new Map();
+  }
+}
+
+// ---- who holds each spot, and the budget
+
+function tileLevels(L) {
+  const out = new Array(16);
+  for (let j = 0, n = 0; j < TILES; j++) {
+    const fz = (j + 0.5) / TILES;
+    for (let i = 0; i < TILES; i++, n++) {
+      const fx = (i + 0.5) / TILES;
+      out[n] = (L[0] * (1 - fx) + L[1] * fx) * (1 - fz) + (L[3] * (1 - fx) + L[2] * fx) * fz;
+    }
+  }
+  return out;
+}
+
+// The sector's claim on the map, if it makes one.
+function claimOf(kind, key, e, base) {
+  const [sx, sz] = parseKey(key);
+  if (e && e.flatten) {
+    const f = FACE_AT.get(e.flatten[0] + ':' + e.flatten[1]);
+    if (!f || !f.tile) return null;
+    return { key, sx, sz, tex: f.tex, o: f.tile.o, L: e.light || f.tile.L, painted: true, face: f, baseFace: base ? base.face : null, what: 'flatten' };
+  }
+  if (e && e.tile) {
+    return { key, sx, sz, tex: e.tile[0], o: { t: e.tile[1], h: e.tile[2], v: e.tile[3] }, L: e.light || (base ? base.L : [NEUTRAL, NEUTRAL, NEUTRAL, NEUTRAL]), painted: true, face: null, baseFace: base ? base.face : null, what: 'tile' };
+  }
+  if (base && !(e && (e.blank || e.keep))) {
+    return { key, sx, sz, tex: base.tex, o: base.o, L: e && e.light ? e.light : base.L, painted: false, face: null, baseFace: base.face, what: 'own' };
+  }
+  return null;
+}
+
+// tools/floor_paint.py fold, with the map's bytes and each sector's fate.
+function computeFolds() {
+  const folds = {}, levels = new Map(), pictures = new Set();
+  for (const kind of Object.keys(LEVEL.planes)) {
+    const base = BASE[kind], edits = S.edits[kind], claims = [];
+    const painted = [...edits.entries()].filter(([, e]) => e.tile || e.flatten).map(([k]) => k);
+    painted.sort((a, b) => { const p = parseKey(a), q = parseKey(b); return p[0] - q[0] || p[1] - q[1]; });
+    for (const k of painted) { const c = claimOf(kind, k, edits.get(k), base.get(k)); if (c) claims.push(c); }
+    for (const [k, b] of base) {
+      const e = edits.get(k);
+      if (e && (e.tile || e.flatten || e.blank || e.keep)) continue;
+      claims.push(claimOf(kind, k, e, b));
+    }
+    const spots = new Map(), bySector = new Map();
+    for (const c of claims) {
+      c.levels = tileLevels(c.L);
+      c.spot = spotOf(c.sx, c.sz);
+      bySector.set(c.key, c);
+      let s = spots.get(c.spot);
+      if (!s) {
+        spots.set(c.spot, s = { mx: mod(c.sx, MAP_SECTORS), mz: mod(c.sz, MAP_SECTORS), claims: [], winner: c, conflict: false });
+        pictures.add(c.tex * 2 + c.o.t);
+        for (const k of c.levels) levels.set(c.tex + ':' + k, [c.tex, k]);
+      }
+      s.claims.push(c);
+    }
+    folds[kind] = { kind, spots, bySector, conflicts: [], gone: new Set() };
+  }
+
+  let step = 0, used = 0;
+  for (let s = 1; s < LEVELS && !step; s++) {
+    const set = new Set();
+    for (const [tex, k] of levels.values()) set.add(tex * 1000 + Math.floor(k / s + 0.5));
+    used = set.size;
+    if (used <= LEVEL.bank.palettes) step = s;
+  }
+  const q = step || LEVELS - 1;
+  const signature = c => c.tex + '|' + c.o.t + c.o.h + c.o.v + '|' + c.levels.map(k => Math.floor(k / q + 0.5)).join(',');
+
+  let conflicts = 0, losers = 0, sharing = 0, blocks = 0, moved = 0;
+  const counts = {};
+  for (const kind of Object.keys(LEVEL.planes)) {
+    const fold = folds[kind], blockSet = new Set(), gone = fold.gone, edits = S.edits[kind];
+    const map = new Uint8Array(MAP_SECTORS * MAP_SECTORS * 4), light = new Uint8Array(MAP_TILES * MAP_TILES);
+    const count = counts[kind] = {};
+    for (const s of fold.spots.values()) {
+      blockSet.add((s.mx >> 3) + ',' + (s.mz >> 3));
+      const w = s.winner, sig = signature(w);
+      let lost = 0;
+      for (const c of s.claims) {
+        c.state = c === w ? 'win' : signature(c) === sig ? 'same' : 'lose';
+        if (c.state === 'lose') lost++;
+        else {
+          if (c.face) gone.add(c.face.id);
+          if (c.baseFace) gone.add(c.baseFace.id);
+          if (c.state === 'same') sharing++;
+          count[c.tex] = (count[c.tex] || 0) + 1;
+        }
+      }
+      if (lost) { conflicts++; losers += lost; s.conflict = true; fold.conflicts.push(s); }
+      const at = (s.mz * MAP_SECTORS + s.mx) * 4;
+      map[at] = w.tex; map[at + 1] = 255; map[at + 2] = w.o.t * 4 + w.o.h * 2 + w.o.v; map[at + 3] = 255;
+      for (let j = 0, n = 0; j < TILES; j++) for (let i = 0; i < TILES; i++, n++) {
+        light[(s.mz * TILES + j) * MAP_TILES + s.mx * TILES + i] = Math.floor(w.levels[n] / q + 0.5) * q;
+      }
+    }
+    for (const [k, e] of edits) if (e.blank && BASE[kind].has(k)) gone.add(BASE[kind].get(k).face.id);
+    blocks += blockSet.size;
+    moved += gone.size;
+    fold.map = map; fold.light = light; fold.blocks = blockSet;
+    fold.conflicts.sort((a, b) => a.mz - b.mz || a.mx - b.mx);
+  }
+  const B = LEVEL.bank;
+  const cells = pictures.size * B.picture + B.blankTile, names = (blocks + 1) * B.block;
+  S.folds = folds;
+  S.counts = counts;
+  S.budget = {
+    pictures: pictures.size, cells, palettes: used, step: step || null, blocks, names, conflicts, losers, sharing, moved,
+    depth: B.depth, parameters: B.parameters, inventory: B.inventory,
+    total: cells + names + B.depth + B.parameters + B.inventory, bank: B.bank,
+  };
+}
+
+function showBudget() {
+  const b = S.budget, kb = v => (v / 1024).toFixed(1) + ' KB';
+  const set = (id, text, small, bad) => {
+    const e = $(id);
+    e.querySelector('b').textContent = text;
+    if (small !== undefined) e.querySelector('small').textContent = small;
+    e.classList.toggle('bad', !!bad);
+  };
+  set('stPictures', b.pictures, kb(b.cells));
+  set('stPalettes', b.palettes + ' of ' + LEVEL.bank.palettes, undefined, b.palettes > LEVEL.bank.palettes);
+  set('stStep', b.step || 'none fits', undefined, !b.step);
+  set('stBlocks', b.blocks + ' + blank', kb(b.names), b.blocks > 16 * Object.keys(LEVEL.planes).length);
+  set('stConflicts', b.conflicts + (b.losers !== b.conflicts ? ' (' + b.losers + ' lost)' : ''), undefined, b.conflicts > 0);
+  set('stMoved', b.moved);
+  set('stTotal', (b.total / 1024).toFixed(1) + ' of ' + (b.bank / 1024) + ' KB', undefined, b.total > b.bank);
+  const bar = $('meter').firstElementChild;
+  bar.style.width = Math.min(100, b.total / b.bank * 100) + '%';
+  bar.classList.toggle('over', b.total > b.bank);
+}
+
+// ---- changing the paint
+
+function ownLight(kind, key, e) {
+  if (e.flatten) { const f = FACE_AT.get(e.flatten[0] + ':' + e.flatten[1]); return f && f.tile ? f.tile.L : null; }
+  const b = BASE[kind].get(key);
+  return b ? b.L : [NEUTRAL, NEUTRAL, NEUTRAL, NEUTRAL];
+}
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// Only what differs from the level stays in an entry.
+function normalise(kind, key, e) {
+  const n = Object.assign({}, e), b = BASE[kind].get(key);
+  if (n.tile && b && same(n.tile, [b.tex, b.o.t, b.o.h, b.o.v])) delete n.tile;
+  if (n.blank && !b) delete n.blank;
+  if (n.keep && !b) delete n.keep;
+  if (n.light) {
+    if (n.blank || n.keep || !(n.tile || n.flatten || b) || same(n.light, ownLight(kind, key, n))) delete n.light;
+  }
+  return Object.keys(n).length ? n : null;
+}
+function setEntry(kind, key, next) {
+  const before = S.edits[kind].get(key) || null;
+  const after = next ? normalise(kind, key, next) : null;
+  if (same(before, after)) return;
+  if (after) S.edits[kind].set(key, after); else S.edits[kind].delete(key);
+  if (!S.action) S.action = { edits: [], boxes: null };
+  S.action.edits.push({ kind, key, before, after });
+  S.need.fold = true;
+}
+function begin() { S.action = { edits: [], boxes: null }; }
+function end() {
+  const a = S.action;
+  S.action = null;
+  if (a && (a.edits.length || a.boxes)) {
+    S.undo.push(a);
+    S.redo.length = 0;
+    S.changes++;
+    showSave();
+    showUndo();
+  }
+}
+function undoRedo(from, to, forward) {
+  const a = from.pop();
+  if (!a) return;
+  const list = forward ? a.edits : a.edits.slice().reverse();
+  for (const c of list) {
+    const v = forward ? c.after : c.before;
+    if (v) S.edits[c.kind].set(c.key, v); else S.edits[c.kind].delete(c.key);
+  }
+  if (a.boxes) { S.boxes = JSON.parse(JSON.stringify(forward ? a.boxes.after : a.boxes.before)); boxesChanged(); }
+  to.push(a);
+  S.changes++;
+  S.need.fold = true;
+  showSave();
+  showUndo();
+}
+function showUndo() { $('undoBtn').disabled = !S.undo.length; $('redoBtn').disabled = !S.redo.length; }
+function showSave() {
+  const dirty = S.changes !== S.savedChanges, e = $('saveState');
+  e.textContent = dirty ? 'Not saved' : 'Saved';
+  e.classList.toggle('dirty', dirty);
+}
+
+function hasClaim(kind, key) { return S.folds[kind].bySector.has(key); }
+function paintableTexture(tex) { return LEVEL.textures[tex] && LEVEL.textures[tex].paint; }
+
+// One brush on one world sector. A brush with nothing to do here says why, once a stroke.
+function brushAt(kind, key, opts) {
+  const e = S.edits[kind].get(key) || {}, b = BASE[kind].get(key);
+  switch (S.brush) {
+    case 'paint': case 'fill': {
+      const n = Object.assign({}, e);
+      delete n.blank; delete n.keep; delete n.flatten;
+      n.tile = [S.tex, S.o.t, S.o.h, S.o.v];
+      setEntry(kind, key, n);
+      break;
+    }
+    case 'blank':
+      if (!b && !e.tile && !e.flatten && !opts.quiet) say('This sector has no tile of its own. To empty what the plane shows here, blank its spot on The map.');
+      setEntry(kind, key, b ? { blank: 1 } : null);
+      break;
+    case 'keep':
+      if (!b) { if (!opts.quiet) say('No face of this plane at this sector to keep.'); if (e.flatten || e.tile) setEntry(kind, key, null); break; }
+      setEntry(kind, key, { keep: 1 });
+      break;
+    case 'light': {
+      if (!(e.tile || e.flatten || (b && !e.blank && !e.keep))) { if (!opts.quiet) say('No tile at this sector to light. Paint one first.'); break; }
+      setEntry(kind, key, Object.assign({}, e, { light: [S.light, S.light, S.light, S.light] }));
+      break;
+    }
+  }
+}
+
+// The world sectors sharing a spot: those with a tile, a face of this plane or an entry there. If none, the
+// first place in the level that folds to it.
+function sectorsOfSpot(kind, mx, mz) {
+  const out = new Set();
+  const fold = S.folds[kind], s = fold.spots.get(mz * MAP_SECTORS + mx);
+  if (s) for (const c of s.claims) out.add(c.key);
+  const check = key => { const [sx, sz] = parseKey(key); if (mod(sx, MAP_SECTORS) === mx && mod(sz, MAP_SECTORS) === mz) out.add(key); };
+  for (const k of BASE[kind].keys()) check(k);
+  for (const k of S.edits[kind].keys()) check(k);
+  if (!out.size) {
+    const sx = EXTENT.x0 + mod(mx - EXTENT.x0, MAP_SECTORS), sz = EXTENT.z0 + mod(mz - EXTENT.z0, MAP_SECTORS);
+    out.add(sectorKey(sx, sz));
+  }
+  return [...out];
+}
+
+function brushSpot(kind, mx, mz) {
+  const s = S.folds[kind].spots.get(mz * MAP_SECTORS + mx);
+  const holder = s ? s.winner.L : null;
+  for (const key of sectorsOfSpot(kind, mx, mz)) {
+    brushAt(kind, key, { quiet: true });
+    if (holder && (S.brush === 'paint' || S.brush === 'fill')) {
+      setEntry(kind, key, Object.assign({}, S.edits[kind].get(key) || {}, { light: holder.slice() }));
+    }
+  }
+}
+
+function setBrushTile(tex, o) {
+  if (!paintableTexture(tex)) { say('Texture ' + tex + ' can\'t be a tile: ' + (LEVEL.textures[tex].anim ? 'it is animated.' : 'it isn\'t 64 x 64.')); return false; }
+  S.tex = tex;
+  if (o) S.o = { t: o.t, h: o.h, v: o.v };
+  showBrush();
+  return true;
+}
+
+// What a sector shows from above in each map, for the eyedropper and the hover text.
+function topFace(kind, key) {
+  const e = SECTORS.get(key);
+  if (!e) return null;
+  const list = kind === 'floor' ? e.up : e.down;
+  return list.length ? list[0] : null;
+}
+function topRemaining(kind, key) {
+  const e = SECTORS.get(key);
+  if (!e) return null;
+  const gone = goneAll();
+  return (kind === 'floor' ? e.up : e.down).find(f => !gone.has(f.id)) || null;
+}
+function goneAll() {
+  if (S.goneCache) return S.goneCache;
+  const out = new Set();
+  for (const fold of Object.values(S.folds)) for (const id of fold.gone) out.add(id);
+  return S.goneCache = out;
+}
+
+function pickAt(panel, sx, sz) {
+  const kind = S.kind, key = sectorKey(sx, sz);
+  if (panel.kind === 'fold' || (panel.kind === 'vdp2' && !(S.t.polys && topRemaining(kind, key)))) {
+    const s = S.folds[kind].spots.get(spotOf(sx, sz));
+    if (!s) { say('This spot holds no tile.'); return; }
+    if (setBrushTile(s.winner.tex, s.winner.o)) { setBrush('paint'); say('Took texture ' + s.winner.tex + ', ' + orientText(s.winner.o) + '.'); }
+    return;
+  }
+  const f = panel.kind === 'vdp2' ? topRemaining(kind, key) : topFace(kind, key);
+  if (!f || !f.tile) { say('No face to take a tile from here.'); return; }
+  if (setBrushTile(f.tex, f.tile.o)) { setBrush('paint'); say('Took texture ' + f.tex + ', ' + orientText(f.tile.o) + ', from room ' + f.room + '.'); }
+}
+
+function flattenChoices(kind, sx, sz) {
+  const key = sectorKey(sx, sz), e = SECTORS.get(key), own = BASE[kind].get(key);
+  if (!e) return [];
+  return (kind === 'floor' ? e.up : e.down).filter(f => f.tile && f.tile.sx === sx && f.tile.sz === sz && !(own && own.face === f));
+}
+function flattenOK(f) { return !f.transparent && paintableTexture(f.tex); }
+function applyFlatten(kind, key, f) {
+  begin();
+  setEntry(kind, key, { flatten: [f.room, f.index] });
+  end();
+  say('Room ' + f.room + ' quad ' + f.index + ' goes on the plane at this sector.');
+}
+function flattenAt(event, sx, sz) {
+  const kind = S.kind, key = sectorKey(sx, sz), list = flattenChoices(kind, sx, sz);
+  if (!list.length) { say('Nothing to flatten here: no face over this sector but the plane\'s own.'); return; }
+  const ok = list.filter(flattenOK);
+  if (list.length === 1 && ok.length === 1) { applyFlatten(kind, key, ok[0]); return; }
+  openPop(event.clientX, event.clientY, pop => {
+    pop.append(el('div', {}, 'Which face goes on the plane at sector ' + sx + ', ' + sz + '?'));
+    for (const f of list) {
+      const row = el('div', { class: 'choice' });
+      row.append(tileCanvas(f.tex, f.tile.o));
+      row.append(el('div', {}, 'Room ' + f.room + ' quad ' + f.index + ', ' + (f.flat ? 'flat at ' + f.y : 'ramp, ' + Math.min(...f.c.map(p => p[1])) + ' to ' + Math.max(...f.c.map(p => p[1])))));
+      const acts = el('div', { class: 'acts' });
+      if (flattenOK(f)) acts.append(button('Flatten this', () => { closePop(); applyFlatten(kind, key, f); }));
+      else acts.append(el('span', { class: 'muted' }, f.transparent ? 'see-through: stays a polygon' : 'animated or not 64 x 64'));
+      row.append(acts);
+      pop.append(row);
+    }
+  });
+}
+
+// ---- the fold helper
+
+function openFold(spot, x, y) {
+  const kind = S.kind, s = S.folds[kind].spots.get(spot);
+  if (!s || !s.conflict) { say('Not a conflict: only one tile wants this spot.'); return; }
+  openPop(x, y, pop => {
+    pop.append(el('div', {}, 'Spot ' + s.mx + ', ' + s.mz + ' is wanted by:'));
+    for (const c of s.claims) {
+      const row = el('div', { class: 'choice' });
+      row.append(tileCanvas(c.tex, c.o));
+      const fate = c === s.winner ? ' (holds the spot)' : c.state === 'same' ? ' (the same tile)' : c.face || c.baseFace ? ' (lost: stays a polygon)' : ' (lost: shows the other tile)';
+      row.append(el('div', {}, 'Sector ' + c.sx + ', ' + c.sz + ', texture ' + c.tex + ', ' + orientText(c.o) + fate));
+      const acts = el('div', { class: 'acts' });
+      acts.append(button('Let this one win', () => { closePop(); letWin(kind, s, c); }, 'The other sectors give up the spot and stay polygons, each exact in its own place.'));
+      acts.append(button('Paint on all', () => { closePop(); paintOnAll(kind, s, c); }, 'This tile and its light on every sector sharing the spot. No polygons stay here, and the other places show this tile.'));
+      row.append(acts);
+      pop.append(row);
+    }
+  });
+}
+function letWin(kind, s, winner) {
+  begin();
+  for (const c of s.claims) {
+    if (c === winner) continue;
+    setEntry(kind, c.key, BASE[kind].has(c.key) ? { keep: 1 } : null);
+  }
+  end();
+}
+function paintOnAll(kind, s, source) {
+  begin();
+  for (const c of s.claims) {
+    if (c === source) continue;
+    setEntry(kind, c.key, { tile: [source.tex, source.o.t, source.o.h, source.o.v], light: source.L.slice() });
+  }
+  end();
+}
+
+// ---- small page helpers
+
+function el(tag, attrs, text) {
+  const e = document.createElement(tag);
+  for (const k in attrs || {}) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function button(text, click, title) {
+  const b = el('button', title ? { title } : {}, text);
+  b.onclick = click;
+  return b;
+}
+function openPop(x, y, build) {
+  const p = $('pop');
+  p.innerHTML = '';
+  build(p);
+  p.hidden = false;
+  const w = p.offsetWidth, h = p.offsetHeight;
+  p.style.left = Math.max(4, Math.min(window.innerWidth - w - 4, x + 8)) + 'px';
+  p.style.top = Math.max(4, Math.min(window.innerHeight - h - 4, y + 8)) + 'px';
+}
+function closePop() { $('pop').hidden = true; }
+
+// A tile as seen from above, unlit, x right and z up.
+const tileImages = new Map();
+function tileImage(tex, o) {
+  const key = tex + ':' + o.t + o.h + o.v;
+  if (tileImages.has(key)) return tileImages.get(key);
+  const size = LEVEL.atlas.cell, c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d'), img = ctx.createImageData(size, size);
+  const t = LEVEL.textures[tex], a = LEVEL.atlas;
+  const cx = (tex % a.columns) * size, cy = Math.floor(tex / a.columns) * size;
+  for (let y = 0, n = 0; y < size; y++) for (let x = 0; x < size; x++, n += 4) {
+    const [tu, tv] = orient(o, (x + 0.5) / size, 1 - (y + 0.5) / size);
+    const at = ((cy + Math.floor(tv * t.h)) * a.width + cx + Math.floor(tu * t.w)) * 4;
+    img.data[n] = ATLAS[at]; img.data[n + 1] = ATLAS[at + 1]; img.data[n + 2] = ATLAS[at + 2]; img.data[n + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  tileImages.set(key, c);
+  return c;
+}
+function tileCanvas(tex, o) {
+  const c = document.createElement('canvas');
+  c.width = c.height = LEVEL.atlas.cell;
+  c.getContext('2d').drawImage(tileImage(tex, o), 0, 0);
+  return c;
+}
+
+// ---- GL: one context a canvas, each with the atlas and the map's textures
+
+const POLY_VS = `
+attribute vec3 aPos; attribute vec2 aUV; attribute float aLight; attribute vec4 aRect; attribute vec2 aFlags; attribute float aState;
+uniform float uMapMode; uniform vec4 uMapXf; uniform vec2 uMapY;
+uniform mat3 uR; uniform vec3 uEye; uniform vec2 uScale; uniform vec2 uDepth;
+uniform vec2 uHide; uniform float uTintBit;
+varying vec2 vUV; varying float vL; varying vec4 vRect; varying vec2 vFlags; varying float vTint; varying float vZ; varying float vY;
+void main() {
+  vUV = aUV; vRect = aRect; vFlags = aFlags; vY = aPos.y; vTint = 0.0;
+  if (uMapMode > 0.5) {
+    vL = aLight; vZ = 0.0;
+    gl_Position = vec4((aPos.x - uMapXf.x) * uMapXf.z, (aPos.z - uMapXf.y) * uMapXf.w, clamp((aPos.y - uMapY.x) * uMapY.y / 32768.0, -0.99, 0.99), 1.0);
+    return;
+  }
+  float onPlane = mod(aState, 2.0), hidden = mod(floor(aState / 2.0), 2.0);
+  if (onPlane * uHide.x + hidden * uHide.y > 0.5) { vL = 0.0; vZ = 0.0; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  vTint = hidden * uTintBit;
+  vec3 v = uR * (aPos - uEye);
+  vZ = v.z;
+  // the game's: fog adds to the vertex's own darkness, and their sum stops at 31 (renderer/roomproject.s)
+  vL = max(aLight - floor(max(v.z - 12288.0, 0.0) / 256.0), 0.0);
+  gl_Position = vec4(v.x * uScale.x, -v.y * uScale.y, uDepth.x * v.z + uDepth.y, v.z);
+}`;
+const POLY_FS = `
+precision highp float;
+uniform sampler2D uAtlas; uniform float uMapMode; uniform vec4 uTint; uniform vec2 uHeight;
+varying vec2 vUV; varying float vL; varying vec4 vRect; varying vec2 vFlags; varying float vTint; varying float vZ; varying float vY;
+void main() {
+  if (vZ > 20480.0) discard;
+  vec2 uv = vUV;
+  // a triangle is VDP1's quad with its last two corners together
+  if (vFlags.y > 0.5) uv.x = uv.x / max(1.0 - uv.y, 0.0001);
+  vec4 t = texture2D(uAtlas, vRect.xy + clamp(uv, 0.0, 0.99999) * vRect.zw);
+  if (vFlags.x > 0.5 && t.a < 0.5) discard;
+  vec3 c = clamp(floor(t.rgb * 255.0 + 0.5) + (floor(vL + 0.5) - 16.0) * 8.0, 0.0, 248.0) / 255.0;
+  if (uHeight.x > 0.5) {
+    float d = (vY - uHeight.y) / 1024.0;
+    if (d > 0.01) c = mix(c, vec3(0.12, 0.32, 0.95), min(0.75, 0.2 + d * 0.14));
+    else if (d < -0.01) c = mix(c, vec3(0.95, 0.5, 0.08), min(0.75, 0.2 - d * 0.14));
+  }
+  c = mix(c, uTint.rgb, uTint.a);
+  if (vTint > 0.5) c = mix(c, vec3(1.0, 0.0, 1.0), 0.65);
+  gl_FragColor = vec4(c, 1.0);
+}`;
+const PLANE_VS = `attribute vec2 aPos; void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
+const PLANE_FS = `
+precision highp float;
+uniform sampler2D uAtlas; uniform sampler2D uMap; uniform sampler2D uLight;
+uniform vec2 uCell; uniform float uColumns; uniform float uMode; uniform float uClip;
+uniform vec3 uEye; uniform vec3 uRight; uniform vec3 uDown; uniform vec3 uFwd; uniform float uFocal; uniform float uPlaneY; uniform float uOriginX;
+uniform vec4 uWorld; uniform vec4 uBounds;
+void main() {
+  vec2 w; float z = 0.0;
+  if (uMode < 0.5) {
+    float sx = gl_FragCoord.x - uOriginX - 176.0, sy = 112.0 - gl_FragCoord.y;
+    vec3 ray = uRight * sx + uDown * sy + uFwd * uFocal;
+    float dy = uPlaneY - uEye.y;
+    if (dy * ray.y <= 0.0) discard;         // above the horizon, or the camera on the wrong side
+    float t = dy / ray.y;
+    z = t * uFocal;
+    if (z > 20480.0) discard;
+    w = uEye.xz + ray.xz * t;
+  } else {
+    w = uWorld.xy + gl_FragCoord.xy * uWorld.zw;
+    if (w.x < uBounds.x || w.y < uBounds.y || w.x >= uBounds.z || w.y >= uBounds.w) discard;
+  }
+  vec2 sector = floor(w / 1024.0);
+  vec4 m = texture2D(uMap, (mod(sector, 32.0) + 0.5) / 32.0);
+  if (m.g < 0.5) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }   // a blank spot
+  float tex = floor(m.r * 255.0 + 0.5), o = floor(m.b * 255.0 + 0.5);
+  vec2 f = w / 1024.0 - sector;
+  vec2 p = vec2(mod(floor(o / 2.0), 2.0) > 0.5 ? 1.0 - f.x : f.x, mod(o, 2.0) > 0.5 ? 1.0 - f.y : f.y);
+  vec2 tuv = o >= 4.0 ? p.yx : p;
+  vec2 cell = vec2(mod(tex, uColumns), floor(tex / uColumns));
+  vec4 t = texture2D(uAtlas, (cell + clamp(tuv, 0.0, 0.99999)) * uCell);
+  float level = floor(texture2D(uLight, (mod(floor(w / 256.0), 128.0) + 0.5) / 128.0).r * 255.0 + 0.5);
+  vec3 pal = clamp(floor(t.rgb * 255.0 / 8.0 + 0.5) + level - 16.0, 0.0, 31.0);
+  // fog by line colour: it adds back what a fixed -14 took, so it stops at 14 shades and clips the top
+  float shade = clamp(floor((z - 12288.0) / 256.0), 0.0, 14.0);
+  vec3 c = uClip > 0.5 ? max(min(pal + 14.0 - shade, vec3(31.0)) - 14.0, vec3(0.0)) : max(pal - shade, vec3(0.0));
+  gl_FragColor = vec4(c * 8.0 / 255.0, 1.0);
+}`;
+const LINE_VS = `
+attribute vec3 aPos; uniform float uNdc; uniform mat3 uR; uniform vec3 uEye; uniform vec2 uScale; uniform vec2 uDepth;
+void main() {
+  if (uNdc > 0.5) { gl_Position = vec4(aPos.xy, 0.0, 1.0); return; }
+  vec3 v = uR * (aPos - uEye);
+  gl_Position = vec4(v.x * uScale.x, -v.y * uScale.y, uDepth.x * v.z + uDepth.y, v.z);
+}`;
+const LINE_FS = `precision mediump float; uniform vec4 uColour; void main() { gl_FragColor = uColour; }`;
+
+function program(gl, vs, fs) {
+  const p = gl.createProgram();
+  for (const [type, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error('shader: ' + gl.getShaderInfoLog(s) + '\n' + src);
+    gl.attachShader(p, s);
+  }
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error('link: ' + gl.getProgramInfoLog(p));
+  const out = { p, u: {}, a: {} };
+  for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
+    const name = gl.getActiveUniform(p, i).name;
+    out.u[name] = gl.getUniformLocation(p, name);
+  }
+  for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_ATTRIBUTES); i < n; i++) {
+    const name = gl.getActiveAttrib(p, i).name;
+    out.a[name] = gl.getAttribLocation(p, name);
+  }
+  return out;
+}
+function dataTexture(gl, w, h, format, data) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, format, w, h, 0, format, gl.UNSIGNED_BYTE, data);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+function makeGL(canvas, depth) {
+  const gl = canvas.getContext('webgl', { antialias: false, alpha: false, depth: !!depth, preserveDrawingBuffer: true });
+  if (!gl) throw new Error('This browser has no WebGL, which the page needs.');
+  const v = {
+    gl, canvas,
+    poly: program(gl, POLY_VS, POLY_FS), plane: program(gl, PLANE_VS, PLANE_FS), line: program(gl, LINE_VS, LINE_FS),
+    atlas: dataTexture(gl, LEVEL.atlas.width, LEVEL.atlas.height, gl.RGBA, ATLAS),
+    maps: {}, quad: gl.createBuffer(), lines: gl.createBuffer(), rectLines: gl.createBuffer(),
+  };
+  for (const kind of Object.keys(LEVEL.planes)) {
+    v.maps[kind] = {
+      map: dataTexture(gl, MAP_SECTORS, MAP_SECTORS, gl.RGBA, null),
+      light: dataTexture(gl, MAP_TILES, MAP_TILES, gl.LUMINANCE, null),
+    };
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, v.quad);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  return v;
+}
+function uploadPlane(v) {
+  const gl = v.gl;
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  for (const kind of Object.keys(v.maps)) {
+    const fold = S.folds[kind], t = v.maps[kind];
+    gl.bindTexture(gl.TEXTURE_2D, t.map);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, MAP_SECTORS, MAP_SECTORS, gl.RGBA, gl.UNSIGNED_BYTE, fold.map);
+    gl.bindTexture(gl.TEXTURE_2D, t.light);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, MAP_TILES, MAP_TILES, gl.LUMINANCE, gl.UNSIGNED_BYTE, fold.light);
+  }
+}
+function texRect(tex) {
+  const a = LEVEL.atlas, t = LEVEL.textures[tex];
+  return [(tex % a.columns) * a.cell / a.width, Math.floor(tex / a.columns) * a.cell / a.height, t.w / a.width, t.h / a.height];
+}
+// A face's vertices: x y z, u v, level, the texture's place in the atlas, see-through, triangle. A quad that
+// isn't a parallelogram goes in pieces, so its texture has no seam where two triangles would meet.
+const VERTEX_FLOATS = 12;
+function pushFace(out, f) {
+  const r = texRect(f.tex), see = f.transparent ? 1 : 0, c = f.c;
+  const put = (p, u, v, tri) => out.push(p[0], p[1], p[2], u, v, p[3], r[0], r[1], r[2], r[3], see, tri);
+  if (f.triangle) { put(c[0], 0, 0, 1); put(c[1], 1, 0, 1); put(c[2], 0, 1, 1); return 3; }
+  const parallel = c[0][0] + c[2][0] === c[1][0] + c[3][0] && c[0][1] + c[2][1] === c[1][1] + c[3][1] && c[0][2] + c[2][2] === c[1][2] + c[3][2];
+  const n = parallel ? 1 : 4;
+  const at = (u, v) => [0, 1, 2, 3].map(k => (c[0][k] * (1 - u) + c[1][k] * u) * (1 - v) + (c[3][k] * (1 - u) + c[2][k] * u) * v);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const u0 = i / n, u1 = (i + 1) / n, v0 = j / n, v1 = (j + 1) / n;
+    const a = at(u0, v0), b = at(u1, v0), d = at(u1, v1), e = at(u0, v1);
+    put(a, u0, v0, 0); put(b, u1, v0, 0); put(d, u1, v1, 0);
+    put(a, u0, v0, 0); put(d, u1, v1, 0); put(e, u0, v1, 0);
+  }
+  return n * n * 6;
+}
+function polyAttribs(v, buffer, state) {
+  const gl = v.gl, a = v.poly.a, stride = VERTEX_FLOATS * 4;
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  const on = [[a.aPos, 3, 0], [a.aUV, 2, 12], [a.aLight, 1, 20], [a.aRect, 4, 24], [a.aFlags, 2, 40]];
+  for (const [loc, n, off] of on) { gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, n, gl.FLOAT, false, stride, off); }
+  if (state) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, state);
+    gl.enableVertexAttribArray(a.aState);
+    gl.vertexAttribPointer(a.aState, 1, gl.UNSIGNED_BYTE, false, 1, 0);
+  } else {
+    gl.disableVertexAttribArray(a.aState);
+    gl.vertexAttrib1f(a.aState, 0);
+  }
+  return () => { for (const [loc] of on) gl.disableVertexAttribArray(loc); gl.disableVertexAttribArray(a.aState); };
+}
+function bindSamplers(v, P, kind) {
+  const gl = v.gl;
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, v.atlas); gl.uniform1i(P.u.uAtlas, 0);
+  if (kind) {
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, v.maps[kind].map); gl.uniform1i(P.u.uMap, 1);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, v.maps[kind].light); gl.uniform1i(P.u.uLight, 2);
+    gl.activeTexture(gl.TEXTURE0);
+  }
+}
+function drawPlaneQuad(v) {
+  const gl = v.gl, a = v.plane.a.aPos;
+  gl.bindBuffer(gl.ARRAY_BUFFER, v.quad);
+  gl.enableVertexAttribArray(a);
+  gl.vertexAttribPointer(a, 2, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.disableVertexAttribArray(a);
+}
+function setPlaneCommon(v, P) {
+  const gl = v.gl, a = LEVEL.atlas;
+  gl.uniform2f(P.u.uCell, a.cell / a.width, a.cell / a.height);
+  gl.uniform1f(P.u.uColumns, a.columns);
+  gl.uniform1f(P.u.uClip, S.t.clip ? 1 : 0);
+}
+
+// ---- the top-down maps
+
+let panels, fpView;
+function worldOf(panel, e) {
+  const r = panel.ov.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+  if (panel.kind === 'fold') return { x: mx / r.width * (MAP_SECTORS * SECTOR), z: (1 - my / r.height) * (MAP_SECTORS * SECTOR) };
+  return { x: S.view.cx + (mx - r.width / 2) / S.view.s, z: S.view.cz - (my - r.height / 2) / S.view.s };
+}
+function fitCanvas(panel) {
+  const dpr = window.devicePixelRatio || 1, w = panel.wrap.clientWidth, h = panel.wrap.clientHeight;
+  const pw = Math.max(1, Math.round(w * dpr)), ph = Math.max(1, Math.round(h * dpr));
+  if (panel.gl.width !== pw || panel.gl.height !== ph) { panel.gl.width = pw; panel.gl.height = ph; }
+  if (panel.ov.width !== pw || panel.ov.height !== ph) { panel.ov.width = pw; panel.ov.height = ph; }
+  panel.w = w; panel.h = h; panel.dpr = dpr;
+}
+function rebuildMapBuffers() {
+  const kind = S.kind, gone = goneAll(), all = [], rest = [];
+  for (const f of FACES) {
+    if (kind === 'floor' ? !f.up : !f.down) continue;
+    pushFace(all, f);
+    if (!gone.has(f.id)) pushFace(rest, f);
+  }
+  const orig = panels.orig, plane = panels.vdp2;
+  const put = (v, name, data) => {
+    const gl = v.gl;
+    if (!v[name]) v[name] = { b: gl.createBuffer(), n: 0 };
+    gl.bindBuffer(gl.ARRAY_BUFFER, v[name].b);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.DYNAMIC_DRAW);
+    v[name].n = data.length / VERTEX_FLOATS;
+  };
+  put(orig.gv, 'floors', all);
+  put(plane.gv, 'floors', rest);
+}
+function drawMapPolys(panel, tint, heights) {
+  const v = panel.gv, gl = v.gl, P = v.poly, m = v.floors;
+  if (!m || !m.n) return;
+  gl.useProgram(P.p);
+  bindSamplers(v, P);
+  const sx = S.view.s / (panel.w / 2), sz = S.view.s / (panel.h / 2);
+  gl.uniform1f(P.u.uMapMode, 1);
+  gl.uniform4f(P.u.uMapXf, S.view.cx, S.view.cz, sx, sz);
+  gl.uniform2f(P.u.uMapY, LEVEL.planes[S.kind], S.kind === 'floor' ? 1 : -1);
+  gl.uniform4fv(P.u.uTint, tint);
+  gl.uniform2f(P.u.uHeight, heights ? 1 : 0, LEVEL.planes[S.kind]);
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LESS);
+  gl.disable(gl.CULL_FACE);
+  const done = polyAttribs(v, m.b, null);
+  gl.drawArrays(gl.TRIANGLES, 0, m.n);
+  done();
+}
+function drawMapPlane(panel, wx, wz, perPixel, bounds) {
+  const v = panel.gv, gl = v.gl, P = v.plane;
+  gl.useProgram(P.p);
+  bindSamplers(v, P, S.kind);
+  setPlaneCommon(v, P);
+  gl.uniform1f(P.u.uMode, 1);
+  gl.uniform4f(P.u.uWorld, wx, wz, perPixel, perPixel);
+  gl.uniform4fv(P.u.uBounds, bounds);
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.CULL_FACE);
+  drawPlaneQuad(v);
+}
+function renderMaps() {
+  for (const panel of Object.values(panels)) {
+    fitCanvas(panel);
+    const v = panel.gv, gl = v.gl;
+    gl.viewport(0, 0, panel.gl.width, panel.gl.height);
+    gl.clearColor(0.045, 0.05, 0.065, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (panel.kind === 'orig') {
+      drawMapPolys(panel, [0, 0, 0, 0], S.t.height);
+    } else if (panel.kind === 'vdp2') {
+      const per = panel.w / panel.gl.width / S.view.s;
+      drawMapPlane(panel, S.view.cx - panel.w / 2 / S.view.s, S.view.cz - panel.h / 2 / S.view.s, per,
+        [EXTENT.x0 * SECTOR, EXTENT.z0 * SECTOR, EXTENT.x1 * SECTOR, EXTENT.z1 * SECTOR]);
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+      if (S.t.polys) drawMapPolys(panel, S.t.tint ? [0.32, 0.78, 0.9, 0.38] : [0, 0, 0, 0], false);
+    } else {
+      const size = MAP_SECTORS * SECTOR;
+      drawMapPlane(panel, 0, 0, size / panel.gl.width, [0, 0, size, size]);
+    }
+  }
+}
+
+function marks(e) {
+  let m = '';
+  if (e.tile) m += 'T';
+  if (e.blank) m += 'B';
+  if (e.keep) m += 'K';
+  if (e.flatten) m += 'F';
+  if (e.light) m += 'L';
+  return m;
+}
+function drawOverlay(panel) {
+  const ctx = panel.ctx, w = panel.w, h = panel.h, kind = S.kind, fold = S.folds[kind];
+  ctx.setTransform(panel.dpr, 0, 0, panel.dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const isFold = panel.kind === 'fold';
+  const s = isFold ? w / (MAP_SECTORS * SECTOR) : S.view.s;
+  const cx = isFold ? MAP_SECTORS * SECTOR / 2 : S.view.cx, cz = isFold ? MAP_SECTORS * SECTOR / 2 : S.view.cz;
+  const X = x => (x - cx) * s + w / 2, Z = z => h / 2 - (z - cz) * s;
+  const sector = s * SECTOR;
+  const box = (sx, sz) => [X(sx * SECTOR), Z((sz + 1) * SECTOR), sector, sector];
+  const sx0 = Math.floor((cx - w / 2 / s) / SECTOR), sx1 = Math.ceil((cx + w / 2 / s) / SECTOR);
+  const sz0 = Math.floor((cz - h / 2 / s) / SECTOR), sz1 = Math.ceil((cz + h / 2 / s) / SECTOR);
+  const lines = (every, style, width) => {
+    ctx.strokeStyle = style; ctx.lineWidth = width;
+    ctx.beginPath();
+    for (let i = Math.ceil(sx0 / every) * every; i <= sx1; i += every) { const x = Math.round(X(i * SECTOR)) + 0.5; ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+    for (let i = Math.ceil(sz0 / every) * every; i <= sz1; i += every) { const y = Math.round(Z(i * SECTOR)) + 0.5; ctx.moveTo(0, y); ctx.lineTo(w, y); }
+    ctx.stroke();
+  };
+  if (S.t.grid && sector >= 5) lines(1, 'rgba(255,255,255,0.13)', 1);
+  if (S.t.blocks) {
+    lines(BLOCK_SECTORS, 'rgba(120,220,255,0.24)', 1);
+    if (!isFold) lines(MAP_SECTORS, 'rgba(120,220,255,0.6)', 1.5);
+  }
+  const visible = (sx, sz) => sx >= sx0 - 1 && sx <= sx1 && sz >= sz0 - 1 && sz <= sz1;
+
+  if (S.t.copies && panel.kind === 'vdp2') {
+    ctx.strokeStyle = 'rgba(255,170,40,0.75)'; ctx.lineWidth = 1;
+    for (let sz = Math.max(sz0, EXTENT.z0); sz < Math.min(sz1, EXTENT.z1); sz++) for (let sx = Math.max(sx0, EXTENT.x0); sx < Math.min(sx1, EXTENT.x1); sx++) {
+      const key = sectorKey(sx, sz);
+      if (fold.bySector.has(key) || !fold.spots.has(spotOf(sx, sz))) continue;
+      if (S.t.polys && topRemaining(kind, key)) continue;
+      ctx.strokeRect(...box(sx, sz));
+    }
+  }
+  if (S.t.conflicts) {
+    for (const spot of fold.conflicts) {
+      if (isFold) {
+        ctx.strokeStyle = '#ff4d4d'; ctx.lineWidth = 2;
+        ctx.strokeRect(...box(spot.mx, spot.mz));
+        continue;
+      }
+      for (const c of spot.claims) {
+        if (!visible(c.sx, c.sz) || c.state === 'same') continue;
+        ctx.strokeStyle = '#ff4d4d';
+        ctx.lineWidth = c.state === 'lose' ? 2 : 1;
+        ctx.setLineDash(c.state === 'lose' ? [] : [3, 2]);
+        ctx.strokeRect(...box(c.sx, c.sz));
+        ctx.setLineDash([]);
+      }
+    }
+  }
+  if (S.t.marks) {
+    ctx.font = '600 ' + Math.min(12, Math.max(9, sector * 0.35)) + 'px Consolas, monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const [key, e] of S.edits[kind]) {
+      const [sx, sz] = parseKey(key);
+      const mx = isFold ? mod(sx, MAP_SECTORS) : sx, mz = isFold ? mod(sz, MAP_SECTORS) : sz;
+      if (!visible(mx, mz)) continue;
+      const b = box(mx, mz);
+      ctx.strokeStyle = 'rgba(255,240,90,0.9)'; ctx.lineWidth = 1;
+      ctx.strokeRect(b[0] + 1, b[1] + 1, b[2] - 2, b[3] - 2);
+      if (sector >= 13) {
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.fillRect(b[0] + b[2] / 2 - 8, b[1] + b[3] / 2 - 7, 16, 14);
+        ctx.fillStyle = '#fff05a';
+        ctx.fillText(marks(e), b[0] + b[2] / 2, b[1] + b[3] / 2);
+      }
+    }
+  }
+  // what the cursor is on, and whoever shares its spot
+  if (S.hover) {
+    const hx = S.hover.sx, hz = S.hover.sz, hs = spotOf(hx, hz);
+    ctx.lineWidth = 2; ctx.strokeStyle = '#ffffff';
+    if (isFold) ctx.strokeRect(...box(mod(hx, MAP_SECTORS), mod(hz, MAP_SECTORS)));
+    else {
+      if (S.hover.panel !== 'fold') ctx.strokeRect(...box(hx, hz));
+      const spot = fold.spots.get(hs);
+      if (spot) {
+        ctx.strokeStyle = '#7fe9ff'; ctx.lineWidth = 1.5;
+        for (const c of spot.claims) if (c.key !== sectorKey(hx, hz) || S.hover.panel === 'fold') ctx.strokeRect(...box(c.sx, c.sz));
+      }
+    }
+  }
+  // the rectangle being dragged
+  const d = S.drag;
+  if (d && d.type === 'fill' && (d.panel === panel || (!isFold && d.panel.kind !== 'fold'))) {
+    const x0 = Math.min(d.a[0], d.b[0]), x1 = Math.max(d.a[0], d.b[0]) + 1, z0 = Math.min(d.a[1], d.b[1]), z1 = Math.max(d.a[1], d.b[1]) + 1;
+    ctx.strokeStyle = '#ffe14d'; ctx.lineWidth = 2;
+    ctx.strokeRect(X(x0 * SECTOR), Z(z1 * SECTOR), (x1 - x0) * sector, (z1 - z0) * sector);
+  }
+  if (!isFold) {
+    S.boxes.forEach((b, i) => {
+      ctx.strokeStyle = i === S.selBox ? '#ffe14d' : '#ff9d2e'; ctx.lineWidth = i === S.selBox ? 2 : 1.5;
+      ctx.strokeRect(X(b[0]), Z(b[5]), (b[3] - b[0]) * s, (b[5] - b[2]) * s);
+      ctx.fillStyle = ctx.strokeStyle; ctx.font = '11px Consolas, monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(String(i + 1), X(b[0]) + 2, Z(b[5]) + 1);
+    });
+    if (d && d.type === 'box') {
+      const x0 = Math.min(d.a.x, d.b.x), x1 = Math.max(d.a.x, d.b.x), z0 = Math.min(d.a.z, d.b.z), z1 = Math.max(d.a.z, d.b.z);
+      ctx.strokeStyle = '#ffe14d'; ctx.lineWidth = 2;
+      ctx.strokeRect(X(x0), Z(z1), (x1 - x0) * s, (z1 - z0) * s);
+    }
+  }
+  // the camera: its place, and the edges of its view
+  const size = MAP_SECTORS * SECTOR, cam = S.cam;
+  const px = isFold ? mod(cam.x, size) : cam.x, pz = isFold ? mod(cam.z, size) : cam.z;
+  const ex = X(px), ey = Z(pz), reach = Math.max(36, sector * 4);
+  const ray = a => [Math.sin(a), Math.cos(a)];
+  ctx.strokeStyle = '#7dff8a'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (const off of [-40, 40]) {
+    const r = ray(cam.yaw * TURN + off * Math.PI / 180);
+    ctx.moveTo(ex, ey); ctx.lineTo(ex + r[0] * reach, ey - r[1] * reach);
+  }
+  ctx.stroke();
+  const f = ray(cam.yaw * TURN);
+  ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex + f[0] * reach * 0.6, ey - f[1] * reach * 0.6); ctx.stroke();
+  ctx.fillStyle = '#7dff8a';
+  ctx.beginPath(); ctx.arc(ex, ey, 3.5, 0, 7); ctx.fill();
+}
+function drawOverlays() { for (const p of Object.values(panels)) { fitCanvas(p); drawOverlay(p); } }
+
+// ---- what's under the cursor, in words
+
+function showInfo() {
+  const e = $('info');
+  e.innerHTML = '';
+  const msg = S.message && performance.now() < S.messageUntil ? S.message : '';
+  const h = S.hover;
+  if (h) {
+    const lines = describe(h);
+    for (const l of lines) e.append(el('div', {}, l));
+  } else if (!msg) {
+    e.append(el('div', { class: 'muted' }, 'Move over a map to read a sector here.'));
+  }
+  if (msg) e.append(el('div', { class: 'msg' }, msg));
+}
+function describe(h) {
+  const kind = S.kind, fold = S.folds[kind], key = sectorKey(h.sx, h.sz), spotId = spotOf(h.sx, h.sz), spot = fold.spots.get(spotId);
+  const mx = mod(h.sx, MAP_SECTORS), mz = mod(h.sz, MAP_SECTORS);
+  if (h.panel === 'fold') {
+    const parts = ['Map spot ' + mx + ', ' + mz];
+    if (!spot) return [parts[0] + ': blank, no tile.'];
+    const w = spot.winner;
+    parts.push('texture ' + w.tex + ', ' + orientText(w.o) + ', light ' + w.L.join(' '));
+    const others = spot.claims.map(c => c.sx + ',' + c.sz + (c === w ? ' (holds it)' : c.state === 'same' ? ' (same tile)' : ' (lost, polygon)'));
+    return [parts.join(' | '), 'World sectors here: ' + others.join('  ')];
+  }
+  const top = topFace(kind, key), c = fold.bySector.get(key), e = S.edits[kind].get(key);
+  const first = ['Sector ' + h.sx + ', ' + h.sz, 'map spot ' + mx + ', ' + mz];
+  const faceWords = f => {
+    const parts = ['room ' + f.room, 'quad ' + f.index, 'height ' + (f.flat ? f.y : Math.min(...f.c.map(p => p[1])) + ' to ' + Math.max(...f.c.map(p => p[1])))];
+    parts.push('texture ' + f.tex + (f.tile ? ', ' + orientText(f.tile.o) : ''));
+    if (f.tile) parts.push('corner light ' + f.tile.L.join(' '));
+    return parts;
+  };
+  const baseHere = BASE[kind].get(key);
+  const shown = baseHere ? baseHere.face : top;
+  if (shown) first.push(...faceWords(shown));
+  else first.push('no floor of this plane here');
+  const fate = [];
+  if (c) {
+    if (c.state === 'win') fate.push(spot.claims.length > 1 ? 'On the plane, and it holds the spot.' : 'On the plane.');
+    else if (c.state === 'same') fate.push('On the plane, sharing the spot with an identical tile.');
+    else fate.push('Lost the spot' + (c.baseFace || c.face ? ', so its face stays a polygon.' : ': the plane shows the other tile here.'));
+    if (c.what !== 'own') fate.push('Your ' + c.what + ': texture ' + c.tex + ', ' + orientText(c.o) + ', light ' + c.L.join(' ') + '.');
+    else if (e && e.light) fate.push('Your light: ' + c.L.join(' ') + '.');
+  } else if (e && e.keep) fate.push('Kept as a polygon: it asks nothing of the map.');
+  else if (e && e.blank) fate.push('Blank: no tile, and its face is gone.');
+  else if (spot) fate.push('Nothing of its own on the plane. The plane shows a copy of ' + spot.winner.sx + ', ' + spot.winner.sz + ' here unless a polygon covers it.');
+  else fate.push('The map holds nothing for this spot: blank.');
+  if (spot) {
+    const word = { win: ' (holds it)', same: ' (same tile)', lose: ' (lost)' };
+    const others = spot.claims.filter(o => o.key !== key).map(o => o.sx + ', ' + o.sz + word[o.state]);
+    if (others.length) fate.push('Shares its spot with: ' + others.join('; ') + '.');
+    else if (c) fate.push('No other sector wants this spot.');
+  }
+  return [first.join(' | '), fate.join(' ')];
+}
+
+// ---- pointer and keys on the maps
+
+function sectorAt(panel, e) {
+  const w = worldOf(panel, e), sx = Math.floor(w.x / SECTOR), sz = Math.floor(w.z / SECTOR);
+  return panel.kind === 'fold' ? [mod(sx, MAP_SECTORS), mod(sz, MAP_SECTORS)] : [sx, sz];
+}
+const snap256 = v => Math.round(v / 256) * 256;
+function brushStroke(panel, sx, sz) {
+  const key = sectorKey(sx, sz);
+  if (S.drag.seen.has(key)) return;
+  S.drag.seen.add(key);
+  if (panel.kind === 'fold') brushSpot(S.kind, sx, sz);
+  else brushAt(S.kind, key, { quiet: S.drag.seen.size > 1 });
+}
+function fillFinish(panel, d) {
+  begin();
+  const x0 = Math.min(d.a[0], d.b[0]), x1 = Math.max(d.a[0], d.b[0]), z0 = Math.min(d.a[1], d.b[1]), z1 = Math.max(d.a[1], d.b[1]);
+  const kind = S.kind, want = $('fillEmpty').checked;
+  for (let sz = z0; sz <= z1; sz++) for (let sx = x0; sx <= x1; sx++) {
+    if (panel.kind === 'fold') { if (want || S.folds[kind].spots.has(sz * MAP_SECTORS + sx)) brushSpot(kind, sx, sz); continue; }
+    const key = sectorKey(sx, sz);
+    const e = S.edits[kind].get(key);
+    if (want || hasClaim(kind, key) || BASE[kind].has(key) || (e && (e.tile || e.flatten))) brushAt(kind, key, { quiet: true });
+  }
+  end();
+}
+function moveCamera(x, z) {
+  S.cam.x = x; S.cam.z = z;
+  S.cam.y = laraHeight(x, z, S.cam.y);
+  S.need.fp = S.need.over = true;
+}
+function floorBeneath(x, z, y) {
+  const e = SECTORS.get(sectorKey(Math.floor(x / SECTOR), Math.floor(z / SECTOR)));
+  const fx = x / SECTOR - Math.floor(x / SECTOR), fz = z / SECTOR - Math.floor(z / SECTOR);
+  const heightOf = f => {
+    if (!f.tile) return f.y;
+    const c = {};
+    for (const p of f.c) c[(p[0] / SECTOR > Math.floor(x / SECTOR) ? 1 : 0) + ',' + (p[2] / SECTOR > Math.floor(z / SECTOR) ? 1 : 0)] = p[1];
+    return (c['0,0'] * (1 - fx) + c['1,0'] * fx) * (1 - fz) + (c['0,1'] * (1 - fx) + c['1,1'] * fx) * fz;
+  };
+  const floors = e ? e.up : [];
+  const below = floors.filter(f => heightOf(f) >= y);
+  if (below.length) return Math.min(...below.map(heightOf));
+  if (floors.length) return Math.min(...floors.map(heightOf));
+  return null;
+}
+function laraHeight(x, z, y) {
+  const under = floorBeneath(x, z, y);
+  const plane = LEVEL.planes.floor !== undefined ? LEVEL.planes.floor : 0;
+  return (under === null ? plane : under) - CAMERA_HEIGHT;
+}
+
+function attachMap(panel) {
+  const ov = panel.ov;
+  ov.addEventListener('contextmenu', e => e.preventDefault());
+  ov.addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });
+  ov.addEventListener('pointerdown', e => {
+    closePop();
+    ov.setPointerCapture(e.pointerId);
+    const [sx, sz] = sectorAt(panel, e);
+    if (e.button === 1 || e.button === 2 || (e.button === 0 && S.space)) {
+      if (panel.kind !== 'fold') S.drag = { type: 'pan', x: e.clientX, y: e.clientY, cx: S.view.cx, cz: S.view.cz };
+      return;
+    }
+    if (e.button !== 0) return;
+    if (e.ctrlKey || e.metaKey) {
+      if (panel.kind !== 'fold') { const w = worldOf(panel, e); moveCamera(w.x, w.z); }
+      return;
+    }
+    if (S.mode === 'boxes') {
+      if (panel.kind === 'fold') { say('Boxes go on the two big maps.'); return; }
+      const w = worldOf(panel, e);
+      S.drag = { type: 'box', panel, a: { x: snap256(w.x), z: snap256(w.z) }, b: { x: snap256(w.x), z: snap256(w.z) }, at: w };
+      return;
+    }
+    switch (S.brush) {
+      case 'pick': pickAt(panel, sx, sz); break;
+      case 'flatten':
+        if (panel.kind === 'fold') { say('Flatten works on the two big maps: a world sector has the face.'); break; }
+        flattenAt(e, sx, sz);
+        break;
+      case 'fold': openFold(panel.kind === 'fold' ? sz * MAP_SECTORS + sx : spotOf(sx, sz), e.clientX, e.clientY); break;
+      case 'fill': S.drag = { type: 'fill', panel, a: [sx, sz], b: [sx, sz] }; break;
+      default:
+        begin();
+        S.drag = { type: 'brush', panel, seen: new Set() };
+        brushStroke(panel, sx, sz);
+    }
+    S.need.over = true;
+  });
+  ov.addEventListener('pointermove', e => {
+    const [sx, sz] = sectorAt(panel, e), d = S.drag;
+    const changed = !S.hover || S.hover.sx !== sx || S.hover.sz !== sz || S.hover.panel !== panel.kind;
+    S.hover = { sx, sz, panel: panel.kind };
+    if (changed) { showInfo(); S.need.over = true; }
+    if (!d) return;
+    if (d.type === 'pan') {
+      S.view.cx = d.cx - (e.clientX - d.x) / S.view.s;
+      S.view.cz = d.cz + (e.clientY - d.y) / S.view.s;
+      S.need.maps = S.need.over = true;
+    } else if (d.type === 'brush' && d.panel === panel) {
+      brushStroke(panel, sx, sz);
+    } else if (d.type === 'fill' && d.panel === panel) {
+      d.b = [sx, sz];
+      S.need.over = true;
+    } else if (d.type === 'box' && d.panel === panel) {
+      const w = worldOf(panel, e);
+      d.b = { x: snap256(w.x), z: snap256(w.z) };
+      S.need.over = true;
+    }
+  });
+  const finish = e => {
+    const d = S.drag;
+    S.drag = null;
+    if (!d) return;
+    if (d.type === 'brush') end();
+    else if (d.type === 'fill') fillFinish(panel, d);
+    else if (d.type === 'box') finishBox(d);
+    S.need.over = true;
+  };
+  ov.addEventListener('pointerup', finish);
+  ov.addEventListener('pointercancel', finish);
+  ov.addEventListener('pointerleave', () => { if (!S.drag) { S.hover = null; showInfo(); S.need.over = true; } });
+  ov.addEventListener('wheel', e => {
+    e.preventDefault();
+    if (panel.kind === 'fold') return;
+    const r = ov.getBoundingClientRect(), mx = e.clientX - r.left - r.width / 2, my = e.clientY - r.top - r.height / 2;
+    const wx = S.view.cx + mx / S.view.s, wz = S.view.cz - my / S.view.s;
+    const next = Math.max(1 / SECTOR, Math.min(128 / SECTOR, S.view.s * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
+    S.view.s = next;
+    S.view.cx = wx - mx / next;
+    S.view.cz = wz + my / next;
+    S.need.maps = S.need.over = true;
+  }, { passive: false });
+}
+function centreMaps(sx, sz) {
+  S.view.cx = (sx + 0.5) * SECTOR;
+  S.view.cz = (sz + 0.5) * SECTOR;
+  S.view.s = Math.max(S.view.s, 24 / SECTOR);
+  S.need.maps = S.need.over = true;
+}
+function fitMaps() {
+  const p = panels.orig;
+  fitCanvas(p);
+  const wide = (EXTENT.x1 - EXTENT.x0) * SECTOR, tall = (EXTENT.z1 - EXTENT.z0) * SECTOR;
+  S.view.cx = (EXTENT.x0 + EXTENT.x1) / 2 * SECTOR;
+  S.view.cz = (EXTENT.z0 + EXTENT.z1) / 2 * SECTOR;
+  S.view.s = Math.min(p.w / wide, p.h / tall) * 0.97;
+}
+
+// ---- the tools panel
+
+const BRUSHES = [
+  ['paint', '1', 'Paint tile', 'Click or drag on a map to put the chosen texture on a sector. Its light stays the original face\'s, or level 16 where there was none.'],
+  ['pick', '2', 'Eyedropper', 'Click a tile to take its texture and how it lies, then go back to painting.'],
+  ['fill', '3', 'Fill rectangle', 'Drag a rectangle. Every sector in it that has a tile takes the chosen texture.'],
+  ['blank', '4', 'Blank', 'No tile here, and the face is gone too. The plane shows whatever else its map holds at this spot, or black.'],
+  ['keep', '5', 'Keep polygon', 'This sector\'s face stays on VDP1, drawn over the plane. It asks nothing of the map, which frees the spot.'],
+  ['flatten', '6', 'Flatten', 'Click a ramp, or a flat at another height. It comes off the polygons and goes on the plane at this sector, with its own texture and corner lights.'],
+  ['light', '7', 'Light', 'Sets all four corners of a tile to the level chosen below. Drag to do many.'],
+  ['fold', '8', 'Fold conflict', 'Click a red sector or spot. You get the tiles that want the spot: let one win, or paint one on all of them.'],
+];
+function setMode(mode) {
+  S.mode = mode;
+  for (const b of $('modeSeg').children) b.setAttribute('aria-pressed', b.dataset.mode === mode);
+  $('boxModeBtn').setAttribute('aria-pressed', mode === 'boxes');
+  showBrush();
+  S.need.over = true;
+}
+function setBrush(name) {
+  S.brush = name;
+  if (S.mode !== 'paint') setMode('paint');
+  showBrush();
+}
+function showBrush() {
+  for (const b of $('brushes').children) {
+    b.setAttribute('aria-pressed', S.mode === 'paint' && b.dataset.brush === S.brush);
+    b.disabled = S.mode !== 'paint';
+  }
+  const info = BRUSHES.find(b => b[0] === S.brush);
+  $('brushHint').textContent = S.mode === 'boxes'
+    ? 'Drag a rectangle on a top-down map to place a box. It snaps to 256 units and takes the y range set under Obstruction boxes.'
+    : info[3];
+  const c = $('brushPreview').getContext('2d');
+  c.drawImage(tileImage(S.tex, S.o), 0, 0);
+  $('brushTexName').textContent = 'Texture ' + S.tex;
+  $('orientText').textContent = orientText(S.o);
+  for (const b of $('palette').children) b.classList.toggle('sel', Number(b.dataset.tex) === S.tex);
+}
+function buildPalette() {
+  const kind = S.kind, used = {};
+  for (const b of BASE[kind].values()) used[b.tex] = (used[b.tex] || 0) + 1;
+  const all = LEVEL.textures.map((t, i) => i);
+  all.sort((a, b) => (used[b] || 0) - (used[a] || 0) || LEVEL.textures[b].paint - LEVEL.textures[a].paint || a - b);
+  const p = $('palette');
+  p.innerHTML = '';
+  for (const i of all) {
+    const t = LEVEL.textures[i];
+    const b = el('button', { class: 'swatch', 'data-tex': i, title: 'Texture ' + i + (t.paint ? '' : t.anim ? ': animated, so it can\'t go on the plane' : ': ' + t.w + ' x ' + t.h + ', not a whole 64 x 64 tile') });
+    if (!t.paint) b.disabled = true;
+    b.append(tileCanvas(i, { t: 0, h: 0, v: 0 }));
+    b.append(el('i', {}, i));
+    b.append(el('b', {}, ''));
+    b.onclick = () => { setBrushTile(i); if (S.brush !== 'paint' && S.brush !== 'fill') setBrush('paint'); };
+    p.append(b);
+  }
+  // start on the floor's most used texture, as its commonest lie
+  if (all.length && used[all[0]] && !S.started) {
+    S.started = true;
+    const b = [...BASE[kind].values()].find(x => x.tex === all[0]);
+    S.tex = all[0];
+    S.o = Object.assign({}, b.o);
+  }
+}
+function showPaletteCounts() {
+  const count = S.counts[S.kind] || {};
+  for (const b of $('palette').children) {
+    const n = count[b.dataset.tex] || 0;
+    b.querySelector('b').textContent = n || '';
+  }
+}
+function showConflicts() {
+  const fold = S.folds[S.kind], list = $('conflictList');
+  $('conflictHead').textContent = fold.conflicts.length ? fold.conflicts.length + ' conflicts: click one to choose' : 'No conflicts';
+  list.innerHTML = '';
+  for (const s of fold.conflicts) {
+    const d = el('div', { title: 'Go there and choose what to do with it' });
+    d.textContent = 'spot ' + String(s.mx).padStart(2) + ',' + String(s.mz).padStart(2) + ': ' + s.claims.map(c => c.sx + ',' + c.sz).join(' / ');
+    d.onclick = e => {
+      const loser = s.claims.find(c => c.state === 'lose') || s.winner;
+      centreMaps(loser.sx, loser.sz);
+      openFold(s.mz * MAP_SECTORS + s.mx, e.clientX - 300, e.clientY - 40);
+    };
+    list.append(d);
+  }
+}
+
+// ---- obstruction boxes
+
+function boxAction(change) {
+  const before = JSON.parse(JSON.stringify(S.boxes));
+  change();
+  const after = JSON.parse(JSON.stringify(S.boxes));
+  if (same(before, after)) return;
+  S.undo.push({ edits: [], boxes: { before, after } });
+  S.redo.length = 0;
+  S.changes++;
+  showSave();
+  showUndo();
+  boxesChanged();
+}
+function boxesChanged() {
+  if (S.selBox >= S.boxes.length) S.selBox = S.boxes.length - 1;
+  S.need.boxes = S.need.fp = S.need.over = true;
+  showBoxes();
+}
+function finishBox(d) {
+  const x0 = Math.min(d.a.x, d.b.x), x1 = Math.max(d.a.x, d.b.x), z0 = Math.min(d.a.z, d.b.z), z1 = Math.max(d.a.z, d.b.z);
+  if (x1 === x0 || z1 === z0) {
+    // a click, not a drag: select the box it's on
+    const i = S.boxes.findIndex(b => d.at.x >= b[0] && d.at.x <= b[3] && d.at.z >= b[2] && d.at.z <= b[5]);
+    if (i >= 0) { S.selBox = i; showBoxes(); }
+    return;
+  }
+  const top = Number($('newTop').value), bottom = Number($('newBottom').value);
+  boxAction(() => {
+    S.boxes.push([x0, Math.min(top, bottom), z0, x1, Math.max(top, bottom), z1]);
+    S.selBox = S.boxes.length - 1;
+  });
+}
+function showBoxes() {
+  const list = $('boxList');
+  list.innerHTML = '';
+  S.boxes.forEach((b, i) => {
+    const row = el('div', { class: 'boxRow' + (i === S.selBox ? ' sel' : '') });
+    const head = el('div', { class: 'row' });
+    head.append(button('Box ' + (i + 1), () => { S.selBox = i; showBoxes(); S.need.fp = S.need.over = true; }, 'Select it: drawn in yellow'));
+    head.append(button('Up', () => boxAction(() => { b[1] -= 256; b[4] -= 256; }), 'Move the whole box up 256 units'));
+    head.append(button('Down', () => boxAction(() => { b[1] += 256; b[4] += 256; }), 'Move the whole box down 256 units'));
+    head.append(button('Go there', () => { S.cam.x = (b[0] + b[3]) / 2; S.cam.z = b[2] - 4096; S.cam.y = laraHeight(S.cam.x, S.cam.z, S.cam.y); S.cam.yaw = 0; S.cam.pitch = 0; S.need.fp = S.need.over = true; }, 'Put the camera south of the box, looking at it'));
+    head.append(button('Remove', () => boxAction(() => { S.boxes.splice(i, 1); }), 'Take the box out of this page\'s list. Nothing on disk changes until you save.'));
+    row.append(head);
+    const body = el('div', { class: 'row' });
+    const field = (label, slot, title) => {
+      const input = el('input', { type: 'number', step: 256, value: b[slot], title });
+      input.onchange = () => {
+        const v = Number(input.value);
+        if (!Number.isFinite(v)) { showBoxes(); return; }
+        boxAction(() => {
+          b[slot] = Math.round(v);
+          for (const [lo, hi] of [[0, 3], [1, 4], [2, 5]]) if (b[lo] > b[hi]) { const t = b[lo]; b[lo] = b[hi]; b[hi] = t; }
+        });
+      };
+      body.append(el('span', { class: 'muted' }, label), input);
+    };
+    field('x', 0, 'West edge, world x'); field('to', 3, 'East edge, world x');
+    field('z', 2, 'South edge, world z'); field('to', 5, 'North edge, world z');
+    field('y', 1, 'Top, world y (y grows down)'); field('to', 4, 'Bottom, world y');
+    row.append(body);
+    list.append(row);
+  });
+}
+
+// The camera's turn, as the game's: yaw 0 looks along +z, 0x4000 along +x.
+function camMatrix() {
+  const cam = S.cam, p = cam.pitch < 0x8000 ? cam.pitch : cam.pitch - 0x10000;
+  const pitch = -p * TURN, yaw = cam.yaw * TURN;
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const f = [sy * cp, sp, cy * cp], r = [cy, 0, -sy];
+  let d = [f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2], f[0] * r[1] - f[1] * r[0]];
+  if (d[1] < 0) d = d.map(x => -x);
+  return { r, d, f };
+}
+function toView(m, p) {
+  const x = p[0] - S.cam.x, y = p[1] - S.cam.y, z = p[2] - S.cam.z;
+  return [m.r[0] * x + m.r[1] * y + m.r[2] * z, m.d[0] * x + m.d[1] * y + m.d[2] * z, m.f[0] * x + m.f[1] * y + m.f[2] * z];
+}
+const project = v => [v[0] * FOCAL / v[2] + FRAME_W / 2, v[1] * FOCAL / v[2] + FRAME_H / 2];
+
+// A box's six faces: corner indices into boxCorners, and the outward axis.
+const BOX_FACES = [
+  [[0, 1, 3, 2], 0, -1], [[4, 5, 7, 6], 0, 1],    // west, east
+  [[0, 1, 5, 4], 1, -1], [[2, 3, 7, 6], 1, 1],    // top, bottom
+  [[0, 2, 6, 4], 2, -1], [[1, 3, 7, 5], 2, 1],    // south, north
+];
+function boxCorners(b) {
+  const out = [];
+  for (const x of [b[0], b[3]]) for (const y of [b[1], b[4]]) for (const z of [b[2], b[5]]) out.push([x, y, z]);
+  return out;
+}
+// Each box's stand-in on the screen: the largest of its facing faces' inner rectangles, and how far its farthest corner is.
+function boxRect(b, m) {
+  const corners = boxCorners(b), view = corners.map(p => toView(m, p));
+  const far = Math.max(...view.map(v => v[2]));
+  let best = null;
+  const eye = [S.cam.x, S.cam.y, S.cam.z];
+  for (const [ids, axis, side] of BOX_FACES) {
+    const plane = side < 0 ? b[axis] : b[axis + 3];
+    if ((eye[axis] - plane) * side <= 0) continue;
+    if (ids.some(i => view[i][2] < NEAR)) continue;
+    const pts = ids.map(i => project(view[i]));
+    const xs = pts.map(p => p[0]).sort((a, c) => a - c), ys = pts.map(p => p[1]).sort((a, c) => a - c);
+    const area = (xs[2] - xs[1]) * (ys[2] - ys[1]);
+    if (area > 0 && (!best || area > best.area)) best = { x0: xs[1], x1: xs[2], y0: ys[1], y1: ys[2], area, far };
+  }
+  return best;
+}
+function clippedArea(pts) {
+  let poly = pts;
+  const clip = (inside, cross) => {
+    const out = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length], ia = inside(a), ib = inside(b);
+      if (ia) out.push(a);
+      if (ia !== ib) out.push(cross(a, b));
+    }
+    poly = out;
+  };
+  const atX = x => (a, b) => [x, a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0])];
+  const atY = y => (a, b) => [a[0] + (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]), y];
+  clip(p => p[0] >= 0, atX(0));
+  clip(p => p[0] <= FRAME_W, atX(FRAME_W));
+  clip(p => p[1] >= 0, atY(0));
+  clip(p => p[1] <= FRAME_H, atY(FRAME_H));
+  let area = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    area += a[0] * b[1] - b[0] * a[1];
+  }
+  return Math.abs(area) / 2;
+}
+// Per camera: which faces are in view, and which the boxes hide.
+function viewPass() {
+  const m = camMatrix(), rects = S.boxes.map(b => boxRect(b, m)).filter(Boolean), gone = goneAll();
+  const hidden = new Set(), cam = S.cam;
+  let inViewL = 0, inViewR = 0, hidL = 0, hidR = 0, areaL = 0, areaR = 0;
+  for (const f of FACES) {
+    const a = f.c[0];
+    if (f.n[0] * (a[0] - cam.x) + f.n[1] * (a[1] - cam.y) + f.n[2] * (a[2] - cam.z) <= 0) continue;
+    let minZ = 1e9, maxZ = -1e9, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, front = true;
+    const pts = [];
+    for (const p of f.c) {
+      const v = toView(m, p);
+      if (v[2] < minZ) minZ = v[2];
+      if (v[2] > maxZ) maxZ = v[2];
+      if (v[2] < NEAR) { front = false; continue; }
+      const q = project(v);
+      pts.push(q);
+      if (q[0] < x0) x0 = q[0];
+      if (q[0] > x1) x1 = q[0];
+      if (q[1] < y0) y0 = q[1];
+      if (q[1] > y1) y1 = q[1];
+    }
+    if (maxZ < NEAR || minZ > FAR) continue;
+    if (front && (x1 < 0 || y1 < 0 || x0 > FRAME_W || y0 > FRAME_H)) continue;
+    const on = !gone.has(f.id);
+    inViewL++;
+    if (on) inViewR++;
+    if (!front) continue;
+    for (const r of rects) {
+      if (minZ > r.far && x0 >= r.x0 && x1 <= r.x1 && y0 >= r.y0 && y1 <= r.y1) {
+        hidden.add(f.id);
+        const area = clippedArea(pts);
+        hidL++; areaL += area;
+        if (on) { hidR++; areaR += area; }
+        break;
+      }
+    }
+  }
+  S.rects = rects;
+  S.view3 = { inViewL, inViewR, hidL, hidR, areaL, areaR };
+  S.hidden = hidden;
+  $('viewStats').textContent = 'Faces in view: ' + inViewL + ' on the left, ' + inViewR + ' on the right.';
+  $('boxStats').textContent = S.boxes.length
+    ? 'Left: ' + hidL + ' hidden of ' + inViewL + ' in view, ' + Math.round(areaL) + ' px of screen.\nRight: ' + hidR + ' of ' + inViewR + ', ' + Math.round(areaR) + ' px. Overlaps counted twice.'
+    : 'No boxes.';
+  $('boxStats').style.whiteSpace = 'pre-wrap';
+}
+
+// ---- the first-person views: one camera, two pictures
+
+function buildFP() {
+  const v = fpView, gl = v.gl, out = [];
+  S.faceRange = new Int32Array(FACES.length * 2);
+  let n = 0;
+  for (const f of FACES) {
+    const count = pushFace(out, f);
+    S.faceRange[f.id * 2] = n;
+    S.faceRange[f.id * 2 + 1] = count;
+    n += count;
+  }
+  v.all = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, v.all);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(out), gl.STATIC_DRAW);
+  v.count = n;
+  S.stateBytes = new Uint8Array(n);
+  S.stateOf = new Uint8Array(FACES.length);
+  v.state = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, v.state);
+  gl.bufferData(gl.ARRAY_BUFFER, S.stateBytes, gl.DYNAMIC_DRAW);
+}
+function updateState() {
+  const gone = goneAll(), hidden = S.hidden;
+  let changed = false;
+  for (const f of FACES) {
+    const s = (gone.has(f.id) ? 1 : 0) | (hidden.has(f.id) ? 2 : 0);
+    if (s !== S.stateOf[f.id]) {
+      S.stateOf[f.id] = s;
+      S.stateBytes.fill(s, S.faceRange[f.id * 2], S.faceRange[f.id * 2] + S.faceRange[f.id * 2 + 1]);
+      changed = true;
+    }
+  }
+  if (changed) {
+    const gl = fpView.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, fpView.state);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, S.stateBytes);
+  }
+}
+function setCamUniforms(v, P, m) {
+  const gl = v.gl;
+  gl.uniformMatrix3fv(P.u.uR, false, [m.r[0], m.d[0], m.f[0], m.r[1], m.d[1], m.f[1], m.r[2], m.d[2], m.f[2]]);
+  gl.uniform3f(P.u.uEye, S.cam.x, S.cam.y, S.cam.z);
+  gl.uniform2f(P.u.uScale, FOCAL / (FRAME_W / 2), FOCAL / (FRAME_H / 2));
+  const near = NEAR, far = FAR * 1.5;
+  gl.uniform2f(P.u.uDepth, (far + near) / (far - near), -2 * far * near / (far - near));
+}
+function drawFPPolys(m, hideOnPlane, tintHidden) {
+  const v = fpView, gl = v.gl, P = v.poly;
+  gl.useProgram(P.p);
+  bindSamplers(v, P);
+  setCamUniforms(v, P, m);
+  gl.uniform1f(P.u.uMapMode, 0);
+  gl.uniform2f(P.u.uHide, hideOnPlane ? 1 : 0, S.t.removeHidden ? 1 : 0);
+  gl.uniform1f(P.u.uTintBit, tintHidden ? 1 : 0);
+  gl.uniform4f(P.u.uTint, 0, 0, 0, 0);
+  gl.uniform2f(P.u.uHeight, 0, 0);
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LESS);
+  gl.depthMask(true);
+  gl.enable(gl.CULL_FACE);
+  gl.cullFace(gl.BACK);
+  gl.frontFace(gl.CW);
+  const done = polyAttribs(v, v.all, v.state);
+  gl.drawArrays(gl.TRIANGLES, 0, v.count);
+  done();
+}
+function drawFPPlanes(m, originX) {
+  const v = fpView, gl = v.gl, P = v.plane;
+  gl.useProgram(P.p);
+  setPlaneCommon(v, P);
+  gl.uniform1f(P.u.uMode, 0);
+  gl.uniform3f(P.u.uEye, S.cam.x, S.cam.y, S.cam.z);
+  gl.uniform3fv(P.u.uRight, m.r); gl.uniform3fv(P.u.uDown, m.d); gl.uniform3fv(P.u.uFwd, m.f);
+  gl.uniform1f(P.u.uFocal, FOCAL);
+  gl.uniform1f(P.u.uOriginX, originX);
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.CULL_FACE);
+  for (const kind of Object.keys(LEVEL.planes)) {
+    bindSamplers(v, P, kind);
+    gl.uniform1f(P.u.uPlaneY, LEVEL.planes[kind]);
+    drawPlaneQuad(v);
+  }
+}
+function buildBoxLines() {
+  const v = fpView, gl = v.gl, out = [];
+  const edges = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
+  S.boxes.forEach(b => {
+    const c = boxCorners(b);
+    for (const [i, j] of edges) out.push(...c[i], ...c[j]);
+  });
+  gl.bindBuffer(gl.ARRAY_BUFFER, v.lines);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(out), gl.DYNAMIC_DRAW);
+}
+function drawBoxWires(m) {
+  if (!S.boxes.length) return;
+  const v = fpView, gl = v.gl, P = v.line, a = P.a.aPos;
+  gl.useProgram(P.p);
+  setCamUniforms(v, P, m);
+  gl.uniform1f(P.u.uNdc, 0);
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.CULL_FACE);
+  gl.bindBuffer(gl.ARRAY_BUFFER, v.lines);
+  gl.enableVertexAttribArray(a);
+  gl.vertexAttribPointer(a, 3, gl.FLOAT, false, 0, 0);
+  S.boxes.forEach((b, i) => {
+    if (i === S.selBox) gl.uniform4f(P.u.uColour, 1, 0.88, 0.3, 1);
+    else gl.uniform4f(P.u.uColour, 1, 0.62, 0.18, 1);
+    gl.drawArrays(gl.LINES, i * 24, 24);
+  });
+  // the rectangle standing for each box
+  const out = [];
+  for (const r of S.rects || []) {
+    const x0 = r.x0 / 176 - 1, x1 = r.x1 / 176 - 1, y0 = 1 - r.y0 / 112, y1 = 1 - r.y1 / 112;
+    out.push(x0, y0, 0, x1, y0, 0, x1, y0, 0, x1, y1, 0, x1, y1, 0, x0, y1, 0, x0, y1, 0, x0, y0, 0);
+  }
+  if (out.length) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, v.rectLines);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(out), gl.DYNAMIC_DRAW);
+    gl.vertexAttribPointer(a, 3, gl.FLOAT, false, 0, 0);
+    gl.uniform1f(P.u.uNdc, 1);
+    gl.uniform4f(P.u.uColour, 0.4, 1, 0.5, 1);
+    gl.drawArrays(gl.LINES, 0, out.length / 3);
+  }
+  gl.disableVertexAttribArray(a);
+}
+function renderFP() {
+  const v = fpView, gl = v.gl, m = camMatrix();
+  viewPass();
+  updateState();
+  gl.enable(gl.SCISSOR_TEST);
+  gl.scissor(0, 0, v.canvas.width, FRAME_H);
+  gl.clearColor(0.09, 0.1, 0.13, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.clearColor(0, 0, 0, 1);
+
+  // left: the original polygons
+  gl.viewport(0, 0, FRAME_W, FRAME_H);
+  gl.scissor(0, 0, FRAME_W, FRAME_H);
+  gl.depthMask(true);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  drawFPPolys(m, false, S.t.tintHidden);
+  drawBoxWires(m);
+
+  // right: the plane first with no depth, then depth cleared and what remains over it
+  const x = FRAME_W + GAP;
+  gl.viewport(x, 0, FRAME_W, FRAME_H);
+  gl.scissor(x, 0, FRAME_W, FRAME_H);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  drawFPPlanes(m, x);
+  gl.clear(gl.DEPTH_BUFFER_BIT);
+  if (!S.t.planeOnly) drawFPPolys(m, true, false);
+  drawBoxWires(m);
+  gl.disable(gl.SCISSOR_TEST);
+
+  const c = S.cam;
+  $('camText').textContent = 'x ' + Math.round(c.x) + '  y ' + Math.round(c.y) + '  z ' + Math.round(c.z) + '  yaw ' + hex(c.yaw) + '  pitch ' + hex(c.pitch);
+}
+function fitViews() {
+  const stage = $('views'), avail = $('centre').clientWidth - 12 - Math.min(380, $('centre').clientWidth * 0.3);
+  const maxH = window.innerHeight * S.viewFrac;
+  const scale = Math.max(0.5, Math.min(avail / (FRAME_W * 2 + GAP), maxH / FRAME_H));
+  const fp = $('fp');
+  fp.style.width = Math.round((FRAME_W * 2 + GAP) * scale) + 'px';
+  fp.style.height = Math.round(FRAME_H * scale) + 'px';
+  $('viewLabels').style.width = fp.style.width;
+  stage.style.gridTemplateColumns = fp.style.width + ' minmax(0, 1fr)';
+  stage.style.height = (Math.round(FRAME_H * scale) + 44) + 'px';
+}
+function attachFP() {
+  const c = $('fp');
+  c.addEventListener('contextmenu', e => e.preventDefault());
+  c.addEventListener('pointerdown', e => {
+    c.setPointerCapture(e.pointerId);
+    c.focus();
+    S.looking = true;
+  });
+  c.addEventListener('pointermove', e => {
+    if (!S.looking) return;
+    S.cam.yaw = (S.cam.yaw + e.movementX * 28) & 0xFFFF;
+    const p = (S.cam.pitch < 0x8000 ? S.cam.pitch : S.cam.pitch - 0x10000) - e.movementY * 28;
+    S.cam.pitch = Math.max(-0x3F00, Math.min(0x3F00, p)) & 0xFFFF;
+    S.need.fp = S.need.over = true;
+  });
+  const stop = () => { S.looking = false; };
+  c.addEventListener('pointerup', stop);
+  c.addEventListener('pointercancel', stop);
+  c.addEventListener('wheel', e => {
+    e.preventDefault();
+    S.speed = Math.max(256, Math.min(32768, Math.round(S.speed * (e.deltaY < 0 ? 1.25 : 0.8))));
+    say('Camera speed ' + S.speed + ' units a second.');
+  }, { passive: false });
+}
+function goSpot(s) {
+  S.cam.x = s[1]; S.cam.y = s[2] - CAMERA_HEIGHT; S.cam.z = s[3]; S.cam.yaw = s[4]; S.cam.pitch = 0;
+  S.need.fp = S.need.over = true;
+}
+
+// ---- the keys
+
+function typing(t) { return t && (t.tagName === 'INPUT' && t.type !== 'checkbox' && t.type !== 'range' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT'); }
+function onKey(e) {
+  const k = e.key.toLowerCase();
+  if (k === 'escape') { closePop(); $('modal').hidden = true; return; }
+  if (typing(e.target)) return;
+  if (e.ctrlKey || e.metaKey) {
+    if (k === 'z') { e.preventDefault(); e.shiftKey ? undoRedo(S.redo, S.undo, true) : undoRedo(S.undo, S.redo, false); }
+    else if (k === 'y') { e.preventDefault(); undoRedo(S.redo, S.undo, true); }
+    else if (k === 's') { e.preventDefault(); save(); }
+    return;
+  }
+  if (!$('modal').hidden) return;
+  if (k === ' ') { S.space = true; e.preventDefault(); return; }
+  if (e.repeat) return;
+  if (k === 'r') { S.o = turnClockwise(S.o); showBrush(); return; }
+  if (k === 'h') { S.o = Object.assign({}, S.o, { h: S.o.h ? 0 : 1 }); showBrush(); return; }
+  if (k === 'v') { S.o = Object.assign({}, S.o, { v: S.o.v ? 0 : 1 }); showBrush(); return; }
+  if (k === 'g') { S.cam.y = laraHeight(S.cam.x, S.cam.z, S.cam.y); S.need.fp = S.need.over = true; return; }
+  if (k === 'b') { setMode(S.mode === 'boxes' ? 'paint' : 'boxes'); return; }
+  const brush = BRUSHES.find(b => b[1] === k);
+  if (brush) { setBrush(brush[0]); return; }
+  S.held.add(k);
+}
+
+// ---- saving
+
+function paintBody() {
+  const edits = {};
+  for (const kind of Object.keys(S.edits)) {
+    edits[kind] = {};
+    for (const [key, e] of S.edits[kind]) edits[kind][key] = e;
+  }
+  return JSON.stringify({ edits, boxes: S.boxes });
+}
+async function post(path) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Floor-Paint': '1' }, body: paintBody() });
+  return r.json();
+}
+async function save() {
+  const mark = S.changes;
+  try {
+    const r = await post('/api/save');
+    if (!r.ok) { say('Not saved: ' + r.problems.join('; ')); return; }
+    S.savedChanges = mark;
+    showSave();
+    say('Saved to ' + r.path + '.');
+  } catch (err) {
+    say('Not saved: the server didn\'t answer. Is tools/floor_paint.py still running?');
+  }
+}
+async function showText() {
+  try {
+    const r = await post('/api/text');
+    if (!r.ok) { say('Can\'t write them: ' + r.problems.join('; ')); return; }
+    const a = r.budget, b = S.budget;
+    const fields = ['pictures', 'cells', 'palettes', 'step', 'blocks', 'names', 'conflicts', 'losers', 'sharing', 'total'];
+    const differ = fields.filter(n => a[n] !== b[n]);
+    $('modalNote').textContent = differ.length ? 'The page and the script disagree on: ' + differ.join(', ') + '. The text is the script\'s.' : '';
+    $('modalText').value = LEVEL.name + '\n\n' + r.budgetText + '\n\n' + r.text;
+    $('modal').hidden = false;
+  } catch (err) {
+    say('The server didn\'t answer. Is tools/floor_paint.py still running?');
+  }
+}
+
+// ---- the page's frame
+
+function frame(t) {
+  const dt = Math.min((t - (S.lastTime || t)) / 1000, 0.1);
+  S.lastTime = t;
+  if (S.need.fold) {
+    S.need.fold = false;
+    S.goneCache = null;
+    computeFolds();
+    showBudget();
+    showConflicts();
+    showPaletteCounts();
+    showInfo();
+    for (const v of [fpView, panels.vdp2.gv, panels.fold.gv]) uploadPlane(v);
+    rebuildMapBuffers();
+    S.need.fp = S.need.maps = S.need.over = true;
+  }
+  const h = S.held, step = (h.has('shift') ? S.speed * 4 : S.speed) * dt;
+  if (step && (h.has('w') || h.has('a') || h.has('s') || h.has('d') || h.has('q') || h.has('e'))) {
+    const m = camMatrix(), c = S.cam;
+    const move = (a, n) => { c.x += a[0] * n; c.y += a[1] * n; c.z += a[2] * n; };
+    if (h.has('w')) move(m.f, step);
+    if (h.has('s')) move(m.f, -step);
+    if (h.has('d')) move(m.r, step);
+    if (h.has('a')) move(m.r, -step);
+    if (h.has('q')) move([0, -1, 0], step);
+    if (h.has('e')) move([0, 1, 0], step);
+    S.need.fp = S.need.over = true;
+  }
+  if (S.need.boxes) { S.need.boxes = false; buildBoxLines(); }
+  if (S.need.fp) { S.need.fp = false; renderFP(); }
+  if (S.need.maps) { S.need.maps = false; renderMaps(); }
+  if (S.need.over) { S.need.over = false; drawOverlays(); }
+  if (S.message && t > S.messageUntil) { S.message = ''; showInfo(); }
+  requestAnimationFrame(frame);
+}
+
+function wire() {
+  $('levelName').textContent = LEVEL.name;
+  const kinds = Object.keys(LEVEL.planes);
+  if (kinds.length > 1) {
+    for (const k of kinds) {
+      const b = el('button', { title: 'Look at and paint the ' + k + ', at y ' + LEVEL.planes[k] }, k === 'floor' ? 'Floor' : 'Ceiling');
+      b.dataset.kind = k;
+      b.onclick = () => switchKind(k);
+      $('kindSeg').append(b);
+    }
+  } else $('kindSeg').hidden = true;
+  for (const [name, key, label, help] of BRUSHES) {
+    const b = el('button', { title: help + ' (key ' + key + ')' });
+    b.dataset.brush = name;
+    b.append(el('kbd', {}, key), label);
+    b.onclick = () => setBrush(name);
+    $('brushes').append(b);
+  }
+  for (const b of $('modeSeg').children) b.onclick = () => setMode(b.dataset.mode);
+  $('boxModeBtn').onclick = () => setMode(S.mode === 'boxes' ? 'paint' : 'boxes');
+  $('keyR').onclick = () => { S.o = turnClockwise(S.o); showBrush(); };
+  $('keyH').onclick = () => { S.o = Object.assign({}, S.o, { h: S.o.h ? 0 : 1 }); showBrush(); };
+  $('keyV').onclick = () => { S.o = Object.assign({}, S.o, { v: S.o.v ? 0 : 1 }); showBrush(); };
+  const toggles = {
+    height: 'tHeight', polys: 'tPolys', tint: 'tTint', grid: 'tGrid', blocks: 'tBlocks', conflicts: 'tConflicts', copies: 'tCopies',
+    marks: 'tMarks', planeOnly: 'tPlaneOnly', clip: 'tClip', tintHidden: 'tTintHidden', removeHidden: 'tRemoveHidden',
+  };
+  for (const [name, id] of Object.entries(toggles)) {
+    const box = $(id);
+    S.t[name] = box.checked;
+    box.onchange = () => { S.t[name] = box.checked; S.need.fp = S.need.maps = S.need.over = true; };
+  }
+  const setLight = v => {
+    S.light = Math.max(0, Math.min(31, Math.round(Number(v) || 0)));
+    $('lightRange').value = S.light;
+    $('lightNumber').value = S.light;
+  };
+  $('lightRange').oninput = e => setLight(e.target.value);
+  $('lightNumber').onchange = e => setLight(e.target.value);
+  $('undoBtn').onclick = () => undoRedo(S.undo, S.redo, false);
+  $('redoBtn').onclick = () => undoRedo(S.redo, S.undo, true);
+  $('saveBtn').onclick = save;
+  $('textBtn').onclick = showText;
+  $('modalClose').onclick = () => { $('modal').hidden = true; };
+  $('modalCopy').onclick = async () => {
+    const t = $('modalText');
+    t.select();
+    try { await navigator.clipboard.writeText(t.value); $('modalNote').textContent = 'Copied.'; }
+    catch (err) { document.execCommand('copy'); $('modalNote').textContent = 'Copied.'; }
+  };
+  $('dropBtn').onclick = () => { S.cam.y = laraHeight(S.cam.x, S.cam.z, S.cam.y); S.need.fp = S.need.over = true; };
+  $('fitBtn').onclick = () => { fitMaps(); S.need.maps = S.need.over = true; };
+  for (const s of LEVEL.spots) {
+    const b = button(s[0], () => goSpot(s), 'Camera at x ' + s[1] + ', z ' + s[3] + ', ' + CAMERA_HEIGHT + ' above y ' + s[2] + ', yaw ' + hex(s[4]));
+    $('spotRow').append(b);
+  }
+  for (const b of $('sizeSeg').children) {
+    b.onclick = () => {
+      S.viewFrac = Number(b.dataset.size);
+      for (const o of $('sizeSeg').children) o.setAttribute('aria-pressed', o === b);
+      fitViews();
+      S.need.maps = S.need.over = true;
+    };
+    b.setAttribute('aria-pressed', Number(b.dataset.size) === S.viewFrac);
+  }
+  window.addEventListener('keydown', onKey);
+  window.addEventListener('keyup', e => {
+    const k = e.key.toLowerCase();
+    if (k === ' ') S.space = false;
+    S.held.delete(k);
+  });
+  window.addEventListener('blur', () => { S.held.clear(); S.space = false; });
+  window.addEventListener('resize', () => { fitViews(); S.need.maps = S.need.over = true; });
+  window.addEventListener('beforeunload', e => { if (S.changes !== S.savedChanges) { e.preventDefault(); e.returnValue = ''; } });
+  document.addEventListener('pointerdown', e => { if (!$('pop').hidden && !$('pop').contains(e.target) && !e.target.classList.contains('over')) closePop(); });
+}
+function switchKind(kind) {
+  S.kind = kind;
+  for (const b of $('kindSeg').children) b.setAttribute('aria-pressed', b.dataset.kind === kind);
+  $('origNote').textContent = kind === 'floor' ? 'every floor as polygons, from straight above' : 'every ceiling as polygons, from straight below, x and z as on the floor';
+  setNewBoxRange();
+  buildPalette();
+  showBrush();
+  showPaletteCounts();
+  showConflicts();
+  rebuildMapBuffers();
+  showInfo();
+  S.need.maps = S.need.over = true;
+}
+function setNewBoxRange() {
+  const y = LEVEL.planes[S.kind];
+  $('newTop').value = S.kind === 'floor' ? y - 2048 : y;
+  $('newBottom').value = S.kind === 'floor' ? y : y + 2048;
+}
+
+async function start() {
+  const [level, atlas, paint] = await Promise.all([
+    fetch('/level.json').then(r => r.json()),
+    fetch('/atlas.bin').then(r => r.arrayBuffer()),
+    fetch('/api/paint').then(r => r.json()),
+  ]);
+  LEVEL = level;
+  ATLAS = new Uint8Array(atlas);
+  buildLevel();
+  for (const kind of Object.keys(S.edits)) {
+    for (const [key, e] of Object.entries(paint.edits[kind] || {})) S.edits[kind].set(key, e);
+  }
+  S.boxes = paint.boxes;
+  wire();
+  buildPalette();
+  showUndo();
+  showSave();
+  showBoxes();
+  computeFolds();
+  S.need.fold = true;
+  setMode('paint');
+
+  panels = {};
+  for (const [name, kind, wrapSel] of [['orig', 'orig', '#origPanel .mapWrap'], ['vdp2', 'vdp2', '#planePanel .mapWrap'], ['fold', 'fold', '#foldWrap']]) {
+    const wrap = document.querySelector(wrapSel), gl = wrap.querySelector('canvas.gl'), ov = wrap.querySelector('canvas.over');
+    panels[name] = { kind, wrap, gl, ov, ctx: ov.getContext('2d'), gv: makeGL(gl, true) };
+    attachMap(panels[name]);
+  }
+  const fp = $('fp');
+  fp.width = FRAME_W * 2 + GAP;
+  fp.height = FRAME_H;
+  fpView = makeGL(fp, true);
+  buildFP();
+  attachFP();
+  fitViews();
+  fitMaps();
+  switchKind(S.kind);
+  if (LEVEL.spots.length) goSpot(LEVEL.spots[0]);
+  if (paint.problems.length) say('The saved file has lines I could not read. They stay in it as comments: ' + paint.problems.join('; '), 30000);
+  else if (Object.values(S.edits).some(m => m.size) || S.boxes.length) say('Loaded your changes from ' + paint.path + '.');
+  new ResizeObserver(() => { S.need.maps = S.need.over = true; }).observe($('maps'));
+  requestAnimationFrame(frame);
+}
+window.floorPaint = S;
+start().catch(err => fail(String(err && err.stack || err)));
+</script>
+</body>
+</html>

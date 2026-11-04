@@ -32,7 +32,9 @@ from the corners as VDP1's is.
 
 The map holds 32 x 32 sectors and repeats. Tiles of a level wider than that can want
 one spot: identical tiles share it, and of two that differ the first takes it and the
-other's face stays a polygon, which draws over the plane and so is right on screen.
+other's face stays a polygon, which draws over the plane and so is right on screen. Who's
+first, as tools/floor_paint.py has it: a painted or flattened tile before the level's own;
+among those the lowest SX, then SZ; among the level's own, room and quad order.
 
 Flooded copies: a room's alternate holds the same floor. Its face goes too if its room's
 tile went and it has the same picture; the plane then serves both, in the dry room's light.
@@ -224,9 +226,15 @@ def take_faces(lvl, plan):
                 wanted[(sx, sz)][0].levels = levels
 
         # the map's spots: the first of two that differ takes one, the other stays a polygon
+        def first(item):
+            (sx, sz), (_, r, q_i) = item
+            if (kind, sx, sz) in plan.tile or (kind, sx, sz) in plan.flatten:
+                return (0, sx, sz)
+            return (1, r, q_i)
+
         map_tiles = {}
         lost = 0
-        for (sx, sz), (tile, r, q_i) in sorted(wanted.items(), key=lambda kv: (kv[1][1] is None, kv[1][1] or 0, kv[0])):
+        for (sx, sz), (tile, r, q_i) in sorted(wanted.items(), key=first):
             spot = (sx % MAP_SECTORS, sz % MAP_SECTORS)
             if spot in map_tiles and not map_tiles[spot].same(tile):
                 lost += 1

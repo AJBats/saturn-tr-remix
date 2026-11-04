@@ -33,7 +33,9 @@ What's known:
 - A census over random views (`tools/occmodel`, `planes` mode), camera in the hall's rooms: 241 px a view on average against 11,371 of plane, 8% of views past 400 px, worst 27,444. In the valley 99 px, 8%, 15,636. Random views are rates to compare, not what play will see, and the model has no items.
 - Sonic World meets the same thing at its river and answers it with 3 to 5 quads a list along the near bank, which write low priority so the plane shows (`docs/vdp2-lab.md`).
 
-**So: nothing kept, and we look.** What we can reach for, in order of work, if a spot looks wrong:
+**Seen in Mednafen, 2026-11-04:** the user finds the plane itself without visible fault, and the faces sneaking under it the one big quirk, as expected: in the Cistern they just need trimming, which occlusion primitives would do, and masks are for a face flush against a ledge that straddles a view above and below the plane. **Pinned** until the main chat has occlusion primitives better understood.
+
+**So: nothing kept for now.** What we can reach for, in order of work:
 
 1. Keep that floor face on VDP1 (a line in the list). Keeping the worst 80 in each level cuts the census's mean by 60 times in the hall and 10 in the valley, at about a quarter of the floor's gain, and can show a small step of light at the join.
 2. Draw it as a colour 0 polygon in its place in the list, Sonic's mask: the plane shows through it, with no seam, at about a quarter of a textured pixel's cost. It needs a kind of face the pack step can name.
@@ -56,7 +58,26 @@ A face goes on the plane if it is flat at that height, faces the right way, is a
 
 **The tile map.** A plane is infinite only because it repeats: the map holds 32 x 32 sectors, then starts again. The Cistern fits. The valley runs 82 sectors north to south, so 17 of its 482 tiles want the same spot in the map as another (always 32 sectors apart). Those 17 stay on VDP1, drawn over the plane, so the spot shows right in both places. That's one fixed map, as in the Cistern, with no code at run time, and it's 16 blocks of names where the valley would otherwise need 24.
 
-- **What this lacks:** the plane shows a tile of its map wherever VDP1 draws nothing below the horizon. A hole in the rock can show a piece of floor from 32 sectors away, where today it's black. About half the map's spots hold a tile. To be looked at in the valley. The cure, if it matters: 16 map registers rewritten as the camera crosses a block, 36 KB more names.
+- **What this lacks:** the plane shows a tile of its map wherever VDP1 draws nothing below the horizon. A hole in the rock can show a piece of floor from 32 sectors away, where today it's black. The census has this common: 775 px a view, 630 of them bright, up close (below). That's why the valley needs the map to move.
+
+### A map that moves, priced (Lost Valley)
+
+`tools/occmodel` `planes` mode, 30,000 random views, the camera on the open floor; the floor is 10,310 px a view. "Wrong" counts both a false tile where the level has none and a real tile the map doesn't reach; bright means light and fog leave it above near black. Names costs are Mednafen's measure (`names us` on the frames page: 2 KB in 125-160 us at the vblank), to be replaced by the Saturn's.
+
+| | Fixed map (built) | Slots swapped by block | Names rewritten by sector |
+|---|---|---|---:|
+| How | One map, repeating | 16 registers point at the blocks round the camera | The map scrolls round the camera like a 2D scroller: the far row or column rewritten at each sector crossed |
+| Wrong px a view, of them bright | 775, 630 | 153, 38 | 127, 13 |
+| Reach before it repeats | - | 12 to 20 sectors | 16 sectors, where the fog is at its floor along the view |
+| Tiles left as polygons | 17 | 0 | 0 |
+| Names in VRAM | 64 KB | 96 KB | 64 KB |
+| Bank B | 208 KB | 240 KB, item textures across B0 and B1 | 208 KB + its source |
+| Source data | none | about 60 bytes | 30 KB of whole names in B0's spare 43 KB, 0.56 KB to find them; or 2.5 KB of RAM and a small sum per tile |
+| A crossing | - | 8 registers, every 8 sectors | Mean 5.9 sectors (378 bytes), 90% 13, most 32 (2 KB); 35% write nothing |
+| Time, Mednafen | none | a few us | Mean about 25 us to write; reads from B0 double it. Worst 160 us, or 320 |
+| Code | none | about 25 lines | about 80 lines |
+
+**Recommended: names rewritten by sector, the source in B0's spare space.** It's the only one that scales past this level, it needs no work RAM and no sums at run time, and the far edge moves a sector at a time, not 8 sectors of floor at once. Writes go in the vblank with the list's other numbers, capped a list, nearest first after a camera cut: a whole map is 1,024 sectors, about 4 ms, so a cut takes a few lists to finish, nearest sectors first. To check on the Saturn: the real names cost.
 
 **VRAM, bank B, 256 KB (from `tools/planepack.py` on the real levels):**
 
@@ -116,11 +137,11 @@ Today, as retail: the scene is drawn once, VDP1's frame is copied into a VDP2 bi
 | | How | Pause | Memory | Catches |
 |---|---|---|---|---|
 | **Read VDP2's picture back** | Not possible. VDP2 builds its picture on the way to the TV; nothing can read it | | | |
-| **A. VDP2 keeps compositing** | The plane stays on, frozen, under the bitmap. Nothing is copied | as today | none | Three brightnesses and two offsets (below). The bitmap with the plane on hasn't run on the Saturn. The item textures are read from bank B under the plane |
+| **A. VDP2 keeps compositing (the user's pick, built)** | The plane stays on, frozen, under the bitmap. Nothing is copied | as today | none | Three brightnesses and two offsets (below). The item textures are read from bank B under the plane: to see on the Saturn |
 | **B. The CPU paints the plane into the picture** | At pause, line by line as VDP2 would, into the holes only. The plane is off till the game resumes | about 0.1 s, up to 0.4 s with a whole frame of plane, once | none | About 80 lines of C doing what VDP2 does, kept matching by hand. Fades and layers exactly as today |
 | **C. VDP1 draws the floor for that one frame** | The faces stay in the level, and draw in the capture frame only. The picture is then whole, as today | one frame | about 10 KB of level data, and their textures stay in VDP1's memory | A second set of counts for each room, and vertices no other frame uses. The room code gains its first branch for the plane |
 
-**Recommended: A, with B to fall back on.** The two Saturn checks in A are ones the test discs need anyway (the debug overlay is the same layout), and if either fails B doesn't depend on them.
+A works in Mednafen first time. B is the fallback if the Saturn disagrees.
 
 **A's three brightnesses:** the plane's fog needs its own constant -112 on top of the picture's fade, the picture its fade, and the ring its own: VDP2 has two offsets. So on plane levels the ring gets neither: offset A the plane (fade - 112), offset B the picture (fade), and the ring's fades go through the shade table (`gShadeGouraud`, 32 entries a frame during a fade, in the same 8 steps). Priorities: picture 4, over the plane's 3, under the frames' 6. The item textures: 66 KB read by the CPU at open, waiting on the hblanks and vblank while RBG0 holds the bank, perhaps 60 ms; to be measured on the Saturn.
 
@@ -129,12 +150,13 @@ Today, as retail: the scene is drawn once, VDP1's frame is copied into a VDP2 bi
 - **No mips:** far floor may shimmer in motion. You weren't sure on the Saturn. Worth a direct look in the valley, which is brighter.
 - **Light per 16 x 16 tile**, not gouraud per pixel. You couldn't tell in the Cistern. The valley's steps are every second level.
 - **No caustics on plane floors.**
-- **Far fog stops at 14 steps:** past 15,872 units the brightest texels keep up to 6 of 31 where the game's go black.
+- **Far fog stops at 14 steps:** past 15,872 units a tile takes no more off, where a polygon goes on down to level 0 (`renderer/roomproject.s`: light and fog together stop at shade 31). A brightly lit far tile is a few steps brighter than its polygon was, a dim one a little darker.
 - **Bright colours clip:** 2.4% of the valley's floor colours lose some brightness near the camera (1.8% of the Cistern's ceiling).
 - **What's below can show through**, above. **Items in pits aren't hidden by the rim.**
 - **Black becomes dim floor in rare spots**, where the game draws no face at all. In the hall, 420 to 477 pixels at about 10 of 255. More in the open: the valley's holes need looking at, and there it can be a false tile.
 - **No camera roll.** TR's camera has none.
-- **Test discs keep about 25 frames of trace on plane levels**, not 120.
+- **Test discs keep about 8 frames of trace on plane levels**, not 120.
+- **With OpenLara's camera (the debug menu's Ours)** the plane reaches about 25,000 units past the far cut, at the fog's floor: the table's cut is retail's camera's. The fog follows the camera.
 
 ## Removed from the lab's version
 
@@ -147,11 +169,22 @@ Filed as OPEN_ISSUES 273-279, "Production code", for later: timer reads, 16 KB o
 ## The risks, and how each gets tested
 
 1. **The late buffer change under the erase.** The lab's vanishing came from a late change with slow work before FBCR. Main writes FBCR first, and the lab's cure also held off the vblank's last lines, which main doesn't. A plane level's lists are shorter, so late changes get rarer but don't stop. If the Saturn vanishes, that margin is the next thing, by libyaul's rule.
-2. **NBG0's bitmap with the plane on**, for the inventory and test discs' overlay. Hasn't run on the Saturn. Sonic R keeps every NBG in bank A with RBG0 in bank B, as we would.
+2. **NBG0's bitmap with the plane on**, for the inventory and test discs' overlay. Ran under the lab's text page on the Saturn; not yet as a picture under the frames.
 3. **The CPU reading bank B under the plane**, for the item textures.
 
 ## The test
 
 Each step in Mednafen first, with the same hwtest spots packed with and without planes (a pack-time switch, nothing at run time): `cistern`, `cistern-stamp`, `cistern-water`, `cistern-flood`, `cistern-flood-above`, `valley`, `valley-plants`, `valley-trex`, `valley-sky`, `valley-cave`, and the inventory at each level. For each: the VDP1 and CPU time, and the picture. Then one disc of each level on the Saturn, when nothing is known to be missing.
 
-**Expected, from issue 269's Mednafen sums:** among the plants about 8.0 of 42.7 ms of VDP1 and 2.7 ms of slave; Cistern room 103 about 6.8 of 35.5 ms of VDP1 and 4.0 ms of slave. Saturn figures at the hall in the lab: VDP1 -3.58 ms, CPUs -2.31 ms. Estimates, except the last.
+**Mednafen, without planes and with, one standing view each, 2026-11-04 (ms, 100% = 33.4):**
+
+| Spot | VDP1 | Slave | fps |
+|---|---:|---:|---:|
+| Cistern room 103 (`cistern-stamp`) | 32.4 -> 23.4 | 32.7 -> 27.7 | 25-27 -> 30 |
+| Cistern room 99 along the hall (`cistern-straight`) | 24.4 -> 16.0 | 31.1 -> 21.7 | 30 -> 30 |
+| Valley among the plants (`valley-plants`) | 38.3 -> 26.9 | 19.0 -> 15.4 | 20 -> 30 |
+| Valley mouth (`valley`) | 28.3 -> 23.1 | 15.4 -> 13.7 | 30 -> 30 |
+| Valley T-rex floor (`valley-trex`) | 27.8 -> 15.5 | 14.4 -> 10.4 | 30 -> 30 |
+| Valley, the waterfall (`valley-sky`) | 27.1 -> 16.2 | 15.4 -> 12.4 | 30 -> 30 |
+
+The Saturn figures to compare are still to come.
