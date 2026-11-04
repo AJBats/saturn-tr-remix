@@ -1027,7 +1027,8 @@ static void benchUpdate()
         if (gSound.low < 0) {
             p = append(p - 2, " under  ");
         }
-        appendStat(p, "blk/s ", gSound.blocks);
+        p = appendStat(p, "blk/s ", gSound.blocks);
+        appendStat(p, "track ", uint32(X_MAX(gCurTrack, 0)));
         strncpy(gSoundRow, text, OVERLAY_COLUMNS);
         for (int32 i = 0; i < SPLIT_COUNT; i++) {
             gSplit[i] = framePercent(split[i] / frames);

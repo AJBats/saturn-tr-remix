@@ -308,7 +308,7 @@ Room** renderWalk(Room* cameraRoom)
 {
     static Room* visible[ROOMS_LISTED + 1];
     view(gSceneCamera, gSceneView);
-    planeView(gSceneCamera, gSceneView);
+    planeView(gSceneCamera, gSceneView, gSaveGame.flipped != 0);
     int32_t vp[4] = { viewport.x0, viewport.y0, viewport.x1, viewport.y1 };
     uint32_t room = uint32(cameraRoom - rooms);
     if (gAheadWalked && gAhead.room == room && gAhead.phase == uint32(gCausticsFrame) &&

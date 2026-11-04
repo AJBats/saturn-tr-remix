@@ -17,6 +17,11 @@
 // line colour screen adds to the plane. A constant colour offset takes it off again, so the
 // plane darkens by what's missing: the game's fog, and under water its fading red.
 //
+// As with a face, water's colour goes by the room or the camera: a floor flooded shows it from
+// above the water too, the dry ceiling over it only with the camera under. So there are two
+// sets of line colours, and a word for each line says which it takes: the floor's lines one, the
+// ceiling's another.
+//
 // A set reads the table from line 0, and looking up that's far above a floor's horizon: its
 // start lies before the table, by as many entries as the lines above the horizon come to. An
 // address below 0 doesn't wrap on the Saturn: the floor's lines then read elsewhere, so the table
@@ -31,11 +36,11 @@
 
 extern "C" int32_t gFocalScale;
 
-#define CELLS_AT        0x40000     // bank B0: the cells, the table and the parameters at its top
+#define CELLS_AT        0x40000     // bank B0: the cells, the table, each line's colour word, the parameters
 #define PARAMS_AT       0x5FF00
-#define TABLE_AT        (PARAMS_AT - DEPTH_BYTES)
+#define LINE_WORDS_AT   0x5FD00     // the line colour screen's word for each line: where its colours are
+#define TABLE_AT        (LINE_WORDS_AT - DEPTH_BYTES)
 #define TABLE_ROOM      ((TABLE_AT - CELLS_AT) / 4)     // entries below it in the address's 16 bits
-#define LINE_BASE_AT    0x5FFF0     // the line colour screen's one word: where its colours are
 #define SET_B_LONGS     (0x80 / 4)
 #define NAMES_AT        0x60000     // bank B1: the names, 4 KB a page
 #define NAMES_PAGE      0x1000
@@ -58,8 +63,10 @@ extern "C" int32_t gFocalScale;
 #define LAST_DOT_X      702         // in half dots, at 352 wide
 
 #define PLANE_NONE      0x7FFFFFFF  // a height the level hasn't: tools/planepack.py NO_PLANE
-#define PALETTES        120         // tools/planepack.py PALETTES
-#define LINE_COLOURS    0x0780      // in CRAM, past them
+#define PALETTES        112         // tools/planepack.py PALETTES
+#define LINE_WET        0x0700      // in CRAM, past them: the line colours under water
+#define LINE_DRY        0x0780      // ... and out of it
+#define LCTAU_BY_LINE   0x8000      // a word for each line
 
 #define CENTER_X        176
 #define CENTER_Y        112
@@ -96,13 +103,14 @@ struct Frame
     int32_t map[2];         // +44 Mx, +48 My
     uint32_t reads[2][2];   // each set's +54 KAst, +58 DKAst
     int16_t ceilingBelow;   // the lines above this are the ceiling's, the rest the floor's
-    bool water;
+    bool floorWet, ceilingWet;
 };
 
 // tools/planepack.py's, at the end of the .PLC.
 struct Info
 {
     int32_t floorY, ceilingY;
+    int32_t floorFloods;    // the flip map puts the floor under water
     uint8_t maps[2][16];    // each set's planes' pages
 };
 
@@ -115,24 +123,32 @@ static bool gWater;
 static Frame gMade;         // the last view's
 static Frame gPending;      // the list made's, till its plot
 static Frame gLists[4];     // the lists' by their plots
-static bool gLineWater;     // the line colours in CRAM
-static uint16_t gLineColours[2][LINE_ENTRIES];
-static int32_t gLineScale;  // the camera's focal length they were made for
-static volatile bool gLineStale;    // ... and CRAM's were not
+static int32_t gLineScale;  // the camera's focal length the line colours were made for
+static int32_t gWordsBelow; // the line where the words go from the ceiling's to the floor's
+static uint16_t gWordsCeiling, gWordsFloor;
 
 static inline volatile uint32_t* vram32(uint32_t at)
 {
     return (volatile uint32_t*)(VDP2_VRAM + at);
 }
 
-static void lineColoursWrite(bool water)
+// Each line's word as this list wants it: those between the old turn and the new, or all if
+// a set has changed.
+static void lineWordsWrite(int32_t below, uint16_t ceiling, uint16_t floor)
 {
-    volatile uint16_t* cram = (volatile uint16_t*)VDP2_CRAM + LINE_COLOURS;
-    const uint16_t* colours = gLineColours[water];
-    for (int32_t i = 0; i < LINE_ENTRIES; i++) {
-        cram[i] = colours[i];
+    volatile uint16_t* words = (volatile uint16_t*)(VDP2_VRAM + LINE_WORDS_AT);
+    int32_t line = 0, end = SCREEN_HEIGHT;
+    if (ceiling == gWordsCeiling && floor == gWordsFloor)
+    {
+        line = below < gWordsBelow ? below : gWordsBelow;
+        end = below < gWordsBelow ? gWordsBelow : below;
     }
-    gLineWater = water;
+    for (; line < end; line++) {
+        words[line] = line < below ? ceiling : floor;
+    }
+    gWordsBelow = below;
+    gWordsCeiling = ceiling;
+    gWordsFloor = floor;
 }
 
 // The buffers are changing to this list's frame, in this vertical blank.
@@ -163,11 +179,7 @@ static void listChanging(uint32_t plot)
         VDP2_WPEY1 = uint16_t(f.ceilingBelow - 1);
         VDP2_RPMD = RPMD_WINDOW;
     }
-    if (f.water != gLineWater || gLineStale)
-    {
-        gLineStale = false;
-        lineColoursWrite(f.water);
-    }
+    lineWordsWrite(f.ceilingBelow, f.ceilingWet ? LINE_WET : LINE_DRY, f.floorWet ? LINE_WET : LINE_DRY);
 }
 
 void* planeCellsAt()
@@ -218,23 +230,24 @@ static void depthTableWrite()
 // What each depth's line colour gives back: in air the fog not yet taken off, as the
 // renderer's shades go; under water its red less by the fade faces.cpp waterColour has.
 // The table's depths are retail's camera's: a wider or narrower camera's are in proportion.
-static void lineColoursMake(int32_t scale)
+static void lineColoursWrite(int32_t scale)
 {
     gLineScale = scale;
+    volatile uint16_t* cram = (volatile uint16_t*)VDP2_CRAM;
     for (int32_t i = 0; i < LINE_ENTRIES; i++)
     {
         const int32_t z = (i << DEPTH_STEP_SHIFT) * scale / DEPTH_SCALE;
         int32_t fog = (z - FOG_MIN) >> DEPTH_STEP_SHIFT;
         fog = fog < 0 ? 0 : fog > FOG_STEPS ? FOG_STEPS : fog;
         const int32_t level = FOG_STEPS - fog;
-        gLineColours[0][i] = uint16_t((level << 10) | (level << 5) | level);
+        cram[LINE_DRY + i] = uint16_t((level << 10) | (level << 5) | level);
         int32_t red = level;
         if (z > 1024)
         {
             red -= ((z - 1024) >> 10) << 1;
             red = red < 0 ? 0 : red;
         }
-        gLineColours[1][i] = uint16_t((level << 10) | (level << 5) | red);
+        cram[LINE_WET + i] = uint16_t((level << 10) | (level << 5) | red);
     }
 }
 
@@ -257,7 +270,6 @@ static void paramsWrite()
     for (int32_t i = 0; i < 24; i++) {
         a[i] = a[SET_B_LONGS + i] = p[i];
     }
-    *(volatile uint16_t*)(VDP2_VRAM + LINE_BASE_AT) = LINE_COLOURS;
 }
 
 static inline uint32_t tableBase()
@@ -275,7 +287,7 @@ static void frameBlank(Frame &f)
     f.reads[0][0] = f.reads[1][0] = tableBase();
     f.reads[0][1] = f.reads[1][1] = 0;
     f.ceilingBelow = 0;
-    f.water = false;
+    f.floorWet = f.ceilingWet = false;
 }
 
 void planeLoaded(uint32_t cellBytes, uint32_t nameBytes)
@@ -304,8 +316,11 @@ void planeLoaded(uint32_t cellBytes, uint32_t nameBytes)
     gCellsEnd = CELLS_AT + cellsOnly;
     gNamesEnd = NAMES_AT + nameBytes;
     depthTableWrite();
-    lineColoursMake(DEPTH_SCALE);
-    lineColoursWrite(false);
+    lineColoursWrite(DEPTH_SCALE);
+    gWordsBelow = 0;
+    gWordsCeiling = LINE_DRY;
+    gWordsFloor = uint16_t(~0u);    // not yet written: all of them, next
+    lineWordsWrite(0, LINE_DRY, LINE_DRY);
     paramsWrite();
 
     frameBlank(gMade);
@@ -329,8 +344,8 @@ void planeLoaded(uint32_t cellBytes, uint32_t nameBytes)
     VDP2_RPRCTL = 0;
     VDP2_KTCTL = KTCTL_FIXED;
     VDP2_KTAOF = (CELLS_AT >> 18) * 0x0101;
-    VDP2_LCTAU = LINE_BASE_AT >> 17;
-    VDP2_LCTAL = (LINE_BASE_AT >> 1) & 0xFFFF;
+    VDP2_LCTAU = LCTAU_BY_LINE | (LINE_WORDS_AT >> 17);
+    VDP2_LCTAL = (LINE_WORDS_AT >> 1) & 0xFFFF;
     VDP2_WPSX1 = 0;                     // lines 0 to the horizon, whole, in listChanging
     VDP2_WPSY1 = 0;
     VDP2_WPEX1 = LAST_DOT_X;
@@ -399,7 +414,7 @@ static inline int32_t tableHeight(int32_t height, int32_t downMost, int32_t down
     return height > least ? height : least;
 }
 
-void planeView(const int32_t camera[3], const int32_t view[12])
+void planeView(const int32_t camera[3], const int32_t view[12], bool flipped)
 {
     if (!gLevel)
         return;
@@ -407,10 +422,8 @@ void planeView(const int32_t camera[3], const int32_t view[12])
     // the rows as if unnarrowed, and the z row times F / 256
     const int32_t scale = gFocalScale;
     const int32_t wider = (1 << 28) / scale;
-    if (scale != gLineScale)
-    {
-        lineColoursMake(scale);
-        gLineStale = true;
+    if (scale != gLineScale) {
+        lineColoursWrite(scale);
     }
     int32_t r[9];
     for (int32_t row = 0; row < 3; row++)
@@ -423,7 +436,8 @@ void planeView(const int32_t camera[3], const int32_t view[12])
     }
 
     Frame &f = gMade;
-    f.water = gWater;
+    f.ceilingWet = gWater;
+    f.floorWet = gWater || (flipped && gInfo.floorFloods);
     f.matrix[0] = r[0] * ROW_TIMES;     // A: world x by the screen's x
     f.matrix[1] = r[3] * ROW_TIMES;     // B: ... by its y
     f.matrix[2] = -r[6] * ROW_TIMES;    // C: ... by its depth, Zst - Pz being -FOCAL

@@ -61,6 +61,7 @@
 #   valley-sky  LEVEL3A, room 56: looking up (Z + DOWN), the sky a hall of mirrors
 #   valley-cave LEVEL3A, room 27: a hall of mirrors in the rock by the way in
 #   valley-plants LEVEL3A, room 51, among the plants: VDP1 at 115 on the Saturn
+#   valley-ledge LEVEL3A, room 56, high over the valley: the CPUs over on the Saturn (issue 285)
 #   valley-dark LEVEL3A, room 63: dark rock with a bright cave behind it, in the middle of
 #               the frame
 #
@@ -113,10 +114,11 @@ case "${1:-ledge}" in
     valley-sky) level=LEVEL3A id=LVL_TR1_3A start=56@41167:3584:27288 yaw=0xA136 ;;
     valley-cave) level=LEVEL3A id=LVL_TR1_3A start=27@36389:113:46532 yaw=0x3D3B ;;
     valley-plants) level=LEVEL3A id=LVL_TR1_3A start=51@41453:3584:35241 yaw=0x8143 ;;
+    valley-ledge) level=LEVEL3A id=LVL_TR1_3A start=56@37787:230:20847 yaw=0x3FFC ;;
     valley-end) level=LEVEL3A id=LVL_TR1_3A start=51@41453:3584:35241 yaw=0x8143 trigger=end ;;
     vilcabamba-end) level=LEVEL2 id=LVL_TR1_2 start=15@66372:0:26074 yaw=0x1ADC trigger=end ;;
     valley-dark) level=LEVEL3A id=LVL_TR1_3A start=63@60614:3584:15342 yaw=0x0000 ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-dark|cistern-tunnel|cistern-look|cistern-water|cistern-flood|cistern-flood-above|valley|valley-trex|valley-sky|valley-cave|valley-plants|valley-dark|valley-end|vilcabamba-end]" >&2; exit 1 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-dark|cistern-tunnel|cistern-look|cistern-water|cistern-flood|cistern-flood-above|valley|valley-trex|valley-sky|valley-cave|valley-plants|valley-dark|valley-ledge|valley-end|vilcabamba-end]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 

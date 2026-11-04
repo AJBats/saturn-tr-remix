@@ -3605,6 +3605,18 @@ over 14.6, at most 188 · Fix: medium, parked*
 
 - CPU writes to bank B would disturb the plane, so the trace goes to the bitmap's last 32 lines, 32 KB (`saturn/os.cpp`), and the profile's blocks take a third of that. Without them about 15 frames.
 
+### 285. Lost Valley: room 56, high over the valley, the CPUs over on the Saturn (reported in play)
+*Kind: speed · Size: 27 fps, master 37 ms, slave 34 ms · Fix: to be looked at*
+
+- `tools/hwtest.sh valley-ledge`, Lara at 37787, 230, 20847, heading 3ffc, camera 37048, -933, 22086, pitch f74c, heading 6787. Saturn, floor on VDP2 (269): 18 rooms, 2,647 room vertices, 122 meshes with 1,514 vertices, 446 commands; VDP1 21.7 ms, master 37.0 ms, slave 34.4 ms, 26.7 fps over 5 seconds, 24 of 134 lists late.
+- VDP1 has plenty of room here and both CPUs are over. The user expects what's left of the VDP2 work to reach it.
+
+### 286. Coming back from the inventory, room textures show their lower detail for a frame or two
+*Kind: look · Size: about 2,500 pixels a frame of the top of the frame, two frames, at the valley's room 51 · Fix: to be costed*
+
+- Reported in play as trees flickering on unpausing, at room 51, 41188, 3584, 36270. Mednafen, the same pause with and without floors on VDP2, pixels changed from frame to frame in the top of the frame: with 569, 2,789, 2,493, then 22; without 774, 3,349, 2,575, then 761: VDP2 isn't the cause.
+- The inventory takes the texture cache's first slots for the item textures (`detailSuspend`, `saturn/detail.cpp`). Back in the game the faces whose textures those were draw lower detail till theirs are uploaded again. To read on the Saturn, where it may differ: a disc with no plane at the same spot.
+
 ## Production code: clean-up
 
 Not differences from retail, and not open work on the picture: what a shipping build still

@@ -59,7 +59,7 @@ CELLS_AT = 0x40000          # saturn/plane.cpp
 TILE_UNITS = 4              # 0x20-byte units a 16 x 16 16-colour character
 TILE_BYTES = TILE_UNITS * 0x20
 MAX_PAGES = 32              # bank B1 holds 128 KB
-PALETTES = 120              # CRAM from 0x780 is the line colours
+PALETTES = 112              # CRAM from 0x700 is the line colours, wet then dry
 BLACK_PALETTE = PALETTES - 1
 GOURAUD_NEUTRAL = 16
 LEVELS = 32
@@ -192,7 +192,7 @@ def take_faces(lvl, plan):
     rooms = lvl.rooms
     primary = {r.alternate: r.index for r in rooms if 0 <= r.alternate < len(rooms)}
     gone = {}           # room index -> quad indices
-    tiled = {'heights': plan.heights}
+    tiled = {'heights': plan.heights, 'floods': False}
     for kind in SETS:
         height = plan.heights.get(kind)
         if height is None:
@@ -282,6 +282,8 @@ def take_faces(lvl, plan):
                         (made[1].turned, made[1].flip_h, made[1].flip_v):
                     gone.setdefault(index, set()).add(q_i)
                     copies += 1
+                    if floor and room.flags & 1:
+                        tiled['floods'] = True
                 else:
                     left += 1
         print(f'{plan.level} {kind} {height}: {len(taken)} tiles, {lost} stay polygons in a spot taken, '
@@ -429,7 +431,7 @@ def write_art(base, lvl, textures, tiled):
     if pages > MAX_PAGES:
         raise ValueError(f'{pages} pages of names')
 
-    info = struct.pack('>ii', *(tiled['heights'].get(kind, NO_PLANE) for kind in SETS))
+    info = struct.pack('>iii', *(tiled['heights'].get(kind, NO_PLANE) for kind in SETS), int(tiled['floods']))
     with open(base + '.PLC', 'wb') as f:
         f.write(bytes(cells))
         f.write(struct.pack(f'>{len(cram)}H', *cram))

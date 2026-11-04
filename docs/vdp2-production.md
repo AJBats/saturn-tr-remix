@@ -93,7 +93,7 @@ If it's ever wanted: names rewritten by sector is the only one that scales past 
 | Inventory item textures, there today | 66 KB | 59 KB |
 | Tile names, blocks of 8 x 8 sectors + one blank | 104 KB | 60 KB |
 | **Total** | 229 KB | 194 KB |
-| Palettes, of 119, and the light's steps | 107, every step | 93, every 2nd |
+| Palettes, of 111, and the light's steps | 107, every step | 93, every 2nd |
 
 The trace on test discs can't stay in bank B: writes there would disturb the plane. On plane levels it moves to bank A's last 32 lines, 32 KB, about 25 frames instead of 120.
 
@@ -116,7 +116,7 @@ One switch (room 9) flips 36 rooms. What changes, by the level's data:
 
 So the flood splits in two: under water it's the lightest the hall gets, and from above the water it's the heaviest, because of the surface. With the plane, the wet floor gone from under the surface: above the water VDP1 33.0 -> 24.0 ms, 22-23 -> 30 fps; under water VDP1 10.5 ms (Mednafen).
 
-**Colour.** The game tints a face for water if its room is wet or the camera is under water, with red fading by distance. The two planes share one set of line colours, so the rule is the camera's alone: under water, the table's 7-bit index is depth in steps of 256, and 81 colours are rewritten once as the camera enters or leaves water. That's exact everywhere but one place: flooded, camera above the water, looking down through the surface, the floor stays untinted. If that shows: line colours by line, a table of 224 words picking a set for the ceiling's lines and one for the floor's.
+**Colour.** The game tints a face for water if its room is wet or the camera is under water, with red fading by distance. So a flooded floor is tinted from above the water too, and the dry ceiling over it only with the camera under. Two sets of line colours sit in CRAM, wet and dry, the table's 7-bit index the depth in steps of 256, and a word for each line picks a set: the floor's lines one, the ceiling's another, the horizon between them. A frame rewrites only the words between the last horizon and this one.
 
 ## In the game
 

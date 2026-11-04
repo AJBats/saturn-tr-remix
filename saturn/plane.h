@@ -32,7 +32,8 @@ void planeOff();
 
 // The view of the frame being made: the camera's place, the matrix's rows as
 // render.cpp view has them. As it has them, the x and y rows narrowed by gFocalScale.
-void planeView(const int32_t camera[3], const int32_t view[12]);
+// flipped: the level's flip map is on, which floods a floor that goes under.
+void planeView(const int32_t camera[3], const int32_t view[12], bool flipped);
 
 // The camera under water or not, for the views to come.
 void planeWater(bool under);
