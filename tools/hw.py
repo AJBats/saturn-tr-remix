@@ -15,20 +15,29 @@
     hw.py record SECONDS [--out MKV]
         records that long as OBS is set up to, moved from OBS's folder to
         build/hw_record.mkv; refuses if OBS is already recording
+    hw.py card
+        which side the SD mux holds the card on: pc or saturn
+    hw.py card pc|saturn
+        moves the card there and checks Windows saw it arrive or leave; refuses
+        while the Saturn draws power, since it may be using the card
 
 Exits with 1 if the plug doesn't answer or the reading isn't what it should
 be. The plug is a Shelly Plug US Gen4 on the home network, found by its name.
 OBS holds the capture card, so pictures come through its WebSocket server
 (Tools > WebSocket Server Settings, on), with the password from OBS's config.
+The SD mux is an SDWire, driven through Windows' own FTDI driver; the chip's
+CBUS0 pin was set to general I/O once, which holds until someone changes it.
 """
 
 import argparse
 import base64
+import ctypes
 import hashlib
 import json
 import os
 import socket
 import struct
+import subprocess
 import sys
 import time
 import urllib.error
@@ -45,6 +54,12 @@ DRAIN_S = 5         # the power supply's capacitors, after the reading falls
 OBS_CONFIG = os.path.expandvars(r'%APPDATA%\obs-studio\plugin_config\obs-websocket\config.json')
 OBS_CAPTURE_KIND = 'dshow_input'    # OBS's Video Capture Device
 RELEASE_S = 30      # how long a stopped recording's file gets to be let go
+
+MUX_SERIAL = b'DP04I386'        # the SD mux's FTDI chip
+CARD_READER = '000000264001'    # the serial Windows shows for the mux's card reader
+FT_OPEN_BY_SERIAL = 1
+FT_CBUS_BITBANG = 0x20
+CARD_MOVE_S = 15    # how long Windows gets to see the card arrive or leave
 
 
 def fail(message):
@@ -216,6 +231,47 @@ def record(seconds, out):
     print(out)
 
 
+def mux_pin(high):
+    """Drives the mux's control pin: high puts the card on the PC, low on the Saturn."""
+    ftd2xx = ctypes.WinDLL('ftd2xx.dll')
+    handle = ctypes.c_void_p()
+    if ftd2xx.FT_OpenEx(MUX_SERIAL, FT_OPEN_BY_SERIAL, ctypes.byref(handle)):
+        fail('the SD mux is not on USB')
+    try:
+        if ftd2xx.FT_SetBitMode(handle, 0xF0 | high, FT_CBUS_BITBANG):
+            fail('the SD mux refused the switch')
+    finally:
+        ftd2xx.FT_Close(handle)
+
+
+def card_letters():
+    """The drive letters of the card while the PC has it, None while it doesn't."""
+    script = (f"$d = Get-Disk | Where-Object SerialNumber -eq '{CARD_READER}';"
+              "if ($d.Size) { 'card ' + (@(Get-Partition -DiskNumber $d.Number -ErrorAction SilentlyContinue"
+              " | Where-Object DriveLetter).DriveLetter -join ' ') }")
+    words = subprocess.run(['powershell', '-NoProfile', '-Command', script],
+                           capture_output=True, text=True).stdout.split()
+    return words[1:] if words else None
+
+
+def card(side):
+    if side is None:
+        # the pin reads low until first driven, with the card on the PC, so ask Windows
+        print('pc' if card_letters() is not None else 'saturn')
+        return
+    watts = status()['apower']
+    if watts >= OFF_WATTS:
+        fail(f'the Saturn draws {watts} W: power it off first')
+    to_pc = side == 'pc'
+    mux_pin(int(to_pc))
+    deadline = time.monotonic() + CARD_MOVE_S
+    while (card_letters() is not None) != to_pc:
+        if time.monotonic() > deadline:
+            fail(f'the mux switched, but Windows {"never saw the card" if to_pc else "still has the card"}')
+        time.sleep(0.25)
+    print(side)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='command', required=True)
@@ -226,11 +282,15 @@ def main():
     p = sub.add_parser('record')
     p.add_argument('seconds', type=float)
     p.add_argument('--out', default='build/hw_record.mkv')
+    p = sub.add_parser('card')
+    p.add_argument('side', nargs='?', choices=['pc', 'saturn'])
     args = ap.parse_args()
     if args.command == 'power':
         power(args.action)
     elif args.command == 'shot':
         shot(args.out)
+    elif args.command == 'card':
+        card(args.side)
     else:
         record(args.seconds, args.out)
 
