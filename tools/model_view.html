@@ -83,7 +83,6 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
     <h2>Cards</h2>
     <span class="sub">Flat polygons that turn round the bone to face the camera, in place of the bone's mesh.</span>
     <div id="cardGroups"></div>
-    <label><input type="checkbox" id="taper" checked><span>Tail cards narrow with the tail<span class="sub">each card's width at each end, so one piece ends as wide as the next begins, and the tip comes to a point</span></span></label>
     <label id="ribbonRow"><input type="checkbox" id="ribbon"><span>Tail as one ribbon<span class="sub">one strip down the tail's middle facing the camera, narrowing with it, each piece's end shared with the next: no gaps or steps at the bends</span></span></label>
     <div class="row"><select id="cardLight"><option value="camera">Card light: with the side facing the camera</option><option value="ends">Card light: as the game has it now</option></select></div>
     <div class="row"><select id="cardLook"><option value="baked">Card texture: the segment from the side</option><option value="flat">Card texture: none, one colour</option></select></div>
@@ -93,6 +92,7 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
     <label><input type="checkbox" id="insideCopies" checked><span>Drop the inside copies<span class="sub" id="insideInfo"></span></span></label>
     <label><input type="checkbox" id="join" checked><span>Join the segments<span class="sub" id="joinInfo"></span></span></label>
     <div class="row"><select id="seamShade"><option value="mid">Seams: meet halfway, each segment's own shade</option><option value="own">Seams: on the parent's corner, each segment's own shade</option><option value="shared" selected>Seams: on the parent's corner, one shade, one vertex</option></select></div>
+    <label><input type="checkbox" id="fit" checked><span>Fit limb seams to the joint's usual bend<span class="sub">the corner on the outside of the bend stands where the two segments' edges meet then, so the limb keeps its width there. Raptor and T-rex legs.</span></span></label>
     <span class="sub" id="seamInfo"></span>
     <details><summary class="sub">Each seam</summary><div id="seams"></div></details>
     <h2>Light, as the game's</h2>
@@ -309,14 +309,12 @@ function gouraudOf(n) {
 
 // a card: a polygon from e0 to e1, w wide, turned round that line to the camera.
 // off: each end's gouraud; else none (the bridges': drawn prelit by col)
-// up: the way that's up the screen, for a card whose texture's first row stays on that side
-function card(e0, e1, w, cam, col, t, uAlong, b, tint, off, up, w1) {
+function card(e0, e1, w, cam, col, t, uAlong, b, tint, off) {
   const mid = scl(add(e0, e1), 0.5);
-  let way = nrm(cross(sub(e1, e0), sub(cam, mid)));
-  if (up && dot(way, up) > 0) way = scl(way, -1);
-  const s = scl(way, w / 2), s1 = scl(way, (w1 === undefined ? w : w1) / 2);
+  let s = cross(sub(e1, e0), sub(cam, mid));
+  s = scl(nrm(s), w / 2);
   const n = nrm(sub(cam, mid));
-  const P = uAlong ? [sub(e0, s), sub(e1, s1), add(e1, s1), add(e0, s)]
+  const P = uAlong ? [sub(e0, s), sub(e1, s), add(e1, s), add(e0, s)]
                    : [add(e0, s), sub(e0, s), sub(e1, s), add(e1, s)];
   const c = tint && opt.tint ? [col[0]*TINT[0], col[1]*TINT[1], col[2]*TINT[2]] : col;
   const o = off ? (uAlong ? [off[0], off[1], off[1], off[0]] : [off[0], off[0], off[1], off[1]]) : null;
@@ -584,7 +582,11 @@ function buildAnimal(simplified) {
   const placed = (j, i) => { const v = W.meshes[j].v; return apply(M[j], [v[i*3], v[i*3+1], v[i*3+2]]); };
   for (let j = 1; j < NJ; j++) if (joined(j)) {
     const r = W.join[j];
-    if (seamMode !== 'mid') { for (const i in r.map) seamAt[j][i] = placed(r.p, r.map[i]); continue; }
+    if (seamMode !== 'mid') {
+      if (r.fit && ui('fit').checked) for (const k in r.fit) seamAt[r.p][k] = apply(M[r.p], r.fit[k]);
+      for (const i in r.map) seamAt[j][i] = seamAt[r.p][r.map[i]] || placed(r.p, r.map[i]);
+      continue;
+    }
     const onCorner = {};
     for (const i in r.map) (onCorner[r.map[i]] = onCorner[r.map[i]] || []).push(i);
     for (const k in onCorner) {
@@ -612,9 +614,8 @@ function buildAnimal(simplified) {
       const c = W.cards[j];
       const placedEnds = [apply(M[j], c.e0), apply(M[j], c.e1)];
       const [e0, e1] = c.face ? facingEnds(c, placedEnds[0], placedEnds[1], cam, screenUp) : placedEnds;
-      const narrows = c.w0 !== undefined && ui('taper').checked;
-      card(e0, e1, narrows ? c.w0 : c.w, cam, flat ? c.col.map(x => x / 255) : WHITE, flat ? 0 : c.t, true,
-           b.gameCard, true, [endLight(c.n0, M[j]), endLight(c.n1, M[j])], c.up ? screenUp : null, narrows ? c.w1 : undefined);
+      card(e0, e1, c.w, cam, flat ? c.col.map(x => x / 255) : WHITE, flat ? 0 : c.t, true,
+           b.gameCard, true, [endLight(c.n0, M[j]), endLight(c.n1, M[j])]);
       nCards++; sent++; faces++; verts += 4;    // its ends and their copies (renderer/faces.h)
       meshOwner[keptOf(j)] = true;
       continue;
@@ -802,7 +803,7 @@ ui('hold').onchange = (e) => { A.typical = e.target.value === 'typical'; dirty =
 ui('anim').onchange = (e) => { A.state.anim = +e.target.value; A.state.time = 0; dirty = true; };
 ui('frame').oninput = (e) => { const a = A.W.anims[A.state.anim]; A.state.time = +e.target.value / 100 * animLength(a); dirty = true; };
 ['ambient', 'lightRange', 'lightAz', 'lightEl'].forEach(id => ui(id).addEventListener('input', () => dirty = true));
-['insideCopies', 'join', 'seamShade', 'taper', 'ribbon', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
+['insideCopies', 'join', 'seamShade', 'fit', 'ribbon', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
 controls.addEventListener('change', () => { dirty = true; syncDist(); });
 
 function resize() {
@@ -933,7 +934,7 @@ function fromHash() {
   if (kv.t) A.state.time = +kv.t * animLength(A.W.anims[A.state.anim]);
   if (kv.pause) A.state.playing = false;
   document.querySelector(`[data-tab=${start}]`).click();
-  for (const id of ['playAll', 'insideCopies', 'join', 'taper', 'ribbon', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
+  for (const id of ['playAll', 'insideCopies', 'join', 'fit', 'ribbon', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
     if (id in kv) ui(id).checked = kv[id] !== '0';
   for (const id of ['seamShade', 'cardLight', 'cardLook', 'ambient', 'lightRange', 'lightAz', 'lightEl']) if (kv[id]) ui(id).value = kv[id];
   if (kv.seamOff) kv.seamOff.split(':').forEach(j => A.seamOff.add(+j));

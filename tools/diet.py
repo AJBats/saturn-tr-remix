@@ -318,17 +318,14 @@ def face_area(mesh, idx):
     return a
 
 
-def card_of(mesh, atlas, axis=None, view=None, stacks=None):
+def card_of(mesh, atlas, axis=None, view=None):
     """A box-like mesh as a card: the middle of each end of its long side
     (or of the given axis), half its thickness across, its faces' mean
     colour by area, an image of it seen from the side (along x, or z when x
     is its length, or along the given view) shaded a little across so the
     flat card reads as round, and each end's light: its corners' normals
     averaged (along the bone, for a box), or None, and the corners' normals
-    themselves (ns0, ns1). With stacks, a prism's image is its own textures
-    (stack_side), stacks holding those made so far, and a mesh that comes to a
-    point takes the image before it: a tail's tip. half0, half1: half its width
-    at each end, for a card that narrows with it."""
+    themselves (ns0, ns1)."""
     xs = list(zip(*mesh.vertices))
     lo, hi = [min(a) for a in xs], [max(a) for a in xs]
     ext = [h - l for l, h in zip(lo, hi)]
@@ -351,13 +348,7 @@ def card_of(mesh, atlas, axis=None, view=None, stacks=None):
     if view is None:
         view = 0 if axis != 0 else 2
     across = 3 - axis - view
-    image = stack_side(mesh, atlas, view, across, axis, lo, hi, stacks) if stacks is not None else None
-    if not image and stacks:
-        image = next(iter(stacks.values()))
-    image = image or bake_side(mesh, atlas, view, across, axis, lo, hi)
-    def end_half(e):
-        near = [v for v in mesh.vertices if abs(v[axis] - e) < 0.15 * ext[axis]]
-        return sum(max(v[k] for v in near) - min(v[k] for v in near) for k in range(3) if k != axis) / 4
+    image = bake_side(mesh, atlas, view, across, axis, lo, hi)
     ends = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
     if mesh.normals:
         for v, n in zip(mesh.vertices, mesh.normals):
@@ -369,56 +360,8 @@ def card_of(mesh, atlas, axis=None, view=None, stacks=None):
     if mesh.normals:
         for v, n in zip(mesh.vertices, mesh.normals):
             corners[0 if v[axis] < mid[axis] else 1].append(unit(n))
-    return {"e0": e0, "e1": e1, "half": width / 2, "half0": end_half(lo[axis]), "half1": end_half(hi[axis]),
-            "col": [round(q / max(total, 1)) for q in colour],
+    return {"e0": e0, "e1": e1, "half": width / 2, "col": [round(q / max(total, 1)) for q in colour],
             "image": image, "n0": normals[0], "n1": normals[1], "ns0": corners[0], "ns1": corners[1]}
-
-
-def stack_side(mesh, atlas, view, across, along, lo, hi, stacks):
-    """A prism's side as it is drawn: the textured quads that run its whole
-    length on the side seen from +view, one above the other, every texel of the
-    finest kept and the others' rows in proportion to the side they cover. Segments
-    with the same textures share one image (stacks, by textures). None if the
-    side isn't such quads."""
-    strips = []
-    for ftype, idx, flags in mesh.faces:
-        if len(idx) != 4 or ftype in COLOUR_TYPES or ftype in TRANSP_TYPES:
-            continue
-        P = [mesh.vertices[i] for i in idx]
-        spans_length = max(q[along] for q in P) - min(q[along] for q in P) > 0.8 * (hi[along] - lo[along])
-        if spans_length and mean(P)[view] > (lo[view] + hi[view]) / 2 + 1:
-            if abs(P[1][along] - P[0][along]) < abs(P[3][along] - P[0][along]):
-                return None
-            top = (P[0][across] + P[1][across]) / 2
-            bottom = (P[2][across] + P[3][across]) / 2
-            strips.append((min(top, bottom), abs(bottom - top), atlas.object(flags >> 4, 0, False, False),
-                           P[1][along] > P[0][along], bottom > top, ftype in FLIP_TYPES))
-    strips.sort(key=lambda s: s[0])
-    if sum(s[1] for s in strips) < 0.8 * (hi[across] - lo[across]):
-        return None
-    w = atlas.images[strips[0][2]][0]
-    if w % 8 or any(atlas.images[s[2]][0] != w for s in strips):
-        return None
-    key = tuple(s[2:] for s in strips)
-    if key in stacks:
-        return stacks[key]
-    per_unit = max(atlas.images[s[2]][1] / s[1] for s in strips)
-    out = bytearray()
-    h = 0
-    for _, span, img, forward, down, flip in strips:
-        tw, th, px = atlas.images[img]
-        rows = max(1, round(span * per_unit))
-        h += rows
-        for r in range(rows):
-            v = (r + 0.5) / rows
-            row = min(th - 1, int((v if down else 1 - v) * th))
-            for c in range(w):
-                u = (c + 0.5) / w
-                u = u if forward else 1 - u
-                column = min(tw - 1, int((1 - u if flip else u) * tw))
-                out += px[(row * tw + column) * 4:(row * tw + column) * 4 + 4]
-    stacks[key] = (w, h, bytes(out))
-    return stacks[key]
 
 
 def bake_side(mesh, atlas, view, across, along, lo, hi):
@@ -770,10 +713,14 @@ def join_rings(meshes, start, parents, offsets, skip=(), wide=None, only=None):
     joint in wide has its own reach, and a corner over shares one when the end
     has more than the parent's. What goes: the faces on those corners alone, and
     the stubs that hid the bend, a thigh's knee or a chest's cone: faces on
-    those corners and vertices lying past them inside the other segment. A face
-    that stays on such a vertex takes it to the nearest corner. A joint in only
-    joins those of its corners alone: a throat, where the rest of its end stands
-    free of the parent."""
+    those corners and vertices lying past them inside the other segment, but for
+    a see-through sheet's, which runs on regardless (a neck's crest). A face that
+    stays on such a vertex takes it to the nearest corner. A joint in only joins
+    those of its corners alone: a throat, where the rest of its end stands free of
+    the parent."""
+    def sheet(mesh):
+        return {i for f in mesh.faces if f[0] in TRANSP_TYPES for i in f[1]}
+
     out = {}
     for j in range(1, len(parents)):
         if j in skip:
@@ -808,8 +755,10 @@ def join_rings(meshes, start, parents, offsets, skip=(), wide=None, only=None):
 
         def ahead(v):
             return dot(sub(v, centre), along)
-        behind = {i for i, v in enumerate(placed) if i not in ring and ahead(v) < 0 and in_box(v, parent.vertices)}
-        past = {k for k, v in enumerate(parent.vertices) if k not in taken and ahead(v) > 0 and in_box(v, placed)}
+        behind = {i for i, v in enumerate(placed)
+                  if i not in ring and i not in sheet(child) and ahead(v) < 0 and in_box(v, parent.vertices)}
+        past = {k for k, v in enumerate(parent.vertices)
+                if k not in taken and k not in sheet(parent) and ahead(v) > 0 and in_box(v, placed)}
         caps = [fi for fi, f in enumerate(child.faces)
                 if all(i in ring or i in behind for i in f[1]) or len({ring.get(i, -1 - i) for i in f[1]}) < 3]
         pcaps = [fi for fi, f in enumerate(parent.faces) if all(k in taken or k in past for k in f[1])]
@@ -829,6 +778,72 @@ def join_rings(meshes, start, parents, offsets, skip=(), wide=None, only=None):
                         pull[str(k)] = nearest(parent.vertices[k])
         out[j] = {"p": p, "map": {str(i): k for i, k in ring.items()}, "gap": round(gap), "caps": caps, "pcaps": pcaps,
                   "pull": pull}
+    return out
+
+
+def usual_turn(lvl, model, j, dead=()):
+    """Joint j's turn from its parent in the awake keyframe nearest all the others."""
+    turns = [rot(*f["r"][j * 3:j * 3 + 3]) for ai in model_anims(lvl, model) if lvl.anims[ai]["state"] not in dead
+             for f in keyframes(lvl, model, ai)]
+
+    def apart(A, B):
+        return math.acos(max(-1, min(1, (sum(A[i][k] * B[i][k] for i in range(3) for k in range(3)) - 1) / 2)))
+    return min(turns, key=lambda A: sum(apart(A, B) for B in turns))
+
+
+def edge_away(mesh, v, ring, skip):
+    """The edge from v, a corner of ring, that runs furthest along its segment
+    away from the ring: the far end's vertex, or None."""
+    others = [q for i, q in enumerate(mesh.vertices) if i not in ring]
+    if not others:
+        return None
+    axis = unit(sub(mean(others), mean([mesh.vertices[i] for i in ring])))
+    ends = set()
+    for fi, f in enumerate(mesh.faces):
+        idx = f[1]
+        if fi not in skip and v in idx:
+            at = idx.index(v)
+            ends |= {idx[at - 1], idx[(at + 1) % len(idx)]}
+    ends -= set(ring)
+    if not ends:
+        return None
+    return max(ends, key=lambda i: dot(unit(sub(mesh.vertices[i], mesh.vertices[v])), axis))
+
+
+def fit_seam(lvl, model, meshes, ring, offset, j, dead=()):
+    """The seam's corners on the outside of the joint's usual bend, in the
+    parent's space: {parent's vertex: where}. A ring fixed to the parent's end
+    narrows the child by the cosine of the bend; here each of those corners
+    stands where the parent's edge and the child's meet as the joint usually
+    stands, so the child keeps its width then and the parent runs on to meet
+    it. The inside's stay: moved in, they pull a web across the bend as the
+    joint opens. No work at run time: the same vertices, somewhere else. A seam
+    that hardly bends stays as it is."""
+    start = model["start"]
+    R = usual_turn(lvl, model, j, dead)
+    parent, child = meshes[start + ring["p"]], meshes[start + j]
+    corners = {int(i): k for i, k in ring["map"].items()}
+    taken = set(corners.values())
+    out = {}
+    for i, k in corners.items():
+        far_p = edge_away(parent, k, taken, set(ring["pcaps"]))
+        far_c = edge_away(child, i, set(corners), set(ring["caps"]))
+        if far_p is None or far_c is None or k in out:
+            continue
+        P = parent.vertices[k]
+        dp = unit(sub(parent.vertices[far_p], P))
+        C = apply((R, offset), child.vertices[i])
+        dc = unit(rotate((R, offset), sub(child.vertices[far_c], child.vertices[i])))
+        b = dot(dp, dc)
+        den = 1 - b * b
+        if den < 0.07:      # within about 15 degrees of straight
+            continue
+        w = sub(P, C)
+        d, e = dot(dp, w), dot(dc, w)
+        t, s = (b * e - d) / den, (e - b * d) / den
+        if t >= 0:          # towards the parent's far end: the bend's inside
+            continue
+        out[k] = [round((P[n] + t * dp[n] + C[n] + s * dc[n]) / 2) for n in range(3)]
     return out
 
 
