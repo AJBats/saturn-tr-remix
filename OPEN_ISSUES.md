@@ -3576,9 +3576,20 @@ over 14.6, at most 188 · Fix: medium, parked*
   20.32, 30. F is about 2.3-3.1 at the Cistern, 0.7 at the ledge, 0 at Vilcabamba and the pool.
 - Open places on a first scan (`tools/levelgaps.py`): LEVEL5 346 sectors, LEVEL8C 289, LEVEL6 76, LEVEL7B 67.
   The Colosseum and the Sanctuary may need it for their holes, as Lost Valley did.
+- In a closed room one box round the fills (no erase) has more room at the line unless the box costs 3.06 ms or
+  more, near the whole frame: Cistern room 103 with near-black faces skipped, 32.57 ms against a limit of 33.36 with the box, 30.87 against
+  30.89 with the erase. So the erase is for open scenes, for their holes.
 - Not measured: cracks. Where seams open, closed rooms show the last frame now, nearly the same picture, and
   would show black. Stills of Cistern room 103 and the water differ by about 30 pixels that way.
 - If every level had it, the fills' code could go: the walk's, `.Lvoid` in two files, `faceVoid`, about 150 lines.
+
+### 272. A skybox from TRX on VDP2 behind the open scenes
+*Kind: look, an addition retail hasn't got · Size: Lost Valley, the Colosseum, the Sanctuary · Fix: medium, waits for the VDP2 work*
+
+- The user's idea, 2026-11-03: TRX (`external_resources/TRX`) has skyboxes; VDP2 could show one behind VDP1's frame, where
+  colour 0 is transparent. The VDP2 support is coming along on branch `vdp2-lab` (`docs/vdp2-lab.md`).
+- The catch: under the erase (267) a face at the fog's floor draws nothing, so sky would show through far rock that should
+  stand black against it. Those faces would need real black (0x8000) above the horizon, at some of what the erase saved.
 
 ---
 
