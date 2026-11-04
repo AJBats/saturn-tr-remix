@@ -125,13 +125,16 @@ class Mednafen:
                 os.remove(f)
         self.seq = 0
         env = dict(os.environ, MEDNAFEN_HOME=home)
-        self.proc = subprocess.Popen([exe, '--sound', '0', '-cd.image_memcache', '1', '--automation', self.ipc, cue],
-                                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.DEVNULL, env=env)
+        stderr_path = os.path.join(ROOT, f'build/{name}_stderr.txt')
+        with open(stderr_path, 'w') as stderr:
+            self.proc = subprocess.Popen([exe, '--sound', '0', '-cd.image_memcache', '1', '--automation', self.ipc, cue],
+                                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                         stderr=stderr, env=env)
         deadline = time.time() + 60
         while 'ready' not in self.ack():
             if self.proc.poll() is not None or time.time() > deadline:
-                sys.exit('Mednafen did not start')
+                with open(stderr_path) as f:
+                    sys.exit(f'Mednafen did not start: {f.read().strip()}')
             time.sleep(0.2)
 
     def ack(self):
