@@ -3832,8 +3832,7 @@ CAM-9*
   the upload that starts as a list ends is suspected of holding the write to VDP1 past the sweep's start, the
   bench having asked first and started its DMA after. Asked as the list ends, the user saw no smearing:
   103 erased, 5 late, 0 too late in 5 seconds.
-- The final build on the Saturn (a0f11be, valley mouth, on to the T-rex), 2026-11-03: the user saw no smearing or
-  flicker, and nothing missing.
+- The final build on the Saturn (a0f11be, from the valley mouth), 2026-11-03: the user looked it over, it looks good.
 
 ### 260. The game crashed when Pierre ran off
 *Kind: crash · Fixed · Found by the user, 2026-11-02*
