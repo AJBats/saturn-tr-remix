@@ -704,7 +704,7 @@ def in_box(v, vs):
     return all(min(c) <= x <= max(c) for x, c in zip(v, zip(*vs)))
 
 
-def join_rings(meshes, start, parents, offsets, skip=(), wide=None, only=None):
+def join_rings(meshes, start, parents, offsets, skip=(), wide=None, only=None, stay=None, attach=None):
     """Where a segment's end meets its parent's in the model's rest pose (no
     joint turned): {joint: {p: parent, map: {vertex: the parent's}, caps: its
     faces that go, pcaps: the parent's, pull: the parent's vertices moved to a
@@ -717,7 +717,11 @@ def join_rings(meshes, start, parents, offsets, skip=(), wide=None, only=None):
     a see-through sheet's, which runs on regardless (a neck's crest). A face that
     stays on such a vertex takes it to the nearest corner. A joint in only joins
     those of its corners alone: a throat, where the rest of its end stands free of
-    the parent."""
+    the parent. A joint in stay names those of the parent's vertices past the ring
+    that stay as they are, with their faces: what fills the gap behind the free part.
+    The parent's other faces on a vertex past the ring go. A joint in attach has
+    those vertices on those of the parent's as well: a crest's root, which would
+    leave the ridge it stands on as the seam takes the ridge with the parent."""
     def sheet(mesh):
         return {i for f in mesh.faces if f[0] in TRANSP_TYPES for i in f[1]}
 
@@ -749,6 +753,8 @@ def join_rings(meshes, start, parents, offsets, skip=(), wide=None, only=None):
                 if i not in ring and k in taken:
                     ring[i] = k
                     gap = max(gap, d)
+        for i, k in (attach or {}).get(j, {}).items():
+            ring[i] = k
         centre = mean([placed[i] for i in ring])
         others = [v for i, v in enumerate(placed) if i not in ring]
         along = sub(mean(others), centre) if others else [0, 0, 0]
@@ -758,10 +764,12 @@ def join_rings(meshes, start, parents, offsets, skip=(), wide=None, only=None):
         behind = {i for i, v in enumerate(placed)
                   if i not in ring and i not in sheet(child) and ahead(v) < 0 and in_box(v, parent.vertices)}
         past = {k for k, v in enumerate(parent.vertices)
-                if k not in taken and k not in sheet(parent) and ahead(v) > 0 and in_box(v, placed)}
+                if k not in taken and k not in sheet(parent) and k not in (stay or {}).get(j, ())
+                and ahead(v) > 0 and in_box(v, placed)}
         caps = [fi for fi, f in enumerate(child.faces)
                 if all(i in ring or i in behind for i in f[1]) or len({ring.get(i, -1 - i) for i in f[1]}) < 3]
-        pcaps = [fi for fi, f in enumerate(parent.faces) if all(k in taken or k in past for k in f[1])]
+        pcaps = [fi for fi, f in enumerate(parent.faces) if all(k in taken or k in past for k in f[1])
+                 or (j in (stay or {}) and any(k in past for k in f[1]))]
 
         def nearest(v):
             return min(taken, key=lambda k: norm(sub(v, parent.vertices[k])))
@@ -811,24 +819,24 @@ def edge_away(mesh, v, ring, skip):
 
 
 def fit_seam(lvl, model, meshes, ring, offset, j, dead=()):
-    """The seam's corners on the outside of the joint's usual bend, in the
-    parent's space: {parent's vertex: where}. A ring fixed to the parent's end
-    narrows the child by the cosine of the bend; here each of those corners
-    stands where the parent's edge and the child's meet as the joint usually
-    stands, so the child keeps its width then and the parent runs on to meet
-    it. The inside's stay: moved in, they pull a web across the bend as the
-    joint opens. No work at run time: the same vertices, somewhere else. A seam
-    that hardly bends stays as it is."""
+    """Where a seam's corners would make a mitre at the joint's usual bend, in
+    the parent's space: {parent's vertex: where}, those on the outside of the
+    bend and those on the inside. A ring fixed to the parent's end narrows the
+    child by the cosine of the bend; at these each corner stands where the
+    parent's edge and the child's meet as the joint usually stands, so the child
+    keeps its width then and the parent runs on to meet it. All the way in, the
+    inside's pull a web across the bend as the joint opens. No work at run time:
+    the same vertices, somewhere else. A seam that hardly bends stays as it is."""
     start = model["start"]
     R = usual_turn(lvl, model, j, dead)
     parent, child = meshes[start + ring["p"]], meshes[start + j]
     corners = {int(i): k for i, k in ring["map"].items()}
     taken = set(corners.values())
-    out = {}
+    outside, inside = {}, {}
     for i, k in corners.items():
         far_p = edge_away(parent, k, taken, set(ring["pcaps"]))
         far_c = edge_away(child, i, set(corners), set(ring["caps"]))
-        if far_p is None or far_c is None or k in out:
+        if far_p is None or far_c is None or k in outside or k in inside:
             continue
         P = parent.vertices[k]
         dp = unit(sub(parent.vertices[far_p], P))
@@ -841,10 +849,9 @@ def fit_seam(lvl, model, meshes, ring, offset, j, dead=()):
         w = sub(P, C)
         d, e = dot(dp, w), dot(dc, w)
         t, s = (b * e - d) / den, (e - b * d) / den
-        if t >= 0:          # towards the parent's far end: the bend's inside
-            continue
-        out[k] = [round((P[n] + t * dp[n] + C[n] + s * dc[n]) / 2) for n in range(3)]
-    return out
+        # towards the parent's far end: the bend's inside
+        (inside if t >= 0 else outside)[k] = [round((P[n] + t * dp[n] + C[n] + s * dc[n]) / 2) for n in range(3)]
+    return outside, inside
 
 
 def pin_card(card, parents, offsets, j):
@@ -889,7 +896,8 @@ def animal_diet(lvl, model, meshes, atlas, spec):
     # seams between segments drawn whole, each joint's parent drawn too
     whole = cards | set(frozen)
     no_seam = set(spec.get("apart", ())) | whole | {j for j in range(1, count) if parents[j] in whole}
-    rings = join_rings(meshes, start, parents, offsets, no_seam, spec.get("wide"), spec.get("only"))
+    rings = join_rings(meshes, start, parents, offsets, no_seam, spec.get("wide"), spec.get("only"), spec.get("stay"),
+                       spec.get("attach"))
     out = {j: DietMesh(meshes[start + j]) for j in range(count)}
     remaps = {}
     for j in range(count):

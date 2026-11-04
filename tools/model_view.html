@@ -92,7 +92,9 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
     <label><input type="checkbox" id="insideCopies" checked><span>Drop the inside copies<span class="sub" id="insideInfo"></span></span></label>
     <label><input type="checkbox" id="join" checked><span>Join the segments<span class="sub" id="joinInfo"></span></span></label>
     <div class="row"><select id="seamShade"><option value="mid">Seams: meet halfway, each segment's own shade</option><option value="own">Seams: on the parent's corner, each segment's own shade</option><option value="shared" selected>Seams: on the parent's corner, one shade, one vertex</option></select></div>
-    <label><input type="checkbox" id="fit" checked><span>Fit limb seams to the joint's usual bend<span class="sub">the corner on the outside of the bend stands where the two segments' edges meet then, so the limb keeps its width there. Raptor and T-rex legs.</span></span></label>
+    <div class="row"><span>Fit, outside of the bend <b id="fitV"></b></span><input type="range" id="fit" min="0" max="2" step="0.05" value="1"></div>
+    <div class="row"><span>Fit, inside of the bend <b id="fitInV"></b></span><input type="range" id="fitIn" min="0" max="1" step="0.05" value="0"></div>
+    <span class="sub">Raptor and T-rex legs: how far a seam's corners go towards where the two segments' edges meet at the joint's usual bend. 0: on the parent's corner. 100%: just there, where the limb keeps its width at that bend.</span>
     <span class="sub" id="seamInfo"></span>
     <details><summary class="sub">Each seam</summary><div id="seams"></div></details>
     <h2>Light, as the game's</h2>
@@ -580,10 +582,15 @@ function buildAnimal(simplified) {
   // where each seam puts its vertices, by joint and vertex
   const seamAt = W.meshes.map(() => ({}));
   const placed = (j, i) => { const v = W.meshes[j].v; return apply(M[j], [v[i*3], v[i*3+1], v[i*3+2]]); };
+  const fitOutside = +ui('fit').value, fitInside = +ui('fitIn').value;
+  ui('fitV').textContent = Math.round(fitOutside * 100) + '%';
+  ui('fitInV').textContent = Math.round(fitInside * 100) + '%';
+  const fitted = (p, k, to, s) => { const v = W.meshes[p].v; return apply(M[p], to.map((c, n) => v[k*3+n] + (c - v[k*3+n]) * s)); };
   for (let j = 1; j < NJ; j++) if (joined(j)) {
     const r = W.join[j];
     if (seamMode !== 'mid') {
-      if (r.fit && ui('fit').checked) for (const k in r.fit) seamAt[r.p][k] = apply(M[r.p], r.fit[k]);
+      if (r.fit) for (const k in r.fit) seamAt[r.p][k] = fitted(r.p, +k, r.fit[k], fitOutside);
+      if (r.fitIn) for (const k in r.fitIn) seamAt[r.p][k] = fitted(r.p, +k, r.fitIn[k], fitInside);
       for (const i in r.map) seamAt[j][i] = seamAt[r.p][r.map[i]] || placed(r.p, r.map[i]);
       continue;
     }
@@ -802,8 +809,8 @@ ui('speed').oninput = (e) => A.state.speed = +e.target.value;
 ui('hold').onchange = (e) => { A.typical = e.target.value === 'typical'; dirty = true; };
 ui('anim').onchange = (e) => { A.state.anim = +e.target.value; A.state.time = 0; dirty = true; };
 ui('frame').oninput = (e) => { const a = A.W.anims[A.state.anim]; A.state.time = +e.target.value / 100 * animLength(a); dirty = true; };
-['ambient', 'lightRange', 'lightAz', 'lightEl'].forEach(id => ui(id).addEventListener('input', () => dirty = true));
-['insideCopies', 'join', 'seamShade', 'fit', 'ribbon', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
+['ambient', 'lightRange', 'lightAz', 'lightEl', 'fit', 'fitIn'].forEach(id => ui(id).addEventListener('input', () => dirty = true));
+['insideCopies', 'join', 'seamShade', 'ribbon', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
 controls.addEventListener('change', () => { dirty = true; syncDist(); });
 
 function resize() {
@@ -934,9 +941,9 @@ function fromHash() {
   if (kv.t) A.state.time = +kv.t * animLength(A.W.anims[A.state.anim]);
   if (kv.pause) A.state.playing = false;
   document.querySelector(`[data-tab=${start}]`).click();
-  for (const id of ['playAll', 'insideCopies', 'join', 'fit', 'ribbon', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
+  for (const id of ['playAll', 'insideCopies', 'join', 'ribbon', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
     if (id in kv) ui(id).checked = kv[id] !== '0';
-  for (const id of ['seamShade', 'cardLight', 'cardLook', 'ambient', 'lightRange', 'lightAz', 'lightEl']) if (kv[id]) ui(id).value = kv[id];
+  for (const id of ['seamShade', 'cardLight', 'cardLook', 'ambient', 'lightRange', 'lightAz', 'lightEl', 'fit', 'fitIn']) if (kv[id]) ui(id).value = kv[id];
   if (kv.seamOff) kv.seamOff.split(':').forEach(j => A.seamOff.add(+j));
   opt.cardsOnly = !!kv.cardsOnly;      // debugging: only the joints that can be cards
   if (kv.far) animalFar();

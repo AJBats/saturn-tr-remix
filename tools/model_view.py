@@ -132,7 +132,8 @@ RAPTOR_JOINTS = ["hips", "thigh L", "shin L", "ankle L", "foot L", "thigh R", "s
                  "neck", "head", "jaw", "tail 1", "tail 2", "tail 3", "tail 4", "tail 5"]
 RAPTOR_STATES = "DEATH STOP WALK RUN ATTACK_1 UNUSED ROAR ATTACK_2 BITE".split()
 RAPTOR_SEAMS = {"apart": [23], "wide": {12: 25, 14: 25, 18: 25, 20: 25, 21: 20, 22: 40},
-                "only": {22: [1, 5, 13, 14]}, "fit": [2, 3, 4, 6, 7, 8], "dead": [0]}
+                "only": {22: [1, 5, 13, 14]}, "stay": {22: [16, 17, 18]}, "attach": {21: {23: 17}},
+                "fit": [2, 3, 4, 6, 7, 8], "dead": [0]}
 RAPTOR_FUSES = [("jaw", "Jaw into the head", [23]),
                 ("claws", "Claws into the hands", [12, 13, 14, 18, 19, 20]),
                 ("hands", "Hands into the forearms", [11, 17]),
@@ -346,11 +347,12 @@ def animal_json(lvl, meshes, atlas, type_, title, states, names, fuses, choices,
     copies = {str(j): diet.inside_copies(meshes[start + j]) for j in range(model["count"])}
     out["insideCopies"] = {j: fis for j, fis in copies.items() if fis}
     out["join"] = diet.join_rings(meshes, start, out["parents"], out["offsets"], spec.get("apart", ()), spec.get("wide"),
-                                  spec.get("only"))
+                                  spec.get("only"), spec.get("stay"), spec.get("attach"))
     for j in spec.get("fit", ()):
         if j in out["join"]:
-            fit = diet.fit_seam(lvl, model, meshes, out["join"][j], out["offsets"][j], j, spec.get("dead", ()))
-            out["join"][j]["fit"] = {str(k): v for k, v in fit.items()}
+            outside, inside = diet.fit_seam(lvl, model, meshes, out["join"][j], out["offsets"][j], j, spec.get("dead", ()))
+            out["join"][j]["fit"] = {str(k): v for k, v in outside.items()}
+            out["join"][j]["fitIn"] = {str(k): v for k, v in inside.items()}
     out["ribbon"] = ribbon_json(meshes, start, tail, out["meshes"]) if tail else None
     out["foot"] = foot
     return out
