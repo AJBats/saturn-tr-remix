@@ -41,13 +41,33 @@ struct RoomProject
     int32_t window[4];          // +68 roomproject.s's own
     const uint16_t* divide;     // +84 divTable
     const int8_t* rippleBase;   // +88 roomproject.s's own
+    const int16_t* farTable;    // +92 past the far plane 0x1000000 / z by z >> 8, up to VERTICES_FAR_LAST; or none: exact
 };
+
+// z >> 8 from the nearest far plane there is (12 sectors) to where the table stops.
+#define VERTICES_FAR_FIRST  48
+#define VERTICES_FAR_LAST   335
 
 // What a room's vertices are sure of this frame, by its box: every view x and y within what >> 8
 // holds in 16 bits; every z between VIEW_EXACT and the far plane as well.
 enum RoomSafe { ROOM_SAFE_XY = 1, ROOM_SAFE_Z = 2 };
 
+// What a room's rotations are sure of, by its box: reach the largest x y z byte among its vertices, zMax the
+// far plane << 8.
+struct FaceRoom;
+extern "C" uint32_t roomSafeAsm(const FaceRoom* room, const uint8_t* reach, int32_t zMax);
+
 extern "C" void roomProjectAsm(const RoomRotated* src, int32_t count, Vertex* dst, RoomProject* rp);
+
+// What's made of a room's window for roomProjectAsm.
+inline void roomProjectReady(RoomProject &rp)
+{
+    rp.window[0] = rp.x0 << 16;
+    rp.window[1] = rp.y0 << 16;
+    rp.window[2] = (rp.x1 + 1) << 16;
+    rp.window[3] = (rp.y1 + 1) << 16;
+    rp.rippleBase = rp.wibble ? rp.wibble + (rp.phase & 31) : nullptr;
+}
 
 // A mesh vertex as the DSP leaves it: x >> 14 << 16 | y >> 14 & 0xFFFF,
 // z >> 14 << 16 | shade << 8, the sums of each row times the vertex plus
@@ -70,6 +90,7 @@ struct MeshProject
                                 // against the near plane, worked out from the mesh
     const struct MeshJob* job;  // +12 for exact
     int32_t farScaled;          // +16 verticesFarScaled's
+    const int16_t* divScaled;   // +20 divTable << 4 from z 1024
 };
 
 // A vertex past the far plane takes its depth there (and the plane's clip

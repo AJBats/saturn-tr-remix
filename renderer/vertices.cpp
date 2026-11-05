@@ -139,6 +139,7 @@ static uint8_t gRoomSafe[MAX_ROOMS];        // RoomSafe
 static uint8_t gRoomReach[MAX_LEVEL_ROOMS][3];  // the largest x y z byte among a level room's vertices
 static uint16_t* gDivNear;                  // 0x100000 / z by z, up to VIEW_EXACT
 static int16_t* gDivScaled;                 // divTable << 4, from the first entry that fits
+static int16_t* gDivFar;                    // RoomProject's farTable
 static int32_t gRoomsPredicted;     // the plan's prediction of their projection and faces
 static int32_t gRoomsFaces;         // their quads and triangles
 static RoomDspJob gRoomJobs[MAX_ROOMS + 1];
@@ -209,37 +210,6 @@ void verticesRoomReach(uint32_t room, const RoomVertex* points, int32_t count)
     }
 }
 
-// What room r's rotations are sure to keep to, by its box's reach along each row.
-static uint32_t roomSafe(const FaceRoom &r)
-{
-    const uint8_t* reach = gRoomReach[r.room];
-    uint32_t safe = ROOM_SAFE_XY | ROOM_SAFE_Z;
-    for (int32_t row = 0; row < 3; row++)
-    {
-        int32_t lo = r.t[row], hi = lo;
-        for (int32_t k = 0; k < 3; k++)
-        {
-            int32_t along = 4 * r.m[3 * row + k] * reach[k];
-            if (along < 0) {
-                lo += along;
-            } else {
-                hi += along;
-            }
-        }
-        if (row < 2)
-        {
-            if (lo < -XY_MAX || hi > XY_MAX) {
-                return 0;
-            }
-        }
-        else if (lo <= VIEW_EXACT << 8 || hi >= gFar << 8)
-        {
-            safe = ROOM_SAFE_XY;
-        }
-    }
-    return safe;
-}
-
 void verticesRoomsSet(const FaceRoom* rooms, uint32_t count)
 {
     gRooms = rooms;
@@ -249,7 +219,7 @@ void verticesRoomsSet(const FaceRoom* rooms, uint32_t count)
     {
         const FaceRoom &r = gRooms[i];
         gRotatedAt[i] = at;
-        gRoomSafe[i] = roomSafe(r);
+        gRoomSafe[i] = roomSafeAsm(&r, gRoomReach[r.room], gFar << 8);
         at += (r.verticesCount + 3) & ~3;
         predicted += PLAN_ROOM_VERTEX * r.verticesCount + PLAN_ROOM_FACE * (r.quadsCount + r.trianglesCount);
         faces += r.quadsCount + r.trianglesCount;
@@ -363,7 +333,8 @@ const char* verticesInit(const VerticesLevel &level)
 
     gDivNear = (uint16_t*)level.alloc((VIEW_EXACT + 1) * sizeof(uint16_t));
     int16_t* scaled = (int16_t*)level.alloc((DIV_ENTRIES - DIV_SCALED_FROM) * sizeof(int16_t));
-    if (!gDivNear || !scaled)
+    int16_t* farTable = (int16_t*)level.alloc((VERTICES_FAR_LAST + 1 - VERTICES_FAR_FIRST) * sizeof(int16_t));
+    if (!gDivNear || !scaled || !farTable)
         return "no room for the divide tables";
     for (int32_t z = 0; z <= VIEW_EXACT; z++) {
         gDivNear[z] = z < VIEW_MIN_F >> FIXED_SHIFT ? 0 : 0x100000 / z;
@@ -371,6 +342,10 @@ const char* verticesInit(const VerticesLevel &level)
     gDivScaled = scaled - DIV_SCALED_FROM;
     for (int32_t i = DIV_SCALED_FROM; i < DIV_ENTRIES; i++) {
         gDivScaled[i] = divTable[i] << 4;
+    }
+    gDivFar = farTable - VERTICES_FAR_FIRST;
+    for (int32_t i = VERTICES_FAR_FIRST; i <= VERTICES_FAR_LAST; i++) {
+        gDivFar[i] = 0x1000000 / (i * 256 + 128);
     }
     return nullptr;
 }
@@ -392,6 +367,8 @@ static RoomsDone gRoomsDone;
 static void roomTurned(uint32_t i, uint32_t &wait)
 {
     volatile uint32_t* done = uncached(&gRoomsDone.rooms);
+    if (*done > gRoomTurn[i])
+        return;
     uint32_t w0 = ticks();
     while (*done <= gRoomTurn[i]) {
         busPause();
@@ -455,19 +432,14 @@ void verticesBlack(bool on)
     gBlack = on ? CLIP_BLACK : 0;
 }
 
-// Room i's vertices projected from the DSP's rotations.
-static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
+// What projecting room i takes, all but what goes by the chunk.
+static void roomProjectSet(RoomProject &rp, uint32_t i)
 {
     const FaceRoom &room = gRooms[i];
-    if (to < 0) {
-        to = room.verticesCount;
-    }
-    RoomProject rp;
     rp.divScaled = gDivScaled;
     rp.divide = divTable;
     rp.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
     rp.zMax = gFar << 8;
-    rp.points = room.points + from;
     rp.x0 = room.clip[0];
     rp.y0 = room.clip[1];
     rp.x1 = room.clip[2];
@@ -475,17 +447,38 @@ static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
     rp.wibble = room.ripple ? kWibble : nullptr;
     rp.phase = room.phase;
     rp.caustics = room.caustics;
-    rp.count = to;      // the caustics' index, count - vertices left: from on
     rp.farScaled = gFarScaled;
     rp.black = gBlack;
     rp.nearTable = gDivNear;
     rp.safe = gRoomSafe[i];
 #ifdef RENDER_LAB
     rp.zExact = rp.zMin;    // as the captured game projected it
+    rp.farTable = nullptr;
 #else
     rp.zExact = VIEW_EXACT << 8;
+    rp.farTable = gDivFar;
 #endif
+    roomProjectReady(rp);
+}
+
+// Room i's vertices from .. to projected from the DSP's rotations.
+static inline void roomProjectChunk(RoomProject &rp, uint32_t i, int32_t from, int32_t to)
+{
+    const FaceRoom &room = gRooms[i];
+    rp.points = room.points + from;
+    rp.count = to;      // the caustics' index, count - vertices left: from on
     roomProjectAsm(gRoomRotated + gRotatedAt[i] + from, to - from, roomVertices(room) + from, &rp);
+}
+
+// What each CPU last set up projecting (the master's [0], the slave's [1]), and for which of the frame's rooms.
+static RoomProject gChunkProject[2];
+static int32_t gChunkProjectRoom[2];
+
+static void roomProject(uint32_t i)
+{
+    RoomProject rp;
+    roomProjectSet(rp, i);
+    roomProjectChunk(rp, i, 0, gRooms[i].verticesCount);
 }
 
 // --- meshes --------------------------------------------------------------
@@ -757,11 +750,13 @@ void verticesRoomsBegin()
         *uncached(gChunkClaims + c) = 0;
         *uncached(gChunkProjected + c) = 0;
     }
+    gChunkProjectRoom[1] = -1;
     roomsDspStart();
 }
 
 void verticesClaimMasters()
 {
+    gChunkProjectRoom[0] = -1;
     for (int32_t c = 0; c < gChunkAt[gRoomCount]; c++)
     {
         if (gChunkMaster[c]) {
@@ -770,13 +765,19 @@ void verticesClaimMasters()
     }
 }
 
-// Chunk c projected, its room waited for on the DSP; marked done.
-static void chunkProject(int32_t c, uint32_t &wait)
+// Chunk c projected by this CPU, its room waited for on the DSP; marked done.
+static void chunkProject(int32_t c, uint32_t &wait, int32_t cpu)
 {
-    uint32_t room = gChunkRoom[c];
+    int32_t room = gChunkRoom[c];
     roomTurned(room, wait);
     int32_t from = (c - gChunkAt[room]) * CHUNK;
-    roomProject(room, from, from + chunkSize(c));
+    RoomProject &rp = gChunkProject[cpu];
+    if (gChunkProjectRoom[cpu] != room)
+    {
+        gChunkProjectRoom[cpu] = room;
+        roomProjectSet(rp, room);
+    }
+    roomProjectChunk(rp, room, from, from + chunkSize(c));
     *uncached(gChunkProjected + c) = 1;
 }
 
@@ -794,7 +795,7 @@ void verticesAhead(const volatile uint32_t* stop, uint32_t &rooms, int32_t &from
                 return;
             }
             tasClaim(uncached(gChunkClaims + c));
-            chunkProject(c, wait);
+            chunkProject(c, wait, 1);
         }
     }
     rooms = gRoomCount;
@@ -808,7 +809,7 @@ void verticesMasterRooms(uint32_t &wait, bool &meshes)
         if (gChunkMaster[c])
         {
             meshes = meshes || verticesMeshesTryStart();
-            chunkProject(c, wait);
+            chunkProject(c, wait, 0);
         }
     }
 }
@@ -833,7 +834,7 @@ bool verticesRoomMine(uint32_t i, uint32_t &wait, int32_t &from)
             from = c - gChunkAt[i];
             return false;
         }
-        chunkProject(c, wait);
+        chunkProject(c, wait, 1);
     }
     from = gChunkAt[i + 1] - gChunkAt[i];
     return true;
@@ -845,15 +846,18 @@ void verticesRoom(uint32_t i, uint32_t &wait, int32_t from)
     {
         if (tasClaim(uncached(gChunkClaims + c)))
         {
-            chunkProject(c, wait);
+            chunkProject(c, wait, 1);
             continue;
         }
         volatile uint8_t* projected = uncached(gChunkProjected + c);
-        uint32_t w0 = ticks();
-        while (!*projected) {
-            busPause();
+        if (!*projected)
+        {
+            uint32_t w0 = ticks();
+            while (!*projected) {
+                busPause();
+            }
+            wait += ticksCycles(w0, ticks());
         }
-        wait += ticksCycles(w0, ticks());
         cacheDrop(roomVertices(gRooms[i]) + (c - gChunkAt[i]) * CHUNK, chunkSize(c) * sizeof(Vertex));
     }
 }
@@ -863,6 +867,8 @@ void verticesRoomWait(uint32_t i, uint32_t &wait)
     for (int32_t c = gChunkAt[i]; c < gChunkAt[i + 1]; c++)
     {
         volatile uint8_t* projected = uncached(gChunkProjected + c);
+        if (*projected)
+            continue;
         uint32_t w0 = ticks();
         while (!*projected) {
             busPause();
@@ -885,6 +891,7 @@ void verticesMeshesFeed(int32_t from, int32_t to)
     }
     gPiecesProject.divTable = divTable;
     gPiecesProject.exact = meshExact;
+    gPiecesProject.divScaled = gDivScaled;
     gPiecesProject.farScaled = gFarScaled;
 }
 
@@ -910,11 +917,14 @@ const Vertex* verticesDraw(uint32_t draw, uint32_t &wait)
 {
     int32_t j = gJobOfDraw[draw];
     volatile uint32_t* last = jobLast(gJobs[j]);
-    uint32_t w0 = ticks();
-    while ((*last & 0xFF) == DSP_UNWRITTEN) {
-        busPause();
+    if ((*last & 0xFF) == DSP_UNWRITTEN)
+    {
+        uint32_t w0 = ticks();
+        while ((*last & 0xFF) == DSP_UNWRITTEN) {
+            busPause();
+        }
+        wait += ticksCycles(w0, ticks());
     }
-    wait += ticksCycles(w0, ticks());
     meshProject(gPiecesProject, j);
     return gJobs[j].out;
 }

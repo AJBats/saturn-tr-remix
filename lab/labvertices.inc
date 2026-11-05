@@ -235,6 +235,7 @@ static void roomProjectModel(const RoomRotated* src, int32_t count, Vertex* dst,
         int32_t z = src[k].z;
         int32_t shade = rp.points[k].g << 8;
         uint32_t clip = 0;
+        int32_t farD = 0;
         if (!(z > rp.zMin))
         {
             z = rp.zMin;
@@ -243,7 +244,9 @@ static void roomProjectModel(const RoomRotated* src, int32_t count, Vertex* dst,
         }
         else if (z >= rp.zMax)
         {
-            if (rp.farScaled)
+            if (rp.farTable) {
+                farD = rp.farTable[uint32_t(z) >> 16 > VERTICES_FAR_LAST ? VERTICES_FAR_LAST : uint32_t(z) >> 16];
+            } else if (rp.farScaled)
             {
                 x = int32_t(int64_t(x) * rp.zMax / z);
                 y = int32_t(int64_t(y) * rp.zMax / z);
@@ -256,12 +259,21 @@ static void roomProjectModel(const RoomRotated* src, int32_t count, Vertex* dst,
         x = clamp(x, -XY_MAX, XY_MAX);
         y = clamp(y, -XY_MAX, XY_MAX);
         int32_t zz = uint32_t(z) >> 8;
-        int32_t d = z <= rp.zExact ? 0x100000 / zz : rp.divide[zz >> 4];
-        int32_t px = clamp(int16_t(uint32_t(x) >> 8) * d, -P_MAX, P_MAX);
-        int32_t py = clamp(int16_t(uint32_t(y) >> 8) * d, -P_MAX, P_MAX);
-        paths[PATH_PRODUCT] += px != int16_t(uint32_t(x) >> 8) * d || py != int16_t(uint32_t(y) >> 8) * d;
-        int32_t sx = int16_t(uint32_t(px) >> 12) + (FRAME_WIDTH >> 1);
-        int32_t sy = int16_t(uint32_t(py) >> 12) + (FRAME_HEIGHT >> 1);
+        int32_t sx, sy;
+        if (farD)
+        {
+            sx = ((int16_t(uint32_t(x) >> 8) * farD) >> 16) + (FRAME_WIDTH >> 1);
+            sy = ((int16_t(uint32_t(y) >> 8) * farD) >> 16) + (FRAME_HEIGHT >> 1);
+        }
+        else
+        {
+            int32_t d = z <= rp.zExact ? 0x100000 / zz : rp.divide[zz >> 4];
+            int32_t px = clamp(int16_t(uint32_t(x) >> 8) * d, -P_MAX, P_MAX);
+            int32_t py = clamp(int16_t(uint32_t(y) >> 8) * d, -P_MAX, P_MAX);
+            paths[PATH_PRODUCT] += px != int16_t(uint32_t(x) >> 8) * d || py != int16_t(uint32_t(y) >> 8) * d;
+            sx = int16_t(uint32_t(px) >> 12) + (FRAME_WIDTH >> 1);
+            sy = int16_t(uint32_t(py) >> 12) + (FRAME_HEIGHT >> 1);
+        }
         if (uint32_t(sx) > FRAME_WIDTH || uint32_t(sy) > FRAME_HEIGHT)
         {
             clip += CLIP_FRAME;
@@ -317,12 +329,13 @@ int32_t verticesRoomsSeldomCheck()
     auto next = [&seed] { seed = seed * 1664525 + 1013904223; return seed; };
     int32_t bad = 0;
     int32_t dry[PATHS] = {}, wet[PATHS] = {};
-    for (int32_t pass = 0; pass < 18; pass++)
+    for (int32_t pass = 0; pass < 36; pass++)
     {
-        // none of it sure, then every x and y, then every z too
-        int32_t sure = pass / 6;
+        // none of it sure, then every x and y, then every z too; past the far plane exact, then by the table
+        int32_t sure = pass % 18 / 6;
         int32_t w = pass % 3;
         RoomProject rp;
+        rp.farTable = pass < 18 ? nullptr : gDivFar;
         rp.farScaled = pass % 6 / 3;
         rp.black = pass & 1 ? 0x40 : 0;
         rp.points = gSeldomPoints;
@@ -386,6 +399,11 @@ int32_t verticesRoomsSeldomCheck()
             }
         }
 
+        // far past the far plane's table
+        put(near(0), near(0), 90000 << 8, 8);
+        put(near(0), near(0), 86015 << 8, 8);
+        put(near(0), near(0), 86016 << 8, 8);
+
         // then made up at random
         for (int32_t k = n; k < SELDOM_VERTICES; k++)
         {
@@ -403,6 +421,7 @@ int32_t verticesRoomsSeldomCheck()
         rp.zExact = pass & 1 ? rp.zMin : VIEW_EXACT << 8;
         rp.nearTable = gDivNear;
         rp.safe = sure == 0 ? 0 : sure == 1 ? ROOM_SAFE_XY : ROOM_SAFE_XY | ROOM_SAFE_Z;
+        roomProjectReady(rp);
         for (int32_t k = 0; k < SELDOM_VERTICES && sure; k++)
         {
             RoomRotated &r = gSeldomRotated[k];
@@ -785,6 +804,7 @@ int32_t verticesMeshesSeldomCheck()
     {
         MeshProject mp;
         mp.divTable = divTable;
+        mp.divScaled = gDivScaled;
         mp.inside = 0;
         mp.exact = meshExact;
         mp.farScaled = pass;
@@ -815,6 +835,7 @@ void verticesMeshes()
 {
     MeshProject mp;
     mp.divTable = divTable;
+    mp.divScaled = gDivScaled;
     mp.exact = meshExact;
     mp.farScaled = gFarScaled;
     for (int32_t i = 0; i < gJobCount; i++) {
@@ -856,6 +877,7 @@ static void roomsAsTurned(void*)
     }
     MeshProject mp;
     mp.divTable = divTable;
+    mp.divScaled = gDivScaled;
     mp.exact = meshExact;
     mp.farScaled = gFarScaled;
     for (int32_t i = gJobCount - 1; i >= 0 && meshAsMade(mp, i, wait); i--);
@@ -894,6 +916,7 @@ Together verticesTogether()
     uint32_t meshesAt = meshesDspStart();
     MeshProject mp;
     mp.divTable = divTable;
+    mp.divScaled = gDivScaled;
     mp.exact = meshExact;
     mp.farScaled = gFarScaled;
     for (int32_t i = 0; i < gJobCount && meshAsMade(mp, i, r.masterWait); i++);
@@ -934,6 +957,7 @@ int32_t verticesFallbacksCheck()
     int32_t bad = 0;
     MeshProject mp;
     mp.divTable = divTable;
+    mp.divScaled = gDivScaled;
     mp.exact = meshExact;
     mp.farScaled = gFarScaled;
     mp.inside = 0;

@@ -19,6 +19,9 @@
 !   +8  void (*exact)(MeshProject* mp, int32 index, Vertex* v)
 !   +16 int32 farScaled         a vertex past the far plane scaled to it
 !                               (vertices.h verticesFarScaled)
+!   +20 const int16* divScaled  divTable << 4 from z 1024: a coordinate * this has
+!                               the pixel in its high word, the frame's edge added
+!                               there, and XTRCT packs the two
 !
 ! Vertex (render.h): int16 x, y; int16 z; uint8 g, clip.
 
@@ -48,18 +51,45 @@ _meshProjectAsm:
     sts.l   pr, @-r15
     mov.l   r5, @-r15           ! the count, for a vertex's index
     mov.l   @r6, r8             ! divTable
+    mov.l   @(20, r6), r9       ! ... << 4
     mov.l   .Lcentre, r7
     mov.l   @(4, r6), r0
     tst     r0, r0
-    bt      .Lgeneral
+    bt      .Lreload
+    mov.l   .LedgeX, r10
+    mov.l   .LedgeY, r11
+    mov     #64, r2
 
     ! inside the frame: x, y projected, the rest as the DSP left it
+    .align  2
 .Linside:
     mov.l   @(4, r4), r0        ! z >> 14 << 16 | shade << 8
     mov.l   @r4, r1
     shlr16  r0
     shlr2   r0
     shlr2   r0
+    cmp/hs  r2, r0
+    bf      .LinsideNear
+    add     r0, r0
+    mov.w   @(r0, r9), r0       ! d << 4
+    muls.w  r0, r1              ! y
+    swap.w  r1, r1
+    sts     macl, r3
+    muls.w  r0, r1              ! x
+    add     r11, r3
+    sts     macl, r1
+    add     r10, r1
+    swap.w  r1, r1
+    xtrct   r1, r3
+    mov.l   r3, @r4
+    dt      r5
+    bf/s    .Linside
+    add     #8, r4
+    bra     .Ldone
+    nop
+
+    ! up close d << 4 won't fit
+.LinsideNear:
     add     r0, r0
     mov.w   @(r0, r8), r0       ! d
     exts.w  r1, r3              ! y
@@ -86,6 +116,92 @@ _meshProjectAsm:
     add     #8, r4
     bra     .Ldone
     nop
+
+    ! anywhere: from z 1024 to the far plane by the loop's way; r2 r3 what z is tested by
+.Lreload:
+    mov.l   .LzRange, r2
+    mov     #4, r3
+    shll8   r3                  ! z 1024
+    .align  2
+.Lfast:
+    mov.l   @(4, r4), r11       ! z >> 14 << 16 | shade << 8
+    mov.l   @r4, r12            ! x >> 14 << 16 | y >> 14
+    mov     r11, r10
+    shlr16  r10
+    mov     r10, r0
+    sub     r3, r0
+    cmp/hs  r2, r0
+    bt      .Lgeneral
+    mov     r10, r0
+    shlr2   r0
+    shlr2   r0
+    add     r0, r0
+    mov.w   @(r0, r9), r1       ! d << 4
+    muls.w  r1, r12             ! y
+    swap.w  r12, r12
+    sts     macl, r13
+    muls.w  r1, r12             ! x
+    mov.l   .LedgeY, r0
+    sts     macl, r12
+    add     r0, r13
+    mov.l   .LedgeX, r0
+    add     r0, r12
+    mov.l   .LframeX, r0
+    cmp/hi  r0, r12
+    bt      .LoffX
+    mov.l   .LframeY, r0
+    cmp/hi  r0, r13
+    bt      .LoffY
+.Lstore:
+    swap.w  r12, r12
+    xtrct   r12, r13
+    mov.l   r13, @r4
+    dt      r5
+    bf/s    .Lfast
+    add     #8, r4
+    bra     .Ldone
+    nop
+
+    ! off the frame: the sides it's past, clamped to what VDP1 can address
+.LoffX:
+    cmp/pz  r12
+    bt      1f
+    mov     #CLIP_FRAME + CLIP_LEFT, r14
+    mov.l   .Llow, r0
+    cmp/ge  r0, r12
+    bt      2f
+    bra     2f
+    mov     r0, r12
+1:  mov     #CLIP_FRAME + CLIP_RIGHT, r14
+    mov.l   .Lhigh, r0
+    cmp/gt  r0, r12
+    bf      2f
+    mov     r0, r12
+2:  mov.l   .LframeY, r0
+    cmp/hi  r0, r13
+    bf      .LoffDone
+    bra     .LoffYSide
+    nop
+.LoffY:
+    mov     #CLIP_FRAME, r14
+.LoffYSide:
+    cmp/pz  r13
+    bt      3f
+    add     #CLIP_TOP, r14
+    mov.l   .Llow, r0
+    cmp/ge  r0, r13
+    bt      .LoffDone
+    bra     .LoffDone
+    mov     r0, r13
+3:  add     #CLIP_BOTTOM, r14
+    mov.l   .Lhigh, r0
+    cmp/gt  r0, r13
+    bf      .LoffDone
+    mov     r0, r13
+.LoffDone:
+    or      r14, r11
+    bra     .Lstore
+    mov.l   r11, @(4, r4)
 
     ! z >> 14 at the near plane: worked out in C, then on
 .Lexact:
@@ -228,7 +344,7 @@ _meshProjectAsm:
 .Lnext:
     dt      r5
     bt      .Ldone
-    bra     .Lgeneral           ! the loop is too long for a conditional branch
+    bra     .Lreload            ! the loop is too long for a conditional branch
     add     #8, r4
 
 .Ldone:
@@ -302,6 +418,13 @@ _meshShadesAsm:
 
     .align 2
 .Lcentre:       .long   0x00B00070  ! FRAME_WIDTH / 2 << 16 | FRAME_HEIGHT / 2
+.LedgeX:        .long   176 << 16
+.LedgeY:        .long   112 << 16
+.LframeX:       .long   (353 << 16) - 1
+.LframeY:       .long   (225 << 16) - 1
+.Llow:          .long   -1024 << 16
+.Lhigh:         .long   (1024 << 16) - 1
+.LzRange:       .long   20480 - 1024
 .LpMax:         .long   0x007FF000  ! projected 2047 << 12
 .LhalfWidth:    .short  176         ! FRAME_WIDTH / 2
 .LhalfHeight:   .short  112         ! FRAME_HEIGHT / 2

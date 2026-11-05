@@ -26,7 +26,8 @@
 !                                   bit 1: every z between zExact (or Z_FAST) and
 !                                   zMax as well (vertices.h RoomSafe)
 !   +68 int32 left, top, right, bottom   the viewport as this file compares it:
-!                                   x0 y0 x1 + 1 y1 + 1, << 16 (filled here)
+!                                   x0 y0 x1 + 1 y1 + 1, << 16 (vertices.h
+!                                   roomProjectReady, with the ripple's base)
 !
 ! Vertex (render.h): int16 x, y; int16 z; uint8 g, clip.
 !
@@ -66,8 +67,10 @@
     .equ    R_BOTTOM,       80
     .equ    R_DIV,          84
     .equ    R_RIPPLE,       88
+    .equ    R_FAR_TABLE,    92
     .equ    Z_FAST,         1024 << 8   ! from here d << 4 fits a word (d is at most 1024)
     .equ    FOG_MIN_8,      48          ! FOG_MIN >> 8
+    .equ    VERTICES_FAR_LAST, 335      ! vertices.h's
 
     .text
     .align 2
@@ -339,20 +342,6 @@ _roomProjectAsm:
     mov     r0, r10
     mov.l   @(R_POINTS, gbr), r0
     mov     r0, r8
-    mov.l   @(4, gbr), r0
-    shll16  r0
-    mov.l   r0, @(R_LEFT, gbr)
-    mov.l   @(8, gbr), r0
-    shll16  r0
-    mov.l   r0, @(R_TOP, gbr)
-    mov.l   @(12, gbr), r0
-    add     #1, r0
-    shll16  r0
-    mov.l   r0, @(R_RIGHT, gbr)
-    mov.l   @(16, gbr), r0
-    add     #1, r0
-    shll16  r0
-    mov.l   r0, @(R_BOTTOM, gbr)
     mov.l   .LedgeX, r2
     ! the loop: caustics, ripple, z tested or not
     mov     #0, r1
@@ -363,13 +352,8 @@ _roomProjectAsm:
 2:  mov.l   @(R_WIBBLE, gbr), r0
     tst     r0, r0
     bt      3f
-    add     #8, r1
-    mov     r0, r9              ! its base: phase & 31 on
-    mov.l   @(R_PHASE, gbr), r0
-    and     #31, r0
-    add     r9, r0
     bra     4f                  ! with a ripple z is always tested
-    mov.l   r0, @(R_RIPPLE, gbr)
+    add     #8, r1
 3:  mov.l   @(R_SAFE, gbr), r0
     cmp/eq  #3, r0
     bf      4f
@@ -442,6 +426,25 @@ _roomProjectAsm:
     mov.l   @(20, r1), r13
     .endm
 
+    ! x, y (r12, r13) within what >> 8 holds in 16 bits; r0, r1
+    .macro  XY_BOUND
+    mov.l   .LxyMax, r1
+    neg     r1, r0
+    cmp/gt  r1, r12
+    bf      91f
+    mov     r1, r12
+91: cmp/ge  r0, r12
+    bt      92f
+    mov     r0, r12
+92: cmp/gt  r1, r13
+    bf      93f
+    mov     r1, r13
+93: cmp/ge  r0, r13
+    bt      94f
+    mov     r0, r13
+94:
+    .endm
+
     ! The vertex whichever way it is: x, y, z (r12, r13, r11) -> x at the loop's scale and
     ! edge in r12, y at its scale in MACL, z >> 8 in r11, r14 the plane's flag; r0, r1
 .Lodd:
@@ -469,16 +472,49 @@ _roomProjectAsm:
     rts
     muls.w  r1, r13
 .LoddAll:
+    mov.l   @(R_ZMAX, gbr), r0
+    cmp/ge  r0, r11
+    bt      .Lfar
     mov.l   @(R_ZMIN, gbr), r0
     cmp/gt  r0, r11
-    bt      1f
+    bt      3f
     mov     r0, r11             ! behind the near plane
     bra     3f
     mov     #1, r14
-1:  mov.l   @(R_ZMAX, gbr), r0
-    cmp/ge  r0, r11
-    bf      3f
-    ! past the far plane: x and y scaled to it unless the original's way; z at it
+
+    ! past the far plane: x and y by 0x1000000 / z to the nearest 256 of z, which lands them
+    ! within a pixel or so where they lie; z at it. Only fills want them.
+.Lfar:
+    mov.l   @(R_FAR_TABLE, gbr), r0
+    tst     r0, r0
+    bt      .LfarExact
+    tst     r9, r9
+    bf      1f
+    XY_BOUND
+    mov.l   @(R_FAR_TABLE, gbr), r0
+1:  mov     r0, r1
+    swap.w  r11, r0
+    extu.w  r0, r0
+    mov.w   .LfarLast, r14
+    cmp/hi  r14, r0
+    bf      2f
+    mov     r14, r0
+2:  add     r0, r0
+    mov.w   @(r0, r1), r1
+    mov.l   @(R_ZMAX, gbr), r0
+    mov     r0, r11
+    shlr8   r11
+    mov     #1, r14
+    shlr8   r12
+    shlr8   r13
+    muls.w  r1, r12
+    sts     macl, r12
+    add     r2, r12
+    rts
+    muls.w  r1, r13
+
+    ! ... or exactly, or as the original had them
+.LfarExact:
     mov.l   @(R_FAR_SCALED, gbr), r0
     tst     r0, r0
     bt      2f
@@ -493,20 +529,7 @@ _roomProjectAsm:
     ! x, y to 16-bit view coordinates: within the bound, >> 8
 3:  tst     r9, r9
     bf      7f
-    mov.l   .LxyMax, r1
-    neg     r1, r0
-    cmp/gt  r1, r12
-    bf      4f
-    mov     r1, r12
-4:  cmp/ge  r0, r12
-    bt      5f
-    mov     r0, r12
-5:  cmp/gt  r1, r13
-    bf      6f
-    mov     r1, r13
-6:  cmp/ge  r0, r13
-    bt      7f
-    mov     r0, r13
+    XY_BOUND
 7:  shlr8   r12
     shlr8   r13
     ! d: by the table, or exact up close
@@ -558,3 +581,88 @@ _roomProjectAsm:
 .LzNearFast: .long  512 << 8    ! past this d is under 2048
 .LxyMax:    .long   0x007FFF00  ! view x, y whose >> 8 fits in 16 bits
 .LpMax:     .long   0x007FF000  ! projected 2047 << 12
+.LfarLast:  .word   VERTICES_FAR_LAST
+    .align  2
+
+    ! uint32 roomSafeAsm(const FaceRoom* room, const uint8* reach, int32 zMax): what its rotations are sure of,
+    ! each the row's translation plus each column's coefficient (m * 4) by that axis's reach, where that lies
+    ! below 0 for the least and above for the most
+    .equ    ROOM_M,         44      ! FaceRoom's int16 m[9]
+    .equ    ROOM_T,         64      ! ... and int32 t[3]
+    .equ    VIEW_EXACT_8,   2048 << 8
+
+    .macro  ROOM_ROW row
+    mov.l   @(4 * \row, r4), r1
+    mov     r1, r2
+    .irp    k, 0, 1, 2
+    mov.w   @r3+, r0
+    .if \k == 0
+    muls.w  r0, r7
+    .elseif \k == 1
+    muls.w  r0, r8
+    .else
+    muls.w  r0, r9
+    .endif
+    sts     macl, r0
+    shll2   r0
+    cmp/pz  r0
+    bt      1f
+    bra     2f
+    add     r0, r1
+1:  add     r0, r2
+2:
+    .endr
+    .endm
+
+    .align  2
+    .global _roomSafeAsm
+_roomSafeAsm:
+    mov.l   r8, @-r15
+    mov.l   r9, @-r15
+    mov     r6, r3              ! (zMax, till it's wanted)
+    mov.b   @r5+, r0
+    extu.b  r0, r7
+    mov.b   @r5+, r0
+    extu.b  r0, r8
+    mov.b   @r5, r0
+    extu.b  r0, r9
+    mov     r3, r5              ! zMax
+    mov     r4, r3
+    add     #ROOM_M, r3
+    add     #ROOM_T, r4
+    mov.l   .LsafeBound, r6
+    ROOM_ROW 0
+    cmp/gt  r6, r2
+    bt      8f
+    neg     r6, r0
+    cmp/ge  r0, r1
+    bf      8f
+    ROOM_ROW 1
+    cmp/gt  r6, r2
+    bt      8f
+    neg     r6, r0
+    cmp/ge  r0, r1
+    bf      8f
+    ROOM_ROW 2
+    mov.l   .LsafeNear, r0
+    cmp/gt  r0, r1              ! the nearest past where the divides are exact
+    bf      7f
+    cmp/ge  r5, r2              ! the farthest short of the far plane
+    bt      7f
+    mov     #3, r0              ! ROOM_SAFE_XY | ROOM_SAFE_Z
+    mov.l   @r15+, r9
+    rts
+    mov.l   @r15+, r8
+7:  mov     #1, r0              ! ROOM_SAFE_XY
+    mov.l   @r15+, r9
+    rts
+    mov.l   @r15+, r8
+8:  mov     #0, r0
+    mov.l   @r15+, r9
+    rts
+    mov.l   @r15+, r8
+
+    .align  2
+.LsafeBound:    .long   0x007FFF00  ! view x, y whose >> 8 fits in 16 bits
+.LsafeNear:     .long   VIEW_EXACT_8
+
