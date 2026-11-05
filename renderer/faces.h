@@ -337,7 +337,11 @@ void facesFloorSet(int32_t y);          // the level's floor, or FACES_NO_FLOOR
 void facesFloorKeep(bool on);           // the menu's
 void facesFloorBegin();
 void facesFloorRoom(const FaceRoom &room, const RoomLevel* level, int32_t first, int32_t end);
-void facesMasks(Command* cmds, int32_t first, int32_t end);     // these commands to polygons of colour 0
+// A dip's commands; then, if there were any this frame, the masks': they're drawn as colour 0 inside the box
+// round the dips' (facesUnderFloor, when the buckets are joined).
+void facesFloorDip(const Command* cmds, int32_t first, int32_t end);
+bool facesFloorDipDrawn();
+void facesFloorMasks(int32_t first, int32_t end);
 void facesUnderFloor(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const void* portals, CommandList &list,
                      Command* cmds);
 

@@ -1164,6 +1164,10 @@ static int32_t gFloorY = FACES_NO_FLOOR;
 static bool gFloorKeep = true;
 static struct { int16_t first, end; } gUnder[UNDER_MAX];    // the commands of the rooms under the floor
 static int32_t gUnderCount;
+#define MASKS_MAX       8
+static struct { int16_t first, end; } gMasks[MASKS_MAX];    // the commands of the masks round dips
+static int32_t gMaskCount;
+static int32_t gDipBox[4];      // x0 y0 x1 y1, round the dips' faces drawn this frame
 static int16_t gColumnTop[COLUMNS], gColumnBottom[COLUMNS]; // the rows the openings cover, column by column
 
 void facesFloorSet(int32_t y)
@@ -1179,15 +1183,81 @@ void facesFloorKeep(bool on)
 void facesFloorBegin()
 {
     gUnderCount = 0;
+    gMaskCount = 0;
+    gDipBox[0] = gDipBox[1] = 0x7FFF;
+    gDipBox[2] = gDipBox[3] = -0x7FFF;
 }
 
-void facesMasks(Command* cmds, int32_t first, int32_t end)
+// A command's box on the frame. A polygon or distorted sprite's four corners, as the list makes them.
+static inline void commandBox(const uint32_t* w, int32_t &x0, int32_t &y0, int32_t &x1, int32_t &y1)
+{
+    const int32_t ax = int16_t(w[3] >> 16), ay = int16_t(w[3]), bx = int16_t(w[4] >> 16), by = int16_t(w[4]);
+    const int32_t cx = int16_t(w[5] >> 16), cy = int16_t(w[5]), dx = int16_t(w[6] >> 16), dy = int16_t(w[6]);
+    x0 = min(min(ax, bx), min(cx, dx));
+    y0 = min(min(ay, by), min(cy, dy));
+    x1 = max(max(ax, bx), max(cx, dx));
+    y1 = max(max(ay, by), max(cy, dy));
+}
+
+void facesFloorDip(const Command* cmds, int32_t first, int32_t end)
 {
     for (int32_t s = first; s < end; s++)
     {
-        uint32_t* w = cmds[s].w;
-        w[0] = (w[0] & 0xFFFF) | ((CMD_POLYGON | CMD_JUMP) << 16);
-        w[1] = pair(PMOD_NO_ECD_SPD, 0);
+        int32_t x0, y0, x1, y1;
+        commandBox(cmds[s].w, x0, y0, x1, y1);
+        gDipBox[0] = min(gDipBox[0], x0);
+        gDipBox[1] = min(gDipBox[1], y0);
+        gDipBox[2] = max(gDipBox[2], x1);
+        gDipBox[3] = max(gDipBox[3], y1);
+    }
+}
+
+bool facesFloorDipDrawn()
+{
+    return gDipBox[0] <= gDipBox[2];
+}
+
+void facesFloorMasks(int32_t first, int32_t end)
+{
+    if (first == end || gMaskCount == MASKS_MAX)
+        return;
+    gMasks[gMaskCount].first = int16_t(first);
+    gMasks[gMaskCount].end = int16_t(end);
+    gMaskCount++;
+}
+
+// Each mask's slot becomes the clip, jumping to its polygon at the list's end, which goes on where it went;
+// so the buckets are joined by now.
+static void masksDraw(CommandList &list, Command* cmds)
+{
+    const int32_t bx0 = max(gDipBox[0], 0), by0 = max(gDipBox[1], 0);
+    const int32_t bx1 = min(gDipBox[2], FRAME_WIDTH - 1), by1 = min(gDipBox[3], FRAME_HEIGHT - 1);
+    for (int32_t i = 0; i < gMaskCount; i++)
+    {
+        for (int32_t s = gMasks[i].first; s < gMasks[i].end; s++)
+        {
+            uint32_t* w = cmds[s].w;
+            int32_t x0, y0, x1, y1;
+            commandBox(w, x0, y0, x1, y1);
+            if (x0 > bx1 || x1 < bx0 || y0 > by1 || y1 < by0 || bx0 > bx1 || by0 > by1 || list.cmd == list.end)
+            {
+                w[0] = (w[0] & 0xFFFF) | (CMD_SKIP_JUMP << 16);
+                continue;
+            }
+            uint32_t* face = list.cmd;
+            face[0] = (w[0] & 0xFFFF) | ((CMD_POLYGON | CMD_JUMP) << 16);
+            face[1] = pair(PMOD_NO_ECD_SPD | PMOD_USER_CLIP, 0);
+            for (int32_t k = 3; k < 8; k++) {
+                face[k] = w[k];
+            }
+            w[0] = ((CMD_USER_CLIP | CMD_JUMP) << 16) | list.link;
+            w[3] = pair(bx0, by0);
+            w[5] = pair(bx1, by1);
+            list.cmd += 8;
+            list.grd += 2;
+            list.link += sizeof(Command) >> 3;
+            list.grdLink += 1 << 16;
+        }
     }
 }
 
@@ -1383,6 +1453,7 @@ static void underRoom(CommandList &list, Command* cmds, int32_t first, int32_t e
 void facesUnderFloor(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const void* portals, CommandList &list,
                      Command* cmds)
 {
+    masksDraw(list, cmds);
     if (!gUnderCount || !columnsMake(rooms, count, level, portals))
         return;
     for (int32_t i = 0; i < gUnderCount; i++) {

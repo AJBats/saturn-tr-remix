@@ -385,8 +385,9 @@ def take_masks(lvl, floor):
     """In a room with part of its floor on the plane, faces wholly at or under the floor, some of them under
     it, are a dip. VDP1 is always in front of VDP2, so a dip paints over the plane's tiles beside it, where a
     floor face drawn after it would have hidden it. So the plane's tiles round each dip stay in the rooms as
-    quads too, at the ends of their lists, room.masks of them, and draw as colour 0 (frame.cpp), which shows
-    the plane through: a floor face's place in the draw order, VDP2's pixels."""
+    quads too, at the ends of their lists, room.masks of them, and draw as colour 0 where the dip's faces were
+    drawn (faces.cpp facesFloorMasks), which shows the plane through: a floor face's place in the draw order,
+    VDP2's pixels. The dip's faces go before them: room.dip_quads, dip_triangles."""
     tiles = {}      # (sector x, sector z) -> (room, texture, corners)
     for room in lvl.rooms:
         for tex, corners in getattr(room, "plane_faces", []):
@@ -398,6 +399,7 @@ def take_masks(lvl, floor):
         if not hasattr(room, "plane_faces"):
             continue
         boxes = []
+        dips = {4: [], 3: []}
         for faces, count in ((room.quads, 4), (room.triangles, 3)):
             for f in faces:
                 vs = [room.vertices[i] for i in f[:count]]
@@ -405,6 +407,7 @@ def take_masks(lvl, floor):
                 if min(ys) >= floor and max(ys) > floor:
                     xs, zs = [v[0] + room.x for v in vs], [v[2] + room.z for v in vs]
                     boxes.append([min(xs), min(zs), max(xs), max(zs)])
+                    dips[count].append(f)
         joined = True
         while joined:
             joined = False
@@ -418,11 +421,11 @@ def take_masks(lvl, floor):
                         break
                 if joined:
                     break
+        if sum((b[2] - b[0] + 1023 >> 10) * (b[3] - b[1] + 1023 >> 10) for b in boxes) > RIM_MOST:
+            print(f"{lvl.name}: room {room.index}: too much under the floor for a dip, left")
+            continue
+        room.dip_quads, room.dip_triangles = dips[4], dips[3]
         for x0, z0, x1, z1 in boxes:
-            sectors = (x1 - x0 + 1023 >> 10) * (z1 - z0 + 1023 >> 10)
-            if sectors > RIM_MOST:
-                print(f"{lvl.name}: room {room.index}: {sectors} sectors under the floor: not a dip, left")
-                continue
             print(f"{lvl.name}: room {room.index}: a dip at sectors x {x0 >> 10}-{(x1 - 1) >> 10} z {z0 >> 10}-{(z1 - 1) >> 10}")
             for sx in range((x0 >> 10) - MASK_RING, ((x1 - 1) >> 10) + MASK_RING + 1):
                 for sz in range((z0 >> 10) - MASK_RING, ((z1 - 1) >> 10) + MASK_RING + 1):
@@ -832,8 +835,10 @@ class Packer:
             y_bottom = max(ys) if ys else room.y_bottom
             packed = [(x >> 8, (y - y_top) >> 8, z >> 8) for x, y, z, _ in room.vertices]
             masks = getattr(room, "masks", 0)
-            room_quads, facing = sort_room_quads(packed, room.quads[:len(room.quads) - masks])
-            room_quads = room_quads + room.quads[len(room.quads) - masks:]
+            dip_quads = getattr(room, "dip_quads", [])
+            dip_triangles = getattr(room, "dip_triangles", [])
+            room_quads, facing = sort_room_quads(packed, [q for q in room.quads[:len(room.quads) - masks] if q not in dip_quads])
+            room_quads = room_quads + list(dip_quads) + room.quads[len(room.quads) - masks:]
 
             # corners as byte offsets into the room's projected vertices
             # (render.h cornerOffset), which faces.s adds without a shift
@@ -846,7 +851,7 @@ class Packer:
                          v0 * VERTEX_SIZE, v1 * VERTEX_SIZE, v2 * VERTEX_SIZE, v3 * VERTEX_SIZE)
 
             triangles = out.align4()
-            for v0, v1, v2, tex in room.triangles:
+            for v0, v1, v2, tex in [t for t in room.triangles if t not in dip_triangles] + list(dip_triangles):
                 out.pack("I4H", (FACE_TYPE_FT << FACE_TYPE_SHIFT) | self.textures.room(tex, False),
                          v0 * VERTEX_SIZE, v1 * VERTEX_SIZE, v2 * VERTEX_SIZE, 0)
 
@@ -862,10 +867,10 @@ class Packer:
                 x, y, z, color = room.vertices[vertex]
                 out.pack("3h2B", x, y, z, shade_from_color16(color) * 8, tex)
 
-            # right after its sprites (types.h RoomGeometry.water): how many of its quads are masks; its
-            # water (faces.h facesShimmers): sheets at a height, seen from above or below, each a list of
-            # runs of sectors along x
-            out.pack("H", masks)
+            # right after its sprites (types.h RoomGeometry.water): how many quads and triangles at the ends
+            # of its lists are a dip and how many quads after them masks; its water (faces.h facesShimmers):
+            # sheets at a height, seen from above or below, each a list of runs of sectors along x
+            out.pack("3H", len(dip_quads), len(dip_triangles), masks)
             sheets = getattr(room, "water", [])
             out.pack("H", len(sheets))
             for y, up, runs in sheets:
