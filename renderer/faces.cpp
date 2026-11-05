@@ -1467,13 +1467,14 @@ void facesUnderFloor(const FaceRoom* rooms, uint32_t count, const RoomLevel* lev
 
 #ifndef RENDER_LAB
 
-#define SHIMMER_PER_STRETCH 32      // the most a stretch of water places
-#define SHIMMER_CELLS_FROM  8       // from so many owed, a sector goes a cell at a time
 #define SHIMMER_FAR         (20 * 1024)
 #define SHIMMER_ROOM_LEFT   32      // the list's commands they leave for what's kept to a floor's openings
 #define PIECES_MAX          16
 #define SHIMMER_TABLES      12
 #define SHIMMER_BAG         64
+#define SHIMMER_BORN_MAX    128     // the most born in a frame
+#define SHIMMER_HEIGHTS     16      // of water, in a level
+#define SHIMMER_ROOMS       64      // MAX_FRAME_ROOMS
 
 struct ShimmerPiece
 {
@@ -1484,16 +1485,34 @@ struct ShimmerPiece
 };
 static_assert(sizeof(ShimmerPiece) == 16, "shimmers.s");
 
-// By its age, coming and going: PMOD_MESH >> 1 for half tone, and how many tones dimmer.
+// A shimmer, from its birth (shimmers.s).
+struct ShimmerLife
+{
+    int16_t x, z;           // in the world, 16 to a unit
+    uint8_t height;         // its sums in the sheet's heights, in bytes
+    uint8_t room, level;    // its room, for its clip; how dim
+    uint8_t piece;          // in gShimmerPieces, in bytes
+};
+static_assert(sizeof(ShimmerLife) == 8, "shimmers.s");
+
+// By its age, coming and going: half tone, and how many tones dimmer.
 static const uint8_t kShimmerAges[8] = { 0x80 | 4, 2, 1, 0, 0, 1, 2, 0x80 | 4 };
 
 static int32_t gShimmerOneIn = 150;
 static ShimmerPiece gShimmerPieces[PIECES_MAX];
 static uint8_t gShimmerBag[SHIMMER_BAG];            // pieces by chance, as offsets into gShimmerPieces
-static uint32_t gShimmerTables;                     // the colour tables / 8
+static uint32_t gShimmerW1[8][2 * SHIMMER_TABLES];  // by age, then level: art's first word pair, then a line's
 static int32_t gShimmerSpriteDd;                    // from this divTable value, art; below it, a line
-static uint16_t gShimmerColours[SHIMMER_TABLES];    // the tables' colour
 static int32_t gShimmerDepth[81];   // z in steps of 256 to sectors owed, for a height of 1, 4 bits of fraction
+static ShimmerLife gShimmerLives[8][SHIMMER_BORN_MAX];  // by the frame they were born, of 8
+static int32_t gShimmerLived[8];
+static uint32_t gShimmerLastFrame;
+static int16_t gShimmerClips[256][4];               // each room's window this frame, from the frame's middle: x0 x1 y0 y1
+static uint8_t gShimmerClipped[SHIMMER_ROOMS];      // the rooms with one
+static int32_t gShimmerClippedCount;
+static int32_t gShimmerHeights[SHIMMER_HEIGHTS][3]; // each height's X Y Z sums this frame
+static int16_t gShimmerHeightY[SHIMMER_HEIGHTS];
+static int32_t gShimmerHeightCount;
 
 void facesShimmersDensity(int32_t oneIn)
 {
@@ -1540,12 +1559,24 @@ void facesShimmersInit(uint32_t vram, const uint8_t* art)
         const int64_t z = (i + (i ? 0 : 1)) * 256 + 128;
         gShimmerDepth[i] = int32_t(((((int64_t(1048576) * 53760 / (z * z)) << 20) / z) * (8192 + z) / 8192) >> 12);
     }
+    for (int32_t i = 0; i < 8; i++) {
+        gShimmerLived[i] = 0;
+    }
+    gShimmerHeightCount = 0;
+    for (int32_t i = 0; i < 256; i++)
+    {
+        gShimmerClips[i][0] = 0x7FFF;
+        gShimmerClips[i][1] = -0x7FFF;
+    }
+    gShimmerClippedCount = 0;
     // no room for art: lines alone, of this piece's width
     gShimmerPieces[0].w = 5;
     gShimmerPieces[0].kind = 2;
     gShimmerPieces[0].count = 1;
     gShimmerSpriteDd = 0x7FFFFFFF;
     int32_t made = 0;
+    uint32_t tables = 0;
+    uint16_t colours[SHIMMER_TABLES] = {};
     if (vram && art)
     {
         uint32_t at = (vram + 7) & ~7u;
@@ -1553,14 +1584,14 @@ void facesShimmersInit(uint32_t vram, const uint8_t* art)
         volatile uint16_t* const base = (volatile uint16_t*)VDP1_VRAM;
         const int32_t own = (art[0] << 8) | art[1];
         const int32_t ownR = own & 31, ownG = (own >> 5) & 31, ownB = (own >> 10) & 31;
-        gShimmerTables = at >> 3;
+        tables = at >> 3;
         for (int32_t t = 0; t < SHIMMER_TABLES; t++)
         {
             const int32_t add = 8 - 2 * t;
             const int32_t r = X_CLAMP_5(ownR + add), g = X_CLAMP_5(ownG + add), b = X_CLAMP_5(ownB + add);
-            gShimmerColours[t] = uint16_t(0x8000 | (b << 10) | (g << 5) | r);
+            colours[t] = uint16_t(0x8000 | (b << 10) | (g << 5) | r);
             for (int32_t i = 0; i < 16; i++) {
-                base[(at + t * 32 + i * 2) >> 1] = i ? gShimmerColours[t] : 0;
+                base[(at + t * 32 + i * 2) >> 1] = i ? colours[t] : 0;
             }
         }
         at += SHIMMER_TABLES * 32;
@@ -1604,6 +1635,17 @@ void facesShimmersInit(uint32_t vram, const uint8_t* art)
         }
     }
     shimmersBag(max(made, 1));
+    for (int32_t age = 0; age < 8; age++)
+    {
+        const int32_t dimmer = kShimmerAges[age] & 0x7F;
+        const uint32_t mesh = kShimmerAges[age] & 0x80 ? PMOD_MESH : 0;
+        for (int32_t level = 0; level < SHIMMER_TABLES; level++)
+        {
+            const int32_t tone = min(level + dimmer, SHIMMER_TABLES - 1);
+            gShimmerW1[age][level] = pair(PMOD_ECD_OFF | PMOD_LUT16 | mesh, tables + tone * 4);
+            gShimmerW1[age][SHIMMER_TABLES + level] = pair(PMOD_NO_ECD_SPD, colours[tone]);
+        }
+    }
 }
 
 static inline int32_t absOf(int32_t v)
@@ -1611,27 +1653,58 @@ static inline int32_t absOf(int32_t v)
     return v < 0 ? -v : v;
 }
 
-static_assert(offsetof(ShimmerSheet, spriteDd) == 40 && offsetof(ShimmerSheet, height) == 60 &&
-              offsetof(ShimmerSheet, turn) == 88 && offsetof(ShimmerSheet, oz) == 116 &&
-              offsetof(ShimmerSheet, nearCell) == 140 && offsetof(ShimmerSheet, right) == 144 &&
-              offsetof(ShimmerSheet, top) == 204 && offsetof(ShimmerSheet, cell) == 228, "shimmers.s");
+static_assert(offsetof(ShimmerSheet, frame) == 40 && offsetof(ShimmerSheet, stopDraw) == 60 &&
+              offsetof(ShimmerSheet, lives) == 72 && offsetof(ShimmerSheet, oz) == 116 &&
+              offsetof(ShimmerSheet, right) == 140 && offsetof(ShimmerSheet, top) == 188, "shimmers.s");
 
-// One side of the room's clip, for facesShimmersAsm: a value linear in a sector's x and z.
-static void shimmerPlane(ShimmerPlane &p, int32_t side, int32_t sign, int32_t o, int32_t e, int32_t f, int32_t oz, int32_t ez, int32_t fz)
+// One side of the room's clip, for facesShimmersBornAsm: a value linear in a sector's x and z.
+static void shimmerSide(ShimmerSide &p, int32_t side, int32_t sign, int32_t o, int32_t e, int32_t f, int32_t oz, int32_t ez, int32_t fz)
 {
     p.o = sign * (o - side * (oz >> 8));
     p.e = sign * (e - ((side * ez) >> 8));
     p.f = sign * (f - ((side * fz) >> 8));
     p.past = ((absOf(p.e) + absOf(p.f)) >> 1) + 512;    // 512: what the sums round off
-    p.pastCell = ((absOf(p.e) + absOf(p.f)) >> 3) + 512;
 }
 
-void facesShimmers(const FaceRoom &room, const uint8_t* water, int32_t yTop, RoomRun &run)
+// a * b >> 16
+static inline int32_t shimmerQ16(int32_t a, int32_t b)
 {
-    if (!gShimmerOneIn)
+    int32_t high, low;
+    asm volatile("dmuls.l %2, %3\n\tsts mach, %0\n\tsts macl, %1\n\txtrct %0, %1"
+                 : "=&r"(high), "=&r"(low) : "r"(a), "r"(b) : "macl", "mach");
+    return low;
+}
+
+static int32_t shimmerHeight(int32_t y, const int16_t* m, const int32_t* cam, const int32_t* base)
+{
+    for (int32_t i = 0; i < gShimmerHeightCount; i++)
+    {
+        if (gShimmerHeightY[i] == y)
+            return i * 12;
+    }
+    if (gShimmerHeightCount == SHIMMER_HEIGHTS)
+        return -1;
+    const int32_t i = gShimmerHeightCount++;
+    gShimmerHeightY[i] = int16_t(y);
+    const int32_t dy = y - cam[1];
+    gShimmerHeights[i][0] = base[0] + ((m[1] * dy) >> 4);
+    gShimmerHeights[i][1] = base[1] + ((m[4] * dy) >> 4);
+    gShimmerHeights[i][2] = base[2] + ((m[7] * dy) >> 4);
+    return i * 12;
+}
+
+void facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const RoomGeometry* geometry, RoomRun &run)
+{
+    if (!gShimmerOneIn || !count)
         return;
     CommandList &list = *run.list;
-    const int16_t* const m = room.m;
+    const int16_t* const m = rooms[0].m;
+    const uint32_t frame = run.frame;
+    for (uint32_t f = gShimmerLastFrame + 1, k = 0; f <= frame && k < 8; f++, k++) {
+        gShimmerLived[f & 7] = 0;
+    }
+    gShimmerLastFrame = frame;
+
     ShimmerSheet s;
     s.list = &list;
     s.stop = list.end - SHIMMER_ROOM_LEFT * 8;
@@ -1639,53 +1712,152 @@ void facesShimmers(const FaceRoom &room, const uint8_t* water, int32_t yTop, Roo
     s.depth = gShimmerDepth;
     s.bag = gShimmerBag;
     s.pieces = gShimmerPieces;
-    s.colours = gShimmerColours;
-    s.ages = kShimmerAges;
-    s.tables = gShimmerTables;
-    s.frame = run.frame;
+    s.clips = gShimmerClips[0];
+    const int16_t rows[6] = { m[6], m[8], m[0], m[2], m[3], m[5] };
+    s.rows = rows;
+    s.heights = gShimmerHeights[0];
+    s.frame = frame;
     s.spriteDd = gShimmerSpriteDd;
-    s.x0 = room.clip[0] - (FRAME_WIDTH >> 1);
-    s.y0 = room.clip[1] - (FRAME_HEIGHT >> 1);
-    s.x1 = room.clip[2] - (FRAME_WIDTH >> 1);
-    s.y1 = room.clip[3] - (FRAME_HEIGHT >> 1);
-    s.m0 = m[0], s.m2 = m[2], s.m3 = m[3], s.m5 = m[5], s.m6 = m[6], s.m8 = m[8];
-    s.turn = room.room * 97;
-    const int32_t ex = m[0] * 16, ey = m[3] * 16, ez = m[6] * 16;   // a sector along x, on the view
-    const int32_t fx = m[2] * 16, fy = m[5] * 16, fz = m[8] * 16;   // ... along z
-    s.ex = ex, s.ey = ey, s.ez = ez;
-    s.fx = fx, s.fy = fy, s.fz = fz;
-    s.reach = (absOf(ez) + absOf(fz)) >> 1;                         // from a sector's middle to its corners
-    s.nearZ = (NEAR_PLANE << 8) - s.reach;
-    s.farZ = (SHIMMER_FAR << 8) + s.reach;
-    s.nearCell = (NEAR_PLANE << 8) - (s.reach >> 2);
-    const int32_t owed = (16 * 256) / gShimmerOneIn;
+    s.reach = 724 >> 4;
+    s.tableReach = 1280 - 5;
+    s.divLast = 1280;
 
-    int32_t sheets = (water[0] << 8) | water[1];
-    const uint8_t* p = water + 2;
-    for (; sheets > 0; sheets--)
+    // the camera in the world, and what it takes off a shimmer on the view's rows
+    const RoomLevel &first = level[rooms[0].room];
+    const int32_t cam[3] = { rooms[0].camera[0] + (first.x << 8), rooms[0].camera[1] + first.yTop, rooms[0].camera[2] + (first.z << 8) };
+    const int32_t base[3] = {
+        -int32_t((int64_t(m[0]) * cam[0] + int64_t(m[2]) * cam[2]) >> 4),
+        -int32_t((int64_t(m[3]) * cam[0] + int64_t(m[5]) * cam[2]) >> 4),
+        -int32_t((int64_t(m[6]) * cam[0] + int64_t(m[8]) * cam[2]) >> 4)
+    };
+    gShimmerHeightCount = 0;
+
+    // this frame's windows
+    for (int32_t i = 0; i < gShimmerClippedCount; i++)
     {
-        const int32_t y = int16_t((p[0] << 8) | p[1]);
-        const int32_t up = p[2];
-        const int32_t runs = p[3];
-        p += 4;
-        const int32_t relY = y - yTop;
-        const int32_t height = room.camera[1] - relY;
-        if ((height < 0) == (up != 0))
+        gShimmerClips[gShimmerClipped[i]][0] = 0x7FFF;
+        gShimmerClips[gShimmerClipped[i]][1] = -0x7FFF;
+    }
+    gShimmerClippedCount = min(int32_t(count), SHIMMER_ROOMS);
+    for (int32_t i = 0; i < gShimmerClippedCount; i++)
+    {
+        const FaceRoom &room = rooms[i];
+        gShimmerClipped[i] = uint8_t(room.room);
+        int16_t* const c = gShimmerClips[uint8_t(room.room)];
+        c[0] = int16_t(room.clip[0] - (FRAME_WIDTH >> 1));
+        c[1] = int16_t(room.clip[2] - (FRAME_WIDTH >> 1));
+        c[2] = int16_t(room.clip[1] - (FRAME_HEIGHT >> 1));
+        c[3] = int16_t(room.clip[3] - (FRAME_HEIGHT >> 1));
+    }
+
+    // the new ones
+    s.lives = gShimmerLives[frame & 7];
+    s.livesEnd = gShimmerLives[frame & 7] + SHIMMER_BORN_MAX;
+    const int32_t owed = (16 * 256) / gShimmerOneIn;
+    bool room_left = true;
+    int32_t lastOwed = -1;
+    int32_t slotZ[8];
+    for (uint32_t i = 0; i < count && room_left; i++)
+    {
+        const FaceRoom &room = rooms[i];
+        const uint16_t* after = (const uint16_t*)geometry[room.room].water;
+        if (!after || !after[3])
+            continue;
+        const uint8_t* water = (const uint8_t*)(after + 3);
+        const RoomLevel &r = level[room.room];
+        const int16_t* const rm = room.m;
+        const int32_t ex = rm[0] * 16, ey = rm[3] * 16, ez = rm[6] * 16;    // a sector along x, on the view
+        const int32_t fx = rm[2] * 16, fy = rm[5] * 16, fz = rm[8] * 16;    // ... along z
+        s.turn = room.room * 97;
+        s.room = room.room;
+        s.clip = gShimmerClips[uint8_t(room.room)];
+        s.wx = (r.x << 4) + 32;
+        s.wz = (r.z << 4) + 32;
+        s.ez = ez;
+        s.fz = fz;
+        const int32_t reach = (absOf(ez) + absOf(fz)) >> 1;
+        s.reachZ = reach;
+        s.nearZ = (NEAR_PLANE << 8) - reach;
+        s.farZ = (SHIMMER_FAR << 8) + reach;
+        const int32_t x0 = room.clip[0] - (FRAME_WIDTH >> 1), y0 = room.clip[1] - (FRAME_HEIGHT >> 1);
+        const int32_t x1 = room.clip[2] - (FRAME_WIDTH >> 1), y1 = room.clip[3] - (FRAME_HEIGHT >> 1);
+
+        int32_t sheets = (water[0] << 8) | water[1];
+        const uint8_t* p = water + 2;
+        for (; sheets > 0 && room_left; sheets--)
         {
-            s.height = absOf(height) * owed;
-            const int32_t vy = relY >> 6;
-            // the sheet's first sector's middle
-            s.ox = m[1] * vy + room.t[0] + ((ex + fx) >> 1);
-            s.oy = m[4] * vy + room.t[1] + ((ey + fy) >> 1);
-            s.oz = m[7] * vy + room.t[2] + ((ez + fz) >> 1);
-            shimmerPlane(s.right, s.x1, 1, s.ox, ex, fx, s.oz, ez, fz);
-            shimmerPlane(s.left, s.x0, -1, s.ox, ex, fx, s.oz, ez, fz);
-            shimmerPlane(s.bottom, s.y1, 1, s.oy, ey, fy, s.oz, ez, fz);
-            shimmerPlane(s.top, s.y0, -1, s.oy, ey, fy, s.oz, ez, fz);
-            if (runs && !facesShimmersAsm(&s, p, runs))
-                return;
+            const int32_t y = int16_t((p[0] << 8) | p[1]);
+            const int32_t up = p[2];
+            const int32_t bx0 = p[4], bz0 = p[5], bx1 = p[6], bz1 = p[7];
+            const uint8_t* const counts = p + 8;
+            p += 16;
+            int32_t sectors = 0;
+            for (int32_t k = 0; k < 8; k++) {
+                sectors += counts[k];
+            }
+            const uint8_t* const list = p;
+            p += sectors * 3 + (sectors & 1);
+            const int32_t relY = y - r.yTop;
+            const int32_t height = room.camera[1] - relY;
+            if ((height < 0) == (up != 0))
+            {
+                const int32_t heightAt = shimmerHeight(y, m, cam, base);
+                if (heightAt >= 0)
+                {
+                    s.height = heightAt;
+                    s.owed = absOf(height) * owed;
+                    // for the first 8 slots, the z past which a sector doesn't owe that many
+                    if (s.owed != lastOwed)
+                    {
+                        lastOwed = s.owed;
+                        int32_t step = 80;
+                        slotZ[0] = s.farZ;
+                        for (int32_t k = 1; k < 8; k++)
+                        {
+                            while (step > 0 && shimmerQ16(gShimmerDepth[step], s.owed) < k << 4) {
+                                step--;
+                            }
+                            slotZ[k] = (step + 1) << 16;
+                        }
+                    }
+                    const int32_t vy = relY >> 6;
+                    // the sheet's first sector's middle
+                    const int32_t ox = rm[1] * vy + room.t[0] + ((ex + fx) >> 1);
+                    const int32_t oy = rm[4] * vy + room.t[1] + ((ey + fy) >> 1);
+                    s.oz = rm[7] * vy + room.t[2] + ((ez + fz) >> 1);
+                    shimmerSide(s.right, x1, 1, ox, ex, fx, s.oz, ez, fz);
+                    shimmerSide(s.left, x0, -1, ox, ex, fx, s.oz, ez, fz);
+                    shimmerSide(s.bottom, y1, 1, oy, ey, fy, s.oz, ez, fz);
+                    shimmerSide(s.top, y0, -1, oy, ey, fy, s.oz, ez, fz);
+                    const int32_t nearest = s.oz + (ez > 0 ? ez * bx0 : ez * bx1) + (fz > 0 ? fz * bz0 : fz * bz1) - reach;
+                    const uint8_t* q = list;
+                    for (uint32_t k = 0; k < 8 && room_left; k++)
+                    {
+                        // those starting on this frame in 8: this frame's slot is this one of the first 8
+                        const int32_t n = counts[k];
+                        const uint32_t slot = (frame - k) & 7;
+                        s.oneZ = min(slotZ[slot] + reach, s.farZ);
+                        if (n && nearest <= s.oneZ && !facesShimmersBornAsm(&s, q, n, slot)) {
+                            room_left = false;
+                        }
+                        q += n * 3;
+                    }
+                }
+            }
         }
-        p += runs * 4;
+    }
+    gShimmerLived[frame & 7] = int32_t((ShimmerLife*)s.lives - gShimmerLives[frame & 7]);
+
+    // all that are alive
+    for (uint32_t age = 0; age < 8; age++)
+    {
+        const uint32_t born = (frame - age) & 7;
+        const int32_t alive = gShimmerLived[born];
+        if (!alive)
+            continue;
+        s.stopDraw = (kShimmerAges[age] & 0x80) != 0;
+        if (!facesShimmersDrawAsm(&s, gShimmerLives[born], alive, gShimmerW1[age]))
+            return;
     }
 }
 

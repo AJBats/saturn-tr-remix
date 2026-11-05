@@ -874,9 +874,23 @@ class Packer:
             sheets = getattr(room, "water", [])
             out.pack("H", len(sheets))
             for y, up, runs in sheets:
-                out.pack("hBB", y, up, len(runs))
+                # its sectors by the frame in 8 they're born on (faces.cpp facesShimmersFrame): how many
+                # on each, then each's z, x, shade
+                by_frame = [[] for _ in range(8)]
                 for z, x0, count, shade in runs:
-                    out.pack("4B", z, x0, count, shade)
+                    for x in range(x0, x0 + count):
+                        by_frame[((z * 2654435761 + x * 40503 + room.index * 97) >> 13) & 7].append((z, x, shade))
+                out.pack("hBB", y, up, 0)
+                out.pack("4B", min(r[1] for r in runs), min(r[0] for r in runs),
+                         max(r[1] + r[2] for r in runs) - 1, max(r[0] for r in runs))
+                out.pack("8B", *[len(b) for b in by_frame])
+                count = 0
+                for b in by_frame:
+                    for z, x, shade in b:
+                        out.pack("3B", z, x, shade)
+                        count += 1
+                if count & 1:
+                    out.pack("B", 0)
 
             portals = out.align4()
             for p_room, normal, verts in room.portals:

@@ -509,13 +509,7 @@ static void slaveRooms(void*)
     }
     // water's shimmers all at once: room by room, between the rooms' faces, the two would turn each other
     // out of the cache
-    for (uint32_t i = 0; i < gFrameRoomCount; i++)
-    {
-        const uint16_t* after = (const uint16_t*)roomsGeometryTable()[gFrameRooms[i].room].water;
-        if (after && after[3]) {
-            facesShimmers(gFrameRooms[i], (const uint8_t*)(after + 3), roomsLevelTable()[gFrameRooms[i].room].yTop, gRoomRun);
-        }
-    }
+    facesShimmersFrame(gFrameRooms, gFrameRoomCount, roomsLevelTable(), roomsGeometryTable(), gRoomRun);
 #endif
     stageEnd(STAGE_ROOMS);
     if (*uncached(&gNextWork))

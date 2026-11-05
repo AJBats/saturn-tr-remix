@@ -284,7 +284,7 @@ struct PoseShadow
 
 struct RoomLevel
 {
-    int16_t x, z;           // its place, in sectors
+    int16_t x, z;           // its place, in steps of 256
     int16_t yTop;
     uint8_t flags;          // ROOM_FLAG_WATER
     uint8_t portals;
