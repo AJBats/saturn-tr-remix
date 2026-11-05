@@ -39,7 +39,8 @@ static int32_t gListCopied;
 static_assert(offsetof(RoomsContext, verticesTop) == 152 && offsetof(RoomsContext, hidden) == 156 &&
               offsetof(RoomsContext, seenNear) == 160 && offsetof(RoomsContext, tiny) == 164 &&
               offsetof(RoomsContext, boxes) == 168 && offsetof(RoomsContext, boxCount) == 172 &&
-              offsetof(RoomsContext, solid) == 176 && offsetof(RoomsContext, solidCount) == 180,
+              offsetof(RoomsContext, solid) == 176 && offsetof(RoomsContext, solidCount) == 180 &&
+              offsetof(RoomsContext, divFrom) == 184 && offsetof(RoomsContext, zTop) == 188,
               "rooms.s's RoomsContext");
 static_assert(sizeof(BoxSeen) == 40 && offsetof(BoxSeen, near) == 8 && offsetof(BoxSeen, lo) == 12 &&
               offsetof(BoxSeen, hi) == 24 && offsetof(BoxSeen, area) == 36 && sizeof(SolidBox) == 28,
@@ -86,6 +87,8 @@ void roomsInit(const RoomsLevel &level)
     gCtx.k18 = 1 << 18;
     gCtx.k20 = 1 << 20;
     gCtx.viewMax = (1024 * 20) << 14;
+    gCtx.divFrom = divTable + 32;
+    gCtx.zTop = (uint32_t(gCtx.viewMax) >> 18) - 32;
     gCtx.geometry = level.geometry;
     gCtx.rgeo = level.rgeo;
     gCtx.vertices = level.vertices;
@@ -109,6 +112,52 @@ void roomsFarScaled(bool on)
 void roomsFar(int32_t far)
 {
     gCtx.viewMax = far << 14;
+    gCtx.zTop = (uint32_t(gCtx.viewMax) >> 18) - 32;
+}
+
+void roomsPortalsPrepare(void* portals, uint32_t count)
+{
+    struct Portal
+    {
+        uint16_t room;
+        uint8_t facing, edges;
+        int16_t lengths[2];
+        int16_t v[4][3];
+    };
+    Portal* p = (Portal*)portals;
+    for (uint32_t i = 0; i < count; i++, p++)
+    {
+        const int16_t* n = (const int16_t*)&p->facing;
+        const int32_t axis = n[0] ? 0 : n[1] ? 1 : 2;
+        const uint8_t facing = uint8_t(axis * 4 | (n[axis] < 0 ? 0x80 : 0));
+        // a rectangle: corners 1 and 3 each a way along one axis from corner 0, and corner 2 both
+        int32_t along[2] = { -1, -1 };
+        int32_t lengths[2] = {};
+        bool rect = true;
+        for (int32_t e = 0; e < 2; e++)
+        {
+            const int16_t* to = p->v[e ? 3 : 1];
+            for (int32_t k = 0; k < 3; k++)
+            {
+                const int32_t d = to[k] - p->v[0][k];
+                if (d)
+                {
+                    rect = rect && along[e] < 0;
+                    along[e] = k;
+                    lengths[e] = d;
+                }
+            }
+        }
+        for (int32_t k = 0; k < 3 && rect; k++)
+        {
+            rect = p->v[2][k] == p->v[0][k] + (along[0] == k ? lengths[0] : 0) + (along[1] == k ? lengths[1] : 0);
+        }
+        rect = rect && along[0] >= 0 && along[1] >= 0 && lengths[0] == int16_t(lengths[0]) && lengths[1] == int16_t(lengths[1]);
+        p->facing = facing;
+        p->edges = rect ? uint8_t(along[0] | along[1] << 2 | 0x10) : 0;
+        p->lengths[0] = int16_t(lengths[0]);
+        p->lengths[1] = int16_t(lengths[1]);
+    }
 }
 
 #ifndef RENDER_LAB

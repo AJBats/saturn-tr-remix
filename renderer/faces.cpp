@@ -1395,7 +1395,8 @@ static bool columnsMake(const FaceRoom* rooms, uint32_t count, const RoomLevel* 
         for (uint32_t k = 0; k < r.portals; k++, p += 16)
         {
             const int32_t y = p[5];
-            if (p[2] && y >= gFloorY - 2 && y <= gFloorY + 2 && level[uint16_t(p[0])].yTop >= gFloorY - 2) {
+            if ((((const uint8_t*)p)[2] & 12) == 4 && y >= gFloorY - 2 && y <= gFloorY + 2 &&   // its normal's on y
+                level[uint16_t(p[0])].yTop >= gFloorY - 2) {
                 columnsOpening(room, p + 4, r.yTop);
             }
         }

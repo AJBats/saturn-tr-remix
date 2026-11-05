@@ -27,7 +27,15 @@
 ! A portal faces the camera when its normal times its first corner from the
 ! camera is below 0. Every level's normals lie along one axis, +-1 (all 21
 ! levels' 2600 portals), so the corner's offset on that axis and the
-! normal's sign decide it, without the products.
+! normal's sign decide it, without the products. The level's portals come
+! with that in place of the normal (rooms.h roomsPortalsPrepare): the axis
+! and sign, and, nearly all being rectangles square to the axes, the two
+! edges from the first corner as an axis and a length each. A rectangle
+! wholly between z 512 and the far plane takes one corner's 9 products, 6 for
+! the edges, then only sums, and each coordinate one multiply: the same
+! (x >> 14) * d >> 12 as the high longword of (x with its low 14 bits off) *
+! (d << 6), nothing wrapping from z 512. Anything else the careful way, all
+! four corners in full on the frame's stack.
 !
 ! RoomsContext (rooms.h): +0 level (RoomLevel, 16 bytes each), +4 portals
 ! (32 each: room, normal, 4 corners), +8 divTable, +12 camera, +24 view
@@ -45,7 +53,8 @@
 ! (all of them: ROOM_ENTRIES kept); +152 where the vertices stop; +156 by room,
 ! hidden; +160 by room, seen nearer than where it is all at the fog's floor;
 ! +164 windows under so many pixels aren't entered (rooms.h roomsTiny); +168 the
-! solid boxes on the frame (BoxSeen), +172 their count.
+! solid boxes on the frame (BoxSeen), +172 their count; +184 the divide table from
+! its entry 32 (z 512), +188 z >> 18 at the far plane less 32.
 !
 ! A portal whose window lies in a box's rectangle and whose corners are all past
 ! the box's sides that face the camera isn't entered: whatever is seen through it
@@ -93,6 +102,8 @@
     .equ    R_BOX_COUNT,    172
     .equ    R_SOLID,        176
     .equ    R_SOLID_COUNT,  180
+    .equ    R_DIV_FROM,     184
+    .equ    R_Z_TOP,        188
     .equ    BOX,            40      ! BoxSeen
     .equ    BOX_NEAR,       8
     .equ    BOX_LO,         12
@@ -109,8 +120,12 @@
     .equ    L_BLACK,        10
     .equ    L_FIRST,        12
     .equ    PORTAL,         32
-    .equ    P_NORMAL,       2
+    .equ    P_FACING,       2       ! its normal: axis * 4, 0x80 if it's negative
+    .equ    P_EDGES,        3       ! first edge's axis, second's << 2, P_RECT
+    .equ    P_LENGTH1,      4       ! along them (corner 1, corner 3 from corner 0)
+    .equ    P_LENGTH2,      6
     .equ    P_CORNERS,      8
+    .equ    P_RECT,         0x10
     .equ    SEEN,           68
 
     .text
@@ -300,66 +315,208 @@
 4:
     .endm
 
-! checkPortal: r8 the room, r9 the portal, r12 r13 r14 the room's walk
-! translation -> r0 1 when the next room's window grew (its fill counted
-! past the draw distance), else 0; r1 .. r7
+! A rectangle's corner on the frame: its view place r1 r2 r3, out of the fast way past the far
+! plane or under z 512. r4 r5 r6 r7 x0 x1 y0 y1, first: from this corner; r8 ~0x3FFF. r0, r10
+    .macro  RECT_CORNER first, out
+    mov     r3, r10
+    shlr16  r10
+    shlr2   r10
+    mov.l   @(R_Z_TOP,gbr), r0
+    add     #-32, r10
+    cmp/hs  r0, r10
+    bt      \out
+    add     r10, r10
+    mov.l   @(R_DIV_FROM,gbr), r0
+    mov.w   @(r0,r10), r10
+    shll8   r10
+    shlr2   r10
+    mov     r1, r0
+    and     r8, r0
+    dmuls.l r10, r0
+    sts     mach, r0
+    .if \first
+    mov     r0, r4
+    mov     r0, r5
+    .else
+    cmp/gt  r0, r4
+    bf      1f
+    mov     r0, r4
+1:  cmp/gt  r5, r0
+    bf      2f
+    mov     r0, r5
+2:
+    .endif
+    mov     r2, r0
+    and     r8, r0
+    dmuls.l r10, r0
+    sts     mach, r0
+    .if \first
+    mov     r0, r6
+    mov     r0, r7
+    .else
+    cmp/gt  r0, r6
+    bf      3f
+    mov     r0, r6
+3:  cmp/gt  r7, r0
+    bf      4f
+    mov     r0, r7
+4:
+    .endif
+    .endm
+
+! checkPortal, of a portal facing the camera: r8 the room, r9 the portal, r12 r13 r14 the room's
+! walk translation -> r0 1 when the next room's window grew (its fill counted past the draw
+! distance), else 0; r1 .. r7, r11
 .Lcheck:
     mov.l   r10, @-r15
-    mov.l   r11, @-r15
-    add     #-FRAME, r15
-    ! facing the camera: r4 the normal's one component, r2 the first
-    ! corner's offset from the camera on its axis
-    mov.w   @(P_NORMAL,r9), r0
-    tst     r0, r0
+    mov.l   r12, @-r15
+    mov.l   r13, @-r15
+    mov.l   r14, @-r15
+    mov.l   r8, @-r15
+    mov.b   @(P_EDGES,r9), r0
+    tst     #P_RECT, r0
+    bf      .Lrect
+.LrectOut:
+    mov.l   @r15, r8
+    mov.l   @(4,r15), r14
+    mov.l   @(8,r15), r13
+    bra     .Lcareful
+    mov.l   @(12,r15), r12
+
+.Lrect:
+    ! corner 0, by the rows
+    stc     gbr, r6
+    add     #R_ROTATION, r6
+    mov     r9, r3
+    add     #P_CORNERS, r3
+    clrmac
+    mac.w   @r6+, @r3+
+    mac.w   @r6+, @r3+
+    mac.w   @r6+, @r3+
+    add     #-6, r3
+    sts     macl, r1
+    clrmac
+    mac.w   @r6+, @r3+
+    mac.w   @r6+, @r3+
+    mac.w   @r6+, @r3+
+    add     #-6, r3
+    sts     macl, r2
+    clrmac
+    mac.w   @r6+, @r3+
+    mac.w   @r6+, @r3+
+    mac.w   @r6+, @r3+
+    add     r12, r1
+    sts     macl, r3
+    add     r13, r2
+    add     r14, r3
+    ! the first edge on the view, by its one axis's column
+    add     #-18, r6
+    mov.w   @(P_LENGTH1,r9), r0
+    mov     r0, r7
+    mov.b   @(P_EDGES,r9), r0
+    and     #3, r0
+    add     r0, r0
+    mov.w   @(r0,r6), r12
+    add     #6, r0
+    muls.w  r12, r7
+    mov.w   @(r0,r6), r13
+    sts     macl, r12
+    add     #6, r0
+    muls.w  r13, r7
+    mov.w   @(r0,r6), r14
+    sts     macl, r13
+    muls.w  r14, r7
+    sts     macl, r14
+    mov     #-64, r8
+    shll8   r8                      ! ~0x3FFF
+    RECT_CORNER 1, .LrectOut
+    add     r12, r1
+    add     r13, r2
+    add     r14, r3
+    RECT_CORNER 0, .LrectOut
+    ! the second edge likewise: corner 2
+    mov.w   @(P_LENGTH2,r9), r0
+    mov     r0, r10
+    mov.b   @(P_EDGES,r9), r0
+    shlr2   r0
+    and     #3, r0
+    add     r0, r0
+    stc     gbr, r11
+    add     #R_ROTATION, r11
+    mov.w   @(r0,r11), r8
+    add     #6, r0
+    muls.w  r8, r10
+    sts     macl, r8
+    add     r8, r1
+    mov.w   @(r0,r11), r8
+    add     #6, r0
+    muls.w  r8, r10
+    sts     macl, r8
+    add     r8, r2
+    mov.w   @(r0,r11), r8
+    muls.w  r8, r10
+    sts     macl, r11               ! the edge's z, for the nearest corner
+    add     r11, r3
+    mov     #-64, r8
+    shll8   r8
+    RECT_CORNER 0, .LrectOut2
+    sub     r12, r1
+    sub     r13, r2
+    sub     r14, r3
+    RECT_CORNER 0, .LrectOut2
+    ! the nearest corner's z, r3 corner 3's; the window in the frame's place, cut to the room's
+    cmp/pl  r14
+    bt      1f
+    add     r14, r3
+1:  neg     r11, r11
+    cmp/pl  r11
     bt      2f
-    mov     r0, r4
-    mov     r8, r1
-    shll2   r1
-    shll2   r1
-    mov.l   @(R_LEVEL,gbr), r0
-    add     r0, r1
-    mov.w   @(L_X,r1), r0
-    shll8   r0
+    add     r11, r3
+2:  mov     r3, r11
+    mov.l   @r15, r8
+    mov     r8, r10
+    shll2   r10
+    shll2   r10
+    mov.l   @(R_CLIP,gbr), r0
+    add     r0, r10
+    mov     #88, r0
+    shll    r0                      ! FRAME_WIDTH / 2
+    add     r0, r4
+    add     r0, r5
+    mov     #112, r0                ! FRAME_HEIGHT / 2
+    add     r0, r6
+    add     r0, r7
+    mov     r4, r1
+    mov.l   @(0,r10), r0
+    cmp/gt  r1, r0
+    bf      3f
+    mov     r0, r1
+3:  mov     r5, r3
+    mov.l   @(8,r10), r0
+    cmp/gt  r0, r3
+    bf      4f
+    mov     r0, r3
+4:  mov     r6, r2
+    mov.l   @(4,r10), r0
+    cmp/gt  r2, r0
+    bf      5f
     mov     r0, r2
-    mov.w   @(P_CORNERS,r9), r0
-    add     r0, r2
-    mov.l   @(R_CAMERA,gbr), r0
-    bra     4f
-    sub     r0, r2                  ! d.x
-2:  mov.w   @(P_NORMAL+2,r9), r0
-    tst     r0, r0
-    bt      3f
+5:  mov     r7, r4
+    mov.l   @(12,r10), r0
+    cmp/gt  r0, r4
+    bf      6f
     mov     r0, r4
-    mov.w   @(P_CORNERS+2,r9), r0
-    mov     r0, r2
-    mov.l   @(R_CAMERA+4,gbr), r0
-    bra     4f
-    sub     r0, r2                  ! d.y
-3:  mov.w   @(P_NORMAL+4,r9), r0
-    mov     r0, r4
-    mov     r8, r1
-    shll2   r1
-    shll2   r1
-    mov.l   @(R_LEVEL,gbr), r0
-    add     r0, r1
-    mov.w   @(L_Z,r1), r0
-    shll8   r0
-    mov     r0, r2
-    mov.w   @(P_CORNERS+4,r9), r0
-    add     r0, r2
-    mov.l   @(R_CAMERA+8,gbr), r0
-    sub     r0, r2                  ! d.z
-    ! their product 0 or above: away
-4:  tst     r2, r2
-    bt      5f
-    xor     r4, r2
-    cmp/pz  r2
-    bf      1f
-5:  bra     .Lnot
+6:  bra     .Lwindow
+    mov     #0, r10                 ! no corner behind the camera
+.LrectOut2:
+    bra     .LrectOut
     nop
+
     ! the window starts empty about the frame's centre: x0 from the room's
     ! right edge, x1 from its left
-1:  mov.l   @(R_CLIP,gbr), r0
+.Lcareful:
+    add     #-FRAME, r15
+    mov.l   @(R_CLIP,gbr), r0
     mov     r8, r7
     shll2   r7
     shll2   r7
@@ -390,7 +547,7 @@
     mov     r10, r0
     cmp/eq  #4, r0
     bf      1f
-    bra     .Lnot
+    bra     .LnotFrame
     nop
 1:  mov.l   @(R_CLIP,gbr), r0
     mov     r8, r7
@@ -450,7 +607,7 @@
     add     #1, r0
     mov.l   r0, @(R_VOIDS,gbr)
 .Lnofill:
-    bra     .Lnot
+    bra     .LnotFrame
     nop
 
 .Lnear:
@@ -496,7 +653,18 @@
     cmp/gt  r0, r4
     bf      4f
     mov     r0, r4
-4:  cmp/gt  r1, r3
+    ! the nearest corner's z; the frame's stack done with
+4:  mov.l   @(F_PV+8,r15), r11
+    .irp    i, 1, 2, 3
+    mov.l   @(F_PV+12*\i+8,r15), r0
+    cmp/gt  r0, r11
+    bf      5f
+    mov     r0, r11
+5:
+    .endr
+    add     #FRAME, r15
+.Lwindow:
+    cmp/gt  r1, r3
     bt      19f
 20: bra     .Lnot
     nop
@@ -587,13 +755,7 @@
     shll2   r0
     shll2   r0
     shll2   r0
-    .irp    i, 0, 1, 2
-    mov.l   @(F_PV+12*\i+8,r15), r1
-    cmp/gt  r1, r0
-    bt      12f
-    .endr
-    mov.l   @(F_PV+12*3+8,r15), r1
-    cmp/gt  r1, r0
+    cmp/gt  r11, r0
     bf      13f
 12: mov.l   @(R_SEEN_NEAR,gbr), r0
     mov     #1, r1
@@ -617,16 +779,18 @@
     mov.b   r0, @(1,r1)             ! from
     mov.l   r9, @(4,r1)             ! by
 9:  mov     r5, r0
-    add     #FRAME, r15
-    mov.l   @r15+, r11
+.Lend:
+    mov.l   @r15+, r8
+    mov.l   @r15+, r14
+    mov.l   @r15+, r13
+    mov.l   @r15+, r12
     rts
     mov.l   @r15+, r10
+.LnotFrame:
+    add     #FRAME, r15
 .Lnot:
+    bra     .Lend
     mov     #0, r0
-    add     #FRAME, r15
-    mov.l   @r15+, r11
-    rts
-    mov.l   @r15+, r10
 
     ! a corner behind the camera: the window opened to the frame's edges
     ! where the portal's edges cross the near plane
@@ -777,9 +941,30 @@
     mov.l   @(R_PORTALS,gbr), r0
     add     r0, r9
     TRANSLATE
-.Lportal:
+    add     #-12, r15
+    mov.l   r1, @r15                ! the room's origin from the camera, by axis
+    mov.l   r2, @(4,r15)
+    mov.l   r3, @(8,r15)
     tst     r10, r10
     bt      .Lvisited
+    .align  2
+.Lportal:
+    ! its first corner's offset from the camera on the normal's axis, the normal's sign
+    ! xored in: below 0 it faces the camera
+    mov.b   @(P_FACING,r9), r0
+    mov     r0, r2
+    and     #12, r0
+    mov.l   @(r0,r15), r1
+    mov     r9, r3
+    add     #P_CORNERS, r3
+    shlr    r0
+    mov.w   @(r0,r3), r3
+    add     r3, r1
+    tst     r1, r1
+    bt      .Lnextportal
+    xor     r2, r1
+    cmp/pz  r1
+    bt      .Lnextportal
     bsr     .Lcheck
     nop
     tst     r0, r0
@@ -802,10 +987,11 @@
     add     #2, r0
     mov.l   r0, @(R_LIST_END,gbr)
 .Lnextportal:
+    dt      r10
+    bf/s    .Lportal
     add     #PORTAL, r9
-    bra     .Lportal
-    add     #-1, r10
 .Lvisited:
+    add     #12, r15
     mov.l   @r15+, r14
     mov.l   @r15+, r13
     mov.l   @r15+, r12

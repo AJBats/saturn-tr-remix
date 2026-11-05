@@ -509,6 +509,7 @@ static void roomTables()
         }
         g.water = after[0] | after[1] | after[2] | after[3] ? uint32(after) : 0;
     }
+    render::roomsPortalsPrepare(gPortals, portals);
 }
 
 // (before the level's tables are made, they are made flipped)

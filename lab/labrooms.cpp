@@ -10,12 +10,24 @@
 static RoomsContext &gCtx = roomsContext();
 static uint32_t gRoomCount;
 
+struct Portal
+{
+    uint16_t room;
+    int16_t n[3];
+    int16_t v[4][3];
+};
+
 void roomsLabInit()
 {
     RoomsLevel level;
     level.level = sceneArray<const RoomLevel>("RLVL", &gRoomCount);
     level.count = gRoomCount;
-    level.portals = sceneChunk("RPRT");
+    uint32_t portals;
+    const Portal* given = sceneArray<const Portal>("RPRT", &portals);
+    Portal* ready = (Portal*)sceneAlloc(portals * sizeof(Portal));
+    memcpy(ready, given, portals * sizeof(Portal));
+    roomsPortalsPrepare(ready, portals);
+    level.portals = ready;
     level.geometry = sceneArray<const RoomGeometry>("RLGE");
     level.rgeo = sceneArray<uint8_t>("RGEO");
     level.caustics = sceneArray<const RoomCaustics>("CAUW");
@@ -166,7 +178,7 @@ int32_t roomsSeldomCheck()
             return -1;
     }
     const uint32_t* sines = sceneArray<const uint32_t>("SINC");
-    const RoomPortal* portals = (const RoomPortal*)gCtx.portals;
+    const RoomPortal* portals = sceneArray<const RoomPortal>("RPRT");
     RoomsContext ctx = gCtx;
     int32_t view[12];
     ctx.view = view;

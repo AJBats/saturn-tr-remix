@@ -65,6 +65,8 @@ struct RoomsContext
     int32_t boxCount;           // +172 ... isn't entered
     const SolidBox* solid;      // +176 the level's solid boxes, for roomsBoxesAsm
     int32_t solidCount;         // +180
+    const uint16_t* divFrom;    // +184 the divide table from its entry 32 (z 512)
+    int32_t zTop;               // +188 z >> 18 at the far plane, less 32
 };
 
 extern "C" void roomsSeenAsm(RoomsContext* ctx);
@@ -93,6 +95,10 @@ struct RoomsLevel
     const uint32_t* sines;
 };
 void roomsInit(const RoomsLevel &level);
+
+// A level's portals as rooms.s reads them: their normals' 3 int16 turned into what it wants of them (rooms.s
+// P_FACING and on), in place. Corners and next rooms stay as they were.
+void roomsPortalsPrepare(void* portals, uint32_t count);
 
 // The tables roomsInit was given, for the frame's faces.
 const RoomLevel* roomsLevelTable();
