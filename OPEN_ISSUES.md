@@ -3669,7 +3669,7 @@ over 14.6, at most 188 · Fix: medium, parked*
 - To read: `shimmersBorn` and `facesShimmersFrame` in renderer/faces.cpp, renderer/shimmers.s, the sheets seen from below (`up`) and what `(height < 0) != (up != 0)` and `s.owed = absOf(height) * owed` do as the camera crosses the surface.
 
 ### 297. Spots the user picked in play where VDP1 is over
-*Kind: speed - Size: Mednafen's VDP1 reads 100-138% of a 30 fps frame, 20 fps; the Saturn's numbers to come - Fix: to be looked at*
+*Kind: speed - Size: on the Saturn only the Caves' vines are over: 20 fps, VDP1 37.8 ms - Fix: the vines to be looked at; the rest left alone at the user's word*
 
 - The user, walking the review discs in Mednafen, 2026-11-05 (HW_NO_ENEMIES). Lara / camera / pitch and heading of the camera, as the scene page shows them:
   - City of Khamoon, the open view, the one that matters most: room 12, Lara 28699, -1536, 32914, heading 4000; camera 27152, -2103, 32925, 0047 4047. 12 rooms, 778 commands, 46 meshes, vdp1 101, cpu 53.
@@ -3677,6 +3677,17 @@ over 14.6, at most 188 · Fix: medium, parked*
   - Natla's Mines, between two walls, a place players reach easily: room 68, Lara 51178, -9984, 93119, heading c219; camera 52791, -10400, 93038, 0b51 c216. 11 rooms, 623 commands, 39 meshes, vdp1 115, cpu 51.
   - Caves, the vines: room 26, Lara 9590, 5888, 83354, heading 18ab; camera 8282, 5054, 82552, 0014 299a. 3 rooms, 1041 commands, 52 meshes, vdp1 138, cpu 54. The user remembers it dropping frames on the Saturn too.
 - The camera's heading is where Lara is seen from, so `AT_YAW` at the camera's heading gives the same view from `tools/hwtest.sh at`.
+- The same frames, VDP1 list, Mednafen (`tools/stepwise.py`) -> Saturn (`tools/hwtable.py`, tag u1, u1c): Khamoon corner 33.3 -> 27.4 ms; Khamoon open 33.6 -> 26.5; Natla 35.6 -> 27.2; vines 47.7 -> 37.8. The Saturn is 0.76-0.82 of Mednafen at all four. Master's work 13-15 ms at the first three, all at 29.9 fps with no wait on VDP1. Vines 19.9 fps, the master waiting 29.8 ms on VDP1, 20.1 ms of work.
+- The user played the sphinx on the Saturn: "performs perfectly fine". So no solid boxes at Khamoon or the houses for now, though the stepper shows the corner's list is 60% commands that leave no pixel: 511 of 737, 20.1 of 33.3 ms in Mednafen, nearly all room 12 hiding itself and what's behind.
+- Vines, in Mednafen: static 8 alone is 291 commands, 16.4 ms; room 26 19.1 ms, of which 9.9 ms ends up under the vines and 8.5 ms under its own faces; room 27 7.4 ms, of which 4.4 ms is its floor under room 26's. 7 ms has to go on the Saturn.
+- Natla's two houses can both be entered, so their doors and inner walls stay. The left: door 69 opened by the switch at room 71, sector 2,2; inside, Uzi ammo, a big medikit, a puzzle item. The right: door 70 worked by pads at room 67's sectors 3,5, 3,6 and 4,5; a corridor from room 74 with switch 66 in it.
+
+### 298. Walls stand on portals, so the walk looks through more than is open
+*Kind: speed - Size: 5-31% of all portal area by level (Tihocan 31%, Cistern 17%), not yet priced in ms - Fix: small, at pack time, not asked for yet*
+
+- Found at Natla's Mines, room 68's portal to 67: 6144 wide, but three of its six sectors are the right house's front wall, faces of room 68 standing right on the portal's plane. The walk takes the whole slot as open, so all of room 67 behind the wall is in the frame's list: 3.56 ms at the alley in Mednafen, leaving 1% of its pixels.
+- `tools/portalwalls.py [LEVEL ...]` counts it: of each portal, what faces flat on its plane and seen from the side it's looked through cover. Some are 100% covered, so never seen through from that side. Every level has such portals: LEVEL1 6.8%, 2 13.6%, 3A 6.3%, 3B 12.9%, 4 9.4%, 5 5.6%, 6 16.1%, 7A 17.0%, 7B 31.3%, 8A 10.1%, 8B 12.7%, 8C 15.1%, 10A 11.5%, 10B 17.4%, 10C 4.5%.
+- The fix would be in `tools/pack_level.py`: shrink a portal to what's open, or split it into its open parts, or drop it from that side. It costs nothing at run time, works in every state of the level and cuts both the walk and VDP1. To mind: doors. A door's hole isn't covered by a face, so it stays open; a face that moves (a flip map's alternate room) must be tested in each state.
 
 ## Production code: clean-up
 
