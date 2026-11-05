@@ -3778,6 +3778,14 @@ word. Of the same kind and already open: 264, 265, 266.
 
 ## Closed
 
+### 300. A block under a ceiling open to the room above can't be climbed
+*Closed 2026-11-05: 83d938b, one `alterFloor` that does what retail's AlterFloorHeight (`060249a0`) does. Mednafen, played from `tools/hwtest.sh khamoon-block` and `khamoon-stack`: three pulls, the push, the block, the pillar, along the crevice and out into room 5. Before the fix she stood at the block and nothing happened. Saturn not run: no timing or video in it.*
+
+- Reported in play on the Saturn, 2026-11-05: City of Khamoon, room 3, the second block pushed beside the tall pillar (Lara 25700, 2304, 17767). The way Stella's walkthrough solves the level: the block is the only way up out of that room, so the level couldn't be finished.
+- The block's top meets room 3's ceiling at y 1280, and that ceiling is only the opening into room 2. Ours compared the new floor with the sector's own ceiling, took them as met and made the sector solid. Retail reads the ceiling a block above the new floor, through the rooms above, so the floor stays and Lara stands on it.
+- Any block in any level could hit it, wherever it stopped under such a ceiling. The Cistern's item 69 (room 60) started that way, solid; it now has 1536 of head room. It's the only block whose start changes.
+- Thor's hammer and the moving blocks shared the same shortcut in a second copy, and now share the fix.
+
 ### 294. Caves, room 24: a gap in the level shows the old frame
 *Closed 2026-11-05: GAPS in tools/pack_level.py, a triangle added to the level: x 44032 to 44800 at z 66560, y 1792 to 2304, texture 92 as the wall it carries on from. The same view drawn over magenta: 53 pixels -> 0.*
 
