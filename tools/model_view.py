@@ -176,6 +176,15 @@ REX_TAIL_JOINTS = [20, 21, 22, 23, 24]
 
 ANIMAL_FOOT ="Counts of what each side gives the renderer; for milliseconds, run it in the game."
 
+# The Caves' hanging vines: static 8 a square tube of four curtains, static 6 one curtain; every curtain's tiles
+# are drawn from both sides. By place: the rooms they hang in, the rooms around them and a camera (game coordinates).
+VINE_STATICS = (8, 6)
+VINE_PLACES = [{"name": "Room 26: the courtyard with the ramp", "statics": 26, "rooms": (26, 27, 37),
+                "pos": [8293, 5296, 82562], "target": [10852, 5319, 84128]},
+               {"name": "Room 20", "statics": 20, "rooms": (20, 19, 21, 22),
+                "pos": [12800, 2900, 69400], "target": [7600, 2600, 65600]}]
+VINE_LEAVE_OUT = (0, 1, 6, 12, 23, 31, 36, 44)   # tiles under this share filled, in percent, the page's choices
+
 class Atlas(diet.Atlas):
     """diet.Atlas's images packed into one picture, from any level's textures
     (level: those asked for from here on are that level's)."""
@@ -406,6 +415,114 @@ def room_json(lvl, room, means):
     return {"v": vs, "s": shade, "f": faces}
 
 
+def textured_room_json(lvl, room, table, atlas, images):
+    """As room_json, with each quad's real texture: its image in the atlas, once per texture."""
+    out = room_json(lvl, room, [[128, 128, 128]] * len(lvl.room_textures))
+    for f, q in zip(out["f"], room.quads):
+        tex = q[4]
+        if tex not in images:
+            pixels, colors = table.sources[tex][:2]
+            t = lvl.room_textures[tex]
+            w, h = t["w"] * 2, t["h"] * 2
+            rgba = bytearray()
+            for byte in pixels:
+                for idx in (byte >> 4, byte & 15):
+                    rgba += bytes(rgb(colors[idx]))
+                    rgba.append(255)
+            images[tex] = atlas.add_image(w, h, bytes(rgba))
+        f["t"] = images[tex]
+        f["col"] = [255, 255, 255]
+    return out
+
+
+def vine_json(mesh, atlas, merged):
+    """mesh_json with each face's curtain, row and how filled its texture is; each side of a curtain is a sheet.
+    rows[share]: for tiles under that share left out, each sheet's rows as quads; sheets[n]: each sheet's top n rows
+    as one quad. A tube's sheets facing its middle are marked inside."""
+    mj = mesh_json(mesh, atlas)
+    lo = [min(v[k] for v in mesh.vertices) for k in range(3)]
+    hi = [max(v[k] for v in mesh.vertices) for k in range(3)]
+    centre = [(a + b) / 2 for a, b in zip(lo, hi)]
+    tube = hi[0] - lo[0] > 100 and hi[2] - lo[2] > 100
+    sheets = {}
+    for fi, (ftype, idx, flags) in enumerate(mesh.faces):
+        v = [mesh.vertices[i] for i in idx]
+        n = diet.unit(diet.cross(diet.sub(v[1], v[0]), diet.sub(v[2], v[0])))     # points away from the side drawn
+        key = (round(n[0]), round(n[2]), round(diet.dot(n, v[0]) / 8))
+        sheets.setdefault(key, []).append(fi)
+        _, _, texels, _ = atlas.indexed(flags >> 4)
+        mj["f"][fi]["fill"] = round(100 * sum(1 for q in texels if q) / len(texels))
+    curtains = {}
+    out_sheets = []
+    for key, fis in sheets.items():
+        v0 = mesh.vertices[mesh.faces[fis[0]][1][0]]
+        drawn = [-key[0], 0, -key[1]]
+        inside = tube and diet.dot(diet.sub(centre, v0), drawn) > 1
+        plane = (abs(key[0]), abs(key[1]), round((v0[0] if key[0] else v0[2]) / 16))     # a tile's corner can be a unit off
+        # the way a curtain's outside looks, in the mesh: away from a tube's middle, or a flat one's first side seen
+        outward = [-c for c in drawn] if inside else drawn
+        curtain = curtains.setdefault(plane, {"i": len(curtains), "out": outward})
+        ys = sorted({min(mesh.vertices[i][1] for i in mesh.faces[fi][1]) for fi in fis})
+        for fi in fis:
+            top = min(mesh.vertices[i][1] for i in mesh.faces[fi][1])
+            f = mj["f"][fi]
+            f.update(sh=len(out_sheets), cu=curtain["i"], r=ys.index(top))
+            if inside:
+                f["in"] = 1
+        out_sheets.append({"faces": fis, "inside": inside, "curtain": curtain["i"], "rows": len(ys)})
+
+    def quads(fis):
+        tag = (id(mesh), tuple(fis))
+        faces = [mesh.faces[i] for i in fis]
+        look = (tuple(f[2] >> 4 for f in faces), faces[0][0])
+        m = diet.merge_tiles(mesh, fis, atlas)
+        if look not in merged:
+            merged[look] = atlas.add_image(*m["image"])
+        return {"c": m["c"], "t": merged[look], "tiles": m["tiles"], "faces": fis}
+
+    rows_by = {}
+    for share in VINE_LEAVE_OUT:
+        rows = []
+        for s, sheet in enumerate(out_sheets):
+            by_row = {}
+            for fi in sheet["faces"]:
+                by_row.setdefault(mj["f"][fi]["r"], []).append(fi)
+            for r, fis in by_row.items():
+                along = 0 if abs(mesh.vertices[mesh.faces[fis[0]][1][0]][0] - mesh.vertices[mesh.faces[fis[0]][1][1]][0]) > 8 else 2
+                fis = sorted(fis, key=lambda fi: min(mesh.vertices[i][along] for i in mesh.faces[fi][1]))
+                run = []
+                for fi in fis + [None]:
+                    if fi is not None and mj["f"][fi]["fill"] >= share:
+                        run.append(fi)
+                        continue
+                    if run:
+                        q = quads(run)
+                        q.update(sh=s, r=r, cu=sheet["curtain"])
+                        if sheet["inside"]:
+                            q["in"] = 1
+                        rows.append(q)
+                    run = []
+        rows_by[str(share)] = rows
+    whole = {}
+    most_rows = max(sheet["rows"] for sheet in out_sheets)
+    for n in range(1, most_rows + 1):
+        qs = []
+        for s, sheet in enumerate(out_sheets):
+            fis = [fi for fi in sheet["faces"] if mj["f"][fi]["r"] < n]
+            q = quads(fis)
+            q.update(sh=s, r=0, cu=sheet["curtain"])
+            if sheet["inside"]:
+                q["in"] = 1
+            qs.append(q)
+        whole[str(n)] = qs
+    mj["rowsBy"] = rows_by
+    mj["sheetsBy"] = whole
+    mj["curtains"] = sorted(curtains.values(), key=lambda c: c["i"])
+    mj["box"] = {"lo": lo, "hi": hi} if tube else None
+    mj["rows"] = most_rows
+    return mj
+
+
 def main():
     data_dir, out_path = sys.argv[1], sys.argv[2]
     lvl = trsat.load(data_dir, "LEVEL1")
@@ -486,13 +603,29 @@ def main():
         means.append(rgb(texture_average(pixels, colors, False)))
     rooms = [room_json(lvl, lvl.rooms[ri], means) for ri in CONTEXT_ROOMS]
 
+    # the vines, with their rooms in their real textures
+    vine_meshes, vine_objects, vine_places, room_images, merged = {}, [], [], {}, {}
+    for pi, place in enumerate(VINE_PLACES):
+        for s in lvl.rooms[place["statics"]].static_meshes:
+            if s["mesh_id"] not in VINE_STATICS:
+                continue
+            st = next(x for x in lvl.static_meshes if x["id"] == s["mesh_id"])
+            if str(st["mesh"]) not in vine_meshes:
+                vine_meshes[str(st["mesh"])] = vine_json(meshes[st["mesh"]], atlas, merged)
+            vine_objects.append({"id": s["mesh_id"], "mesh": st["mesh"], "pos": [s["x"], s["y"], s["z"]], "place": pi,
+                                 "yaw": quadrant_yaw(s["rotation"])})
+        vine_places.append({"name": place["name"], "pos": place["pos"], "target": place["target"],
+                            "rooms": [textured_room_json(lvl, lvl.rooms[ri], table, atlas, room_images) for ri in place["rooms"]]})
+
     png, aw, ah, rects = atlas.pack()
     camera = {"pos": [30156, 3496, 49293],      # the game's view at the ledge (build ea032c9)
               "rot": [6455, 0, 15059, 2710, 16116, -1162, -14813, 2949, 6349]}
     data = {"atlas": {"png": png, "w": aw, "h": ah, "rects": rects},
             "wolf": wolf, "rat": rat, "croc": croc, "gorilla": gorilla, "bear": bear, "raptor": raptor, "rex": rex,
             "bridge": {"planks": planks, "meshes": plank_out, "simple": plank_simple, "statics": statics,
-                       "staticMeshes": static_out, "ropes": ropes, "rooms": rooms, "camera": camera}}
+                       "staticMeshes": static_out, "ropes": ropes, "rooms": rooms, "camera": camera},
+            "vines": {"meshes": vine_meshes, "objects": vine_objects, "places": vine_places,
+                      "leaveOut": VINE_LEAVE_OUT}}
     template = open(os.path.join(HERE, "model_view.html"), encoding="utf-8").read()
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:

@@ -41,7 +41,7 @@ aside .row > * { flex: 1; }
 aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--chip); color: var(--ink); cursor: pointer; }
 .pane { display: none; }
 .pane.on { display: block; }
-#view { position: relative; flex: 1; min-width: 0; background: var(--view); }
+#view { position: relative; flex: 1; min-width: 0; background: var(--view); overflow: hidden; }
 #c { display: block; width: 100%; height: 100%; }
 .label { position: absolute; top: 10px; padding: 8px 10px; background: rgba(12,13,16,.72); color: #e8e8e4; border-radius: 8px; font-size: 12px; pointer-events: none; max-width: 46%; }
 .label b { font-size: 13px; display: block; margin-bottom: 2px; }
@@ -54,6 +54,14 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
 #labelR { left: calc(50% + 10px); }
 .divider { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: rgba(255,255,255,.18); pointer-events: none; }
 .foot { position: absolute; bottom: 8px; left: 10px; right: 10px; color: #aeb2b9; font-size: 11px; pointer-events: none; }
+.tag { position: absolute; transform: translate(-50%, -50%); padding: 0 5px; border-radius: 9px; background: rgba(12,13,16,.8); color: #ffe9a8; font-size: 11px; font-weight: 600; pointer-events: none; }
+#vineObjects table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+#vineObjects th { font-weight: 500; color: var(--muted); text-align: right; padding: 0 3px; }
+#vineObjects td { padding: 1px 3px; text-align: right; border-top: 1px solid var(--line); }
+#vineObjects td:first-child, #vineObjects th:first-child { text-align: left; }
+#vineObjects input { margin: 0; }
+#vineFill { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; margin-top: 4px; }
+#vineFill td { padding: 1px 6px; text-align: right; border: 1px solid var(--line); }
 @media (max-width: 760px) {
   main { flex-direction: column; }
   aside { width: 100%; max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -64,7 +72,7 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
 <body>
 <header>
   <h1>Asset Diet Viewer</h1>
-  <div class="tabs"><button data-tab="wolf" class="on">Wolf</button><button data-tab="rat">Rat</button><button data-tab="croc">Crocodile</button><button data-tab="gorilla">Gorilla</button><button data-tab="bear">Bear</button><button data-tab="raptor">Raptor</button><button data-tab="rex">T-rex</button><button data-tab="bridge">Bridges</button></div>
+  <div class="tabs"><button data-tab="wolf" class="on">Wolf</button><button data-tab="rat">Rat</button><button data-tab="croc">Crocodile</button><button data-tab="gorilla">Gorilla</button><button data-tab="bear">Bear</button><button data-tab="raptor">Raptor</button><button data-tab="rex">T-rex</button><button data-tab="bridge">Bridges</button><button data-tab="vines">Vines</button></div>
   <span class="note">left: as the Saturn data has it · right: simplified · drag to orbit, wheel to zoom</span>
 </header>
 <main>
@@ -116,6 +124,28 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
     <h2>View</h2>
     <div class="row"><button class="small" id="ledge">The game's ledge view</button></div>
   </div>
+  <div class="pane" id="pane-vines">
+    <h2>What they are</h2>
+    <span class="sub">Tube: a hollow square of four curtains, 2000 units a side and 1500 tall, hung from the ceiling; each curtain is 12 tiles, 4 across and 3 down, and every tile is there twice, once for each side. 96 faces, half of them facing the camera at a time. Flat: one curtain, 8 faces.</span>
+    <div class="row"><select id="vinePlace"></select></div>
+    <h2>All the vines, on the right</h2>
+    <label><input type="checkbox" id="vineInside" checked><span>Drop the tubes' inside faces<span class="sub">from outside you see a tube's near curtains and, through their gaps, the insides of the far ones</span></span></label>
+    <label><input type="checkbox" id="vineKeep" checked><span>Keep them while the camera is in that tube<span class="sub">off, a tube you stand in vanishes: every face left looks away from you</span></span></label>
+    <div class="row"><select id="vineTiles"><option value="tiles">Tiles as they are: 12 quads a curtain</option><option value="rows">One quad a row: 3 a curtain</option><option value="sheets">One quad a curtain</option></select></div>
+    <span class="sub">VDP1 draws a quad line by line, so a row of 4 tiles as one quad pays for its lines once, not four times. Bigger quads warp more up close.</span>
+    <div class="row"><select id="vineRowsKept"><option value="3">All rows</option><option value="2">Without the bottom row</option><option value="1">Only the top row</option></select></div>
+    <div class="row"><select id="vineLeave"></select></div>
+    <span class="sub">How filled each tile's texture is, in percent (a tube's curtain as seen from outside):</span>
+    <table id="vineFill"></table>
+    <h2>Each object, on the right</h2>
+    <span class="sub">Faces sent and estimated VDP1 time at this view. Untick a curtain to take it off that one object, both its sides; N, E, S, W are the way its outside looks.</span>
+    <div id="vineObjects"></div>
+    <h2>Context</h2>
+    <label><input type="checkbox" id="vineRooms" checked><span>The rooms<span class="sub">in their real textures; what shows through the gaps</span></span></label>
+    <label><input type="checkbox" id="vineTags" checked><span>Numbers on the objects</span></label>
+    <h2>View</h2>
+    <div class="row"><button class="small" id="vineView">This place's camera</button></div>
+  </div>
   <h2>Distance</h2>
   <div class="row"><input type="range" id="dist" min="0" max="1" step="0.001"></div>
   <span class="sub" id="distInfo"></span>
@@ -131,6 +161,7 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
   <div class="label" id="labelL"></div>
   <div class="label" id="labelR"></div>
   <div class="foot" id="foot"></div>
+  <div id="tags"></div>
 </section>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
@@ -143,7 +174,8 @@ window.addEventListener('error', (e) => {
 if (!window.THREE) document.getElementById('foot').textContent = 'three.js did not load (cdn.jsdelivr.net unreachable?)';
 const D = /*DATA*/null;
 
-const FOV = 2 * Math.atan(112 / 256) * 180 / Math.PI;   // the game projects with a focal length of 256 px
+const FOCAL = 210;    // the game projects with a focal length of about 210 px: 80 degrees across 352
+const FOV = 2 * Math.atan(112 / FOCAL) * 180 / Math.PI;
 const SAT_W = 352, SAT_H = 224;
 
 // ---- TR space: x, y down, z; three.js: x, y up, -z (a half turn about x)
@@ -717,6 +749,178 @@ function buildBridge(simplified) {
   return { b, stats: st };
 }
 
+// ---- the vines
+const VI = D.vines;
+const vineM = VI.objects.map(s => ({ R: rotYXZ(0, s.yaw, 0), t: s.pos }));
+const vineOff = VI.objects.map(() => new Set());    // curtains taken off each object
+const COMPASS = (v) => Math.abs(v[0]) > Math.abs(v[2]) ? (v[0] > 0 ? 'E' : 'W') : (v[2] > 0 ? 'N' : 'S');
+function curtainWay(k, cu) { return COMPASS(rv(vineM[k].R, VI.meshes[VI.objects[k].mesh].curtains[cu].out)); }
+function placeOf() { return +ui('vinePlace').value; }
+function inTube(k) {
+  const mesh = VI.meshes[VI.objects[k].mesh];
+  if (!mesh.box) return false;
+  const c = rv(transpose(vineM[k].R), sub(camTR(), vineM[k].t));
+  return c[0] > mesh.box.lo[0] && c[0] < mesh.box.hi[0] && c[1] > mesh.box.lo[1] && c[1] < mesh.box.hi[1] && c[2] > mesh.box.lo[2] && c[2] < mesh.box.hi[2];
+}
+function transpose(R) { return [R[0], R[3], R[6], R[1], R[4], R[7], R[2], R[5], R[8]]; }
+// what an object draws: the faces as they are, or as the toggles have them
+function vineFaces(k, simplified) {
+  const mesh = VI.meshes[VI.objects[k].mesh];
+  if (!simplified) return mesh.f;
+  const dropIn = ui('vineInside').checked && !(ui('vineKeep').checked && inTube(k));
+  const kept = Math.min(+ui('vineRowsKept').value, mesh.rows), leave = ui('vineLeave').value, way = ui('vineTiles').value;
+  let list;
+  if (way === 'sheets') list = mesh.sheetsBy[kept];
+  else if (way === 'rows') list = mesh.rowsBy[leave].filter(q => q.r < kept);
+  else list = mesh.f.filter(f => f.r < kept && f.fill >= +leave);
+  const off = vineOff[k];
+  return list.filter(f => !(dropIn && f.in) && !(off.size && off.has(curtainWay(k, f.cu))));
+}
+// VDP1's time for a quad by the costs fitted to the stepper's list at the Caves spot (Mednafen, cycles):
+// a command, its lines, the pixels they walk and the texels they read. null: off the frame or past the near plane.
+const VDP1_FIT = { command: 18.84, line: 28.26, pixel: 1.23, texel: 1.4 };
+function vdp1Cycles(P, texW) {
+  const m = camera.matrixWorldInverse.elements;
+  const S = [];
+  for (const p of P) {
+    const q = T3(p);
+    const x = m[0]*q[0] + m[4]*q[1] + m[8]*q[2] + m[12];
+    const y = m[1]*q[0] + m[5]*q[1] + m[9]*q[2] + m[13];
+    const z = -(m[2]*q[0] + m[6]*q[1] + m[10]*q[2] + m[14]);
+    if (z < 64) return null;
+    S.push([x / z * FOCAL + SAT_W / 2, -y / z * FOCAL + SAT_H / 2]);
+  }
+  const len = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]));
+  const lines = Math.max(len(S[0], S[3]), len(S[1], S[2])) + 1;
+  const width = (len(S[0], S[1]) + len(S[3], S[2])) / 2 + 1;
+  let inside = 0;
+  const G = 8;
+  for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) {
+    const u = (i + 0.5) / G, v = (j + 0.5) / G;
+    const sx = (1-u)*(1-v)*S[0][0] + u*(1-v)*S[1][0] + u*v*S[2][0] + (1-u)*v*S[3][0];
+    const sy = (1-u)*(1-v)*S[0][1] + u*(1-v)*S[1][1] + u*v*S[2][1] + (1-u)*v*S[3][1];
+    if (sx >= 0 && sx < SAT_W && sy >= 0 && sy < SAT_H) inside++;
+  }
+  if (!inside) return null;
+  const share = inside / (G * G);
+  // a line narrower than its texture reads every other texel
+  const texels = lines * Math.min(texW, Math.max(texW / 2, width)) * share;
+  return { lines, cycles: VDP1_FIT.command + VDP1_FIT.line * lines + VDP1_FIT.pixel * lines * width * share + VDP1_FIT.texel * texels };
+}
+const SATURN_MS = 1000 / 28636360 * 0.79;    // Mednafen's cycles to the Saturn's ms: 0.76 to 0.82 at four spots read on both
+function vineStats(simplified) {
+  const cam = camTR();
+  camera.updateMatrixWorld();
+  const st = { objects: 0, verts: 0, faces: 0, sent: 0, lines: 0, cycles: 0, each: {} };
+  VI.objects.forEach((s, k) => {
+    if (s.place !== placeOf()) return;
+    const mesh = VI.meshes[s.mesh], M = vineM[k];
+    const e = { sent: 0, cycles: 0 };
+    const used = new Set();
+    const list = vineFaces(k, simplified);
+    if (list.length) st.objects++;
+    for (const f of list) {
+      st.faces++;
+      f.c.forEach(i => used.add(i));
+      const P = f.c.map(i => apply(M, [mesh.v[i*3], mesh.v[i*3+1], mesh.v[i*3+2]]));
+      if (dot(cross(sub(P[1], P[0]), sub(P[2], P[0])), sub(cam, P[0])) >= 0) continue;
+      const cost = vdp1Cycles(P, rects[f.t][2]);
+      if (!cost) continue;
+      st.sent++; e.sent++;
+      st.lines += cost.lines;
+      st.cycles += cost.cycles; e.cycles += cost.cycles;
+    }
+    st.verts += used.size;
+    st.each[k] = e;
+  });
+  return st;
+}
+function buildVines(simplified) {
+  const cam = camTR();
+  const b = { lit: new Builder(), pre: new Builder() };
+  VI.objects.forEach((s, k) => {
+    if (s.place !== placeOf()) return;
+    const mesh = VI.meshes[s.mesh], M = vineM[k];
+    const shade = mesh.s ? (i) => 2 * mesh.s[i] : () => 1;
+    for (const f of vineFaces(k, simplified))
+      meshFace(mesh, f, (v) => apply(M, v), (n) => rv(M.R, n), shade, cam, mesh.s ? b.pre : b.lit, simplified && f.tiles > 1);
+  });
+  if (ui('vineRooms').checked) {
+    for (const room of VI.places[placeOf()].rooms) {
+      for (const f of room.f) {
+        const P = f.c.map(i => [room.v[i*3], room.v[i*3+1], room.v[i*3+2]]);
+        const col = f.c.map(i => { const c = room.s[i]; return [f.col[0]/255*c, f.col[1]/255*c, f.col[2]/255*c]; });
+        b.pre.quad(P, null, col, f.t || 0, false, f.t ? 4 : 1);
+      }
+    }
+  }
+  return b;
+}
+function vinesLabel(title, s, o) {
+  o = o || {};
+  return `<b>${title}</b><table>
+    <tr><td>objects</td>${fmt(s.objects, o.objects)}</tr>
+    <tr><td>vertices</td>${fmt(s.verts, o.verts)}</tr>
+    <tr><td>faces tested</td>${fmt(s.faces, o.faces)}</tr>
+    <tr><td>faces sent (this view)</td>${fmt(s.sent, o.sent)}</tr>
+    <tr><td>VDP1 lines (this view)</td>${fmt(Math.round(s.lines), o.lines === undefined ? undefined : Math.round(o.lines))}</tr>
+    <tr><td>VDP1 est., Saturn ms</td>${fmt(s.cycles * SATURN_MS, o.cycles === undefined ? undefined : o.cycles * SATURN_MS, 1)}</tr></table>`;
+}
+function fillVines() {
+  ui('vinePlace').innerHTML = VI.places.map((p, i) => `<option value="${i}">${p.name}</option>`).join('');
+  ui('vineLeave').innerHTML = VI.leaveOut.map(n => `<option value="${n}">${n ? (n === 1 ? 'Without the empty tiles' : `Without tiles under ${n}% filled`) : 'Every tile'}</option>`).join('');
+  const tube = Object.values(VI.meshes).find(m => m.box);
+  const outside = tube.f.filter(f => !f.in && f.cu === tube.f.find(g => !g.in).cu);
+  const rowsOf = {};
+  outside.forEach(f => (rowsOf[f.r] = rowsOf[f.r] || []).push(f.fill));
+  ui('vineFill').innerHTML = Object.keys(rowsOf).sort().map(r => '<tr>' + rowsOf[r].map(v => `<td>${v}</td>`).join('') + '</tr>').join('');
+}
+function fillVineObjects(left, right) {
+  const rows = [];
+  VI.objects.forEach((s, k) => {
+    if (s.place !== placeOf()) return;
+    const mesh = VI.meshes[s.mesh];
+    const boxes = mesh.curtains.map(c => {
+      const way = COMPASS(rv(vineM[k].R, c.out));
+      return `<label style="display:inline;padding:0 2px"><input type="checkbox" data-k="${k}" data-way="${way}" ${vineOff[k].has(way) ? '' : 'checked'}>${way}</label>`;
+    }).join('');
+    const a = left.each[k] || { sent: 0, cycles: 0 }, b = right.each[k] || { sent: 0, cycles: 0 };
+    rows.push(`<tr><td>${k} ${mesh.box ? 'tube' : 'flat'}</td><td>${a.sent}</td><td>${(a.cycles * SATURN_MS).toFixed(1)}</td><td>${b.sent}</td><td>${(b.cycles * SATURN_MS).toFixed(1)}</td><td style="white-space:nowrap;font-size:11px">${boxes}</td></tr>`);
+  });
+  ui('vineObjects').innerHTML = `<table><tr><th></th><th colspan="2">left</th><th colspan="2">right</th><th></th></tr><tr><th>#</th><th>sent</th><th>ms</th><th>sent</th><th>ms</th><th>curtains</th></tr>${rows.join('')}</table>`;
+  ui('vineObjects').querySelectorAll('input').forEach(i => i.onchange = () => {
+    const off = vineOff[+i.dataset.k];
+    if (i.checked) off.delete(i.dataset.way); else off.add(i.dataset.way);
+    dirty = true;
+  });
+}
+function vineView() {
+  const p = VI.places[placeOf()];
+  camera.fov = FOV; camera.near = 20; camera.far = 120000;
+  camera.up.set(0, 1, 0);
+  camera.position.set(...T3(p.pos));
+  controls.target.set(...T3(p.target));
+  camera.updateProjectionMatrix(); controls.update();
+}
+// the numbers on the objects, over the right side
+function placeTags(x, y, vw, vh) {
+  const box = ui('tags');
+  if (tab !== 'vines' || !ui('vineTags').checked) { if (box.innerHTML) box.innerHTML = ''; return; }
+  const v = new THREE.Vector3();
+  let html = '';
+  VI.objects.forEach((s, k) => {
+    if (s.place !== placeOf()) return;
+    const mesh = VI.meshes[s.mesh];
+    const lo = mesh.box ? mesh.box.lo : [-500, 0, 0], hi = mesh.box ? mesh.box.hi : [500, 1000, 0];
+    const c = apply(vineM[k], [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2]);
+    v.set(...T3(c)).project(camera);
+    if (v.z > 1 || Math.abs(v.x) > 1 || Math.abs(v.y) > 1) return;
+    const px = x + (v.x + 1) / 2 * vw, py = (1 - v.y) / 2 * vh + y;
+    html += `<div class="tag" style="left:${px}px;top:${py}px">${k}</div>`;
+  });
+  box.innerHTML = html;
+}
+
 // ---- stats boxes
 function fmt(v, base, digits = 0) {
   const s = typeof v === 'number' ? v.toFixed(digits) : v;
@@ -748,6 +952,7 @@ function bridgeLabel(title, s, o) {
 // ---- tabs, controls, cameras
 let tab = 'wolf';
 let dirty = true;
+let vineBuilt = '';
 // the animal's middle and size in its first animation's first frame (three.js coordinates)
 function animalBox() {
   const saved = A.state.time;
@@ -790,12 +995,15 @@ document.querySelectorAll('.tabs button').forEach(bt => bt.addEventListener('cli
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === bt));
   const animal = ANIMALS[tab];
   document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === (animal ? 'pane-animal' : 'pane-' + tab)));
-  if (animal) { A = animal; fillAnimal(); fusedJoints(); animalClose(); } else ledgeView();
+  if (animal) { A = animal; fillAnimal(); fusedJoints(); animalClose(); } else if (tab === 'vines') vineView(); else ledgeView();
   dirty = true;
 }));
 ui('animalClose').onclick = animalClose;
 ui('animalFar').onclick = () => { animalFar(); ui('pixels').checked = true; dirty = true; };
 ui('ledge').onclick = ledgeView;
+fillVines();
+ui('vineView').onclick = vineView;
+ui('vinePlace').onchange = () => { vineView(); dirty = true; };
 ui('dist').oninput = (e) => setDist(DIST_MIN * Math.pow(DIST_MAX / DIST_MIN, +e.target.value));
 ui('play').onclick = () => { A.state.playing = !A.state.playing; ui('play').textContent = A.state.playing ? 'Pause' : 'Play'; };
 ui('speed').oninput = (e) => A.state.speed = +e.target.value;
@@ -803,7 +1011,8 @@ ui('hold').onchange = (e) => { A.typical = e.target.value === 'typical'; dirty =
 ui('anim').onchange = (e) => { A.state.anim = +e.target.value; A.state.time = 0; dirty = true; };
 ui('frame').oninput = (e) => { const a = A.W.anims[A.state.anim]; A.state.time = +e.target.value / 100 * animLength(a); dirty = true; };
 ['ambient', 'lightRange', 'lightAz', 'lightEl'].forEach(id => ui(id).addEventListener('input', () => dirty = true));
-['insideCopies', 'join', 'seamShade', 'plates', 'ribbon', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
+['insideCopies', 'join', 'seamShade', 'plates', 'ribbon', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth',
+ 'vineInside', 'vineKeep', 'vineTiles', 'vineRowsKept', 'vineLeave', 'vineRooms'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
 controls.addEventListener('change', () => { dirty = true; syncDist(); });
 
 function resize() {
@@ -878,6 +1087,20 @@ function update() {
     ui('foot').textContent = A.W.foot;
     const [pw, ph] = saturnSize(L.b.game.p);
     sizeText = pw ? ` · the ${A.name} is about ${pw}×${ph} px on the Saturn's 352×224 screen` : '';
+  } else if (tab === 'vines') {
+    // the geometry only when what it shows changes, as the rooms' textures make it heavy; the counts at every view
+    const inside = VI.objects.map((s, k) => s.place === placeOf() && inTube(k) ? k : '').join();
+    const key = [placeOf(), ui('vineInside').checked, ui('vineKeep').checked, ui('vineTiles').value, ui('vineRowsKept').value,
+                 ui('vineLeave').value, ui('vineRooms').checked, opt.tint, inside, vineOff.map(o => [...o].join('')).join()].join('|');
+    if (key !== vineBuilt) {
+      vineBuilt = key;
+      views[0].set(buildVines(false)); views[1].set(buildVines(true));
+    }
+    const L = vineStats(false), R = vineStats(true);
+    ui('labelL').innerHTML = vinesLabel('Original', L);
+    ui('labelR').innerHTML = vinesLabel('Simplified', R, L);
+    fillVineObjects(L, R);
+    ui('foot').textContent = 'Faces sent: facing this camera and on the frame. VDP1 est.: the vines alone, by the costs fitted to the stepper at the Caves spot, Saturn at 0.79 of Mednafen; no overdraw counted, so what they save behind them is not in it. In the game for the real thing.';
   } else {
     const L = buildBridge(false), R = buildBridge(true);
     views[0].set(L.b); views[1].set(R.b);
@@ -911,19 +1134,22 @@ function draw() {
       renderer.setViewport(x + (vw - bw) / 2, (h - bh) / 2, bw, bh); renderer.setScissor(x + (vw - bw) / 2, (h - bh) / 2, bw, bh);
       blitQuad.material.map = rts[i].texture; blitQuad.material.needsUpdate = true;
       renderer.render(blitScene, blitCam);
+      if (i) placeTags(x + (vw - bw) / 2, (h - bh) / 2, bw, bh);
     } else {
       camera.aspect = vw / h; camera.updateProjectionMatrix();
       renderer.setViewport(x, 0, vw, h); renderer.setScissor(x, 0, vw, h);
       renderer.render(views[i].scene, camera);
+      if (i) placeTags(x, 0, vw, h);
     }
   }
 }
 
-// the page's state from its address: #bridge,tiles,ropes,pixels / #jaw,ears,cards,anim=9,t=0.4,pause
+// the page's state from its address: #bridge,tiles,ropes,pixels / #jaw,ears,cards,anim=9,t=0.4,pause /
+// #vines,vineTiles=rows,vineLeave=6,vineOff=3:N:E
 function fromHash() {
   const tokens = decodeURIComponent(location.hash.slice(1)).split(',').filter(Boolean);
   const kv = Object.fromEntries(tokens.map(t => t.split('=')).map(([k, v]) => [k, v === undefined ? true : v]));
-  const start = ['bridge', 'rat', 'croc', 'gorilla', 'bear', 'raptor', 'rex'].find(k => kv[k]) || 'wolf';
+  const start = ['bridge', 'vines', 'rat', 'croc', 'gorilla', 'bear', 'raptor', 'rex'].find(k => kv[k]) || 'wolf';
   if (ANIMALS[start]) A = ANIMALS[start];
   if (kv.none) { A.fused.clear(); A.cards.clear(); }    // none of the animal's chosen toggles
   for (const f of A.W.fuses) if (kv[f.key]) A.fused.add(f.key);
@@ -933,10 +1159,13 @@ function fromHash() {
   if (kv.anim) A.state.anim = +kv.anim;
   if (kv.t) A.state.time = +kv.t * animLength(A.W.anims[A.state.anim]);
   if (kv.pause) A.state.playing = false;
+  if (kv.vinePlace) ui('vinePlace').value = kv.vinePlace;
   document.querySelector(`[data-tab=${start}]`).click();
-  for (const id of ['playAll', 'insideCopies', 'join', 'plates', 'ribbon', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth'])
+  for (const id of ['playAll', 'insideCopies', 'join', 'plates', 'ribbon', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth',
+                    'vineInside', 'vineKeep', 'vineRooms', 'vineTags'])
     if (id in kv) ui(id).checked = kv[id] !== '0';
-  for (const id of ['seamShade', 'cardLight', 'cardLook', 'ambient', 'lightRange', 'lightAz', 'lightEl']) if (kv[id]) ui(id).value = kv[id];
+  for (const id of ['seamShade', 'cardLight', 'cardLook', 'ambient', 'lightRange', 'lightAz', 'lightEl', 'vineTiles', 'vineRowsKept', 'vineLeave']) if (kv[id]) ui(id).value = kv[id];
+  if (kv.vineOff) for (const part of kv.vineOff.split('+')) { const [k, ...ways] = part.split(':'); ways.forEach(w => vineOff[+k].add(w)); }
   if (kv.seamOff) kv.seamOff.split(':').forEach(j => A.seamOff.add(+j));
   opt.cardsOnly = !!kv.cardsOnly;      // debugging: only the joints that can be cards
   if (kv.far) animalFar();
