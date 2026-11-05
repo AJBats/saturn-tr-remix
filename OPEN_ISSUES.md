@@ -3666,6 +3666,7 @@ over 14.6, at most 188 · Fix: medium, parked*
 *Kind: look - Size: seen in play, 2026-11-05 - Fix: to be looked at*
 
 - The user: coming up from below, the water's shimmers shrink in size, which doesn't look good. Diving into the water doesn't do it. `tools/hwtest.sh pool` with `tools/traces/pool_up.txt` and `pool_dive.txt` are the two moves.
+- Not reproduced at Vilcabamba's pool (`tools/hwtest.sh pool`, Lara swum up through the surface, Mednafen, the list read every 6 frames across the crossing): every shimmer is the same 8 x 1 or 8 x 2 sprite on both sides, no lines. Art is drawn 1:1 and doesn't scale; only past about 3,360 units from the camera do shimmers become lines, whose length falls with distance. So a pool that small can't show it. To ask the user where they saw it; a view opening onto far water on surfacing is the first thing to try.
 - To read: `shimmersBorn` and `facesShimmersFrame` in renderer/faces.cpp, renderer/shimmers.s, the sheets seen from below (`up`) and what `(height < 0) != (up != 0)` and `s.owed = absOf(height) * owed` do as the camera crosses the surface.
 
 ### 297. Spots the user picked in play where VDP1 is over
