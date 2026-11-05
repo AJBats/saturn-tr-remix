@@ -91,6 +91,7 @@ FACE_TYPE_SHIFT = 14
 TEX_ATTR_AKILL = 1
 TEX_ATTR_SPARSE = 2     # see-through and at least this much of it empty: dropped when large (faces.cpp)
 SPARSE_EMPTY = 0.8
+MASK_RING = 1           # sectors round a dip whose plane tiles are masks too
 FACE_TEXTURE_MAX = 0x3FFF
 DETAIL_UNIT = 256   # Texture.reserved: full-res offset / DETAIL_UNIT + 1
 ROOM_TABLES = 3     # a room texture's colour tables: full res, half, quarter (saturn/detail.h)
@@ -375,6 +376,69 @@ def take_water(lvl):
         room.sprites = [(renumber[vertex], tex) for vertex, tex in room.sprites]
     if quads_out:
         print(f"{lvl.name}: water textures {sorted(sparse)}: {quads_out} quads, {vertices_out} vertices out, {runs_out} runs of sectors")
+
+
+RIM_MOST = 16           # sectors: past it, not a dip but ground of its own
+
+
+def take_masks(lvl, floor):
+    """In a room with part of its floor on the plane, faces wholly at or under the floor, some of them under
+    it, are a dip. VDP1 is always in front of VDP2, so a dip paints over the plane's tiles beside it, where a
+    floor face drawn after it would have hidden it. So the plane's tiles round each dip stay in the rooms as
+    quads too, at the ends of their lists, room.masks of them, and draw as colour 0 (frame.cpp), which shows
+    the plane through: a floor face's place in the draw order, VDP2's pixels."""
+    tiles = {}      # (sector x, sector z) -> (room, texture, corners)
+    for room in lvl.rooms:
+        for tex, corners in getattr(room, "plane_faces", []):
+            xs = [c[0] + room.x for c in corners]
+            zs = [c[2] + room.z for c in corners]
+            tiles[(min(xs) >> 10, min(zs) >> 10)] = (room, tex, corners)
+    wanted = set()
+    for room in lvl.rooms:
+        if not hasattr(room, "plane_faces"):
+            continue
+        boxes = []
+        for faces, count in ((room.quads, 4), (room.triangles, 3)):
+            for f in faces:
+                vs = [room.vertices[i] for i in f[:count]]
+                ys = [v[1] for v in vs]
+                if min(ys) >= floor and max(ys) > floor:
+                    xs, zs = [v[0] + room.x for v in vs], [v[2] + room.z for v in vs]
+                    boxes.append([min(xs), min(zs), max(xs), max(zs)])
+        joined = True
+        while joined:
+            joined = False
+            for a in range(len(boxes)):
+                for b in range(a + 1, len(boxes)):
+                    p, q = boxes[a], boxes[b]
+                    if p[0] <= q[2] and q[0] <= p[2] and p[1] <= q[3] and q[1] <= p[3]:
+                        boxes[a] = [min(p[0], q[0]), min(p[1], q[1]), max(p[2], q[2]), max(p[3], q[3])]
+                        del boxes[b]
+                        joined = True
+                        break
+                if joined:
+                    break
+        for x0, z0, x1, z1 in boxes:
+            sectors = (x1 - x0 + 1023 >> 10) * (z1 - z0 + 1023 >> 10)
+            if sectors > RIM_MOST:
+                print(f"{lvl.name}: room {room.index}: {sectors} sectors under the floor: not a dip, left")
+                continue
+            print(f"{lvl.name}: room {room.index}: a dip at sectors x {x0 >> 10}-{(x1 - 1) >> 10} z {z0 >> 10}-{(z1 - 1) >> 10}")
+            for sx in range((x0 >> 10) - MASK_RING, ((x1 - 1) >> 10) + MASK_RING + 1):
+                for sz in range((z0 >> 10) - MASK_RING, ((z1 - 1) >> 10) + MASK_RING + 1):
+                    if (sx, sz) in tiles:
+                        wanted.add((sx, sz))
+    for key in sorted(wanted):
+        room, tex, corners = tiles[key]
+        order = []
+        for c in corners:
+            if c not in room.vertices:
+                room.vertices.append(c)
+            order.append(room.vertices.index(c))
+        room.quads.append((*order, tex, False))
+        room.masks = getattr(room, "masks", 0) + 1
+    if wanted:
+        print(f"{lvl.name}: {len(wanted)} of the plane's tiles also masks")
 
 
 def empty_share(pixels):
@@ -767,7 +831,9 @@ class Packer:
             y_top = min(ys) if ys else room.y_top
             y_bottom = max(ys) if ys else room.y_bottom
             packed = [(x >> 8, (y - y_top) >> 8, z >> 8) for x, y, z, _ in room.vertices]
-            room_quads, facing = sort_room_quads(packed, room.quads)
+            masks = getattr(room, "masks", 0)
+            room_quads, facing = sort_room_quads(packed, room.quads[:len(room.quads) - masks])
+            room_quads = room_quads + room.quads[len(room.quads) - masks:]
 
             # corners as byte offsets into the room's projected vertices
             # (render.h cornerOffset), which faces.s adds without a shift
@@ -796,8 +862,10 @@ class Packer:
                 x, y, z, color = room.vertices[vertex]
                 out.pack("3h2B", x, y, z, shade_from_color16(color) * 8, tex)
 
-            # its water, right after its sprites (faces.h facesShimmers): sheets at a height, seen from
-            # above or below, each a list of runs of sectors along x
+            # right after its sprites (types.h RoomGeometry.water): how many of its quads are masks; its
+            # water (faces.h facesShimmers): sheets at a height, seen from above or below, each a list of
+            # runs of sectors along x
+            out.pack("H", masks)
             sheets = getattr(room, "water", [])
             out.pack("H", len(sheets))
             for y, up, runs in sheets:
@@ -1526,6 +1594,8 @@ def main():
     plane_tiles = planepack.take_faces(lvl, plan) if plan else None
     if os.environ.get("SHIMMERS") != "0":
         take_water(lvl)
+    if plan and plan.heights.get("floor") is not None and os.environ.get("PLANES") != "0":
+        take_masks(lvl, plan.heights["floor"])
     sounds = sfx.Sfx(lvl, load_ps1(sys.argv[4] if len(sys.argv) > 4 else None, name))
     packer = Packer(lvl, sounds, os.environ.get("OBJECT_ART") == "1")
     data = packer.pack()

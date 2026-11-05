@@ -292,6 +292,8 @@ def take_faces(lvl, plan):
     vertices_gone = 0
     for index, quads in gone.items():
         room = rooms[index]
+        # what was on the plane, for pack_level.py take_masks: each face's texture and corners
+        room.plane_faces = [(room.quads[i][4], [room.vertices[v] for v in room.quads[i][:4]]) for i in sorted(quads)]
         room.quads = [q for i, q in enumerate(room.quads) if i not in quads]
         used = set()
         for q in room.quads:

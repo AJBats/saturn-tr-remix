@@ -467,6 +467,21 @@ static void slaveRooms(void*)
         facesRoom(gFrameRooms[i], gRoomRun);
 #ifndef RENDER_LAB
         facesFloorRoom(gFrameRooms[i], roomsLevelTable(), slot, facesSlot(gRoomList.link));
+        const uint16_t* after = (const uint16_t*)roomsGeometryTable()[gFrameRooms[i].room].water;
+        if (after && after[0])
+        {
+            // the plane's tiles round a dip in the floor: drawn as faces of the room, then made colour 0
+            FaceRoom masks = gFrameRooms[i];
+            masks.quads += masks.quadsCount;
+            masks.quadsCount = after[0];
+            masks.trianglesCount = 0;
+            for (int32_t k = 0; k < 6; k++) {
+                masks.facing[k] = 0;
+            }
+            const int32_t first = facesSlot(gRoomList.link);
+            facesRoom(masks, gRoomRun);
+            facesMasks(gFrameCmds, first, facesSlot(gRoomList.link));
+        }
 #endif
 #ifdef HW_LOG
         gRoomSlots[i][1] = facesSlot(gRoomList.link);
@@ -475,10 +490,11 @@ static void slaveRooms(void*)
 #ifndef RENDER_LAB
     // water's shimmers all at once: room by room, between the rooms' faces, the two would turn each other
     // out of the cache
-    for (int32_t i = 0; i < gFrameRoomCount; i++)
+    for (uint32_t i = 0; i < gFrameRoomCount; i++)
     {
-        if (const uint32_t water = roomsGeometryTable()[gFrameRooms[i].room].water) {
-            facesShimmers(gFrameRooms[i], (const uint8_t*)water, roomsLevelTable()[gFrameRooms[i].room].yTop, gRoomRun);
+        const uint16_t* after = (const uint16_t*)roomsGeometryTable()[gFrameRooms[i].room].water;
+        if (after && after[1]) {
+            facesShimmers(gFrameRooms[i], (const uint8_t*)(after + 1), roomsLevelTable()[gFrameRooms[i].room].yTop, gRoomRun);
         }
     }
 #endif

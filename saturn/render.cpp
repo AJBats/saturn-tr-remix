@@ -495,13 +495,13 @@ static void roomTables()
         g.quads = uint32(room.data.quads);
         g.triangles = uint32(room.data.triangles);
         g.points = uint32(room.data.vertices);
-        g.quadsCount = info->quadsCount;
+        const uint16* after = (const uint16*)(room.data.sprites + info->spritesCount);
+        g.quadsCount = info->quadsCount - after[0];
         g.trianglesCount = info->trianglesCount;
         for (int32 k = 0; k < 6; k++) {
             g.facing[k] = info->facing[k];
         }
-        const uint16* water = (const uint16*)(room.data.sprites + info->spritesCount);
-        g.water = *water ? uint32(water) : 0;
+        g.water = after[0] | after[1] ? uint32(after) : 0;
     }
 }
 

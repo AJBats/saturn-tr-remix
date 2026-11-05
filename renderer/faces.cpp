@@ -1181,6 +1181,16 @@ void facesFloorBegin()
     gUnderCount = 0;
 }
 
+void facesMasks(Command* cmds, int32_t first, int32_t end)
+{
+    for (int32_t s = first; s < end; s++)
+    {
+        uint32_t* w = cmds[s].w;
+        w[0] = (w[0] & 0xFFFF) | ((CMD_POLYGON | CMD_JUMP) << 16);
+        w[1] = pair(PMOD_NO_ECD_SPD, 0);
+    }
+}
+
 void facesFloorRoom(const FaceRoom &room, const RoomLevel* level, int32_t first, int32_t end)
 {
     if (first == end || level[room.room].yTop < gFloorY - 2 || gFloorY == FACES_NO_FLOOR || !gFloorKeep ||

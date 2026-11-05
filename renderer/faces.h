@@ -337,6 +337,7 @@ void facesFloorSet(int32_t y);          // the level's floor, or FACES_NO_FLOOR
 void facesFloorKeep(bool on);           // the menu's
 void facesFloorBegin();
 void facesFloorRoom(const FaceRoom &room, const RoomLevel* level, int32_t first, int32_t end);
+void facesMasks(Command* cmds, int32_t first, int32_t end);     // these commands to polygons of colour 0
 void facesUnderFloor(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const void* portals, CommandList &list,
                      Command* cmds);
 
