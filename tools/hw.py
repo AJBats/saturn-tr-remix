@@ -1,5 +1,20 @@
-"""The Saturn on the desk, driven from here.
+"""The Saturn on the desk, driven from here. There's one, and any number of sessions wanting it; it's
+for final checks and numbers nothing else can give, Mednafen is for everything else. Whatever changes
+it (power on|off|cycle, card pc|saturn, deploy, boot, record) takes --as NAME, your session's name, and
+needs the lock held under that name, unless test does it all for you:
 
+    hw.py test FOLDER --as NAME --why "what for" [--settle S] [--shots N] [--every S] [--out PREFIX] [--wait MIN]
+        a whole run with nobody at the machine: waits up to --wait minutes for the lock (default 0: says
+        who has it and stops), takes it, deploys, lets the game run --settle seconds after its first
+        picture (the disc must get itself there: no pad), saves --shots pictures --every seconds apart
+        (build/hw_test_1.png ...), lets the lock go
+    hw.py lock
+        who holds the Saturn, what for and until when
+    hw.py lock NAME --why "what for" [--minutes N] [--wait MIN]
+        takes it for N minutes (default 15; each command under it starts the time again, so a session
+        that dies only blocks the others that long); held by another, says so and exits with 1
+    hw.py unlock NAME
+        lets it go; only the holder can
     hw.py power
         whether the Saturn's smart plug is on, and what it draws
     hw.py power off
@@ -11,7 +26,7 @@
     hw.py power cycle
         off, then on
     hw.py shot [--out PNG]
-        saves what the capture card shows right now (build/hw_shot.png)
+        saves what the capture card shows right now (build/hw_shot.png); needs no lock
     hw.py record SECONDS [--out MKV]
         records that long as OBS is set up to, moved from OBS's folder to
         build/hw_record.mkv; refuses if OBS is already recording
@@ -27,7 +42,11 @@
         the tracks that differ in size or time and the cue as autoboot.cue,
         compares every file with what's on the card, redoing any that differ,
         moves the card back, powers on and saves the screen 30 s later. If the
-        files won't come out right, the Saturn stays off and the card on the PC
+        files won't come out right, the Saturn stays off and the card on the PC.
+        Now and then the Satiator misses at power-on and the Saturn sits in its
+        CD player with no disc: that's seen on the screen, and power cycled
+    hw.py boot [--out PNG]
+        the same from power-on, for the disc already on the card
 
 Exits with 1 if the plug doesn't answer or the reading isn't what it should
 be. The plug is a Shelly Plug US Gen4 on the home network, found by its name.
@@ -81,9 +100,14 @@ OPEN_EXISTING = 3
 FSCTL_LOCK_VOLUME = 0x00090018
 FSCTL_DISMOUNT_VOLUME = 0x00090020
 
-DEPLOY_LOCK = os.path.expandvars(r'%LOCALAPPDATA%\tomb_hw_deploy.lock')
+LOCK_FILE = os.path.expandvars(r'%LOCALAPPDATA%\tomb_hw_saturn.json')
+LOCK_GATE = LOCK_FILE + '.gate'     # held for the moment of reading and writing LOCK_FILE
+LOCK_MINUTES = 15
 SATURN_WRITES_S = 20    # after power-on, how long the Satiator's menu may be writing to the card
 BOOT_S = 30             # from power-on to the game's first picture
+BOOT_TRIES = 6          # the Satiator missing at power-on, how many times before giving up
+CD_PLAYER_BAR = (600, 60, 1320, 170)    # on the capture: the BIOS CD player's track and time, in cyan
+CD_PLAYER_SHARE = 0.5   # that much of it cyan: 0.74 on the player, 0 on every game picture so far
 COPY_CHUNK = 1 << 20
 COPY_TRIES = 3
 
@@ -91,6 +115,91 @@ COPY_TRIES = 3
 def fail(message):
     print(f'hw.py: {message}', file=sys.stderr)
     sys.exit(1)
+
+
+@contextlib.contextmanager
+def lock_state():
+    """The lock's record, to read and change; it's written back as the block ends."""
+    import msvcrt
+
+    with open(LOCK_GATE, 'a+') as gate:
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                gate.seek(0)
+                msvcrt.locking(gate.fileno(), msvcrt.LK_NBLCK, 1)
+                break
+            except OSError:
+                if time.monotonic() > deadline:
+                    fail('another hw.py has held the lock file for 10 s')
+                time.sleep(0.05)
+        try:
+            try:
+                with open(LOCK_FILE, encoding='utf-8') as f:
+                    state = json.load(f)
+            except (OSError, ValueError):
+                state = {}
+            yield state
+            with open(LOCK_FILE + '.tmp', 'w', encoding='utf-8') as f:
+                json.dump(state, f)
+            os.replace(LOCK_FILE + '.tmp', LOCK_FILE)
+        finally:
+            gate.seek(0)
+            msvcrt.locking(gate.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def holder_of(state):
+    """Who holds the lock, or None: a hold past its time is no hold."""
+    return state.get('who') if state.get('until', 0) > time.time() else None
+
+
+def held_text(state):
+    left = (state['until'] - time.time()) / 60
+    return f"{state['who']} holds the Saturn: {state.get('why') or 'no reason given'}; {left:.0f} min left unless it's refreshed"
+
+
+def lock_take(name, why, minutes, wait):
+    """Takes the lock, waiting up to wait minutes for it; False if it can't."""
+    deadline = time.monotonic() + wait * 60
+    told = None
+    while True:
+        with lock_state() as state:
+            who = holder_of(state)
+            if who is None or who == name:
+                state.update(who=name, why=why or state.get('why', ''), minutes=minutes, since=time.time(),
+                             until=time.time() + minutes * 60)
+                return True
+            text = held_text(state)
+        if time.monotonic() >= deadline:
+            print(text, file=sys.stderr)
+            return False
+        if who != told:
+            print(f'{text}; waiting', flush=True)
+            told = who
+        time.sleep(5)
+
+
+def lock_release(name):
+    with lock_state() as state:
+        who = holder_of(state)
+        if who is None:
+            print('the Saturn is free')
+        elif who != name:
+            fail(f'{held_text(state)}: only the holder can let it go')
+        else:
+            state['until'] = 0
+            print('let go')
+
+
+def lock_needed(name):
+    """Stops unless name holds the lock; starts its time again if it does."""
+    with lock_state() as state:
+        who = holder_of(state)
+        if who is None:
+            fail('the Saturn has to be held first: hw.py lock NAME --why "what for"')
+        if who != name:
+            fail(held_text(state))
+        state['until'] = time.time() + state.get('minutes', LOCK_MINUTES) * 60
 
 
 def plug(method, **params):
@@ -412,16 +521,9 @@ def disc_files(folder):
 
 
 def deploy(folder, out):
-    import msvcrt
-
     files = disc_files(folder)
     if card_side() is None:
         fail('the SD mux is not on USB')
-    lock = open(DEPLOY_LOCK, 'w')
-    try:
-        msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
-    except OSError:
-        fail('another deploy has the Saturn')
 
     s = status()
     if s['apower'] >= OFF_WATTS and not s['aenergy']['by_minute'][1]:
@@ -453,27 +555,104 @@ def deploy(folder, out):
         fail(f'the card still differs after {COPY_TRIES} tries: the Saturn stays off and the card on the PC')
 
     card('saturn')
-    power_on()
-    time.sleep(BOOT_S)
-    shot(out)
+    boot(out)
+
+
+def cd_player_showing(path):
+    """Whether a picture is the BIOS's CD player: past BOOT_S, the Satiator has missed."""
+    from PIL import Image
+
+    with Image.open(path) as image:
+        bar = image.convert('RGB').crop(CD_PLAYER_BAR).resize((72, 11)).tobytes()
+    cyan = sum(1 for i in range(0, len(bar), 3) if bar[i] < 130 and bar[i + 1] > 150 and bar[i + 2] > 140)
+    return cyan / (len(bar) // 3) > CD_PLAYER_SHARE
+
+
+def boot(out):
+    """Powers on, and on again if the Satiator misses, until the game is on the screen."""
+    for attempt in range(BOOT_TRIES):
+        power_on()
+        time.sleep(BOOT_S)
+        shot(out)
+        if not cd_player_showing(out):
+            return
+        print(f'no disc: the BIOS CD player is up, try {attempt + 1} of {BOOT_TRIES}', flush=True)
+        power_off()
+    fail(f'the Satiator missed {BOOT_TRIES} times running: the Saturn stays off')
+
+
+def test(folder, name, why, settle, shots, every, out, wait):
+    disc_files(folder)      # a bad folder is refused before anyone waits for the Saturn
+    if not lock_take(name, why, LOCK_MINUTES, wait):
+        sys.exit(1)
+    try:
+        deploy(folder, f'{out}_boot.png')
+        lock_needed(name)
+        time.sleep(settle)
+        for i in range(shots):
+            if i:
+                time.sleep(every)
+            shot(f'{out}_{i + 1}.png')
+    finally:
+        lock_release(name)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='command', required=True)
+    p = sub.add_parser('test')
+    p.add_argument('folder')
+    p.add_argument('--as', dest='name', required=True)
+    p.add_argument('--why', default='')
+    p.add_argument('--settle', type=float, default=30)
+    p.add_argument('--shots', type=int, default=3)
+    p.add_argument('--every', type=float, default=5)
+    p.add_argument('--out', default='build/hw_test')
+    p.add_argument('--wait', type=float, default=0)
+    p = sub.add_parser('lock')
+    p.add_argument('name', nargs='?')
+    p.add_argument('--why', default='')
+    p.add_argument('--minutes', type=float, default=LOCK_MINUTES)
+    p.add_argument('--wait', type=float, default=0)
+    p = sub.add_parser('unlock')
+    p.add_argument('name')
     p = sub.add_parser('power')
     p.add_argument('action', nargs='?', choices=['on', 'off', 'cycle'])
+    p.add_argument('--as', dest='name')
     p = sub.add_parser('shot')
     p.add_argument('--out', default='build/hw_shot.png')
     p = sub.add_parser('record')
     p.add_argument('seconds', type=float)
     p.add_argument('--out', default='build/hw_record.mkv')
+    p.add_argument('--as', dest='name')
     p = sub.add_parser('card')
     p.add_argument('side', nargs='?', choices=['pc', 'saturn'])
+    p.add_argument('--as', dest='name')
     p = sub.add_parser('deploy')
     p.add_argument('folder', nargs='?', default='build/disc')
     p.add_argument('--out', default='build/hw_shot.png')
+    p.add_argument('--as', dest='name')
+    p = sub.add_parser('boot')
+    p.add_argument('--out', default='build/hw_shot.png')
+    p.add_argument('--as', dest='name')
     args = ap.parse_args()
+    if args.command == 'lock':
+        if args.name:
+            if not lock_take(args.name, args.why, args.minutes, args.wait):
+                sys.exit(1)
+        with lock_state() as state:
+            print(held_text(state) if holder_of(state) else 'the Saturn is free')
+        return
+    if args.command == 'unlock':
+        lock_release(args.name)
+        return
+    if args.command == 'test':
+        test(args.folder, args.name, args.why, args.settle, args.shots, args.every, args.out, args.wait)
+        return
+    changes = args.command in ('deploy', 'boot', 'record') or (args.command == 'power' and args.action) or \
+        (args.command == 'card' and args.side)
+    if changes:
+        lock_needed(args.name)
     if args.command == 'power':
         power(args.action)
     elif args.command == 'shot':
@@ -482,6 +661,9 @@ def main():
         card(args.side)
     elif args.command == 'deploy':
         deploy(args.folder, args.out)
+    elif args.command == 'boot':
+        power_off()
+        boot(args.out)
     else:
         record(args.seconds, args.out)
 
