@@ -3606,14 +3606,6 @@ over 14.6, at most 188 · Fix: medium, parked*
 - For VDP2 planes (269): a flat rectangle at the plane's height, seen from above, hides what's below it wholly inside its rectangle.
   It can't help a face that pokes out over the rim, which is what the kept faces are for.
 
-### 282. The room walk does half its corner sums twice
-*Kind: speed - Size: Saturn walk 7.4 ms at room 103 looking up; estimated -0.8 ms mean, -1.9 ms worst, heavy Cistern views - Fix: to be built*
-
-- tools/occmodel `walkstat`, heavy views (2000+ room vertices), portals checked / facing the camera / different ones of those:
-  Cistern 235 / 108 / 57, worst 395 / 187 / 69; Lost Valley 112 / 54 / 35, worst 216 / 98 / 50; level 5 135 / 71 / 45; 8A 69 / 39 / 32.
-- A room is walked again when its window grows, and every portal of it is rotated and projected again though nothing about it has
-  changed in the frame. Keeping each portal's projected bounds for the frame leaves only the clip against the window to redo.
-
 ### 283. VDP1's faces show through a plane where they lie past it
 *Kind: look · Size: Cistern room 103 from the start, a green patch of pool wall on the floor · Fix: rooms under the floor built, Saturn read to come; dips and meshes left*
 
@@ -3632,12 +3624,6 @@ over 14.6, at most 188 · Fix: medium, parked*
 *Kind: test discs alone · Size: 8 frames against 120 · Fix: small, if it gets in the way*
 
 - CPU writes to bank B would disturb the plane, so the trace goes to the bitmap's last 32 lines, 32 KB (`saturn/os.cpp`), and the profile's blocks take a third of that. Without them about 15 frames.
-
-### 285. Lost Valley: room 56, high over the valley, the CPUs over on the Saturn (reported in play)
-*Kind: speed · Size: 27 fps, master 37 ms, slave 34 ms · Fix: to be looked at*
-
-- `tools/hwtest.sh valley-ledge`, Lara at 37787, 230, 20847, heading 3ffc, camera 37048, -933, 22086, pitch f74c, heading 6787. Saturn, floor on VDP2 (269): 18 rooms, 2,647 room vertices, 122 meshes with 1,514 vertices, 446 commands; VDP1 21.7 ms, master 37.0 ms, slave 34.4 ms, 26.7 fps over 5 seconds, 24 of 134 lists late.
-- VDP1 has plenty of room here and both CPUs are over. The user expects what's left of the VDP2 work to reach it.
 
 ### 286. Coming back from the inventory, room textures show their lower detail for a frame or two
 *Kind: look · Size: about 2,500 pixels a frame of the top of the frame, two frames, at the valley's room 51 · Fix: to be costed*
@@ -3661,6 +3647,8 @@ carries from how it was built, debug reads and lab paths and spare memory. From 
 word. Of the same kind and already open: 264, 265, 266.
 
 ### 273. Timer reads a shipping build doesn't use
+*Partly closed 2026-11-05: 2358a37. No read now round a wait that doesn't wait: master's timerTicks at the flooded hall .43 -> .2 ms. The pairs round waits that do wait stay for now; `s.late` steers the split.*
+
 *Kind: speed · Size: perhaps 0.3 to 0.5 ms across both CPUs at a heavy view, not measured · Fix: small*
 
 - `ticks()` (`saturn/system.cpp:620`, about 110 cycles by the audit's reading) is taken twice round every
@@ -3669,15 +3657,6 @@ word. Of the same kind and already open: 264, 265, 266.
   `579-738`). The sums go to `gStats` for the debug page (`saturn/render.cpp:1057`) and no further.
 - **Some stay:** `s.late` steers the master and slave's split each frame (`saturn/render.cpp:958`, by
   `drawsEnd`, `slaveEnd`, `gNextAfter`), so those reads aren't debug. The fix is the wait pairs behind `HW_LOG`.
-
-### 274. 16 KB at the bottom of gVertices that nothing seems to use
-*Kind: memory · Size: 16 KB of high work RAM · Fix: small, to confirm first*
-
-- `saturn/render.cpp:417`: 5,376 entries of 8 bytes. The walk places rooms from entry 2,048 up
-  (`renderer/rooms.s:958`, `MASTER_VERTICES`), and the game's meshes go to `gMeshOut`
-  (`renderer/vertices.cpp:152`). The bottom 2,048 look left over from when the meshes shared the buffer.
-- From reading the code, not from a run. A Mednafen write watch over those 16 KB through a level settles it.
-- What it frees goes to the rooms' faces (244).
 
 ### 275. Two tables bigger than any level has asked
 *Kind: memory · Size: about 8 KB of high work RAM · Fix: small*
@@ -3740,6 +3719,56 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 289. A frame settled a field late stays a field late
+*Closed 2026-11-05: 465410f. Saturn: valley ledge VDP1 wait 4.2 -> 0 ms, bridge ledge 8.1 -> 0 ms, both still 29.9 fps.*
+
+*Kind: speed - Size: 3.5 to 8 ms of the master's frame where VDP1 has time to spare - Fix: small*
+
+- A list that goes up after the tick's vertical blank out is plotted a field late, and every frame after it stays so, the master waiting on VDP1 while VDP1 idles at the end of each list. After 8 such frames, with VDP1 under 30.5 ms, at most once in 60 frames, the 30 Hz tick starts a vertical blank later.
+
+### 290. Meshes wholly past the far plane were drawn
+*Closed 2026-11-05: d176b92. Saturn, Lost Valley room 32: 26.2 -> 29.9 fps, 6 ms to spare. Mednafen: 144 meshes -> 96, master 26.64 -> 16.64 ms, same 547 commands, same picture. Natla's mines room 15: 51 -> 48 meshes, 50 fills gone, same picture.*
+
+*Kind: speed - Size: up to 10 ms of the master's frame in open levels - Fix: small*
+
+- The sphere test had no far test: posed, rotated on the DSP, projected the slow way with divides, faces walked, for a transparent fill or nothing.
+
+### 291. Room vertices past the far plane took two divides each
+*Closed 2026-11-05: 2358a37. A table, 576 bytes: 144 -> about 45 cycles a vertex. Mednafen, room projection, Lost Valley room 32: 16.12 -> 12.76 ms.*
+
+*Kind: speed - Size: 800 such vertices a list in open levels - Fix: small*
+
+- Only fills want where they land, and a vertex lands alike for every face sharing it.
+
+### 285. Lost Valley: room 56, high over the valley, the CPUs over on the Saturn (reported in play)
+*Closed 2026-11-05: Saturn 29.9 fps, master 25.7 ms of work, VDP1 wait 4.2 -> 0 ms. Room projection cbf3339, the frame's split 443915d, the tick's slip 465410f, meshes past the far plane d176b92.*
+
+*Kind: speed · Size: 27 fps, master 37 ms, slave 34 ms · Fix: to be looked at*
+
+- `tools/hwtest.sh valley-ledge`, Lara at 37787, 230, 20847, heading 3ffc, camera 37048, -933, 22086, pitch f74c, heading 6787. Saturn, floor on VDP2 (269): 18 rooms, 2,647 room vertices, 122 meshes with 1,514 vertices, 446 commands; VDP1 21.7 ms, master 37.0 ms, slave 34.4 ms, 26.7 fps over 5 seconds, 24 of 134 lists late.
+- VDP1 has plenty of room here and both CPUs are over. The user expects what's left of the VDP2 work to reach it.
+
+### 282. The room walk does half its corner sums twice
+*Closed 2026-11-05: f5c51e2, by another road. Facing tested in the room's loop, rectangles' corners by sums, one DMULS.L a coordinate: Mednafen, flooded hall, 115K -> 72K cycles of walk a list; Saturn, room 103 looking up, 7.4 -> 5.2 ms. Exact in the lab. The frame cache below isn't built: about -0.4 ms in Mednafen for 6.4 KB of RAM, a choice if the walk comes back.*
+
+*Kind: speed - Size: Saturn walk 7.4 ms at room 103 looking up; estimated -0.8 ms mean, -1.9 ms worst, heavy Cistern views - Fix: to be built*
+
+- tools/occmodel `walkstat`, heavy views (2000+ room vertices), portals checked / facing the camera / different ones of those:
+  Cistern 235 / 108 / 57, worst 395 / 187 / 69; Lost Valley 112 / 54 / 35, worst 216 / 98 / 50; level 5 135 / 71 / 45; 8A 69 / 39 / 32.
+- A room is walked again when its window grows, and every portal of it is rotated and projected again though nothing about it has
+  changed in the frame. Keeping each portal's projected bounds for the frame leaves only the clip against the window to redo.
+
+### 274. 16 KB at the bottom of gVertices that nothing seems to use
+*Closed 2026-11-05: 443915d. Nothing used them, as read; `MAX_VERTICES` 3,328, `ROOMS_VERTICES_BOTTOM` 0 in the game. What it freed went to the rooms' faces.*
+
+*Kind: memory · Size: 16 KB of high work RAM · Fix: small, to confirm first*
+
+- `saturn/render.cpp:417`: 5,376 entries of 8 bytes. The walk places rooms from entry 2,048 up
+  (`renderer/rooms.s:958`, `MASTER_VERTICES`), and the game's meshes go to `gMeshOut`
+  (`renderer/vertices.cpp:152`). The bottom 2,048 look left over from when the meshes shared the buffer.
+- From reading the code, not from a run. A Mednafen write watch over those 16 KB through a level settles it.
+- What it frees goes to the rooms' faces (244).
 
 ### 253. Water's flecks are left out near the camera, where retail draws them
 *Closed 2026-11-05: water's sparkle replaced by shimmers, `renderer/shimmers.s`. The user: "very close to the concept art". Saturn, flooded hall from Lara's start, percent of a frame, VDP1 / slave / master / fps: no water 62 / 91 / 106 / 28-29; the water's polygons 79 / 102 / 120 / 25-26; shimmers (one lit per 150 px, about 330 drawn) 66 / 101 / 118 / 25.*
