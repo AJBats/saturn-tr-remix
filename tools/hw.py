@@ -163,7 +163,7 @@ def lock_take(name, why, minutes, wait):
                              until=time.time() + minutes * 60)
                 return True
             text = held_text(state)
-        if time.monotonic() > deadline:
+        if time.monotonic() >= deadline:
             print(text, file=sys.stderr)
             return False
         if who != told:
