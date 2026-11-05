@@ -40,7 +40,7 @@ W, H = 352, 224
 MS = 1000 / 28636360
 STEP_MARKS = 512
 COMMAND_BYTES = 32
-FACE_ROOM_BYTES = 112   # renderer/faces.h: clip at 76, room at 106
+FACE_ROOM_BYTES = 112   # renderer/faces.h: camera at 32, matrix at 44, offset at 64, clip at 76, room at 106
 LEVELS = {'LVL_TR1_7A': 'LEVEL7A', 'LVL_TR1_3A': 'LEVEL3A', 'LVL_TR1_1': 'LEVEL1', 'LVL_TR1_2': 'LEVEL2'}
 DATA = ROOT + '/external_resources/disc/files/DATA'
 DRAW_TYPES = {}
@@ -118,6 +118,8 @@ def capture(name, title, disc, frame, hold, level, boxes='on', freeze=False):
         jobs = dump(rooms_at, FACE_ROOM_BYTES * room_count) if room_count else b''
         windows = [[struct.unpack_from('>H', jobs, FACE_ROOM_BYTES * i + 106)[0], *struct.unpack_from('>4i', jobs, FACE_ROOM_BYTES * i + 76)]
                    for i in range(room_count)]
+        view = {'room': windows[0][0], 'camera': struct.unpack_from('>3i', jobs, 32), 'm': struct.unpack_from('>9h', jobs, 44),
+                't': struct.unpack_from('>3i', jobs, 64)} if room_count else None
         m.send('breakpoint_clear', 'breakpoint', 10)
         shot = f'{out}/shot.png'
         if os.path.exists(shot):
@@ -138,7 +140,7 @@ def capture(name, title, disc, frame, hold, level, boxes='on', freeze=False):
             slot_above = slot
         lists.append(got[::-1])
     open(f'{out}/vram.bin', 'wb').write(vram)
-    json.dump({'title': title, 'lists': lists, 'index': index, 'level': level, 'frame': frame, 'rects': rects, 'windows': windows},
+    json.dump({'title': title, 'lists': lists, 'index': index, 'level': level, 'frame': frame, 'rects': rects, 'windows': windows, 'view': view},
               open(f'{out}/capture.json', 'w'))
     os.remove(tmp)
     print(f'{name}: {len(lists[0])} rooms, {len(lists[1])} draws marked', flush=True)
