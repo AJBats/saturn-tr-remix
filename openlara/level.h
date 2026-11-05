@@ -285,7 +285,7 @@ static void flipBlocks(Room* room, int32 offset)
         if (status == ITEM_FLAG_STATUS_INVISIBLE || status == ITEM_FLAG_STATUS_ACTIVE)
             continue;
 
-        ((Block*)item)->updateFloor(offset);
+        alterFloor(item, offset);
     }
 }
 

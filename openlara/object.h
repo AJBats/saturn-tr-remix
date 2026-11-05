@@ -1048,6 +1048,30 @@ struct TrapDartEmitter : Object
 };
 
 
+// Raises (negative offset) or lowers the floor under the item, as retail's
+// AlterFloorHeight (060249a0). The ceiling it can meet is read a block above the
+// new floor, so one open to the room above doesn't close: Lara can stand there.
+void alterFloor(ItemObj* item, int32 offset)
+{
+    Room* room = item->room->getRoom(item->pos.x, item->pos.y, item->pos.z);
+    room->modify();
+
+    Sector* sector = (Sector*)room->getSector(item->pos.x, item->pos.z);
+    const Sector* top = room->getRoom(item->pos.x, item->pos.y + offset - 1024, item->pos.z)->getSector(item->pos.x, item->pos.z);
+
+    if (sector->floor == NO_FLOOR) {
+        sector->floor = top->ceiling + (offset >> 8);
+    } else {
+        sector->floor += (offset >> 8);
+        if (sector->floor == top->ceiling) {
+            sector->floor = NO_FLOOR;
+        }
+    }
+
+    blockBox(sector->boxIndex, offset < 0);
+}
+
+
 struct Block : Object
 {
     enum {
@@ -1060,26 +1084,8 @@ struct Block : Object
     Block(Room* room) : Object(room)
     {
         if ((flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE) {
-            updateFloor(-1024);
+            alterFloor(this, -1024);
         }
-    }
-
-    void updateFloor(int32 offset)
-    {
-        room->modify();
-        
-        Sector* sector = (Sector*)room->getSector(pos.x, pos.z);
-
-        if (sector->floor == NO_FLOOR) {
-            sector->floor = sector->ceiling + (offset >> 8); 
-        } else {
-            sector->floor += (offset >> 8);
-            if (sector->floor == sector->ceiling) {
-                sector->floor = NO_FLOOR;
-            }
-        }
-
-        blockBox(sector->boxIndex, offset < 0);
     }
 
     bool checkBlocking()
@@ -1170,7 +1176,7 @@ struct Block : Object
                 goalState = STATE_PULL;
             }
 
-            updateFloor(1024);
+            alterFloor(this, 1024);
 
             activate();
             flags &= ~ITEM_FLAG_STATUS;
@@ -1207,7 +1213,7 @@ struct Block : Object
     {
         if (flags & ITEM_FLAG_ONCE)
         {
-            updateFloor(1024);
+            alterFloor(this, 1024);
             remove();
             return;
         }
@@ -1233,7 +1239,7 @@ struct Block : Object
             deactivate();
             flags &= ~ITEM_FLAG_STATUS;
 
-            updateFloor(-1024);
+            alterFloor(this, -1024);
 
             checkTrigger(gLastFloorData, NULL);
         }
@@ -1242,13 +1248,13 @@ struct Block : Object
     virtual uint8* load(uint8* data)
     {
         if ((flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE) {
-            updateFloor(1024);
+            alterFloor(this, 1024);
         }
 
         data = ItemObj::load(data);
 
         if ((flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE) {
-            updateFloor(-1024);
+            alterFloor(this, -1024);
         }
 
         return data;
@@ -1292,25 +1298,6 @@ void killLara(Lara* lara, int32 anim, int32 state)
     lara->animSet(anim, true);
     lara->state = lara->goalState = state;
     lara->flags &= ~ITEM_FLAG_GRAVITY;
-}
-
-// Raises (negative offset) or lowers the floor of the item's sector.
-void alterFloor(ItemObj* item, int32 offset)
-{
-    item->room->modify();
-
-    Sector* sector = (Sector*)item->room->getSector(item->pos.x, item->pos.z);
-
-    if (sector->floor == NO_FLOOR) {
-        sector->floor = sector->ceiling + (offset >> 8);
-    } else {
-        sector->floor += (offset >> 8);
-        if (sector->floor == sector->ceiling) {
-            sector->floor = NO_FLOOR;
-        }
-    }
-
-    blockBox(sector->boxIndex, offset < 0);
 }
 
 
