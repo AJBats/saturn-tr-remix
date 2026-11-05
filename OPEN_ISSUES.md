@@ -3639,6 +3639,13 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Differences to test: since pipelining (33102ae) the trigger's CD command comes from the slave, mid-frame, where the level's start track comes from the master. And the original asks for index 0 up to index 1 of the track (0603c75c, 06043c8c), ours index 1 up to index 99.
 - Test build on branch `water` (../trs_water, disc `build/disc_w_valley-music`): the bench page's bottom row reads the CD block's own status, track and position (Mednafen, playing: `cd 03 trk 10 idx 01 fad 026459`, track in hex), and the menu row `CD play` plays 16 or 5 from the master, as ours, as the original or stopping first.
 
+### 292. City of Khamoon, room 14: VDP1 63 ms, two near pieces 20 ms of it
+*Kind: speed - Size: Saturn 15.0 fps at the spot, CPUs fine (master 23.2 ms of work), the master waiting 37 ms on VDP1 - Fix: to be looked at*
+
+- `HW_TRACE_AT=600 AT_LEVEL=LEVEL8A AT_ID=LVL_TR1_8A AT_START=14@27947:-5340:36945 AT_YAW=0x466D sh tools/hwtest.sh at`, a view tools/occmodel's `heaviest` found; Lara drops to Y -512 there and the camera sits against sloped rock, so play may seldom hold it. Lara herself isn't in the picture.
+- `tools/stepwise.py`, Mednafen: 63.7 ms, 773 commands, most pixels written 3 to 6 times. Two tiles of a room 12 face near the camera, 16 x 16 texels, take 10.83 and 9.41 ms: 524 lines, 93,884 pixels walked for 11,368 written, corners held at -128 (retail's rule, 263), a long fan across the frame. The next costliest command takes 1.5 ms.
+- Splitting a held tile once more in 3D would drop most of that walk and the warp with it, but a tile's rows are its own width apart in the cache, so 8 x 8 pieces want their own copy of the texture. Not built; not retail's way, the user's call. It wouldn't reach 30 fps here alone (43 ms).
+
 ## Production code: clean-up
 
 Not differences from retail, and not open work on the picture: what a shipping build still
@@ -3728,7 +3735,7 @@ word. Of the same kind and already open: 264, 265, 266.
 - A list that goes up after the tick's vertical blank out is plotted a field late, and every frame after it stays so, the master waiting on VDP1 while VDP1 idles at the end of each list. After 8 such frames, with VDP1 under 30.5 ms, at most once in 60 frames, the 30 Hz tick starts a vertical blank later.
 
 ### 290. Meshes wholly past the far plane were drawn
-*Closed 2026-11-05: d176b92. Saturn, Lost Valley room 32: 26.2 -> 29.9 fps, 6 ms to spare. Mednafen: 144 meshes -> 96, master 26.64 -> 16.64 ms, same 547 commands, same picture. Natla's mines room 15: 51 -> 48 meshes, 50 fills gone, same picture.*
+*Closed 2026-11-05: d176b92. Saturn, Lost Valley room 32: 26.2 -> 29.9 fps, 6 ms to spare. Mednafen: 144 meshes -> 96, master 26.64 -> 16.64 ms, same 547 commands, same picture. City of Khamoon room 15: 51 -> 48 meshes, 50 fills gone, same picture.*
 
 *Kind: speed - Size: up to 10 ms of the master's frame in open levels - Fix: small*
 
