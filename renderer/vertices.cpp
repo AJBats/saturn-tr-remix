@@ -2,6 +2,7 @@
 // projection of what they hand over.
 #include "vertices.h"
 #include "draws.h"
+#include "rooms.h"
 #include "platform.h"
 
 #include "dsp.h"
@@ -21,6 +22,8 @@ namespace render {
 #define FRAME_HEIGHT    224
 #define P_MAX           0x007FF000  // projected 2047 << 12
 #define XY_MAX          0x007FFF00  // view x, y whose >> 8 fits in 16 bits
+#define DIV_ENTRIES     1281        // divTable's, z >> 4 of what's held to the far plane
+#define DIV_SCALED_FROM 64          // z 1024: roomproject.s's Z_FAST
 #define COORD_MAX       1023        // VDP1_COORD_MAX
 #define FOG_MIN         12288
 #define SHADE_MAX       8191        // shade << 8 at its darkest
@@ -38,7 +41,9 @@ namespace render {
 #define MAX_ROOM_VERTICES   (MAX_VERTICES - MASTER_VERTICES + 3 * MAX_ROOMS)
 #define MAX_MESH_VERTICES   (MASTER_VERTICES + 3 * MAX_DRAWS)
 
-static const int8_t kWibble[32] = {
+static const int8_t kWibble[64] = {     // twice over: roomproject.s adds the phase to the base
+    0, 0, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 0,
+    0, 0, -1, -1, -1, -2, -2, -2, -2, -2, -2, -2, -1, -1, -1, 0,
     0, 0, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 0,
     0, 0, -1, -1, -1, -2, -2, -2, -2, -2, -2, -2, -1, -1, -1, 0
 };
@@ -130,6 +135,10 @@ static uint32_t gMeshCount;         // ... its records
 // of 4), and their jobs.
 static RoomRotated gRoomRotated[MAX_ROOM_VERTICES] __attribute__((aligned(16)));
 static int32_t gRotatedAt[MAX_ROOMS];
+static uint8_t gRoomSafe[MAX_ROOMS];        // RoomSafe
+static uint8_t gRoomReach[MAX_LEVEL_ROOMS][3];  // the largest x y z byte among a level room's vertices
+static uint16_t* gDivNear;                  // 0x100000 / z by z, up to VIEW_EXACT
+static int16_t* gDivScaled;                 // divTable << 4, from the first entry that fits
 static int32_t gRoomsPredicted;     // the plan's prediction of their projection and faces
 static int32_t gRoomsFaces;         // their quads and triangles
 static RoomDspJob gRoomJobs[MAX_ROOMS + 1];
@@ -185,6 +194,51 @@ static void roomOrder(const uint8_t* order)
 }
 
 static void chunksLay();
+static int32_t gFar = VIEW_DIST;
+
+void verticesRoomReach(uint32_t room, const RoomVertex* points, int32_t count)
+{
+    uint8_t* reach = gRoomReach[room];
+    reach[0] = reach[1] = reach[2] = 0;
+    for (int32_t k = 0; k < count; k++)
+    {
+        const RoomVertex &p = points[k];
+        reach[0] = p.x > reach[0] ? p.x : reach[0];
+        reach[1] = p.y > reach[1] ? p.y : reach[1];
+        reach[2] = p.z > reach[2] ? p.z : reach[2];
+    }
+}
+
+// What room r's rotations are sure to keep to, by its box's reach along each row.
+static uint32_t roomSafe(const FaceRoom &r)
+{
+    const uint8_t* reach = gRoomReach[r.room];
+    uint32_t safe = ROOM_SAFE_XY | ROOM_SAFE_Z;
+    for (int32_t row = 0; row < 3; row++)
+    {
+        int32_t lo = r.t[row], hi = lo;
+        for (int32_t k = 0; k < 3; k++)
+        {
+            int32_t along = 4 * r.m[3 * row + k] * reach[k];
+            if (along < 0) {
+                lo += along;
+            } else {
+                hi += along;
+            }
+        }
+        if (row < 2)
+        {
+            if (lo < -XY_MAX || hi > XY_MAX) {
+                return 0;
+            }
+        }
+        else if (lo <= VIEW_EXACT << 8 || hi >= gFar << 8)
+        {
+            safe = ROOM_SAFE_XY;
+        }
+    }
+    return safe;
+}
 
 void verticesRoomsSet(const FaceRoom* rooms, uint32_t count)
 {
@@ -195,6 +249,7 @@ void verticesRoomsSet(const FaceRoom* rooms, uint32_t count)
     {
         const FaceRoom &r = gRooms[i];
         gRotatedAt[i] = at;
+        gRoomSafe[i] = roomSafe(r);
         at += (r.verticesCount + 3) & ~3;
         predicted += PLAN_ROOM_VERTEX * r.verticesCount + PLAN_ROOM_FACE * (r.quadsCount + r.trianglesCount);
         faces += r.quadsCount + r.trianglesCount;
@@ -305,6 +360,18 @@ const char* verticesInit(const VerticesLevel &level)
     }
     gShadowParts = gParts + gMeshCount;
     gShadowPartsEnd = gShadowParts + MAX_DRAW_SHADOWS;
+
+    gDivNear = (uint16_t*)level.alloc((VIEW_EXACT + 1) * sizeof(uint16_t));
+    int16_t* scaled = (int16_t*)level.alloc((DIV_ENTRIES - DIV_SCALED_FROM) * sizeof(int16_t));
+    if (!gDivNear || !scaled)
+        return "no room for the divide tables";
+    for (int32_t z = 0; z <= VIEW_EXACT; z++) {
+        gDivNear[z] = z < VIEW_MIN_F >> FIXED_SHIFT ? 0 : 0x100000 / z;
+    }
+    gDivScaled = scaled - DIV_SCALED_FROM;
+    for (int32_t i = DIV_SCALED_FROM; i < DIV_ENTRIES; i++) {
+        gDivScaled[i] = divTable[i] << 4;
+    }
     return nullptr;
 }
 
@@ -376,8 +443,6 @@ void verticesFarScaled(bool on)
     gFarScaled = on;
 }
 
-static int32_t gFar = VIEW_DIST;
-
 void verticesFar(int32_t far)
 {
     gFar = far;
@@ -398,7 +463,8 @@ static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
         to = room.verticesCount;
     }
     RoomProject rp;
-    rp.divTable = divTable;
+    rp.divScaled = gDivScaled;
+    rp.divide = divTable;
     rp.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
     rp.zMax = gFar << 8;
     rp.points = room.points + from;
@@ -412,6 +478,8 @@ static void roomProject(uint32_t i, int32_t from = 0, int32_t to = -1)
     rp.count = to;      // the caustics' index, count - vertices left: from on
     rp.farScaled = gFarScaled;
     rp.black = gBlack;
+    rp.nearTable = gDivNear;
+    rp.safe = gRoomSafe[i];
 #ifdef RENDER_LAB
     rp.zExact = rp.zMin;    // as the captured game projected it
 #else

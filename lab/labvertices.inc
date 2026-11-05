@@ -122,6 +122,10 @@ static void readyVertices(int32_t* ready, const MeshVertex* v, const int8_t* nor
 
 const char* verticesLabInit(const FaceRoom* rooms, uint32_t roomCount)
 {
+    memset(gRoomReach, 0xFF, sizeof(gRoomReach));
+    for (uint32_t i = 0; i < roomCount; i++) {
+        verticesRoomReach(rooms[i].room, rooms[i].points, rooms[i].verticesCount);
+    }
     verticesRoomsSet(rooms, roomCount);
     uint8_t order[MAX_ROOMS];
     for (uint32_t i = 0; i < gRoomCount; i++) {
@@ -252,7 +256,7 @@ static void roomProjectModel(const RoomRotated* src, int32_t count, Vertex* dst,
         x = clamp(x, -XY_MAX, XY_MAX);
         y = clamp(y, -XY_MAX, XY_MAX);
         int32_t zz = uint32_t(z) >> 8;
-        int32_t d = rp.divTable[zz >> 4];
+        int32_t d = z <= rp.zExact ? 0x100000 / zz : rp.divide[zz >> 4];
         int32_t px = clamp(int16_t(uint32_t(x) >> 8) * d, -P_MAX, P_MAX);
         int32_t py = clamp(int16_t(uint32_t(y) >> 8) * d, -P_MAX, P_MAX);
         paths[PATH_PRODUCT] += px != int16_t(uint32_t(x) >> 8) * d || py != int16_t(uint32_t(y) >> 8) * d;
@@ -313,18 +317,21 @@ int32_t verticesRoomsSeldomCheck()
     auto next = [&seed] { seed = seed * 1664525 + 1013904223; return seed; };
     int32_t bad = 0;
     int32_t dry[PATHS] = {}, wet[PATHS] = {};
-    for (int32_t pass = 0; pass < 6; pass++)
+    for (int32_t pass = 0; pass < 18; pass++)
     {
+        // none of it sure, then every x and y, then every z too
+        int32_t sure = pass / 6;
         int32_t w = pass % 3;
         RoomProject rp;
-        rp.farScaled = pass / 3;
+        rp.farScaled = pass % 6 / 3;
         rp.black = pass & 1 ? 0x40 : 0;
         rp.points = gSeldomPoints;
         rp.x0 = windows[w][0];
         rp.y0 = windows[w][1];
         rp.x1 = windows[w][2];
         rp.y1 = windows[w][3];
-        rp.divTable = divTable;
+        rp.divScaled = gDivScaled;
+        rp.divide = divTable;
         rp.zMin = VIEW_MIN_F >> (FIXED_SHIFT - 8);
         rp.zMax = VIEW_MAX_F >> (FIXED_SHIFT - 8);
         rp.wibble = w == 2 ? kWibble : nullptr;
@@ -393,7 +400,19 @@ int32_t verticesRoomsSeldomCheck()
             r.y = int32_t(next() % uint32_t(2 * spread + 1)) - spread;
             gSeldomPoints[k].g = next() >> 24;
         }
-        rp.zExact = rp.zMin;
+        rp.zExact = pass & 1 ? rp.zMin : VIEW_EXACT << 8;
+        rp.nearTable = gDivNear;
+        rp.safe = sure == 0 ? 0 : sure == 1 ? ROOM_SAFE_XY : ROOM_SAFE_XY | ROOM_SAFE_Z;
+        for (int32_t k = 0; k < SELDOM_VERTICES && sure; k++)
+        {
+            RoomRotated &r = gSeldomRotated[k];
+            r.x = clamp(r.x, -XY_MAX, XY_MAX);
+            r.y = clamp(r.y, -XY_MAX, XY_MAX);
+            const int32_t low = VIEW_EXACT << 8;
+            if (sure == 2 && !(r.z > low && r.z < rp.zMax)) {
+                r.z = low + 1 + int32_t(uint32_t(r.z) % uint32_t(rp.zMax - low - 1));
+            }
+        }
         roomProjectAsm(gSeldomRotated, SELDOM_VERTICES, gSeldomAsm, &rp);
         roomProjectModel(gSeldomRotated, SELDOM_VERTICES, gSeldomModel, rp, w == 2 ? wet : dry);
         for (int32_t k = 0; k < SELDOM_VERTICES; k++) {

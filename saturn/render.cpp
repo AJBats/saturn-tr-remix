@@ -480,6 +480,7 @@ static void roomTables()
         r.vertices = info->verticesCount;
         r.black = gBlack ? roomBlack(room) : 0;
         r.first = portals;
+        render::verticesRoomReach(i, (const render::RoomVertex*)room.data.vertices, info->verticesCount);
         memcpy(gPortals + portals, room.data.portals, info->portalsCount * sizeof(Portal));
         portals += info->portalsCount;
 

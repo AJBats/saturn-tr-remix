@@ -27,16 +27,25 @@ struct RoomProject
 {
     const RoomVertex* points;   // +0  the room's, for their shades
     int32_t x0, y0, x1, y1;     // +4  its portal window
-    const uint16_t* divTable;   // +20
+    const int16_t* divScaled;   // +20 divTable << 4 where that fits, from z 1024 (VERTICES_DIV_SCALED_FROM)
     int32_t zMin, zMax;         // +24 near and far planes << 8
-    const int8_t* wibble;       // +32 ripple offsets (32), or none
+    const int8_t* wibble;       // +32 ripple offsets (32, twice over), or none
     int32_t phase;              // +36 the ripple's
     const int16_t* caustics;    // +40 shade offsets (32) by vertex index under water, or none
     int32_t count;              // +44 the room's vertices
     int32_t farScaled;          // +48 verticesFarScaled's
     int32_t zExact;             // +52 nearer than this << 8, divided: not the table
     int32_t black;              // +56 ored into the clip flags of a vertex at the fog's floor
+    const uint16_t* nearTable;  // +60 0x100000 / z by z, up to zExact >> 8
+    int32_t safe;               // +64 RoomSafe: what every vertex of the room is sure of
+    int32_t window[4];          // +68 roomproject.s's own
+    const uint16_t* divide;     // +84 divTable
+    const int8_t* rippleBase;   // +88 roomproject.s's own
 };
+
+// What a room's vertices are sure of this frame, by its box: every view x and y within what >> 8
+// holds in 16 bits; every z between VIEW_EXACT and the far plane as well.
+enum RoomSafe { ROOM_SAFE_XY = 1, ROOM_SAFE_Z = 2 };
 
 extern "C" void roomProjectAsm(const RoomRotated* src, int32_t count, Vertex* dst, RoomProject* rp);
 
@@ -69,6 +78,9 @@ struct MeshProject
 // Off, it projects at the plane, as the original game's did (the lab's
 // checks against its captures).
 void verticesFarScaled(bool on);
+
+// A level room's vertices, once it has them (again, flipped): how far its box reaches.
+void verticesRoomReach(uint32_t room, const RoomVertex* points, int32_t count);
 
 // The rooms' far plane, in world units (frame.h frameFar); the meshes keep
 // the game's.
