@@ -47,6 +47,7 @@ void drawsLabInit()
     level.sprites = sceneArray<const Sprite>("SPRS");
     level.flashMesh = NO_MESH;      // the scenes have none: the made-up checks give one
     drawsInit(level);
+    gCtx.meshFar = GAME_MESH_FAR_OFF;
     gameDrawsFlashMesh(NO_MESH);
     const PoseCamera* camera = sceneArray<const PoseCamera>("CAMR");
     for (int32_t r = 0; r < 3; r++)
@@ -257,6 +258,8 @@ int32_t drawsSeldomCheck()
     ctx.nodes = madeNodes;
     ctx.modelDrawn = madeDrawn;
     ctx.flashMesh = flashMesh;
+    ctx.meshFar = (1024 * 20) << 14;
+    gameDrawsMeshFar(ctx.meshFar);
     gameDrawsFlashMesh(flashMesh);
     drawsOn(ctx, mine);
 
@@ -512,6 +515,7 @@ int32_t drawsSeldomCheck()
         }
     }
     gameDrawsHints(&gCtx.hintItems);
+    gameDrawsMeshFar(GAME_MESH_FAR_OFF);
     gameDrawsFlashMesh(NO_MESH);
     bool enemies = false;
     for (uint32_t i = 0; i < items; i++) {

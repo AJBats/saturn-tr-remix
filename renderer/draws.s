@@ -69,6 +69,7 @@
     .equ    D_HINT_OPEN,    204     ! the call's, at D_HINTED, is open
     .equ    D_SHOWN,        208     ! the ItemRecord of the last item posed
     .equ    D_FLASH_MESH,   212     ! the muzzle flash's mesh in the store (0xFFFF: none)
+    .equ    D_MESH_FAR,     232     ! a sphere wholly past it isn't drawn
     .equ    D_FLASHES,      216     ! PoseFlash: draw, hand, angle, offset, intensity, item; 12 bytes
     .equ    D_FLASH_COUNT,  220
     .equ    D_FLASH_MAX,    224
@@ -301,10 +302,18 @@
     mov     r0, r3
     ROW     32, r2, r1              ! z
     cmp/pz  r2
-    bt      3f
-    rts
-    clrt
-3:  mov.l   r8, @-r15
+    bf      5f
+    ! wholly past the far plane
+    mov     r7, r1
+    shll8   r1
+    shll2   r1
+    shll2   r1
+    shll2   r1
+    mov.l   @(D_MESH_FAR,gbr), r0
+    add     r0, r1
+    cmp/ge  r1, r2
+    bt      5f
+    mov.l   r8, @-r15
     ROW     0, r1, r8               ! x
     ROW     16, r4, r8              ! y (the centre's x used first)
     mov.l   @r15+, r8

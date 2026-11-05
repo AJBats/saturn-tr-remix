@@ -16,7 +16,7 @@ static_assert(offsetof(DrawsContext, camera) == 60 && offsetof(DrawsContext, vie
               offsetof(DrawsContext, frameA) == 156 && offsetof(DrawsContext, viewMin) == 176 &&
               offsetof(DrawsContext, drawCount) == 184 && offsetof(DrawsContext, hintOpen) == 204 &&
               offsetof(DrawsContext, shown) == 208 && offsetof(DrawsContext, flashMax) == 224 &&
-              offsetof(DrawsContext, modelDrawn) == 228,
+              offsetof(DrawsContext, modelDrawn) == 228 && offsetof(DrawsContext, meshFar) == 232,
               "draws.s's DrawsContext");
 static_assert(sizeof(DrawScene) == 24 && sizeof(PoseItem) == 104 && sizeof(PoseLight) == 12 &&
               sizeof(PoseStatic) == 20 && sizeof(PoseShadow) == 8 && sizeof(Face) == 16 && sizeof(Vertex) == 8 &&
@@ -88,6 +88,7 @@ void drawsInit(const DrawsLevel &level)
     gCtx.k18 = 1 << 18;
     gCtx.viewMin = 64 << 14;
     gCtx.viewMax = (1024 * 20) << 14;
+    gCtx.meshFar = gCtx.viewMax;
     gList.draws = gDraws;
     gList.hinted = gHinted;
     gList.items = gItems;
@@ -153,6 +154,7 @@ void drawsHints(const uint32_t masks[2])
 void drawsFar(int32_t far)
 {
     gCtx.viewMax = far << 14;
+    gCtx.meshFar = gCtx.viewMax;
 }
 
 void draws(const CallRecord* calls, uint32_t count, ItemRecord* items, int32_t fills)

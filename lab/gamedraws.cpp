@@ -104,6 +104,13 @@ void gameDrawsFlashMesh(uint32_t mesh)
     gFlashMesh = mesh;
 }
 
+static int32_t gMeshFar = GAME_MESH_FAR_OFF;
+
+void gameDrawsMeshFar(int32_t far)
+{
+    gMeshFar = far;
+}
+
 static int32_t sphereIsVisible(int32_t sx, int32_t sy, int32_t sz, int32_t r)
 {
     const Matrix &m = gView;
@@ -113,7 +120,7 @@ static int32_t sphereIsVisible(int32_t sx, int32_t sy, int32_t sz, int32_t r)
 
     int32_t z = DP33(m.e20, m.e21, m.e22, sx, sy, sz);
 
-    if (z < 0)
+    if (z < 0 || z >= gMeshFar + (r << FIXED_SHIFT))
         return 0;
 
     int32_t x = DP33(m.e00, m.e01, m.e02, sx, sy, sz);

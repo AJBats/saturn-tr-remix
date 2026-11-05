@@ -165,6 +165,11 @@ void gameLightStatic(int32_t intensity, int32_t &ambient, int32_t &range);
 // game's way of the draw list.
 void gameDrawsFlashMesh(uint32_t mesh);
 
+// A mesh's sphere wholly past this isn't drawn, the game's far plane in the
+// game; off in the scenes, whose captures predate it.
+#define GAME_MESH_FAR_OFF   (1 << 30)
+void gameDrawsMeshFar(int32_t far);
+
 // Stage 2 the game's way (gamevertices.cpp): the rooms' vertices (xform.s)
 // and the master's draws' (meshxform.s), each set up as the game sets it up,
 // into gVertices where the game put them; Prepare empties gVertices, Check

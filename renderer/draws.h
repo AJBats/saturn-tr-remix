@@ -71,6 +71,7 @@ struct DrawsContext
     uint32_t flashCount;        // +220
     uint32_t flashMax;          // +224
     const uint32_t* modelDrawn; // +228 each model's joints drawn (drawsJointsDrawn)
+    int32_t meshFar;            // +232 a sphere wholly past it isn't drawn: VIEW_MAX_F
 };
 
 extern "C" void drawsAsm(DrawsContext* ctx);
