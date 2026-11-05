@@ -245,9 +245,77 @@ def texture_average(pixels, colors, transparent, end_codes=False):
     return 0x8000 | ((b // n) << 10) | ((g // n) << 5) | (r // n)
 
 
+WATER_KINDS = 5        # specks, dashes, blobs, chunks, swirls (faces.cpp facesShimmersStyle)
+WATER_KEEP = (2, 3, 3, 4, 3)    # the commonest of each that the level file keeps
+
+
+def water_kind(w, h, cells):
+    """Which of the art's kinds a piece is, by its size."""
+    if cells <= 2:
+        return 0
+    if h == 1:
+        return 1
+    if h <= 3 and 4 <= w <= 9 and cells >= 5:
+        return 3
+    return 2 if h <= 3 and w < 7 else 4
+
+
+def water_art(lvl, sparse, sub):
+    """The shimmers' art: the patches of connected pixels in the water texture's frames, each as it is in
+    the texture, the commonest of each kind, with how often it comes and the texture's colour. colour H,
+    pieces B, 0 B, then each piece w B, h B, kind B, count B, a big-endian H a row, top bit leftmost."""
+    pieces = {}
+    colours = {}
+    for i in sorted(sparse):
+        t = lvl.room_textures[i]
+        w, h = t["w"] * 2, t["h"] * 2
+        pix = t["sub"][0] * 8
+        data = bytes(sub[pix:pix + w * h // 2])
+        grid = [[(data[y * w // 2 + x // 2] >> (0 if x & 1 else 4)) & 15 for x in range(w)] for y in range(h)]
+        lut = (t["clut"] + t["tile"]) & 0xFFFF
+        seen = set()
+        for y in range(h):
+            for x in range(w):
+                if grid[y][x]:
+                    c = int.from_bytes(lvl.room_tex_qtr[lut * 8 + 2 * grid[y][x]:lut * 8 + 2 * grid[y][x] + 2], "big")
+                    colours[c] = colours.get(c, 0) + 1
+                if not grid[y][x] or (y, x) in seen:
+                    continue
+                stack, cells = [(y, x)], []
+                seen.add((y, x))
+                while stack:
+                    b, a = stack.pop()
+                    cells.append((b, a))
+                    for bb in range(max(b - 1, 0), min(b + 2, h)):
+                        for aa in range(max(a - 1, 0), min(a + 2, w)):
+                            if grid[bb][aa] and (bb, aa) not in seen:
+                                seen.add((bb, aa))
+                                stack.append((bb, aa))
+                top, left = min(c[0] for c in cells), min(c[1] for c in cells)
+                pw, ph = max(c[1] for c in cells) - left + 1, max(c[0] for c in cells) - top + 1
+                if pw > 16 or ph > 16:
+                    continue
+                rows = [0] * ph
+                for b, a in cells:
+                    rows[b - top] |= 0x8000 >> (a - left)
+                key = (pw, ph, tuple(rows))
+                pieces[key] = pieces.get(key, 0) + 1
+    kept = []
+    for kind in range(WATER_KINDS):
+        ours = [(n, k) for k, n in pieces.items() if water_kind(k[0], k[1], sum(bin(r).count("1") for r in k[2])) == kind]
+        ours.sort(key=lambda p: (-p[0], p[1]))
+        kept.extend((kind, n, k) for n, k in ours[:WATER_KEEP[kind]])
+    colour = max(colours, key=lambda c: (colours[c], c)) if colours else 0xDEF6
+    out = struct.pack(">HBB", colour, len(kept), 0)
+    for kind, n, (pw, ph, rows) in kept:
+        out += struct.pack(">4B", pw, ph, kind, min(n, 255)) + struct.pack(f">{ph}H", *rows)
+    return out
+
+
 def take_water(lvl):
     """Water's sparkle quads out of the rooms, with the vertices only they used: flat, a sector each, of
-    an animated texture mostly empty. Left in each room as room.water, for the shimmers."""
+    an animated texture mostly empty. Left in each room as room.water, for the shimmers, and the texture's
+    own pieces as lvl.water_art."""
     sub = whole_textures(lvl)
     animated = set()
     for first, last in lvl.anim_ranges:
@@ -258,6 +326,7 @@ def take_water(lvl):
         pix = t["sub"][0] * 8
         if empty_share(bytes(sub[pix:pix + t["w"] * t["h"] * 2])) >= SPARSE_EMPTY:
             sparse.add(i)
+    lvl.water_art = water_art(lvl, sparse, sub)
     quads_out = vertices_out = runs_out = 0
     for room in lvl.rooms:
         cells = {}      # (y, up) -> {(z, x): shade}
@@ -1023,6 +1092,9 @@ class Packer:
         out = Out()
         out.raw(bytes(176))     # header, written last
 
+        water_art = out.align4()
+        out.raw(getattr(lvl, "water_art", bytes(4)))
+
         rooms = self.write_rooms(out)
 
         floors = out.align4()
@@ -1176,7 +1248,7 @@ class Packer:
             len(lvl.sprite_sequences), len(lvl.sound_sources), len(lvl.boxes), textures_count,
             len(lvl.sprite_textures), len(lvl.items), len(lvl.cameras), len(lvl.camera_frames), len(offsets) // 2)
         header += struct.pack(">36I",
-            palette, 0, 0, rooms, floors, mesh_base, mesh_offsets_pos, anims, states, ranges,
+            palette, 0, water_art, rooms, floors, mesh_base, mesh_offsets_pos, anims, states, ranges,
             commands, nodes, frames, models, static_meshes, textures, sprites, sprite_sequences,
             cameras, sound_sources, boxes, overlaps, *zones, anim_tex, items,
             camera_frames, sound_map, sound_infos, 0, sound_offsets, rooms_high)

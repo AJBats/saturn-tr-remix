@@ -545,6 +545,11 @@ void renderShimmers(int32 oneIn)
     render::facesShimmersDensity(oneIn);
 }
 
+void renderShimmerStyle(int32 art, int32 shade)
+{
+    render::facesShimmersStyle(art, shade);
+}
+
 void renderBoxes(bool on)
 {
     render::roomsBoxesOn(on);
@@ -652,7 +657,7 @@ void renderLevelInit()
     vdp1EraseFrames(gSceneSwept);
     *uncached(&render::gFacesVoidWay) = gSceneSwept ? render::FACE_VOIDS_NONE : render::FACE_VOIDS_BOXED;
 
-    render::facesShimmersInit(detailSpareBytes() >= SHIMMER_VRAM_BYTES ? detailReserveTop(SHIMMER_VRAM_BYTES) : 0);
+    render::facesShimmersInit(detailSpareBytes() >= SHIMMER_VRAM_BYTES ? detailReserveTop(SHIMMER_VRAM_BYTES) : 0, level.tiles);
 
     // the shaded copies, at the top of the cache, if it can spare them
     uint32 shadeBytes = 2 * 256 * SHADE_TABLE_SIZE;

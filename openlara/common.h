@@ -2219,7 +2219,7 @@ struct Level
 
     const uint16* palette;
     const uint8* lightmap;
-    const uint8* tiles;
+    const uint8* tiles;         // on the Saturn, water's art (pack_level.py water_art)
     const RoomInfo* roomsInfo;
     const FloorData* floors;
     const Mesh** meshes;

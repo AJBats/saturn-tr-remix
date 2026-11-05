@@ -60,6 +60,7 @@ void renderTexels(int32 lod);
 void renderBoxes(bool on);
 // Water's shimmers: one lit for so many pixels of water on the frame; 0 none.
 void renderShimmers(int32 oneIn);
+void renderShimmerStyle(int32 art, int32 shade);
 // Rooms under a floor on VDP2 kept to the floor's openings (renderer/faces.h).
 void renderUnderFloor(bool on);
 

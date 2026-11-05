@@ -48,9 +48,13 @@ static const char* const kTexels[] = { "1 a pixel", "1.5 a pixel" };
 static int32 gTexelStep = 1;    // kTexels'
 static bool gBoxesShut = true;  // what the level's solid boxes hide left out
 static bool gUnderKept = true;  // rooms under a floor on VDP2 kept to its openings
-static const char* const kShimmers[] = { "Off", "Few", "Some", "Many" };
-static const int32 kShimmerOneIn[] = { 0, 600, 300, 150 };
-static int32 gShimmerStep = 2;  // kShimmers'
+static const char* const kShimmers[] = { "Off", "1 in 600", "1 in 300", "1 in 150", "1 in 100", "1 in 75" };
+static const int32 kShimmerOneIn[] = { 0, 600, 300, 150, 100, 75 };
+static int32 gShimmerStep = 3;  // kShimmers'
+static const char* const kShimmerArt[] = { "Chunks", "Dashes", "All", "Swirls", "Grow" };
+static int32 gShimmerArtStep;
+static const char* const kShimmerShade[] = { "Mesh", "Fade", "Both", "Glass" };
+static int32 gShimmerShadeStep;
 #endif
 
 static bool gShowStats;
@@ -84,9 +88,15 @@ static const Option gOptions[] = {
     { "Boxes", kOnOff, 2,
         [] { return int32(gBoxesShut); },
         [](int32 v) { gBoxesShut = v; renderBoxes(v); } },
-    { "Shimmers", kShimmers, 4,
+    { "Shimmers", kShimmers, 6,
         [] { return gShimmerStep; },
         [](int32 v) { gShimmerStep = v; renderShimmers(kShimmerOneIn[v]); } },
+    { "Shimmer art", kShimmerArt, 5,
+        [] { return gShimmerArtStep; },
+        [](int32 v) { gShimmerArtStep = v; renderShimmerStyle(gShimmerArtStep, gShimmerShadeStep); } },
+    { "Shimmer shade", kShimmerShade, 4,
+        [] { return gShimmerShadeStep; },
+        [](int32 v) { gShimmerShadeStep = v; renderShimmerStyle(gShimmerArtStep, gShimmerShadeStep); } },
     { "Under floor", kOnOff, 2,
         [] { return int32(gUnderKept); },
         [](int32 v) { gUnderKept = v; renderUnderFloor(v); } },
@@ -104,7 +114,7 @@ static const Option gOptions[] = {
 
 enum { OPTION_STATS,
 #ifdef HW_LOG
-       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_BOXES, OPTION_SHIMMERS, OPTION_UNDER_FLOOR, OPTION_HOLES, OPTION_TEXELS, OPTION_CAMERA,
+       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_BOXES, OPTION_SHIMMERS, OPTION_SHIMMER_ART, OPTION_SHIMMER_SHADE, OPTION_UNDER_FLOOR, OPTION_HOLES, OPTION_TEXELS, OPTION_CAMERA,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");
