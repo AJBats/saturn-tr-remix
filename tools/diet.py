@@ -126,6 +126,12 @@ ROPE_STATICS = {"LEVEL1": (33, 34)}
 # face: LEVEL1's tilted planks slope through the ledge top's plane at the
 # bridges, and the two tiles of their top below it are drawn behind it.
 PLANK_APART = {("LEVEL1", "BRIDGE_TILT_2"): [[2, 3]]}
+# The Caves' hanging vines: static 8 a hollow square tube of four curtains, static 6 one curtain. A curtain is 12
+# see-through tiles, more than half empty, each there twice, one for each side. VDP1 walks a quad's empty texels as it
+# does its filled ones, so each side becomes tall strips round what's filled (vine_strips): the user's idea.
+VINE_STATICS = {"LEVEL1": (6, 8)}
+VINE_STRIP = 32     # texels across
+VINE_GAP = 12       # rows
 
 
 def rgb(c):
@@ -933,7 +939,8 @@ def plank_diet(mesh, index, atlas, apart=None):
 
 def level_diet(lvl, meshes, model_name):
     """The meshes the diet simplifies in lvl, {mesh index: DietMesh}: the
-    animals' (ANIMALS), the planks' and the rope statics' (ROPE_STATICS); and
+    animals' (ANIMALS), the planks', the rope statics' (ROPE_STATICS) and the
+    vines' (VINE_STATICS); and
     the joints it holds still, {model type: joints}. model_name(type) names a
     model's type as common.h's ITEM_TYPES does."""
     atlas = Atlas(lvl)
@@ -959,6 +966,9 @@ def level_diet(lvl, meshes, model_name):
             if st["mesh"] in out:
                 raise ValueError(f"mesh {st['mesh']} simplified twice")
             out[st["mesh"]] = dm
+    for st in lvl.static_meshes:
+        if st["id"] in VINE_STATICS.get(lvl.name, ()):
+            out[st["mesh"]] = vine_diet(meshes[st["mesh"]], st["mesh"], atlas)
     # a seam's corners lie in the job its model's draws put before the mesh's:
     # nothing else may draw it
     seams = {i for i, dm in out.items() if dm.back}
@@ -969,6 +979,68 @@ def level_diet(lvl, meshes, model_name):
         if model_name(m["type"]) not in ANIMALS and seams & set(range(m["start"], m["start"] + m["count"])):
             raise ValueError(f"model {m['type']} draws a mesh with a seam")
     return out, still
+
+
+def vine_strips(out, mesh, index, fis, atlas, width, side):
+    """A side of a curtain as tall strips hanging down, width texels across: its tiles pasted together, then each
+    column's run of filled rows a quad of its own with its own texture, on the 8 texel steps VDP1's size wants. Rows
+    empty for VINE_GAP or more split a run. Corners are shared across a mesh, as a strip's are with its neighbours'."""
+    m = merge_tiles(mesh, fis, atlas)
+    w, h, rgba = m["image"]
+    corners = [list(mesh.vertices[i]) for i in m["c"]]
+    light = [mesh.intensities[i] for i in m["c"]] if out.intensities is not None else None
+    normals = [list(mesh.normals[i]) for i in m["c"]] if out.normals is not None else None
+    filled = [[rgba[4 * (y * w + x) + 3] != 0 for x in range(w)] for y in range(h)]
+    shared = out.__dict__.setdefault("shared", {})
+
+    def mix(values, u, v):
+        return (1 - u) * (1 - v) * values[0] + u * (1 - v) * values[1] + u * v * values[2] + (1 - u) * v * values[3]
+
+    def vertex(u, v):
+        at = tuple(round(mix([c[k] for c in corners], u, v)) for k in range(3))
+        if at not in shared:
+            shared[at] = len(out.vertices)
+            out.vertices.append(list(at))
+            if light is not None:
+                out.intensities.append(round(mix(light, u, v)))
+            if normals is not None:
+                out.normals.append([round(mix([n[k] for n in normals], u, v)) for k in range(3)])
+        return shared[at]
+
+    for x0 in range(0, w, width):
+        runs = []
+        for y in range(h):
+            if any(filled[y][x0:x0 + width]):
+                if runs and y - runs[-1][1] < VINE_GAP:
+                    runs[-1][1] = y
+                else:
+                    runs.append([y, y])
+        for y0, y1 in runs:
+            tall = (y1 - y0 + 8) & ~7
+            y1 = min(h, y0 + tall)
+            y0 = y1 - tall
+            image = bytearray()
+            for y in range(y0, y1):
+                start = 4 * (y * w + x0)
+                image += rgba[start:start + 4 * width]
+            u0, u1, v0, v1 = x0 / w, (x0 + width) / w, y0 / h, y1 / h
+            out.faces.append({"merged": True, "c": [vertex(u0, v0), vertex(u1, v0), vertex(u1, v1), vertex(u0, v1)],
+                              "image": (width, tall, bytes(image)), "transp": m["transp"], "src": index, "from": fis,
+                              "side": side, "rect": (x0, y0, width, tall), "mosaic": m["image"]})
+
+
+def vine_diet(mesh, index, atlas, width=None):
+    """A vine static with each side of each curtain as strips (vine_strips)."""
+    sides = {}
+    for fi, (_, idx, _) in enumerate(mesh.faces):
+        v = [mesh.vertices[i] for i in idx]
+        n = unit(cross(sub(v[1], v[0]), sub(v[2], v[0])))
+        sides.setdefault((round(n[0]), round(n[2]), round(dot(n, v[0]) / 16)), []).append(fi)
+    out = DietMesh(mesh)
+    out.add_mesh(mesh, index, skip=set(range(len(mesh.faces))))
+    for side, fis in enumerate(sides.values()):
+        vine_strips(out, mesh, index, fis, atlas, width or VINE_STRIP, side)
+    return out
 
 
 def rope_diet(mesh, index, atlas):
