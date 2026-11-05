@@ -3655,19 +3655,28 @@ over 14.6, at most 188 · Fix: medium, parked*
 - `AT_LEVEL=LEVEL7A AT_ID=LVL_TR1_7A AT_START=91@40380:-5632:65974 AT_YAW=0x8371 tools/hwtest.sh at` starts Lara there; the camera's look wants finding by hand. `cistern-mirror` is the same room, 40465, -5632, 65637.
 - VDP1 has room, so it's the CPUs: to be read as the other spots were (`tools/hwtrace.py`, `tools/frameprof.py`). 167 meshes is the most at any spot read so far.
 
-### 294. Caves, room 24: a gap in the level shows the old frame
-*Kind: look - Size: 53 pixels at the user's view - Fix: to be chosen*
-
-- Reported in play on the Saturn, 2026-11-05: Lara 43909, 7168, 76056, heading c3fb; camera 44317, 6643, 77515, pitch 085b, heading 8860. `AT_LEVEL=LEVEL1 AT_ID=LVL_TR1_1 AT_START=24@43909:7168:76056 AT_YAW=0x8860 tools/hwtest.sh at` gives nearly the same view, and the list drawn offline over magenta (scratchpad hole_scan) shows 53 px at x 125-136, y 19-26. The tiny-window rule isn't it: the same with it off.
-- No face of any room in the level covers that point from that view, so the level has a gap there. Retail clears the frame and shows black; the Caves don't clear, so the old frame shows.
-- The same kind of gap as 267. The choices there apply: the vblank erase for the level (by 271's rule it wouldn't pay at the bridge, where VDP1 is close to the line and the fills small), or a hand-placed quad behind the gap.
-
 ### 295. Water in Lost Valley and Qualopec's tomb stays polygons, not shimmers
 *Kind: look, speed - Size: 309 faces in Lost Valley, 107 in Qualopec - Fix: small to try, the user's call*
 
 - Asked by the user in play, 2026-11-05. `pack_level.take_water` goes by the texture and the shape, not by whether it's water: an animated texture at least 80% empty (`SPARSE_EMPTY`), on a flat face exactly one sector square. Every level with this kind of water passes (86-96% empty) but these two: their texture, 25..28 in LEVEL3A and 24..27 in LEVEL3B, is 55-68% empty.
 - Their rushing water is another texture, solid and mostly sloped (LEVEL3A 18..21 and 41..44), and should stay polygons.
 - To try: let 55-68% through for these levels. The art clipped from a fuller texture would be bigger pieces, to be judged by eye.
+
+### 296. Shimmers shrink when Lara comes up for air
+*Kind: look - Size: seen in play, 2026-11-05 - Fix: to be looked at*
+
+- The user: coming up from below, the water's shimmers shrink in size, which doesn't look good. Diving into the water doesn't do it. `tools/hwtest.sh pool` with `tools/traces/pool_up.txt` and `pool_dive.txt` are the two moves.
+- To read: `shimmersBorn` and `facesShimmersFrame` in renderer/faces.cpp, renderer/shimmers.s, the sheets seen from below (`up`) and what `(height < 0) != (up != 0)` and `s.owed = absOf(height) * owed` do as the camera crosses the surface.
+
+### 297. Spots the user picked in play where VDP1 is over
+*Kind: speed - Size: Mednafen's VDP1 reads 100-138% of a 30 fps frame, 20 fps; the Saturn's numbers to come - Fix: to be looked at*
+
+- The user, walking the review discs in Mednafen, 2026-11-05 (HW_NO_ENEMIES). Lara / camera / pitch and heading of the camera, as the scene page shows them:
+  - City of Khamoon, the open view, the one that matters most: room 12, Lara 28699, -1536, 32914, heading 4000; camera 27152, -2103, 32925, 0047 4047. 12 rooms, 778 commands, 46 meshes, vdp1 101, cpu 53.
+  - City of Khamoon, staring at a corner: room 12, Lara 27947, -512, 36945, heading 4034; camera 26891, -1104, 37628, ffa8 5762. 17 rooms, 748 commands, 48 meshes, vdp1 100, cpu 61. Next to 292's model spot. Nothing heavy in sight, so it's overdraw behind the wall.
+  - Natla's Mines, between two walls, a place players reach easily: room 68, Lara 51178, -9984, 93119, heading c219; camera 52791, -10400, 93038, 0b51 c216. 11 rooms, 623 commands, 39 meshes, vdp1 115, cpu 51.
+  - Caves, the vines: room 26, Lara 9590, 5888, 83354, heading 18ab; camera 8282, 5054, 82552, 0014 299a. 3 rooms, 1041 commands, 52 meshes, vdp1 138, cpu 54. The user remembers it dropping frames on the Saturn too.
+- The camera's heading is where Lara is seen from, so `AT_YAW` at the camera's heading gives the same view from `tools/hwtest.sh at`.
 
 ## Production code: clean-up
 
@@ -3749,6 +3758,15 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 294. Caves, room 24: a gap in the level shows the old frame
+*Closed 2026-11-05: GAPS in tools/pack_level.py, a triangle added to the level: x 44032 to 44800 at z 66560, y 1792 to 2304, texture 92 as the wall it carries on from. The same view drawn over magenta: 53 pixels -> 0.*
+
+*Kind: look - Size: 53 pixels at the user's view - Fix: to be chosen*
+
+- Reported in play on the Saturn, 2026-11-05: Lara 43909, 7168, 76056, heading c3fb; camera 44317, 6643, 77515, pitch 085b, heading 8860. `AT_LEVEL=LEVEL1 AT_ID=LVL_TR1_1 AT_START=24@43909:7168:76056 AT_YAW=0x8860 tools/hwtest.sh at` gives nearly the same view, and the list drawn offline over magenta (scratchpad hole_scan) shows 53 px at x 125-136, y 19-26. The tiny-window rule isn't it: the same with it off.
+- No face of any room in the level covers that point from that view, so the level has a gap there. Retail clears the frame and shows black; the Caves don't clear, so the old frame shows.
+- The same kind of gap as 267. The choices there apply: the vblank erase for the level (by 271's rule it wouldn't pay at the bridge, where VDP1 is close to the line and the fills small), or a hand-placed quad behind the gap.
 
 ### 289. A frame settled a field late stays a field late
 *Closed 2026-11-05: 465410f, c5330da. Saturn: valley ledge VDP1 wait 4.2 -> 0 ms, bridge ledge 8.1 -> 0 ms, both still 29.9 fps.*

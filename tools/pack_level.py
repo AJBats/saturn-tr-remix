@@ -313,6 +313,29 @@ def water_art(lvl, sparse, sub):
     return out
 
 
+# Gaps in the levels' own walls, which retail's cleared frame shows black and ours would show the last frame
+# through: room, three corners in world units (a vertex's places go by 256) wound to face the side seen, and the
+# texture of the wall they carry on.
+GAPS = {
+    "LEVEL1": [(30, ((44032, 1792, 66560), (44032, 2304, 66560), (44800, 2304, 66560)), 92)],   # issue 294
+}
+
+
+def close_gaps(lvl):
+    for index, corners, texture in GAPS.get(lvl.name, ()):
+        room = lvl.rooms[index]
+        at = []
+        for x, y, z in corners:
+            local = (x - room.x, y, z - room.z)
+            found = next((i for i, v in enumerate(room.vertices) if v[:3] == local), None)
+            if found is None:
+                nearest = min(room.vertices, key=lambda v: abs(v[0] - local[0]) + abs(v[1] - local[1]) + abs(v[2] - local[2]))
+                found = len(room.vertices)
+                room.vertices.append((*local, nearest[3]))
+            at.append(found)
+        room.triangles.append((*at, texture))
+
+
 def take_water(lvl):
     """Water's sparkle quads out of the rooms, with the vertices only they used: flat, a sector each, of
     an animated texture mostly empty. Left in each room as room.water, for the shimmers, and the texture's
@@ -1609,6 +1632,7 @@ def main():
                       [int(i[4:]) for i in triggered if i.startswith("flip")],
                       tuple(int(v) for v in os.environ["TRIGGER_AT"].split(":")) if os.environ.get("TRIGGER_AT") else None,
                       "end" in triggered)
+    close_gaps(lvl)
     plan = planepack.plan_for(name)
     plane_tiles = planepack.take_faces(lvl, plan) if plan else None
     if os.environ.get("SHIMMERS") != "0":
