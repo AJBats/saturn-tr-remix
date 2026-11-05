@@ -1833,7 +1833,7 @@ void facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* 
             {
                 gShimmerSlotOwed[heightIndex] = s.owed;
                 int32_t step = 80;
-                slotZ[0] = 0x7FFFFFFF;
+                slotZ[0] = SHIMMER_FAR << 8;
                 for (int32_t k = 1; k < 8; k++)
                 {
                     while (step > 0 && shimmerQ16(gShimmerDepth[step], s.owed) < k << 4) {
