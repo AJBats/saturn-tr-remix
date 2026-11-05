@@ -312,34 +312,29 @@ struct ShimmerSheet
     const int32_t* depth;       // +12
     const uint8_t* bag;         // +16
     const void* pieces;         // +20
-    uint32_t unused24;          // +24
-    const int16_t* clips;       // +28
-    const int16_t* rows;        // +32  the view's rows, Z X Y, of x and z
-    const int32_t* heights;     // +36
-    uint32_t frame;             // +40
-    int32_t spriteDd;           // +44
-    int32_t reach;              // +48  from a shimmer to its bucket
-    int32_t tableReach;         // +52
-    int32_t divLast;            // +56
-    int32_t stopDraw;           // +60  a line is half as long, this generation
-    uint32_t link, grdLink;     // +64  the list's, while drawing
-    void* lives;                // +72  the next shimmer born goes here
-    void* livesEnd;             // +76
-    uint32_t turn;              // +80
-    int32_t room;               // +84
-    int32_t height;             // +88  the sheet's in heights, in bytes
-    int32_t owed;               // +92
-    int32_t oneZ;               // +96  past this a sector doesn't owe as many as this slot
-    const int16_t* clip;        // +100 the room's
-    int32_t wx, wz;             // +104 its first sector's middle in the world, 16 to a unit
-    uint32_t unused112;         // +112
-    int32_t oz, ez, fz;         // +116 a sector's middle's z: o + e * x + f * z, 256 to a view unit
-    int32_t nearZ, farZ;        // +128 its z outside these, out
-    int32_t reachZ;             // +136
-    ShimmerSide right, left, bottom, top;   // +140
+    const void* views;          // +24
+    const uint8_t* seen;        // +28  by room: the frame's low byte if it's in this frame's walk
+    uint32_t frame;             // +32
+    int32_t spriteDd;           // +36
+    int32_t limit;              // +40
+    int32_t runs;               // +44  how many, of the generation being drawn
+    void* lives;                // +48  the next shimmer born goes here
+    void* livesEnd;             // +52
+    uint32_t turn;              // +56
+    const void* view;           // +60
+    int32_t owed;               // +64
+    int32_t oneZ;               // +68  past this a sector doesn't owe as many as this slot
+    int32_t wx, wz;             // +72  its first sector's middle in the world, 8 to a unit
+    int32_t x0, x1, y0, y1;     // +80  the room's clip, on the frame
+    int32_t oz, ez, fz;         // +96  a sector's middle's z: o + e * x + f * z, 256 to a view unit
+    int32_t nearZ;              // +108 its z below this, out
+    int32_t reachZ;             // +112
+    int32_t unused116, unused120;
+    int32_t lineShift;          // +124 a line is half as long, this generation
+    ShimmerSide right, left, bottom, top;   // +128
 };
 extern "C" int32_t facesShimmersBornAsm(ShimmerSheet* sheet, const uint8_t* sectors, int32_t count, int32_t first);
-extern "C" int32_t facesShimmersDrawAsm(ShimmerSheet* sheet, const void* lives, int32_t count, const uint32_t* w1);
+extern "C" int32_t facesShimmersDrawAsm(ShimmerSheet* sheet, const void* lives, const uint8_t* runs, const uint32_t* w1);
 // after the rooms' faces: this frame's new shimmers, and all that are alive into the list
 void facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const RoomGeometry* geometry, RoomRun &run);
 void facesFloorSet(int32_t y);          // the level's floor, or FACES_NO_FLOOR

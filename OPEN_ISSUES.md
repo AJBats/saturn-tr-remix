@@ -3440,16 +3440,6 @@ over 14.6, at most 188 · Fix: medium, parked*
   Strips stop gaining at 4: what's left runs the other way.
 - Not built. Strips don't shorten lines, so far-reaching quads keep roomQuadCut.
 
-### 253. Water's flecks are left out near the camera, where retail draws them
-*Kind: look · Decision: keep it? · Built 0c367e4*
-
-- Textures 80% or more empty over 64 lines or crossing the near plane. Saves a
-  face of up to 14.7 ms (Cistern look) and more at the tunnel. Tile by tile, near
-  flecks go as the camera comes within about 1400 units. A fade before the limit
-  (gouraud) could hide the edge, untried. Not yet judged on the Saturn.
-- 2026-11-04: the user wants them back near the camera. Why they cost so: VDP1 walks every pixel of a face whether its texel is empty or not, so a sparkle tile costs what a solid one does, and cost follows the water's area on screen, not the tiles' count. Flooded, room 99 looking over the water (`cistern-flood-down`, Z + UP 14 frames, Mednafen, `tools/stepwise.py` capture flood-down2): list 36.33 ms, without sparkles 26.83; 169 faces walk 65,630 px to write about 7,000.
-- Offline with Mednafen's VDP1 code, list ms there: end codes after each row's last fleck 34.88; half the faces a frame 31.39; every run of a texture's rows a flat polygon 45.36 (+7,897 commands); the 24 longest a tile 29.18 (+801); the 12 longest 28.10 (+351); thin lines, 24 a tile 28.50 (+801), one a 128 px of face 27.42 (+167). The textures are one bit, a single colour. Far cut, test branch `water`, in the hall from Lara's start: today 24.8; near on 27.6, cut at 12 26.75, 10 25.87, 8 25.04, 6 23.68, 4 21.75.
-
 ### 255. The Cistern's long views put the CPUs and VDP1 over budget together
 *Kind: speed · Size: Saturn photos below, 20-27 fps · Fix: unknown, not traced*
 
@@ -3744,6 +3734,24 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 253. Water's flecks are left out near the camera, where retail draws them
+*Closed 2026-11-05: water's sparkle replaced by shimmers, `renderer/shimmers.s`. The user: "very close to the concept art". Saturn, flooded hall from Lara's start, percent of a frame, VDP1 / slave / master / fps: no water 62 / 91 / 106 / 28-29; the water's polygons 79 / 102 / 120 / 25-26; shimmers (one lit per 150 px, about 330 drawn) 66 / 101 / 118 / 25.*
+
+- The sparkle's flat sector quads and the vertices only they used are out of the rooms (`pack_level.py take_water`), 838 quads and 615 vertices in the Cistern. Each sheet of water keeps its sectors sorted by the frame in 8 they start on.
+- A shimmer is a piece clipped from the level's own water texture (`water_art`: dashes and chunks, one size), or a short line far off, at a place in its sector that holds for its 8 frames, each with its own start, dimmer and half-toned coming and going.
+- It's worked out once, as it's born, and kept in 6 bytes; only its place on the frame is new each frame. Assembly redoing everything every frame took 8.0 ms in Mednafen at the hall and 113% on the Saturn's slave; kept, 3.7 ms. Tried and dropped: starting from the frame's cells, which looked stuck to the screen.
+- What's left in the code from the old way: the sparse paths and the water textures in TEX, unread now.
+
+### 253 (as it stood). Water's flecks are left out near the camera, where retail draws them
+*Kind: look · Decision: keep it? · Built 0c367e4*
+
+- Textures 80% or more empty over 64 lines or crossing the near plane. Saves a
+  face of up to 14.7 ms (Cistern look) and more at the tunnel. Tile by tile, near
+  flecks go as the camera comes within about 1400 units. A fade before the limit
+  (gouraud) could hide the edge, untried. Not yet judged on the Saturn.
+- 2026-11-04: the user wants them back near the camera. Why they cost so: VDP1 walks every pixel of a face whether its texel is empty or not, so a sparkle tile costs what a solid one does, and cost follows the water's area on screen, not the tiles' count. Flooded, room 99 looking over the water (`cistern-flood-down`, Z + UP 14 frames, Mednafen, `tools/stepwise.py` capture flood-down2): list 36.33 ms, without sparkles 26.83; 169 faces walk 65,630 px to write about 7,000.
+- Offline with Mednafen's VDP1 code, list ms there: end codes after each row's last fleck 34.88; half the faces a frame 31.39; every run of a texture's rows a flat polygon 45.36 (+7,897 commands); the 24 longest a tile 29.18 (+801); the 12 longest 28.10 (+351); thin lines, 24 a tile 28.50 (+801), one a 128 px of face 27.42 (+167). The textures are one bit, a single colour. Far cut, test branch `water`, in the hall from Lara's start: today 24.8; near on 27.6, cut at 12 26.75, 10 25.87, 8 25.04, 6 23.68, 4 21.75.
 
 ### 288. Boxes under the flooded Cistern's statues pop between textured and flat
 *Closed 2026-11-04: 6368808. Mednafen at the reported view, flat room faces 7-9 a frame to 0, VDP1 33.70 to 33.87 ms.*
