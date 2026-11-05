@@ -127,6 +127,8 @@ void screenFramesHidden(bool hidden)
     } else {
         showFrames();
     }
+    gPlaneShown = !hidden && gPlaneLevel;
+    showLayers();
 }
 
 void screenPlaneLevel(bool on)

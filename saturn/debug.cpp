@@ -244,6 +244,14 @@ void debugUpdate()
     } else if (pressed2 & IK_L) {
         gPage = (gPage + PAGE_COUNT - 1) % PAGE_COUNT;
     }
+#ifdef HW_TRACE_AT
+    // a test disc for tools/hw.py: the overlay away, then after this many frames the trace on show
+    static int32 tracedFrames;
+    if (tracedFrames < HW_TRACE_AT + 1)
+    {
+        gPage = ++tracedFrames > HW_TRACE_AT ? PAGE_PLAYBACK : PAGE_NONE;
+    }
+#endif
     shoulders = keys & (IK_L | IK_R);
     if (gPage != was && was == PAGE_PLAYBACK) {
         playbackEnd();

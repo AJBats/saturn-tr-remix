@@ -47,6 +47,9 @@ endif
 ifdef START_YAW
 CFLAGS  += -DSTART_YAW=$(START_YAW)       # testing: Lara's heading at the start
 endif
+ifdef HW_TRACE_AT
+CFLAGS  += -DHW_TRACE_AT=$(HW_TRACE_AT)    # testing, with HW_LOG: the trace's playback by itself after this many frames
+endif
 ifdef HW_LOG
 CFLAGS  += -DHW_LOG     # testing on hardware: the boot log, stats, measurements and frame trace on screen
 endif
