@@ -60,8 +60,7 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
 #vineObjects td { padding: 1px 3px; text-align: right; border-top: 1px solid var(--line); }
 #vineObjects td:first-child, #vineObjects th:first-child { text-align: left; }
 #vineObjects input { margin: 0; }
-#vineFill { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; margin-top: 4px; }
-#vineFill td { padding: 1px 6px; text-align: right; border: 1px solid var(--line); }
+#vineArt { width: 100%; image-rendering: pixelated; margin-top: 4px; display: block; }
 @media (max-width: 760px) {
   main { flex-direction: column; }
   aside { width: 100%; max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -126,21 +125,15 @@ aside button.small { font: inherit; padding: 4px 8px; border-radius: 6px; border
   </div>
   <div class="pane" id="pane-vines">
     <h2>What they are</h2>
-    <span class="sub">Tube: a hollow square of four curtains, 2000 units a side and 1500 tall, hung from the ceiling; each curtain is 12 tiles, 4 across and 3 down, and every tile is there twice, once for each side. 96 faces, half of them facing the camera at a time. Flat: one curtain, 8 faces.</span>
+    <span class="sub">Tube: a hollow square of four curtains, 2000 units a side and 1500 tall, hung from the ceiling. Each curtain's tiles are drawn from both sides: 96 faces. Flat: one curtain, 8 faces. They're seen from all round, so every side stays.</span>
     <div class="row"><select id="vinePlace"></select></div>
-    <h2>All the vines, on the right</h2>
-    <label><input type="checkbox" id="vineInside"><span>Drop the tubes' inside faces<span class="sub">from outside you see a tube's near curtains and, through their gaps, the insides of the far ones; off by default: it thins the vines too much</span></span></label>
-    <label><input type="checkbox" id="vineKeep" checked><span>Keep them while the camera is in that tube<span class="sub">off, a tube you stand in vanishes: every face left looks away from you</span></span></label>
-    <div class="row"><select id="vineTiles"><option value="tiles">Tiles as they are: 12 quads a curtain</option><option value="rows">One quad a row: 3 a curtain</option><option value="sheets">One quad a curtain</option></select></div>
-    <span class="sub">VDP1 has no UVs: a quad always shows one whole texture, corner to corner. So a merged quad gets its own texture, its tiles pasted together. VDP1 walks lines, so a row of 4 as one quad pays for its lines once, not four times. It's bent as VDP1 bends it, in straight lines on the screen with no perspective: bigger quads warp more up close, and a quad with a corner behind the camera goes as a whole.</span>
-    <div class="row"><select id="vineGaps"><option value="keep">Gaps between tubes: as they are</option><option value="outer">Gaps: drop the faces looking into a gap</option><option value="one">Gaps: drop one curtain of each close pair</option></select></div>
-    <span class="sub">Where two tubes hang side by side their curtains face each other across a gap of 9 to 100 units.</span>
-    <div class="row"><select id="vineRowsKept"><option value="3">All rows</option><option value="2">Without the bottom row</option><option value="1">Only the top row</option></select></div>
-    <div class="row"><select id="vineLeave"></select></div>
-    <span class="sub">How filled each tile's texture is, in percent (a tube's curtain as seen from outside):</span>
-    <table id="vineFill"></table>
-    <h2>Each object, on the right</h2>
-    <span class="sub">Faces sent and estimated VDP1 time at this view. Untick a curtain to take it off that one object, both its sides; N, E, S, W are the way its outside looks.</span>
+    <h2>Strips, on the right</h2>
+    <span class="sub">VDP1 walks a quad's empty texels as it does its filled ones. So each side's tiles are pasted together and cut into strips hanging down, each round what's filled in its column, with its own 15 colour texture. Nothing filled is lost.</span>
+    <div class="row"><select id="vineWidth"></select></div>
+    <span class="sub" id="vineArtInfo"></span>
+    <canvas id="vineArt"></canvas>
+    <span class="sub">Top: a curtain's art as 12 tiles, each outlined, all walked. Below: what's left to walk as strips; the grey goes.</span>
+    <h2>Each object at this view</h2>
     <div id="vineObjects"></div>
     <h2>Context</h2>
     <label><input type="checkbox" id="vineRooms" checked><span>The rooms<span class="sub">in their real textures; what shows through the gaps</span></span></label>
@@ -212,7 +205,7 @@ const img = new Image();
 const atlasTex = new THREE.Texture(img);
 atlasTex.flipY = false; atlasTex.generateMipmaps = false;
 atlasTex.magFilter = atlasTex.minFilter = THREE.NearestFilter;
-img.onload = () => { atlasTex.needsUpdate = true; drawCardTextures(); };
+img.onload = () => { atlasTex.needsUpdate = true; drawCardTextures(); drawVineArt(); };
 // the animal's card textures one under another in the panel, four times their
 // size (each along the card from its first end, as the game has them)
 function drawCardTextures() {
@@ -755,88 +748,14 @@ function buildBridge(simplified) {
 // ---- the vines
 const VI = D.vines;
 const vineM = VI.objects.map(s => ({ R: rotYXZ(0, s.yaw, 0), t: s.pos }));
-const vineOff = VI.objects.map(() => new Set());    // curtains taken off each object
-const COMPASS = (v) => Math.abs(v[0]) > Math.abs(v[2]) ? (v[0] > 0 ? 'E' : 'W') : (v[2] > 0 ? 'N' : 'S');
-function curtainWay(k, cu) { return COMPASS(rv(vineM[k].R, VI.meshes[VI.objects[k].mesh].curtains[cu].out)); }
 function placeOf() { return +ui('vinePlace').value; }
-function inTube(k) {
+function vineMesh(k, simplified) {
   const mesh = VI.meshes[VI.objects[k].mesh];
-  if (!mesh.box) return false;
-  const c = rv(transpose(vineM[k].R), sub(camTR(), vineM[k].t));
-  return c[0] > mesh.box.lo[0] && c[0] < mesh.box.hi[0] && c[1] > mesh.box.lo[1] && c[1] < mesh.box.hi[1] && c[2] > mesh.box.lo[2] && c[2] < mesh.box.hi[2];
-}
-function transpose(R) { return [R[0], R[3], R[6], R[1], R[4], R[7], R[2], R[5], R[8]]; }
-// what an object draws: the faces as they are, or as the toggles have them
-function vineFaces(k, simplified) {
-  const mesh = VI.meshes[VI.objects[k].mesh];
-  if (!simplified) return mesh.f;
-  const dropIn = ui('vineInside').checked && !(ui('vineKeep').checked && inTube(k));
-  const kept = Math.min(+ui('vineRowsKept').value, mesh.rows), leave = ui('vineLeave').value, way = ui('vineTiles').value;
-  let list;
-  if (way === 'sheets') list = mesh.sheetsBy[kept];
-  else if (way === 'rows') list = mesh.rowsBy[leave].filter(q => q.r < kept);
-  else list = mesh.f.filter(f => f.r < kept && f.fill >= +leave);
-  const off = vineOff[k], gaps = ui('vineGaps').value, gap = vineGaps[k];
-  return list.filter(f => {
-    if ((dropIn && f.in) || (off.size && off.has(curtainWay(k, f.cu)))) return false;
-    if (gaps === 'keep' || !gap) return true;
-    const way = curtainWay(k, f.cu);
-    return gaps === 'one' ? !gap.one.has(way) : !(gap.facing.has(way) && !f.in);
-  });
-}
-// tubes side by side: by object, the ways its curtains look at a neighbour across a gap, and the one of each pair to drop
-const vineGaps = VI.objects.map(() => null);
-(function findGaps() {
-  const box = (k) => {
-    const mesh = VI.meshes[VI.objects[k].mesh];
-    if (!mesh.box) return null;
-    const a = apply(vineM[k], mesh.box.lo), b = apply(vineM[k], mesh.box.hi);
-    return { x0: Math.min(a[0], b[0]), x1: Math.max(a[0], b[0]), z0: Math.min(a[2], b[2]), z1: Math.max(a[2], b[2]) };
-  };
-  const mark = (k, way, drop) => {
-    const g = vineGaps[k] || (vineGaps[k] = { facing: new Set(), one: new Set() });
-    g.facing.add(way);
-    if (drop) g.one.add(way);
-  };
-  const GAP = 150, SHARED = 300;
-  VI.objects.forEach((s, i) => {
-    const A = box(i);
-    if (!A) return;
-    VI.objects.forEach((t, j) => {
-      const B = box(j);
-      if (j <= i || !B || t.place !== s.place) return;
-      const xShared = Math.min(A.x1, B.x1) - Math.max(A.x0, B.x0), zShared = Math.min(A.z1, B.z1) - Math.max(A.z0, B.z0);
-      if (zShared > SHARED && B.x0 - A.x1 >= 0 && B.x0 - A.x1 < GAP) { mark(i, 'E', true); mark(j, 'W', false); }
-      if (zShared > SHARED && A.x0 - B.x1 >= 0 && A.x0 - B.x1 < GAP) { mark(i, 'W', true); mark(j, 'E', false); }
-      if (xShared > SHARED && B.z0 - A.z1 >= 0 && B.z0 - A.z1 < GAP) { mark(i, 'N', true); mark(j, 'S', false); }
-      if (xShared > SHARED && A.z0 - B.z1 >= 0 && A.z0 - B.z1 < GAP) { mark(i, 'S', true); mark(j, 'N', false); }
-    });
-  });
-})();
-// A quad as VDP1 bends it: its lines straight on the screen between its side edges, so where a point of the texture
-// lands is a straight mix on the screen, not in the world. Returned as points of the quad's plane the camera sees there.
-function vdp1Bend(P) {
-  const m = camera.matrixWorldInverse.elements;
-  const V = P.map(p => {
-    const q = T3(p);
-    return [m[0]*q[0] + m[4]*q[1] + m[8]*q[2] + m[12], m[1]*q[0] + m[5]*q[1] + m[9]*q[2] + m[13], -(m[2]*q[0] + m[6]*q[1] + m[10]*q[2] + m[14])];
-  });
-  if (V.some(v => v[2] < 64)) return null;
-  const S = V.map(v => [v[0] / v[2], v[1] / v[2]]);
-  const n = cross(sub(V[1], V[0]), sub(V[3], V[0])), d = dot(n, V[0]);
-  const w = camera.matrixWorld.elements;
-  return (u, v) => {
-    const ax = S[0][0] + (S[3][0] - S[0][0]) * v, ay = S[0][1] + (S[3][1] - S[0][1]) * v;
-    const bx = S[1][0] + (S[2][0] - S[1][0]) * v, by = S[1][1] + (S[2][1] - S[1][1]) * v;
-    const x = ax + (bx - ax) * u, y = ay + (by - ay) * u;
-    const t = d / dot(n, [x, y, 1]);
-    const vx = x * t, vy = y * t, vz = -t;
-    return T3([w[0]*vx + w[4]*vy + w[8]*vz + w[12], w[1]*vx + w[5]*vy + w[9]*vz + w[13], w[2]*vx + w[6]*vy + w[10]*vz + w[14]]);
-  };
+  return simplified ? mesh.strips[ui('vineWidth').value] : mesh;
 }
 // VDP1's time for a quad by the costs fitted to the stepper's list at the Caves spot (Mednafen, cycles):
 // a command, its lines, the pixels they walk and the texels they read. null: off the frame or past the near plane.
-const VDP1_FIT = { command: 18.84, line: 28.26, pixel: 1.23, texel: 1.4 };
+const VDP1_FIT = { command: 18.8, line: 28.26, pixel: 1.23, texel: 1.4 };
 function vdp1Cycles(P, texW) {
   const m = camera.matrixWorldInverse.elements;
   const S = [];
@@ -872,37 +791,56 @@ function vineStats(simplified) {
   const st = { objects: 0, verts: 0, faces: 0, sent: 0, lines: 0, cycles: 0, each: {} };
   VI.objects.forEach((s, k) => {
     if (s.place !== placeOf()) return;
-    const mesh = VI.meshes[s.mesh], M = vineM[k];
+    const mesh = vineMesh(k, simplified), M = vineM[k];
     const e = { sent: 0, cycles: 0 };
-    const used = new Set();
-    const list = vineFaces(k, simplified);
-    if (list.length) st.objects++;
-    for (const f of list) {
+    st.objects++;
+    st.verts += mesh.v.length / 3;
+    for (const f of mesh.f) {
       st.faces++;
-      f.c.forEach(i => used.add(i));
       const P = f.c.map(i => apply(M, [mesh.v[i*3], mesh.v[i*3+1], mesh.v[i*3+2]]));
       if (dot(cross(sub(P[1], P[0]), sub(P[2], P[0])), sub(cam, P[0])) >= 0) continue;
-      const cost = vdp1Cycles(P, rects[f.t][2]);
+      // a turned texture's lines run down the quad, from corner D to A
+      const cost = f.turn ? vdp1Cycles([P[3], P[0], P[1], P[2]], rects[f.t][3]) : vdp1Cycles(P, rects[f.t][2]);
       if (!cost) continue;
       st.sent++; e.sent++;
       st.lines += cost.lines;
       st.cycles += cost.cycles; e.cycles += cost.cycles;
     }
-    st.verts += used.size;
     st.each[k] = e;
   });
   return st;
 }
+// A quad as VDP1 bends it: its lines straight on the screen between its side edges, so where a point of the texture
+// lands is a straight mix on the screen, not in the world. Returned as points of the quad's plane the camera sees there.
+function vdp1Bend(P) {
+  const m = camera.matrixWorldInverse.elements;
+  const V = P.map(p => {
+    const q = T3(p);
+    return [m[0]*q[0] + m[4]*q[1] + m[8]*q[2] + m[12], m[1]*q[0] + m[5]*q[1] + m[9]*q[2] + m[13], -(m[2]*q[0] + m[6]*q[1] + m[10]*q[2] + m[14])];
+  });
+  if (V.some(v => v[2] < 64)) return null;
+  const S = V.map(v => [v[0] / v[2], v[1] / v[2]]);
+  const n = cross(sub(V[1], V[0]), sub(V[3], V[0])), d = dot(n, V[0]);
+  const w = camera.matrixWorld.elements;
+  return (u, v) => {
+    const ax = S[0][0] + (S[3][0] - S[0][0]) * v, ay = S[0][1] + (S[3][1] - S[0][1]) * v;
+    const bx = S[1][0] + (S[2][0] - S[1][0]) * v, by = S[1][1] + (S[2][1] - S[1][1]) * v;
+    const x = ax + (bx - ax) * u, y = ay + (by - ay) * u;
+    const t = d / dot(n, [x, y, 1]);
+    const vx = x * t, vy = y * t, vz = -t;
+    return T3([w[0]*vx + w[4]*vy + w[8]*vz + w[12], w[1]*vx + w[5]*vy + w[9]*vz + w[13], w[2]*vx + w[6]*vy + w[10]*vz + w[14]]);
+  };
+}
 function buildVines(simplified) {
   const cam = camTR();
-  const b = { lit: new Builder(), pre: new Builder() };
+  const b = { pre: new Builder() };
   VI.objects.forEach((s, k) => {
     if (s.place !== placeOf()) return;
-    const mesh = VI.meshes[s.mesh], M = vineM[k];
-    const shade = mesh.s ? (i) => 2 * mesh.s[i] : () => 1;
-    for (const f of vineFaces(k, simplified)) {
-      if (!(simplified && f.tiles > 1)) {
-        meshFace(mesh, f, (v) => apply(M, v), (n) => rv(M.R, n), shade, cam, mesh.s ? b.pre : b.lit, false);
+    const mesh = vineMesh(k, simplified), M = vineM[k];
+    const shade = (i) => 2 * mesh.s[i];
+    for (const f of mesh.f) {
+      if (!simplified) {
+        meshFace(mesh, f, (v) => apply(M, v), (n) => rv(M.R, n), shade, cam, b.pre, false);
         continue;
       }
       const P = f.c.map(i => apply(M, [mesh.v[i*3], mesh.v[i*3+1], mesh.v[i*3+2]]));
@@ -910,8 +848,8 @@ function buildVines(simplified) {
       const bend = vdp1Bend(P);
       if (!bend) continue;
       const tint = opt.tint ? TINT : WHITE;
-      const col = f.c.map(i => { const s = shade(i); return [tint[0]*s, tint[1]*s, tint[2]*s]; });
-      (mesh.s ? b.pre : b.lit).quad(P, null, col, f.t, false, 16, P, false, null, bend);
+      const col = f.c.map(i => { const c = shade(i); return [tint[0]*c, tint[1]*c, tint[2]*c]; });
+      b.pre.quad(P, null, col, f.t, false, 8, P, false, null, bend);
     }
   });
   if (ui('vineRooms').checked) {
@@ -937,31 +875,46 @@ function vinesLabel(title, s, o) {
 }
 function fillVines() {
   ui('vinePlace').innerHTML = VI.places.map((p, i) => `<option value="${i}">${p.name}</option>`).join('');
-  ui('vineLeave').innerHTML = VI.leaveOut.map(n => `<option value="${n}">${n ? (n === 1 ? 'Without the empty tiles' : `Without tiles under ${n}% filled`) : 'Every tile'}</option>`).join('');
-  const tube = Object.values(VI.meshes).find(m => m.box);
-  const outside = tube.f.filter(f => !f.in && f.cu === tube.f.find(g => !g.in).cu);
-  const rowsOf = {};
-  outside.forEach(f => (rowsOf[f.r] = rowsOf[f.r] || []).push(f.fill));
-  ui('vineFill').innerHTML = Object.keys(rowsOf).sort().map(r => '<tr>' + rowsOf[r].map(v => `<td>${v}</td>`).join('') + '</tr>').join('');
+  ui('vineWidth').innerHTML = VI.widths.map(n => `<option value="${n}">Strips ${n} texels across${n === VI.widths[0] ? ', the game\'s' : ''}</option>`).join('');
+}
+function drawVineArt() {
+  if (!img.complete || !img.width) return;
+  const tube = Object.values(VI.meshes).find(m => m.tube);
+  const art = tube.strips[ui('vineWidth').value].art;
+  const cv = ui('vineArt'), S = 2, gap = 8;
+  cv.width = art.w * S;
+  cv.height = (art.h * S) * 2 + gap;
+  const g = cv.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, cv.width, cv.height);
+  const put = (t, x, y, w, h) => { const r = rects[t]; g.drawImage(img, r[0], r[1], r[2], r[3], x * S, y, w * S, h * S); };
+  g.fillStyle = '#10130f';
+  g.fillRect(0, 0, art.w * S, art.h * S);
+  put(art.mosaic, 0, 0, art.w, art.h);
+  g.strokeStyle = '#e0789a';
+  g.lineWidth = 1;
+  for (let y = 0; y < art.h; y += 32) for (let x = 0; x < art.w; x += 32) g.strokeRect(x * S + 0.5, y * S + 0.5, 32 * S - 1, 32 * S - 1);
+  const top = art.h * S + gap;
+  g.fillStyle = '#6a6d72';
+  g.fillRect(0, top, art.w * S, art.h * S);
+  let area = 0;
+  for (const q of art.strips) {
+    g.fillStyle = '#10130f';
+    g.fillRect(q.x * S, top + q.y * S, q.w * S, q.h * S);
+    put(q.t, q.x, top + q.y * S, q.w, q.h);
+    g.strokeRect(q.x * S + 0.5, top + q.y * S + 0.5, q.w * S - 1, q.h * S - 1);
+    area += q.w * q.h;
+  }
+  ui('vineArtInfo').textContent = `${art.strips.length} strips a side of a curtain, against 12 tiles; VDP1 walks ${Math.round(area * 100 / (art.w * art.h))}% of the texels.`;
 }
 function fillVineObjects(left, right) {
   const rows = [];
   VI.objects.forEach((s, k) => {
     if (s.place !== placeOf()) return;
-    const mesh = VI.meshes[s.mesh];
-    const boxes = mesh.curtains.map(c => {
-      const way = COMPASS(rv(vineM[k].R, c.out));
-      return `<label style="display:inline;padding:0 2px"><input type="checkbox" data-k="${k}" data-way="${way}" ${vineOff[k].has(way) ? '' : 'checked'}>${way}</label>`;
-    }).join('');
     const a = left.each[k] || { sent: 0, cycles: 0 }, b = right.each[k] || { sent: 0, cycles: 0 };
-    rows.push(`<tr><td>${k} ${mesh.box ? 'tube' : 'flat'}</td><td>${a.sent}</td><td>${(a.cycles * SATURN_MS).toFixed(1)}</td><td>${b.sent}</td><td>${(b.cycles * SATURN_MS).toFixed(1)}</td><td style="white-space:nowrap;font-size:11px">${boxes}</td></tr>`);
+    rows.push(`<tr><td>${k} ${VI.meshes[s.mesh].tube ? 'tube' : 'flat'}</td><td>${a.sent}</td><td>${(a.cycles * SATURN_MS).toFixed(1)}</td><td>${b.sent}</td><td>${(b.cycles * SATURN_MS).toFixed(1)}</td></tr>`);
   });
-  ui('vineObjects').innerHTML = `<table><tr><th></th><th colspan="2">left</th><th colspan="2">right</th><th></th></tr><tr><th>#</th><th>sent</th><th>ms</th><th>sent</th><th>ms</th><th>curtains</th></tr>${rows.join('')}</table>`;
-  ui('vineObjects').querySelectorAll('input').forEach(i => i.onchange = () => {
-    const off = vineOff[+i.dataset.k];
-    if (i.checked) off.delete(i.dataset.way); else off.add(i.dataset.way);
-    dirty = true;
-  });
+  ui('vineObjects').innerHTML = `<table><tr><th></th><th colspan="2">today</th><th colspan="2">strips</th></tr><tr><th>#</th><th>sent</th><th>ms</th><th>sent</th><th>ms</th></tr>${rows.join('')}</table>`;
 }
 function vineView() {
   const p = VI.places[placeOf()];
@@ -979,8 +932,7 @@ function placeTags(x, y, vw, vh) {
   let html = '';
   VI.objects.forEach((s, k) => {
     if (s.place !== placeOf()) return;
-    const mesh = VI.meshes[s.mesh];
-    const lo = mesh.box ? mesh.box.lo : [-500, 0, 0], hi = mesh.box ? mesh.box.hi : [500, 1000, 0];
+    const { lo, hi } = VI.meshes[s.mesh].box;
     const c = apply(vineM[k], [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2]);
     v.set(...T3(c)).project(camera);
     if (v.z > 1 || Math.abs(v.x) > 1 || Math.abs(v.y) > 1) return;
@@ -1073,6 +1025,7 @@ ui('ledge').onclick = ledgeView;
 fillVines();
 ui('vineView').onclick = vineView;
 ui('vinePlace').onchange = () => { vineView(); dirty = true; };
+ui('vineWidth').onchange = () => { drawVineArt(); dirty = true; };
 ui('dist').oninput = (e) => setDist(DIST_MIN * Math.pow(DIST_MAX / DIST_MIN, +e.target.value));
 ui('play').onclick = () => { A.state.playing = !A.state.playing; ui('play').textContent = A.state.playing ? 'Pause' : 'Play'; };
 ui('speed').oninput = (e) => A.state.speed = +e.target.value;
@@ -1081,7 +1034,7 @@ ui('anim').onchange = (e) => { A.state.anim = +e.target.value; A.state.time = 0;
 ui('frame').oninput = (e) => { const a = A.W.anims[A.state.anim]; A.state.time = +e.target.value / 100 * animLength(a); dirty = true; };
 ['ambient', 'lightRange', 'lightAz', 'lightEl'].forEach(id => ui(id).addEventListener('input', () => dirty = true));
 ['insideCopies', 'join', 'seamShade', 'plates', 'ribbon', 'cardLook', 'cardLight', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth',
- 'vineInside', 'vineKeep', 'vineTiles', 'vineGaps', 'vineRowsKept', 'vineLeave', 'vineRooms'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
+ 'vineRooms'].forEach(id => ui(id).addEventListener('change', () => dirty = true));
 controls.addEventListener('change', () => { dirty = true; syncDist(); });
 
 function resize() {
@@ -1157,21 +1110,19 @@ function update() {
     const [pw, ph] = saturnSize(L.b.game.p);
     sizeText = pw ? ` · the ${A.name} is about ${pw}×${ph} px on the Saturn's 352×224 screen` : '';
   } else if (tab === 'vines') {
-    // the geometry only when what it shows changes, as the rooms' textures make it heavy; the counts at every view
-    const inside = VI.objects.map((s, k) => s.place === placeOf() && inTube(k) ? k : '').join();
     camera.updateMatrixWorld();
-    const moved = ui('vineTiles').value === 'tiles' ? '' : camera.matrixWorld.elements.join();
-    const key = [placeOf(), ui('vineInside').checked, ui('vineKeep').checked, ui('vineTiles').value, ui('vineGaps').value, ui('vineRowsKept').value,
-                 ui('vineLeave').value, ui('vineRooms').checked, opt.tint, inside, vineOff.map(o => [...o].join('')).join(), moved].join('|');
-    if (key !== vineBuilt) {
-      vineBuilt = key;
-      views[0].set(buildVines(false)); views[1].set(buildVines(true));
+    // today's geometry only when what it shows changes, as the rooms' textures make it heavy; the strips bend with the view
+    const left = [placeOf(), ui('vineRooms').checked].join('|');
+    if (left !== vineBuilt) {
+      vineBuilt = left;
+      views[0].set(buildVines(false));
     }
+    views[1].set(buildVines(true));
     const L = vineStats(false), R = vineStats(true);
     ui('labelL').innerHTML = vinesLabel('Original', L);
     ui('labelR').innerHTML = vinesLabel('Simplified', R, L);
     fillVineObjects(L, R);
-    ui('foot').textContent = 'Faces sent: facing this camera and on the frame. VDP1 est.: the vines alone, by the costs fitted to the stepper at the Caves spot, Saturn at 0.79 of Mednafen; no overdraw counted, so what they save behind them is not in it. In the game for the real thing.';
+    ui('foot').textContent = 'Faces sent: facing this camera and on the frame. VDP1 est.: the vines alone, by the costs fitted at the Caves spot. Measured on the Saturn at that spot, the whole list: today 37.8 ms, 20 fps; strips 32 across 32.3 ms, 30 fps, master 20.1 -> 15.0 ms.';
   } else {
     const L = buildBridge(false), R = buildBridge(true);
     views[0].set(L.b); views[1].set(R.b);
@@ -1216,7 +1167,7 @@ function draw() {
 }
 
 // the page's state from its address: #bridge,tiles,ropes,pixels / #jaw,ears,cards,anim=9,t=0.4,pause /
-// #vines,vineTiles=rows,vineLeave=6,vineOff=3:N:E
+// #vines,vineWidth=16
 function fromHash() {
   const tokens = decodeURIComponent(location.hash.slice(1)).split(',').filter(Boolean);
   const kv = Object.fromEntries(tokens.map(t => t.split('=')).map(([k, v]) => [k, v === undefined ? true : v]));
@@ -1233,10 +1184,9 @@ function fromHash() {
   if (kv.vinePlace) ui('vinePlace').value = kv.vinePlace;
   document.querySelector(`[data-tab=${start}]`).click();
   for (const id of ['playAll', 'insideCopies', 'join', 'plates', 'ribbon', 'inside', 'tiles', 'ropes', 'posts', 'rooms', 'pixels', 'tint', 'wire', 'smooth',
-                    'vineInside', 'vineKeep', 'vineRooms', 'vineTags'])
+                    'vineRooms', 'vineTags'])
     if (id in kv) ui(id).checked = kv[id] !== '0';
-  for (const id of ['seamShade', 'cardLight', 'cardLook', 'ambient', 'lightRange', 'lightAz', 'lightEl', 'vineTiles', 'vineGaps', 'vineRowsKept', 'vineLeave']) if (kv[id]) ui(id).value = kv[id];
-  if (kv.vineOff) for (const part of kv.vineOff.split('+')) { const [k, ...ways] = part.split(':'); ways.forEach(w => vineOff[+k].add(w)); }
+  for (const id of ['seamShade', 'cardLight', 'cardLook', 'ambient', 'lightRange', 'lightAz', 'lightEl', 'vineWidth']) if (kv[id]) ui(id).value = kv[id];
   if (kv.seamOff) kv.seamOff.split(':').forEach(j => A.seamOff.add(+j));
   opt.cardsOnly = !!kv.cardsOnly;      // debugging: only the joints that can be cards
   if (kv.far) animalFar();
