@@ -145,7 +145,7 @@ void gameLoadLevel(const void* data)
     drawLevelFree();
 
     memset(&gSaveGame, 0, sizeof(gSaveGame));
-    memset(enemiesExtra, 0, sizeof(enemiesExtra));
+    memset(enemiesExtra, 0, ENEMIES_EXTRA_BYTES);
 
     ItemObj::sFirstActive = NULL;
     ItemObj::sFirstFree = NULL;

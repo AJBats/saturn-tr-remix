@@ -17,9 +17,9 @@
 // Packed levels load into low work RAM, which nothing else uses.
 #define LEVEL_ADDR  ((uint8*)0x00200000)
 #ifdef HW_LOG
-#define LEVEL_MAX   (1024 * 1024 - 256)     // the trace's header above (trace.cpp)
+#define LEVEL_MAX   (LOW_RAM_TOP - uint32(LEVEL_ADDR) - ENEMIES_EXTRA_BYTES)
 #else
-#define LEVEL_MAX   (1024 * 1024)
+#define LEVEL_MAX   (LOW_RAM_TOP - uint32(LEVEL_ADDR) - ENEMIES_EXTRA_BYTES)
 #endif
 
 // The size of DATA/<name><ext>, or 0 if the disc has none.

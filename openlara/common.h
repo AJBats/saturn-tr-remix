@@ -1718,6 +1718,9 @@ struct ExtraInfoEnemy
     Nav nav;
 };
 
+#define ENEMIES_EXTRA_BYTES (((MAX_ENEMIES * sizeof(ExtraInfoEnemy)) + 15) & ~15u)
+#define LOW_RAM_TOP         (0x00300000 - 256)  // the trace's header above (saturn/trace.cpp)
+
 struct ItemObj
 {
     Room* room;

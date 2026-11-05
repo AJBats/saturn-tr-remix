@@ -9,7 +9,9 @@
 #define ENEMY_TURN_4    ANGLE(4)
 #define ENEMY_TURN_5    ANGLE(5)
 
-EWRAM_DATA ExtraInfoEnemy enemiesExtra[MAX_ENEMIES];
+// At the top of low work RAM (os.cpp keeps levels below): 64 KB of path searches, read by a few enemies at a time,
+// is more than room faces want it than they do.
+#define enemiesExtra    ((ExtraInfoEnemy*)(LOW_RAM_TOP - ENEMIES_EXTRA_BYTES))
 
 enum AggressionLevel
 {
