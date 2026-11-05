@@ -26,6 +26,7 @@
 #               the water
 #   cistern-flood-down the same spot, Lara turned to the water: looking down (Z + UP) near sparkles
 #               fill the frame
+#   cistern-flood-statues LEVEL7A flooded, room 101: the boxes under the statues in the water, drawn flat when the half-size textures' pool ran out
 #   cistern-pillar LEVEL7A, room 106, a pillar to Lara's right: looking up
 #               (Z + DOWN) the walk lists more vertices than the jobs had room for
 #   cistern-platform LEVEL7A, room 102, the walk over that room standing still
@@ -103,6 +104,7 @@ case "${1:-ledge}" in
     cistern-flood) level=LEVEL7A id=LVL_TR1_7A start=103@47529:0:52129 yaw=0xDB9F trigger=flip0 ;;
     cistern-flood-above) level=LEVEL7A id=LVL_TR1_7A start=99@45157:-3328:63405 yaw=0x81B6 trigger=flip0 ;;
     cistern-flood-down) level=LEVEL7A id=LVL_TR1_7A start=99@45157:-3328:63405 yaw=0x9ACB trigger=flip0 ;;
+    cistern-flood-statues) level=LEVEL7A id=LVL_TR1_7A start=101@45437:-3328:59770 yaw=0xBDF2 trigger=flip0 ;;
     cistern-pillar) level=LEVEL7A id=LVL_TR1_7A start=106@47461:0:64619 yaw=0xA15E ;;
     cistern-platform) level=LEVEL7A id=LVL_TR1_7A start=102@34112:-3328:55667 yaw=0x3962 ;;
     cistern-balcony) level=LEVEL7A id=LVL_TR1_7A start=84@40578:-5120:49157 yaw=0x139C ;;
@@ -138,7 +140,7 @@ case "${1:-ledge}" in
     zoo-crocs)  level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 place=36@32:62976:-1280:52736,37@32:60928:-1280:52736,39@32:59904:-1280:54784 ;;
     zoo-gorillas) level=LEVEL7A id=LVL_TR1_7A start=32@63367:-1280:50740 yaw=0xF1C1 place=36@5:45568:-5632:76288,37@5:45568:-5632:76288,39@5:45568:-5632:76288,21@32:62976:-1280:52736,27@32:60928:-1280:52736,28@32:59904:-1280:54784 ;;
     bear)       level=LEVEL1 id=LVL_TR1_1 start=17@16896:6656:60928 yaw=0xA000 trigger=30 ;;
-    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-dark|cistern-tunnel|cistern-look|cistern-water|cistern-flood|cistern-flood-above|cistern-flood-down|valley|valley-trex|valley-sky|valley-cave|valley-plants|valley-dark|valley-ledge|valley-under|valley-music|valley-end|vilcabamba-end|zoo|zoo-wolves|zoo-none|zoo-rats|zoo-crocs|zoo-gorillas|bear]" >&2; exit 1 ;;
+    *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-dark|cistern-tunnel|cistern-look|cistern-water|cistern-flood|cistern-flood-above|cistern-flood-down|cistern-flood-statues|valley|valley-trex|valley-sky|valley-cave|valley-plants|valley-dark|valley-ledge|valley-under|valley-music|valley-end|vilcabamba-end|zoo|zoo-wolves|zoo-none|zoo-rats|zoo-crocs|zoo-gorillas|bear]" >&2; exit 1 ;;
 esac
 art=${OBJECT_ART:-0}
 
