@@ -51,8 +51,6 @@ static bool gUnderKept = true;  // rooms under a floor on VDP2 kept to its openi
 static const char* const kShimmers[] = { "Off", "1 in 600", "1 in 300", "1 in 150", "1 in 100", "1 in 75" };
 static const int32 kShimmerOneIn[] = { 0, 600, 300, 150, 100, 75 };
 static int32 gShimmerStep = 3;  // kShimmers'
-static const char* const kShimmerWay[] = { "Screen", "Sectors" };
-static int32 gShimmerWayStep;
 #endif
 
 static bool gShowStats;
@@ -89,9 +87,6 @@ static const Option gOptions[] = {
     { "Shimmers", kShimmers, 6,
         [] { return gShimmerStep; },
         [](int32 v) { gShimmerStep = v; renderShimmers(kShimmerOneIn[v]); } },
-    { "Shimmer way", kShimmerWay, 2,
-        [] { return gShimmerWayStep; },
-        [](int32 v) { gShimmerWayStep = v; renderShimmersWay(v == 0); } },
     { "Under floor", kOnOff, 2,
         [] { return int32(gUnderKept); },
         [](int32 v) { gUnderKept = v; renderUnderFloor(v); } },
@@ -109,7 +104,7 @@ static const Option gOptions[] = {
 
 enum { OPTION_STATS,
 #ifdef HW_LOG
-       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_BOXES, OPTION_SHIMMERS, OPTION_SHIMMER_WAY, OPTION_UNDER_FLOOR, OPTION_HOLES, OPTION_TEXELS, OPTION_CAMERA,
+       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_BOXES, OPTION_SHIMMERS, OPTION_UNDER_FLOOR, OPTION_HOLES, OPTION_TEXELS, OPTION_CAMERA,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");

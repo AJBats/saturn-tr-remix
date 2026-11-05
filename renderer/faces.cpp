@@ -1488,9 +1488,6 @@ static_assert(sizeof(ShimmerPiece) == 16, "shimmers.s");
 static const uint8_t kShimmerAges[8] = { 0x80 | 4, 2, 1, 0, 0, 1, 2, 0x80 | 4 };
 
 static int32_t gShimmerOneIn = 150;
-static bool gShimmerScreen = true;
-#define CMD_LINE            0x0006
-#define CMD_NORMAL_SPRITE   0x0000
 static ShimmerPiece gShimmerPieces[PIECES_MAX];
 static uint8_t gShimmerBag[SHIMMER_BAG];            // pieces by chance, as offsets into gShimmerPieces
 static uint32_t gShimmerTables;                     // the colour tables / 8
@@ -1501,11 +1498,6 @@ static int32_t gShimmerDepth[81];   // z in steps of 256 to sectors owed, for a 
 void facesShimmersDensity(int32_t oneIn)
 {
     gShimmerOneIn = oneIn;
-}
-
-void facesShimmersWay(bool screen)
-{
-    gShimmerScreen = screen;
 }
 
 // An equal share of the bag to dashes and to chunks, each piece as often as the texture has it.
@@ -1624,226 +1616,6 @@ static_assert(offsetof(ShimmerSheet, spriteDd) == 40 && offsetof(ShimmerSheet, h
               offsetof(ShimmerSheet, nearCell) == 140 && offsetof(ShimmerSheet, right) == 144 &&
               offsetof(ShimmerSheet, top) == 204 && offsetof(ShimmerSheet, cell) == 228, "shimmers.s");
 
-// --- from the screen: the frame's cells ask whether water lies under them
-
-#define ROW_STEP_SHIFT  1       // a row of the table a frame row in 2
-#define SHIMMER_ROWS    (FRAME_HEIGHT >> ROW_STEP_SHIFT)
-#define SHIMMER_HEIGHTS 2
-
-// For a flat sheet the depth goes by the frame's row alone (no camera roll), and along a row the place on the
-// sheet goes in equal steps, as a floor is cast.
-struct ShimmerRow
-{
-    int32_t u, v;           // from the camera, on the sheet, at the frame's middle column: 256 to a unit
-    int32_t stepU, stepV;   // ... a frame pixel to the right
-    int32_t z;              // its depth; 0, not on the sheet this row
-    int32_t chance;         // of a cell's lighting, of 256
-};
-static ShimmerRow gShimmerRows[SHIMMER_HEIGHTS][SHIMMER_ROWS];
-static int32_t gShimmerRowsH[SHIMMER_HEIGHTS];
-static uint32_t gShimmerRowsFrame[SHIMMER_HEIGHTS];
-static int32_t gShimmerRowsNext;
-static int32_t gShimmerGridX, gShimmerGridY;    // the cells' grid against the frame, 16 fractional bits: it turns with the view
-static int16_t gShimmerLastM[4];
-static uint32_t gShimmerViewFrame = ~0u;
-static int32_t gRightX, gRightZ, gAheadX, gAheadZ, gPerPixel;   // 16384 to 1; gPerPixel: 4096 to the view's x scale's inverse
-
-static int32_t isqrt(uint32_t v)
-{
-    uint32_t r = 0, b = 1u << 30;
-    while (b > v) {
-        b >>= 2;
-    }
-    while (b)
-    {
-        if (v >= r + b)
-        {
-            v -= r + b;
-            r = (r >> 1) + b;
-        }
-        else
-        {
-            r >>= 1;
-        }
-        b >>= 2;
-    }
-    return int32_t(r);
-}
-
-static void shimmersView(const FaceRoom &room, uint32_t frame)
-{
-    if (gShimmerViewFrame == frame)
-        return;
-    const int16_t* const m = room.m;
-    const int32_t length = isqrt(uint32_t(m[0] * m[0]) + uint32_t(m[2] * m[2]));
-    if (!length)
-        return;
-    gRightX = (m[0] << 14) / length;
-    gRightZ = (m[2] << 14) / length;
-    gAheadX = -gRightZ;
-    gAheadZ = gRightX;
-    if (m[6] * gAheadX + m[8] * gAheadZ < 0)
-    {
-        gAheadX = -gAheadX;
-        gAheadZ = -gAheadZ;
-    }
-    gPerPixel = (16384 * 4096) / length;
-    // the grid turns with the view, a frame's worth of it: about 210 pixels to the radian across, as many down
-    if (gShimmerViewFrame != ~0u)
-    {
-        const int32_t turn = (gShimmerLastM[0] * gRightZ - gShimmerLastM[1] * gRightX) >> 14;      // 16384 to the radian
-        const int32_t tilt = (gShimmerLastM[2] * m[7] - gShimmerLastM[3] * m[4]) >> 14;
-        gShimmerGridX += turn * 840;
-        gShimmerGridY -= tilt * 840;
-    }
-    gShimmerLastM[0] = int16_t(gRightX);
-    gShimmerLastM[1] = int16_t(gRightZ);
-    gShimmerLastM[2] = m[4];
-    gShimmerLastM[3] = m[7];
-    gShimmerViewFrame = frame;
-}
-
-static const ShimmerRow* shimmersRows(const FaceRoom &room, int32_t height, uint32_t frame, const int32_t* depth)
-{
-    for (int32_t i = 0; i < SHIMMER_HEIGHTS; i++)
-    {
-        if (gShimmerRowsH[i] == height && gShimmerRowsFrame[i] == frame)
-            return gShimmerRows[i];
-    }
-    const int32_t at = gShimmerRowsNext;
-    gShimmerRowsNext = (at + 1) & (SHIMMER_HEIGHTS - 1);
-    gShimmerRowsH[at] = height;
-    gShimmerRowsFrame[at] = frame;
-    ShimmerRow* const rows = gShimmerRows[at];
-    const int16_t* const m = room.m;
-    const int32_t oneIn = 65536 / gShimmerOneIn;
-    const int32_t top = height * 16384;
-    for (int32_t j = 0; j < SHIMMER_ROWS; j++)
-    {
-        ShimmerRow &r = rows[j];
-        const int32_t t = (j << ROW_STEP_SHIFT) + 1 - (FRAME_HEIGHT >> 1);
-        const int32_t down = (m[4] * t + 256 * m[7]) >> 8;
-        r.z = 0;
-        if (!down || (down < 0) != (top < 0))
-            continue;
-        volatile int32_t* const divider = (volatile int32_t*)0xFFFFFF00;
-        divider[0] = down;      // DVSR
-        divider[1] = top;       // DVDNT: divides
-        const int32_t z = divider[1];
-        if (z < NEAR_PLANE || z > SHIMMER_FAR)
-            continue;
-        r.z = z;
-        const int32_t ahead = (z * ((256 * m[4] - m[7] * t) >> 8)) >> 14;
-        r.u = gAheadX * ahead >> 6;
-        r.v = gAheadZ * ahead >> 6;
-        const int32_t across = (z * gPerPixel) >> 12;       // 256 to a unit, a frame pixel
-        r.stepU = (gRightX * across) >> 14;
-        r.stepV = (gRightZ * across) >> 14;
-        // shimmers owed a frame pixel, by how far off, a cell's share of them
-        r.chance = (((8192 + z) >> 5) * (z >= 4096 ? 64 : 128)) * oneIn >> 16;
-    }
-    return rows;
-}
-
-static inline uint32_t shimmerMix(uint32_t v)
-{
-    v ^= v >> 16;
-    v *= 0x2C1B3C6Du;
-    return v ^ (v >> 16);
-}
-
-static bool shimmersFromScreen(const FaceRoom &room, RoomRun &run, const uint8_t* g, int32_t height, const int32_t* depth)
-{
-    CommandList &list = *run.list;
-    const uint32_t frame = run.frame;
-    shimmersView(room, frame);
-    const ShimmerRow* const rows = shimmersRows(room, height, frame, depth);
-    const int32_t gx = g[0], gz = g[1], gw = g[2], gh = g[3];
-    const uint8_t* const grid = g + 4;
-    const int32_t camX = room.camera[0], camZ = room.camera[2];
-    const int32_t x0 = room.clip[0], y0 = room.clip[1], x1 = room.clip[2], y1 = room.clip[3];
-    const int32_t gridX = gShimmerGridX >> 16, gridY = gShimmerGridY >> 16;
-    const int32_t left = (gx << 10) - camX, right = ((gx + gw) << 10) - camX;
-    const int32_t nearV = (gz << 10) - camZ, farV = ((gz + gh) << 10) - camZ;
-    for (int32_t band = (y0 + gridY) >> 3; band <= (y1 + gridY) >> 3; band++)
-    {
-        const int32_t middle = (band << 3) - gridY + 4;
-        if (middle < 0 || middle >= FRAME_HEIGHT)
-            continue;
-        const ShimmerRow &mid = rows[middle >> ROW_STEP_SHIFT];
-        if (!mid.z)
-            continue;
-        // the band against the sheet: its ends' places
-        const int32_t sa = x0 - (FRAME_WIDTH >> 1), sb = x1 - (FRAME_WIDTH >> 1);
-        const int32_t ua = (mid.u + sa * mid.stepU) >> 8, ub = (mid.u + sb * mid.stepU) >> 8;
-        const int32_t va = (mid.v + sa * mid.stepV) >> 8, vb = (mid.v + sb * mid.stepV) >> 8;
-        if (max(ua, ub) < left || min(ua, ub) > right || max(va, vb) < nearV || min(va, vb) > farV)
-            continue;
-        const int32_t widthLog = mid.z >= 4096 ? 3 : 4;
-        const int32_t width = 1 << widthLog;
-        for (int32_t col = (x0 + gridX) >> widthLog; col <= (x1 + gridX) >> widthLog; col++)
-        {
-            // water under the cell's middle?
-            const int32_t s = (col << widthLog) - gridX + (width >> 1) - (FRAME_WIDTH >> 1);
-            const uint32_t cu = uint32_t((((mid.u + s * mid.stepU) >> 8) + camX) >> 10) - gx;
-            const uint32_t cv = uint32_t((((mid.v + s * mid.stepV) >> 8) + camZ) >> 10) - gz;
-            if (cu >= uint32_t(gw) || cv >= uint32_t(gh) || !grid[cv * gw + cu])
-                continue;
-            // this cell's clock, and this life of it
-            const uint32_t cell = shimmerMix(uint32_t(col) * 0x9E3779B1u + uint32_t(band) * 0x85EBCA6Bu + widthLog);
-            const uint32_t now = frame + (cell >> 28);
-            const uint32_t life = shimmerMix(cell + (now >> 3) * 0x27D4EB2Fu);
-            if (int32_t(life & 255) >= mid.chance)
-                continue;
-            const int32_t fx = (col << widthLog) - gridX + int32_t((life >> 8) & (width - 1));
-            const int32_t fy = (band << 3) - gridY + int32_t((life >> 16) & 7);
-            if (fx < x0 || fx > x1 || fy < y0 || fy > y1 || fy < 0 || fy >= FRAME_HEIGHT)
-                continue;
-            const ShimmerRow &r = rows[fy >> ROW_STEP_SHIFT];
-            if (!r.z)
-                continue;
-            const int32_t sx = fx - (FRAME_WIDTH >> 1);
-            const uint32_t pu = uint32_t((((r.u + sx * r.stepU) >> 8) + camX) >> 10) - gx;
-            const uint32_t pv = uint32_t((((r.v + sx * r.stepV) >> 8) + camZ) >> 10) - gz;
-            if (pu >= uint32_t(gw) || pv >= uint32_t(gh))
-                continue;
-            const int32_t here = grid[pv * gw + pu];
-            if (!here)
-                continue;
-            if (list.end - list.cmd <= SHIMMER_ROOM_LEFT * 8)
-                return false;
-            const uint32_t ageBits = kShimmerAges[now & 7];
-            const int32_t fog = r.z > 0x1000 ? (r.z - 0x1000) >> 8 : 0;
-            const int32_t tone = min(((here - 1 + fog) >> 3) + int32_t(ageBits & 0x7F), SHIMMER_TABLES - 1);
-            const uint32_t mesh = (ageBits & 0x80) << 1;
-            const int32_t bucket = min((r.z + 724) >> OT_SHIFT, FAR_BUCKET);
-            const int32_t dz = r.z >> 4;
-            const int32_t dd = run.split->divTable[dz >= 1281 ? 1280 : dz];
-            const ShimmerPiece* const piece = (const ShimmerPiece*)((const uint8_t*)gShimmerPieces + gShimmerBag[(life >> 24) & (SHIMMER_BAG - 1)]);
-            uint32_t* w = list.cmd;
-            if (dd < gShimmerSpriteDd)
-            {
-                int32_t half = (piece->w * (dd >> 6)) >> 3;
-                if (mesh) {
-                    half >>= 1;
-                }
-                w[1] = pair(PMOD_NO_ECD_SPD, gShimmerColours[tone]);
-                w[3] = pair(fx - half, fy);
-                w[4] = pair(fx + half, fy);
-                linked(list, (CMD_LINE | CMD_JUMP) << 16, bucket);
-            }
-            else
-            {
-                w[1] = pair(PMOD_ECD_OFF | PMOD_LUT16 | mesh, gShimmerTables + tone * 4);
-                w[2] = piece->art;
-                w[3] = pair(fx - piece->halfW, fy - piece->halfH);
-                linked(list, (CMD_NORMAL_SPRITE | CMD_JUMP) << 16, bucket);
-            }
-        }
-    }
-    return true;
-}
-
 // One side of the room's clip, for facesShimmersAsm: a value linear in a sector's x and z.
 static void shimmerPlane(ShimmerPlane &p, int32_t side, int32_t sign, int32_t o, int32_t e, int32_t f, int32_t oz, int32_t ez, int32_t fz)
 {
@@ -1910,18 +1682,10 @@ void facesShimmers(const FaceRoom &room, const uint8_t* water, int32_t yTop, Roo
             shimmerPlane(s.left, s.x0, -1, s.ox, ex, fx, s.oz, ez, fz);
             shimmerPlane(s.bottom, s.y1, 1, s.oy, ey, fy, s.oz, ez, fz);
             shimmerPlane(s.top, s.y0, -1, s.oy, ey, fy, s.oz, ez, fz);
-            if (runs && !gShimmerScreen && !facesShimmersAsm(&s, p, runs))
+            if (runs && !facesShimmersAsm(&s, p, runs))
                 return;
-            if (runs && gShimmerScreen)
-            {
-                const uint8_t* g = p + runs * 4;
-                if (!shimmersFromScreen(room, run, g, relY - room.camera[1], gShimmerDepth))
-                    return;
-            }
         }
         p += runs * 4;
-        const int32_t cells = p[2] * p[3];
-        p += 4 + cells + (cells & 1);
     }
 }
 

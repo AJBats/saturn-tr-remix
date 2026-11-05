@@ -298,7 +298,6 @@ void facesRoom(const FaceRoom &room, RoomRun &run);
 // their art, the level file's (pack_level.py water_art), and colour tables go here in VDP1 VRAM; 0, lines alone
 void facesShimmersInit(uint32_t vram, const uint8_t* art);
 void facesShimmersDensity(int32_t oneIn);
-void facesShimmersWay(bool screen);     // from the frame's cells, or from the water's sectors
 struct ShimmerPlane
 {
     int32_t o, e, f;        // o + e * x + f * z: how far past this side of the clip a sector's middle is
