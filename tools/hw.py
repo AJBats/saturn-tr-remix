@@ -1,6 +1,6 @@
 """The Saturn on the desk, driven from here. There's one, and any number of sessions wanting it; it's
 for final checks and numbers nothing else can give, Mednafen is for everything else. Whatever changes
-it (power on|off|cycle, card pc|saturn, deploy, record) takes --as NAME, your session's name, and
+it (power on|off|cycle, card pc|saturn, deploy, boot, record) takes --as NAME, your session's name, and
 needs the lock held under that name, unless test does it all for you:
 
     hw.py test FOLDER --as NAME --why "what for" [--settle S] [--shots N] [--every S] [--out PREFIX] [--wait MIN]
@@ -42,7 +42,11 @@ needs the lock held under that name, unless test does it all for you:
         the tracks that differ in size or time and the cue as autoboot.cue,
         compares every file with what's on the card, redoing any that differ,
         moves the card back, powers on and saves the screen 30 s later. If the
-        files won't come out right, the Saturn stays off and the card on the PC
+        files won't come out right, the Saturn stays off and the card on the PC.
+        Now and then the Satiator misses at power-on and the Saturn sits in its
+        CD player with no disc: that's seen on the screen, and power cycled
+    hw.py boot [--out PNG]
+        the same from power-on, for the disc already on the card
 
 Exits with 1 if the plug doesn't answer or the reading isn't what it should
 be. The plug is a Shelly Plug US Gen4 on the home network, found by its name.
@@ -101,6 +105,9 @@ LOCK_GATE = LOCK_FILE + '.gate'     # held for the moment of reading and writing
 LOCK_MINUTES = 15
 SATURN_WRITES_S = 20    # after power-on, how long the Satiator's menu may be writing to the card
 BOOT_S = 30             # from power-on to the game's first picture
+BOOT_TRIES = 6          # the Satiator missing at power-on, how many times before giving up
+CD_PLAYER_BAR = (600, 60, 1320, 170)    # on the capture: the BIOS CD player's track and time, in cyan
+CD_PLAYER_SHARE = 0.5   # that much of it cyan: 0.74 on the player, 0 on every game picture so far
 COPY_CHUNK = 1 << 20
 COPY_TRIES = 3
 
@@ -548,9 +555,30 @@ def deploy(folder, out):
         fail(f'the card still differs after {COPY_TRIES} tries: the Saturn stays off and the card on the PC')
 
     card('saturn')
-    power_on()
-    time.sleep(BOOT_S)
-    shot(out)
+    boot(out)
+
+
+def cd_player_showing(path):
+    """Whether a picture is the BIOS's CD player: past BOOT_S, the Satiator has missed."""
+    from PIL import Image
+
+    with Image.open(path) as image:
+        bar = image.convert('RGB').crop(CD_PLAYER_BAR).resize((72, 11)).tobytes()
+    cyan = sum(1 for i in range(0, len(bar), 3) if bar[i] < 130 and bar[i + 1] > 150 and bar[i + 2] > 140)
+    return cyan / (len(bar) // 3) > CD_PLAYER_SHARE
+
+
+def boot(out):
+    """Powers on, and on again if the Satiator misses, until the game is on the screen."""
+    for attempt in range(BOOT_TRIES):
+        power_on()
+        time.sleep(BOOT_S)
+        shot(out)
+        if not cd_player_showing(out):
+            return
+        print(f'no disc: the BIOS CD player is up, try {attempt + 1} of {BOOT_TRIES}', flush=True)
+        power_off()
+    fail(f'the Satiator missed {BOOT_TRIES} times running: the Saturn stays off')
 
 
 def test(folder, name, why, settle, shots, every, out, wait):
@@ -604,6 +632,9 @@ def main():
     p.add_argument('folder', nargs='?', default='build/disc')
     p.add_argument('--out', default='build/hw_shot.png')
     p.add_argument('--as', dest='name')
+    p = sub.add_parser('boot')
+    p.add_argument('--out', default='build/hw_shot.png')
+    p.add_argument('--as', dest='name')
     args = ap.parse_args()
     if args.command == 'lock':
         if args.name:
@@ -618,7 +649,7 @@ def main():
     if args.command == 'test':
         test(args.folder, args.name, args.why, args.settle, args.shots, args.every, args.out, args.wait)
         return
-    changes = args.command in ('deploy', 'record') or (args.command == 'power' and args.action) or \
+    changes = args.command in ('deploy', 'boot', 'record') or (args.command == 'power' and args.action) or \
         (args.command == 'card' and args.side)
     if changes:
         lock_needed(args.name)
@@ -630,6 +661,9 @@ def main():
         card(args.side)
     elif args.command == 'deploy':
         deploy(args.folder, args.out)
+    elif args.command == 'boot':
+        power_off()
+        boot(args.out)
     else:
         record(args.seconds, args.out)
 
