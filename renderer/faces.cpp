@@ -1519,7 +1519,10 @@ static_assert(sizeof(ShimmerView) == 24, "shimmers.s");
 // By its age, coming and going: half tone, and how many tones dimmer.
 static const uint8_t kShimmerAges[8] = { 0x80 | 4, 2, 1, 0, 0, 1, 2, 0x80 | 4 };
 
-static int32_t gShimmerOneIn = 150;
+#ifndef SHIMMER_ONE_IN
+#define SHIMMER_ONE_IN  150
+#endif
+static int32_t gShimmerOneIn = SHIMMER_ONE_IN;
 static ShimmerPiece gShimmerPieces[PIECES_MAX] __attribute__((aligned(16)));
 static uint8_t gShimmerBag[SHIMMER_BAG];            // pieces by chance, as offsets into gShimmerPieces
 static uint32_t gShimmerW1[8][2 * SHIMMER_TABLES];  // by age, then level: art's first word pair, then a line's

@@ -47,6 +47,12 @@ endif
 ifdef START_YAW
 CFLAGS  += -DSTART_YAW=$(START_YAW)       # testing: Lara's heading at the start
 endif
+ifdef SHIMMER_ONE_IN
+CFLAGS  += -DSHIMMER_ONE_IN=$(SHIMMER_ONE_IN)    # testing: water's shimmers this dense
+endif
+ifdef HW_LOOK
+CFLAGS  += -DHW_LOOK=$(HW_LOOK) -DHW_LOOK_FOR=$(HW_LOOK_FOR)    # testing, with HW_LOG: look held with these keys for so many frames, then frozen
+endif
 ifdef HW_TRACE_AT
 CFLAGS  += -DHW_TRACE_AT=$(HW_TRACE_AT)    # testing, with HW_LOG: the trace's playback by itself after this many frames
 endif

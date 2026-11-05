@@ -27,6 +27,7 @@
 //         occmodel LEVEL.bin one x y z room r00..r22 focal
 //         occmodel LEVEL.bin region x y z room r00..r22 focal RADIUS ARC_DEGREES PITCH_DEGREES VIEWS
 //         occmodel LEVEL.bin cameras VIEWS SEED
+//         occmodel LEVEL.bin heaviest VIEWS SEED
 //         occmodel LEVEL.bin holes VIEWS SEED
 //         occmodel LEVEL.bin boxes FILE VIEWS SEED   solid boxes (x0 x1 y0 y1 z0 z1 a line) as the game has them
 //         occmodel LEVEL.bin boxsearch OUT COUNT VIEWS SEED [HAND]   big boxes in the rock between rooms (no room's air in
@@ -2156,6 +2157,50 @@ static void walkStat(const char* name, int views)
     printf("%s heavy views %d: rooms %.1f verts %.0f room visits %.1f portals checked %.1f facing %.1f different %.1f; worst facing %d (checked %d, different %d)\n", name, n, rooms_ / n, verts / n, visits / n, checks / n, facing / n, unique / n, worstFacing, worstChecks, worstUnique);
 }
 
+static void heaviest(const char* name, int views)
+{
+    enum { TOP = 6 };
+    struct { int room; V3 pos; float yaw; Work w; } top[TOP];
+    int have = 0;
+    for (int v = 0; v < views; v++)
+    {
+        V3 pos;
+        int room = randomPlace(&pos);
+        float yaw = urand(0, 2 * (float)M_PI);
+        viewSet(pos, yaw, 0);
+        gBase.useMask = 0; gBase.usePoly = 0; gBase.minArea = 256; gBase.useBoxes = 0;
+        gWalkChecks = gWalkFacing = gWalkUnique = 0;
+        gWalkSeenN = 0;
+        walkRun(&gBase, room, 0);
+        Work w = listWork(&gBase);
+        int at = -1;
+        for (int i = 0; i < have; i++)
+            if (top[i].room == room)
+                at = i;
+        if (at >= 0 && top[at].w.cycles >= w.cycles)
+            continue;
+        if (at < 0)
+        {
+            if (have < TOP)
+                at = have++;
+            else
+            {
+                at = 0;
+                for (int i = 1; i < TOP; i++)
+                    if (top[i].w.cycles < top[at].w.cycles)
+                        at = i;
+                if (top[at].w.cycles >= w.cycles)
+                    continue;
+            }
+        }
+        top[at].room = room; top[at].pos = pos; top[at].yaw = yaw; top[at].w = w;
+    }
+    for (int i = 0; i < have; i++)
+        printf("%s room %d at %.0f %.0f %.0f yaw %d rooms %.0f verts %.0f kept %.0f dropped %.0f ms %.2f vdp1 %.2f\n", name, top[i].room,
+               top[i].pos.x, top[i].pos.y, top[i].pos.z, (int)(top[i].yaw / (2 * M_PI) * 65536) & 0xFFFF, top[i].w.rooms, top[i].w.verts, top[i].w.kept,
+               top[i].w.dropped, top[i].w.cycles / 28636.0, top[i].w.vdp1);
+}
+
 static void boxes(const char* name, int views)
 {
     BoxSum all, heavy;
@@ -3809,6 +3854,14 @@ int main(int argc, char** argv)
         rngState = (uint32_t)atoi(argv[4]) * 2654435761u + 12345u;
         const char* name = strrchr(argv[1], '/');
         holes(name ? name + 1 : argv[1], atoi(argv[3]));
+        return 0;
+    }
+    if (!strcmp(argv[2], "heaviest"))
+    {
+        gPlaceInner = 1;
+        rngState = (uint32_t)atoi(argv[4]) * 2654435761u + 12345u;
+        const char* name = strrchr(argv[1], '/');
+        heaviest(name ? name + 1 : argv[1], atoi(argv[3]));
         return 0;
     }
     if (!strcmp(argv[2], "walkstat"))

@@ -124,6 +124,9 @@ enum OverlayPage { PAGE_BENCH, PAGE_FRAME, PAGE_STAGES, PAGE_MENU, PAGE_NONE, PA
 static int32 gPage;
 static int32 gPageBack;             // the page Z and START left
 static bool gFrozen;                // the view: the game has only look held
+#ifdef HW_LOOK
+static volatile bool gLooking;      // a test disc for tools/hw.py, looking about by itself (Makefile)
+#endif
 static bool gStartSwallowed;        // START opened or left the page: the game never sees it
 #endif
 
@@ -196,6 +199,10 @@ uint32_t debugGameKeys(uint32_t pressed)
     if (pressed & IK_Z) {
         pressed &= ~IK_SELECT;      // look and START is the page's
     }
+#ifdef HW_LOOK
+    if (gLooking)
+        return IK_Z | HW_LOOK;
+#endif
     if (gFrozen)
         return IK_Z;
     if (menuShown() || gPage == PAGE_OCCLUDE)
@@ -244,6 +251,14 @@ void debugUpdate()
     } else if (pressed2 & IK_L) {
         gPage = (gPage + PAGE_COUNT - 1) % PAGE_COUNT;
     }
+#ifdef HW_LOOK
+    static int32 lookFrames;
+    lookFrames++;
+    gLooking = lookFrames >= 60 && lookFrames < 60 + HW_LOOK_FOR;
+    if (lookFrames == 60 + HW_LOOK_FOR) {
+        gFrozen = true;
+    }
+#endif
 #ifdef HW_TRACE_AT
     // a test disc for tools/hw.py: the overlay away, then after this many frames the trace on show
     static int32 tracedFrames;
