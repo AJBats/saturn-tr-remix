@@ -524,7 +524,10 @@ _facesShimmersDrawAsm:
     ! as many as the list has room for
     mov.l   @(S_STOP,gbr), r0
     sub     r12, r0
-    shlr2   r0
+    cmp/pz  r0
+    bt      2f
+    mov     #0, r0                  ! past it already
+2:  shlr2   r0
     shlr2   r0
     shlr    r0
     cmp/hs  r13, r0

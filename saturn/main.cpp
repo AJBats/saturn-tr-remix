@@ -88,7 +88,7 @@ static uint32 nextFrameWait()
     gNextHanded = false;
     uint32 t0 = timerTicks();
     traceBeginAt(TRACE_MASTER, t0, TR_UPDATE_WAIT);
-    slaveWait();
+    renderNextWait();
     uint32 t1 = timerTicks();
     traceEndAt(TRACE_MASTER, t1, TR_UPDATE_WAIT);
     cachePurge();       // the game as the slave left it

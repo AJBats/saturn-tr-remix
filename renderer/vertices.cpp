@@ -38,7 +38,7 @@ namespace render {
 #define MESH_LIGHT_SHADES   2
 #define SHADOW_VERTICES 8
 #define MAX_ROOMS       64
-#define MAX_ROOM_VERTICES   (MAX_VERTICES - MASTER_VERTICES + 3 * MAX_ROOMS)
+#define MAX_ROOM_VERTICES   (MAX_VERTICES - ROOMS_VERTICES_BOTTOM + 3 * MAX_ROOMS)
 #define MAX_MESH_VERTICES   (MASTER_VERTICES + 3 * MAX_DRAWS)
 
 static const int8_t kWibble[64] = {     // twice over: roomproject.s adds the phase to the base
@@ -778,6 +778,27 @@ static void chunkProject(int32_t c, uint32_t &wait)
     int32_t from = (c - gChunkAt[room]) * CHUNK;
     roomProject(room, from, from + chunkSize(c));
     *uncached(gChunkProjected + c) = 1;
+}
+
+void verticesAhead(const volatile uint32_t* stop, uint32_t &rooms, int32_t &from)
+{
+    uint32_t wait = 0;
+    for (uint32_t i = 0; i < gRoomCount; i++)
+    {
+        for (int32_t c = gChunkAt[i]; c < gChunkAt[i + 1]; c++)
+        {
+            if (*stop)
+            {
+                rooms = i;
+                from = c - gChunkAt[i];
+                return;
+            }
+            tasClaim(uncached(gChunkClaims + c));
+            chunkProject(c, wait);
+        }
+    }
+    rooms = gRoomCount;
+    from = 0;
 }
 
 void verticesMasterRooms(uint32_t &wait, bool &meshes)

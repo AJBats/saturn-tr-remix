@@ -119,12 +119,15 @@ enum FrameStage
     STAGE_DRAWS,        // the draws' vertices and faces
     STAGE_SLAVE_WAIT,   // waiting for the slave's rooms, then its half of the join
     STAGE_JOIN,         // the far half of the buckets joined
+    STAGE_SHIMMERS,     // its share of the water's shimmers
     STAGE_JOBS,         // the slave: the rooms' jobs laid out, the DSP started on them
     STAGE_PLAN_WAIT,    // waiting for the master's plan
     STAGE_SLAVE_POSE,   // its items lit and posed
     STAGE_ROOMS,        // its rooms' vertices and faces
     STAGE_DRAWS_WAIT,   // waiting for the master's draws
     STAGE_SLAVE_JOIN,   // the near half of the buckets joined
+    STAGE_SLAVE_SHIMMERS,   // its share of the water's shimmers
+    STAGE_AHEAD,        // the next frame's rooms projected while the master ends this one
     STAGE_COUNT
 };
 
@@ -186,6 +189,8 @@ void frameListFree();
 void frameNextWork(void (*work)());
 void frameNextWalked();
 void frameNextDrop();
+// At the frame's top: the slave done with the frame before, all but projecting this one's rooms ahead.
+void frameNextWait();
 
 // A frame of draws given (the rooms set, the draws posed, the plan made: the
 // lab's scenes): the copies' faces and their vertices, the draws whose

@@ -17,6 +17,7 @@ Room** renderWalk(Room* cameraRoom);
 // frame's walk from the camera as it stands, which renderWalk then takes if
 // that frame's view is the same.
 void renderNextWork(void (*work)());
+void renderNextWait();
 void renderWalkAhead(Room* cameraRoom);
 
 // An item's model, posed and lit as drawModel would (the renderer tests its

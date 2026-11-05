@@ -288,6 +288,11 @@ void renderNextWork(void (*work)())
     render::frameNextWork(work);
 }
 
+void renderNextWait()
+{
+    render::frameNextWait();
+}
+
 void renderWalkAhead(Room* cameraRoom)
 {
     view(gAhead.camera, gAhead.view);
@@ -898,7 +903,8 @@ void renderUploadReady()
 // The frame's stages on the trace (renderer/frame.h FrameStage).
 static const uint8 kStageIds[render::STAGE_COUNT] = {
     TR_DRAW_LIST, TR_WALK_WAIT, TR_PLAN, TR_POSE, TR_FEED, TR_POSE_WAIT, TR_CHUNKS, TR_DRAWS, TR_SLAVE_WAIT,
-    TR_JOIN, TR_JOBS, TR_PLAN_WAIT, TR_SLAVE_POSE, TR_ROOMS, TR_DRAWS_WAIT, TR_SLAVE_JOIN
+    TR_JOIN, TR_SHIMMERS, TR_JOBS, TR_PLAN_WAIT, TR_SLAVE_POSE, TR_ROOMS, TR_DRAWS_WAIT, TR_SLAVE_JOIN,
+    TR_SLAVE_SHIMMERS, TR_AHEAD
 };
 
 void stageBegin(uint32_t stage)

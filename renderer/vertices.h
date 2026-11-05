@@ -171,6 +171,9 @@ bool verticesRoomMasters(uint32_t i);
 // Room i's vertices all projected, by either CPU: this CPU's cached lines of
 // them dropped (the cycles waiting added to wait).
 void verticesRoomWait(uint32_t i, uint32_t &wait);
+// As many of the rooms' chunks as get done before *stop, first to last, on the CPU that laid them out: the rooms
+// finished, the chunks done of the next.
+void verticesAhead(const volatile uint32_t* stop, uint32_t &rooms, int32_t &from);
 void verticesMeshesFeed(int32_t from = 0, int32_t to = -1);
 bool verticesMeshesTryStart();
 void verticesMeshesStart(uint32_t &wait);

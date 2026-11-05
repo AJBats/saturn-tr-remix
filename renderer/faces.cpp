@@ -1712,30 +1712,31 @@ static int32_t shimmerHeightAt(int32_t y)
     return gShimmerHeightCount++ * int32_t(sizeof(ShimmerView));
 }
 
-void facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const RoomGeometry* geometry, RoomRun &run)
+// Who has which of the frame's shimmers: the first to come has the new ones and this frame's
+// generation, each older generation whoever takes it; and that the older ones may be begun on.
+static uint8_t gShimmerClaims[8] __attribute__((aligned(16)));
+static volatile uint32_t gShimmerReady __attribute__((aligned(16)));
+
+void facesShimmersReset()
 {
-    if (!gShimmerOneIn || !count)
-        return;
-    CommandList &list = *run.list;
+    for (int32_t k = 0; k < 8; k++) {
+        *uncached(gShimmerClaims + k) = 0;
+    }
+    *uncached(&gShimmerReady) = 0;
+}
+
+// This frame's new shimmers, the views all generations are drawn by first.
+static void shimmersBorn(ShimmerSheet &s, const FaceRoom* rooms, uint32_t count, const RoomLevel* level,
+                         const RoomGeometry* geometry, uint32_t frame)
+{
     const int16_t* const m = rooms[0].m;
-    const uint32_t frame = run.frame;
     for (uint32_t f = gShimmerLastFrame + 1, k = 0; f <= frame && k < 8; f++, k++) {
         gShimmerRunCount[f & 7] = 0;
     }
     gShimmerLastFrame = frame;
 
-    ShimmerSheet s;
-    s.list = &list;
-    s.stop = list.end - SHIMMER_ROOM_LEFT * 8;
-    s.divTable = run.split->divTable;
     s.depth = gShimmerDepth;
     s.bag = gShimmerBag;
-    s.pieces = gShimmerPieces;
-    s.views = gShimmerViews;
-    s.seen = gShimmerSeen;
-    s.frame = frame;
-    s.spriteDd = gShimmerSpriteDd;
-    s.limit = SHIMMER_LIMIT;
 
     // the camera in the world
     const RoomLevel &first = level[rooms[0].room];
@@ -1763,6 +1764,12 @@ void facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* 
         makeView(h);
     }
 
+    const uint8_t seen = uint8_t(frame);
+    for (uint32_t i = 0; i < count; i++) {
+        gShimmerSeen[uint8_t(rooms[i].room)] = seen;
+    }
+    *uncached(&gShimmerReady) = 1;
+
     // the new ones
     ShimmerRun* const runs = gShimmerRuns[frame & 7];
     int32_t runCount = 0;
@@ -1771,11 +1778,9 @@ void facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* 
     s.livesEnd = lives + SHIMMER_BORN_MAX;
     const int32_t owed = (16 * 256) / gShimmerOneIn;
     bool roomLeft = true;
-    const uint8_t seen = uint8_t(frame);
     for (uint32_t i = 0; i < count; i++)
     {
         const FaceRoom &room = rooms[i];
-        gShimmerSeen[uint8_t(room.room)] = seen;
         const uint16_t* after = (const uint16_t*)geometry[room.room].water;
         if (!after || !after[3] || !roomLeft)
             continue;
@@ -1876,18 +1881,49 @@ void facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* 
         }
     }
     gShimmerRunCount[frame & 7] = runCount;
+}
 
-    // all that are alive
-    for (uint32_t age = 0; age < 8; age++)
+int32_t facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const RoomGeometry* geometry,
+                           CommandList &list, uint32_t frame)
+{
+    if (!gShimmerOneIn || !count)
+        return 0;
+    ShimmerSheet s;
+    s.list = &list;
+    s.stop = list.end - SHIMMER_ROOM_LEFT * 8;
+    s.divTable = divTable;
+    s.pieces = gShimmerPieces;
+    s.views = gShimmerViews;
+    s.seen = gShimmerSeen;
+    s.frame = frame;
+    s.spriteDd = gShimmerSpriteDd;
+    s.limit = SHIMMER_LIMIT;
+
+    uint32_t* const began = list.cmd;
+    const bool first = tasClaim(uncached(gShimmerClaims));
+    if (first)
     {
+        shimmersBorn(s, rooms, count, level, geometry, frame);
+    }
+    else
+    {
+        while (!*uncached(&gShimmerReady)) {
+            busPause();
+        }
+    }
+    for (uint32_t age = first ? 0 : 1; age < 8; age++)
+    {
+        if (age && !tasClaim(uncached(gShimmerClaims + age)))
+            continue;
         const uint32_t born = (frame - age) & 7;
         s.runs = gShimmerRunCount[born];
         if (!s.runs)
             continue;
         s.lineShift = (kShimmerAges[age] & 0x80) != 0;
         if (!facesShimmersDrawAsm(&s, gShimmerLives[born], (const uint8_t*)gShimmerRuns[born], gShimmerW1[age]))
-            return;
+            break;
     }
+    return (list.cmd - began) / (sizeof(Command) / sizeof(uint32_t));
 }
 
 #endif

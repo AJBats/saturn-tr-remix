@@ -335,8 +335,12 @@ struct ShimmerSheet
 };
 extern "C" int32_t facesShimmersBornAsm(ShimmerSheet* sheet, const uint8_t* sectors, int32_t count, int32_t first);
 extern "C" int32_t facesShimmersDrawAsm(ShimmerSheet* sheet, const void* lives, const uint8_t* runs, const uint32_t* w1);
-// after the rooms' faces: this frame's new shimmers, and all that are alive into the list
-void facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const RoomGeometry* geometry, RoomRun &run);
+// Before either CPU comes to them; then, each CPU as its faces are done: this frame's new shimmers, and all that
+// are alive into its list, a generation at a time, what the other hasn't taken. The master's draw after the rooms'
+// faces in a bucket as the slave's do. Returns the commands this CPU made.
+void facesShimmersReset();
+int32_t facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const RoomGeometry* geometry,
+                           CommandList &list, uint32_t frame);
 void facesFloorSet(int32_t y);          // the level's floor, or FACES_NO_FLOOR
 void facesFloorKeep(bool on);           // the menu's
 void facesFloorBegin();

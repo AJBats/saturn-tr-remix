@@ -1579,10 +1579,14 @@ _roomsJobsAsm:
     mov     r0, r10                 ! the next job
     mov     #0, r0
     mov.l   r0, @(R_JOB_COUNT,gbr)
+    .ifdef RENDER_LAB
     mov     #1, r11
     shll8   r11
     shll2   r11
-    shll    r11                     ! the vertices' bottom: MASTER_VERTICES
+    shll    r11                     ! the vertices' bottom: ROOMS_VERTICES_BOTTOM
+    .else
+    mov     #0, r11
+    .endif
     mov     #0, r12                 ! the rooms queued
     ! on the stack: the vertices wanted past the top
     mov     r8, r2

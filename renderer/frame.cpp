@@ -298,7 +298,29 @@ static FaceRoom* gNextJobs;
 static uint32_t gNextJobCount;
 static volatile int32_t gNextAfter;
 
+// The next frame's rooms projected ahead, on the slave, while the master ends this frame: whether it's at
+// that, the word to stop, the rooms it finished and the chunks it did of the next.
+static volatile uint32_t gAheadOn, gAheadStop;
+static uint32_t gAheadRooms;
+static int32_t gAheadFrom;
+
+static void aheadStop()
+{
+    *uncached(&gAheadStop) = 1;
+    slaveWait();
+    *uncached(&gAheadStop) = 0;
+    *uncached(&gAheadOn) = 0;
+}
+
+void frameNextWait()
+{
+    while (!slaveDone() && !*uncached(&gAheadOn)) {
+        busPause();
+    }
+}
+
 static int32_t gMeshesUsed = MAX_CMDS / 2;  // the draws' commands, the last frame's
+static volatile int32_t gSlaveShimmers;     // the shimmers the slave made last frame: this frame's may be the master's
 
 // The list built, as frameUpload takes it: the rooms' slots, the draws'
 // first and the end's (the next frame's rooms may start before it goes).
@@ -343,6 +365,9 @@ void frameNextDrop()
 {
     if (!*uncached(&gNextRooms))
         return;
+    aheadStop();
+    gAheadRooms = 0;
+    gAheadFrom = 0;
     while (dspBusy()) {
         busPause();
     }
@@ -353,6 +378,8 @@ static void slaveRooms(void*)
 {
     uint32_t t0 = ticks(), wait = 0;
     SlaveStages* shared = uncached(&gSlaveStages);
+    uint32_t projected = 0;     // rooms projected, ahead of their faces while the last list holds the commands
+    int32_t partly = 0;         // chunks projected of the next, ahead
     if (shared->walks)
     {
         // the rooms seen, their jobs, laid out, the DSP started on them in order
@@ -366,6 +393,10 @@ static void slaveRooms(void*)
             gFrameRooms = gNextJobs;
             gFrameRoomCount = gNextJobCount;
             *uncached(&gNextRooms) = 0;
+            projected = gAheadRooms;
+            partly = gAheadFrom;
+            gAheadRooms = 0;
+            gAheadFrom = 0;
         }
         else
         {
@@ -418,7 +449,6 @@ static void slaveRooms(void*)
         }
         verticesRoom(i, wait, from);
     };
-    uint32_t projected = 0;     // rooms projected, ahead of their faces while the last list holds the commands
     for (uint32_t i = 0; i < gFrameRoomCount; i++)
     {
         if (work && i >= projected && i && shared->drawListDone && verticesRoomMasters(i)) {
@@ -426,7 +456,15 @@ static void slaveRooms(void*)
         }
         if (i >= projected)
         {
-            project(i);
+            if (partly)
+            {
+                verticesRoom(i, wait, partly);
+                partly = 0;
+            }
+            else
+            {
+                project(i);
+            }
             projected = i + 1;
         }
         if (!i)
@@ -507,11 +545,16 @@ static void slaveRooms(void*)
             facesFloorMasks(masks, facesSlot(gRoomList.link));
         }
     }
-    // water's shimmers all at once: room by room, between the rooms' faces, the two would turn each other
-    // out of the cache
-    facesShimmersFrame(gFrameRooms, gFrameRoomCount, roomsLevelTable(), roomsGeometryTable(), gRoomRun);
 #endif
     stageEnd(STAGE_ROOMS);
+#ifndef RENDER_LAB
+    // water's shimmers all at once: room by room, between the rooms' faces, the two would turn each other
+    // out of the cache
+    stageBegin(STAGE_SLAVE_SHIMMERS);
+    *uncached(&gSlaveShimmers) = facesShimmersFrame(gFrameRooms, gFrameRoomCount, roomsLevelTable(), roomsGeometryTable(),
+                                                    gRoomList, gRoomRun.frame);
+    stageEnd(STAGE_SLAVE_SHIMMERS);
+#endif
     if (*uncached(&gNextWork))
     {
         // the frame's numbers before the next frame's work (the master reads
@@ -531,13 +574,9 @@ static void slaveRooms(void*)
             after = ticksCycles(a, ticks());
         }
         *uncached(&gNextAfter) = after;
-        if (gNextWalked)
-        {
-            gNextWalked = false;
-            nextRoomsStart();
-        }
-        if (!work)
-        {
+        // the near half the slave's: at once if the master's waiting on it, else after the next rooms'
+        // start, which needn't wait for the master's draws
+        const auto join = [&]() {
             stageBegin(STAGE_DRAWS_WAIT);
             while (!shared->drawsDone) {
                 busPause();
@@ -549,6 +588,27 @@ static void slaveRooms(void*)
                                               (uint16_t*)&shared->nearHead, JOIN_SPLIT - 1);
             stageEnd(STAGE_SLAVE_JOIN);
             shared->joined = 1;
+        };
+        const bool joinFirst = !work && shared->drawsDone;
+        if (joinFirst) {
+            join();
+        }
+        if (gNextWalked)
+        {
+            gNextWalked = false;
+            nextRoomsStart();
+        }
+        if (!work && !joinFirst) {
+            join();
+        }
+        if (*uncached(&gNextRooms))
+        {
+            // nothing more of this frame's: the next one's rooms, as far as they get before it starts
+            stageBegin(STAGE_AHEAD);
+            cachePurge();       // the last rotations read from where these will come
+            *uncached(&gAheadOn) = 1;
+            verticesAhead(uncached(&gAheadStop), gAheadRooms, gAheadFrom);
+            stageEnd(STAGE_AHEAD);
         }
         return;
     }
@@ -595,6 +655,10 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
     SlaveStages* shared = uncached(&gSlaveStages);
     if (!early)
     {
+        frameNextDrop();
+#ifndef RENDER_LAB
+        facesShimmersReset();
+#endif
         shared->roomsDone = shared->drawsDone = shared->posed = shared->walked = 0;
         shared->drawListDone = shared->hintsFree = shared->slaveJoins = shared->joined = 0;
         shared->roomsReady = !posed;
@@ -749,6 +813,15 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
     }
     frameHintsPlace(true, s.masterWait);
     shared->hintsFree = 1;
+#ifndef RENDER_LAB
+    if (posed)
+    {
+        stageBegin(STAGE_SHIMMERS);
+        facesShimmersFrame(gFrameRooms, gFrameRoomCount, roomsLevelTable(), roomsGeometryTable(), gMeshList,
+                           gRoomTextures.frame);
+        stageEnd(STAGE_SHIMMERS);
+    }
+#endif
     frameEnds();
     gMeshList.shade = gLevel.shade[0];
     shared->drawsDone = 1;
@@ -852,7 +925,7 @@ void frameFar(int32_t far)
 
 void frameRoomsStart(bool listFree)
 {
-    int32_t meshes = gMeshesUsed + gMeshesUsed / 4 + 32;
+    int32_t meshes = gMeshesUsed + gMeshesUsed / 4 + 32 + *uncached(&gSlaveShimmers);
     if (meshes > MAX_CMDS - 3) {
         meshes = MAX_CMDS - 3;
     }
@@ -868,6 +941,10 @@ void frameRoomsStart(bool listFree)
     if (!*uncached(&gNextRooms)) {      // else the frame before's flush cleared them, read
         dspEndsClear();
     }
+#ifndef RENDER_LAB
+    facesShimmersReset();
+#endif
+    aheadStop();
     slaveRun(slaveRooms, nullptr);
 }
 

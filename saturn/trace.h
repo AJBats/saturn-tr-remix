@@ -47,6 +47,7 @@ enum TraceId
     TR_DRAWS,           // the draws: each mesh's vertices projected as the DSP hands them, its faces
     TR_JOIN,            // the far half of the buckets joined
     TR_UPDATE_WAIT,     // waiting for the slave's update of this frame
+    TR_SHIMMERS,        // the water's shimmers, its share of them
     // the slave
     TR_JOBS = 32,       // the rooms' jobs laid out, the DSP started on them
     TR_PLAN_WAIT,       // waiting for the master's plan
@@ -58,6 +59,9 @@ enum TraceId
     TR_SLAVE_WALK,      // the next frame's rooms walked
     // the SCU DSP, on the slave's clock: its runs as they start and end
     TR_DSP_RUN = 40,    // the rooms' vertices (arg 0), then the meshes' (arg 1)
+    // the slave's, past where its own run out
+    TR_SLAVE_SHIMMERS,  // the water's shimmers, its share of them
+    TR_AHEAD,           // the next frame's rooms projected while the master ends this one
     // the master's interrupts
     TR_IRQ_VBLANK_IN = 48,
     TR_IRQ_VBLANK_OUT,
@@ -78,7 +82,7 @@ enum TraceId
 // No two alike in the font by fewer than 6 of their 64 pixels.
 //                      0         1         2         3         4         5         6
 //                      01234567890123456789012345678901234567890123456789012345678901234567
-#define TRACE_LETTERS  ".TUGRVQLOSMIYFWABXDHNjJK........bxfmkhuyd.......z...............p..s"
+#define TRACE_LETTERS  ".TUGRVQLOSMIYFWABXDHNjJKZ.......bxfmkhuydqn.....z...............p..s"
 
 enum TraceLane { TRACE_MASTER, TRACE_IRQ, TRACE_SLAVE, TRACE_DSP, TRACE_LANES };
 

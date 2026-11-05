@@ -783,7 +783,7 @@ def page_trace(pages, out_path, title):
                 lanes[2].append(span)
             elif ident < 32:
                 lanes[1].append(span)
-            elif ident < 40:
+            elif ident < 40 or name in ('SLAVE_SHIMMERS', 'AHEAD'):
                 lanes[3].append(span)
             else:
                 lanes[4].append(span)

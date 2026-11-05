@@ -45,12 +45,15 @@ struct Face
     int16_t indices[4];     // corners: byte offsets in their CPU's half of gVertices
 };
 
-// A frame's vertices: the master's, then the rooms' as the walk places them.
+// A frame's rooms' vertices as the walk places them, from ROOMS_VERTICES_BOTTOM; the captures the lab replays
+// kept the master's below them.
 #undef MAX_VERTICES     // openlara/common.h's, for its other platforms
 #ifdef RENDER_LAB
 #define MAX_VERTICES    (5 * 1024)      // tools/labscene.py's, the captures'
+#define ROOMS_VERTICES_BOTTOM   MASTER_VERTICES
 #else
-#define MAX_VERTICES    (MASTER_VERTICES + 3328)
+#define MAX_VERTICES    3328
+#define ROOMS_VERTICES_BOTTOM   0
 #endif
 #define MAX_DRAWS       256     // a frame's: the master's 2048 vertices hold about that many of the smallest meshes
 #ifndef MASTER_VERTICES
