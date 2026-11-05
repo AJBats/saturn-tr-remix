@@ -18,10 +18,10 @@ Room** renderWalk(Room* cameraRoom);
 // that frame's view is the same.
 void renderNextWork(void (*work)());
 void renderNextWait();
-// Whether the 30 Hz tick should start a vertical blank later from now: at its end, a frame's list goes up in the
-// next frame's vertical blank out, in time for VDP1 to start it at once, only if VDP1 is done with the last by
-// then. Late once by a field it stays so, the master waiting on VDP1 each frame and VDP1 idle after, till a frame
-// comes a field later than that.
+// Whether the 30 Hz tick should start a vertical blank later from now. A master waiting on VDP1 frame after frame means
+// lists are plotted out of step with the ticks: a list still drawing as the tick comes, or one more queued behind it.
+// That stays till a frame comes a field later, which shows; in step, VDP1's done before the master has anything to
+// wait for. So only when the waits leave a frame no time to spare.
 bool renderTickSlip();
 void renderWalkAhead(Room* cameraRoom);
 

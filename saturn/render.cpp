@@ -889,6 +889,7 @@ static void listUploadWaiting()
 
 #define SLIP_WAIT_TICKS     (28636 / 128)           // 1 ms: a master waiting more for VDP1, frame after frame
 #define SLIP_VDP1_TICKS     (61 * 28636 / 256)      // a list longer than 30.5 ms wouldn't be done in time anyway
+#define SLIP_TOOK_TICKS     (30 * 28636 / 128)      // 30 ms: a frame with more to spare loses nothing by waiting
 #define SLIP_FRAMES         8                       // ... for so many frames
 #define SLIP_GAP            60                      // at most so often: each one costs a field, once
 
@@ -896,7 +897,9 @@ bool renderTickSlip()
 {
     static int32 waited, since;
     since++;
-    waited = gStats.waitTicks > SLIP_WAIT_TICKS && gStats.vdp1Ticks < SLIP_VDP1_TICKS ? waited + 1 : 0;
+    const bool hurts = gStats.waitTicks > SLIP_WAIT_TICKS && gStats.vdp1Ticks < SLIP_VDP1_TICKS &&
+                       gStats.updateTicks + gStats.renderTicks > SLIP_TOOK_TICKS;
+    waited = hurts ? waited + 1 : 0;
     if (waited < SLIP_FRAMES || since < SLIP_GAP)
         return false;
     waited = 0;
