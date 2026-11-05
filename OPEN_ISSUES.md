@@ -3655,6 +3655,20 @@ over 14.6, at most 188 · Fix: medium, parked*
 - `AT_LEVEL=LEVEL7A AT_ID=LVL_TR1_7A AT_START=91@40380:-5632:65974 AT_YAW=0x8371 tools/hwtest.sh at` starts Lara there; the camera's look wants finding by hand. `cistern-mirror` is the same room, 40465, -5632, 65637.
 - VDP1 has room, so it's the CPUs: to be read as the other spots were (`tools/hwtrace.py`, `tools/frameprof.py`). 167 meshes is the most at any spot read so far.
 
+### 294. Caves, room 24: a gap in the level shows the old frame
+*Kind: look - Size: 53 pixels at the user's view - Fix: to be chosen*
+
+- Reported in play on the Saturn, 2026-11-05: Lara 43909, 7168, 76056, heading c3fb; camera 44317, 6643, 77515, pitch 085b, heading 8860. `AT_LEVEL=LEVEL1 AT_ID=LVL_TR1_1 AT_START=24@43909:7168:76056 AT_YAW=0x8860 tools/hwtest.sh at` gives nearly the same view, and the list drawn offline over magenta (scratchpad hole_scan) shows 53 px at x 125-136, y 19-26. The tiny-window rule isn't it: the same with it off.
+- No face of any room in the level covers that point from that view, so the level has a gap there. Retail clears the frame and shows black; the Caves don't clear, so the old frame shows.
+- The same kind of gap as 267. The choices there apply: the vblank erase for the level (by 271's rule it wouldn't pay at the bridge, where VDP1 is close to the line and the fills small), or a hand-placed quad behind the gap.
+
+### 295. Water in Lost Valley and Qualopec's tomb stays polygons, not shimmers
+*Kind: look, speed - Size: 309 faces in Lost Valley, 107 in Qualopec - Fix: small to try, the user's call*
+
+- Asked by the user in play, 2026-11-05. `pack_level.take_water` goes by the texture and the shape, not by whether it's water: an animated texture at least 80% empty (`SPARSE_EMPTY`), on a flat face exactly one sector square. Every level with this kind of water passes (86-96% empty) but these two: their texture, 25..28 in LEVEL3A and 24..27 in LEVEL3B, is 55-68% empty.
+- Their rushing water is another texture, solid and mostly sloped (LEVEL3A 18..21 and 41..44), and should stay polygons.
+- To try: let 55-68% through for these levels. The art clipped from a fuller texture would be bigger pieces, to be judged by eye.
+
 ## Production code: clean-up
 
 Not differences from retail, and not open work on the picture: what a shipping build still
