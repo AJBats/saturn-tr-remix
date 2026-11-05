@@ -877,6 +877,15 @@ class Packer:
                 out.pack("hBB", y, up, len(runs))
                 for z, x0, count, shade in runs:
                     out.pack("4B", z, x0, count, shade)
+                # ... and as a grid, x0 z0 w h, a byte a sector: 0 no water, else its shade + 1
+                gx0, gz0 = min(r[1] for r in runs), min(r[0] for r in runs)
+                gw, gh = max(r[1] + r[2] for r in runs) - gx0, max(r[0] for r in runs) + 1 - gz0
+                grid = bytearray(gw * gh)
+                for z, x0, count, shade in runs:
+                    for x in range(x0, x0 + count):
+                        grid[(z - gz0) * gw + x - gx0] = shade + 1
+                out.pack("4B", gx0, gz0, gw, gh)
+                out.raw(bytes(grid) + bytes(len(grid) & 1))
 
             portals = out.align4()
             for p_room, normal, verts in room.portals:
