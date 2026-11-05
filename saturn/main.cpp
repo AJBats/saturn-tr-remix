@@ -160,6 +160,7 @@ int main()
     }
 #endif
 
+    uint32 tickPhase = 0;       // the vertical blanks' count a tick starts at: even or odd (renderTickSlip)
     uint32 lastTick = gVblankCount >> 1;
     uint32 fpsStart = gVblankCount;
     uint32 fpsFrames = 0;
@@ -170,7 +171,12 @@ int main()
         // are read from an interrupt, so a slow frame doesn't wait for theirs.
         uint32 tick;
         traceBegin(TRACE_MASTER, TR_TICK_WAIT);
-        while ((tick = gVblankCount >> 1) == lastTick) {
+        if (renderTickSlip())
+        {
+            tickPhase ^= 1;
+            lastTick = (gVblankCount + tickPhase) >> 1;
+        }
+        while ((tick = (gVblankCount + tickPhase) >> 1) == lastTick) {
             renderPoll();
         }
 
