@@ -3646,6 +3646,15 @@ over 14.6, at most 188 · Fix: medium, parked*
 - `tools/stepwise.py`, Mednafen: 63.7 ms, 773 commands, most pixels written 3 to 6 times. Two tiles of a room 12 face near the camera, 16 x 16 texels, take 10.83 and 9.41 ms: 524 lines, 93,884 pixels walked for 11,368 written, corners held at -128 (retail's rule, 263), a long fan across the frame. The next costliest command takes 1.5 ms.
 - Splitting a held tile once more in 3D would drop most of that walk and the warp with it, but a tile's rows are its own width apart in the cache, so 8 x 8 pieces want their own copy of the texture. Not built; not retail's way, the user's call. It wouldn't reach 30 fps here alone (43 ms).
 
+- Next to it on the same table: Natla's Mines room 67 (`at`, 67@52645:-10926:98834, 0xAF46), Saturn 19.9 fps, VDP1 35.0 ms, CPUs fine, 2 ms over the line. `tools/stepwise.py`: no single piece; room 67, room 80 and room 68's commands leave no pixel, 10.7 ms of Mednafen's 45.7. A place for solid boxes (281) if play stands there.
+
+### 293. Cistern, room 91, on the ledge over the pool: both CPUs over, 25 fps
+*Kind: speed - Size: Saturn 25 fps, master 39-42 ms, slave 36 ms, VDP1 23 ms - Fix: to be looked at*
+
+- Reported in play on the Saturn, 2026-11-05, on the build with the night's CPU work. The scene page's numbers, overlay on: room 91, Lara 40380, -5632, 65974, heading 8371; camera in room 91, 40108, -6780, 66300, pitch eb68, heading 6c6e. 30 rooms, 2,356 room vertices, 167 meshes with 1,709 vertices, 1,099 commands. vdp1 68-70, cpu 118-125, slave 108 (percent of a 30 fps frame), list 23.27 ms, er 112, late 14, tl 0.
+- `AT_LEVEL=LEVEL7A AT_ID=LVL_TR1_7A AT_START=91@40380:-5632:65974 AT_YAW=0x8371 tools/hwtest.sh at` starts Lara there; the camera's look wants finding by hand. `cistern-mirror` is the same room, 40465, -5632, 65637.
+- VDP1 has room, so it's the CPUs: to be read as the other spots were (`tools/hwtrace.py`, `tools/frameprof.py`). 167 meshes is the most at any spot read so far.
+
 ## Production code: clean-up
 
 Not differences from retail, and not open work on the picture: what a shipping build still
@@ -3728,11 +3737,12 @@ word. Of the same kind and already open: 264, 265, 266.
 ## Closed
 
 ### 289. A frame settled a field late stays a field late
-*Closed 2026-11-05: 465410f. Saturn: valley ledge VDP1 wait 4.2 -> 0 ms, bridge ledge 8.1 -> 0 ms, both still 29.9 fps.*
+*Closed 2026-11-05: 465410f, c5330da. Saturn: valley ledge VDP1 wait 4.2 -> 0 ms, bridge ledge 8.1 -> 0 ms, both still 29.9 fps.*
 
 *Kind: speed - Size: 3.5 to 8 ms of the master's frame where VDP1 has time to spare - Fix: small*
 
-- A list that goes up after the tick's vertical blank out is plotted a field late, and every frame after it stays so, the master waiting on VDP1 while VDP1 idles at the end of each list. After 8 such frames, with VDP1 under 30.5 ms, at most once in 60 frames, the 30 Hz tick starts a vertical blank later.
+- Lists can settle out of step with the ticks, or with one more queued, and stay so, the master waiting on VDP1 at each frame's start while VDP1 idles after each list. After 8 such frames, with VDP1 under 30.5 ms and a frame ending within 3 ms of the next, at most once in 60 frames, the ticks start a vertical blank later.
+- 465410f toggled a phase, so every other slip came a field early and put the queue back: at light scenes a swing with a 50 ms frame about every 4 seconds (St Francis' Folly room 62, Tihocan room 102, 29.8 fps). Corrected in c5330da: always a delay, and a light scene loses nothing by waiting, so it stays put.
 
 ### 290. Meshes wholly past the far plane were drawn
 *Closed 2026-11-05: d176b92. Saturn, Lost Valley room 32: 26.2 -> 29.9 fps, 6 ms to spare. Mednafen: 144 meshes -> 96, master 26.64 -> 16.64 ms, same 547 commands, same picture. City of Khamoon room 15: 51 -> 48 meshes, 50 fills gone, same picture.*
