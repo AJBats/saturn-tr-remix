@@ -84,9 +84,9 @@
 .Lrooms\c\r\z:
 1:  mov.l   @r8+, r3
     mov.l   @r4+, r12
-    extu.b  r3, r3
     mov.l   @r4+, r13
     mov.l   @r4+, r11
+    extu.b  r3, r3
     .if \c
     ! caustics: shade += caustics[vertex index & 31], within 0..8191
     mov.l   @(R_CAUSTICS, gbr), r0
@@ -112,20 +112,22 @@
     sub     r7, r0
     cmp/hs  r9, r0
     bt/s    8f
-    .endif
     mov     #0, r14
+    .endif
     shlr8   r11
     shlr8   r12
     mov     r11, r0
-    shlr8   r13
     shlr2   r0
     shlr2   r0
     add     r0, r0
     mov.w   @(r0, r10), r1
+    shlr8   r13
+    muls.w  r1, r12
     .if \z == 0
     mov.l   .LfrX\@, r0
+    .else
+    mov     #0, r14
     .endif
-    muls.w  r1, r12
     sts     macl, r12
     muls.w  r1, r13
     add     r2, r12

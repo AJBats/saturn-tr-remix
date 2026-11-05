@@ -105,17 +105,14 @@
     .macro  BACKFACE skip
     mov.w   @r1, r6             ! ax
     mov.w   @r2, r13
-    sub     r6, r13             ! bx - ax
     mov.w   @r3, r8
+    sub     r6, r13             ! bx - ax
     sub     r6, r8              ! cx - ax
-    mov.l   @r1, r6
-    exts.w  r6, r6              ! ay
+    mov.l   @r1, r6             ! ay, in its low word: multiplies read no more
     mov.l   @r3, r0
-    exts.w  r0, r0
     sub     r6, r0              ! cy - ay
     muls.w  r13, r0
     mov.l   @r2, r13
-    exts.w  r13, r13
     sub     r6, r13             ! by - ay
     sts     macl, r6
     muls.w  r8, r13
