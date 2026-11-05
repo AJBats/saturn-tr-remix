@@ -458,6 +458,7 @@ _roomProjectAsm:
     mov.l   @(R_ZEXACT, gbr), r0
     cmp/gt  r0, r11
     bt      .LoddAll
+.LnearFast:
     mov.l   @(R_NEAR, gbr), r0
     mov     r0, r1
     shlr8   r11
@@ -477,7 +478,33 @@ _roomProjectAsm:
     mov.l   @(R_ZMAX, gbr), r0
     cmp/ge  r0, r11
     bt      .Lfar
-    mov.l   @(R_ZMIN, gbr), r0
+    cmp/ge  r7, r11
+    bf      1f
+    ! a room with x, y perhaps past what >> 8 holds, z where the loop's table goes
+    XY_BOUND
+    shlr8   r11
+    shlr8   r12
+    mov     r11, r0
+    shlr2   r0
+    shlr2   r0
+    add     r0, r0
+    mov.w   @(r0, r10), r1
+    shlr8   r13
+    muls.w  r1, r12
+    sts     macl, r12
+    add     r2, r12
+    rts
+    muls.w  r1, r13
+1:  mov.l   .LzNearFast, r0
+    cmp/gt  r0, r11
+    bf      2f
+    mov.l   @(R_ZEXACT, gbr), r0
+    cmp/gt  r0, r11
+    bt      3f
+    XY_BOUND
+    bra     .LnearFast
+    nop
+2:  mov.l   @(R_ZMIN, gbr), r0
     cmp/gt  r0, r11
     bt      3f
     mov     r0, r11             ! behind the near plane
