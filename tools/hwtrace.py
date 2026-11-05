@@ -19,11 +19,19 @@ def hw(*a):
     return r.returncode
 
 
+def off():
+    """It's a 30 year old machine: never left on after a capture."""
+    hw('lock', 'hwtrace', '--why', 'switching it off')
+    hw('power', 'off', '--as', 'hwtrace')
+    hw('unlock', 'hwtrace')
+
+
 if hw('test', folder, '--as', 'hwtrace', '--why', 'a trace', '--out', out, '--settle', settle, '--shots', '1', '--wait', '20'):
+    off()
     sys.exit(1)
 hw('lock', 'hwtrace', '--why', 'recording the trace')
 code = hw('record', seconds, '--out', out + '.mkv', '--as', 'hwtrace')
-hw('unlock', 'hwtrace')
+off()
 if code:
     sys.exit(code)
 r = subprocess.run([sys.executable, '-I', 'tools/trace.py', 'video', out + '.mkv', '--out', out + '.json'], capture_output=True, text=True)
