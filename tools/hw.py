@@ -244,30 +244,31 @@ def mux_pin(high):
         ftd2xx.FT_Close(handle)
 
 
-def card_letters():
-    """The drive letters of the card while the PC has it, None while it doesn't."""
+def card_side():
+    """Where Windows sees the card: 'pc', 'saturn' (its reader is empty, as with an empty
+    socket too), or None with the mux off USB."""
     script = (f"$d = Get-Disk | Where-Object SerialNumber -eq '{CARD_READER}';"
-              "if ($d.Size) { 'card ' + (@(Get-Partition -DiskNumber $d.Number -ErrorAction SilentlyContinue"
-              " | Where-Object DriveLetter).DriveLetter -join ' ') }")
-    words = subprocess.run(['powershell', '-NoProfile', '-Command', script],
-                           capture_output=True, text=True).stdout.split()
-    return words[1:] if words else None
+              "if ($d) { if ($d.Size) { 'pc' } else { 'saturn' } }")
+    return subprocess.run(['powershell', '-NoProfile', '-Command', script],
+                          capture_output=True, text=True).stdout.strip() or None
 
 
 def card(side):
     if side is None:
         # the pin reads low until first driven, with the card on the PC, so ask Windows
-        print('pc' if card_letters() is not None else 'saturn')
+        where = card_side()
+        if where is None:
+            fail('the SD mux is not on USB')
+        print(where)
         return
     watts = status()['apower']
     if watts >= OFF_WATTS:
         fail(f'the Saturn draws {watts} W: power it off first')
-    to_pc = side == 'pc'
-    mux_pin(int(to_pc))
+    mux_pin(int(side == 'pc'))
     deadline = time.monotonic() + CARD_MOVE_S
-    while (card_letters() is not None) != to_pc:
+    while card_side() != side:
         if time.monotonic() > deadline:
-            fail(f'the mux switched, but Windows {"never saw the card" if to_pc else "still has the card"}')
+            fail(f'the mux switched, but Windows {"never saw the card" if side == "pc" else "still has the card"}')
         time.sleep(0.25)
     print(side)
 
