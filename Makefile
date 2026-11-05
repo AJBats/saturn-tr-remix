@@ -105,6 +105,7 @@ define DISC_RULE
 $(1)/disc/tomb.cue: $(1)/0MAIN.BIN $(wildcard disc/*) tools/mkdisc.py $(DISC)/filelist.txt $(foreach e,$(2),$(lastword $(subst =, ,$(e))))
 	$$(PY) tools/mkdisc.py --ip $(DISC)/IP.BIN --cue "$(ORIGCUE)" --out $(1)/disc --name tomb \
 		0MAIN.BIN=$(1)/0MAIN.BIN $(DISC_TXT) $(2)
+	-@$$(PY) tools/housekeep.py --if-due
 endef
 
 # The flags compiled with, in a file rewritten when they change, which every

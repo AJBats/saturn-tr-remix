@@ -1,7 +1,8 @@
 """Self-tracing discs of a tree's HEAD at many spots, each read on the Saturn: a line a spot.
 python -I tools/hwtable.py WORKTREE TAG SPOT [SPOT ...]   (builds in WORKTREE; don't edit it meanwhile)
 A SPOT: a name of tools/hwtest.sh, NAME:LOOK_KEY:FRAMES, or at,LEVEL,ID,room@x:y:z,yaw.
-Appends to build/night/TAG_table.txt in the main checkout."""
+Appends to build/night/TAG_table.txt in the main checkout. Each spot's disc overwrites WORKTREE/build/disc:
+a row's ELF stays as build/TAG_LABEL.elf, and its disc can be rebuilt from the commit and the spot."""
 import json
 import os
 import re
@@ -14,6 +15,7 @@ tree, tag = sys.argv[1:3]
 spots = sys.argv[3:]
 out = f'{MAIN}/build/night/{tag}_table.txt'
 os.makedirs(os.path.dirname(out), exist_ok=True)
+subprocess.run([sys.executable, '-I', f'{S}/housekeep.py', '--if-due'])
 
 
 for item in spots:
@@ -36,11 +38,9 @@ for item in spots:
         open(out, 'a').write(f'{spot}: build failed {r.returncode}\n')
         continue
     label = at_label or (spot + ('_' + look[0] + look[1] if look else ''))
-    folder = f'build/disc_{tag}_{label}'
-    run(['sh', 'tools/snapshot.sh', f'{tag}_{label}'], tree)
     run(['cp', 'build/0MAIN.elf', f'build/{tag}_{label}.elf'], tree)
     name = f'{tag}_{label}'
-    r = subprocess.run([sys.executable, '-I', f'{S}/hwtrace.py', f'{tree}/{folder}', name], cwd=MAIN, capture_output=True, text=True, timeout=1200)
+    r = subprocess.run([sys.executable, '-I', f'{S}/hwtrace.py', f'{tree}/build/disc', name], cwd=MAIN, capture_output=True, text=True, timeout=1200)
     text = r.stdout
     m = re.search(r'in (\d+) frames \(([\d.]+) fps\)', text)
     stages = dict((a.strip(), float(b)) for a, b in re.findall(r'^\s+([A-Za-z() 0-9]+?)\s+([\d.]+)\s*$', text, re.M))
