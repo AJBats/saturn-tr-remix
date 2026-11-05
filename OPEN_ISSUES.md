@@ -3493,6 +3493,12 @@ over 14.6, at most 188 · Fix: medium, parked*
   0.12 ms. The rise at `cistern-steps` is in room 90, not the animals: the same commands and pixels, but four big
   faces there went from a shaded copy of their colour table to real gouraud (+0.15 ms). The copies' cache picks
   its slot by the table's address (`renderer/faces.cpp` `shadedCopy`), and the tables moved.
+- The raptor and T-rex (branch `shell`), the user's choices: body, neck and tail one shell, legs in their pieces (joined,
+  a leg crushes at its bends, and fixed to a bend it loses its feel). Raptor: claws fused and, with the arms, cards.
+  T-rex: full arms, hands flat plates fused to the forearms. Arm cards on it saved 0.10 ms of CPU and 0.18 of VDP1 against
+  full arms, not worth the code to keep their dark band in place. Standing still, Mednafen, less the room (`zoo-rex`,
+  `zoo-raptors`, `zoo-dinos-none`), ms a frame, CPU then VDP1: T-rex 3.49 to 3.12, 5.03 to 4.40; a raptor of three 4.31 to
+  3.03, 0.93 to 0.72. Mesh store: LEVEL3A 3.0 KB less, LEVEL3B 2.2 KB. No new code, packer only. On the Saturn (`zoo-dinos`, 2026-11-04) the user found they look right; no Saturn trace yet.
 
 ### 257. Creatures that paint nothing cost as much as those that do
 *Kind: speed · Size: 6.9 ms at one spot, Mednafen · Fix: open*

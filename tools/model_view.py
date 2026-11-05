@@ -124,15 +124,12 @@ BEAR_CARDS = [("lower", "Lower limbs as cards", [2, 3, 5, 6, 8, 9, 11, 12]),
               ("earCards", "Ears as cards", [15, 16])]
 BEAR_EAR_CARDS = [15, 16]
 
-# The raptor and the T-rex, Lost Valley's: the seams the viewer offers until the
-# user has chosen and they go into diet.ANIMALS
+# The raptor and the T-rex, Lost Valley's
 RAPTOR_JOINTS = ["hips", "thigh L", "shin L", "ankle L", "foot L", "thigh R", "shin R", "ankle R", "foot R",
                  "upper arm R", "forearm R", "hand R", "claw R1", "claw R2", "claw R3",
                  "upper arm L", "forearm L", "hand L", "claw L1", "claw L2", "claw L3",
                  "neck", "head", "jaw", "tail 1", "tail 2", "tail 3", "tail 4", "tail 5"]
 RAPTOR_STATES = "DEATH STOP WALK RUN ATTACK_1 UNUSED ROAR ATTACK_2 BITE".split()
-RAPTOR_SEAMS = {"apart": [23, 2, 3, 4, 6, 7, 8], "wide": {12: 25, 14: 25, 18: 25, 20: 25, 21: 20, 22: 40},
-                "only": {22: [1, 5, 13, 14]}, "stay": {22: [16, 17, 18]}, "attach": {21: {23: 17}}}
 RAPTOR_FUSES = [("jaw", "Jaw into the head", [23]),
                 ("claws", "Claws into the hands", [12, 13, 14, 18, 19, 20]),
                 ("hands", "Hands into the forearms", [11, 17]),
@@ -160,13 +157,7 @@ REX_JOINTS = ["body", "thigh L", "shin L", "ankle L", "foot L", "thigh R", "shin
               "upper arm R", "forearm R", "hand R", "upper arm L", "forearm L", "hand L",
               "tail 1", "tail 2", "tail 3", "tail 4", "tail 5"]
 REX_STATES = "NONE STOP WALK RUN UNUSED DEATH ROAR BITE FATAL".split()
-# faces: joints whose card is that quad's own texture, the arm's outer side.
-# ref: the way, in the joint's space, the first row of its card's image stays:
-# the dark green of those textures runs down the arm's outer front corner.
-# plates: joints drawn as those two faces of a flat box (diet.plate_of).
-REX_SEAMS = {"apart": [13, 2, 3, 6, 7], "wide": {9: 25}, "faces": {14: 0, 15: 0, 17: 0, 18: 0},
-             "ref": {14: [-1, 0, -1], 15: [-1, 0, -1], 17: [1, 0, -1], 18: [1, 0, -1]}, "plates": {16: [1, 3], 19: [1, 3]}}
-REX_CHOSEN = ([], ["armLower", "armUpper"])
+REX_CHOSEN = (["hands"], [])
 REX_FUSES = [("jaw", "Jaw into the head", [13]),
              ("hands", "Hands into the forearms", [16, 19]),
              ("arms", "Arms into the chest, whole", [14, 15, 16, 17, 18, 19]),
@@ -321,10 +312,10 @@ def end_normal(normals):
 
 
 def animal_json(lvl, meshes, atlas, type_, title, states, names, fuses, choices, card_groups, flat_cards, tail,
-                chosen=([], []), foot=ANIMAL_FOOT, seams=None):
+                chosen=([], []), foot=ANIMAL_FOOT):
     """model_json with what the viewer offers for an animal; tail: its joints,
     which may be drawn as one ribbon; chosen: the fuses and card groups on to
-    begin with; seams: for one not yet in the game's diet, as diet.ANIMALS has them."""
+    begin with."""
     out = model_json(lvl, meshes, atlas, ITEM[type_], states)
     model = next(m for m in lvl.models if m["type"] == ITEM[type_])
     start = model["start"]
@@ -339,17 +330,14 @@ def animal_json(lvl, meshes, atlas, type_, title, states, names, fuses, choices,
                       for k, options in choices]
     out["cardGroups"] = [{"key": k, "label": label, "joints": joints} for k, label, joints in card_groups]
     out["cards"] = {}
-    spec = seams or diet.ANIMALS[type_]
+    spec = diet.ANIMALS[type_]
     for _, _, joints in card_groups:
         for j in joints:
             if j in flat_cards:
                 card = diet.card_of(meshes[start + j], atlas, axis=1, view=2)
             else:
-                card = diet.card_of(meshes[start + j], atlas, face=spec.get("faces", {}).get(j))
-                card = diet.pin_card(card, out["parents"], out["offsets"], j)
+                card = diet.pin_card(diet.card_of(meshes[start + j], atlas), out["parents"], out["offsets"], j)
             out["cards"][str(j)] = card_json(card, atlas)
-            if j in spec.get("ref", {}):
-                out["cards"][str(j)]["ref"] = spec["ref"][j]
             if j in flat_cards:
                 out["cards"][str(j)]["face"] = 1
     copies = {str(j): diet.inside_copies(meshes[start + j]) for j in range(model["count"])}
@@ -452,9 +440,9 @@ def main():
     valley_meshes = trsat.meshes(valley)
     atlas.level(valley)
     raptor = animal_json(valley, valley_meshes, atlas, "RAPTOR", "raptor", RAPTOR_STATES, RAPTOR_JOINTS, RAPTOR_FUSES,
-                         [RAPTOR_TAIL], RAPTOR_CARDS, [], RAPTOR_TAIL_JOINTS, RAPTOR_CHOSEN, seams=RAPTOR_SEAMS)
+                         [RAPTOR_TAIL], RAPTOR_CARDS, [], RAPTOR_TAIL_JOINTS, RAPTOR_CHOSEN)
     rex = animal_json(valley, valley_meshes, atlas, "REX", "T-rex", REX_STATES, REX_JOINTS, REX_FUSES,
-                      [REX_TAIL], REX_CARDS, [], REX_TAIL_JOINTS, REX_CHOSEN, seams=REX_SEAMS)
+                      [REX_TAIL], REX_CARDS, [], REX_TAIL_JOINTS, REX_CHOSEN)
     atlas.level(lvl)
 
     # the bridges: plank items with their model's first frame, rope statics
