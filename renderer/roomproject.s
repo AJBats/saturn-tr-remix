@@ -15,8 +15,8 @@
 !   +36 int32 phase                 ripple phase
 !   +40 const int16* caustics       shade offsets (32), by vertex index, or NULL
 !   +44 int32 count                 the room's vertex count
-!   +48 int32 farScaled             a vertex past the far plane scaled to it
-!                                   (vertices.h verticesFarScaled)
+!   +48 int32 farScaled             the lab: a vertex past the far plane scaled to it
+!                                   exactly (vertices.h verticesFarScaled)
 !   +52 int32 zExact                nearer than this << 8, 0x100000 / z instead
 !                                   of the table, whose steps are wide up close
 !   +56 int32 black                 ored into the clip flags of a vertex the fog
@@ -28,6 +28,9 @@
 !   +68 int32 left, top, right, bottom   the viewport as this file compares it:
 !                                   x0 y0 x1 + 1 y1 + 1, << 16 (vertices.h
 !                                   roomProjectReady, with the ripple's base)
+!   +84 const uint16* divide        divTable, at .Lodd
+!   +92 const int16* farTable       past the far plane 0x1000000 / z by z >> 8;
+!                                   none in the lab, which goes by farScaled
 !
 ! Vertex (render.h): int16 x, y; int16 z; uint8 g, clip.
 !
@@ -514,14 +517,16 @@ _roomProjectAsm:
     ! past the far plane: x and y by 0x1000000 / z to the nearest 256 of z, which lands them
     ! within a pixel or so where they lie; z at it. Only fills want them.
 .Lfar:
+    .ifdef RENDER_LAB
     mov.l   @(R_FAR_TABLE, gbr), r0
     tst     r0, r0
     bt      .LfarExact
+    .endif
     tst     r9, r9
     bf      1f
     XY_BOUND
-    mov.l   @(R_FAR_TABLE, gbr), r0
-1:  mov     r0, r1
+1:  mov.l   @(R_FAR_TABLE, gbr), r0
+    mov     r0, r1
     swap.w  r11, r0
     extu.w  r0, r0
     mov.w   .LfarLast, r14
@@ -542,7 +547,8 @@ _roomProjectAsm:
     rts
     muls.w  r1, r13
 
-    ! ... or exactly, or as the original had them
+    .ifdef RENDER_LAB
+    ! ... or exactly, or as the original had them: as the lab's captures did
 .LfarExact:
     mov.l   @(R_FAR_SCALED, gbr), r0
     tst     r0, r0
@@ -555,6 +561,7 @@ _roomProjectAsm:
 2:  mov.l   @(R_ZMAX, gbr), r0
     mov     r0, r11
     mov     #1, r14
+    .endif
     ! x, y to 16-bit view coordinates: within the bound, >> 8
 3:  tst     r9, r9
     bf      7f
@@ -607,7 +614,7 @@ _roomProjectAsm:
     lds     r13, macl
 
     .align 2
-.LzNearFast: .long  512 << 8    ! past this d is under 2048
+.LzNearFast: .long  (513 << 8) - 1   ! past this d << 4 fits a word
 .LxyMax:    .long   0x007FFF00  ! view x, y whose >> 8 fits in 16 bits
 .LpMax:     .long   0x007FF000  ! projected 2047 << 12
 .LfarLast:  .word   VERTICES_FAR_LAST

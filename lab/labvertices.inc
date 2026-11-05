@@ -399,6 +399,14 @@ int32_t verticesRoomsSeldomCheck()
             }
         }
 
+        // either side of where a near z's divide << 4 stops fitting a word
+        const int32_t kNearEdge[] = { (511 << 8) + 128, 512 << 8, (512 << 8) + 1, (512 << 8) + 128, (512 << 8) + 255, 513 << 8, (513 << 8) + 1 };
+        for (int32_t z : kNearEdge)
+        {
+            put(near(0) + (100 << 8), near(0) - (50 << 8), z, 8);
+            put(near(0) - (300 << 8), near(0) + (200 << 8), z, 8);
+        }
+
         // far past the far plane's table
         put(near(0), near(0), 90000 << 8, 8);
         put(near(0), near(0), 86015 << 8, 8);
