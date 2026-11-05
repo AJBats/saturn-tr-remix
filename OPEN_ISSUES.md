@@ -3667,6 +3667,7 @@ over 14.6, at most 188 · Fix: medium, parked*
 
 - The user: coming up from below, the water's shimmers shrink in size, which doesn't look good. Diving into the water doesn't do it. `tools/hwtest.sh pool` with `tools/traces/pool_up.txt` and `pool_dive.txt` are the two moves.
 - Not reproduced at Vilcabamba's pool (`tools/hwtest.sh pool`, Lara swum up through the surface, Mednafen, the list read every 6 frames across the crossing): every shimmer is the same 8 x 1 or 8 x 2 sprite on both sides, no lines. Art is drawn 1:1 and doesn't scale; only past about 3,360 units from the camera do shimmers become lines, whose length falls with distance. So a pool that small can't show it. To ask the user where they saw it; a view opening onto far water on surfacing is the first thing to try.
+- The user's reading, 2026-11-05: an illusion. Shimmers were tuned for Lara at a pool's edge. With the water plane close to the camera, as when she swims or surfaces, they stay at their largest size while the water around them grows in perspective, and near water doesn't gain density either, so they read as smaller and sparser. Not more density; perhaps scale the sprites up near the camera.
 - To read: `shimmersBorn` and `facesShimmersFrame` in renderer/faces.cpp, renderer/shimmers.s, the sheets seen from below (`up`) and what `(height < 0) != (up != 0)` and `s.owed = absOf(height) * owed` do as the camera crosses the surface.
 
 ### 297. Spots the user picked in play where VDP1 is over
@@ -3689,6 +3690,12 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Found at Natla's Mines, room 68's portal to 67: 6144 wide, but three of its six sectors are the right house's front wall, faces of room 68 standing right on the portal's plane. The walk takes the whole slot as open, so all of room 67 behind the wall is in the frame's list: 3.56 ms at the alley in Mednafen, leaving 1% of its pixels.
 - `tools/portalwalls.py [LEVEL ...]` counts it: of each portal, what faces flat on its plane and seen from the side it's looked through cover. Some are 100% covered, so never seen through from that side. Every level has such portals: LEVEL1 6.8%, 2 13.6%, 3A 6.3%, 3B 12.9%, 4 9.4%, 5 5.6%, 6 16.1%, 7A 17.0%, 7B 31.3%, 8A 10.1%, 8B 12.7%, 8C 15.1%, 10A 11.5%, 10B 17.4%, 10C 4.5%.
 - The fix would be in `tools/pack_level.py`: shrink a portal to what's open, or split it into its open parts, or drop it from that side. It costs nothing at run time, works in every state of the level and cuts both the walk and VDP1. To mind: doors. A door's hole isn't covered by a face, so it stays open; a face that moves (a flip map's alternate room) must be tested in each state.
+
+### 299. A door seen from behind its slab flickers against its frame
+*Kind: look - Size: a band along the door's near edge in motion - Fix: not now, the user's word: there are many of this class in the game*
+
+- Natla's Mines, the east end of the alley: door 64 (DOOR_2, room 66, rotation 4000), seen from room 68. Lara 53710, -10003, 93106, heading 0b0c; camera 53312, -10577, 91621, pitch feb4, heading 0aa7. Reported by the user 2026-11-05, with a photo, on the disc with `FLUSH_DOORS`.
+- Not tested, by the geometry: this door faces away from the alley. `FLUSH_DOORS` keeps the half of the slab on the door's front side, so from the alley its back is flush with the wall and its edge lies behind the wall's plane. When the depth sort draws that edge after the wall, it shows on top. The two doors along the alley face it, so they don't. A door seen from both sides can't have its edge clear of the wall from both sides unless it has no thickness at all.
 
 ## Production code: clean-up
 

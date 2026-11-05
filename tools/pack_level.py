@@ -819,12 +819,29 @@ MESH_LIGHT_NORMALS = 1  # an 8-bit normal (and a pad byte) per vertex
 MESH_LIGHT_SHADES = 2   # a shade per vertex (intensity >> 5), padded to even
 
 
+# A door's slab stands half in the wall around it, so its edge shows through that wall whenever the depth sort
+# draws the edge last. The half in the wall comes off: what's left stands on the wall's plane, its back flush.
+FLUSH_DOORS = {
+    "LEVEL10A": ("DOOR_2",),    # the houses by Natla's Mines' alley
+}
+
+
+def flush_doors(lvl, meshes):
+    for name in FLUSH_DOORS.get(lvl.name, ()):
+        model = next(m for m in lvl.models if m["type"] == ITEM[name])
+        slab = lvl.mesh_offsets[model["start"]]
+        for offset, mesh in zip(lvl.mesh_offsets, meshes):
+            if offset == slab:
+                mesh.vertices = [(x, y, max(z, 0)) for x, y, z in mesh.vertices]
+
+
 class Packer:
     def __init__(self, lvl, sounds, object_art=False):
         self.lvl = lvl
         self.sounds = sounds
         self.object_art = object_art
         self.meshes = trsat.meshes(lvl)
+        flush_doors(lvl, self.meshes)
         self.palette = []           # RGB555 colours of coloured faces
         self.textures = TextureTable(lvl)
         self.item_tex_index = {t["index"]: i for i, t in enumerate(lvl.item_textures)}
