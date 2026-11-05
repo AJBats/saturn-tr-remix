@@ -294,7 +294,7 @@ void facesRoom(const FaceRoom &room, RoomRun &run);
 // frame places them, stuck to the water, flat on the frame, at the sector's depth; the far ones a pixel or a
 // line, the near a piece of art, in half tones as they come and go. A frame's count follows the water's
 // area on the frame, whatever the sectors'.
-#define SHIMMER_VRAM_BYTES  4096
+#define SHIMMER_VRAM_BYTES  1024
 // their art, the level file's (pack_level.py water_art), and colour tables go here in VDP1 VRAM; 0, lines alone
 void facesShimmersInit(uint32_t vram, const uint8_t* art);
 void facesShimmersDensity(int32_t oneIn);

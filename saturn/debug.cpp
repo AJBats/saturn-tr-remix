@@ -51,9 +51,9 @@ static bool gUnderKept = true;  // rooms under a floor on VDP2 kept to its openi
 static const char* const kShimmers[] = { "Off", "1 in 600", "1 in 300", "1 in 150", "1 in 100", "1 in 75" };
 static const int32 kShimmerOneIn[] = { 0, 600, 300, 150, 100, 75 };
 static int32 gShimmerStep = 3;  // kShimmers'
-static const char* const kShimmerArt[] = { "Chunks", "Dashes", "All", "Swirls", "Grow" };
+static const char* const kShimmerArt[] = { "Dash+chunk", "Chunks", "Dashes", "All" };
 static int32 gShimmerArtStep;
-static const char* const kShimmerShade[] = { "Mesh", "Fade", "Both", "Glass" };
+static const char* const kShimmerShade[] = { "Both", "Mesh", "Fade" };
 static int32 gShimmerShadeStep;
 #endif
 
@@ -91,10 +91,10 @@ static const Option gOptions[] = {
     { "Shimmers", kShimmers, 6,
         [] { return gShimmerStep; },
         [](int32 v) { gShimmerStep = v; renderShimmers(kShimmerOneIn[v]); } },
-    { "Shimmer art", kShimmerArt, 5,
+    { "Shimmer art", kShimmerArt, 4,
         [] { return gShimmerArtStep; },
         [](int32 v) { gShimmerArtStep = v; renderShimmerStyle(gShimmerArtStep, gShimmerShadeStep); } },
-    { "Shimmer shade", kShimmerShade, 4,
+    { "Shimmer shade", kShimmerShade, 3,
         [] { return gShimmerShadeStep; },
         [](int32 v) { gShimmerShadeStep = v; renderShimmerStyle(gShimmerArtStep, gShimmerShadeStep); } },
     { "Under floor", kOnOff, 2,

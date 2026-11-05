@@ -39,7 +39,6 @@ typedef struct {
 #define CMD_END         0x8000
 
 #define PMOD_SHADOW     0x0001  /* halve the frame buffer pixel under the shape */
-#define PMOD_HALF_TRANS 0x0003  /* half the shape, half the frame buffer pixel under it */
 #define PMOD_GOURAUD    0x0004
 #define PMOD_GOURAUD_HALF 0x0006  /* gouraud, then half luminance */
 #define PMOD_LUT16      0x0008  /* 4-bit pixels through a 16-colour lookup table */
