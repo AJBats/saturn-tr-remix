@@ -243,8 +243,42 @@ bool frameMeshHinted(uint32_t i, const FaceSet* set, const Vertex* vertices, uin
     return true;
 }
 
+// How near the camera a corner of a near cut mesh's quad can be (a poke away while it's being judged). VDP1 walks the
+// whole of a quad, what's see-through and off the frame too, and a hanging vine's close by are the dearest there are.
+int32_t gFaceNearCut = 700;
+
+// A mesh of quads alone, those with a corner nearer than that left out: as a near plane would, but sooner.
+static __attribute__((noinline)) void frameMeshNearCut(const FaceSet* set, const Vertex* vertices, uint32_t mode)
+{
+    struct
+    {
+        FaceSet set;
+        FaceQuad quads[FACE_NEAR_QUADS];
+    } kept;
+    const FaceQuad* q = (const FaceQuad*)(set + 1);
+    const uint8_t* const at = (const uint8_t*)vertices;
+    int32_t n = 0;
+    for (int32_t k = 0; k < set->quads; k++, q++)
+    {
+        if (((const Vertex*)(at + q->corners[0]))->z < gFaceNearCut || ((const Vertex*)(at + q->corners[1]))->z < gFaceNearCut ||
+            ((const Vertex*)(at + q->corners[2]))->z < gFaceNearCut || ((const Vertex*)(at + q->corners[3]))->z < gFaceNearCut)
+            continue;
+        kept.quads[n++] = *q;
+    }
+    kept.set.quads = uint16_t(n);
+    kept.set.triangles = 0;
+    kept.set.cards = 0;
+    kept.set.back = 0;
+    facesMeshAsm(&kept.set, vertices, mode, &gMeshList);
+}
+
 void frameMesh(uint32_t i, const FaceSet* set, const Vertex* vertices, uint32_t mode)
 {
+    if (set->back & FACE_NEAR_CUT)
+    {
+        frameMeshNearCut(set, vertices, mode);
+        return;
+    }
     vertices = (const Vertex*)((const uint8_t*)vertices - set->back);
     if (set->cards) {
         facesMeshCardsAsm(set, const_cast<Vertex*>(vertices), mode, gSplit.divTable, verticesCardShade(i));

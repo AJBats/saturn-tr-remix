@@ -76,6 +76,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import diet  # noqa: E402
+import facepack  # noqa: E402
 import sfx  # noqa: E402
 import texart  # noqa: E402
 import trpsx  # noqa: E402
@@ -1170,7 +1171,7 @@ class Packer:
                 intensities.append(0)
         out = Out()
         write_mesh_record(out, "a diet mesh", dm.center, dm.radius, vertices, normals, intensities, quads, tris,
-                          cards, dm.back, dm.seam_reach)
+                          cards, facepack.MESH_NEAR_CUT * 4 if dm.near_cut else dm.back, dm.seam_reach)
         return bytes(out.b)
 
     # --- animation -------------------------------------------------------
@@ -1587,7 +1588,7 @@ def write_mesh_record(out, name, center, radius, vertices, normals, intensities,
     alone). seam_reach: how far from its centre its corners on its parent's
     can lie."""
     n = len(vertices)
-    if n > 255 or len(cards) > 255 or back % 4 or back > 255 * 4:
+    if n > 255 or len(cards) > 255 or back % 4 or back > facepack.MESH_NEAR_CUT * 4:
         raise ValueError(f"{name}: {n} vertices, {len(cards)} cards, {back} vertices back")
     lighting = MESH_LIGHT_NORMALS if normals else MESH_LIGHT_SHADES if intensities else 0
     intensity = sum(intensities) // len(intensities) if intensities else 0

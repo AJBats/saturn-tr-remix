@@ -30,6 +30,8 @@ PMOD_GOURAUD, PMOD_LUT16, PMOD_SPD_OFF, PMOD_ECD_OFF, PMOD_MESH = 0x0004, 0x0008
 PMOD_NO_ECD_SPD = PMOD_SPD_OFF | PMOD_ECD_OFF
 BLACK = 0x8000
 MESH_HEADER = 20
+MESH_NEAR_CUT = 255     # in a mesh's 'how far back': a near cut mesh's, with nothing back (FaceSet.back's top bit)
+SET_NEAR_CUT = 0x8000
 MESH_LIGHT_NORMALS, MESH_LIGHT_SHADES = 1, 2
 
 MATERIAL = struct.Struct('>4I')         # faces.h Material
@@ -96,7 +98,8 @@ def mesh_faces(mesh, materials):
     vcount = mesh[10]
     lighting = mesh[11]
     quads, triangles = struct.unpack_from('>hh', mesh, 12)
-    back = mesh[18] * 4 * VERTEX_BYTES
+    near_cut = mesh[18] == MESH_NEAR_CUT
+    back = 0 if near_cut else mesh[18] * 4 * VERTEX_BYTES
     cards = mesh[19]
 
     def corner(i):
@@ -106,7 +109,7 @@ def mesh_faces(mesh, materials):
         at += 4 * vcount
     elif lighting == MESH_LIGHT_SHADES:
         at += (vcount + 1) & ~1
-    out = bytearray(SET.pack(quads + cards, triangles, cards, back))
+    out = bytearray(SET.pack(quads + cards, triangles, cards, SET_NEAR_CUT if near_cut else back))
     for _ in range(quads):
         flags, a, b, c, d = struct.unpack_from('>H4B', mesh, at)
         at += 6

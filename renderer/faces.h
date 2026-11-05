@@ -53,6 +53,10 @@ struct FaceSet
     uint16_t cards, back;
 };
 
+// In FaceSet.back: a see-through mesh whose near quads are left out (frame.cpp), which has nothing back.
+#define FACE_NEAR_CUT   0x8000
+#define FACE_NEAR_QUADS 96      // the most quads such a mesh has
+
 // What a card takes above its half width, in FaceQuad.half: a facing card's
 // length / 2, in model units, its first end placed that far from its second on
 // the screen whichever way the line between them points at the camera.

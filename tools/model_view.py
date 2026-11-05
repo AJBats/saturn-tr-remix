@@ -182,7 +182,7 @@ VINE_PLACES = [{"name": "Room 26: the courtyard with the ramp", "statics": 26, "
                 "pos": [8293, 5296, 82562], "target": [10852, 5319, 84128]},
                {"name": "Room 20", "statics": 20, "rooms": (20, 19, 21, 22),
                 "pos": [12800, 2900, 69400], "target": [7600, 2600, 65600]}]
-VINE_WIDTHS = (32, 16)     # strip widths to look at, the game's first
+VINE_WIDTHS = (16, 32)     # strip widths to look at, the game's first
 
 class Atlas(diet.Atlas):
     """diet.Atlas's images packed into one picture, from any level's textures

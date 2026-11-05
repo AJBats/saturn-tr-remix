@@ -129,8 +129,9 @@ PLANK_APART = {("LEVEL1", "BRIDGE_TILT_2"): [[2, 3]]}
 # The Caves' hanging vines: static 8 a hollow square tube of four curtains, static 6 one curtain. A curtain is 12
 # see-through tiles, more than half empty, each there twice, one for each side. VDP1 walks a quad's empty texels as it
 # does its filled ones, so each side becomes tall strips round what's filled (vine_strips): the user's idea.
+# The renderer leaves out a strip with a corner near the camera (FACE_NEAR_CUT, frame.cpp): the user's idea too.
 VINE_STATICS = {"LEVEL1": (6, 8)}
-VINE_STRIP = 32     # texels across
+VINE_STRIP = 16     # texels across: a near one goes in pieces small enough to pass for the near plane
 VINE_GAP = 12       # rows
 
 
@@ -678,6 +679,7 @@ class DietMesh:
         self.cards = []
         self.back = 0       # the vertices from its parent's job's first to its own (a seam's)
         self.seam_reach = 0     # how far a corner on its parent's can lie from its centre
+        self.near_cut = False   # a quad with a corner near the camera is left out (frame.cpp)
 
     def vertex_count(self):
         """As the packer writes it: its cards' four each, one for none."""
@@ -1037,6 +1039,7 @@ def vine_diet(mesh, index, atlas, width=None):
         n = unit(cross(sub(v[1], v[0]), sub(v[2], v[0])))
         sides.setdefault((round(n[0]), round(n[2]), round(dot(n, v[0]) / 16)), []).append(fi)
     out = DietMesh(mesh)
+    out.near_cut = True
     out.add_mesh(mesh, index, skip=set(range(len(mesh.faces))))
     for side, fis in enumerate(sides.values()):
         vine_strips(out, mesh, index, fis, atlas, width or VINE_STRIP, side)
