@@ -1532,6 +1532,8 @@ static uint8_t gShimmerSeen[256];                   // by room: the frame's low 
 static ShimmerView gShimmerViews[SHIMMER_HEIGHTS] __attribute__((aligned(16)));
 static int16_t gShimmerHeightY[SHIMMER_HEIGHTS];
 static int32_t gShimmerHeightCount;
+static int32_t gShimmerSlotZ[SHIMMER_HEIGHTS][8];   // the z past which a sector doesn't owe so many
+static int32_t gShimmerSlotOwed[SHIMMER_HEIGHTS];   // ... for what it owes at that height's distance
 
 void facesShimmersDensity(int32_t oneIn)
 {
@@ -1582,6 +1584,9 @@ void facesShimmersInit(uint32_t vram, const uint8_t* art)
         gShimmerRunCount[i] = 0;
     }
     gShimmerHeightCount = 0;
+    for (int32_t i = 0; i < SHIMMER_HEIGHTS; i++) {
+        gShimmerSlotOwed[i] = -1;
+    }
     // no room for art: lines alone, of this piece's width
     gShimmerPieces[0].w = 5;
     gShimmerPieces[0].kind = 2;
@@ -1766,8 +1771,6 @@ void facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* 
     s.livesEnd = lives + SHIMMER_BORN_MAX;
     const int32_t owed = (16 * 256) / gShimmerOneIn;
     bool roomLeft = true;
-    int32_t lastOwed = -1;
-    int32_t slotZ[8];
     const uint8_t seen = uint8_t(frame);
     for (uint32_t i = 0; i < count; i++)
     {
@@ -1823,12 +1826,14 @@ void facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* 
                 continue;
             s.view = (const uint8_t*)gShimmerViews + viewAt;
             s.owed = absOf(height) * owed;
-            // for the first 8 slots, the z past which a sector doesn't owe that many
-            if (s.owed != lastOwed)
+            // for the first 8 slots, the z past which a sector doesn't owe that many: once a frame a height
+            const int32_t heightIndex = viewAt / int32_t(sizeof(ShimmerView));
+            int32_t* const slotZ = gShimmerSlotZ[heightIndex];
+            if (gShimmerSlotOwed[heightIndex] != s.owed)
             {
-                lastOwed = s.owed;
+                gShimmerSlotOwed[heightIndex] = s.owed;
                 int32_t step = 80;
-                slotZ[0] = farZ;
+                slotZ[0] = 0x7FFFFFFF;
                 for (int32_t k = 1; k < 8; k++)
                 {
                     while (step > 0 && shimmerQ16(gShimmerDepth[step], s.owed) < k << 4) {
