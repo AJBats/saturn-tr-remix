@@ -60,6 +60,7 @@
     .equ    RUN_BOX_COUNT,  344
     .equ    RUN_BOXES,      348
     .equ    RUN_POINTS,     352
+    .equ    RUN_FULL_OUT,   356
     .equ    BOX_BYTES,      20      ! RoomBox
     .equ    VOIDS_NONE,     2
     .equ    CLIP_LEFT,      2
@@ -718,7 +719,8 @@
     nop
     tst     r0, r0
     bf      .Lslot\sfx
-    ! no room at this level: the next one down, if the texture has one
+    ! no room at this level: the next one down, if the texture has one; past
+    ! the last, full res if the frame's full-res pool hasn't run out
     mov.l   @(4, r15), r6
     add     #-36, r6
     shlr2   r6                  ! the variant
@@ -727,9 +729,24 @@
     mov.b   @(12, r14), r0
     cmp/ge  r0, r8
     bf      1f
-    bra     .Lplain\sfx
+    tst     r8, r8
+    bt      4f                  ! full res was the last it has
+    mov.l   @(RUN_FULL_OUT, gbr), r0
+    mov     r0, r8
+    mov.l   @(RUN_FRAME, gbr), r0
+    cmp/eq  r0, r8
+    bt      4f
+    mov     r6, r0
+    and     #1, r0
+    bra     .Lmemo\sfx
+    mov     r0, r6
+4:  bra     .Lplain\sfx
     nop
-1:  add     #2, r6
+1:  tst     r8, r8
+    bf      5f
+    mov.l   @(RUN_FRAME, gbr), r0
+    mov.l   r0, @(RUN_FULL_OUT, gbr)
+5:  add     #2, r6
     bra     .Lmemo\sfx
     nop
 

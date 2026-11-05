@@ -605,9 +605,16 @@ static uint32_t wholeTexture(RoomTextures &t, uint32_t flags, uint32_t variant)
     {
         const uint32_t mips = tex.size & 7 ? 0 : tex.size & 0x010F ? 1 : 2;
         slot = cachedSlot(t, tex, kVariants[variant]);
+        const uint32_t turned = variant & 1;
+        const bool small = variant >= 2;
         while (slot < 0 && variant / 2 < mips)
         {
             variant += 2;
+            slot = cachedSlot(t, tex, kVariants[variant]);
+        }
+        if (slot < 0 && small)
+        {
+            variant = turned;
             slot = cachedSlot(t, tex, kVariants[variant]);
         }
     }
@@ -1647,6 +1654,7 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, voidWay) == 336 &&
               offsetof(RoomRun, boxNear) == 340 && offsetof(RoomRun, boxCount) == 344 &&
               offsetof(RoomRun, boxes) == 348 && offsetof(RoomRun, points) == 352 &&
+              offsetof(RoomRun, fullOut) == 356 &&
               sizeof(RoomBox) == 20 && offsetof(RoomBox, lo) == 8 && offsetof(RoomBox, hi) == 14 &&
               offsetof(CommandList, voidX0) == 48 &&
               offsetof(CommandList, voidArea) == 64 &&
@@ -1725,6 +1733,7 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.materials = t.materials;
     run.frame = t.frame;
     run.lod = t.lod;
+    run.fullOut = ~t.frame;
     run.end = list.end;
     run.heads = list.heads;
     run.tails = list.tails;

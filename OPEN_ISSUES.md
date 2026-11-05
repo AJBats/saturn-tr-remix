@@ -3744,6 +3744,15 @@ word. Of the same kind and already open: 264, 265, 266.
 
 ## Closed
 
+### 288. Boxes under the flooded Cistern's statues pop between textured and flat
+*Closed 2026-11-04: 6368808. Mednafen at the reported view, flat room faces 7-9 a frame to 0, VDP1 33.70 to 33.87 ms.*
+
+*Kind: look · Size: a handful of faces in rooms full of textures · Fix: small*
+
+- The user's report, 2026-11-04, on the shimmers build, reproduced on main's code with the water texture: not shimmers, and the rats and going in and out of the room aren't needed.
+- `tools/hwtest.sh cistern-flood-statues`. At the view the half-size pool holds 64 of 64, all drawn that frame, while the full-res pool holds 30-35 of 128. A texture with no smaller mip than half size then had nowhere to go but its mean colour, and which textures lost out changed with the view.
+- Now such a face takes its full-res copy while that pool has room in the frame, and goes flat only after that. Same order in C and in `facesroom.s`.
+
 ### 269. Flat floors and ceilings on a VDP2 plane
 *Closed 2026-11-04: branch vdp2-planes, docs/vdp2-production.md. The Cistern (floor, ceiling) and Lost Valley (floor) are on it. Saturn, room 103 about 22 degrees up: VDP1 20.5, master 27.4, slave 24.7 ms, 30.0 fps.*
 

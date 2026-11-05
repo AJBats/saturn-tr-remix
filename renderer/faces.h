@@ -364,6 +364,7 @@ struct RoomRun
     int32_t boxCount;           // +344 those over the room's window
     const RoomBox* boxes;       // +348 ... roomBoxes
     const RoomVertex* points;   // +352 the room's
+    uint32_t fullOut;           // +356 the frame the full-res pool last had no room
     const BoxSeen* seen;        // the frame's solid boxes (rooms.h roomsBoxes), for facesRoom
     int32_t seenCount;
     RoomBox roomBoxes[BOXES_SEEN];

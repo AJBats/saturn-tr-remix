@@ -26,7 +26,7 @@
 #               the water
 #   cistern-flood-down the same spot, Lara turned to the water: looking down (Z + UP) near sparkles
 #               fill the frame
-#   cistern-flood-statues LEVEL7A flooded, room 101: the boxes under the statues in the water, textures popping
+#   cistern-flood-statues LEVEL7A flooded, room 101: the boxes under the statues in the water, drawn flat when the half-size textures' pool ran out
 #   cistern-pillar LEVEL7A, room 106, a pillar to Lara's right: looking up
 #               (Z + DOWN) the walk lists more vertices than the jobs had room for
 #   cistern-platform LEVEL7A, room 102, the walk over that room standing still
