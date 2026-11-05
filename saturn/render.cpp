@@ -545,11 +545,6 @@ void renderShimmers(int32 oneIn)
     render::facesShimmersDensity(oneIn);
 }
 
-void renderShimmerStyle(int32 art, int32 shade)
-{
-    render::facesShimmersStyle(art, shade);
-}
-
 void renderBoxes(bool on)
 {
     render::roomsBoxesOn(on);

@@ -245,8 +245,8 @@ def texture_average(pixels, colors, transparent, end_codes=False):
     return 0x8000 | ((b // n) << 10) | ((g // n) << 5) | (r // n)
 
 
-WATER_KINDS = 5        # specks, dashes, blobs, chunks, swirls (faces.cpp facesShimmersStyle)
-WATER_KEEP = (2, 3, 3, 4, 3)    # the commonest of each that the level file keeps
+WATER_KINDS = 5        # specks, dashes, blobs, chunks, swirls
+WATER_KEEP = (0, 3, 0, 4, 0)    # the commonest of each the shimmers use (faces.cpp shimmersBag: kind >> 1)
 
 
 def water_kind(w, h, cells):

@@ -298,7 +298,40 @@ void facesRoom(const FaceRoom &room, RoomRun &run);
 // their art, the level file's (pack_level.py water_art), and colour tables go here in VDP1 VRAM; 0, lines alone
 void facesShimmersInit(uint32_t vram, const uint8_t* art);
 void facesShimmersDensity(int32_t oneIn);
-void facesShimmersStyle(int32_t art, int32_t shade);    // the menu's: which pieces, how they come and go
+struct ShimmerPlane
+{
+    int32_t o, e, f;        // o + e * x + f * z: how far past this side of the clip a sector's middle is
+    int32_t past, pastCell; // ... past by more than this, the sector or a cell of it is out
+};
+// What facesShimmersAsm reads, a sheet of a room's water (shimmers.s S_).
+struct ShimmerSheet
+{
+    CommandList* list;          // +0
+    uint32_t* stop;             // +4   the list's commands stop here
+    const uint16_t* divTable;   // +8
+    const int32_t* depth;       // +12
+    const uint8_t* bag;         // +16
+    const void* pieces;         // +20
+    const uint16_t* colours;    // +24
+    const uint8_t* ages;        // +28
+    uint32_t tables;            // +32
+    uint32_t frame;             // +36
+    int32_t spriteDd;           // +40
+    int32_t x0, y0, x1, y1;     // +44  the room's clip, from the frame's middle
+    int32_t height;             // +60
+    int32_t m0, m2, m3, m5, m6, m8;     // +64
+    uint32_t turn;              // +88
+    int32_t ox, ex, fx;         // +92  a sector's middle: o + e * x + f * z, 256 to a view unit
+    int32_t oy, ey, fy;         // +104
+    int32_t oz, ez, fz;         // +116
+    int32_t nearZ, farZ;        // +128 its z outside these, out
+    int32_t reach;              // +136
+    int32_t nearCell;           // +140
+    ShimmerPlane right, left, bottom, top;  // +144
+    uint32_t seed;              // +224 its own, while a sector's cells go
+    int32_t cell;               // +228
+};
+extern "C" int32_t facesShimmersAsm(ShimmerSheet* sheet, const uint8_t* runs, int32_t count);
 void facesShimmers(const FaceRoom &room, const uint8_t* water, int32_t yTop, RoomRun &run);
 void facesFloorSet(int32_t y);          // the level's floor, or FACES_NO_FLOOR
 void facesFloorKeep(bool on);           // the menu's
