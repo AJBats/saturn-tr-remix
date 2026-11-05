@@ -19,7 +19,15 @@
         which side the SD mux holds the card on: pc or saturn
     hw.py card pc|saturn
         moves the card there and checks Windows saw it arrive or leave; refuses
-        while the Saturn draws power, since it may be using the card
+        while the Saturn draws power, since it may be using the card. Windows
+        writes out all it holds for the card before the card leaves the PC
+    hw.py deploy [FOLDER] [--out PNG]
+        puts a built disc (build/disc) on the card as the game it starts by
+        itself, and starts it: cuts the power, moves the card to the PC, copies
+        the tracks that differ in size or time and the cue as autoboot.cue,
+        compares every file with what's on the card, redoing any that differ,
+        moves the card back, powers on and saves the screen 30 s later. If the
+        files won't come out right, the Saturn stays off and the card on the PC
 
 Exits with 1 if the plug doesn't answer or the reading isn't what it should
 be. The plug is a Shelly Plug US Gen4 on the home network, found by its name.
@@ -27,14 +35,20 @@ OBS holds the capture card, so pictures come through its WebSocket server
 (Tools > WebSocket Server Settings, on), with the password from OBS's config.
 The SD mux is an SDWire, driven through Windows' own FTDI driver; the chip's
 CBUS0 pin was set to general I/O once, which holds until someone changes it.
+Its card reader reports a write fault every 100 MB or so, which Windows
+retries, so what's written through it has to be read back.
 """
 
 import argparse
 import base64
+import contextlib
 import ctypes
+import glob
 import hashlib
 import json
 import os
+import re
+import shutil
 import socket
 import struct
 import subprocess
@@ -60,6 +74,18 @@ CARD_READER = '000000264001'    # the serial Windows shows for the mux's card re
 FT_OPEN_BY_SERIAL = 1
 FT_CBUS_BITBANG = 0x20
 CARD_MOVE_S = 15    # how long Windows gets to see the card arrive or leave
+
+GENERIC_READ_WRITE = 0xC0000000
+FILE_SHARE_READ_WRITE = 3
+OPEN_EXISTING = 3
+FSCTL_LOCK_VOLUME = 0x00090018
+FSCTL_DISMOUNT_VOLUME = 0x00090020
+
+DEPLOY_LOCK = os.path.expandvars(r'%LOCALAPPDATA%\tomb_hw_deploy.lock')
+SATURN_WRITES_S = 20    # after power-on, how long the Satiator's menu may be writing to the card
+BOOT_S = 30             # from power-on to the game's first picture
+COPY_CHUNK = 1 << 20
+COPY_TRIES = 3
 
 
 def fail(message):
@@ -244,32 +270,192 @@ def mux_pin(high):
         ftd2xx.FT_Close(handle)
 
 
-def card_letters():
-    """The drive letters of the card while the PC has it, None while it doesn't."""
-    script = (f"$d = Get-Disk | Where-Object SerialNumber -eq '{CARD_READER}';"
-              "if ($d.Size) { 'card ' + (@(Get-Partition -DiskNumber $d.Number -ErrorAction SilentlyContinue"
-              " | Where-Object DriveLetter).DriveLetter -join ' ') }")
-    words = subprocess.run(['powershell', '-NoProfile', '-Command', script],
-                           capture_output=True, text=True).stdout.split()
-    return words[1:] if words else None
+def powershell(script):
+    return subprocess.run(['powershell', '-NoProfile', '-Command', script],
+                          capture_output=True, text=True).stdout.strip()
+
+
+def card_side():
+    """Where Windows sees the card: 'pc', 'saturn' (its reader is empty, as with an empty
+    socket too), or None with the mux off USB."""
+    return powershell(f"$d = Get-Disk | Where-Object SerialNumber -eq '{CARD_READER}';"
+                      "if ($d) { if ($d.Size) { 'pc' } else { 'saturn' } }") or None
+
+
+def card_letter():
+    """The card's drive letter, empty while Windows hasn't mounted it."""
+    return powershell(f"$d = Get-Disk | Where-Object SerialNumber -eq '{CARD_READER}';"
+                      "if ($d.Size) { (Get-Partition -DiskNumber $d.Number -ErrorAction SilentlyContinue"
+                      " | Where-Object DriveLetter).DriveLetter }")
+
+
+def card_root():
+    """The card's root folder, once Windows has mounted it."""
+    deadline = time.monotonic() + CARD_MOVE_S
+    while True:
+        letter = card_letter()
+        if letter and os.path.exists(f'{letter}:\\'):
+            return f'{letter}:\\'
+        if time.monotonic() > deadline:
+            fail('Windows never mounted the card')
+        time.sleep(0.25)
+
+
+@contextlib.contextmanager
+def card_released(letter):
+    """Windows writes out all it holds for the card and forgets it, so anything read after
+    this comes from the card itself; it can't mount the card again until the block ends."""
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.CreateFileW.restype = ctypes.c_void_p
+    kernel32.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p,
+                                     ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
+    kernel32.FlushFileBuffers.argtypes = [ctypes.c_void_p]
+    kernel32.DeviceIoControl.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32,
+                                         ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32),
+                                         ctypes.c_void_p]
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+
+    def control(code):
+        returned = ctypes.c_uint32()
+        return kernel32.DeviceIoControl(volume, code, None, 0, None, 0, ctypes.byref(returned), None)
+
+    volume = kernel32.CreateFileW(f'\\\\.\\{letter}:', GENERIC_READ_WRITE, FILE_SHARE_READ_WRITE, None,
+                                  OPEN_EXISTING, 0, None)
+    if volume == ctypes.c_void_p(-1).value:
+        fail(f'Windows would not open the card at {letter}: (error {ctypes.get_last_error()})')
+    try:
+        if not kernel32.FlushFileBuffers(volume):
+            fail(f'Windows could not write out what it holds for the card (error {ctypes.get_last_error()})')
+        # the lock refuses while something has a file open, which the flush has already made safe
+        control(FSCTL_LOCK_VOLUME)
+        if not control(FSCTL_DISMOUNT_VOLUME):
+            fail(f'Windows would not let go of the card (error {ctypes.get_last_error()})')
+        yield
+    finally:
+        kernel32.CloseHandle(volume)
 
 
 def card(side):
     if side is None:
         # the pin reads low until first driven, with the card on the PC, so ask Windows
-        print('pc' if card_letters() is not None else 'saturn')
+        where = card_side()
+        if where is None:
+            fail('the SD mux is not on USB')
+        print(where)
         return
     watts = status()['apower']
     if watts >= OFF_WATTS:
         fail(f'the Saturn draws {watts} W: power it off first')
-    to_pc = side == 'pc'
-    mux_pin(int(to_pc))
+    letter = card_letter() if side == 'saturn' else ''
+    if letter:
+        with card_released(letter):
+            mux_pin(0)
+    else:
+        mux_pin(int(side == 'pc'))
     deadline = time.monotonic() + CARD_MOVE_S
-    while (card_letters() is not None) != to_pc:
+    while card_side() != side:
         if time.monotonic() > deadline:
-            fail(f'the mux switched, but Windows {"never saw the card" if to_pc else "still has the card"}')
+            fail(f'the mux switched, but Windows {"never saw the card" if side == "pc" else "still has the card"}')
         time.sleep(0.25)
     print(side)
+
+
+def unchanged(source, target):
+    """Whether the card's file looks the same as the source's, by size and time."""
+    try:
+        a, b = os.stat(source), os.stat(target)
+    except OSError:
+        return False
+    return a.st_size == b.st_size and abs(a.st_mtime - b.st_mtime) < 2
+
+
+def copy_to_card(source, target):
+    """A file of the same size goes over the old one's own space, which leaves the card's
+    directory and allocation tables unwritten. A failure is left for the compare to find."""
+    try:
+        keep_space = os.path.exists(target) and os.path.getsize(target) == os.path.getsize(source)
+        with open(source, 'rb') as a, open(target, 'r+b' if keep_space else 'wb') as b:
+            shutil.copyfileobj(a, b, COPY_CHUNK)
+            b.flush()
+            os.fsync(b.fileno())
+        stat = os.stat(source)
+        os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    except OSError as e:
+        print(f'{target}: {e}')
+
+
+def same_bytes(source, target):
+    try:
+        with open(source, 'rb') as a, open(target, 'rb') as b:
+            while True:
+                chunk = a.read(COPY_CHUNK)
+                if chunk != b.read(COPY_CHUNK):
+                    return False
+                if not chunk:
+                    return True
+    except OSError:
+        return False
+
+
+def disc_files(folder):
+    """What goes on the card, as {name on the card: source}."""
+    cues = glob.glob(os.path.join(glob.escape(folder), '*.cue'))
+    if len(cues) != 1:
+        fail(f'{folder} should hold one cue, and holds {len(cues)}')
+    with open(cues[0]) as f:
+        tracks = re.findall(r'FILE "([^"]+)"', f.read())
+    files = {'autoboot.cue': cues[0], **{t: os.path.join(folder, t) for t in tracks}}
+    missing = [t for t in tracks if not os.path.exists(files[t])]
+    if not tracks or missing:
+        fail(f'{cues[0]} names {len(tracks)} tracks; not in the folder: {missing}')
+    return files
+
+
+def deploy(folder, out):
+    import msvcrt
+
+    files = disc_files(folder)
+    if card_side() is None:
+        fail('the SD mux is not on USB')
+    lock = open(DEPLOY_LOCK, 'w')
+    try:
+        msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        fail('another deploy has the Saturn')
+
+    s = status()
+    if s['apower'] >= OFF_WATTS and not s['aenergy']['by_minute'][1]:
+        print('on for under two minutes: leaving the Satiator time to finish writing')
+        time.sleep(SATURN_WRITES_S)
+    power_off()
+    card('pc')
+    root = card_root()
+    if not os.path.exists(root + 'menu.bin'):
+        fail(f'{root} has no menu.bin at its root, so it is not the card to write to')
+
+    copying = [name for name, source in files.items() if not unchanged(source, root + name)]
+    for _ in range(COPY_TRIES):
+        start = time.monotonic()
+        for name in copying:
+            copy_to_card(files[name], root + name)
+        print(f'copied {len(copying)} of {len(files)} files in {time.monotonic() - start:.0f} s')
+
+        with card_released(root[0]):
+            pass
+        root = card_root()
+        start = time.monotonic()
+        copying = [name for name, source in files.items() if not same_bytes(source, root + name)]
+        if not copying:
+            print(f'all {len(files)} files on the card are equal to {folder} ({time.monotonic() - start:.0f} s)')
+            break
+        print(f'different on the card: {" ".join(copying)}')
+    else:
+        fail(f'the card still differs after {COPY_TRIES} tries: the Saturn stays off and the card on the PC')
+
+    card('saturn')
+    power_on()
+    time.sleep(BOOT_S)
+    shot(out)
 
 
 def main():
@@ -284,6 +470,9 @@ def main():
     p.add_argument('--out', default='build/hw_record.mkv')
     p = sub.add_parser('card')
     p.add_argument('side', nargs='?', choices=['pc', 'saturn'])
+    p = sub.add_parser('deploy')
+    p.add_argument('folder', nargs='?', default='build/disc')
+    p.add_argument('--out', default='build/hw_shot.png')
     args = ap.parse_args()
     if args.command == 'power':
         power(args.action)
@@ -291,6 +480,8 @@ def main():
         shot(args.out)
     elif args.command == 'card':
         card(args.side)
+    elif args.command == 'deploy':
+        deploy(args.folder, args.out)
     else:
         record(args.seconds, args.out)
 
