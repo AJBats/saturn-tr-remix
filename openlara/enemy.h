@@ -33,7 +33,11 @@ struct Enemy : ItemObj
 
         ASSERT(_radius < 512);
 
+    #ifdef HW_NO_ENEMIES
+        health = 0;     // testing: they never wake
+    #else
         health = _health;
+    #endif
         radius = _radius >> 1;
         headOffset = _headOffset;
         aggression = _aggression;
