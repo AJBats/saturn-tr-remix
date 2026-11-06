@@ -63,6 +63,14 @@ extern "C" int32_t gFocalScale;
 #define LAST_DOT_X      702         // in half dots, at 352 wide
 
 #define PLANE_NONE      0x7FFFFFFF  // a height the level hasn't: tools/planepack.py NO_PLANE
+#define NO_ORIGIN       -32768      // tools/planepack.py's: a set's map repeats
+#define PLSZ_OVER_A     10          // set A's screen-over: 0 repeat the map, 2 transparent past it
+#define PLSZ_OVER_B     14          // ... set B's
+#define OVER_TRANSPARENT 2
+#define SECTOR_SHIFT    10
+#define MAP_REACH       (62 << SECTOR_SHIFT)    // a camera further from a map than this sees none of it
+                                                // (the far cut is 20 sectors, the map 32), and VDP2's
+                                                // map coordinates hold no more than 8192 texels
 #define PALETTES        112         // tools/planepack.py PALETTES
 #define LINE_WET        0x0700      // in CRAM, past them: the line colours under water
 #define LINE_DRY        0x0780      // ... and out of it
@@ -100,7 +108,7 @@ extern "C" int32_t gFocalScale;
 struct Frame
 {
     int32_t matrix[6];      // +1C A .. +30 F
-    int32_t map[2];         // +44 Mx, +48 My
+    int32_t map[2][2];      // each set's +44 Mx, +48 My
     uint32_t reads[2][2];   // each set's +54 KAst, +58 DKAst
     int16_t ceilingBelow;   // the lines above this are the ceiling's, the rest the floor's
     bool floorWet, ceilingWet;
@@ -112,6 +120,7 @@ struct Info
     int32_t floorY, ceilingY;
     int32_t floorFloods;    // the flip map puts the floor under water
     uint8_t maps[2][16];    // each set's planes' pages
+    int16_t origin[2][2];   // each set's map's first sector, x and z; NO_ORIGIN: it repeats across the level
 };
 
 static bool gLevel;
@@ -160,8 +169,10 @@ static void listChanging(uint32_t plot)
     for (int32_t i = 0; i < 6; i++) {
         a[7 + i] = b[7 + i] = uint32_t(f.matrix[i]);
     }
-    a[17] = b[17] = uint32_t(f.map[0]);
-    a[18] = b[18] = uint32_t(f.map[1]);
+    a[17] = uint32_t(f.map[0][0]);
+    a[18] = uint32_t(f.map[0][1]);
+    b[17] = uint32_t(f.map[1][0]);
+    b[18] = uint32_t(f.map[1][1]);
     a[21] = f.reads[0][0];
     a[22] = f.reads[0][1];
     b[21] = f.reads[1][0];
@@ -288,7 +299,7 @@ static void frameBlank(Frame &f)
     for (int32_t i = 0; i < 6; i++) {
         f.matrix[i] = 0;
     }
-    f.map[0] = f.map[1] = 0;
+    f.map[0][0] = f.map[0][1] = f.map[1][0] = f.map[1][1] = 0;
     f.reads[0][0] = f.reads[1][0] = tableBase();
     f.reads[0][1] = f.reads[1][1] = 0;
     f.ceilingBelow = 0;
@@ -336,7 +347,10 @@ void planeLoaded(uint32_t cellBytes, uint32_t nameBytes)
 
     VDP2_CHCTLB = CHCTLB_R0;
     VDP2_PNCR = PNCR_TWO_WORD;
-    VDP2_PLSZ = 0;                      // both sets: planes of a page, repeating past the map
+    // both sets: planes of a page; a map placed in the level transparent past its edges, one
+    // repeating across it as it is
+    VDP2_PLSZ = (gInfo.origin[0][0] != NO_ORIGIN ? OVER_TRANSPARENT << PLSZ_OVER_A : 0) |
+                (gInfo.origin[1][0] != NO_ORIGIN ? OVER_TRANSPARENT << PLSZ_OVER_B : 0);
     VDP2_MPOFR = (NAMES_AT / NAMES_PAGE >> 6) * 0x11;   // each set's map: the pages' top bits
     const uint32_t first = NAMES_AT / NAMES_PAGE & 0x3F;
     for (int32_t s = 0; s < 2; s++)
@@ -449,8 +463,19 @@ void planeView(const int32_t camera[3], const int32_t view[12], bool flipped)
     f.matrix[3] = r[2] * ROW_TIMES;     // D: world z
     f.matrix[4] = r[5] * ROW_TIMES;     // E
     f.matrix[5] = -r[8] * ROW_TIMES;    // F
-    f.map[0] = ((camera[0] & 0xFFFF) << (16 - WORLD_TEXEL_SHIFT)) - (CENTER_X << 16);
-    f.map[1] = ((camera[2] & 0xFFFF) << (16 - WORLD_TEXEL_SHIFT)) - (CENTER_Y << 16);
+    for (int32_t s = 0; s < 2; s++)
+    {
+        int32_t x = camera[0] & 0xFFFF, z = camera[2] & 0xFFFF;
+        if (gInfo.origin[s][0] != NO_ORIGIN)
+        {
+            x = camera[0] - (int32_t(gInfo.origin[s][0]) << SECTOR_SHIFT);
+            z = camera[2] - (int32_t(gInfo.origin[s][1]) << SECTOR_SHIFT);
+            x = x < -MAP_REACH ? -MAP_REACH : x > MAP_REACH ? MAP_REACH : x;
+            z = z < -MAP_REACH ? -MAP_REACH : z > MAP_REACH ? MAP_REACH : z;
+        }
+        f.map[s][0] = (x << (16 - WORLD_TEXEL_SHIFT)) - (CENTER_X << 16);
+        f.map[s][1] = (z << (16 - WORLD_TEXEL_SHIFT)) - (CENTER_Y << 16);
+    }
 
     // a ray's world y on the first and last lines, 1 << 14
     const int32_t downTop = r[4] * -CENTER_Y + r[7] * FOCAL;

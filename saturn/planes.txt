@@ -4,5 +4,10 @@
 # x and z, world sectors, first and last: the stretch of the level the plane is for, and its faces
 # elsewhere at that height stay polygons. Without them it takes every face at that height it can
 # fit: a last few drops of speed, at the price of a looser map and false tiles, to be judged by eye.
+#
+# On trial, in test discs only: the Caves' vine rooms (26, 27), with the look the user picked set by
+# PLANE_LIGHT=dither,paint,soft,skirt in the environment. A plane makes the Caves an erase level, not yet
+# measured at the bridge ledge.
+#   LEVEL1 floor 8960 ceiling 4352 x 6 24 z 75 94
 LEVEL7A floor 0 ceiling -7168
 LEVEL3A floor 3584 x 35 66 z 4 41

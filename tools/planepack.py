@@ -21,7 +21,8 @@ SET is floor or ceiling. PLANES=0 in the environment packs the level without a p
 .PLC, for VRAM at CELLS_AT: the cells (each texture whole, 64 x 64 texels, and turned
 when a face lays it across, a blank tile first, in 2 x 2 characters of four 8 x 8 cells),
 then a palette of 16 colours for each texture and light step, then PlaneInfo:
-floor and ceiling heights, each set's 16 planes as page numbers from the names' base.
+floor and ceiling heights, each set's 16 planes as page numbers from the names' base,
+each set's map's first sector (x, z), or NO_ORIGIN where the map repeats across the level.
 
 .PLN, for VRAM at NAMES_AT: the names' pages, 4 KB each (two-word names, 32 x 32 of
 16 x 16 tiles), page 0 blank.
@@ -39,6 +40,7 @@ among those the lowest SX, then SZ; among the level's own, room and quad order.
 Flooded copies: a room's alternate holds the same floor. Its face goes too if its room's
 tile went and it has the same picture; the plane then serves both, in the dry room's light.
 """
+import math
 import os
 import struct
 
@@ -65,6 +67,12 @@ GOURAUD_NEUTRAL = 16
 LEVELS = 32
 FLIP_H = 0x4000
 FLIP_V = 0x8000
+STEEP = 6                   # corner levels apart: a sector this steep has its light painted in
+TABLE_AT = 0x57D00          # saturn/plane.cpp: where bank B0's room for the .PLC ends
+NAMES_AT = 0x60000          # saturn/plane.cpp
+B1_END = 0x7FF00            # saturn/plane.cpp
+NO_ORIGIN = -32768          # saturn/plane.cpp: a set's map repeats
+INFO_BYTES = 12 + 2 * MAP_PLANES * MAP_PLANES + 8
 
 
 class Plan:
@@ -183,6 +191,24 @@ def tile_of(tex, c):
     return (x0 // SECTOR, z0 // SECTOR), Tile(tex, turned, flip_h, flip_v, levels)
 
 
+def map_origin(sectors):
+    """The first sector (x, z) of a map that holds these without repeating: of those that do, the one on
+    fewest pages of names (4 KB each), then with most room round them (the skirt's); None if none does."""
+    xs, zs = [sx for sx, _ in sectors], [sz for _, sz in sectors]
+    if max(xs) - min(xs) >= MAP_SECTORS or max(zs) - min(zs) >= MAP_SECTORS:
+        return None
+    side = PAGE_TILES // TILES_A_SECTOR
+    best = None
+    for ox in range(max(xs) - MAP_SECTORS + 1, min(xs) + 1):
+        for oz in range(max(zs) - MAP_SECTORS + 1, min(zs) + 1):
+            pages = len({((sx - ox) // side, (sz - oz) // side) for sx, sz in sectors})
+            room = min(min(xs) - ox, ox + MAP_SECTORS - 1 - max(xs), min(zs) - oz, oz + MAP_SECTORS - 1 - max(zs))
+            score = (pages, -min(room, 1), abs(ox % side) + abs(oz % side))
+            if best is None or score < best[0]:
+                best = (score, (ox, oz))
+    return best[1]
+
+
 def take_faces(lvl, plan):
     """The plane's faces out of lvl's rooms, with the vertices nothing else uses; each
     set's tiles, {(map x, map z) in sectors: Tile}, and the heights under 'heights'."""
@@ -192,7 +218,7 @@ def take_faces(lvl, plan):
     rooms = lvl.rooms
     primary = {r.alternate: r.index for r in rooms if 0 <= r.alternate < len(rooms)}
     gone = {}           # room index -> quad indices
-    tiled = {'heights': plan.heights, 'floods': False}
+    tiled = {'heights': plan.heights, 'floods': False, 'origin': {}}
     for kind in SETS:
         height = plan.heights.get(kind)
         if height is None:
@@ -254,10 +280,18 @@ def take_faces(lvl, plan):
                 return (0, sx, sz)
             return (1, r, q_i)
 
+        # a set whose sectors fit the map has it placed where they are, showing nothing past its
+        # edges; else the map repeats across the level
+        xs, zs = [sx for sx, _ in wanted] or [0], [sz for _, sz in wanted] or [0]
+        ox = oz = 0
+        placed = map_origin(wanted) if wanted else None
+        if placed:
+            ox, oz = tiled['origin'][kind] = placed
+
         map_tiles = {}
         lost = 0
         for (sx, sz), (tile, r, q_i) in sorted(wanted.items(), key=first):
-            spot = (sx % MAP_SECTORS, sz % MAP_SECTORS)
+            spot = ((sx - ox) % MAP_SECTORS, (sz - oz) % MAP_SECTORS)
             if spot in map_tiles and not map_tiles[spot].same(tile):
                 lost += 1
                 continue
@@ -286,8 +320,10 @@ def take_faces(lvl, plan):
                         tiled['floods'] = True
                 else:
                     left += 1
+        span = (f'sectors x {min(xs)}-{max(xs)} z {min(zs)}-{max(zs)}' if wanted else 'no sectors') + \
+            (f', the map placed at {ox}, {oz}' if kind in tiled['origin'] else ', the map repeating')
         print(f'{plan.level} {kind} {height}: {len(taken)} tiles, {lost} stay polygons in a spot taken, '
-              f'{doubled} doubled, {copies} flooded copies out, {left} stay')
+              f'{doubled} doubled, {copies} flooded copies out, {left} stay; {span}')
 
     vertices_gone = 0
     for index, quads in gone.items():
@@ -311,6 +347,152 @@ def take_faces(lvl, plan):
         room.sprites = [(renumber[vertex], tex) for vertex, tex in room.sprites]
     print(f'{plan.level}: {sum(len(g) for g in gone.values())} faces, {vertices_gone} vertices out of the rooms')
     return tiled
+
+
+BAYER = ((0, 8, 2, 10), (12, 4, 14, 6), (3, 11, 1, 9), (15, 7, 13, 5))
+SOFT_SIGMA = 0.6            # sectors: the corners' light blurred this wide (a gaussian's sigma)
+SOFT_REACH = 2
+
+
+def softened(tiles):
+    """A set's tiles with their corners' levels blurred across the plane: each corner the weighted mean of the
+    set's corners around it (a corner where sectors meet the mean of theirs), to a quarter level."""
+    corner = {}
+    for (sx, sz), tile in tiles.items():
+        for (dx, dz), level in zip(((0, 0), (1, 0), (1, 1), (0, 1)), tile.levels):
+            corner.setdefault((sx + dx, sz + dz), []).append(level)
+    corner = {at: sum(v) / len(v) for at, v in corner.items()}
+    weight = {(dx, dz): math.exp(-(dx * dx + dz * dz) / (2 * SOFT_SIGMA * SOFT_SIGMA))
+              for dx in range(-SOFT_REACH, SOFT_REACH + 1) for dz in range(-SOFT_REACH, SOFT_REACH + 1)}
+    soft = {}
+    for (x, z) in corner:
+        total = sum_w = 0.0
+        for (dx, dz), w in weight.items():
+            level = corner.get((x + dx, z + dz))
+            if level is not None:
+                total += w * level
+                sum_w += w
+        soft[(x, z)] = round(total / sum_w * 4) / 4
+    return {(sx, sz): Tile(t.tex, t.turned, t.flip_h, t.flip_v,
+                           tuple(soft[(sx + dx, sz + dz)] for dx, dz in ((0, 0), (1, 0), (1, 1), (0, 1))))
+            for (sx, sz), t in tiles.items()}
+
+
+def skirted(tiles):
+    """A set's tiles with a ring of copies round them: each empty spot beside a tile, edgewise first, then at a
+    corner, a copy of it, on the pages of names the tiles have already (a page more is 4 KB of bank B1). Where
+    VDP1's edges and VDP2's miss each other by a pixel at the plane's edge, the plane goes on under the polygons
+    there instead of showing black."""
+    side = PAGE_TILES // TILES_A_SECTOR
+    pages = {(sx // side, sz // side) for sx, sz in tiles}
+    out = dict(tiles)
+    for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+        for (sx, sz), tile in tiles.items():
+            spot = ((sx + dx) % MAP_SECTORS, (sz + dz) % MAP_SECTORS)
+            if (spot[0] // side, spot[1] // side) in pages:
+                out.setdefault(spot, tile)
+    return out
+
+
+def rgb(c):
+    return [c & 31, (c >> 5) & 31, (c >> 10) & 31]
+
+
+def quantize(colours, count):
+    """count colours for a list of [r, g, b]: median cut, then refined by k-means."""
+    boxes = [colours]
+    while len(boxes) < count:
+        boxes.sort(key=lambda bx: max(max(c[i] for c in bx) - min(c[i] for c in bx) for i in range(3)) if len(bx) > 1 else -1)
+        bx = boxes.pop()
+        if len(bx) < 2:
+            boxes.append(bx)
+            break
+        axis = max(range(3), key=lambda i: max(c[i] for c in bx) - min(c[i] for c in bx))
+        bx = sorted(bx, key=lambda c: c[axis])
+        boxes += [bx[:len(bx) // 2], bx[len(bx) // 2:]]
+    centres = [[sum(c[i] for c in bx) / len(bx) for i in range(3)] for bx in boxes]
+    for _ in range(4):
+        sums = [[0.0, 0.0, 0.0, 0] for _ in centres]
+        for c in colours:
+            j = min(range(len(centres)), key=lambda j: sum((c[i] - centres[j][i]) ** 2 for i in range(3)))
+            s = sums[j]
+            s[0] += c[0]
+            s[1] += c[1]
+            s[2] += c[2]
+            s[3] += 1
+        centres = [[s[i] / s[3] for i in range(3)] if s[3] else centres[j] for j, s in enumerate(sums)]
+    return [[max(0, min(31, round(v))) for v in c] for c in centres]
+
+
+PAINT_GROUPS = 5            # a painted tile's colours: the texture's in 5 groups ...
+PAINT_LADDER = (0, 1.5, 3)  # ... each at 3 levels from the tile's lowest
+
+
+def level_at(levels, fx, fz):
+    a, b, c, d = levels
+    return (a * (1 - fx) + b * fx) * (1 - fz) + (d * (1 - fx) + c * fx) * fz
+
+
+def tile_lows(levels):
+    """Each tile's lowest level in a painted sector (its palette's first rung), tile rows by columns."""
+    lows = []
+    for tj in range(TILES_A_SECTOR):
+        for ti in range(TILES_A_SECTOR):
+            edge = [(ti * 16 + e) / 64 for e in (0.5, 15.5)], [(tj * 16 + e) / 64 for e in (0.5, 15.5)]
+            lows.append(math.floor(min(level_at(levels, fx, fz) for fx in edge[0] for fz in edge[1])))
+    return lows
+
+
+def colour_groups(rows, colours):
+    """The texture's colours (1 to 15) in PAINT_GROUPS groups by how much each is used:
+    each colour's group and each group's colour."""
+    count = [0] * 16
+    for row in rows:
+        for i in row:
+            count[i] += 1
+    used = [i for i in range(1, 16) if count[i]]
+    samples = [rgb(colours[i]) for i in used for _ in range((count[i] + 7) // 8)]
+    groups = quantize(samples, PAINT_GROUPS) if len(used) > PAINT_GROUPS else [rgb(colours[i]) for i in used]
+    groups += [groups[-1]] * (PAINT_GROUPS - len(groups))
+    group_of = [0] * 16
+    for i in used:
+        group_of[i] = min(range(PAINT_GROUPS), key=lambda j: sum((rgb(colours[i])[k] - groups[j][k]) ** 2 for k in range(3)))
+    return group_of, groups
+
+
+def painted_palette(colours, groups, low):
+    """A painted tile's 16 colours: colour 0 at its middle rung, then each rung's groups."""
+    def lit(c, level):
+        return [max(0, min(31, round(v + level - GOURAUD_NEUTRAL))) for v in c]
+    out = [lit(rgb(colours[0]), low + PAINT_LADDER[1])]
+    for rung in PAINT_LADDER:
+        out += [lit(g, low + rung) for g in groups]
+    return [(c[2] << 10) | (c[1] << 5) | c[0] for c in out]
+
+
+def painted(rows, group_of, tile):
+    """A sector's picture as it lies (rows already turned; flipped here), each texel lit as
+    VDP1's gouraud lights it (the corners' levels across the sector): its colour's group at
+    its tile's rung below or above its level, picked by a 4 x 4 ordered pattern. Colour 0
+    stays 0."""
+    n = len(rows)
+    lows = tile_lows(tile.levels)
+    out = [[0] * n for _ in range(n)]
+    for y in range(n):
+        for x in range(n):
+            i = rows[n - 1 - y if tile.flip_v else y][n - 1 - x if tile.flip_h else x]
+            if not i:
+                continue
+            low = lows[(y // 16) * TILES_A_SECTOR + x // 16]
+            v = min(max(level_at(tile.levels, (x + 0.5) / n, (y + 0.5) / n) - low, 0), PAINT_LADDER[-1])
+            rung = 0
+            while rung + 1 < len(PAINT_LADDER) and v >= PAINT_LADDER[rung + 1]:
+                rung += 1
+            if rung + 1 < len(PAINT_LADDER):
+                f = (v - PAINT_LADDER[rung]) / (PAINT_LADDER[rung + 1] - PAINT_LADDER[rung])
+                rung += f > (BAYER[y % 4][x % 4] + 0.5) / 16
+            out[y][x] = 1 + rung * PAINT_GROUPS + group_of[i]
+    return out, lows
 
 
 def cells_of(rows):
@@ -352,29 +534,97 @@ def write_art(base, lvl, textures, tiled):
             rows.append(row)
         return rows
 
+    def turned_picture(tex, turned):
+        rows = picture(tex)
+        if turned:
+            rows = [[rows[x][y] for x in range(len(rows))] for y in range(len(rows))]
+        return rows
+
+    mode = os.environ.get('PLANE_LIGHT', '')
+    if 'soft' in mode:
+        tiled = dict(tiled, **{kind: softened(tiled[kind]) for kind in SETS})
+    if 'skirt' in mode:
+        tiled = dict(tiled, **{kind: skirted(tiled[kind]) for kind in SETS})
+
+    # the steep sectors, each picture with its light painted in, steepest first, as many as
+    # bank B0 has room for: past the table's end, or the inventory's items when B1 can't
+    # take them past the names
+    page_count = 1 + sum(len({(sx // (PAGE_TILES // TILES_A_SECTOR), sz // (PAGE_TILES // TILES_A_SECTOR))
+                              for sx, sz in tiled[kind]}) for kind in SETS)
+    items = (len(lvl.item_tex_data) + 15) & ~15
+    room = TABLE_AT - CELLS_AT - PALETTES * 32 - INFO_BYTES
+    if NAMES_AT + page_count * PAGE_BYTES + items > B1_END:
+        room -= items
+    def key_of(tile):
+        return tile.tex, tile.turned, tile.flip_h, tile.flip_v, tile.levels
+
     # each tile's light, at each 16 x 16 tile's centre
-    images = {}
-    levels = set()
     lit = {}
+    tex_of = {}
+    sector_of = {}
     for s, kind in enumerate(SETS):
         for spot, tile in tiled[kind].items():
-            images.setdefault((tile.tex, tile.turned), len(images))
-            a, b, c, d = tile.levels
             for tj in range(TILES_A_SECTOR):
                 for ti in range(TILES_A_SECTOR):
-                    fx, fz = (ti + 0.5) / TILES_A_SECTOR, (tj + 0.5) / TILES_A_SECTOR
-                    k = (a * (1 - fx) + b * fx) * (1 - fz) + (d * (1 - fx) + c * fx) * fz
-                    lit[(s, spot, ti, tj)] = k
-                    levels.add((tile.tex, k))
+                    key = (s, spot, ti, tj)
+                    lit[key] = level_at(tile.levels, (ti + 0.5) / TILES_A_SECTOR, (tj + 0.5) / TILES_A_SECTOR)
+                    tex_of[key] = tile.tex
+                    sector_of[key] = key_of(tile)
 
-    # the light's steps: as fine as the palettes allow
+    def level_of(key, step):
+        """A tile's palette: its texture and light step, the step rounded, or with
+        dither chosen by a 4 x 4 ordered pattern over the map's tiles."""
+        v = lit[key] / step
+        if 'dither' in mode:
+            _, spot, ti, tj = key
+            mx, mz = spot[0] * TILES_A_SECTOR + ti, spot[1] * TILES_A_SECTOR + tj
+            return tex_of[key], int(v + 1 - (BAYER[mz % 4][mx % 4] + 0.5) / 16)
+        return tex_of[key], int(v + 0.5)
+
+    # the light's steps: as fine as the palettes allow with every sector plain
     for step in range(1, LEVELS):
-        used = {(tex, int(k / step + 0.5)) for tex, k in levels}
+        used = {level_of(key, step) for key in lit}
         if len(used) <= BLACK_PALETTE:
             break
     else:
         raise ValueError('too many palettes')
+
+    # the steep sectors, each picture with its light painted in, steepest first, while the
+    # palettes the plain tiles leave and bank B0 have room: past the table's end, or the
+    # inventory's items when B1 can't take them past the names
+    page_count = 1 + sum(len({(sx // (PAGE_TILES // TILES_A_SECTOR), sz // (PAGE_TILES // TILES_A_SECTOR))
+                              for sx, sz in tiled[kind]}) for kind in SETS)
+    items = (len(lvl.item_tex_data) + 15) & ~15
+    room = TABLE_AT - CELLS_AT - PALETTES * 32 - INFO_BYTES
+    if NAMES_AT + page_count * PAGE_BYTES + items > B1_END:
+        room -= items
+    steep = {}
+    for s, kind in enumerate(SETS):
+        for spot, tile in tiled[kind].items():
+            if 'paint' in mode and max(tile.levels) - min(tile.levels) >= STEEP:
+                steep.setdefault(key_of(tile), []).append((s, spot))
+    order = sorted(steep, key=lambda k: (-(max(k[4]) - min(k[4])), -len(steep[k]), k))
+
+    def plain_images(painting):
+        return {(tile.tex, tile.turned) for kind in SETS for tile in tiled[kind].values() if key_of(tile) not in painting}
+
+    painting, rungs = [], set()
+    for key in order:
+        more = rungs | {(key[0], low) for low in tile_lows(key[4])}
+        trial = set(painting) | {key}
+        if len(more) <= BLACK_PALETTE - len(used) and                 TILE_BYTES + (len(plain_images(trial)) + len(trial)) * TILE_BYTES * 16 <= room:
+            painting.append(key)
+            rungs = more
+    left = len(order) - len(painting)
+    painting_set = set(painting)
+    images = {}
+    for kind in SETS:
+        for tile in tiled[kind].values():
+            if key_of(tile) not in painting_set:
+                images.setdefault((tile.tex, tile.turned), len(images))
+    used = {level_of(key, step) for key in lit if sector_of[key] not in painting_set}
     palette_of = {key: i for i, key in enumerate(sorted(used))}
+    rung_of = {key: len(palette_of) + i for i, key in enumerate(sorted(rungs))}
 
     cram = [0] * (PALETTES * 16)
     for (tex, kq), p in palette_of.items():
@@ -383,15 +633,21 @@ def write_art(base, lvl, textures, tiled):
             r, g, bl = c & 31, (c >> 5) & 31, (c >> 10) & 31
             r, g, bl = [max(0, min(31, v + k)) for v in (r, g, bl)]
             cram[p * 16 + i] = (bl << 10) | (g << 5) | r
+    groups_of = {tex: colour_groups(picture(tex), textures.sources[tex][1]) for tex in {k[0] for k in painting}}
+    for (tex, low), p in rung_of.items():
+        cram[p * 16:p * 16 + 16] = painted_palette(textures.sources[tex][1], groups_of[tex][1], low)
 
     # the cells: a blank tile first
     cells = bytearray(TILE_BYTES)
     image_at = {}
     for (tex, turned), _ in sorted(images.items(), key=lambda kv: kv[1]):
-        rows = picture(tex)
-        if turned:
-            rows = [[rows[x][y] for x in range(len(rows))] for y in range(len(rows))]
         image_at[(tex, turned)] = len(cells) // 0x20
+        cells += cells_of(turned_picture(tex, turned))
+    painted_at = {}
+    for key in painting:
+        tex, turned = key[:2]
+        rows, lows = painted(turned_picture(tex, turned), groups_of[tex][0], Tile(*key))
+        painted_at[key] = (len(cells) // 0x20, [rung_of[(tex, low)] for low in lows])
         cells += cells_of(rows)
 
     # the pages: page 0 all blank
@@ -423,23 +679,35 @@ def write_art(base, lvl, textures, tiled):
                             names += blank_name
                             continue
                         tile, spot, ti, tj = entry
+                        at = painted_at.get(key_of(tile))
+                        if at:
+                            names += struct.pack('>HH', at[1][tj * TILES_A_SECTOR + ti],
+                                                 first + at[0] + (tj * TILES_A_SECTOR + ti) * TILE_UNITS)
+                            continue
                         col = TILES_A_SECTOR - 1 - ti if tile.flip_h else ti
                         row = TILES_A_SECTOR - 1 - tj if tile.flip_v else tj
-                        k = lit[(s, spot, ti, tj)]
-                        word0 = palette_of[(tile.tex, int(k / step + 0.5))] | \
+                        word0 = palette_of[level_of((s, spot, ti, tj), step)] | \
                             (FLIP_H if tile.flip_h else 0) | (FLIP_V if tile.flip_v else 0)
                         word1 = first + image_at[(tile.tex, tile.turned)] + (row * TILES_A_SECTOR + col) * TILE_UNITS
                         names += struct.pack('>HH', word0, word1)
     if pages > MAX_PAGES:
         raise ValueError(f'{pages} pages of names')
+    if pages != page_count:
+        raise ValueError(f'{pages} pages of names, {page_count} counted')
+    if len(cells) > room:
+        raise ValueError(f'{len(cells)} bytes of cells, room for {room}')
 
     info = struct.pack('>iii', *(tiled['heights'].get(kind, NO_PLANE) for kind in SETS), int(tiled['floods']))
+    origins = [v for kind in SETS for v in tiled['origin'].get(kind, (NO_ORIGIN, NO_ORIGIN))]
     with open(base + '.PLC', 'wb') as f:
         f.write(bytes(cells))
         f.write(struct.pack(f'>{len(cram)}H', *cram))
         f.write(info)
         f.write(bytes(maps))
+        f.write(struct.pack('>4h', *origins))
     with open(base + '.PLN', 'wb') as f:
         f.write(bytes(names))
     print(f'plane art: {len(images)} pictures, {len(cells) // 1024} KB cells, {pages} pages of names '
-          f'({len(names) // 1024} KB), {len(palette_of)} palettes at light steps of {step}')
+          f'({len(names) // 1024} KB), {len(palette_of)} palettes at light steps of {step}, '
+          f'{len(painting)} painted for {sum(len(steep[k]) for k in painting)} steep sectors in {len(rung_of)} palettes'
+          + (f', {left} left plain for room' if left else ''))
