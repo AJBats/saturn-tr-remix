@@ -3780,6 +3780,26 @@ word. Of the same kind and already open: 264, 265, 266.
 
 ## Closed
 
+### 304. The plane showed far from where it belongs, through gaps
+*Closed 2026-11-05: 8579cf9, maps placed where their tiles are; the long strip by 153b7d9 (301). Mednafen at the pit: the same as a build with no planes.*
+
+- Reported in play, 2026-11-05: Caves room 14, the pit under the bridges (Lara 26625, 6656, 50869, heading ca85), on the plane trial: the leafy ceiling of rooms 26 and 27 showing behind the bridge, 25 sectors from them.
+- A plane's map holds 32 x 32 sectors and repeated across the level, so wherever VDP1 left the frame clear, some tile of the plane showed. The long strip was faces the black test left out (301); a small square through another gap stayed.
+- Now a set whose tiles fit one map has it placed there, on the fewest pages of names, and VDP2 shows nothing past its edges (screen-over transparent). The Caves' and both Cistern sets: names 15 -> 11 and 26 -> 20 pages. Saturn photos: the vine rooms and the Cistern's flooded hall draw as before.
+- Lost Valley's floor runs 38 sectors north to south and still repeats: 7 tiles of room 31 (x 37-40, z 7-9) share map squares with room 30's, 32 sectors south, and stay polygons. The user, having played the level: fine so far, to watch in playtests.
+
+### 303. A recess above the Caves' ceiling plane painted over it
+*Closed 2026-11-05: 8579cf9, masks for ceilings (28 tiles in room 26).*
+
+- Reported on the Saturn, 2026-11-05, on the plane trial: room 26's ceiling cut into by the faces of a recess above it (y 3840, over the plane's 4352).
+- VDP1 is always in front of VDP2, so faces beyond a plane paint over it. Floors had masks for their dips (the plane's tiles kept as colour 0 polygons, drawn where the dip's faces were); ceilings have them now, and the ring of masks widens with the recess's depth (the tiles that hid it here were 2 sectors away).
+
+### 302. Vine curtains and other statics drop out for a frame
+*Closed 2026-11-05: acb5ecb. The user's recording replays clean in Mednafen; no Saturn run of its own.*
+
+- Reported in play on the Saturn, 2026-11-05: the Caves' vine rooms, a curtain gone for a frame now and then (the user's video, frames 395-396 the first). Recorded in Mednafen by the user and reproduced from the recording.
+- Pipelining (33102ae): the slave fills its waits with the next frame's update, which moves the camera, while the master places the rooms' static meshes from the camera as it makes the draw list. A frame could take some from one camera and some from the next. The slave's spare work now waits until the draw list is made.
+
 ### 301. The black test hid bright faces at the fog's floor
 *Closed 2026-11-05: 153b7d9. The faces' half of the black test removed; the rooms' half kept only for rooms whose every texture is black there. Saturn, 4 spots: 29.9 fps before and after.*
 
