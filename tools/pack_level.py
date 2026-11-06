@@ -857,6 +857,8 @@ class Packer:
         self.object_art = object_art
         self.meshes = trsat.meshes(lvl)
         flush_doors(lvl, self.meshes)
+        if os.environ.get("DIET") != "0" and os.environ.get("VINE_MERGE") != "0":
+            diet.vine_merge_plan(lvl, self.meshes)
         self.palette = []           # RGB555 colours of coloured faces
         self.textures = TextureTable(lvl)
         self.item_tex_index = {t["index"]: i for i, t in enumerate(lvl.item_textures)}

@@ -31,6 +31,7 @@ page.
 """
 import copy
 import math
+import os
 import struct
 
 import trsat
@@ -133,6 +134,11 @@ PLANK_APART = {("LEVEL1", "BRIDGE_TILT_2"): [[2, 3]]}
 VINE_STATICS = {"LEVEL1": (6, 8)}
 VINE_STRIP = 16     # texels across: a near one goes in pieces small enough to pass for the near plane
 VINE_GAP = 12       # rows
+# Curtains of two placements this close (units), facing the same way and overlapping, are made one (vine_merge_plan):
+# the painter's sort can't keep them apart, as each strip goes by its middle and strips are of all lengths.
+VINE_MERGE = 64
+VINE_NEAR_QUADS = 96    # renderer/faces.h FACE_NEAR_QUADS: the most quads a near cut mesh may have
+STATIC_IDS = 50         # openlara/common.h MAX_STATIC_MESHES
 
 
 def rgb(c):
@@ -971,6 +977,8 @@ def level_diet(lvl, meshes, model_name):
     for st in lvl.static_meshes:
         if st["id"] in VINE_STATICS.get(lvl.name, ()):
             out[st["mesh"]] = vine_diet(meshes[st["mesh"]], st["mesh"], atlas)
+    if getattr(lvl, "vine_merges", None):
+        out.update(vine_merge_meshes(lvl.vine_merges, meshes, atlas))
     # a seam's corners lie in the job its model's draws put before the mesh's:
     # nothing else may draw it
     seams = {i for i, dm in out.items() if dm.back}
@@ -983,11 +991,11 @@ def level_diet(lvl, meshes, model_name):
     return out, still
 
 
-def vine_strips(out, mesh, index, fis, atlas, width, side):
-    """A side of a curtain as tall strips hanging down, width texels across: its tiles pasted together, then each
-    column's run of filled rows a quad of its own with its own texture, on the 8 texel steps VDP1's size wants. Rows
-    empty for VINE_GAP or more split a run. Corners are shared across a mesh, as a strip's are with its neighbours'."""
-    m = merge_tiles(mesh, fis, atlas)
+def vine_strips(out, mesh, index, fis, m, width, side):
+    """A side of a curtain as tall strips hanging down, width texels across: its tiles pasted together (m, merge_tiles),
+    then each column's run of filled rows a quad of its own with its own texture, on the 8 texel steps VDP1's size
+    wants. Rows empty for VINE_GAP or more split a run. Corners are shared across a mesh, as a strip's are with its
+    neighbours'."""
     w, h, rgba = m["image"]
     corners = [list(mesh.vertices[i]) for i in m["c"]]
     light = [mesh.intensities[i] for i in m["c"]] if out.intensities is not None else None
@@ -1031,18 +1039,155 @@ def vine_strips(out, mesh, index, fis, atlas, width, side):
                               "side": side, "rect": (x0, y0, width, tall), "mosaic": m["image"]})
 
 
-def vine_diet(mesh, index, atlas, width=None):
-    """A vine static with each side of each curtain as strips (vine_strips)."""
+def vine_side_faces(mesh):
+    """A vine mesh's sides, each curtain's faces on one side of it, by their plane, in the order of its faces."""
     sides = {}
     for fi, (_, idx, _) in enumerate(mesh.faces):
         v = [mesh.vertices[i] for i in idx]
         n = unit(cross(sub(v[1], v[0]), sub(v[2], v[0])))
         sides.setdefault((round(n[0]), round(n[2]), round(dot(n, v[0]) / 16)), []).append(fi)
+    return list(sides.values())
+
+
+def vine_diet(mesh, index, atlas, width=None, sides=None):
+    """A vine static with each side of each curtain as strips (vine_strips); sides, when given, are its sides' faces
+    and pasted tiles (merge_tiles) to make them from."""
     out = DietMesh(mesh)
     out.near_cut = True
     out.add_mesh(mesh, index, skip=set(range(len(mesh.faces))))
-    for side, fis in enumerate(sides.values()):
-        vine_strips(out, mesh, index, fis, atlas, width or VINE_STRIP, side)
+    if sides is None:
+        sides = [(fis, merge_tiles(mesh, fis, atlas)) for fis in vine_side_faces(mesh)]
+    for side, (fis, m) in enumerate(sides):
+        vine_strips(out, mesh, index, fis, m, width or VINE_STRIP, side)
+    quads = sum(isinstance(f, dict) for f in out.faces)
+    if quads > VINE_NEAR_QUADS:
+        raise ValueError(f"vine mesh {index}: {quads} strips, the renderer's near cut takes {VINE_NEAR_QUADS}")
+    return out
+
+
+def placed(st, p):
+    """A point of a static's mesh where its placement st puts it: its quarter turns (tools/pack_level.py quadrant
+    less 2; each as openlara boxRotateYQ's quadrant 3), then its position."""
+    x, y, z = p
+    angle = st["rotation"] - 0x10000 if st["rotation"] & 0x8000 else st["rotation"]
+    for _ in range(int(angle / 0x4000) % 4):
+        x, z = z, -x
+    return (st["x"] + x, st["y"] + y, st["z"] + z)
+
+
+def vine_merge_plan(lvl, meshes):
+    """The vine placements' curtains that lie within VINE_MERGE of another placement's, facing the same way and
+    overlapping: each such pair in order, to be made one curtain, the first's, with the second's leaves there moved
+    onto it (vine_merge_meshes). Each placement in a pair gets a static and a mesh of its own (lvl.static_meshes,
+    lvl.mesh_offsets and meshes grow, its placement takes the new id); one whose every side is covered so is taken
+    out of its room. Kept as lvl.vine_merges: the pairs (placement, side, placement, side) and each placement's
+    (placement as it was, its mesh, its new mesh or None)."""
+    ids = VINE_STATICS.get(lvl.name, ())
+    statics = {s["id"]: s for s in lvl.static_meshes}
+    places = [(room, st) for room in lvl.rooms for st in room.static_meshes if st["mesh_id"] in ids]
+    sides = []
+    for room, st in places:
+        mesh = meshes[statics[st["mesh_id"]]["mesh"]]
+        out = []
+        for fis in vine_side_faces(mesh):
+            f0 = [placed(st, mesh.vertices[i]) for i in mesh.faces[fis[0]][1]]
+            n = unit(cross(sub(f0[1], f0[0]), sub(f0[2], f0[0])))
+            t = (-n[2], 0, n[0])
+            pts = [placed(st, mesh.vertices[i]) for fi in fis for i in mesh.faces[fi][1]]
+            out.append({"n": n, "off": dot(n, pts[0]), "t": (min(dot(t, p) for p in pts), max(dot(t, p) for p in pts)),
+                        "y": (min(p[1] for p in pts), max(p[1] for p in pts))})
+        sides.append(out)
+
+    def overlap(a, b):
+        return min(a[1], b[1]) - max(a[0], b[0])
+
+    def covers(a, b):
+        return a[0] - 4 <= b[0] and b[1] <= a[1] + 4
+
+    ops = []
+    covered = {}
+    for a in range(len(places)):
+        for b in range(a + 1, len(places)):
+            for sa, A in enumerate(sides[a]):
+                for sb, B in enumerate(sides[b]):
+                    if dot(A["n"], B["n"]) > 0.99 and abs(A["off"] - B["off"]) <= VINE_MERGE and \
+                            overlap(A["t"], B["t"]) > 8 and overlap(A["y"], B["y"]) > 8:
+                        ops.append((a, sa, b, sb))
+                        if covers(A["t"], B["t"]) and covers(A["y"], B["y"]):
+                            covered.setdefault(b, set()).add(sb)
+    if not ops:
+        return
+    gone = {b for b, ss in covered.items() if len(ss) == len(sides[b])}
+    free = [i for i in range(STATIC_IDS) if i not in statics]
+    merged = {}
+    for p in sorted({a for a, _, _, _ in ops} | {b for _, _, b, _ in ops}):
+        room, st = places[p]
+        base = statics[st["mesh_id"]]
+        if p in gone:
+            merged[p] = (dict(st), base["mesh"], None)
+            room.static_meshes = [m for m in room.static_meshes if m is not st]
+            continue
+        if not free:
+            raise ValueError(f"{lvl.name}: no static id left for a merged vine")
+        index = len(meshes)
+        meshes.append(meshes[base["mesh"]])
+        lvl.mesh_offsets.append(lvl.mesh_offsets[base["mesh"]])
+        lvl.static_meshes.append(dict(base, id=free[0], mesh=index))
+        merged[p] = (dict(st), base["mesh"], index)
+        st["mesh_id"] = free.pop(0)
+    lvl.vine_merges = {"ops": ops, "places": merged}
+    print(f"{lvl.name}: {len(ops)} vine curtains made one with another's, {len(merged) - len(gone)} placements "
+          f"with a mesh of their own, {len(gone)} taken out")
+
+
+def merge_side(keeper, dropper):
+    """Two close sides' overlap onto the keeper: its empty texels there take the dropper's, and the dropper's there
+    are emptied. Each side is (faces, pasted tiles with a bytearray image, its corners in the world)."""
+    (_, mk, ck), (_, md, cd) = keeper, dropper
+
+    def at(c, u, v):
+        return [(1 - u) * (1 - v) * c[0][k] + u * (1 - v) * c[1][k] + u * v * c[2][k] + (1 - u) * v * c[3][k]
+                for k in range(3)]
+
+    def uv(c, p):
+        e1, e2, d = sub(c[1], c[0]), sub(c[3], c[0]), sub(p, c[0])
+        return dot(d, e1) / dot(e1, e1), dot(d, e2) / dot(e2, e2)
+
+    wk, hk, ik = mk["image"]
+    wd, hd, idd = md["image"]
+    for y in range(hk if os.environ.get("VINE_MERGE_ART") != "0" else 0):
+        for x in range(wk):
+            u, v = uv(cd, at(ck, (x + 0.5) / wk, (y + 0.5) / hk))
+            k = 4 * (y * wk + x)
+            if 0 <= u < 1 and 0 <= v < 1 and ik[k + 3] == 0:
+                d = 4 * (int(v * hd) * wd + int(u * wd))
+                ik[k:k + 4] = idd[d:d + 4]
+    for y in range(hd):
+        for x in range(wd):
+            u, v = uv(ck, at(cd, (x + 0.5) / wd, (y + 0.5) / hd))
+            if 0 <= u < 1 and 0 <= v < 1:
+                d = 4 * (y * wd + x)
+                idd[d:d + 4] = b"\0\0\0\0"
+
+
+def vine_merge_meshes(merges, meshes, atlas):
+    """The merged placements' meshes (vine_merge_plan), {new mesh index: DietMesh}: every placement's sides pasted,
+    the pairs' overlaps moved onto their keepers in order, then each kept placement's strips from what it has."""
+    images = {}
+    for p, (st, base, _) in merges["places"].items():
+        mesh = meshes[base]
+        images[p] = []
+        for fis in vine_side_faces(mesh):
+            m = merge_tiles(mesh, fis, atlas)
+            w, h, rgba = m["image"]
+            images[p].append((fis, dict(m, image=(w, h, bytearray(rgba))), [placed(st, mesh.vertices[i]) for i in m["c"]]))
+    for a, sa, b, sb in merges["ops"]:
+        merge_side(images[a][sa], images[b][sb])
+    out = {}
+    for p, (st, base, index) in merges["places"].items():
+        if index is not None:
+            sides = [(fis, dict(m, image=(m["image"][0], m["image"][1], bytes(m["image"][2])))) for fis, m, _ in images[p]]
+            out[index] = vine_diet(meshes[base], index, atlas, sides=sides)
     return out
 
 
