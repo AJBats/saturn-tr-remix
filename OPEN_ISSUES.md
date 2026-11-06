@@ -3545,6 +3545,8 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Open: Far 16 against the black test on the Saturn, in Lara's Home and at both spots; the stamps'
   hall of mirrors (the user, turning back to a stamped view): hidden rooms' windows are now
   filled too, to be looked at again.
+- 2026-11-05: the faces' half was wrong, shade 31 isn't black on the Saturn, and is gone; the rooms'
+  half now spares any room with a face that shows at the floor (301).
 
 ### 271. Other levels could have the vblank erase; each must pay for its earlier deadline
 *Kind: speed · Size: below · Fix: small per level, the user's call, each read on the Saturn first*
@@ -3777,6 +3779,28 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 301. The black test hid bright faces at the fog's floor
+*Closed 2026-11-05: 153b7d9. The faces' half of the black test removed; the rooms' half kept only for rooms whose every texture is black there. Saturn, 4 spots: 29.9 fps before and after.*
+
+- Reported in play, 2026-11-05: Caves, room 21 (Lara 12715, 3840, 56617, heading 4be9). Floor quads where the snow meets the dark lose their corners: a jagged edge, where retail and the Oct 30 build (dad9b03) show dim snow and rock. Menu row Black set to Off made it go.
+- The black test (258) took shade 31, the fog's floor, for black. On the Saturn shade 31 takes 16 off each channel (of 31): a snow texel of 28 comes out 12, dim but plain to see. Retail and the PlayStation show bright texels to the far cut. 258's model counted "lit pixels lost 0" on the same wrong premise.
+- Faces too dark to see were already drawn as plain black polygons (c987059), going by each texture's brightest colour. That covers the dark faces the black test left out, and still hides what's behind them.
+- The rooms' half drops a room wholly past its fog distance. It now keeps any room with a face whose texture shows at the floor, in any frame of its animation. At all 8 Mednafen spots it then measured the same as off, so it may go too (the user plans lighting changes, which move what counts as dark).
+- It also took most of the Caves pit leak (room 14, the plane test): the long green strip was the ceiling plane showing where the black test left faces out. A small square of it is left.
+
+| Spot | Mednafen VDP1 ms | Saturn rooms ms (second CPU) | Saturn fps |
+|---|---|---|---|
+| Caves room 21 (the report) | 21.25 -> 22.53 | 10.7 -> 12.8 | 29.9 -> 29.9 |
+| Caves bridge ledge | 30.98 -> 32.25 | 15.0 -> 15.6 | 29.9 -> 29.9 |
+| Cistern room 99 | 20.54 -> 22.86 | 15.9 -> 16.2 | 29.9 -> 29.9 |
+| Cistern room 90 | 17.66 -> 19.43 | 10.1 -> 10.6 | 29.9 -> 29.9 |
+| Cistern room 103 | 9.71 -> 9.71 | | |
+| Lost Valley room 30 | 22.99 -> 23.18 | | |
+| Lost Valley sky | 16.42 -> 17.15 | | |
+| Vilcabamba | 26.28 -> 26.28 | | |
+
+Mednafen: hwtest discs held at their start, medians of 300 frames from frame 3000. Saturn: hwtable rows, build/night/black_before_table.txt and black_after_table.txt in ../trs_dev.
 
 ### 300. A block under a ceiling open to the room above can't be climbed
 *Closed 2026-11-05: 83d938b, one `alterFloor` that does what retail's AlterFloorHeight (`060249a0`) does. Mednafen, played from `tools/hwtest.sh khamoon-block` and `khamoon-stack`: three pulls, the push, the block, the pillar, along the crevice and out into room 5. Before the fix she stood at the block and nothing happened. Saturn not run: no timing or video in it.*
