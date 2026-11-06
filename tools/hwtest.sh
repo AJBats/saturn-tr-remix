@@ -154,7 +154,7 @@ case "${1:-ledge}" in
     zoo-raptors) level=LEVEL3A id=LVL_TR1_3A start=60@45568:3584:15872 yaw=0x4000 place=55@30:39424:3584:42496,32@30:39424:3584:42496,34@30:39424:3584:42496,57@30:39424:3584:42496,42@60:48640:3584:14848,43@60:49664:3584:13824,56@60:50688:3584:15360 ;;
     khamoon-block) level=LEVEL8A id=LVL_TR1_8A start=3@26724:2304:17920 yaw=0xC000 place=1@3:26112:2304:17920 ;;
     khamoon-stack) level=LEVEL8A id=LVL_TR1_8A start=3@26112:2304:15460 yaw=0x8000 place=9@3:26112:3328:15872,1@3:26112:2304:14848 ;;
-    at)         level=$AT_LEVEL id=$AT_ID start=$AT_START yaw=$AT_YAW ;;   # anywhere, from a tool
+    at)         level=$AT_LEVEL id=$AT_ID start=$AT_START yaw=$AT_YAW trigger=${AT_TRIGGER:-} ;;   # anywhere, from a tool
     bear)       level=LEVEL1 id=LVL_TR1_1 start=17@16896:6656:60928 yaw=0xA000 trigger=30 ;;
     *)          echo "usage: tools/hwtest.sh [ledge|vilcabamba|pool|wolves|cistern|cistern-straight|cistern-rim|cistern-pillar|cistern-platform|cistern-balcony|cistern-steps|cistern-stamp|cistern-mirror|cistern-pierre|cistern-flat|caves-planks|caves-mirror|cistern-warp|cistern-ledge31|cistern-corner|cistern-feet|cistern-feet-door|cistern-bright|cistern-dark|cistern-tunnel|cistern-look|cistern-water|cistern-flood|cistern-flood-above|cistern-flood-down|cistern-flood-statues|valley|valley-trex|valley-sky|valley-cave|valley-plants|valley-dark|valley-ledge|valley-under|valley-dip|valley-music|valley-end|vilcabamba-end|zoo|zoo-wolves|zoo-none|zoo-rats|zoo-crocs|zoo-gorillas|zoo-dinos|zoo-rex|zoo-raptors|zoo-dinos-none|bear]" >&2; exit 1 ;;
 esac
