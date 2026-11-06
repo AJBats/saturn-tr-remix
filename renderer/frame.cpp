@@ -475,10 +475,12 @@ static void slaveRooms(void*)
         stageBegin(STAGE_ROOMS);
     };
     // room i's vertices; the master's claims, coming as it's begun, can leave
-    // it chunks the master won't reach for a while: that work meanwhile
+    // it chunks the master won't reach for a while: that work meanwhile, once
+    // the draw list is made (the next frame's update moves the camera, and the
+    // game places the rooms' objects from it while it makes the calls)
     auto project = [&](uint32_t i) {
         int32_t from = 0;
-        if (work && i && !verticesRoomMine(i, wait, from)) {
+        if (work && i && !verticesRoomMine(i, wait, from) && shared->drawListDone) {
             workNow();
         }
         verticesRoom(i, wait, from);
