@@ -19,17 +19,15 @@
 !                                   exactly (vertices.h verticesFarScaled)
 !   +52 int32 zExact                nearer than this << 8, 0x100000 / z instead
 !                                   of the table, whose steps are wide up close
-!   +56 int32 black                 ored into the clip flags of a vertex the fog
-!                                   has at its floor
-!   +60 const uint16* nearTable     0x100000 / z by z, up to zExact >> 8
-!   +64 int32 safe                  bit 0: every x and y within the view bound;
+!   +56 const uint16* nearTable     0x100000 / z by z, up to zExact >> 8
+!   +60 int32 safe                  bit 0: every x and y within the view bound;
 !                                   bit 1: every z between zExact (or Z_FAST) and
 !                                   zMax as well (vertices.h RoomSafe)
-!   +68 int32 left, top, right, bottom   the viewport as this file compares it:
+!   +64 int32 left, top, right, bottom   the viewport as this file compares it:
 !                                   x0 y0 x1 + 1 y1 + 1, << 16 (vertices.h
 !                                   roomProjectReady, with the ripple's base)
-!   +84 const uint16* divide        divTable, at .Lodd
-!   +92 const int16* farTable       past the far plane 0x1000000 / z by z >> 8;
+!   +80 const uint16* divide        divTable, at .Lodd
+!   +88 const int16* farTable       past the far plane 0x1000000 / z by z >> 8;
 !                                   none in the lab, which goes by farScaled
 !
 ! Vertex (render.h): int16 x, y; int16 z; uint8 g, clip.
@@ -61,16 +59,15 @@
     .equ    R_COUNT,        44
     .equ    R_FAR_SCALED,   48
     .equ    R_ZEXACT,       52
-    .equ    R_BLACK,        56
-    .equ    R_NEAR,         60
-    .equ    R_SAFE,         64
-    .equ    R_LEFT,         68
-    .equ    R_TOP,          72
-    .equ    R_RIGHT,        76
-    .equ    R_BOTTOM,       80
-    .equ    R_DIV,          84
-    .equ    R_RIPPLE,       88
-    .equ    R_FAR_TABLE,    92
+    .equ    R_NEAR,         56
+    .equ    R_SAFE,         60
+    .equ    R_LEFT,         64
+    .equ    R_TOP,          68
+    .equ    R_RIGHT,        72
+    .equ    R_BOTTOM,       76
+    .equ    R_DIV,          80
+    .equ    R_RIPPLE,       84
+    .equ    R_FAR_TABLE,    88
     .equ    Z_FAST,         1024 << 8   ! from here d << 4 fits a word (d is at most 1024)
     .equ    FOG_MIN_8,      48          ! FOG_MIN >> 8
     .equ    VERTICES_FAR_LAST, 335      ! vertices.h's
@@ -192,12 +189,6 @@
     mov     r11, r1
     sub     r0, r1
     add     r1, r3
-    mov     #31, r0
-    shll8   r0
-    cmp/ge  r0, r3
-    bf      10f
-    mov.l   @(R_BLACK, gbr), r0
-    or      r0, r14
     mov.l   .LshadeMax\@, r1
     cmp/gt  r1, r3
     bf      10f
@@ -242,10 +233,8 @@
     mov     #31, r1
     cmp/ge  r1, r3
     bf      10b
-    mov     r1, r3
-    mov.l   @(R_BLACK, gbr), r0
     bra     10b
-    or      r0, r14
+    mov     r1, r3
     .endif
 
     ! x off the frame; y's product in MACL

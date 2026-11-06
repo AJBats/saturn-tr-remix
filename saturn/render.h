@@ -51,10 +51,10 @@ void renderTexturesShifted();
 // 20 sectors unless the HW_LOG menu's Far moves it in), kept across levels.
 void renderFar(int32 far);
 
-// What the fog has at its floor, past which nothing shows but the texels the
-// floor's -16 leaves: 0 all drawn, 1 rooms wholly there dropped (RoomLevel.black)
-// with what stands in them, 2 faces wholly there filled too.
-void renderBlack(int32 mode);
+// The fog's floor takes 16 off each channel, which leaves bright texels grey: on, a room
+// wholly there and with no face that shows there is dropped (RoomLevel.black) with
+// what stands in it; off, all drawn.
+void renderBlack(bool on);
 
 // A portal's window under so many pixels: not entered (renderer/rooms.h roomsTiny).
 void renderTiny(int32 pixels);

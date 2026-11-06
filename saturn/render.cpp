@@ -452,12 +452,46 @@ static void* highAllocDsp(uint32_t bytes)
     return osHighAlloc(bytes);
 }
 
-static int32 gBlack = 2;     // renderBlack's
+static bool gBlack = true;     // renderBlack's
+
+// Whether a face of room texture t shows at the fog's floor, in any frame of its animation:
+// shade 31 takes 16 off each channel, which leaves a bright texel grey (roomsDarkInit).
+static bool seenAtFloor(uint32 t)
+{
+    if (t >= MAX_ROOM_TEXTURES || (render::gRoomMaterials[t].skip >> 2) > 31)
+        return true;
+    const uint16* ranges = level.animTexData;
+    for (int32 n = *ranges++; n > 0; n--)
+    {
+        const int32 count = *ranges++ + 1;
+        bool in = false, seen = false;
+        for (int32 k = 0; k < count; k++)
+        {
+            in |= ranges[k] == t;
+            seen |= ranges[k] >= MAX_ROOM_TEXTURES || (render::gRoomMaterials[ranges[k]].skip >> 2) > 31;
+        }
+        if (in && seen)
+            return true;
+        ranges += count;
+    }
+    return false;
+}
 
 // Where a room's brightest vertex has reached the fog's floor (shade 31, one
-// step a 256 units from FOG_MIN), water's caustics lifting it up to 3 steps.
+// step a 256 units from FOG_MIN), water's caustics lifting it up to 3 steps;
+// no such place for a room with a face that shows there.
 static uint16 roomBlack(const Room &room)
 {
+    for (int32 k = 0; k < room.info->quadsCount; k++)
+    {
+        if (seenAtFloor(room.data.quads[k].flags & 0x3FFF))
+            return 0;
+    }
+    for (int32 k = 0; k < room.info->trianglesCount; k++)
+    {
+        if (seenAtFloor(room.data.triangles[k].flags & 0x3FFF))
+            return 0;
+    }
     int32 brightest = 31;
     for (int32 i = 0; i < room.info->verticesCount; i++) {
         brightest = X_MIN(brightest, int32(room.data.vertices[i].g));
@@ -562,12 +596,11 @@ void renderUnderFloor(bool on)
     render::facesFloorKeep(on);
 }
 
-void renderBlack(int32 mode)
+void renderBlack(bool on)
 {
-    gBlack = mode;
-    render::verticesBlack(mode == 2);
+    gBlack = on;
     for (int32 i = 0; gRoomLevel && i < level.roomsCount; i++) {
-        gRoomLevel[i].black = mode ? roomBlack(rooms[i]) : 0;
+        gRoomLevel[i].black = on ? roomBlack(rooms[i]) : 0;
     }
 }
 
@@ -753,7 +786,6 @@ void renderLevelInit()
         while (1);  // TODO error screen
     }
     render::frameFar(gFar);
-    render::verticesBlack(gBlack == 2);
     render::roomsTiny(gTiny);
 
     uint32 hints = 0;

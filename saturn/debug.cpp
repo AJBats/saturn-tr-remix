@@ -39,8 +39,7 @@ static const char* const kTrace[] = { "Off", "Stages", "Detail" };
 static const char* const kFar[] = { "20 sectors", "18 sectors", "16 sectors", "14 sectors", "12 sectors" };
 static int32 gFarStep;      // kFar's
 static const char* const kCamera[] = { "Ours", "Retail" };
-static const char* const kBlack[] = { "Off", "Rooms", "Rooms, faces" };
-static int32 gBlackStep = 2;    // kBlack's
+static bool gBlackOn = true;    // rooms wholly at the fog's floor, unseen there, left out
 static const char* const kTiny[] = { "Off", "64 px", "128 px", "256 px" };
 static int32 gTinyStep = 3;     // kTiny's
 static bool gHolesShown;        // what rooms' fills fill and what nothing draws, magenta
@@ -75,9 +74,9 @@ static const Option gOptions[] = {
     { "Far", kFar, 5,
         [] { return gFarStep; },
         [](int32 v) { gFarStep = v; renderFar((20 - 2 * v) * 1024); } },
-    { "Black", kBlack, 3,
-        [] { return gBlackStep; },
-        [](int32 v) { gBlackStep = v; renderBlack(v); } },
+    { "Black", kOnOff, 2,
+        [] { return int32(gBlackOn); },
+        [](int32 v) { gBlackOn = v; renderBlack(v); } },
     { "Tiny", kTiny, 4,
         [] { return gTinyStep; },
         [](int32 v) { gTinyStep = v; renderTiny(v ? 32 << v : 0); } },

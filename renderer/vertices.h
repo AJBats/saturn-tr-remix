@@ -35,13 +35,12 @@ struct RoomProject
     int32_t count;              // +44 the room's vertices
     int32_t farScaled;          // +48 verticesFarScaled's
     int32_t zExact;             // +52 nearer than this << 8, divided: not the table
-    int32_t black;              // +56 ored into the clip flags of a vertex at the fog's floor
-    const uint16_t* nearTable;  // +60 0x100000 / z by z, up to zExact >> 8
-    int32_t safe;               // +64 RoomSafe: what every vertex of the room is sure of
-    int32_t window[4];          // +68 roomproject.s's own
-    const uint16_t* divide;     // +84 divTable
-    const int8_t* rippleBase;   // +88 roomproject.s's own
-    const int16_t* farTable;    // +92 past the far plane 0x1000000 / z by z >> 8, up to VERTICES_FAR_LAST; or none: exact
+    const uint16_t* nearTable;  // +56 0x100000 / z by z, up to zExact >> 8
+    int32_t safe;               // +60 RoomSafe: what every vertex of the room is sure of
+    int32_t window[4];          // +64 roomproject.s's own
+    const uint16_t* divide;     // +80 divTable
+    const int8_t* rippleBase;   // +84 roomproject.s's own
+    const int16_t* farTable;    // +88 past the far plane 0x1000000 / z by z >> 8, up to VERTICES_FAR_LAST; or none: exact
 };
 
 // z >> 8 from the nearest far plane there is (12 sectors) to where the table stops.
@@ -106,9 +105,6 @@ void verticesRoomReach(uint32_t room, const RoomVertex* points, int32_t count);
 // The rooms' far plane, in world units (frame.h frameFar); the meshes keep
 // the game's.
 void verticesFar(int32_t far);
-
-// A face all of whose vertices are at the fog's floor filled, not drawn.
-void verticesBlack(bool on);
 
 extern "C" void meshProjectAsm(Vertex* v, int32_t count, MeshProject* mp);
 extern "C" void meshShadesAsm(Vertex* v, int32_t count, const uint8_t* shades, int32_t ambient);

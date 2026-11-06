@@ -33,7 +33,6 @@ namespace render {
 #define CLIP_TOP        0x08
 #define CLIP_BOTTOM     0x10
 #define CLIP_PLANE      0x20
-#define CLIP_BLACK      0x40    // at the fog's floor (verticesBlack)
 #define MESH_LIGHT_NORMALS  1
 #define MESH_LIGHT_SHADES   2
 #define SHADOW_VERTICES 8
@@ -425,13 +424,6 @@ void verticesFar(int32_t far)
     gFar = far;
 }
 
-static int32_t gBlack;
-
-void verticesBlack(bool on)
-{
-    gBlack = on ? CLIP_BLACK : 0;
-}
-
 // What projecting room i takes, all but what goes by the chunk.
 static void roomProjectSet(RoomProject &rp, uint32_t i)
 {
@@ -448,7 +440,6 @@ static void roomProjectSet(RoomProject &rp, uint32_t i)
     rp.phase = room.phase;
     rp.caustics = room.caustics;
     rp.farScaled = gFarScaled;
-    rp.black = gBlack;
     rp.nearTable = gDivNear;
     rp.safe = gRoomSafe[i];
 #ifdef RENDER_LAB
