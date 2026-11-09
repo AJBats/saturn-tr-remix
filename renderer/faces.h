@@ -421,7 +421,8 @@ struct RoomRun
     int32_t turnRule;           // +364 DECIDE's turn (facesTurnRule): TurnRule
     uint32_t pieceMask;         // +368 a split quad's pieces' word 1 anded with it: Fast's bit
                                 // cleared, or all kept (facesPiecesFast)
-    int32_t splitting;          // +372 0 as the original; 1 only where whole would break (facesSplitting)
+    int32_t splitFar;           // +372 quads with every corner nearer split (facesSplitFar); 0: only
+                                // where whole they'd break
     const BoxSeen* seen;        // the frame's solid boxes (rooms.h roomsBoxes), for facesRoom
     int32_t seenCount;
     RoomBox roomBoxes[BOXES_SEEN];
@@ -449,11 +450,10 @@ void facesTurnRule(TurnRule rule);
 // original's pieces); set between frames.
 void facesPiecesFast(bool on);
 
-// When a quad near the camera is split into pieces: as the original (all of it within 4096, near
-// the camera or far off the frame), or only where drawn whole it would break (a corner nearer than
+// How near a quad must be, every corner of it, to be split into pieces (the original's 4096), besides
+// near the camera or far off the frame; 0: only where drawn whole it would break (a corner nearer than
 // the plane, or past the coordinates VDP1 takes); set between frames.
-enum Splitting { SPLIT_ORIGINAL, SPLIT_NEEDED };
-void facesSplitting(Splitting way);
+void facesSplitFar(int32_t far);
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);
 extern "C" void facesRoomNear();    // facesroom.s's, as it calls it

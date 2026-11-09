@@ -429,7 +429,7 @@ extern "C" { volatile int32_t gFacesVoidWay; }
 static volatile int32_t gTurnMargin = 1;    // facesTurnMargin's
 static volatile int32_t gTurnRule = TURN_TEXELS;    // facesTurnRule's
 static volatile int32_t gPiecesFast = 0;    // facesPiecesFast's
-static volatile int32_t gSplitting = SPLIT_ORIGINAL;    // facesSplitting's
+static volatile int32_t gSplitFar = 4096;    // facesSplitFar's: the original's (NEAR_SPLIT)
 
 void facesTurnMargin(bool on)
 {
@@ -446,9 +446,9 @@ void facesPiecesFast(bool on)
     *uncached(&gPiecesFast) = on;
 }
 
-void facesSplitting(Splitting way)
+void facesSplitFar(int32_t far)
 {
-    *uncached(&gSplitting) = way;
+    *uncached(&gSplitFar) = far;
 }
 
 // A split quad's pieces' word 1 as facesPiecesFast has it.
@@ -1225,8 +1225,9 @@ NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const 
         return;
     const bool coloured = ((flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) == FACE_TYPE_F;
     const int32_t off = max(max(offFrame(a), offFrame(b)), max(offFrame(c), offFrame(d)));
-    const bool wanted = *uncached(&gSplitting) == SPLIT_ORIGINAL
-        ? near || farthest <= NEAR_SPLIT || off > OFF_FRAME_MAX
+    const int32_t far = *uncached(&gSplitFar);
+    const bool wanted = far
+        ? near || farthest <= far || off > OFF_FRAME_MAX
         : near || cut || !nearTrusted(a) || !nearTrusted(b) || !nearTrusted(c) || !nearTrusted(d);
     if (!sparse && !coloured && tex.reserved && wanted && nearSplit(room, t, split, list, q, triangle))
         return;
@@ -2056,7 +2057,7 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, boxes) == 348 && offsetof(RoomRun, points) == 352 &&
               offsetof(RoomRun, fullOut) == 356 && offsetof(RoomRun, margin) == 360 &&
               offsetof(RoomRun, turnRule) == 364 && offsetof(RoomRun, pieceMask) == 368 &&
-              offsetof(RoomRun, splitting) == 372 &&
+              offsetof(RoomRun, splitFar) == 372 &&
               sizeof(RoomBox) == 20 && offsetof(RoomBox, lo) == 8 && offsetof(RoomBox, hi) == 14 &&
               offsetof(CommandList, voidX0) == 48 &&
               offsetof(CommandList, voidArea) == 64 &&
@@ -2180,7 +2181,7 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.margin = *uncached(&gTurnMargin);
     run.turnRule = *uncached(&gTurnRule);
     run.pieceMask = piecesW1(~0u);
-    run.splitting = *uncached(&gSplitting);
+    run.splitFar = *uncached(&gSplitFar);
     run.boxes = run.roomBoxes;
     run.seen = nullptr;
     run.seenCount = 0;

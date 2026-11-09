@@ -588,9 +588,9 @@ void renderPiecesFast(bool on)
     render::facesPiecesFast(on);
 }
 
-void renderSplitNeeded(bool needed)
+void renderSplitFar(int32 far)
 {
-    render::facesSplitting(needed ? render::SPLIT_NEEDED : render::SPLIT_ORIGINAL);
+    render::facesSplitFar(far);
 }
 
 static int32 gTiny = 256;     // renderTiny's

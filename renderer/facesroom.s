@@ -63,7 +63,7 @@
     .equ    RUN_MARGIN,     360
     .equ    RUN_TURN,       364
     .equ    RUN_PIECE_MASK, 368
-    .equ    RUN_SPLITTING,  372
+    .equ    RUN_SPLIT_FAR,  372
     .equ    BOX_BYTES,      20      ! RoomBox
     .equ    VOIDS_NONE,     2
     .equ    CLIP_LEFT,      2
@@ -1684,8 +1684,10 @@ _facesRoomAsm:
     .global _facesRoomNear
 _facesRoomNear:
     sts.l   pr, @-r15
-    mov     #16, r6
-    shll8   r6                  ! NEAR_SPLIT
+    mov.l   @(RUN_SPLIT_FAR, gbr), r0
+    tst     r0, r0
+    bt/s    .LnearHold          ! 0: only where whole would break (faces.cpp facesSplitFar)
+    mov     r0, r6              ! the distance every corner must be within
     mov.w   @(4, r1), r0
     cmp/gt  r6, r0
     bt      .LnearWhole
@@ -1698,6 +1700,7 @@ _facesRoomNear:
     mov.w   @(4, r7), r0
     cmp/gt  r6, r0
     bt      .LnearWhole
+.LnearHold:
     mov     #NEAR_PLANE, r6
     mov.w   @(4, r1), r0
     cmp/gt  r0, r6
@@ -1711,9 +1714,9 @@ _facesRoomNear:
     mov.w   @(4, r7), r0
     cmp/gt  r0, r6
     bt      .LnearToC
-    mov.l   @(RUN_SPLITTING, gbr), r0
+    mov.l   @(RUN_SPLIT_FAR, gbr), r0
     tst     r0, r0
-    bf      .LnearUnsplit       ! only where whole would break (faces.cpp facesSplitting)
+    bt      .LnearUnsplit       ! only where whole would break
     MATERIAL
     mov.w   @(8, r14), r0
     cmp/pz  r0

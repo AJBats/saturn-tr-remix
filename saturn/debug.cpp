@@ -49,8 +49,9 @@ static bool gTurnMarginOn = true;   // a face's turn kept till the other way doe
 static const char* const kTurn[] = { "Fewer lines", "Most texels" };
 static bool gTurnTexels = true;     // kTurn's: a face's turn by the most texels shown
 static bool gPiecesFast;            // a split quad's pieces drawn with Fast
-static const char* const kSplit[] = { "Original", "Only to hold" };
-static bool gSplitNeeded;           // kSplit's: quads near the camera split only where whole they'd break
+static const char* const kSplit[] = { "4096 (original)", "3072", "2048", "1536", "1024", "Only to hold" };
+static const int32 kSplitFar[] = { 4096, 3072, 2048, 1536, 1024, 0 };
+static int32 gSplitStep;            // kSplit's: how near a quad must be to split
 static bool gBoxesShut = true;  // what the level's solid boxes hide left out
 static bool gUnderKept = true;  // rooms under a floor on VDP2 kept to its openings
 static const char* const kShimmers[] = { "Off", "1 in 600", "1 in 300", "1 in 150", "1 in 100", "1 in 75" };
@@ -104,9 +105,9 @@ static const Option gOptions[] = {
     { "Turn", kTurn, 2,
         [] { return int32(gTurnTexels); },
         [](int32 v) { gTurnTexels = v; renderTurnTexels(v); } },
-    { "Split", kSplit, 2,
-        [] { return int32(gSplitNeeded); },
-        [](int32 v) { gSplitNeeded = v; renderSplitNeeded(v); } },
+    { "Split", kSplit, 6,
+        [] { return gSplitStep; },
+        [](int32 v) { gSplitStep = v; renderSplitFar(kSplitFar[v]); } },
     { "Pieces Fast", kOnOff, 2,
         [] { return int32(gPiecesFast); },
         [](int32 v) { gPiecesFast = v; renderPiecesFast(v); } },

@@ -71,8 +71,8 @@ void renderTurnTexels(bool texels);
 // Whether the pieces of a quad split near the camera are drawn with Fast (renderer faces.h).
 void renderPiecesFast(bool on);
 
-// When quads near the camera split: as the original, or only where whole they'd break (renderer faces.h).
-void renderSplitNeeded(bool needed);
+// How near a quad must be to split (the original's 4096), 0 only where whole it'd break (renderer faces.h).
+void renderSplitFar(int32 far);
 
 // What lies wholly behind the level's solid boxes left out (renderer/rooms.h roomsSolidBoxes).
 void renderBoxes(bool on);
