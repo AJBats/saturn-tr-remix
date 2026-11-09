@@ -612,7 +612,9 @@ static inline uint32_t shownTexels(int32_t len, int32_t count, uint32_t along4, 
 // halves those along the lines, so a face shows more with that halving on its shorter side; ties go to
 // the fewer lines). With a decision kept in the face's top byte (kept) and the margin on, the other
 // way must do better by an eighth: a face about square on the frame would otherwise turn back and
-// forth as the camera moves, its grain turning with the lines.
+// forth as the camera moves, its grain turning with the lines. The kept way is also counted with its
+// lines an eighth longer: its size level and Fast each double or halve what it shows at a line length,
+// and a face sitting at one would otherwise turn with each pixel its corners' rounding moves.
 static uint32_t turnedFace(uint32_t kept, int32_t along, int32_t across, uint32_t lines0, uint32_t lines1,
                            uint32_t mips, int32_t lod)
 {
@@ -625,8 +627,10 @@ static uint32_t turnedFace(uint32_t kept, int32_t along, int32_t across, uint32_
         }
         return lines > across;
     }
-    const uint32_t asIs = shownTexels(across, along, lines0, lines1, mips, lod);
-    const uint32_t turned = shownTexels(along, across, lines1, lines0, mips, lod);
+    const int32_t lenAsIs = margin && !(kept & 1) ? across + (across >> 3) : across;
+    const int32_t lenTurned = margin && (kept & 1) ? along + (along >> 3) : along;
+    const uint32_t asIs = shownTexels(lenAsIs, along, lines0, lines1, mips, lod);
+    const uint32_t turned = shownTexels(lenTurned, across, lines1, lines0, mips, lod);
     if (margin) {
         return kept & 1 ? turned + (turned >> 3) >= asIs : turned > asIs + (asIs >> 3);
     }

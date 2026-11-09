@@ -1435,46 +1435,72 @@ _facesRoomAsm:
     rts
     movt    r0
 
+    ! The kept way is also counted with its lines an eighth longer: its size
+    ! level and Fast each double or halve what it shows at a line length, and
+    ! a face sitting at one of those lengths would otherwise turn back and
+    ! forth with each pixel the frame's rounding moves its corners.
 .LturnTexels:
     sts.l   pr, @-r15
     mov.l   r1, @-r15
+    mov.l   r2, @-r15
     mov.l   r8, @-r15
-    mov     r13, r8             ! as it is: lines r6 long, r13 of them
-    bsr     .Lshown
+    mov     #-1, r2             ! the kept way: 0 as it is, 1 turned, -1 none
+    mov.l   @(RUN_MARGIN, gbr), r0
+    tst     r0, r0
+    bt      1f                  ! no margin
+    mov.b   @r4, r0
+    tst     #8, r0
+    bt      1f                  ! none kept
+    and     #1, r0
+    mov     r0, r2
+1:  mov     r13, r8             ! as it is: lines r6 long, r13 of them
+    mov     r6, r1
+    tst     r2, r2
+    bf      2f
+    mov     r6, r0              ! kept: an eighth longer
+    shlr2   r0
+    shlr    r0
+    add     r0, r6
+2:  bsr     .Lshown
     mov     #0, r0
+    mov     r1, r6
     mov     r0, r1              ! as it is's texels
     mov     r6, r8              ! turned: lines r13 long, r6 of them
     mov     r13, r6
-    bsr     .Lshown
+    mov     r2, r0
+    cmp/eq  #1, r0
+    bf      3f
+    mov     r6, r0              ! kept: an eighth longer
+    shlr2   r0
+    shlr    r0
+    add     r0, r6
+3:  bsr     .Lshown
     mov     #1, r0
     mov     r8, r6
     mov     r0, r8              ! turned's texels
-    mov.l   @(RUN_MARGIN, gbr), r0
-    tst     r0, r0
-    bt      3f                  ! no margin
-    mov.b   @r4, r0
-    tst     #8, r0
-    bt      3f                  ! none kept
-    tst     #1, r0
-    bt      2f                  ! kept as it is
+    cmp/pz  r2
+    bf      6f                  ! none kept
+    tst     r2, r2
+    bt      5f                  ! kept as it is
     mov     r8, r0              ! kept turned: it stays unless as it is shows an eighth more
     shlr2   r0
     shlr    r0
     add     r8, r0
-    bra     5f
+    bra     7f
     cmp/ge  r1, r0
-2:  mov     r1, r0              ! kept as it is: turned must show an eighth more
+5:  mov     r1, r0              ! kept as it is: turned must show an eighth more
     shlr2   r0
     shlr    r0
     add     r1, r0
-    bra     5f
+    bra     7f
     cmp/gt  r0, r8
-3:  cmp/eq  r1, r8
-    bf/s    5f
+6:  cmp/eq  r1, r8
+    bf/s    7f
     cmp/gt  r1, r8              ! turned shows more
     cmp/gt  r6, r13             ! a tie: the fewer lines
-5:  movt    r0
+7:  movt    r0
     mov.l   @r15+, r8
+    mov.l   @r15+, r2
     mov.l   @r15+, r1
     lds.l   @r15+, pr
     rts
