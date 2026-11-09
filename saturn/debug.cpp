@@ -45,9 +45,7 @@ static int32 gTinyStep = 3;     // kTiny's
 static bool gHolesShown;        // what rooms' fills fill and what nothing draws, magenta
 static const char* const kTexels[] = { "1 a pixel", "1.5 a pixel" };
 static int32 gTexelStep = 1;    // kTexels'
-static bool gTurnMarginOn = true;   // a face's turn kept till the other way does better by an eighth
-static const char* const kTurn[] = { "Fewer lines", "Most texels" };
-static bool gTurnTexels = true;     // kTurn's: a face's turn by the most texels shown
+static bool gTurnMarginOn = true;   // a face's turn kept till the other way saves an eighth of its lines
 static bool gPiecesFast;            // a split quad's pieces drawn with Fast
 static const char* const kSplit[] = { "4096 (original)", "3072", "2048", "1536", "1024", "Only to hold" };
 static const int32 kSplitFar[] = { 4096, 3072, 2048, 1536, 1024, 0 };
@@ -102,9 +100,6 @@ static const Option gOptions[] = {
     { "Texels", kTexels, 2,
         [] { return gTexelStep; },
         [](int32 v) { gTexelStep = v; renderTexels(4 + 2 * v); } },
-    { "Turn", kTurn, 2,
-        [] { return int32(gTurnTexels); },
-        [](int32 v) { gTurnTexels = v; renderTurnTexels(v); } },
     { "Split", kSplit, 6,
         [] { return gSplitStep; },
         [](int32 v) { gSplitStep = v; renderSplitFar(kSplitFar[v]); } },
@@ -122,7 +117,7 @@ static const Option gOptions[] = {
 
 enum { OPTION_STATS,
 #ifdef HW_LOG
-       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_BOXES, OPTION_SHIMMERS, OPTION_UNDER_FLOOR, OPTION_HOLES, OPTION_TEXELS, OPTION_TURN, OPTION_SPLIT, OPTION_PIECES_FAST, OPTION_TURN_MARGIN, OPTION_CAMERA,
+       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_BOXES, OPTION_SHIMMERS, OPTION_UNDER_FLOOR, OPTION_HOLES, OPTION_TEXELS, OPTION_SPLIT, OPTION_PIECES_FAST, OPTION_TURN_MARGIN, OPTION_CAMERA,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");

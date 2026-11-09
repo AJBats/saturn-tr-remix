@@ -427,18 +427,12 @@ void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth)
 static int32_t gViewFar = VIEW_FAR; // facesFar's
 extern "C" { volatile int32_t gFacesVoidWay; }
 static volatile int32_t gTurnMargin = 1;    // facesTurnMargin's
-static volatile int32_t gTurnRule = TURN_TEXELS;    // facesTurnRule's
 static volatile int32_t gPiecesFast = 0;    // facesPiecesFast's
 static volatile int32_t gSplitFar = 4096;    // facesSplitFar's: the original's (NEAR_SPLIT)
 
 void facesTurnMargin(bool on)
 {
     *uncached(&gTurnMargin) = on;
-}
-
-void facesTurnRule(TurnRule rule)
-{
-    *uncached(&gTurnRule) = rule;
 }
 
 void facesPiecesFast(bool on)
@@ -593,66 +587,17 @@ static inline int32_t span(const Vertex* a, const Vertex* b)
     return max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy);
 }
 
-// The texels a face shows drawn with lines len pixels long, count of them, its texture 4 x along4
-// texels along them and 4 x across4 across (RoomMaterial.lines), taking mips levels: at the size level
-// the Texels rule (lod) takes along the lines; those along halved where Fast reads every other one (a
-// line shorter than they are), those across no more than the lines (facesroom.s .Lshown).
-static inline uint32_t shownTexels(int32_t len, int32_t count, uint32_t along4, uint32_t across4, uint32_t mips,
-                                   int32_t lod)
+// facesroom.s DECIDE's turn: whether a face's lines run along its texture's columns (turned), when that
+// makes fewer of them (along: AD and BC's span, against across: AB and DC's). With a decision kept in the
+// face's top byte (kept) and the margin on, the other way must save an eighth of the lines, so a face
+// about square on the frame keeps its lines' direction (the texels Fast leaves out streak along them).
+static inline uint32_t turnedFace(uint32_t kept, int32_t along, int32_t across)
 {
-    if (lod)
-    {
-        const uint32_t want = uint32_t(lod) * uint32_t(len & 0xFFFF);
-        if (along4 > want && mips)
-        {
-            along4 >>= 1;
-            across4 >>= 1;
-            if (along4 > want && mips > 1)
-            {
-                along4 >>= 1;
-                across4 >>= 1;
-            }
-        }
+    int32_t lines = along;
+    if ((kept & 8) && *uncached(&gTurnMargin)) {
+        lines = kept & 1 ? along + (across >> 3) : along - (along >> 3);
     }
-    uint32_t along = along4 >> 2, across = across4 >> 2;
-    if (int32_t(along) - 1 > len) {
-        along >>= 1;
-    }
-    if (int32_t(across) > count) {
-        across = count;
-    }
-    return along * across;
-}
-
-// facesroom.s .Lturn: whether a face's lines run along its texture's columns (turned) rather than its
-// rows. along: AD and BC's span (the lines' count as it is, their length turned), across: AB and DC's;
-// lines0, lines1: RoomMaterial.lines. By the rule, the fewer lines, or the most texels shown (Fast
-// halves those along the lines, so a face shows more with that halving on its shorter side; ties go to
-// the fewer lines). With a decision kept in the face's top byte (kept) and the margin on, the other
-// way must do better by an eighth: a face about square on the frame would otherwise turn back and
-// forth as the camera moves, its grain turning with the lines. The kept way is also counted with its
-// lines an eighth longer: its size level and Fast each double or halve what it shows at a line length,
-// and a face sitting at one would otherwise turn with each pixel its corners' rounding moves.
-static uint32_t turnedFace(uint32_t kept, int32_t along, int32_t across, uint32_t lines0, uint32_t lines1,
-                           uint32_t mips, int32_t lod)
-{
-    const bool margin = (kept & 8) && *uncached(&gTurnMargin);
-    if (*uncached(&gTurnRule) == TURN_LINES)
-    {
-        int32_t lines = along;
-        if (margin) {
-            lines = kept & 1 ? along + (across >> 3) : along - (along >> 3);
-        }
-        return lines > across;
-    }
-    const int32_t lenAsIs = margin && !(kept & 1) ? across + (across >> 3) : across;
-    const int32_t lenTurned = margin && (kept & 1) ? along + (along >> 3) : along;
-    const uint32_t asIs = shownTexels(lenAsIs, along, lines0, lines1, mips, lod);
-    const uint32_t turned = shownTexels(lenTurned, across, lines1, lines0, mips, lod);
-    if (margin) {
-        return kept & 1 ? turned + (turned >> 3) >= asIs : turned > asIs + (asIs >> 3);
-    }
-    return turned > asIs || (turned == asIs && along > across);
+    return lines > across;
 }
 
 static inline uint32_t detailLevel(uint32_t variant)
@@ -1239,7 +1184,7 @@ NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const 
     const int32_t along = max(span(a, d), span(b, c));
     const int32_t across = max(span(a, b), span(d, c));
     const RoomMaterial &m = t.materials[index];
-    const uint32_t turned = turnedFace(q.flags >> 24, along, across, m.lines[0], m.lines[1], m.mips, t.lod);
+    const uint32_t turned = turnedFace(q.flags >> 24, along, across);
     const uint32_t want = t.lod * (turned ? along : across);
     uint32_t variant = turned;
     if (t.lod && m.lines[turned] > want && m.mips)
@@ -2056,8 +2001,7 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, boxNear) == 340 && offsetof(RoomRun, boxCount) == 344 &&
               offsetof(RoomRun, boxes) == 348 && offsetof(RoomRun, points) == 352 &&
               offsetof(RoomRun, fullOut) == 356 && offsetof(RoomRun, margin) == 360 &&
-              offsetof(RoomRun, turnRule) == 364 && offsetof(RoomRun, pieceMask) == 368 &&
-              offsetof(RoomRun, splitFar) == 372 &&
+              offsetof(RoomRun, pieceMask) == 364 && offsetof(RoomRun, splitFar) == 368 &&
               sizeof(RoomBox) == 20 && offsetof(RoomBox, lo) == 8 && offsetof(RoomBox, hi) == 14 &&
               offsetof(CommandList, voidX0) == 48 &&
               offsetof(CommandList, voidArea) == 64 &&
@@ -2179,7 +2123,6 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.farBucket = gViewFar >> OT_SHIFT;
     run.voidWay = *uncached(&gFacesVoidWay);
     run.margin = *uncached(&gTurnMargin);
-    run.turnRule = *uncached(&gTurnRule);
     run.pieceMask = piecesW1(~0u);
     run.splitFar = *uncached(&gSplitFar);
     run.boxes = run.roomBoxes;

@@ -386,8 +386,7 @@ static uint32_t roomVariant(const RoomTextures &t, uint32_t flags, const Vertex*
     int32_t across = max(span(a, b), span(d, c));   // ... and as it is
     const Texture &tex = t.textures[flags & FACE_TEXTURE];
     uint32_t size = tex.size;
-    uint32_t variant = turnedFace(kept, turned, across, (size >> 8) << 6, (size & 0xFF) << 3,
-                                  size & 7 ? 0 : size & 0x010F ? 1 : 2, t.lod);
+    uint32_t variant = turnedFace(kept, turned, across);
     if (variant) {
         across = turned;
     }

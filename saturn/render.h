@@ -65,9 +65,6 @@ void renderTexels(int32 lod);
 // Whether a room face's turn keeps till the other way saves an eighth of its lines (renderer faces.h).
 void renderTurnMargin(bool on);
 
-// How a room face's turn is decided: by the fewer lines (false) or the most texels shown (renderer faces.h).
-void renderTurnTexels(bool texels);
-
 // Whether the pieces of a quad split near the camera are drawn with Fast (renderer faces.h).
 void renderPiecesFast(bool on);
 
