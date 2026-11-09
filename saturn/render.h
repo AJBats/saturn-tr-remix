@@ -71,6 +71,9 @@ void renderPiecesFast(bool on);
 // How near a quad must be to split (the original's 4096), 0 only where whole it'd break (renderer faces.h).
 void renderSplitFar(int32 far);
 
+// Whether room faces within 4096 drawn whole keep Fast (renderer faces.h facesNearFast).
+void renderNearFast(bool on);
+
 // What lies wholly behind the level's solid boxes left out (renderer/rooms.h roomsSolidBoxes).
 void renderBoxes(bool on);
 // Water's shimmers: one lit for so many pixels of water on the frame; 0 none.

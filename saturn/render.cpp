@@ -588,6 +588,11 @@ void renderSplitFar(int32 far)
     render::facesSplitFar(far);
 }
 
+void renderNearFast(bool on)
+{
+    render::facesNearFast(on);
+}
+
 static int32 gTiny = 256;     // renderTiny's
 
 void renderTiny(int32 pixels)

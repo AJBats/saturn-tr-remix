@@ -34,6 +34,7 @@
     .equ    CLIP_DISCARD,   0x3E
     .equ    CLIP_EDGES,     0x1E
     .equ    CLIP_PLANE,     0x20
+    .equ    CLIP_NO_FAST,   0x40    ! the stack's only: drawn whole, without Fast (_facesRoomNearFast)
 
     .equ    RUN_VERTICES,   0
     .equ    RUN_MATERIALS,  4
@@ -777,9 +778,9 @@
     ! side, linked, shaded
 .Ltail\sfx:                     ! r8 w0, r13 the shading
     mov.l   @r15, r0
-    tst     #CLIP_FRAME, r0
+    tst     #CLIP_FRAME | CLIP_NO_FAST, r0
     bt      1f
-    bsr     .Lmirror
+    bsr     .Ltailed
     nop
 .LTailBucket\sfx:
 1:  BUCKET
@@ -1049,6 +1050,20 @@ _facesRoomAsm:
     FACES   Facing, 0, 1, .LrunDone
 
 ! --- what the faces share ------------------------------------------------------
+
+    ! the face's flags r0 (CLIP_FRAME or CLIP_NO_FAST): w1 without Fast,
+    ! then .Lmirror if off the frame
+.Ltailed:
+    tst     #CLIP_NO_FAST, r0
+    bt      .Lmirror
+    mov.b   @(4, r9), r0
+    and     #0xEF, r0           ! w1 without PMOD_HSS
+    mov.b   r0, @(4, r9)
+    mov.l   @r15, r0
+    tst     #CLIP_FRAME, r0
+    bf      .Lmirror
+    rts
+    nop
 
     ! offFrame(A) + offFrame(D) > offFrame(B) + offFrame(C): the corners
     ! swapped to B A D C, w0 (r8) mirrored; r0, r6, r14
@@ -1540,6 +1555,28 @@ _facesRoomAsm:
     rts
     mov     #2, r0
 
+    ! as _facesRoomNear, with a face every corner of it within 4096 (faces.cpp
+    ! DETAIL_DIST) marked in its clip flags on the stack to be drawn without
+    ! Fast should it be drawn whole (faces.cpp facesNearFast off)
+    .global _facesRoomNearFast
+_facesRoomNearFast:
+    mov.w   .LnearFastFar, r6
+    mov.w   @(4, r1), r0
+    cmp/gt  r6, r0
+    bt      _facesRoomNear
+    mov.w   @(4, r2), r0
+    cmp/gt  r6, r0
+    bt      _facesRoomNear
+    mov.w   @(4, r3), r0
+    cmp/gt  r6, r0
+    bt      _facesRoomNear
+    mov.w   @(4, r7), r0
+    cmp/gt  r6, r0
+    bt      _facesRoomNear
+    mov.l   @r15, r0
+    or      #CLIP_NO_FAST, r0
+    mov.l   r0, @r15
+
     ! the face at r4, corners r1 r2 r3 r7, clip flags ored r13, split if it is
     ! one to split: r0 0 drawn, -1 and the list is full, 1 not one to split, 2
     ! one for C; r1 r2 r3 r7 r4 r5 kept but when drawn
@@ -1692,6 +1729,7 @@ _facesRoomNear:
 .LnearMissAt:   .long   .Lmiss
 .LnearQuads:    .short  RUN_QUADS
 .LnearTrust:    .short  1000
+.LnearFastFar:  .short  4096
 
     ! a level: corners r1 r2 r3 r7, the first piece's word 2 r8, the step r6,
     ! off the frame r13, level r5: its pieces, T set when the list is full

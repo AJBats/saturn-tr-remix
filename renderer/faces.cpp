@@ -429,6 +429,7 @@ extern "C" { volatile int32_t gFacesVoidWay; }
 static volatile int32_t gTurnMargin = 1;    // facesTurnMargin's
 static volatile int32_t gPiecesFast = 0;    // facesPiecesFast's
 static volatile int32_t gSplitFar = 4096;    // facesSplitFar's: the original's (NEAR_SPLIT)
+static volatile int32_t gNearFast = 1;      // facesNearFast's
 
 void facesTurnMargin(bool on)
 {
@@ -443,6 +444,11 @@ void facesPiecesFast(bool on)
 void facesSplitFar(int32_t far)
 {
     *uncached(&gSplitFar) = far;
+}
+
+void facesNearFast(bool on)
+{
+    *uncached(&gNearFast) = on;
 }
 
 // A split quad's pieces' word 1 as facesPiecesFast has it.
@@ -1196,7 +1202,11 @@ NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const 
     if (!coloured && cacheable(t, flags)) {
         const_cast<RoomQuad &>(q).flags = (q.flags & ROOM_QUAD_FLAGS) | ((variant | 8) << 24);
     }
+    uint32_t* w = list.cmd;
     roomCommand(list, t, coloured ? flags : wholeTexture(t, flags, variant), a, b, c, d, farthest >> OT_SHIFT);
+    if (!*uncached(&gNearFast) && farthest <= DETAIL_DIST && w != list.cmd) {
+        w[1] &= ~(uint32_t(PMOD_HSS) << 16);    // as facesroom.s .Ltailed
+    }
 }
 
 #endif
@@ -2095,7 +2105,7 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.near = nullptr;
 #else
     run.carefulTri = roomCarefulTri;
-    run.near = facesRoomNear;
+    run.near = *uncached(&gNearFast) ? facesRoomNear : facesRoomNearFast;
     run.quads.keys = t.keys[DETAIL_QUADS];
     run.quads.frames = &t.slots[0].frame;
     run.quads.pool = t.pools[0] >> 3;

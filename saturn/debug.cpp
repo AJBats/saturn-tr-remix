@@ -50,6 +50,7 @@ static bool gPiecesFast;            // a split quad's pieces drawn with Fast
 static const char* const kSplit[] = { "4096 (original)", "3072", "2048", "1536", "1024", "Only to hold" };
 static const int32 kSplitFar[] = { 4096, 3072, 2048, 1536, 1024, 0 };
 static int32 gSplitStep;            // kSplit's: how near a quad must be to split
+static bool gNearFastOn = true;     // room faces within 4096 drawn whole keep Fast
 static bool gBoxesShut = true;  // what the level's solid boxes hide left out
 static bool gUnderKept = true;  // rooms under a floor on VDP2 kept to its openings
 static const char* const kShimmers[] = { "Off", "1 in 600", "1 in 300", "1 in 150", "1 in 100", "1 in 75" };
@@ -103,6 +104,9 @@ static const Option gOptions[] = {
     { "Split", kSplit, 6,
         [] { return gSplitStep; },
         [](int32 v) { gSplitStep = v; renderSplitFar(kSplitFar[v]); } },
+    { "Near Fast", kOnOff, 2,
+        [] { return int32(gNearFastOn); },
+        [](int32 v) { gNearFastOn = v; renderNearFast(v); } },
     { "Pieces Fast", kOnOff, 2,
         [] { return int32(gPiecesFast); },
         [](int32 v) { gPiecesFast = v; renderPiecesFast(v); } },
@@ -117,7 +121,7 @@ static const Option gOptions[] = {
 
 enum { OPTION_STATS,
 #ifdef HW_LOG
-       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_BOXES, OPTION_SHIMMERS, OPTION_UNDER_FLOOR, OPTION_HOLES, OPTION_TEXELS, OPTION_SPLIT, OPTION_PIECES_FAST, OPTION_TURN_MARGIN, OPTION_CAMERA,
+       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_BOXES, OPTION_SHIMMERS, OPTION_UNDER_FLOOR, OPTION_HOLES, OPTION_TEXELS, OPTION_SPLIT, OPTION_NEAR_FAST, OPTION_PIECES_FAST, OPTION_TURN_MARGIN, OPTION_CAMERA,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");

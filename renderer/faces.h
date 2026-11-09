@@ -449,8 +449,13 @@ void facesPiecesFast(bool on);
 // the plane, or past the coordinates VDP1 takes); set between frames.
 void facesSplitFar(int32_t far);
 
+// Whether a room face with every corner within 4096 (DETAIL_DIST), drawn whole, keeps Fast; off, it is
+// drawn without, as the split pieces there are; set between frames.
+void facesNearFast(bool on);
+
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);
 extern "C" void facesRoomNear();    // facesroom.s's, as it calls it
+extern "C" void facesRoomNearFast();    // ... and with facesNearFast off
 
 // One face as the game made it whole (a sprite's, a rectangle's or line's,
 // a fill's, a void's: render.cpp faceCommand), its corners in half, into
