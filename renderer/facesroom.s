@@ -60,6 +60,7 @@
     .equ    RUN_BOXES,      348
     .equ    RUN_POINTS,     352
     .equ    RUN_FULL_OUT,   356
+    .equ    RUN_MARGIN,     360
     .equ    BOX_BYTES,      20      ! RoomBox
     .equ    VOIDS_NONE,     2
     .equ    CLIP_LEFT,      2
@@ -172,11 +173,15 @@
 4:
     .endm
 
-! r13 the variant (mip level * 2 + turned) the face with corners r1, r2, r3,
-! r7 and material r14 takes: turned when that makes fewer lines, at the
-! first mip level with about a texel a pixel along them (faces.s TURN and
-! WHOLE); r0, r6, r8. A sparse texture over too many lines at full res: to
-! 'drop', nothing kept for it.
+! r13 the variant (mip level * 2 + turned) the face at r4 with corners r1,
+! r2, r3, r7 and material r14 takes: turned when that makes fewer lines, at
+! the first mip level with about a texel a pixel along them (faces.s TURN and
+! WHOLE); r0, r6, r8. With a decision kept in the face's top byte, the other
+! way must save an eighth of the lines: a face about square on the frame
+! would otherwise turn back and forth as the camera moves, and the texels
+! Fast leaves out streak along its lines, so its grain would turn with them.
+! A sparse texture over too many lines at full res: to 'drop', nothing kept
+! for it.
     .macro  DECIDE drop
     mov     #0, r13
     SPAN    r1, r7, r13, r8     ! AD
@@ -185,7 +190,27 @@
     SPAN    r1, r2, r6, r8      ! AB
     SPAN    r7, r3, r6, r8      ! DC: ... as it is
     mov     r13, r8             ! the lines: as many as AD, BC span
-    cmp/gt  r6, r13
+    mov.l   @(RUN_MARGIN, gbr), r0
+    tst     r0, r0
+    bt      63f                 ! no margin (the debug menu's Turn margin)
+    mov.b   @r4, r0
+    tst     #8, r0
+    bt      63f                 ! none kept: the fewer lines
+    tst     #1, r0
+    bt/s    62f                 ! kept as it is
+    mov     r13, r0
+    mov     r6, r0              ! kept turned: as it is must save an eighth
+    shlr2   r0
+    shlr    r0
+    bra     61f
+    add     r13, r0             ! AD, BC's span + an eighth of AB, DC's
+62: shlr2   r0                  ! kept as it is: turned must save an eighth
+    shlr    r0
+    neg     r0, r0
+    bra     61f
+    add     r13, r0             ! AD, BC's span less an eighth
+63: mov     r13, r0
+61: cmp/gt  r6, r0
     bf/s    1f
     mov     #0, r0
     mov     r6, r8              ! turned: as many as AB, DC span
@@ -598,6 +623,9 @@
 
     .if \tri
     DECIDE  .Lnext\sfx
+    mov     r13, r0
+    or      #8, r0
+    mov.b   r0, @r4             ! kept for DECIDE's margin (a triangle decides every frame)
     mov     r13, r6
     .else
 .LFaceReuse\sfx:

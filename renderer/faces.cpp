@@ -426,6 +426,12 @@ void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth)
 
 static int32_t gViewFar = VIEW_FAR; // facesFar's
 extern "C" { volatile int32_t gFacesVoidWay; }
+static volatile int32_t gTurnMargin = 1;    // facesTurnMargin's
+
+void facesTurnMargin(bool on)
+{
+    *uncached(&gTurnMargin) = on;
+}
 
 void facesFar(int32_t far)
 {
@@ -561,6 +567,20 @@ static inline int32_t span(const Vertex* a, const Vertex* b)
 {
     int32_t dx = a->x - b->x, dy = a->y - b->y;
     return max(dx < 0 ? -dx : dx, dy < 0 ? -dy : dy);
+}
+
+// facesroom.s DECIDE's turn: lines along the texture's columns when that makes fewer of them (along,
+// AD and BC's span, against across, AB and DC's); with a decision kept in the face's top byte, the
+// other way must save an eighth of the lines, so a face about square on the frame keeps its lines'
+// direction (the texels Fast leaves out streak along them).
+static inline uint32_t turnedLines(const RoomQuad &q, int32_t along, int32_t across)
+{
+    const uint32_t kept = q.flags >> 24;
+    int32_t lines = along;
+    if ((kept & 8) && *uncached(&gTurnMargin)) {
+        lines = kept & 1 ? along + (across >> 3) : along - (along >> 3);
+    }
+    return lines > across;
 }
 
 static inline uint32_t detailLevel(uint32_t variant)
@@ -1135,7 +1155,7 @@ NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const 
     }
     const int32_t along = max(span(a, d), span(b, c));
     const int32_t across = max(span(a, b), span(d, c));
-    const uint32_t turned = along > across;
+    const uint32_t turned = turnedLines(q, along, across);
     const RoomMaterial &m = t.materials[index];
     const uint32_t want = t.lod * (turned ? along : across);
     uint32_t variant = turned;
@@ -1145,6 +1165,9 @@ NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const 
     }
     if (sparse && variant < 2 && min(along, across) >= SPARSE_LINES)
         return;
+    if (!coloured && cacheable(t, flags)) {
+        const_cast<RoomQuad &>(q).flags = (q.flags & ROOM_QUAD_FLAGS) | ((variant | 8) << 24);
+    }
     roomCommand(list, t, coloured ? flags : wholeTexture(t, flags, variant), a, b, c, d, farthest >> OT_SHIFT);
 }
 
@@ -1949,7 +1972,7 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, voidWay) == 336 &&
               offsetof(RoomRun, boxNear) == 340 && offsetof(RoomRun, boxCount) == 344 &&
               offsetof(RoomRun, boxes) == 348 && offsetof(RoomRun, points) == 352 &&
-              offsetof(RoomRun, fullOut) == 356 &&
+              offsetof(RoomRun, fullOut) == 356 && offsetof(RoomRun, margin) == 360 &&
               sizeof(RoomBox) == 20 && offsetof(RoomBox, lo) == 8 && offsetof(RoomBox, hi) == 14 &&
               offsetof(CommandList, voidX0) == 48 &&
               offsetof(CommandList, voidArea) == 64 &&
@@ -2070,6 +2093,7 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.split = &split;
     run.farBucket = gViewFar >> OT_SHIFT;
     run.voidWay = *uncached(&gFacesVoidWay);
+    run.margin = *uncached(&gTurnMargin);
     run.boxes = run.roomBoxes;
     run.seen = nullptr;
     run.seenCount = 0;

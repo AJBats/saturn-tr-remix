@@ -417,6 +417,7 @@ struct RoomRun
     const RoomBox* boxes;       // +348 ... roomBoxes
     const RoomVertex* points;   // +352 the room's
     uint32_t fullOut;           // +356 the frame the full-res pool last had no room
+    int32_t margin;             // +360 DECIDE's margin on the turn (facesTurnMargin): 0 none
     const BoxSeen* seen;        // the frame's solid boxes (rooms.h roomsBoxes), for facesRoom
     int32_t seenCount;
     RoomBox roomBoxes[BOXES_SEEN];
@@ -429,6 +430,10 @@ struct RoomRun
 // the buffer is clear: they're few.
 enum FaceVoidWay { FACE_VOIDS_DRAWN, FACE_VOIDS_BOXED, FACE_VOIDS_NONE };
 extern "C" volatile int32_t gFacesVoidWay;
+
+// Whether a room face's turn, once decided, keeps till the other way saves an eighth of its lines
+// (facesroom.s DECIDE); set between frames.
+void facesTurnMargin(bool on);
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);
 extern "C" void facesRoomNear();    // facesroom.s's, as it calls it

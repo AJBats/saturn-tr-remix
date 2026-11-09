@@ -573,6 +573,11 @@ void renderTexels(int32 lod)
     render::frameTexels(lod);
 }
 
+void renderTurnMargin(bool on)
+{
+    render::facesTurnMargin(on);
+}
+
 static int32 gTiny = 256;     // renderTiny's
 
 void renderTiny(int32 pixels)

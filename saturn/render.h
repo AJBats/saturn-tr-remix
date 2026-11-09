@@ -62,6 +62,9 @@ void renderTiny(int32 pixels);
 // 4 x the texels a pixel a room face may take before its next mip level.
 void renderTexels(int32 lod);
 
+// Whether a room face's turn keeps till the other way saves an eighth of its lines (renderer faces.h).
+void renderTurnMargin(bool on);
+
 // What lies wholly behind the level's solid boxes left out (renderer/rooms.h roomsSolidBoxes).
 void renderBoxes(bool on);
 // Water's shimmers: one lit for so many pixels of water on the frame; 0 none.
