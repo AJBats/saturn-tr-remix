@@ -3699,6 +3699,13 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Natla's Mines, the east end of the alley: door 64 (DOOR_2, room 66, rotation 4000), seen from room 68. Lara 53710, -10003, 93106, heading 0b0c; camera 53312, -10577, 91621, pitch feb4, heading 0aa7. Reported by the user 2026-11-05, with a photo, on the disc with `FLUSH_DOORS`.
 - Not tested, by the geometry: this door faces away from the alley. `FLUSH_DOORS` keeps the half of the slab on the door's front side, so from the alley its back is flush with the wall and its edge lies behind the wall's plane. When the depth sort draws that edge after the wall, it shows on top. The two doors along the alley face it, so they don't. A door seen from both sides can't have its edge clear of the wall from both sides unless it has no thickness at all.
 
+### 305. A turned texture that keeps turning, frame after frame
+*Kind: look - Size: not yet located - Fix: unknown, find it first*
+
+- Seen by the user on the Saturn, 2026-11-09, while recording the video's mips walk: a face whose texture turns every frame, like a rotation, as if the turned path weren't getting the turned copy (or the copy weren't there) and turned the unturned texture instead.
+- Seen on a test disc, not on main: `trs_video/builds/capn3_4e60502_cavesstart_plain`, 4e60502 with the room art left out (test only: `pack_level.py`'s `room_art()` call skipped, so the rooms keep the original texels and colour tables, and the mips are reduced from those). Caves, from the level's own start, a slow walk through the first big cave. Check unmodified 4e60502 at the same place first: leaving the room art out could be the cause.
+- Recording: `build/video/saturn/mips_n3_ours_plain_walk.mp4` (27 s, 60 fps). Time and place in it not noted yet. The tinted walks at the same place (`mips_n1_ours_walk.mp4`, also without room art, and `mips_m1_tinted_walk_take2.mp4`, with it) may show it too.
+
 ## Production code: clean-up
 
 Not differences from retail, and not open work on the picture: what a shipping build still
