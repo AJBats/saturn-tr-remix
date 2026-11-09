@@ -63,6 +63,7 @@
     .equ    RUN_MARGIN,     360
     .equ    RUN_TURN,       364
     .equ    RUN_PIECE_MASK, 368
+    .equ    RUN_SPLITTING,  372
     .equ    BOX_BYTES,      20      ! RoomBox
     .equ    VOIDS_NONE,     2
     .equ    CLIP_LEFT,      2
@@ -1694,6 +1695,9 @@ _facesRoomNear:
     mov.w   @(4, r7), r0
     cmp/gt  r0, r6
     bt      .LnearToC
+    mov.l   @(RUN_SPLITTING, gbr), r0
+    tst     r0, r0
+    bf      .LnearUnsplit       ! only where whole would break (faces.cpp facesSplitting)
     MATERIAL
     mov.w   @(8, r14), r0
     cmp/pz  r0
@@ -1800,6 +1804,22 @@ _facesRoomNear:
     tst     r0, r0
     bf      .LnearSlot
     mov.l   @r15+, r13
+    bra     .LnearWhole
+    nop
+
+    ! whole unless a corner lies past the coordinates VDP1 can be trusted
+    ! with: then C splits it
+.LnearUnsplit:
+    mov     r13, r0
+    tst     #CLIP_FRAME, r0
+    bt      .LnearWhole
+    mov.w   .LnearTrust, r6
+    mov     r6, r8
+    add     r8, r8
+    TRUSTED r1
+    TRUSTED r2
+    TRUSTED r3
+    TRUSTED r7
     bra     .LnearWhole
     nop
 

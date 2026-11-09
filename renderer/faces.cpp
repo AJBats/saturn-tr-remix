@@ -429,6 +429,7 @@ extern "C" { volatile int32_t gFacesVoidWay; }
 static volatile int32_t gTurnMargin = 1;    // facesTurnMargin's
 static volatile int32_t gTurnRule = TURN_TEXELS;    // facesTurnRule's
 static volatile int32_t gPiecesFast = 0;    // facesPiecesFast's
+static volatile int32_t gSplitting = SPLIT_ORIGINAL;    // facesSplitting's
 
 void facesTurnMargin(bool on)
 {
@@ -443,6 +444,11 @@ void facesTurnRule(TurnRule rule)
 void facesPiecesFast(bool on)
 {
     *uncached(&gPiecesFast) = on;
+}
+
+void facesSplitting(Splitting way)
+{
+    *uncached(&gSplitting) = way;
 }
 
 // A split quad's pieces' word 1 as facesPiecesFast has it.
@@ -947,6 +953,7 @@ static void roomQuadCareful(const FaceRoom &room, RoomTextures &t, RoomSplit &sp
 #define NEAR_SPLIT      4096    // facesroom.s's too
 #define NEAR_CODE       __attribute__((section(".text.facesnear")))   // out of the hot code's order (saturn.ld)
 #define OFF_FRAME_MAX   128     // new corners are held this close to the frame
+#define NEAR_TRUST      1000    // a corner's coordinates past it go to C (facesroom.s .LnearTrust)
 
 // A piece's corner's clip flags: the frame's and edges' as a vertex's, and
 #define CLIP_NEAR       0x20    // in front of the camera, nearer than the plane
@@ -1183,6 +1190,12 @@ NEAR_CODE static bool nearSplit(const FaceRoom &room, RoomTextures &t, const Roo
     return true;
 }
 
+// A corner within the coordinates a projection can be trusted to give VDP1 (facesroom.s TRUSTED).
+static inline bool nearTrusted(const Vertex* v)
+{
+    return uint32_t(v->x + NEAR_TRUST) < 2 * NEAR_TRUST && uint32_t(v->y + NEAR_TRUST) < 2 * NEAR_TRUST;
+}
+
 // A room face near the camera: split, filled where the far plane cuts it, or
 // whole as facesroom.s DECIDE would have drawn it.
 NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const RoomSplit &split, CommandList &list,
@@ -1212,8 +1225,10 @@ NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const 
         return;
     const bool coloured = ((flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) == FACE_TYPE_F;
     const int32_t off = max(max(offFrame(a), offFrame(b)), max(offFrame(c), offFrame(d)));
-    if (!sparse && !coloured && tex.reserved && (near || farthest <= NEAR_SPLIT || off > OFF_FRAME_MAX) &&
-        nearSplit(room, t, split, list, q, triangle))
+    const bool wanted = *uncached(&gSplitting) == SPLIT_ORIGINAL
+        ? near || farthest <= NEAR_SPLIT || off > OFF_FRAME_MAX
+        : near || cut || !nearTrusted(a) || !nearTrusted(b) || !nearTrusted(c) || !nearTrusted(d);
+    if (!sparse && !coloured && tex.reserved && wanted && nearSplit(room, t, split, list, q, triangle))
         return;
     if (cut)
     {
@@ -2041,6 +2056,7 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, boxes) == 348 && offsetof(RoomRun, points) == 352 &&
               offsetof(RoomRun, fullOut) == 356 && offsetof(RoomRun, margin) == 360 &&
               offsetof(RoomRun, turnRule) == 364 && offsetof(RoomRun, pieceMask) == 368 &&
+              offsetof(RoomRun, splitting) == 372 &&
               sizeof(RoomBox) == 20 && offsetof(RoomBox, lo) == 8 && offsetof(RoomBox, hi) == 14 &&
               offsetof(CommandList, voidX0) == 48 &&
               offsetof(CommandList, voidArea) == 64 &&
@@ -2164,6 +2180,7 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.margin = *uncached(&gTurnMargin);
     run.turnRule = *uncached(&gTurnRule);
     run.pieceMask = piecesW1(~0u);
+    run.splitting = *uncached(&gSplitting);
     run.boxes = run.roomBoxes;
     run.seen = nullptr;
     run.seenCount = 0;

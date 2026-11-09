@@ -588,6 +588,11 @@ void renderPiecesFast(bool on)
     render::facesPiecesFast(on);
 }
 
+void renderSplitNeeded(bool needed)
+{
+    render::facesSplitting(needed ? render::SPLIT_NEEDED : render::SPLIT_ORIGINAL);
+}
+
 static int32 gTiny = 256;     // renderTiny's
 
 void renderTiny(int32 pixels)
