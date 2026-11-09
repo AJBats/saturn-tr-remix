@@ -3700,11 +3700,33 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Not tested, by the geometry: this door faces away from the alley. `FLUSH_DOORS` keeps the half of the slab on the door's front side, so from the alley its back is flush with the wall and its edge lies behind the wall's plane. When the depth sort draws that edge after the wall, it shows on top. The two doors along the alley face it, so they don't. A door seen from both sides can't have its edge clear of the wall from both sides unless it has no thickness at all.
 
 ### 305. A turned texture that keeps turning, frame after frame
-*Kind: look - Size: not yet located - Fix: unknown, find it first*
+*Kind: look - Size: found 2026-11-09: the turned copies are right, the turn flips back and forth - Fix: the user's call: a margin on the turn, and Fast (306)*
 
 - Seen by the user on the Saturn, 2026-11-09, while recording the video's mips walk: a face whose texture turns every frame, like a rotation, as if the turned path weren't getting the turned copy (or the copy weren't there) and turned the unturned texture instead.
 - Seen on a test disc, not on main: `trs_video/builds/capn3_4e60502_cavesstart_plain`, 4e60502 with the room art left out (test only: `pack_level.py`'s `room_art()` call skipped, so the rooms keep the original texels and colour tables, and the mips are reduced from those). Caves, from the level's own start, a slow walk through the first big cave. Check unmodified 4e60502 at the same place first: leaving the room art out could be the cause.
 - Recording: `build/video/saturn/mips_n3_ours_plain_walk.mp4` (27 s, 60 fps). Time and place in it not noted yet. The tinted walks at the same place (`mips_n1_ours_walk.mp4`, also without room art, and `mips_m1_tinted_walk_take2.mp4`, with it) may show it too.
+- Found 2026-11-09, in Mednafen on the same disc. The copies are right: a probe walked the Caves from the level's start and along the back wall (974 lists) and compared every cached slot's texels in VDP1 VRAM with the texture set, transposed for a turned slot: 15,583 checks, none wrong.
+- What turns is the texture's grain. A quad decides its turn (lines along the texture's rows or its columns) by which way makes fewer lines, with no margin, so a face about square on the screen flips every other frame as the camera moves: on the back-wall stretch 53 faces of 300 px or more did, some 30 times. Fast (306) reads every other texel along a line, so a texel shows as a 2-pixel streak along the lines; when the lines turn, the streaks turn with them. A texture that isn't square also changes size each flip (full and half size by turns, its texels per line differing each way).
+- The same list redrawn by the fork's VDP1 code with its turned faces drawn unturned: with Fast the back wall's streaks go from upright to flat; without Fast only which texels and rows are skipped changes. Cures: a margin on the turn (keep the last one unless the other way saves, say, an eighth of the lines), which costs next to nothing, and Fast off, or Texels 1, so the streaks aren't there to turn (306).
+
+### 306. Room textures at full size show half their texels along each line (Fast)
+*Kind: look - Size: 85% of the full-size room area along the Caves back wall - Fix: the user's call, it costs VDP1 time*
+
+- Seen in the video's mips walk, 2026-11-09: at about 19 s of `build/video/saturn/mips_sbs_B_retail_vs_ours.mp4` our back wall stretched and clumpy beside retail's, both at full size by the tint (no room art on our disc).
+- Room faces are drawn with PMOD_HSS, Fast (76e4250, 2026-10-25, before the mips: the bridge view 12 -> 15 fps then). On a line shorter than the texels it crosses, VDP1 then reads only the even ones (Mednafen `vdp1.cpp` SetupDrawLine). Texels 1.5 (`gTexels` 6, 2026-11-02) keeps full size until 1.5 texels a pixel along a face's longest line, so a full-size face between 1 and 1.5 always has Fast at work: 32 of 64 texels along each line, each over 1.3 to 2 pixels. Retail never sets HSS.
+- Probe walks in Mednafen: along the back wall, full size is 52% of the rooms' textured area on screen and Fast is at work on 85% of it; running from the level's start, 53% and 62%.
+- So 1.5 shows no more texels along lines than 1.0: in that band it has the half size's count, every other texel instead of filtered. It adds rows across the lines only.
+- Mednafen, VDP1 ms a list (the calibrated model), each way set by poke in one running game:
+
+| Spot | Today (1.5, Fast) | 1.5, rooms without Fast | 1.0, Fast | 1.0, rooms without Fast |
+|---|---|---|---|---|
+| Ledge | 32.22 | +2.76 | -0.35 | +0.78 |
+| Caves back wall, the walk's 19 s view | 20.98 | +1.57 | -0.63 | +0.18 |
+| Caves back wall, close (z 32391) | 16.32 | +1.74 | -0.13 | +1.47 |
+| Cistern | 22.87 | +1.58 | 0 | +0.87 |
+
+- Mednafen prices lines shrunk without Fast low (its own note: 100% more on the hardware). On the Saturn, Fast off on every face (rooms and meshes, a 2026-11-05 build) took the ledge's list from 28.1 to 34.5 ms, 30 to 20 fps. A Saturn run at the ledge would price the rooms-only ways.
+- Ways: Texels 1 (free; a full-size face's longest line is never shrunk, the band takes the filtered half size); rooms without Fast at 1.0, or at 1.5 for every texel as retail shows them; or ripmaps (half wide, full tall) for the band, today's VDP1 time with filtered texels. Pictures: scratchpad mips/capwall (the same list four ways) and mips/ways_out.
 
 ## Production code: clean-up
 
