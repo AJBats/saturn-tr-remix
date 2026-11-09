@@ -68,6 +68,9 @@ void renderTurnMargin(bool on);
 // How a room face's turn is decided: by the fewer lines (false) or the most texels shown (renderer faces.h).
 void renderTurnTexels(bool texels);
 
+// Whether the pieces of a quad split near the camera are drawn with Fast (renderer faces.h).
+void renderPiecesFast(bool on);
+
 // What lies wholly behind the level's solid boxes left out (renderer/rooms.h roomsSolidBoxes).
 void renderBoxes(bool on);
 // Water's shimmers: one lit for so many pixels of water on the frame; 0 none.

@@ -48,6 +48,7 @@ static int32 gTexelStep = 1;    // kTexels'
 static bool gTurnMarginOn = true;   // a face's turn kept till the other way does better by an eighth
 static const char* const kTurn[] = { "Fewer lines", "Most texels" };
 static bool gTurnTexels = true;     // kTurn's: a face's turn by the most texels shown
+static bool gPiecesFast;            // a split quad's pieces drawn with Fast
 static bool gBoxesShut = true;  // what the level's solid boxes hide left out
 static bool gUnderKept = true;  // rooms under a floor on VDP2 kept to its openings
 static const char* const kShimmers[] = { "Off", "1 in 600", "1 in 300", "1 in 150", "1 in 100", "1 in 75" };
@@ -101,6 +102,9 @@ static const Option gOptions[] = {
     { "Turn", kTurn, 2,
         [] { return int32(gTurnTexels); },
         [](int32 v) { gTurnTexels = v; renderTurnTexels(v); } },
+    { "Pieces Fast", kOnOff, 2,
+        [] { return int32(gPiecesFast); },
+        [](int32 v) { gPiecesFast = v; renderPiecesFast(v); } },
     { "Turn margin", kOnOff, 2,
         [] { return int32(gTurnMarginOn); },
         [](int32 v) { gTurnMarginOn = v; renderTurnMargin(v); } },
@@ -112,7 +116,7 @@ static const Option gOptions[] = {
 
 enum { OPTION_STATS,
 #ifdef HW_LOG
-       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_BOXES, OPTION_SHIMMERS, OPTION_UNDER_FLOOR, OPTION_HOLES, OPTION_TEXELS, OPTION_TURN, OPTION_TURN_MARGIN, OPTION_CAMERA,
+       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_BOXES, OPTION_SHIMMERS, OPTION_UNDER_FLOOR, OPTION_HOLES, OPTION_TEXELS, OPTION_TURN, OPTION_PIECES_FAST, OPTION_TURN_MARGIN, OPTION_CAMERA,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");

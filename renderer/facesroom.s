@@ -62,6 +62,7 @@
     .equ    RUN_FULL_OUT,   356
     .equ    RUN_MARGIN,     360
     .equ    RUN_TURN,       364
+    .equ    RUN_PIECE_MASK, 368
     .equ    BOX_BYTES,      20      ! RoomBox
     .equ    VOIDS_NONE,     2
     .equ    CLIP_LEFT,      2
@@ -1757,7 +1758,10 @@ _facesRoomNear:
 .LnearGo:                       ! r8 word 2, r13 off the frame
     mov.l   @r14, r0
     mov.l   r0, @(RUN_PIECE_W0, gbr)
+    mov.l   @(RUN_PIECE_MASK, gbr), r0
+    mov     r0, r6
     mov.l   @(4, r14), r0
+    and     r6, r0              ! Fast's bit as the run has it (faces.cpp facesPiecesFast)
     mov.l   r0, @(RUN_PIECE_W1, gbr)
     mov     r14, r0
     mov.l   r0, @(RUN_PIECE_MATERIAL, gbr)

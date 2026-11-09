@@ -428,6 +428,7 @@ static int32_t gViewFar = VIEW_FAR; // facesFar's
 extern "C" { volatile int32_t gFacesVoidWay; }
 static volatile int32_t gTurnMargin = 1;    // facesTurnMargin's
 static volatile int32_t gTurnRule = TURN_TEXELS;    // facesTurnRule's
+static volatile int32_t gPiecesFast = 0;    // facesPiecesFast's
 
 void facesTurnMargin(bool on)
 {
@@ -437,6 +438,17 @@ void facesTurnMargin(bool on)
 void facesTurnRule(TurnRule rule)
 {
     *uncached(&gTurnRule) = rule;
+}
+
+void facesPiecesFast(bool on)
+{
+    *uncached(&gPiecesFast) = on;
+}
+
+// A split quad's pieces' word 1 as facesPiecesFast has it.
+static inline uint32_t piecesW1(uint32_t w1)
+{
+    return *uncached(&gPiecesFast) ? w1 : w1 & ~(uint32_t(PMOD_HSS) << 16);
 }
 
 void facesFar(int32_t far)
@@ -1153,6 +1165,7 @@ NEAR_CODE static bool nearSplit(const FaceRoom &room, RoomTextures &t, const Roo
     const uint32_t flags = (q.flags & ROOM_QUAD_FLAGS) | room.flags | FACE_DETAIL;
     uint32_t w[3];
     roomMaterial(t, flags, w);
+    w[1] = piecesW1(w[1]);
     const uint32_t bytes = (tex.size >> 8) * 4 * (tex.size & 0xFF);
     uint32_t srca = t.pools[0] + slot * DETAIL_SLOT_SIZE;
     const NearPoint* quarter[4][4] = { { &a, &m[0], &m[4], &m[3] }, { &m[0], &b, &m[1], &m[4] },
@@ -2027,7 +2040,7 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, boxNear) == 340 && offsetof(RoomRun, boxCount) == 344 &&
               offsetof(RoomRun, boxes) == 348 && offsetof(RoomRun, points) == 352 &&
               offsetof(RoomRun, fullOut) == 356 && offsetof(RoomRun, margin) == 360 &&
-              offsetof(RoomRun, turnRule) == 364 &&
+              offsetof(RoomRun, turnRule) == 364 && offsetof(RoomRun, pieceMask) == 368 &&
               sizeof(RoomBox) == 20 && offsetof(RoomBox, lo) == 8 && offsetof(RoomBox, hi) == 14 &&
               offsetof(CommandList, voidX0) == 48 &&
               offsetof(CommandList, voidArea) == 64 &&
@@ -2150,6 +2163,7 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.voidWay = *uncached(&gFacesVoidWay);
     run.margin = *uncached(&gTurnMargin);
     run.turnRule = *uncached(&gTurnRule);
+    run.pieceMask = piecesW1(~0u);
     run.boxes = run.roomBoxes;
     run.seen = nullptr;
     run.seenCount = 0;

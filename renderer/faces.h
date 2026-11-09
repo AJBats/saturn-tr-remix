@@ -419,6 +419,8 @@ struct RoomRun
     uint32_t fullOut;           // +356 the frame the full-res pool last had no room
     int32_t margin;             // +360 DECIDE's margin on the turn (facesTurnMargin): 0 none
     int32_t turnRule;           // +364 DECIDE's turn (facesTurnRule): TurnRule
+    uint32_t pieceMask;         // +368 a split quad's pieces' word 1 anded with it: Fast's bit
+                                // cleared, or all kept (facesPiecesFast)
     const BoxSeen* seen;        // the frame's solid boxes (rooms.h roomsBoxes), for facesRoom
     int32_t seenCount;
     RoomBox roomBoxes[BOXES_SEEN];
@@ -440,6 +442,11 @@ void facesTurnMargin(bool on);
 // lines, or by the most texels shown, Fast halving those along the lines; set between frames.
 enum TurnRule { TURN_LINES, TURN_TEXELS };
 void facesTurnRule(TurnRule rule);
+
+// Whether the pieces a quad near the camera is split into are drawn with Fast, reading every other
+// texel along their lines where those are shorter than the texels (off: every texel, as the
+// original's pieces); set between frames.
+void facesPiecesFast(bool on);
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);
 extern "C" void facesRoomNear();    // facesroom.s's, as it calls it

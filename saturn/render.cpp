@@ -583,6 +583,11 @@ void renderTurnTexels(bool texels)
     render::facesTurnRule(texels ? render::TURN_TEXELS : render::TURN_LINES);
 }
 
+void renderPiecesFast(bool on)
+{
+    render::facesPiecesFast(on);
+}
+
 static int32 gTiny = 256;     // renderTiny's
 
 void renderTiny(int32 pixels)
