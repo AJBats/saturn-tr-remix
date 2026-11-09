@@ -61,6 +61,7 @@
     .equ    RUN_POINTS,     352
     .equ    RUN_FULL_OUT,   356
     .equ    RUN_MARGIN,     360
+    .equ    RUN_TURN,       364
     .equ    BOX_BYTES,      20      ! RoomBox
     .equ    VOIDS_NONE,     2
     .equ    CLIP_LEFT,      2
@@ -174,14 +175,10 @@
     .endm
 
 ! r13 the variant (mip level * 2 + turned) the face at r4 with corners r1,
-! r2, r3, r7 and material r14 takes: turned when that makes fewer lines, at
-! the first mip level with about a texel a pixel along them (faces.s TURN and
-! WHOLE); r0, r6, r8. With a decision kept in the face's top byte, the other
-! way must save an eighth of the lines: a face about square on the frame
-! would otherwise turn back and forth as the camera moves, and the texels
-! Fast leaves out streak along its lines, so its grain would turn with them.
-! A sparse texture over too many lines at full res: to 'drop', nothing kept
-! for it.
+! r2, r3, r7 and material r14 takes: turned as .Lturn decides, at the first
+! mip level with about a texel a pixel along its lines (faces.s TURN and
+! WHOLE); r0, r6, r8, MACL. A sparse texture over too many lines at full res:
+! to 'drop', nothing kept for it.
     .macro  DECIDE drop
     mov     #0, r13
     SPAN    r1, r7, r13, r8     ! AD
@@ -189,33 +186,12 @@
     mov     #0, r6
     SPAN    r1, r2, r6, r8      ! AB
     SPAN    r7, r3, r6, r8      ! DC: ... as it is
+    bsr     .Lturn
     mov     r13, r8             ! the lines: as many as AD, BC span
-    mov.l   @(RUN_MARGIN, gbr), r0
     tst     r0, r0
-    bt      63f                 ! no margin (the debug menu's Turn margin)
-    mov.b   @r4, r0
-    tst     #8, r0
-    bt      63f                 ! none kept: the fewer lines
-    tst     #1, r0
-    bt/s    62f                 ! kept as it is
-    mov     r13, r0
-    mov     r6, r0              ! kept turned: as it is must save an eighth
-    shlr2   r0
-    shlr    r0
-    bra     61f
-    add     r13, r0             ! AD, BC's span + an eighth of AB, DC's
-62: shlr2   r0                  ! kept as it is: turned must save an eighth
-    shlr    r0
-    neg     r0, r0
-    bra     61f
-    add     r13, r0             ! AD, BC's span less an eighth
-63: mov     r13, r0
-61: cmp/gt  r6, r0
-    bf/s    1f
-    mov     #0, r0
+    bt      1f
     mov     r6, r8              ! turned: as many as AB, DC span
     mov     r13, r6             ! turned: the lines as long as AD, BC
-    mov     #1, r0
 1:  mov     r0, r13
     mov.l   @(RUN_LOD, gbr), r0
     tst     r0, r0
@@ -1421,6 +1397,142 @@ _facesRoomAsm:
     mov     #-1, r0
 1:  rts
     add     #1, r0
+
+    ! whether the face at r4 of material r14 turns its lines (r0 1) with r13
+    ! AD and BC's span (its lines' count as it is, their length turned) and r6
+    ! AB and DC's, by the run's rule (faces.cpp turnedFace): the fewer lines,
+    ! or the most texels shown (Fast halves those along the lines, so a face
+    ! shows more with that halving on its shorter side; ties: the fewer
+    ! lines). With a decision kept in the face's top byte and the run's
+    ! margin, the other way must do better by an eighth: a face about square
+    ! on the frame would otherwise turn back and forth as the camera moves,
+    ! its grain turning with its lines. r0, MACL
+.Lturn:
+    mov.l   @(RUN_TURN, gbr), r0
+    tst     r0, r0
+    bf      .LturnTexels
+    mov.l   @(RUN_MARGIN, gbr), r0
+    tst     r0, r0
+    bt      3f                  ! no margin (the debug menu's Turn margin)
+    mov.b   @r4, r0
+    tst     #8, r0
+    bt      3f                  ! none kept: the fewer lines
+    tst     #1, r0
+    bt/s    2f                  ! kept as it is
+    mov     r13, r0
+    mov     r6, r0              ! kept turned: as it is must save an eighth
+    shlr2   r0
+    shlr    r0
+    bra     4f
+    add     r13, r0             ! AD, BC's span + an eighth of AB, DC's
+2:  shlr2   r0                  ! kept as it is: turned must save an eighth
+    shlr    r0
+    neg     r0, r0
+    bra     4f
+    add     r13, r0             ! AD, BC's span less an eighth
+3:  mov     r13, r0
+4:  cmp/gt  r6, r0
+    rts
+    movt    r0
+
+.LturnTexels:
+    sts.l   pr, @-r15
+    mov.l   r1, @-r15
+    mov.l   r8, @-r15
+    mov     r13, r8             ! as it is: lines r6 long, r13 of them
+    bsr     .Lshown
+    mov     #0, r0
+    mov     r0, r1              ! as it is's texels
+    mov     r6, r8              ! turned: lines r13 long, r6 of them
+    mov     r13, r6
+    bsr     .Lshown
+    mov     #1, r0
+    mov     r8, r6
+    mov     r0, r8              ! turned's texels
+    mov.l   @(RUN_MARGIN, gbr), r0
+    tst     r0, r0
+    bt      3f                  ! no margin
+    mov.b   @r4, r0
+    tst     #8, r0
+    bt      3f                  ! none kept
+    tst     #1, r0
+    bt      2f                  ! kept as it is
+    mov     r8, r0              ! kept turned: it stays unless as it is shows an eighth more
+    shlr2   r0
+    shlr    r0
+    add     r8, r0
+    bra     5f
+    cmp/ge  r1, r0
+2:  mov     r1, r0              ! kept as it is: turned must show an eighth more
+    shlr2   r0
+    shlr    r0
+    add     r1, r0
+    bra     5f
+    cmp/gt  r0, r8
+3:  cmp/eq  r1, r8
+    bf/s    5f
+    cmp/gt  r1, r8              ! turned shows more
+    cmp/gt  r6, r13             ! a tie: the fewer lines
+5:  movt    r0
+    mov.l   @r15+, r8
+    mov.l   @r15+, r1
+    lds.l   @r15+, pr
+    rts
+    nop
+
+    ! the texels a face of material r14 shows drawn with lines r6 pixels long,
+    ! r8 of them, along its texture's rows (r0 0) or columns (r0 1): at the
+    ! level the Texels rule takes along the lines, those along halved where
+    ! Fast reads every other one (a line shorter than they are), those across
+    ! no more than the lines (faces.cpp shownTexels). r0, MACL
+.Lshown:
+    mov.l   r1, @-r15
+    mov.l   r2, @-r15
+    mov.l   r3, @-r15
+    add     r0, r0
+    mov     r0, r1
+    add     #14, r0
+    mov.w   @(r0, r14), r0
+    extu.w  r0, r2              ! 4 x the texels along
+    mov     r1, r0
+    xor     #2, r0
+    add     #14, r0
+    mov.w   @(r0, r14), r0
+    extu.w  r0, r3              ! ... across
+    mov.l   @(RUN_LOD, gbr), r0
+    tst     r0, r0
+    bt      2f                  ! full res only
+    mulu.w  r0, r6
+    sts     macl, r1            ! lod x the lines' length
+    cmp/hi  r1, r2
+    bf      2f                  ! full res
+    mov.b   @(12, r14), r0      ! the levels it takes
+    tst     r0, r0
+    bt      2f
+    shlr    r2
+    shlr    r3                  ! level 1
+    cmp/hi  r1, r2
+    bf      2f
+    cmp/eq  #1, r0
+    bt      2f
+    shlr    r2
+    shlr    r3                  ! level 2
+2:  shlr2   r2                  ! the texels along at that level
+    shlr2   r3                  ! ... across
+    mov     r2, r0
+    add     #-1, r0
+    cmp/gt  r6, r0
+    bf      3f
+    shlr    r2                  ! Fast: every other one
+3:  cmp/gt  r8, r3
+    bf      4f
+    mov     r8, r3              ! no more across than lines
+4:  mulu.w  r2, r3
+    sts     macl, r0
+    mov.l   @r15+, r3
+    mov.l   @r15+, r2
+    rts
+    mov.l   @r15+, r1
 
 ! --- the faces ------------------------------------------------------------------
 

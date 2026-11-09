@@ -384,22 +384,17 @@ static uint32_t roomVariant(const RoomTextures &t, uint32_t flags, const Vertex*
 {
     int32_t turned = max(span(a, d), span(b, c));   // the lines' length turned
     int32_t across = max(span(a, b), span(d, c));   // ... and as it is
-    int32_t lines = turned;
-    if (kept & 8) {
-        lines = kept & 1 ? turned + (across >> 3) : turned - (turned >> 3);
-    }
-    uint32_t variant = 0;
-    if (lines > across)
-    {
-        variant = 1;
+    const Texture &tex = t.textures[flags & FACE_TEXTURE];
+    uint32_t size = tex.size;
+    uint32_t variant = turnedFace(kept, turned, across, (size >> 8) << 6, (size & 0xFF) << 3,
+                                  size & 7 ? 0 : size & 0x010F ? 1 : 2, t.lod);
+    if (variant) {
         across = turned;
     }
-    const Texture &tex = t.textures[flags & FACE_TEXTURE];
     if (!t.lod)
         return variant;
     // 4 x the texels along a line: the whole texture's width, or turned its
     // height
-    uint32_t size = tex.size;
     uint32_t texels = variant ? (size & 0xFF) << 3 : (size >> 8) << 6;
     uint32_t pixels = uint32_t(t.lod) * uint32_t(across & 0xFFFF);
     if (texels <= pixels || (size & 7))

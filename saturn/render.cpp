@@ -578,6 +578,11 @@ void renderTurnMargin(bool on)
     render::facesTurnMargin(on);
 }
 
+void renderTurnTexels(bool texels)
+{
+    render::facesTurnRule(texels ? render::TURN_TEXELS : render::TURN_LINES);
+}
+
 static int32 gTiny = 256;     // renderTiny's
 
 void renderTiny(int32 pixels)

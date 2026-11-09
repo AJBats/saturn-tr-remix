@@ -65,6 +65,9 @@ void renderTexels(int32 lod);
 // Whether a room face's turn keeps till the other way saves an eighth of its lines (renderer faces.h).
 void renderTurnMargin(bool on);
 
+// How a room face's turn is decided: by the fewer lines (false) or the most texels shown (renderer faces.h).
+void renderTurnTexels(bool texels);
+
 // What lies wholly behind the level's solid boxes left out (renderer/rooms.h roomsSolidBoxes).
 void renderBoxes(bool on);
 // Water's shimmers: one lit for so many pixels of water on the frame; 0 none.
