@@ -1653,6 +1653,22 @@ _facesRoomAsm:
     .endm
 
     .align 2
+    ! whole unless a corner lies past the coordinates VDP1 can be trusted
+    ! with: then C splits it
+.LnearUnsplit:
+    mov     r13, r0
+    tst     #CLIP_FRAME, r0
+    bt      .LnearWhole
+    mov.w   .LnearTrust, r6
+    mov     r6, r8
+    add     r8, r8
+    TRUSTED r1
+    TRUSTED r2
+    TRUSTED r3
+    TRUSTED r7
+    bra     .LnearWhole
+    nop
+
 .LnearWhole:
     lds.l   @r15+, pr
     rts
@@ -1804,22 +1820,6 @@ _facesRoomNear:
     tst     r0, r0
     bf      .LnearSlot
     mov.l   @r15+, r13
-    bra     .LnearWhole
-    nop
-
-    ! whole unless a corner lies past the coordinates VDP1 can be trusted
-    ! with: then C splits it
-.LnearUnsplit:
-    mov     r13, r0
-    tst     #CLIP_FRAME, r0
-    bt      .LnearWhole
-    mov.w   .LnearTrust, r6
-    mov     r6, r8
-    add     r8, r8
-    TRUSTED r1
-    TRUSTED r2
-    TRUSTED r3
-    TRUSTED r7
     bra     .LnearWhole
     nop
 
