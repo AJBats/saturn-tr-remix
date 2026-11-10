@@ -124,8 +124,8 @@ def notices():
         ("Pillow, MIT-CMU", dist("pillow", "licenses", "LICENSE")),
         ("PyInstaller's bootloader, GPL-2.0-or-later with its bootloader exception", dist("pyinstaller", "licenses", "COPYING.txt")),
     ]
-    out = ["The engine and the builder are GPL-3.0-only (LICENSE.txt). Their creature AI and traps follow",
-           "TR1X/TRX by LostArtefacts, GPL-3. They are made with the following, under these licences.", ""]
+    out = ["The engine and the builder are GPL-3.0-only (LICENSE.txt). The engine's creature AI and traps follow",
+           "TR1X/TRX by LostArtefacts, GPL-3. Both are made with the following, under these licences.", ""]
     for title, path in parts:
         text = libyaul_notice() if path is None else open(path, encoding="utf-8", errors="replace").read()
         out += ["=" * 78, title, "=" * 78, "", text.strip(), "", ""]
