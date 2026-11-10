@@ -1,1 +1,1 @@
-Tomb Raider Saturn remaster engine. GPL-3.0-only. No game data is distributed with this source.
+Tomb Raider Saturn engine. GPL-3.0-only. No game data is distributed with this source.

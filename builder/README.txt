@@ -1,4 +1,4 @@
-Tomb Raider for the Sega Saturn, remastered: {release}
+Tomb Raider for the Sega Saturn: {release}
 https://github.com/AJBats/saturn-tr-remix (branch {branch}, commit {commit})
 
 A new engine for the 1996 Saturn Tomb Raider, running on a real Saturn: the game's
@@ -34,8 +34,8 @@ HOW TO USE IT
 2. Run "Tomb Raider Saturn Builder.exe" in the "Tomb Raider Saturn Builder" folder.
 3. Press Choose for your Saturn disc and pick its .cue file (or its .zip). Do the
    same for the PlayStation disc if you have it. Each is checked when you pick it.
-4. Press BUILD THE DISC. It takes a few minutes: the builder repacks every level,
-   with the remaster's textures, from your disc.
+4. Press BUILD THE DISC. It takes a few minutes: the builder repacks every level
+   from your disc, with the reworked textures.
 5. The disc is written to a "Tomb Raider Saturn - {release}" folder next to
    the builder, as tomb.cue and its tracks. Play it in an emulator, or on a real
    Saturn with an ODE such as the Satiator.

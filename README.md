@@ -1,4 +1,4 @@
-# Tomb Raider for the Sega Saturn, remastered
+# Tomb Raider for the Sega Saturn
 
 A new engine for the 1996 game, running on a real Saturn: OpenLara's game logic,
 corrected against the retail game, on a renderer written for the Saturn's two

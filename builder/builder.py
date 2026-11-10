@@ -136,7 +136,7 @@ class App:
         head.pack()
         head.create_image(0, 0, image=self.photo(art.banner(WIDTH, 170)), anchor="nw")
         head.create_text(30, 58, text="TOMB RAIDER", fill=c["text"], font=(TITLE_FONT, 34, "bold"), anchor="w")
-        head.create_text(33, 96, text="for the Sega Saturn, remastered", fill=c["gold_hi"],
+        head.create_text(33, 96, text="for the Sega Saturn", fill=c["gold_hi"],
                          font=(TITLE_FONT, 14, "italic"), anchor="w")
         head.create_text(33, 132, text=self.release.upper(), fill=c["muted"], font=(FONT, 9, "bold"), anchor="w")
 

@@ -310,7 +310,7 @@ def build(saturn, ps1, out, say=print, step=lambda done, total: None, detail=Non
         data_dir = os.path.join(work, "disc", "DATA")
         levels = os.path.join(work, "levels")
         os.makedirs(levels)
-        say(f"Packing the {len(LEVELS)} levels: the remaster's textures, meshes, rooms and sounds")
+        say(f"Packing the {len(LEVELS)} levels: textures, meshes, rooms and sounds")
         n = workers or max(1, min(os.cpu_count() or 1, 6))
         with concurrent.futures.ProcessPoolExecutor(n) as pool:
             jobs = {pool.submit(pack_level, lv, data_dir, levels, psx_dir): lv for lv in LEVELS}
