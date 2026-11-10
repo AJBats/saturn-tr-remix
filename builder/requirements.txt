@@ -4,3 +4,5 @@ numpy==2.2.6
 scipy==1.15.3
 Pillow==12.1.0
 pyinstaller==6.22.3
+# Linux: the desktop portal's file dialog, over D-Bus (pure Python)
+jeepney==0.9.0; sys_platform == "linux"

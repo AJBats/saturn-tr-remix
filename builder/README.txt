@@ -20,8 +20,10 @@ WHAT YOU NEED
 - Windows 10 or 11, 64-bit.
 [linux]
 - Linux on a 64-bit PC (x86-64) with glibc 2.28 or newer: Ubuntu 20.04, Debian 10,
-  Fedora 29 or later, or any current distribution. For the window, a desktop: X11,
-  or Wayland with XWayland.
+  Fedora 29 or later, or any current distribution.
+- For the window, a desktop (X11, or Wayland with XWayland) with a file dialog the
+  builder can use: the desktop portal that GNOME, KDE Plasma and most desktops have,
+  or zenity or kdialog. Without one, build from a terminal (below).
 [both]
 - A rip of your Tomb Raider disc for the Saturn: the USA release, T-7910H. It must
   be a .cue file with one .bin file a track beside it, which is what redumper,
@@ -55,8 +57,20 @@ HOW TO USE IT
    Saturn with an ODE such as the Satiator.
 [linux]
 
-Without a window, the same build from a terminal:
-   ./tomb-raider-saturn-builder --saturn SATURN.cue [--ps1 PS1.cue] --out FOLDER
+
+BUILDING FROM A TERMINAL
+
+The builder does the whole job without its window. In its folder:
+
+  ./tomb-raider-saturn-builder --saturn "<Saturn .cue>" --ps1 "<PlayStation .cue>" --out "<folder>"
+
+--ps1 is optional. Each disc can be its .cue file or a .zip of the rip, and the disc
+is written into the folder given. Put quotes around paths with spaces. For example:
+
+  ./tomb-raider-saturn-builder \
+      --saturn "$HOME/Games/Tomb Raider (USA)/Tomb Raider (USA).cue" \
+      --ps1 "$HOME/Games/Tomb Raider (USA) (Rev 1)/Tomb Raider (USA) (Rev 1).cue" \
+      --out "$HOME/Games/Tomb Raider Saturn"
 [both]
 
 
@@ -78,6 +92,8 @@ IF IT WON'T START
 - "version `GLIBC_...' not found": your system is older than the builder supports.
 - "couldn't connect to display": the window needs X11, or XWayland under Wayland.
   The terminal build above needs neither.
+- Choose says your desktop has no file dialog: the builder uses your desktop's own,
+  and some setups don't have one. Build from a terminal (above).
 - The builder's window draws its text with X's own fonts, so it looks plainer than
   your desktop's programs. That's expected.
 [both]
@@ -103,5 +119,10 @@ repository at the commit above. The engine builds on OpenLara (BSD-2-Clause, Tim
 Gagiev) and libyaul (MIT, Israel Jacquez), and its creature AI and traps follow
 TR1X/TRX (GPL-3, LostArtefacts). THIRD-PARTY-NOTICES.txt holds their licences and
 those of what the builder bundles: Python and the libraries its build includes,
+[windows]
 NumPy, SciPy, Pillow, Tcl/Tk and PyInstaller's bootloader. Tomb Raider (c) Core
 Design / Eidos.
+[linux]
+NumPy, SciPy, Pillow, Tcl/Tk, Jeepney and PyInstaller's bootloader. Tomb Raider (c)
+Core Design / Eidos.
+[both]

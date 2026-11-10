@@ -89,7 +89,7 @@ def sha1_file(path):
 def stage(release, saturn, ps1):
     if os.path.exists(STAGE):
         shutil.rmtree(STAGE)       # release.py's own output from an earlier run
-    for f in ("builder.py", "discbuild.py", "art.py"):
+    for f in ("builder.py", "discbuild.py", "art.py", "dialogs.py"):
         copy(os.path.join(HERE, f), os.path.join(STAGE, f))
     for t in TOOLS:
         copy(os.path.join(TREE, "tools", t + ".py"), os.path.join(STAGE, "tools", t + ".py"))
@@ -163,6 +163,8 @@ def notices(site, python):
         ("Pillow, MIT-CMU, with the libraries its wheel bundles", dist("pillow", "licenses", "LICENSE")),
         ("PyInstaller's bootloader, GPL-2.0-or-later with its bootloader exception", dist("pyinstaller", "licenses", "COPYING.txt")),
     ]
+    if any(d.startswith("jeepney-") for d in os.listdir(site)):     # Linux only: how it talks to the desktop's dialog
+        parts.append(("Jeepney (D-Bus, for the desktop's file dialog), MIT", dist("jeepney", "licenses", "LICENSE")))
     out = ["The engine and the builder are GPL-3.0-only (LICENSE.txt). The engine's creature AI and traps follow",
            "TR1X/TRX by LostArtefacts, GPL-3. Both are made with the following, under these licences.", ""]
     for title, path in parts:
