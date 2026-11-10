@@ -24,7 +24,7 @@ feeds the modules from its scenes. Done when the lab builds from
 meshes as the renderer reads them (meshrot.dsp's groups, face sets,
 materials) and the rooms' geometry (every room's vertices, then faces as
 they fit) as a block the loader reads straight into high work RAM; the
-level file keeps the rest. The remastered colour tables and the inventory's
+level file keeps the rest. The colour tables and the inventory's
 item textures load into low work RAM, and the texture entries are read
 where the level file holds them (issue 242). The lab's scenes take their
 meshes from the same packed data. Done when the lab is exact on scenes made

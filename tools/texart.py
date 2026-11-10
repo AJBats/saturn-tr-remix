@@ -1,4 +1,4 @@
-"""Texture art for the remaster, shared by the packer (pack_level.py) and the
+"""Texture art, shared by the packer (pack_level.py) and the
 crunch lab (tools/crunch), so the game draws what the lab measured.
 
 A texture here is its 4-bit texels (an h x w array of colour indices) with

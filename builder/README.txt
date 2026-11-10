@@ -1,4 +1,4 @@
-Tomb Raider for the Sega Saturn, remastered: {release}
+Tomb Raider for the Sega Saturn: {release}
 https://github.com/AJBats/saturn-tr-remix (branch {branch}, commit {commit})
 
 A new engine for the 1996 Saturn Tomb Raider, running on a real Saturn: the game's
@@ -16,7 +16,13 @@ with it. The disc you build holds the game's data, so please don't share it.
 
 WHAT YOU NEED
 
+[windows]
 - Windows 10 or 11, 64-bit.
+[linux]
+- Linux on a 64-bit PC (x86-64) with glibc 2.28 or newer: Ubuntu 20.04, Debian 10,
+  Fedora 29 or later, or any current distribution. For the window, a desktop: X11,
+  or Wayland with XWayland.
+[both]
 - A rip of your Tomb Raider disc for the Saturn: the USA release, T-7910H. It must
   be a .cue file with one .bin file a track beside it, which is what redumper,
   DiscImageCreator and most rippers make. A .zip of the rip works too. The builder
@@ -30,15 +36,28 @@ WHAT YOU NEED
 
 HOW TO USE IT
 
+[windows]
 1. Unzip this somewhere you can save files, like your Documents folder.
 2. Run "Tomb Raider Saturn Builder.exe" in the "Tomb Raider Saturn Builder" folder.
+[linux]
+1. Unpack this somewhere you can save files, like your home folder:
+   tar xzf {archive}
+2. Run tomb-raider-saturn-builder in the tomb-raider-saturn-builder folder: double-
+   click it, if your file manager runs programs, or from a terminal in that folder:
+   ./tomb-raider-saturn-builder
+[both]
 3. Press Choose for your Saturn disc and pick its .cue file (or its .zip). Do the
    same for the PlayStation disc if you have it. Each is checked when you pick it.
-4. Press BUILD THE DISC. It takes a few minutes: the builder repacks every level,
-   with the remaster's textures, from your disc.
+4. Press BUILD THE DISC. It takes a few minutes: the builder repacks every level
+   from your disc, with the reworked textures.
 5. The disc is written to a "Tomb Raider Saturn - {release}" folder next to
    the builder, as tomb.cue and its tracks. Play it in an emulator, or on a real
    Saturn with an ODE such as the Satiator.
+[linux]
+
+Without a window, the same build from a terminal:
+   ./tomb-raider-saturn-builder --saturn SATURN.cue [--ps1 PS1.cue] --out FOLDER
+[both]
 
 
 IN THIS SAMPLE
@@ -50,16 +69,31 @@ IN THIS SAMPLE
 
 IF IT WON'T START
 
+[windows]
 - "Windows protected your PC": the builder isn't signed, so Windows warns about it.
   Click "More info", then "Run anyway".
 - Some antivirus programs distrust programs packaged with PyInstaller, as this one
   is. Its source is in the repository (builder/), if you'd rather build it yourself.
+[linux]
+- "version `GLIBC_...' not found": your system is older than the builder supports.
+- "couldn't connect to display": the window needs X11, or XWayland under Wayland.
+  The terminal build above needs neither.
+- The builder's window draws its text with X's own fonts, so it looks plainer than
+  your desktop's programs. That's expected.
+[both]
 
 
 NOTES
 
+[windows]
 - Tested on a real NTSC Saturn with a Satiator, and in Mednafen. Other ODEs, the
   Saroo, burned discs and PAL Saturns haven't been tried.
+[linux]
+- The disc was tested on a real NTSC Saturn with a Satiator, and in Mednafen. Other
+  ODEs, the Saroo, burned discs and PAL Saturns haven't been tried. This Linux
+  builder was tested on Ubuntu 24.04 under WSL; it makes the same disc, byte for
+  byte, as the Windows one.
+[both]
 - If something goes wrong, please open an issue, with the builder.log from the
   disc's folder if the builder stopped:
   https://github.com/AJBats/saturn-tr-remix/issues
@@ -68,5 +102,6 @@ The engine and this builder are GPL-3.0-only (LICENSE.txt); their source is in t
 repository at the commit above. The engine builds on OpenLara (BSD-2-Clause, Timur
 Gagiev) and libyaul (MIT, Israel Jacquez), and its creature AI and traps follow
 TR1X/TRX (GPL-3, LostArtefacts). THIRD-PARTY-NOTICES.txt holds their licences and
-those of what the builder bundles: Python, NumPy, SciPy, Pillow, Tcl/Tk and
-PyInstaller's bootloader. Tomb Raider (c) Core Design / Eidos.
+those of what the builder bundles: Python and the libraries its build includes,
+NumPy, SciPy, Pillow, Tcl/Tk and PyInstaller's bootloader. Tomb Raider (c) Core
+Design / Eidos.

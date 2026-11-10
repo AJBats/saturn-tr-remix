@@ -22,6 +22,7 @@ import contextlib
 import hashlib
 import io
 import json
+import multiprocessing
 import os
 import re
 import runpy
@@ -103,7 +104,9 @@ class Rip:
         self.tracks = self._parse(text)
         for t in self.tracks:
             if not self.exists(t["file"]):
-                raise Failed(f"The cue sheet names {t['file']}, which isn't beside it.")
+                near = [n for n in self._names() if n.lower() == t["file"].lower()]
+                raise Failed(f"The cue sheet names {t['file']}, which isn't beside it."
+                             + (f" There is a {near[0]}: the names must match, capitals too." if near else ""))
 
     @staticmethod
     def _cue_beside(path):
@@ -140,6 +143,12 @@ class Rip:
 
     def _member(self, name):
         return f"{self.dir}/{name}" if self.dir else name
+
+    def _names(self):
+        if self.zip:
+            return [n[len(self.dir) + 1:] if self.dir else n for n in self.zip.namelist()
+                    if os.path.dirname(n) == self.dir]
+        return os.listdir(self.dir)
 
     def exists(self, name):
         if self.zip:
@@ -310,9 +319,10 @@ def build(saturn, ps1, out, say=print, step=lambda done, total: None, detail=Non
         data_dir = os.path.join(work, "disc", "DATA")
         levels = os.path.join(work, "levels")
         os.makedirs(levels)
-        say(f"Packing the {len(LEVELS)} levels: the remaster's textures, meshes, rooms and sounds")
+        say(f"Packing the {len(LEVELS)} levels: textures, meshes, rooms and sounds")
         n = workers or max(1, min(os.cpu_count() or 1, 6))
-        with concurrent.futures.ProcessPoolExecutor(n) as pool:
+        # spawned, as Windows always does: forking the window's process, threads and all, isn't safe on Linux
+        with concurrent.futures.ProcessPoolExecutor(n, mp_context=multiprocessing.get_context("spawn")) as pool:
             jobs = {pool.submit(pack_level, lv, data_dir, levels, psx_dir): lv for lv in LEVELS}
             for i, job in enumerate(concurrent.futures.as_completed(jobs), 1):
                 detail(job.result().strip())

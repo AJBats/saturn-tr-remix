@@ -1,4 +1,4 @@
-# Tomb Raider Saturn remaster: README.md has what the build needs and the steps.
+# Tomb Raider Saturn: README.md has what the build needs and the steps.
 #
 #   make disc         $(BUILD)/disc/tomb.cue (our 0MAIN.BIN + the original audio tracks)
 #   make extract-ps1  the PlayStation disc's data, for its sound samples (optional)

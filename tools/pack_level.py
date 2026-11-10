@@ -18,8 +18,8 @@ rest with a quarter-resolution set (ROOMTQTR), which the blob leaves out but
 for its colour tables. The game rearranges a texture into quadrants for the
 faces it splits. Two mip levels follow the set, for faces drawn small.
 
-Room textures are drawn as the remaster's art has them (tools/texart.py, as
-the crunch lab measured): each full-res texture's texel-to-texel grain cut
+Room textures are drawn as tools/texart.py's art has them (as the crunch lab
+measured): each full-res texture's texel-to-texel grain cut
 and its 2-6 texel detail lifted, in a colour table fitted to it; each mip
 level reduced in a colour table of its own instead of dithered into the
 full texture's. A room texture's three tables (full res, half, quarter) lie
@@ -648,7 +648,7 @@ class TextureTable:
         return self.index[key]
 
     def room_art(self):
-        """The room textures as the remaster draws them (tools/texart.py):
+        """The room textures as tools/texart.py draws them:
         each full-res texture's grain reworked in a table fitted to it
         (bands_reweighted), and each mip level reduced from that in a table of
         its own (own_palette), the tables side by side in the blob. Textures
@@ -683,7 +683,7 @@ class TextureTable:
                     struct.pack_into(">16H", self.blob, colr + level * TABLE_BYTES, *table)
 
     def object_art(self):
-        """The meshes' textures as the remaster draws them: each block of
+        """The meshes' textures as tools/texart.py draws them: each block of
         texels faces draw (an object texture, or a triangle's parallelogram
         variant, with end codes past the triangle) reworked in place by
         bands_reweighted, in its colour table, and a turned texture's

@@ -1,4 +1,4 @@
-# Tomb Raider for the Sega Saturn, remastered
+# Tomb Raider for the Sega Saturn
 
 A new engine for the 1996 game, running on a real Saturn: OpenLara's game logic,
 corrected against the retail game, on a renderer written for the Saturn's two
@@ -13,7 +13,7 @@ to differ from the retail game or to be broken.
 
 ## Just want to play?
 
-On Windows, download the disc builder from
+On Windows, or Linux on a 64-bit PC, download the disc builder from
 [Releases](https://github.com/AJBats/saturn-tr-remix/releases). It takes rips of your
 own discs, the Saturn one and the PlayStation one if you have it, and builds the disc
 in a few minutes; its read-me has the details. Each release is built from a branch of
