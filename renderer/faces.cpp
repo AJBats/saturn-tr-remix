@@ -864,17 +864,15 @@ static void roomQuadCareful(const FaceRoom &room, RoomTextures &t, RoomSplit &sp
 // held at the plane, and only a tile with a corner behind the camera, or that
 // comes out facing away, is left out. Each piece sorts by its own farthest
 // corner. Past NEAR_SPLIT a quad stays whole, the warp too small to see go.
-// The pieces are drawn without Fast, as the original's, and so is a quad drawn
-// whole within NO_FAST_NEAR: the texels it reads are the pieces' (the original
-// splits to 4096; nearer, ours costs VDP1 and the slave less).
+// The pieces are drawn without Fast, as the original's; a quad drawn whole keeps
+// it. The engineering sample splits to 4096, as the original (OPEN_ISSUES 306, A).
 //
 // facesroom.s does this itself for a quad with every corner in front of the
 // plane and in reach of the frame's coordinates, from the corners' screen places
 // and depths. This takes the rest, whose corners only room space can place.
 
 #define NEAR_PLANE      80      // phd_InitWindow's
-#define NEAR_SPLIT      3072    // facesroom.s .LnearSplitFar's too
-#define NO_FAST_NEAR    4096    // facesroom.s .LnearFastFar's too
+#define NEAR_SPLIT      4096    // facesroom.s .LnearSplitFar's too
 #define NEAR_CODE       __attribute__((section(".text.facesnear")))   // out of the hot code's order (saturn.ld)
 #define OFF_FRAME_MAX   128     // new corners are held this close to the frame
 #define NEAR_TRUST      1000    // a corner's coordinates past it go to C (facesroom.s .LnearTrust)
@@ -1166,11 +1164,7 @@ NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const 
     if (!coloured && cacheable(t, flags)) {
         const_cast<RoomQuad &>(q).flags = (q.flags & ROOM_QUAD_FLAGS) | ((variant | 8) << 24);
     }
-    uint32_t* w = list.cmd;
     roomCommand(list, t, coloured ? flags : wholeTexture(t, flags, variant), a, b, c, d, farthest >> OT_SHIFT);
-    if (farthest <= NO_FAST_NEAR && w != list.cmd) {
-        w[1] &= ~(uint32_t(PMOD_HSS) << 16);    // as facesroom.s .Ltailed
-    }
 }
 
 #endif

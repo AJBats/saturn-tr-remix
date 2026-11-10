@@ -1251,6 +1251,8 @@ struct Inventory
                 {
                     OPTION_BTN(STR_TR1_LEVEL1, LVL_TR1_1);
                     OPTION_BTN(STR_TR1_LEVEL2, LVL_TR1_2);
+                    OPTION_BTN(STR_TR1_LEVEL3A, LVL_TR1_3A);    // the engineering sample's showcase levels
+                    OPTION_BTN(STR_TR1_LEVEL7A, LVL_TR1_7A);
                     if (osCheckSave())
                     {
                         OPTION_SPACE();
