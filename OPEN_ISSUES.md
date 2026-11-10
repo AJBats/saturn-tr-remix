@@ -3776,6 +3776,16 @@ word. Of the same kind and already open: 264, 265, 266.
 
 ## Closed
 
+### 308. A skipped video leaves the screen black for a minute on the Saturn
+*Closed 2026-11-10: fmvPlay ends its stream (cd.cpp cdStreamStop): the drive paused, then what it read dropped.*
+
+*Kind: bug - Size: every skip of a video, on the Saturn - Fix: small*
+
+- Reported by the user on the Engineering Sample 1 disc, 2026-11-10: skipping an opening video with START sometimes leaves the screen black a long while, then the ring comes up.
+- A START made up by the game (`make FMV_SKIP_AT=1200`: every video skipped 20 s in, so only CAFE is) shows it unaided on the Saturn: shots every 2 s after the skip were black for about 58 s, the title picture never showed, then the ring. Skipped 150 vblanks in (2.5 s), nothing. Mednafen never shows it.
+- Why: a skip left the drive reading the rest of the video into the CD block's buffer. The next read (the title picture's, `screenShow`) went in while it did, and on the Saturn its sectors never came: `cdRead` polled the sector count till its timeout (0x240000 commands, about a minute) and failed, and `screenShow` drops a picture it can't read, so black. Retail's player closes the file on a skip (`06043068` -> `060433f4`).
+- The same disc with the fix on the Saturn: one black shot after the skip, the title picture, the ring.
+
 ### 306. Room textures at full size show half their texels along each line (Fast)
 *Closed 2026-11-09, the user's call after a Saturn matrix: B, 8fd3df1. Within 4096 every texel, as retail: split pieces and whole faces drawn without Fast, the near split at 3072. Past 4096 Fast stays: rooms without Fast everywhere cost 2.3 to 5.4 ms of VDP1 and took the ledge and the vines to 20 fps.*
 
@@ -3798,6 +3808,7 @@ word. Of the same kind and already open: 264, 265, 266.
 - Ways: Texels 1 (free; a full-size face's longest line is never shrunk, the band takes the filtered half size); rooms without Fast at 1.0, or at 1.5 for every texel as retail shows them; or ripmaps (half wide, full tall) for the band, today's VDP1 time with filtered texels. Pictures: scratchpad mips/capwall (the same list four ways) and mips/ways_out.
 - Saturn, HW_LOG test discs, VDP1 ms a list (30 fps unless said): main 4e60502 / A (pieces without Fast) / no Fast, Texels 1.5 / no Fast, Texels 1.0 / B (split 3072, no Fast within 4096). Ledge 28.1 / 29.0 / 33.6 (20 fps) / 29.1 / 27.4. Lost Valley ledge (285) 24.7 / 24.7 / 27.8 / 24.7 / 24.7. Lost Valley plants 25.3 / 25.4 / 28.3 / 25.3 / 25.3. Vines, before their plane, 32.5 (29.1 fps) / 33.9 (20) / 37.7 (20) / 33.9 (20) / 32.8 (25.6). Cistern diagonal 21.7 / 22.2 / 24.0 / 22.5 / 21.4. Cistern flooded 24.4 / 24.9 / 27.2 / 25.1 / 24.1. With the vine plane: main 24.44, B 24.90. B's slave room work 0.3 to 1.0 ms under A's; the master's work the same in every way. Traces: build/night/mx_*.json.
 - Backup, the user's word 2026-11-09: A (split at 4096, the pieces without Fast, whole faces with Fast) missed only at the vines, before their plane (+1.4 ms over main, 20 fps); the plane left them 24.44 ms, so A should fit there too (not measured with it). B stays until something calls for A. To go to A: `NEAR_SPLIT` (faces.cpp) and `.LnearSplitFar` (facesroom.s) to 4096; with `.LnearFastFar` also 4096 only a face too near to split but drawn whole (sparse, a cache miss) still drops Fast.
+- The Engineering Sample 1 release is A exactly as measured: branch `sample`, 8d7a9e5 (the split to 4096 and no `CLIP_NO_FAST` mark; Mednafen tallies against the trial disc: the Cistern the same, the ledge one tied face turned the other way).
 
 ### 305. A turned texture that keeps turning, frame after frame
 *Closed 2026-11-09: the turn margin, e3869d5 (merged 02e919d, fixed in the code 8fd3df1): a face keeps its turn till the other way saves an eighth of its lines. Within 4096 room faces are drawn without Fast now (306), so there are no streaks to turn there.*

@@ -270,12 +270,22 @@ static void decodeFrame(const uint8_t* data, uint32_t size, uint32_t* dst, int32
 // --- Playback -------------------------------------------------------------
 
 static uint16_t gPad;
+#ifdef FMV_SKIP_AT
+static uint32_t gSkipAt;    // testing: the vertical blank a START is made up at, 0 none
+#endif
 
 // START newly pressed
 static bool skipPressed()
 {
     uint16_t old = gPad;
     gPad = padButtons();
+#ifdef FMV_SKIP_AT
+    if (gSkipAt && int32_t(gVblankCount - gSkipAt) >= 0)
+    {
+        gSkipAt = 0;
+        return true;
+    }
+#endif
     return (gPad & PAD_START) && !(old & PAD_START);
 }
 
@@ -509,14 +519,21 @@ void fmvPlay(const char* name)
     bool started = false;
 
     gPad = 0xFFFF; // a START still held from before doesn't skip
+#ifdef FMV_SKIP_AT
+    gSkipAt = gVblankCount + FMV_SKIP_AT;
+#endif
 #ifdef HW_LOG
     gArrived = gChanged = gMisread = 0;
 #endif
 
+    bool skipped = false;
     for (uint32_t index = 0; index < count; )
     {
         if (skipPressed())
+        {
+            skipped = true;
             break;
+        }
 
         const uint8_t* entry = table + index * 16;
         uint32_t offset = headerSize + be32(entry) - base;
@@ -606,7 +623,7 @@ void fmvPlay(const char* name)
     }
 
     // let the sound play out, unless skipped
-    while (audioOn && !skipPressed())
+    while (audioOn && !skipped && !skipPressed())
     {
         uint32_t played = (gVblankCount - audioStartVbl) * SAMPLES_PER_100_VBL / 100;
         if (played >= written)
@@ -616,6 +633,7 @@ void fmvPlay(const char* name)
     if (audioOn) {
         audioStop();
     }
+    cdStreamStop();
 #ifdef HW_LOG
     checkEnd(bitmap, lba + firstSector);
 #endif

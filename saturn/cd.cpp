@@ -51,6 +51,7 @@
 #define STATUS_CODE(cr1)    (((cr1) >> 8) & 0x0F)
 #define STATUS_WAIT         0x80
 #define STATUS_REJECT       0xFF
+#define STATUS_PAUSE        0x01
 #define STATUS_OPEN         0x06
 #define STATUS_NO_DISC      0x07
 #define STATUS_ERROR        0x09
@@ -313,6 +314,21 @@ int32_t cdStreamRead(void* dst, uint32_t maxSectors)
 
     int ret = transfer((uint8_t*)dst, ready * CD_SECTOR_SIZE);
     return ret ? ret : int32_t(ready);
+}
+
+void cdStreamStop()
+{
+    gAudio = false;
+    cmdChecked(0, 0x11FF, 0xFFFF, 0, 0);    // seek to "pause": the drive stops reading
+    // till it has (Get Status)
+    for (int32_t i = 0; i < 2000; i++)
+    {
+        CdRegs in = { 0x0000, 0, 0, 0 };
+        CdRegs res;
+        if (cdCommand(0, in, &res) == 0 && STATUS_CODE(res.cr1) == STATUS_PAUSE)
+            break;
+    }
+    cmdResetSelector(0, 0);     // what it read meanwhile dropped
 }
 
 static uint32_t be32(const uint8_t* p)
