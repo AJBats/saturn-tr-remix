@@ -13,11 +13,8 @@ to differ from the retail game or to be broken.
 
 ## Just want to play?
 
-On Windows, or Linux on a 64-bit PC, download the disc builder from
-[Releases](https://github.com/AJBats/saturn-tr-remix/releases). It takes rips of your
-own discs, the Saturn one and the PlayStation one if you have it, and builds the disc
-in a few minutes; its read-me has the details. Each release is built from a branch of
-its own, named in its notes. The rest of this page is for building from source.
+Check out the [Releases](https://github.com/AJBats/saturn-tr-remix/releases) section
+for engineering samples if you want to try it out for yourself.
 
 ## What you need
 
