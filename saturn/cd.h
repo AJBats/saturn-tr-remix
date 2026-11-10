@@ -24,6 +24,10 @@ int32_t cdLoadFile(const char* path, void* dst, uint32_t maxSize);
 // dst and returns how many (0 if none yet), or a negative error.
 int cdStreamStart(uint32_t lba, uint32_t sectors);
 int32_t cdStreamRead(void* dst, uint32_t maxSectors);
+// Ends a stream, finished or not: the drive paused and what it had read dropped, so
+// the next read starts as after any other (one issued while the drive still reads
+// the stream's rest into a full buffer can wait a minute on a Saturn, and fail).
+void cdStreamStop();
 
 // Plays an audio track once, to its end; reads stop it.
 int cdPlayTrack(uint32_t track);

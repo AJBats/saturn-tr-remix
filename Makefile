@@ -92,6 +92,9 @@ endif
 ifdef VOID_VIEW
 CFLAGS  += -DVOID_VIEW  # testing: what nothing draws in the scene shows magenta
 endif
+ifdef FMV_SKIP_AT
+CFLAGS  += -DFMV_SKIP_AT=$(FMV_SKIP_AT)    # testing: every video skipped so many vertical blanks in, as if START were pressed
+endif
 ifdef SOUND_BENCH
 CFLAGS  += -DSOUND_BENCH    # testing, with HW_LOG: the sound CPU's decoding speed at boot (sound.cpp)
 endif
