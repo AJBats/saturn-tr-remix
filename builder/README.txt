@@ -1,5 +1,5 @@
 Tomb Raider for the Sega Saturn, remastered: {release}
-https://github.com/AJBats/saturn-tr-remix
+https://github.com/AJBats/saturn-tr-remix (branch {branch}, commit {commit})
 
 A new engine for the 1996 Saturn Tomb Raider, running on a real Saturn: the game's
 logic from OpenLara, checked against the retail game, on a renderer written for the
@@ -64,6 +64,9 @@ NOTES
   disc's folder if the builder stopped:
   https://github.com/AJBats/saturn-tr-remix/issues
 
-The engine is GPL-3.0-only; its source is in the repository. It builds on OpenLara
-(BSD-2-Clause, Timur Gagiev) and libyaul (MIT, Israel Jacquez), and its creature AI
-and traps follow TR1X/TRX (GPL-3, LostArtefacts). Tomb Raider (c) Core Design / Eidos.
+The engine and this builder are GPL-3.0-only (LICENSE.txt); their source is in the
+repository at the commit above. The engine builds on OpenLara (BSD-2-Clause, Timur
+Gagiev) and libyaul (MIT, Israel Jacquez), and its creature AI and traps follow
+TR1X/TRX (GPL-3, LostArtefacts). THIRD-PARTY-NOTICES.txt holds their licences and
+those of what the builder bundles: Python, NumPy, SciPy, Pillow, Tcl/Tk and
+PyInstaller's bootloader. Tomb Raider (c) Core Design / Eidos.

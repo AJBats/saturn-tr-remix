@@ -1,4 +1,5 @@
-"""Extract the ISO9660 filesystem and IP.BIN from a raw MODE1/2352 Saturn data track.
+"""Extract the ISO9660 filesystem and IP.BIN from a disc's raw 2352-byte data
+track: the Saturn's, in MODE1 sectors, or the PlayStation's, in MODE2 form 1.
 
 Usage: python tools/extract_disc.py <track01.bin> <out_dir>
 """
@@ -7,18 +8,29 @@ import struct
 import sys
 
 RAW_SECTOR = 2352
-USER_OFFSET = 16
 USER_SIZE = 2048
+PVD_LBA = 16
+SYNC = b"\x00" + b"\xff" * 10 + b"\x00"
+# Where a sector's user data starts, by its mode (its byte 15): mode 2 has a
+# subheader of 8 bytes before it.
+USER_OFFSETS = {1: 16, 2: 24}
 
 
 class Track:
     def __init__(self, path):
+        if not os.path.exists(path):
+            sys.exit(f"{path}: no such file (README.md, The discs)")
         self.f = open(path, "rb")
+        self.f.seek(PVD_LBA * RAW_SECTOR)
+        header = self.f.read(16)
+        if header[:12] != SYNC or header[15:16] not in (b"\x01", b"\x02"):
+            sys.exit(f"{path}: not a raw 2352-byte data track (README.md, The discs)")
+        self.user_offset = USER_OFFSETS[header[15]]
 
     def read(self, lba, count=1):
         out = bytearray()
         for i in range(count):
-            self.f.seek((lba + i) * RAW_SECTOR + USER_OFFSET)
+            self.f.seek((lba + i) * RAW_SECTOR + self.user_offset)
             out += self.f.read(USER_SIZE)
         return bytes(out)
 
@@ -71,8 +83,8 @@ def main():
     with open(os.path.join(out_dir, "IP.BIN"), "wb") as f:
         f.write(track.read(0, 16))
 
-    pvd = track.read(16)
-    assert pvd[1:6] == b"CD001", "no ISO9660 primary volume descriptor at LBA 16"
+    pvd = track.read(PVD_LBA)
+    assert pvd[1:6] == b"CD001", f"no ISO9660 primary volume descriptor at LBA {PVD_LBA}"
     root = pvd[156:156 + 34]
     root_lba = struct.unpack_from("<I", root, 2)[0]
     root_size = struct.unpack_from("<I", root, 10)[0]

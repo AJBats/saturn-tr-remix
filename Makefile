@@ -1,16 +1,29 @@
-# Tomb Raider Saturn remaster
+# Tomb Raider Saturn remaster: README.md has what the build needs and the steps.
 #
-# external_resources/ (gitignored) must contain the Tomb Raider (USA) Redump
-# image extracted to external_resources/tomb_raider_usa/.
+#   make disc         $(BUILD)/disc/tomb.cue (our 0MAIN.BIN + the original audio tracks)
+#   make extract-ps1  the PlayStation disc's data, for its sound samples (optional)
+#   make ghidra       headless analysis of the original 0MAIN.BIN
 #
-#   make disc     $(BUILD)/disc/tomb.cue (our 0MAIN.BIN + the original audio tracks)
-#   make ghidra   headless analysis of the original 0MAIN.BIN
-#
-# First run: python tools/setup_toolchain.py (pinned GCC 14.2 into toolchain/).
 # Toolchain, flags and output directory can be overridden, e.g.
 #   make disc SH_BIN=... SH_PREFIX=sh-elf- OPT=-O2 BUILD=build/gcc9-O2
 
-PY      ?= python -I
+# On Windows, by OS or by make's own build: MSYS2's make can't see OS
+WINDOWS := $(filter Windows_NT,$(OS))$(filter %msys %cygwin,$(MAKE_HOST))
+
+# What the rules below take for granted, and fail without in ways that don't say so
+ifeq ($(filter grouped-target,$(.FEATURES)),)
+$(error GNU Make 4.3 or newer is needed, this is $(MAKE_VERSION): see README.md)
+endif
+ifdef WINDOWS
+ifneq ($(shell sh -c "echo found"),found)
+$(error No POSIX shell on PATH: run make from Git Bash, see README.md)
+endif
+endif
+
+# python3 where there is no python (Debian, Ubuntu)
+ifndef PY
+PY := $(if $(shell command -v python 2>/dev/null),python,python3) -I
+endif
 GHIDRA  ?= C:/Users/albat/Documents/ghidra_12.0_PUBLIC_20251205/ghidra_12.0_PUBLIC
 OPT     ?= -Os
 BUILD   ?= build
@@ -18,17 +31,25 @@ BUILD   ?= build
 # Pinned toolchain: GCC 14.2.0 sh2eb-elf, installed by tools/setup_toolchain.py.
 TOOLCHAIN := toolchain/gcc-14.2.0
 SH_PREFIX ?= sh2eb-elf-
-ifeq ($(OS),Windows_NT)
+ifdef WINDOWS
 SH_BIN  ?= $(TOOLCHAIN)/sh2eb-elf/bin
-PATHSEP := ;
+# make's MSYS2 and Cygwin builds keep PATH the POSIX way
+PATHSEP := $(if $(filter %msys %cygwin,$(MAKE_HOST)),:,;)
+else
+UNAME   := $(shell uname -s)
+ifeq ($(UNAME),Darwin)
+SH_BIN  ?= $(TOOLCHAIN)/mac/sh2eb-elf/bin
 else
 SH_BIN  ?= $(TOOLCHAIN)/linux/sh2eb-elf/bin
+endif
 PATHSEP := :
 endif
 
 # The sound CPU's programs: GNU binutils for the 68000 (tools/setup_toolchain.py).
-ifeq ($(OS),Windows_NT)
+ifdef WINDOWS
 M68K_PREFIX ?= toolchain/m68k/m68k-apple-macos-
+else ifeq ($(UNAME),Darwin)
+M68K_PREFIX ?= m68k-elf-
 else
 M68K_PREFIX ?= m68k-linux-gnu-
 endif
@@ -125,15 +146,25 @@ M68K_HEADERS := $(patsubst saturn/%.68k,$(BUILD)/gen/%_m68k.h,$(wildcard saturn/
 HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h renderer/*.h) $(DSP_HEADERS) $(M68K_HEADERS) \
 	$(BUILD)/gen/depth_hints.h $(BUILD)/gen/occluders.h $(FLAGS_FILE)
 
-.PHONY: all disc levels dspbench vdp1bench lab extract ghidra check-toolchain
+.PHONY: all disc levels dspbench vdp1bench lab extract extract-ps1 ghidra check-toolchain check-python
 
 # keep intermediate files (0MAIN.BIN) produced through pattern rules
 .SECONDARY:
 
 all: disc
 
+# GCC on Windows can't open a path of 260 characters or more, and calls the file
+# missing: the deepest header the build includes, as GCC names it, must fit.
+GCC_DEEPEST := $(abspath $(SH_BIN))/../lib/gcc/sh-elf/14.2.0/../../../../sh-elf/include/c++/14.2.0/bits/stl_iterator_base_types.h
+
 check-toolchain:
 	@test -d "$(SH_BIN)" || { echo "No SH toolchain at $(SH_BIN): run python tools/setup_toolchain.py"; exit 1; }
+ifdef WINDOWS
+	@p='$(GCC_DEEPEST)'; test $${#p} -lt 260 || { echo "This checkout's path is too long for GCC on Windows: move it to one of 130 characters or fewer (README.md)"; exit 1; }
+endif
+
+check-python:
+	@$(PY) -c "import numpy, scipy, PIL" 2>/dev/null || { echo "$(PY) can't import numpy, scipy and PIL: activate the virtual environment that has them (README.md)"; exit 1; }
 
 $(BUILD)/obj/%.c.o: %.c $(HEADERS) | check-toolchain
 	@mkdir -p $(@D)
@@ -179,7 +210,9 @@ $(BUILD)/0MAIN.elf: $(patsubst %,$(BUILD)/obj/%.o,$(GAME_SRC)) saturn/saturn.ld
 # Levels packed from the original disc's DATA files (tools/pack_level.py),
 # with sound samples from the PlayStation version's levels where they have
 # them (external_resources/ps1: the PlayStation disc extracted; optional)
-PSXDATA := $(ER)/ps1/files/files/PSXDATA
+PS1TRACK ?= $(ER)/ps1/Tomb Raider (USA) (Rev 1) (Track 01).bin
+PS1OUT  := $(ER)/ps1/files
+PSXDATA := $(PS1OUT)/files/PSXDATA
 LEVELS  := TITLE GYM LEVEL1 LEVEL2 LEVEL3A LEVEL3B LEVEL4 LEVEL5 LEVEL6 LEVEL7A LEVEL7B \
            LEVEL8A LEVEL8B LEVEL8C LEVEL10A LEVEL10B LEVEL10C CUT1 CUT2 CUT3 CUT4
 GAME_DISC := $(foreach l,$(LEVELS),$(foreach e,PKD TEX SUB SFX ITX MSH,DATA/$(l).$(e)=build/data/$(l).$(e)))
@@ -205,10 +238,11 @@ build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%
 		tools/pack_level.py tools/texart.py tools/diet.py tools/trsat.py tools/trpsx.py tools/sfx.py tools/meshstore.py \
 		tools/facepack.py tools/roomrank.py tools/planepack.py saturn/planes.txt $(wildcard saturn/plane_paint/*.txt) \
 		openlara/common.h saturn/vram.h saturn/sound.h $(DISC)/filelist.txt $(wildcard $(PSXDATA)/*.PSX) \
-		build/data/object_art
+		build/data/object_art | check-python
 	OBJECT_ART=$(OBJECT_ART) $(PY) tools/pack_level.py $(DISC)/files/DATA $* build/data/$*.PKD $(PSXDATA)
 
 disc: $(BUILD)/disc/tomb.cue
+	$(if $(wildcard $(PSXDATA)/*.PSX),,@echo "Note: this disc has the retail Saturn sound samples. For the PlayStation's: make extract-ps1 (README.md)")
 $(eval $(call DISC_RULE,$(BUILD),$(GAME_DISC)))
 
 # The SCU DSP benchmark (dspbench/bench.cpp): a program of its own, on a disc
@@ -331,8 +365,16 @@ $(LAB)/disc/tomb.cue: $(LAB_SCENE_CHOICE)
 
 extract: $(DISC)/filelist.txt
 
+# The original disc's files, which the disc rule lists, come with its extraction
+$(DISC)/files/%: | $(DISC)/filelist.txt ;
+
 $(DISC)/filelist.txt:
 	$(PY) tools/extract_disc.py "$(TRACK1)" $(DISC)
+
+extract-ps1: $(PS1OUT)/filelist.txt
+
+$(PS1OUT)/filelist.txt:
+	$(PY) tools/extract_disc.py "$(PS1TRACK)" $(PS1OUT)
 
 # Headless Ghidra import + analysis of the original program, discovery of
 # functions reached only through pointers, then export of functions.tsv,

@@ -97,6 +97,41 @@ def write_known(known):
         json.dump(known, f, indent=1)
 
 
+def libyaul_notice():
+    """libyaul's MIT notice, as saturn/cd.cpp carries it."""
+    lines = open(os.path.join(TREE, "saturn", "cd.cpp"), encoding="utf-8").read().splitlines()
+    first = next(i for i, l in enumerate(lines) if "Copyright (c) 2012-2023 Israel Jacquez" in l)
+    last = next(i for i, l in enumerate(lines) if "DEALINGS IN THE SOFTWARE" in l)
+    return "\n".join(l[2:].strip() for l in lines[first:last + 1])
+
+
+def notices():
+    """THIRD-PARTY-NOTICES.txt: the licences of the code the game and the builder are made with."""
+    base = open(os.path.join(VENV, "pyvenv.cfg")).read().split("home = ")[1].splitlines()[0].strip()
+    site = os.path.join(VENV, "Lib", "site-packages")
+
+    def dist(name, *rel):
+        info = next(d for d in os.listdir(site) if d.lower().startswith(name + "-") and d.endswith(".dist-info"))
+        return os.path.join(site, info, *rel)
+
+    parts = [
+        ("OpenLara (the game's logic), BSD-2-Clause", os.path.join(TREE, "openlara", "LICENSE")),
+        ("libyaul (the CD block commands in saturn/cd.cpp, the font in saturn/font.cpp), MIT", None),
+        ("Python 3.10, PSF License, with what its Windows build bundles (Tcl/Tk for the builder's window "
+         "among them)", os.path.join(base, "LICENSE.txt")),
+        ("NumPy, BSD-3-Clause, with the libraries its wheel bundles", dist("numpy", "LICENSE.txt")),
+        ("SciPy, BSD-3-Clause, with the libraries its wheel bundles", dist("scipy", "LICENSE.txt")),
+        ("Pillow, MIT-CMU", dist("pillow", "licenses", "LICENSE")),
+        ("PyInstaller's bootloader, GPL-2.0-or-later with its bootloader exception", dist("pyinstaller", "licenses", "COPYING.txt")),
+    ]
+    out = ["The engine and the builder are GPL-3.0-only (LICENSE.txt). Their creature AI and traps follow",
+           "TR1X/TRX by LostArtefacts, GPL-3. They are made with the following, under these licences.", ""]
+    for title, path in parts:
+        text = libyaul_notice() if path is None else open(path, encoding="utf-8", errors="replace").read()
+        out += ["=" * 78, title, "=" * 78, "", text.strip(), "", ""]
+    return "\n".join(out)
+
+
 def builder_run(exe, saturn, ps1, out, log):
     cmd = exe + ["--saturn", saturn, "--out", out, "--log", log] + (["--ps1", ps1] if ps1 else [])
     t0 = time.time()
@@ -155,8 +190,10 @@ def main():
         got = builder_run(exe, args.saturn, ps1, os.path.join(OUT, f"frozen_{tag}"), os.path.join(OUT, f"frozen_{tag}.log"))
         print(f"  program, {tag}: {got}")
 
-    readme = open(os.path.join(HERE, "README.txt"), encoding="utf-8").read().replace("{release}", args.release)
-    readme = readme.replace("\r\n", "\n").replace("\n", "\r\n")
+    branch = run(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip()
+    readme = open(os.path.join(HERE, "README.txt"), encoding="utf-8").read()
+    readme = readme.replace("{release}", args.release).replace("{branch}", branch).replace("{commit}", known["commit"])
+    crlf = lambda text: text.replace("\r\n", "\n").replace("\n", "\r\n")     # Notepad's line ends
     slug = re.sub(r"[^A-Za-z0-9]+", "-", args.release).strip("-")
     zpath = os.path.join(OUT, f"TombRaiderSaturn-{slug}-windows.zip")
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
@@ -165,7 +202,9 @@ def main():
             for n in sorted(names):
                 p = os.path.join(folder, n)
                 z.write(p, os.path.join(NAME, os.path.relpath(p, root)))
-        z.writestr(f"{NAME}/README.txt", readme)
+        z.writestr(f"{NAME}/README.txt", crlf(readme))
+        z.writestr(f"{NAME}/LICENSE.txt", crlf(open(os.path.join(TREE, "LICENSE"), encoding="utf-8").read()))
+        z.writestr(f"{NAME}/THIRD-PARTY-NOTICES.txt", crlf(notices()))
     print(f"{zpath}: {os.path.getsize(zpath) / 1e6:.1f} MB")
 
 
