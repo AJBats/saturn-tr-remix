@@ -3672,20 +3672,6 @@ over 14.6, at most 188 · Fix: medium, parked*
 - The user's reading, 2026-11-05: an illusion. Shimmers were tuned for Lara at a pool's edge. With the water plane close to the camera, as when she swims or surfaces, they stay at their largest size while the water around them grows in perspective, and near water doesn't gain density either, so they read as smaller and sparser. Not more density; perhaps scale the sprites up near the camera.
 - To read: `shimmersBorn` and `facesShimmersFrame` in renderer/faces.cpp, renderer/shimmers.s, the sheets seen from below (`up`) and what `(height < 0) != (up != 0)` and `s.owed = absOf(height) * owed` do as the camera crosses the surface.
 
-### 297. Spots the user picked in play where VDP1 is over
-*Kind: speed - Size: on the Saturn only the Caves' vines are over: 20 fps, VDP1 37.8 ms - Fix: the vines to be looked at; the rest left alone at the user's word*
-
-- The user, walking the review discs in Mednafen, 2026-11-05 (HW_NO_ENEMIES). Lara / camera / pitch and heading of the camera, as the scene page shows them:
-  - City of Khamoon, the open view, the one that matters most: room 12, Lara 28699, -1536, 32914, heading 4000; camera 27152, -2103, 32925, 0047 4047. 12 rooms, 778 commands, 46 meshes, vdp1 101, cpu 53.
-  - City of Khamoon, staring at a corner: room 12, Lara 27947, -512, 36945, heading 4034; camera 26891, -1104, 37628, ffa8 5762. 17 rooms, 748 commands, 48 meshes, vdp1 100, cpu 61. Next to 292's model spot. Nothing heavy in sight, so it's overdraw behind the wall.
-  - Natla's Mines, between two walls, a place players reach easily: room 68, Lara 51178, -9984, 93119, heading c219; camera 52791, -10400, 93038, 0b51 c216. 11 rooms, 623 commands, 39 meshes, vdp1 115, cpu 51.
-  - Caves, the vines: room 26, Lara 9590, 5888, 83354, heading 18ab; camera 8282, 5054, 82552, 0014 299a. 3 rooms, 1041 commands, 52 meshes, vdp1 138, cpu 54. The user remembers it dropping frames on the Saturn too.
-- The camera's heading is where Lara is seen from, so `AT_YAW` at the camera's heading gives the same view from `tools/hwtest.sh at`.
-- The same frames, VDP1 list, Mednafen (`tools/stepwise.py`) -> Saturn (`tools/hwtable.py`, tag u1, u1c): Khamoon corner 33.3 -> 27.4 ms; Khamoon open 33.6 -> 26.5; Natla 35.6 -> 27.2; vines 47.7 -> 37.8. The Saturn is 0.76-0.82 of Mednafen at all four. Master's work 13-15 ms at the first three, all at 29.9 fps with no wait on VDP1. Vines 19.9 fps, the master waiting 29.8 ms on VDP1, 20.1 ms of work.
-- The user played the sphinx on the Saturn: "performs perfectly fine". So no solid boxes at Khamoon or the houses for now, though the stepper shows the corner's list is 60% commands that leave no pixel: 511 of 737, 20.1 of 33.3 ms in Mednafen, nearly all room 12 hiding itself and what's behind.
-- Vines, in Mednafen: static 8 alone is 291 commands, 16.4 ms; room 26 19.1 ms, of which 9.9 ms ends up under the vines and 8.5 ms under its own faces; room 27 7.4 ms, of which 4.4 ms is its floor under room 26's. 7 ms has to go on the Saturn.
-- Natla's two houses can both be entered, so their doors and inner walls stay. The left: door 69 opened by the switch at room 71, sector 2,2; inside, Uzi ammo, a big medikit, a puzzle item. The right: door 70 worked by pads at room 67's sectors 3,5, 3,6 and 4,5; a corridor from room 74 with switch 66 in it.
-
 ### 298. Walls stand on portals, so the walk looks through more than is open
 *Kind: speed - Size: 5-31% of all portal area by level (Tihocan 31%, Cistern 17%), not yet priced in ms - Fix: small, at pack time, not asked for yet*
 
@@ -3699,34 +3685,15 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Natla's Mines, the east end of the alley: door 64 (DOOR_2, room 66, rotation 4000), seen from room 68. Lara 53710, -10003, 93106, heading 0b0c; camera 53312, -10577, 91621, pitch feb4, heading 0aa7. Reported by the user 2026-11-05, with a photo, on the disc with `FLUSH_DOORS`.
 - Not tested, by the geometry: this door faces away from the alley. `FLUSH_DOORS` keeps the half of the slab on the door's front side, so from the alley its back is flush with the wall and its edge lies behind the wall's plane. When the depth sort draws that edge after the wall, it shows on top. The two doors along the alley face it, so they don't. A door seen from both sides can't have its edge clear of the wall from both sides unless it has no thickness at all.
 
-### 305. A turned texture that keeps turning, frame after frame
-*Kind: look - Size: found 2026-11-09: the turned copies are right, the turn flips back and forth - Fix: the user's call: a margin on the turn, and Fast (306)*
+### 307. The render lab doesn't build
+*Kind: tooling - Size: every lab scene - Fix: small, the lab's mirror of room projection to catch up*
 
-- Seen by the user on the Saturn, 2026-11-09, while recording the video's mips walk: a face whose texture turns every frame, like a rotation, as if the turned path weren't getting the turned copy (or the copy weren't there) and turned the unturned texture instead.
-- Seen on a test disc, not on main: `trs_video/builds/capn3_4e60502_cavesstart_plain`, 4e60502 with the room art left out (test only: `pack_level.py`'s `room_art()` call skipped, so the rooms keep the original texels and colour tables, and the mips are reduced from those). Caves, from the level's own start, a slow walk through the first big cave. Check unmodified 4e60502 at the same place first: leaving the room art out could be the cause.
-- Recording: `build/video/saturn/mips_n3_ours_plain_walk.mp4` (27 s, 60 fps). Time and place in it not noted yet. The tinted walks at the same place (`mips_n1_ours_walk.mp4`, also without room art, and `mips_m1_tinted_walk_take2.mp4`, with it) may show it too.
-- Found 2026-11-09, in Mednafen on the same disc. The copies are right: a probe walked the Caves from the level's start and along the back wall (974 lists) and compared every cached slot's texels in VDP1 VRAM with the texture set, transposed for a turned slot: 15,583 checks, none wrong.
-- What turns is the texture's grain. A quad decides its turn (lines along the texture's rows or its columns) by which way makes fewer lines, with no margin, so a face about square on the screen flips every other frame as the camera moves: on the back-wall stretch 53 faces of 300 px or more did, some 30 times. Fast (306) reads every other texel along a line, so a texel shows as a 2-pixel streak along the lines; when the lines turn, the streaks turn with them. A texture that isn't square also changes size each flip (full and half size by turns, its texels per line differing each way).
-- The same list redrawn by the fork's VDP1 code with its turned faces drawn unturned: with Fast the back wall's streaks go from upright to flat; without Fast only which texels and rows are skipped changes. Cures: a margin on the turn (keep the last one unless the other way saves, say, an eighth of the lines), which costs next to nothing, and Fast off, or Texels 1, so the streaks aren't there to turn (306).
-
-### 306. Room textures at full size show half their texels along each line (Fast)
-*Kind: look - Size: 85% of the full-size room area along the Caves back wall - Fix: the user's call, it costs VDP1 time*
-
-- Seen in the video's mips walk, 2026-11-09: at about 19 s of `build/video/saturn/mips_sbs_B_retail_vs_ours.mp4` our back wall stretched and clumpy beside retail's, both at full size by the tint (no room art on our disc).
-- Room faces are drawn with PMOD_HSS, Fast (76e4250, 2026-10-25, before the mips: the bridge view 12 -> 15 fps then). On a line shorter than the texels it crosses, VDP1 then reads only the even ones (Mednafen `vdp1.cpp` SetupDrawLine). Texels 1.5 (`gTexels` 6, 2026-11-02) keeps full size until 1.5 texels a pixel along a face's longest line, so a full-size face between 1 and 1.5 always has Fast at work: 32 of 64 texels along each line, each over 1.3 to 2 pixels. Retail never sets HSS.
-- Probe walks in Mednafen: along the back wall, full size is 52% of the rooms' textured area on screen and Fast is at work on 85% of it; running from the level's start, 53% and 62%.
-- So 1.5 shows no more texels along lines than 1.0: in that band it has the half size's count, every other texel instead of filtered. It adds rows across the lines only.
-- Mednafen, VDP1 ms a list (the calibrated model), each way set by poke in one running game:
-
-| Spot | Today (1.5, Fast) | 1.5, rooms without Fast | 1.0, Fast | 1.0, rooms without Fast |
-|---|---|---|---|---|
-| Ledge | 32.22 | +2.76 | -0.35 | +0.78 |
-| Caves back wall, the walk's 19 s view | 20.98 | +1.57 | -0.63 | +0.18 |
-| Caves back wall, close (z 32391) | 16.32 | +1.74 | -0.13 | +1.47 |
-| Cistern | 22.87 | +1.58 | 0 | +0.87 |
-
-- Mednafen prices lines shrunk without Fast low (its own note: 100% more on the hardware). On the Saturn, Fast off on every face (rooms and meshes, a 2026-11-05 build) took the ledge's list from 28.1 to 34.5 ms, 30 to 20 fps. A Saturn run at the ledge would price the rooms-only ways.
-- Ways: Texels 1 (free; a full-size face's longest line is never shrunk, the band takes the filtered half size); rooms without Fast at 1.0, or at 1.5 for every texel as retail shows them; or ripmaps (half wide, full tall) for the band, today's VDP1 time with filtered texels. Pictures: scratchpad mips/capwall (the same list four ways) and mips/ways_out.
+- Found 2026-11-09 running the lab gauntlet (`tools/labcheck.py`) on main 4e60502: `lab/labvertices.inc` still reads and sets
+  `RoomProject.black`, which 153b7d9 (2026-11-05, the black test's face half out) took out of the renderer, so `make lab` stops
+  at `renderer/vertices.cpp` for all eight scenes. So 153b7d9 and everything since has no lab check, today's room-face work
+  (02e919d, 8fd3df1) included; that was checked in Mednafen instead, the list's room commands kind by kind against the
+  trial discs measured on the Saturn.
+- The lab has no near split (its runs have no `facesRoomNear`), so B's Fast within 4096 isn't something it can see either way.
 
 ## Production code: clean-up
 
@@ -3808,6 +3775,56 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 306. Room textures at full size show half their texels along each line (Fast)
+*Closed 2026-11-09, the user's call after a Saturn matrix: B, 8fd3df1. Within 4096 every texel, as retail: split pieces and whole faces drawn without Fast, the near split at 3072. Past 4096 Fast stays: rooms without Fast everywhere cost 2.3 to 5.4 ms of VDP1 and took the ledge and the vines to 20 fps.*
+
+*Kind: look - Size: 85% of the full-size room area along the Caves back wall - Fix: the user's call, it costs VDP1 time*
+
+- Seen in the video's mips walk, 2026-11-09: at about 19 s of `build/video/saturn/mips_sbs_B_retail_vs_ours.mp4` our back wall stretched and clumpy beside retail's, both at full size by the tint (no room art on our disc).
+- Room faces are drawn with PMOD_HSS, Fast (76e4250, 2026-10-25, before the mips: the bridge view 12 -> 15 fps then). On a line shorter than the texels it crosses, VDP1 then reads only the even ones (Mednafen `vdp1.cpp` SetupDrawLine). Texels 1.5 (`gTexels` 6, 2026-11-02) keeps full size until 1.5 texels a pixel along a face's longest line, so a full-size face between 1 and 1.5 always has Fast at work: 32 of 64 texels along each line, each over 1.3 to 2 pixels. Retail never sets HSS.
+- Probe walks in Mednafen: along the back wall, full size is 52% of the rooms' textured area on screen and Fast is at work on 85% of it; running from the level's start, 53% and 62%.
+- So 1.5 shows no more texels along lines than 1.0: in that band it has the half size's count, every other texel instead of filtered. It adds rows across the lines only.
+- Mednafen, VDP1 ms a list (the calibrated model), each way set by poke in one running game:
+
+| Spot | Today (1.5, Fast) | 1.5, rooms without Fast | 1.0, Fast | 1.0, rooms without Fast |
+|---|---|---|---|---|
+| Ledge | 32.22 | +2.76 | -0.35 | +0.78 |
+| Caves back wall, the walk's 19 s view | 20.98 | +1.57 | -0.63 | +0.18 |
+| Caves back wall, close (z 32391) | 16.32 | +1.74 | -0.13 | +1.47 |
+| Cistern | 22.87 | +1.58 | 0 | +0.87 |
+
+- Mednafen prices lines shrunk without Fast low (its own note: 100% more on the hardware). On the Saturn, Fast off on every face (rooms and meshes, a 2026-11-05 build) took the ledge's list from 28.1 to 34.5 ms, 30 to 20 fps. A Saturn run at the ledge would price the rooms-only ways.
+- Ways: Texels 1 (free; a full-size face's longest line is never shrunk, the band takes the filtered half size); rooms without Fast at 1.0, or at 1.5 for every texel as retail shows them; or ripmaps (half wide, full tall) for the band, today's VDP1 time with filtered texels. Pictures: scratchpad mips/capwall (the same list four ways) and mips/ways_out.
+- Saturn, HW_LOG test discs, VDP1 ms a list (30 fps unless said): main 4e60502 / A (pieces without Fast) / no Fast, Texels 1.5 / no Fast, Texels 1.0 / B (split 3072, no Fast within 4096). Ledge 28.1 / 29.0 / 33.6 (20 fps) / 29.1 / 27.4. Lost Valley ledge (285) 24.7 / 24.7 / 27.8 / 24.7 / 24.7. Lost Valley plants 25.3 / 25.4 / 28.3 / 25.3 / 25.3. Vines, before their plane, 32.5 (29.1 fps) / 33.9 (20) / 37.7 (20) / 33.9 (20) / 32.8 (25.6). Cistern diagonal 21.7 / 22.2 / 24.0 / 22.5 / 21.4. Cistern flooded 24.4 / 24.9 / 27.2 / 25.1 / 24.1. With the vine plane: main 24.44, B 24.90. B's slave room work 0.3 to 1.0 ms under A's; the master's work the same in every way. Traces: build/night/mx_*.json.
+
+### 305. A turned texture that keeps turning, frame after frame
+*Closed 2026-11-09: the turn margin, e3869d5 (merged 02e919d, fixed in the code 8fd3df1): a face keeps its turn till the other way saves an eighth of its lines. Within 4096 room faces are drawn without Fast now (306), so there are no streaks to turn there.*
+
+*Kind: look - Size: found 2026-11-09: the turned copies are right, the turn flips back and forth - Fix: the user's call: a margin on the turn, and Fast (306)*
+
+- Seen by the user on the Saturn, 2026-11-09, while recording the video's mips walk: a face whose texture turns every frame, like a rotation, as if the turned path weren't getting the turned copy (or the copy weren't there) and turned the unturned texture instead.
+- Seen on a test disc, not on main: `trs_video/builds/capn3_4e60502_cavesstart_plain`, 4e60502 with the room art left out (test only: `pack_level.py`'s `room_art()` call skipped, so the rooms keep the original texels and colour tables, and the mips are reduced from those). Caves, from the level's own start, a slow walk through the first big cave. Check unmodified 4e60502 at the same place first: leaving the room art out could be the cause.
+- Recording: `build/video/saturn/mips_n3_ours_plain_walk.mp4` (27 s, 60 fps). Time and place in it not noted yet. The tinted walks at the same place (`mips_n1_ours_walk.mp4`, also without room art, and `mips_m1_tinted_walk_take2.mp4`, with it) may show it too.
+- Found 2026-11-09, in Mednafen on the same disc. The copies are right: a probe walked the Caves from the level's start and along the back wall (974 lists) and compared every cached slot's texels in VDP1 VRAM with the texture set, transposed for a turned slot: 15,583 checks, none wrong.
+- What turns is the texture's grain. A quad decides its turn (lines along the texture's rows or its columns) by which way makes fewer lines, with no margin, so a face about square on the screen flips every other frame as the camera moves: on the back-wall stretch 53 faces of 300 px or more did, some 30 times. Fast (306) reads every other texel along a line, so a texel shows as a 2-pixel streak along the lines; when the lines turn, the streaks turn with them. A texture that isn't square also changes size each flip (full and half size by turns, its texels per line differing each way).
+- The same list redrawn by the fork's VDP1 code with its turned faces drawn unturned: with Fast the back wall's streaks go from upright to flat; without Fast only which texels and rows are skipped changes. Cures: a margin on the turn (keep the last one unless the other way saves, say, an eighth of the lines), which costs next to nothing, and Fast off, or Texels 1, so the streaks aren't there to turn (306).
+
+### 297. Spots the user picked in play where VDP1 is over
+*Closed 2026-11-09: 5cfdeac, the vine rooms' floor and ceiling on VDP2 (rooms 26 and 27; room 20 left as it is). Saturn at the vines (HW_LOG test disc): VDP1 32.55 -> 24.44 ms, 29.1 -> 29.9 fps, the slave's room work 19.1 -> 11.2 ms. The user walked it on the Saturn: VDP1 at 71% under the vines. The hanging strips (fa00da4, 44ad634) had brought it from 37.8 to 32.3 ms.*
+
+*Kind: speed - Size: on the Saturn only the Caves' vines are over: 20 fps, VDP1 37.8 ms - Fix: the vines to be looked at; the rest left alone at the user's word*
+
+- The user, walking the review discs in Mednafen, 2026-11-05 (HW_NO_ENEMIES). Lara / camera / pitch and heading of the camera, as the scene page shows them:
+  - City of Khamoon, the open view, the one that matters most: room 12, Lara 28699, -1536, 32914, heading 4000; camera 27152, -2103, 32925, 0047 4047. 12 rooms, 778 commands, 46 meshes, vdp1 101, cpu 53.
+  - City of Khamoon, staring at a corner: room 12, Lara 27947, -512, 36945, heading 4034; camera 26891, -1104, 37628, ffa8 5762. 17 rooms, 748 commands, 48 meshes, vdp1 100, cpu 61. Next to 292's model spot. Nothing heavy in sight, so it's overdraw behind the wall.
+  - Natla's Mines, between two walls, a place players reach easily: room 68, Lara 51178, -9984, 93119, heading c219; camera 52791, -10400, 93038, 0b51 c216. 11 rooms, 623 commands, 39 meshes, vdp1 115, cpu 51.
+  - Caves, the vines: room 26, Lara 9590, 5888, 83354, heading 18ab; camera 8282, 5054, 82552, 0014 299a. 3 rooms, 1041 commands, 52 meshes, vdp1 138, cpu 54. The user remembers it dropping frames on the Saturn too.
+- The camera's heading is where Lara is seen from, so `AT_YAW` at the camera's heading gives the same view from `tools/hwtest.sh at`.
+- The same frames, VDP1 list, Mednafen (`tools/stepwise.py`) -> Saturn (`tools/hwtable.py`, tag u1, u1c): Khamoon corner 33.3 -> 27.4 ms; Khamoon open 33.6 -> 26.5; Natla 35.6 -> 27.2; vines 47.7 -> 37.8. The Saturn is 0.76-0.82 of Mednafen at all four. Master's work 13-15 ms at the first three, all at 29.9 fps with no wait on VDP1. Vines 19.9 fps, the master waiting 29.8 ms on VDP1, 20.1 ms of work.
+- The user played the sphinx on the Saturn: "performs perfectly fine". So no solid boxes at Khamoon or the houses for now, though the stepper shows the corner's list is 60% commands that leave no pixel: 511 of 737, 20.1 of 33.3 ms in Mednafen, nearly all room 12 hiding itself and what's behind.
+- Vines, in Mednafen: static 8 alone is 291 commands, 16.4 ms; room 26 19.1 ms, of which 9.9 ms ends up under the vines and 8.5 ms under its own faces; room 27 7.4 ms, of which 4.4 ms is its floor under room 26's. 7 ms has to go on the Saturn.
+- Natla's two houses can both be entered, so their doors and inner walls stay. The left: door 69 opened by the switch at room 71, sector 2,2; inside, Uzi ammo, a big medikit, a puzzle item. The right: door 70 worked by pads at room 67's sectors 3,5, 3,6 and 4,5; a corridor from room 74 with switch 66 in it.
 
 ### 304. The plane showed far from where it belongs, through gaps
 *Closed 2026-11-05: 8579cf9, maps placed where their tiles are; the long strip by 153b7d9 (301). Mednafen at the pit: the same as a build with no planes.*
