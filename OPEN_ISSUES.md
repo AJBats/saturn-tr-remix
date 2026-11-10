@@ -3783,7 +3783,7 @@ word. Of the same kind and already open: 264, 265, 266.
 
 - Reported by the user on the Engineering Sample 1 disc, 2026-11-10: skipping an opening video with START sometimes leaves the screen black a long while, then the ring comes up.
 - A START made up by the game (`make FMV_SKIP_AT=1200`: every video skipped 20 s in, so only CAFE is) shows it unaided on the Saturn: shots every 2 s after the skip were black for about 58 s, the title picture never showed, then the ring. Skipped 150 vblanks in (2.5 s), nothing. Mednafen never shows it.
-- Why: a skip left the drive reading the rest of the video into the CD block's buffer. The next read (the title picture's, `screenShow`) went in while it did, and on the Saturn its sectors never came: `cdRead` polled the sector count till its timeout (0x240000 commands, about a minute) and failed, and `screenShow` drops a picture it can't read, so black. Retail's player closes the file on a skip (`06043068` -> `060433f4`).
+- Why: a skip left the drive reading the rest of the video into the CD block's buffer, and the next read (the title picture's, `screenShow`) went in while it did. That read failed: `screenShow` drops a picture it can't read, and the picture never showed. That it failed by `cdRead`'s timeout (its sector-count poll, 0x240000 commands) is inferred, not measured: the black lasted about as long as that poll takes. Retail's player closes the file on a skip (`06043068` -> `060433f4`).
 - The same disc with the fix on the Saturn: one black shot after the skip, the title picture, the ring.
 
 ### 306. Room textures at full size show half their texels along each line (Fast)
