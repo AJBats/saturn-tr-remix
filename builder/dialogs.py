@@ -32,6 +32,17 @@ def system_env():
     return env
 
 
+def available():
+    """Whether choose() has a way to show a dialog, found without showing one: a portal that chooses files, or
+    zenity or kdialog on the PATH."""
+    try:
+        with _session_bus() as conn:
+            _chooser_version(conn)
+        return True
+    except _Unavailable:
+        return any(shutil.which(p) for p in ("zenity", "kdialog"))
+
+
 def choose(title, folder=False, filters=(), start=None, parent=""):
     """The path the player chose, or None if they cancelled. filters: (name, globs) pairs, for a file; start: the
     folder to open in; parent: the window's handle for the portal ("x11:<XID in hex>")."""
@@ -45,25 +56,41 @@ def choose(title, folder=False, filters=(), start=None, parent=""):
     raise NoDialog
 
 
-def _portal(title, folder, filters, start, parent):
-    """org.freedesktop.portal.FileChooser.OpenFile, and the Response signal it ends with."""
+_DESKTOP = dict(object_path="/org/freedesktop/portal/desktop", bus_name="org.freedesktop.portal.Desktop")
+
+
+def _session_bus():
     try:
-        from jeepney import DBusAddress, HeaderFields, MatchRule, MessageType, message_bus, new_method_call
-        from jeepney.io.blocking import Proxy, open_dbus_connection
+        from jeepney.io.blocking import open_dbus_connection
         address = os.environ.get("DBUS_SESSION_BUS_ADDRESS") or \
             "unix:path=" + os.path.join(os.environ["XDG_RUNTIME_DIR"], "bus")
-        conn = open_dbus_connection(address)
+        return open_dbus_connection(address)
     except Exception as e:      # noqa: BLE001 - no jeepney, no session bus: no portal
         raise _Unavailable from e
-    with conn:
-        desktop = dict(object_path="/org/freedesktop/portal/desktop", bus_name="org.freedesktop.portal.Desktop")
-        chooser = DBusAddress(interface="org.freedesktop.portal.FileChooser", **desktop)
-        props = DBusAddress(interface="org.freedesktop.DBus.Properties", **desktop)
-        version = conn.send_and_get_reply(new_method_call(props, "Get", "ss", (chooser.interface, "version")),
-                                          timeout=30)
-        if version.header.message_type == MessageType.error:
-            raise _Unavailable(version.body)      # no portal, or none that chooses files
-        if folder and version.body[0][1] < 3:
+
+
+def _chooser_version(conn):
+    """The portal's FileChooser version: _Unavailable with no portal, or none that chooses files."""
+    from jeepney import DBusAddress, MessageType, new_method_call
+    props = DBusAddress(interface="org.freedesktop.DBus.Properties", **_DESKTOP)
+    try:
+        reply = conn.send_and_get_reply(new_method_call(props, "Get", "ss", ("org.freedesktop.portal.FileChooser",
+                                                                             "version")), timeout=10)
+    except TimeoutError as e:
+        raise _Unavailable from e
+    if reply.header.message_type == MessageType.error:
+        raise _Unavailable(reply.body)
+    return reply.body[0][1]
+
+
+def _portal(title, folder, filters, start, parent):
+    """org.freedesktop.portal.FileChooser.OpenFile, and the Response signal it ends with."""
+    from jeepney import DBusAddress, HeaderFields, MatchRule, MessageType, message_bus, new_method_call
+    from jeepney.io.blocking import Proxy
+    with _session_bus() as conn:
+        chooser = DBusAddress(interface="org.freedesktop.portal.FileChooser", **_DESKTOP)
+        version = _chooser_version(conn)
+        if folder and version < 3:
             raise _Unavailable("this portal can't choose folders")      # FileChooser 3 added them
 
         # Every Response this connection is sent, caught from before the call, so the answer can't be missed;

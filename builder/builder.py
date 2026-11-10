@@ -6,6 +6,7 @@ own dialogs: Windows' through Tk, the Linux desktop's through dialogs.py.
 import multiprocessing
 import os
 import queue
+import shlex
 import subprocess
 import sys
 import threading
@@ -19,7 +20,7 @@ if not getattr(sys, "frozen", False):   # discbuild.py and art.py beside it, und
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 COLOURS = dict(bg="#15120f", panel="#211c17", hover="#2b241d", line="#3a3027", text="#efe6d6", muted="#a89c88",
-               gold="#d9a441", gold_hi="#e8b75a", ink="#1a140e", ok="#94c36f", bad="#e58468")
+               gold="#d9a441", gold_hi="#e8b75a", ink="#1a140e", ok="#94c36f", bad="#e58468", dim="#57504a")
 # each kind's first face Tk finds (pick_fonts): on Windows the first. The Linux build's Tk draws with X's core
 # fonts and finds none, so it takes its own.
 FACES = dict(text=("Segoe UI", "Ubuntu", "Noto Sans", "DejaVu Sans", "Liberation Sans"),
@@ -58,6 +59,15 @@ def terminal_command():
     return "python3 " + os.path.abspath(sys.argv[0])
 
 
+def dimmed(image):
+    """A picture in dark grey, as the window draws what can't be used."""
+    from PIL import ImageEnhance, ImageOps
+    rgba = image.convert("RGBA")
+    grey = ImageEnhance.Brightness(ImageOps.grayscale(rgba).convert("RGBA")).enhance(0.4)
+    grey.putalpha(rgba.getchannel("A"))
+    return grey
+
+
 def short(path, n=PATH_CHARS):
     """A path to fit a line: its end, where it's long."""
     return path if len(path) <= n else DOTS + path[-(n - len(DOTS)):]
@@ -77,6 +87,7 @@ class Slot:
         self.ok = False
         self.result = None
         import art
+        self.disc = art.disc(56, label, ring, False)
         self.images = [app.photo(art.disc(56, label, ring, lit)) for lit in (False, True)]
         c = COLOURS
         self.frame = tk.Frame(parent, bg=c["panel"], highlightthickness=1, highlightbackground=c["line"])
@@ -156,6 +167,7 @@ class App:
         self.photos = []
         self.building = False
         self.asking = False         # a Linux desktop dialog is up
+        self.locked = False         # no dialog to show: the window points to the terminal instead
         self.out = default_out(self.release)
         c = COLOURS
         root = self.root
@@ -169,9 +181,9 @@ class App:
         ttk.Style().configure("Gold.Horizontal.TProgressbar", troughcolor=c["panel"], background=c["gold"],
                               bordercolor=c["line"], lightcolor=c["gold_hi"], darkcolor=c["gold"], thickness=10)
 
-        head = tk.Canvas(root, width=WIDTH, height=170, bg=c["bg"], highlightthickness=0)
+        self.head = head = tk.Canvas(root, width=WIDTH, height=170, bg=c["bg"], highlightthickness=0)
         head.pack()
-        head.create_image(0, 0, image=self.photo(art.banner(WIDTH, 170)), anchor="nw")
+        self.banner = head.create_image(0, 0, image=self.photo(art.banner(WIDTH, 170)), anchor="nw")
         head.create_text(30, 58, text="TOMB RAIDER", fill=c["text"], font=(TITLE_FONT, 34, "bold"), anchor="w")
         head.create_text(33, 96, text="for the Sega Saturn", fill=c["gold_hi"],
                          font=(TITLE_FONT, 14, "italic"), anchor="w")
@@ -201,7 +213,8 @@ class App:
 
         self.go = tk.Button(body, text="BUILD THE DISC", command=self.start, font=(FONT, 12, "bold"),
                             bg=c["gold"], fg=c["ink"], activebackground=c["gold_hi"], activeforeground=c["ink"],
-                            disabledforeground=c["muted"], relief="flat", bd=0, padx=20, pady=10, cursor="hand2")
+                            disabledforeground=c["muted"], relief="flat", bd=0, padx=20, pady=10, cursor="hand2",
+                            highlightbackground=c["bg"])
         self.go.pack(fill="x", pady=(16, 10))
         self.bar = ttk.Progressbar(body, style="Gold.Horizontal.TProgressbar", maximum=1.0)
         self.bar.pack(fill="x")
@@ -216,6 +229,13 @@ class App:
         self.log.pack(fill="x", pady=(10, 0))
         self.refresh()
         root.after(100, self.poll)
+        if sys.platform != "win32":
+            threading.Thread(target=self._find_dialog, daemon=True).start()
+
+    def _find_dialog(self):
+        import dialogs
+        if not dialogs.available():
+            self.events.put((self.no_dialog,))
 
     def photo(self, image):
         import art
@@ -225,11 +245,14 @@ class App:
 
     def button(self, parent, text, command):
         c = COLOURS
+        # the focus ring in the background's colour until focused (X's default is a light grey frame)
         return tk.Button(parent, text=text, command=command, font=(FONT, 9), bg=c["line"], fg=c["text"],
                          activebackground=c["hover"], activeforeground=c["text"], disabledforeground=c["muted"],
-                         relief="flat", bd=0, padx=12, pady=5, cursor="hand2")
+                         relief="flat", bd=0, padx=12, pady=5, cursor="hand2", highlightbackground=parent.cget("bg"))
 
     def refresh(self):
+        if self.locked:
+            return      # greyed out for good (no_dialog)
         idle = not (self.building or self.asking)
         ready = self.saturn.ok and (self.ps1.path is None or self.ps1.ok) and idle
         c = COLOURS
@@ -277,15 +300,72 @@ class App:
         self.asking = False
         self.refresh()
         if why == "none":
-            self.state.configure(text="Your desktop has no file dialog for the builder to use: build from a "
-                                      "terminal instead, as below.", fg=COLOURS["bad"])
-            self.write_log("No file dialog: the builder uses your desktop's own (its portal, zenity or kdialog).")
-            self.write_log("Build from a terminal in the builder's folder (--ps1 is optional; README.txt has more):")
-            self.write_log(f'  {terminal_command()} --saturn "SATURN.cue" --ps1 "PS1.cue" --out "FOLDER"')
+            self.no_dialog()
         elif why:
             self.state.configure(text=f"The file dialog failed: {why}", fg=COLOURS["bad"])
         elif path:
             then(path)
+
+    def no_dialog(self):
+        """No file dialog to show (Linux): the window greys out, and a panel over it says how to build from a
+        terminal instead."""
+        if self.locked:
+            return
+        self.locked = True
+        c = COLOURS
+        import art
+        pictures = {self.saturn.pic: self.saturn, self.ps1.pic: self.ps1}
+
+        def walk(w):
+            yield w
+            for child in w.winfo_children():
+                yield from walk(child)
+        for w in walk(self.root):
+            if w in pictures:
+                w.configure(image=self.photo(dimmed(pictures[w].disc)))
+            elif isinstance(w, (tk.Label, tk.Text)):
+                w.configure(fg=c["dim"])
+            elif isinstance(w, tk.Button):
+                w.configure(state="disabled", disabledforeground=c["dim"], bg=c["panel"], cursor="")
+        self.head.itemconfigure(self.banner, image=self.photo(dimmed(art.banner(WIDTH, 170))))
+        for item in self.head.find_all():
+            if self.head.type(item) == "text":
+                self.head.itemconfigure(item, fill=c["dim"])
+
+        box = tk.Frame(self.root, bg=c["panel"], highlightthickness=1, highlightbackground=c["gold"])
+        box.place(relx=0.5, rely=0.5, anchor="center", width=WIDTH - 64)
+        tk.Label(box, text="Missing OS UI dependency, please use the CLI patcher.", bg=c["panel"], fg=c["text"],
+                 font=(FONT, 13, "bold"), anchor="w", justify="left", wraplength=WIDTH - 110).pack(
+            fill="x", padx=22, pady=(18, 10))
+        # a Text, so the commands can be selected and copied
+        text = tk.Text(box, bg=c["panel"], fg=c["text"], font=(FONT, 10), relief="flat", bd=0, highlightthickness=0,
+                       wrap="word", width=1, height=1, padx=0, pady=0, cursor="xterm", spacing1=2, spacing3=2,
+                       selectbackground=c["gold"], selectforeground=c["ink"], inactiveselectbackground=c["gold"])
+        text.tag_configure("cmd", font=(MONO, 9), foreground=c["gold_hi"], wrap="char", lmargin1=14, lmargin2=14)
+        text.tag_configure("note", foreground=c["muted"])
+        folder = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(sys.argv[0]))
+        text.insert("end", "The CLI patcher is this same program, run from a terminal. Open one and run:\n\n")
+        text.insert("end", f"cd {shlex.quote(folder)}\n"
+                           f"{terminal_command()} \\\n"
+                           f'    --saturn "<your Saturn rip>.cue" \\\n'
+                           f'    --ps1 "<your PlayStation rip>.cue" \\\n'
+                           f'    --out "<folder for the disc>"\n', "cmd")
+        text.insert("end", "\nPut your own paths between the quotes. --ps1 is optional: leave that line out and the "
+                           "disc keeps the Saturn's own sound effects. A .zip of a rip works in place of its .cue. "
+                           "README.txt has more.\n\n")
+        text.insert("end", "This window needs your desktop's file dialog (the desktop portal, zenity or kdialog), "
+                           "and this system has none.", "note")
+        text.configure(state="disabled")
+        text.pack(fill="x", padx=22, pady=(0, 18))
+
+        def fit(_=None):
+            """The text's height in lines from its wrapped height at its width now, in the box's own lines."""
+            pixels = text.count("1.0", "end", "update", "ypixels")      # "update": Tk measures lines lazily
+            pixels = pixels[0] if isinstance(pixels, tuple) else pixels     # a tuple before Python 3.13
+            line = text.winfo_height() / int(text.cget("height"))
+            if pixels and line > 1:
+                text.configure(height=max(1, round(pixels / line + 0.5)))
+        text.bind("<Configure>", fit)
 
     def pick_out(self):
         self.ask(self.picked_out, "Where should the disc go?", folder=True, start=os.path.dirname(self.out))
