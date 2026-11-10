@@ -1,0 +1,6 @@
+# The disc builder's release environment (release.py): pinned, as the packer's texture art must come out the
+# same in every release built with these.
+numpy==2.2.6
+scipy==1.15.3
+Pillow==12.1.0
+pyinstaller==6.22.3
