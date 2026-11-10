@@ -76,10 +76,11 @@ INFO_BYTES = 12 + 2 * MAP_PLANES * MAP_PLANES + 8
 
 
 class Plan:
-    def __init__(self, level, heights, region):
+    def __init__(self, level, heights, region, look=''):
         self.level = level
         self.heights = heights      # set -> y
         self.region = region        # 'x', 'z' -> first and last sector of the stretch
+        self.look = look            # planes.txt's light: dither, paint, soft, skirt, comma-separated
         self.tile = {}              # (set, sx, sz) -> (tex, turned, flip_h, flip_v)
         self.blank = set()          # (set, sx, sz)
         self.keep = set()           # (set, sx, sz)
@@ -110,15 +111,18 @@ def levels_planned():
             words = line.split('#')[0].split()
             if not words:
                 continue
-            heights, region, i = {}, {}, 1
+            heights, region, look, i = {}, {}, '', 1
             while i < len(words):
                 if words[i] in ('x', 'z'):
                     region[words[i]] = (int(words[i + 1]), int(words[i + 2]))
                     i += 3
+                elif words[i] == 'light':
+                    look = words[i + 1]
+                    i += 2
                 else:
                     heights[words[i]] = int(words[i + 1])
                     i += 2
-            plans[words[0]] = Plan(words[0], heights, region)
+            plans[words[0]] = Plan(words[0], heights, region, look)
     return plans
 
 
@@ -218,7 +222,7 @@ def take_faces(lvl, plan):
     rooms = lvl.rooms
     primary = {r.alternate: r.index for r in rooms if 0 <= r.alternate < len(rooms)}
     gone = {}           # room index -> quad indices
-    tiled = {'heights': plan.heights, 'floods': False, 'origin': {}}
+    tiled = {'heights': plan.heights, 'floods': False, 'origin': {}, 'look': plan.look}
     for kind in SETS:
         height = plan.heights.get(kind)
         if height is None:
@@ -540,7 +544,7 @@ def write_art(base, lvl, textures, tiled):
             rows = [[rows[x][y] for x in range(len(rows))] for y in range(len(rows))]
         return rows
 
-    mode = os.environ.get('PLANE_LIGHT', '')
+    mode = os.environ.get('PLANE_LIGHT', tiled['look'])     # the environment's, to try a look
     if 'soft' in mode:
         tiled = dict(tiled, **{kind: softened(tiled[kind]) for kind in SETS})
     if 'skirt' in mode:
