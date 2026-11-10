@@ -426,37 +426,6 @@ void facesLinkHeld(CommandList &list, const HeldCommand &held, int32_t depth)
 
 static int32_t gViewFar = VIEW_FAR; // facesFar's
 extern "C" { volatile int32_t gFacesVoidWay; }
-static volatile int32_t gTurnMargin = 1;    // facesTurnMargin's
-static volatile int32_t gPiecesFast = 0;    // facesPiecesFast's
-static volatile int32_t gSplitFar = 4096;    // facesSplitFar's: the original's (NEAR_SPLIT)
-static volatile int32_t gNearFast = 1;      // facesNearFast's
-
-void facesTurnMargin(bool on)
-{
-    *uncached(&gTurnMargin) = on;
-}
-
-void facesPiecesFast(bool on)
-{
-    *uncached(&gPiecesFast) = on;
-}
-
-void facesSplitFar(int32_t far)
-{
-    *uncached(&gSplitFar) = far;
-}
-
-void facesNearFast(bool on)
-{
-    *uncached(&gNearFast) = on;
-}
-
-// A split quad's pieces' word 1 as facesPiecesFast has it.
-static inline uint32_t piecesW1(uint32_t w1)
-{
-    return *uncached(&gPiecesFast) ? w1 : w1 & ~(uint32_t(PMOD_HSS) << 16);
-}
-
 void facesFar(int32_t far)
 {
     gViewFar = far;
@@ -595,12 +564,12 @@ static inline int32_t span(const Vertex* a, const Vertex* b)
 
 // facesroom.s DECIDE's turn: whether a face's lines run along its texture's columns (turned), when that
 // makes fewer of them (along: AD and BC's span, against across: AB and DC's). With a decision kept in the
-// face's top byte (kept) and the margin on, the other way must save an eighth of the lines, so a face
-// about square on the frame keeps its lines' direction (the texels Fast leaves out streak along them).
+// face's top byte (kept), the other way must save an eighth of the lines, so a face about square on the
+// frame keeps its lines' direction (the texels Fast leaves out streak along them).
 static inline uint32_t turnedFace(uint32_t kept, int32_t along, int32_t across)
 {
     int32_t lines = along;
-    if ((kept & 8) && *uncached(&gTurnMargin)) {
+    if (kept & 8) {
         lines = kept & 1 ? along + (across >> 3) : along - (along >> 3);
     }
     return lines > across;
@@ -895,13 +864,17 @@ static void roomQuadCareful(const FaceRoom &room, RoomTextures &t, RoomSplit &sp
 // held at the plane, and only a tile with a corner behind the camera, or that
 // comes out facing away, is left out. Each piece sorts by its own farthest
 // corner. Past NEAR_SPLIT a quad stays whole, the warp too small to see go.
+// The pieces are drawn without Fast, as the original's, and so is a quad drawn
+// whole within NO_FAST_NEAR: the texels it reads are the pieces' (the original
+// splits to 4096; nearer, ours costs VDP1 and the slave less).
 //
 // facesroom.s does this itself for a quad with every corner in front of the
 // plane and in reach of the frame's coordinates, from the corners' screen places
 // and depths. This takes the rest, whose corners only room space can place.
 
 #define NEAR_PLANE      80      // phd_InitWindow's
-#define NEAR_SPLIT      4096    // facesroom.s's too
+#define NEAR_SPLIT      3072    // facesroom.s .LnearSplitFar's too
+#define NO_FAST_NEAR    4096    // facesroom.s .LnearFastFar's too
 #define NEAR_CODE       __attribute__((section(".text.facesnear")))   // out of the hot code's order (saturn.ld)
 #define OFF_FRAME_MAX   128     // new corners are held this close to the frame
 #define NEAR_TRUST      1000    // a corner's coordinates past it go to C (facesroom.s .LnearTrust)
@@ -1123,7 +1096,7 @@ NEAR_CODE static bool nearSplit(const FaceRoom &room, RoomTextures &t, const Roo
     const uint32_t flags = (q.flags & ROOM_QUAD_FLAGS) | room.flags | FACE_DETAIL;
     uint32_t w[3];
     roomMaterial(t, flags, w);
-    w[1] = piecesW1(w[1]);
+    w[1] &= ~(uint32_t(PMOD_HSS) << 16);
     const uint32_t bytes = (tex.size >> 8) * 4 * (tex.size & 0xFF);
     uint32_t srca = t.pools[0] + slot * DETAIL_SLOT_SIZE;
     const NearPoint* quarter[4][4] = { { &a, &m[0], &m[4], &m[3] }, { &m[0], &b, &m[1], &m[4] },
@@ -1139,12 +1112,6 @@ NEAR_CODE static bool nearSplit(const FaceRoom &room, RoomTextures &t, const Roo
         }
     }
     return true;
-}
-
-// A corner within the coordinates a projection can be trusted to give VDP1 (facesroom.s TRUSTED).
-static inline bool nearTrusted(const Vertex* v)
-{
-    return uint32_t(v->x + NEAR_TRUST) < 2 * NEAR_TRUST && uint32_t(v->y + NEAR_TRUST) < 2 * NEAR_TRUST;
 }
 
 // A room face near the camera: split, filled where the far plane cuts it, or
@@ -1176,10 +1143,7 @@ NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const 
         return;
     const bool coloured = ((flags >> FACE_TYPE_SHIFT) & FACE_TYPE_MASK) == FACE_TYPE_F;
     const int32_t off = max(max(offFrame(a), offFrame(b)), max(offFrame(c), offFrame(d)));
-    const int32_t far = *uncached(&gSplitFar);
-    const bool wanted = far
-        ? near || farthest <= far || off > OFF_FRAME_MAX
-        : near || cut || !nearTrusted(a) || !nearTrusted(b) || !nearTrusted(c) || !nearTrusted(d);
+    const bool wanted = near || farthest <= NEAR_SPLIT || off > OFF_FRAME_MAX;
     if (!sparse && !coloured && tex.reserved && wanted && nearSplit(room, t, split, list, q, triangle))
         return;
     if (cut)
@@ -1204,7 +1168,7 @@ NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const 
     }
     uint32_t* w = list.cmd;
     roomCommand(list, t, coloured ? flags : wholeTexture(t, flags, variant), a, b, c, d, farthest >> OT_SHIFT);
-    if (!*uncached(&gNearFast) && farthest <= DETAIL_DIST && w != list.cmd) {
+    if (farthest <= NO_FAST_NEAR && w != list.cmd) {
         w[1] &= ~(uint32_t(PMOD_HSS) << 16);    // as facesroom.s .Ltailed
     }
 }
@@ -2010,8 +1974,7 @@ static_assert(sizeof(RoomMaterial) == 64 && offsetof(RoomMaterial, key) == 8 &&
               offsetof(RoomRun, voidWay) == 336 &&
               offsetof(RoomRun, boxNear) == 340 && offsetof(RoomRun, boxCount) == 344 &&
               offsetof(RoomRun, boxes) == 348 && offsetof(RoomRun, points) == 352 &&
-              offsetof(RoomRun, fullOut) == 356 && offsetof(RoomRun, margin) == 360 &&
-              offsetof(RoomRun, pieceMask) == 364 && offsetof(RoomRun, splitFar) == 368 &&
+              offsetof(RoomRun, fullOut) == 356 &&
               sizeof(RoomBox) == 20 && offsetof(RoomBox, lo) == 8 && offsetof(RoomBox, hi) == 14 &&
               offsetof(CommandList, voidX0) == 48 &&
               offsetof(CommandList, voidArea) == 64 &&
@@ -2105,7 +2068,7 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.near = nullptr;
 #else
     run.carefulTri = roomCarefulTri;
-    run.near = *uncached(&gNearFast) ? facesRoomNear : facesRoomNearFast;
+    run.near = facesRoomNear;
     run.quads.keys = t.keys[DETAIL_QUADS];
     run.quads.frames = &t.slots[0].frame;
     run.quads.pool = t.pools[0] >> 3;
@@ -2132,9 +2095,6 @@ void facesRoomsBegin(RoomRun &run, RoomTextures &t, RoomSplit &split, CommandLis
     run.split = &split;
     run.farBucket = gViewFar >> OT_SHIFT;
     run.voidWay = *uncached(&gFacesVoidWay);
-    run.margin = *uncached(&gTurnMargin);
-    run.pieceMask = piecesW1(~0u);
-    run.splitFar = *uncached(&gSplitFar);
     run.boxes = run.roomBoxes;
     run.seen = nullptr;
     run.seenCount = 0;

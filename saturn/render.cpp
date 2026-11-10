@@ -573,26 +573,6 @@ void renderTexels(int32 lod)
     render::frameTexels(lod);
 }
 
-void renderTurnMargin(bool on)
-{
-    render::facesTurnMargin(on);
-}
-
-void renderPiecesFast(bool on)
-{
-    render::facesPiecesFast(on);
-}
-
-void renderSplitFar(int32 far)
-{
-    render::facesSplitFar(far);
-}
-
-void renderNearFast(bool on)
-{
-    render::facesNearFast(on);
-}
-
 static int32 gTiny = 256;     // renderTiny's
 
 void renderTiny(int32 pixels)

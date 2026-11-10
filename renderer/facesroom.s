@@ -34,7 +34,7 @@
     .equ    CLIP_DISCARD,   0x3E
     .equ    CLIP_EDGES,     0x1E
     .equ    CLIP_PLANE,     0x20
-    .equ    CLIP_NO_FAST,   0x40    ! the stack's only: drawn whole, without Fast (_facesRoomNearFast)
+    .equ    CLIP_NO_FAST,   0x40    ! the stack's only: drawn whole, without Fast (_facesRoomNear)
 
     .equ    RUN_VERTICES,   0
     .equ    RUN_MATERIALS,  4
@@ -61,9 +61,6 @@
     .equ    RUN_BOXES,      348
     .equ    RUN_POINTS,     352
     .equ    RUN_FULL_OUT,   356
-    .equ    RUN_MARGIN,     360
-    .equ    RUN_PIECE_MASK, 364
-    .equ    RUN_SPLIT_FAR,  368
     .equ    BOX_BYTES,      20      ! RoomBox
     .equ    VOIDS_NONE,     2
     .equ    CLIP_LEFT,      2
@@ -193,9 +190,6 @@
     SPAN    r1, r2, r6, r8      ! AB
     SPAN    r7, r3, r6, r8      ! DC: ... as it is
     mov     r13, r8             ! the lines: as many as AD, BC span
-    mov.l   @(RUN_MARGIN, gbr), r0
-    tst     r0, r0
-    bt      63f                 ! no margin (the debug menu's Turn margin)
     mov.b   @r4, r0
     tst     #8, r0
     bt      63f                 ! none kept: the fewer lines
@@ -1458,7 +1452,7 @@ _facesRoomAsm:
     ! follows in the cache
     .section .text.facesnear, "ax"
 
-    ! A quad every corner of it within 4096 (faces.cpp NEAR_SPLIT), none nearer than the plane:
+    ! A quad every corner of it within 3072 (faces.cpp NEAR_SPLIT), none nearer than the plane:
     ! split here. A new corner lies where the view's midpoint does, from the
     ! ends' screen places and depths alone: a + (b - a) zb / (za + zb), one
     ! divide for x and y, ends in address order so that two quads sharing an
@@ -1530,22 +1524,6 @@ _facesRoomAsm:
     .endm
 
     .align 2
-    ! whole unless a corner lies past the coordinates VDP1 can be trusted
-    ! with: then C splits it
-.LnearUnsplit:
-    mov     r13, r0
-    tst     #CLIP_FRAME, r0
-    bt      .LnearWhole
-    mov.w   .LnearTrust, r6
-    mov     r6, r8
-    add     r8, r8
-    TRUSTED r1
-    TRUSTED r2
-    TRUSTED r3
-    TRUSTED r7
-    bra     .LnearWhole
-    nop
-
 .LnearWhole:
     lds.l   @r15+, pr
     rts
@@ -1555,51 +1533,37 @@ _facesRoomAsm:
     rts
     mov     #2, r0
 
-    ! as _facesRoomNear, with a face every corner of it within 4096 (faces.cpp
-    ! DETAIL_DIST) marked in its clip flags on the stack to be drawn without
-    ! Fast should it be drawn whole (faces.cpp facesNearFast off)
-    .global _facesRoomNearFast
-_facesRoomNearFast:
-    mov.w   .LnearFastFar, r6
-    mov.w   @(4, r1), r0
-    cmp/gt  r6, r0
-    bt      _facesRoomNear
-    mov.w   @(4, r2), r0
-    cmp/gt  r6, r0
-    bt      _facesRoomNear
-    mov.w   @(4, r3), r0
-    cmp/gt  r6, r0
-    bt      _facesRoomNear
-    mov.w   @(4, r7), r0
-    cmp/gt  r6, r0
-    bt      _facesRoomNear
-    mov.l   @r15, r0
-    or      #CLIP_NO_FAST, r0
-    mov.l   r0, @r15
-
     ! the face at r4, corners r1 r2 r3 r7, clip flags ored r13, split if it is
     ! one to split: r0 0 drawn, -1 and the list is full, 1 not one to split, 2
-    ! one for C; r1 r2 r3 r7 r4 r5 kept but when drawn
+    ! one for C; r1 r2 r3 r7 r4 r5 kept but when drawn. A face every corner of
+    ! it within 4096 is marked in its clip flags on the stack (CLIP_NO_FAST):
+    ! drawn whole, it reads the texels its pieces would, without Fast.
     .global _facesRoomNear
 _facesRoomNear:
     sts.l   pr, @-r15
-    mov.l   @(RUN_SPLIT_FAR, gbr), r0
-    tst     r0, r0
-    bt/s    .LnearHold          ! 0: only where whole would break (faces.cpp facesSplitFar)
-    mov     r0, r6              ! the distance every corner must be within
     mov.w   @(4, r1), r0
-    cmp/gt  r6, r0
-    bt      .LnearWhole
+    mov     r0, r6
     mov.w   @(4, r2), r0
     cmp/gt  r6, r0
-    bt      .LnearWhole
-    mov.w   @(4, r3), r0
+    bf      1f
+    mov     r0, r6
+1:  mov.w   @(4, r3), r0
     cmp/gt  r6, r0
-    bt      .LnearWhole
-    mov.w   @(4, r7), r0
+    bf      2f
+    mov     r0, r6
+2:  mov.w   @(4, r7), r0
     cmp/gt  r6, r0
-    bt      .LnearWhole
-.LnearHold:
+    bf      3f
+    mov     r0, r6              ! the farthest corner's depth
+3:  mov.w   .LnearFastFar, r0
+    cmp/gt  r0, r6
+    bt      .LnearWhole         ! past 4096: whole with Fast, as DECIDE has it
+    mov.l   @(4, r15), r0
+    or      #CLIP_NO_FAST, r0
+    mov.l   r0, @(4, r15)       ! the face's clip flags, under pr
+    mov.w   .LnearSplitFar, r0
+    cmp/gt  r0, r6
+    bt      .LnearWhole         ! past 3072: whole
     mov     #NEAR_PLANE, r6
     mov.w   @(4, r1), r0
     cmp/gt  r0, r6
@@ -1613,9 +1577,6 @@ _facesRoomNear:
     mov.w   @(4, r7), r0
     cmp/gt  r0, r6
     bt      .LnearToC
-    mov.l   @(RUN_SPLIT_FAR, gbr), r0
-    tst     r0, r0
-    bt      .LnearUnsplit       ! only where whole would break
     MATERIAL
     mov.w   @(8, r14), r0
     cmp/pz  r0
@@ -1680,10 +1641,9 @@ _facesRoomNear:
 .LnearGo:                       ! r8 word 2, r13 off the frame
     mov.l   @r14, r0
     mov.l   r0, @(RUN_PIECE_W0, gbr)
-    mov.l   @(RUN_PIECE_MASK, gbr), r0
-    mov     r0, r6
+    mov.l   .LnearNoFast, r6
     mov.l   @(4, r14), r0
-    and     r6, r0              ! Fast's bit as the run has it (faces.cpp facesPiecesFast)
+    and     r6, r0              ! the pieces without Fast, as the original's
     mov.l   r0, @(RUN_PIECE_W1, gbr)
     mov     r14, r0
     mov.l   r0, @(RUN_PIECE_MATERIAL, gbr)
@@ -1727,9 +1687,11 @@ _facesRoomNear:
 
     .align 2
 .LnearMissAt:   .long   .Lmiss
+.LnearNoFast:   .long   0xEFFFFFFF  ! w1 without Fast (PMOD_HSS)
 .LnearQuads:    .short  RUN_QUADS
 .LnearTrust:    .short  1000
-.LnearFastFar:  .short  4096
+.LnearFastFar:  .short  4096    ! faces.cpp NO_FAST_NEAR
+.LnearSplitFar: .short  3072    ! faces.cpp NEAR_SPLIT
 
     ! a level: corners r1 r2 r3 r7, the first piece's word 2 r8, the step r6,
     ! off the frame r13, level r5: its pieces, T set when the list is full
