@@ -3695,6 +3695,24 @@ over 14.6, at most 188 · Fix: medium, parked*
   trial discs measured on the Saturn.
 - The lab has no near split (its runs have no `facesRoomNear`), so B's Fast within 4096 isn't something it can see either way.
 
+### 309. After loading a save, faces are missing until Lara walks near them (reported in play)
+*Kind: look - Size: "a bunch of polygons" missing after a load, back as Lara comes close - Fix: root cause not found yet*
+
+- Reported by the user 2026-11-10, played on the Saturn from the Engineering Sample 1 discs (branch `sample`, 99093de), with
+  the Saturn's sound and with the PlayStation's: save, load that save, and a number of faces are gone; each comes back when
+  Lara walks close to it again. Which level and spot weren't noted.
+- Not reproduced yet. First step: in Mednafen, save and load at one spot and compare the frame's command list before and after
+  the load, kind by kind, to find which faces are left out and what brings them back.
+- The sample has A's near split (8d7a9e5), where main has B, so main wants checking too once it's reproduced.
+
+### 310. The Cistern, near the spout: a trouble spot (reported in play)
+*Kind: not noted (the user's "trouble spots" so far have been frame rate) - Size: not measured - Fix: to be looked at*
+
+- Reported by the user 2026-11-10, played on the Saturn from the Engineering Sample 1 discs, in their words "near the spout of
+  the cistern". No coordinates.
+- To find it: the user walks there in Mednafen from the level start and saves a state, then `tools/hwtest.sh at` with that
+  room and position, and the scene page's numbers on the Saturn as for 293.
+
 ## Production code: clean-up
 
 Not differences from retail, and not open work on the picture: what a shipping build still
