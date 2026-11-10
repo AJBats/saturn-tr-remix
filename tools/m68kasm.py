@@ -27,9 +27,12 @@ def main():
     obj, elf, flat, script = base + ".o", base + ".elf", base + ".bin", base + ".ld"
     with open(script, "w", newline="\n") as f:
         f.write(LINK_SCRIPT)
-    subprocess.run([tool(prefix, "as"), "-m68000", "-I", os.path.dirname(src) or ".", src, "-o", obj], check=True)
-    subprocess.run([tool(prefix, "ld.bfd"), "-T", script, "-o", elf, obj], check=True)
-    subprocess.run([tool(prefix, "objcopy"), "-O", "binary", elf, flat], check=True)
+    try:
+        subprocess.run([tool(prefix, "as"), "-m68000", "-I", os.path.dirname(src) or ".", src, "-o", obj], check=True)
+        subprocess.run([tool(prefix, "ld.bfd"), "-T", script, "-o", elf, obj], check=True)
+        subprocess.run([tool(prefix, "objcopy"), "-O", "binary", elf, flat], check=True)
+    except FileNotFoundError:
+        sys.exit(f"No 68000 binutils with the prefix {prefix}: see M68K_PREFIX in README.md")
     data = open(flat, "rb").read()
     with open(out, "w", newline="\n") as f:
         f.write(f"// {os.path.basename(src)}, assembled by tools/m68kasm.py: load at sound RAM 0\n")
