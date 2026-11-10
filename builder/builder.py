@@ -5,6 +5,7 @@ if they have it, the PlayStation one, and builds our disc from them (discbuild.p
 import multiprocessing
 import os
 import queue
+import subprocess
 import sys
 import threading
 import traceback
@@ -18,14 +19,44 @@ if not getattr(sys, "frozen", False):   # discbuild.py and art.py beside it, und
 
 COLOURS = dict(bg="#15120f", panel="#211c17", hover="#2b241d", line="#3a3027", text="#efe6d6", muted="#a89c88",
                gold="#d9a441", gold_hi="#e8b75a", ink="#1a140e", ok="#94c36f", bad="#e58468")
-FONT = "Segoe UI"
-TITLE_FONT = "Georgia"
+# each kind's first face Tk finds (pick_fonts): on Windows the first. The Linux build's Tk draws with X's core
+# fonts and finds none, so it takes its own.
+FACES = dict(text=("Segoe UI", "Ubuntu", "Noto Sans", "DejaVu Sans", "Liberation Sans"),
+             title=("Georgia", "DejaVu Serif", "Noto Serif", "Liberation Serif"),
+             mono=("Consolas", "DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono"))
+FONT, TITLE_FONT, MONO = (FACES[k][0] for k in ("text", "title", "mono"))
 WIDTH = 760
+# the few symbols the window shows: the Linux build draws with X's core fonts, which lack them
+DOTS, YES, NO = ("…", "✓", "✗") if sys.platform == "win32" else ("...", "OK", "No")
+PATH_CHARS = 80 if sys.platform == "win32" else 68      # what fits the disc's folder line (X's fonts are wider)
 
 
-def short(path, n=80):
+def pick_fonts():
+    global FONT, TITLE_FONT, MONO
+    from tkinter import font
+    have = set(font.families())
+    FONT, TITLE_FONT, MONO = (next((f for f in FACES[k] if f in have), FACES[k][0])
+                              for k in ("text", "title", "mono"))
+
+
+def open_folder(path):
+    if sys.platform == "win32":
+        os.startfile(path)
+        return
+    env = dict(os.environ)
+    # PyInstaller points the library path at the program's own libraries; the file manager wants the system's
+    orig = env.pop("LD_LIBRARY_PATH_ORIG", None)
+    if orig is None:
+        env.pop("LD_LIBRARY_PATH", None)
+    else:
+        env["LD_LIBRARY_PATH"] = orig
+    subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", path], env=env,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def short(path, n=PATH_CHARS):
     """A path to fit a line: its end, where it's long."""
-    return path if len(path) <= n else "…" + path[-(n - 1):]
+    return path if len(path) <= n else DOTS + path[-(n - len(DOTS)):]
 
 
 def default_out(release):
@@ -57,7 +88,7 @@ class Slot:
         self.status.grid(row=2, column=1, sticky="nw", pady=(2, 12))
         buttons = tk.Frame(self.frame, bg=c["panel"])
         buttons.grid(row=0, column=2, rowspan=3, padx=14)
-        self.choose = app.button(buttons, "Choose…", self.pick)
+        self.choose = app.button(buttons, "Choose" + DOTS, self.pick)
         self.choose.pack(side="left")
         if optional:
             self.clear = app.button(buttons, "Leave out", self.leave_out)
@@ -67,11 +98,12 @@ class Slot:
     def pick(self):
         path = filedialog.askopenfilename(
             parent=self.app.root, title="Choose the rip's .cue file, or a .zip of the rip",
-            filetypes=[("Disc rip", "*.cue *.zip"), ("All files", "*.*")])
+            filetypes=[("Disc rip", "*.cue *.zip" if sys.platform == "win32" else "*.cue *.CUE *.zip *.ZIP"),
+                       ("All files", "*")])
         if not path:
             return
         self.path, self.ok, self.result = path, False, None
-        self.show("Checking " + os.path.basename(path) + "…", "muted")
+        self.show("Checking " + os.path.basename(path) + DOTS, "muted")
         self.pic.configure(image=self.images[0])
         self.app.refresh()
         threading.Thread(target=self._check, args=(path,), daemon=True).start()
@@ -90,9 +122,9 @@ class Slot:
         self.ok, self.result = result is not None, None     # the build reads it again: no copy held
         name = os.path.basename(path)
         if self.ok:
-            self.show(f"✓  {name}: every file as it should be", "ok")
+            self.show(f"{YES}  {name}: every file as it should be", "ok")
         else:
-            self.show(f"✗  {name}: {why}", "bad")
+            self.show(f"{NO}  {name}: {why}", "bad")
         self.pic.configure(image=self.images[1 if self.ok else 0])
         self.app.refresh()
 
@@ -114,6 +146,7 @@ class Slot:
 class App:
     def __init__(self):
         self.root = tk.Tk()
+        pick_fonts()
         self.known = discbuild.manifest()
         self.release = self.known["release"]
         self.events = queue.Queue()
@@ -159,7 +192,7 @@ class App:
         self.where = tk.Label(where, text=short(self.out), bg=c["bg"], fg=c["text"], font=(FONT, 9), anchor="w",
                               width=1)
         self.where.pack(side="left", padx=(6, 0), fill="x", expand=True)
-        self.change = self.button(where, "Change…", self.pick_out)
+        self.change = self.button(where, "Change" + DOTS, self.pick_out)
         self.change.pack(side="right")
 
         self.go = tk.Button(body, text="BUILD THE DISC", command=self.start, font=(FONT, 12, "bold"),
@@ -173,8 +206,8 @@ class App:
         self.state = tk.Label(line, text="Choose your Saturn disc to begin.", bg=c["bg"], fg=c["muted"],
                               font=(FONT, 9), anchor="w", justify="left", wraplength=560)
         self.state.pack(side="left", fill="x", expand=True)
-        self.open = self.button(line, "Open the folder", lambda: os.startfile(self.out))
-        self.log = tk.Text(body, height=6, bg=c["panel"], fg=c["muted"], font=("Consolas", 8), relief="flat",
+        self.open = self.button(line, "Open the folder", self.open_out)
+        self.log = tk.Text(body, height=6, bg=c["panel"], fg=c["muted"], font=(MONO, 8), relief="flat",
                            highlightthickness=1, highlightbackground=c["line"], wrap="none", state="disabled")
         self.log.pack(fill="x", pady=(10, 0))
         self.refresh()
@@ -213,6 +246,12 @@ class App:
             self.out = os.path.join(folder, os.path.basename(default_out(self.release)))
             self.where.configure(text=short(self.out))
 
+    def open_out(self):
+        try:
+            open_folder(self.out)
+        except OSError:
+            self.state.configure(text=f"Your disc is in {self.out}", fg=COLOURS["ok"])
+
     def write_log(self, text):
         self.log.configure(state="normal")
         self.log.insert("end", text + "\n")
@@ -227,7 +266,7 @@ class App:
         self.open.pack_forget()
         self.bar.configure(value=0)
         self.refresh()
-        self.state.configure(text="Building… (a few minutes)", fg=COLOURS["text"])
+        self.state.configure(text="Building" + DOTS + " (a few minutes)", fg=COLOURS["text"])
         threading.Thread(target=self._build, args=(self.saturn.path, self.ps1.path if self.ps1.ok else None,
                                                    self.out), daemon=True).start()
 
