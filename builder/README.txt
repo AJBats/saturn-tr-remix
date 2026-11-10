@@ -58,7 +58,7 @@ HOW TO USE IT
 [linux]
 
 
-BUILDING FROM A TERMINAL
+BUILDING FROM A TERMINAL (THE CLI PATCHER)
 
 The builder does the whole job without its window. In its folder:
 
@@ -92,8 +92,9 @@ IF IT WON'T START
 - "version `GLIBC_...' not found": your system is older than the builder supports.
 - "couldn't connect to display": the window needs X11, or XWayland under Wayland.
   The terminal build above needs neither.
-- Choose says your desktop has no file dialog: the builder uses your desktop's own,
-  and some setups don't have one. Build from a terminal (above).
+- The window greys out and says "Missing OS UI dependency, please use the CLI
+  patcher.": the window uses your desktop's own file dialog, and this system has
+  none. Build from a terminal instead (above).
 - The builder's window draws its text with X's own fonts, so it looks plainer than
   your desktop's programs. That's expected.
 [both]
