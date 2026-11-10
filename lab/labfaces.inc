@@ -377,24 +377,23 @@ int32_t facesChainCheck()
 
 // faces.s TURN and the mip level: the variant (level * 2 + turned) a face
 // takes, its lines turned when that makes fewer, at the first level with
-// about a texel a pixel along them.
+// about a texel a pixel along them; kept, the face's last decision (its
+// flags' top byte): the other way must then save an eighth of the lines.
 static uint32_t roomVariant(const RoomTextures &t, uint32_t flags, const Vertex* a, const Vertex* b,
-                            const Vertex* c, const Vertex* d)
+                            const Vertex* c, const Vertex* d, uint32_t kept)
 {
     int32_t turned = max(span(a, d), span(b, c));   // the lines' length turned
     int32_t across = max(span(a, b), span(d, c));   // ... and as it is
-    uint32_t variant = 0;
-    if (turned > across)
-    {
-        variant = 1;
+    const Texture &tex = t.textures[flags & FACE_TEXTURE];
+    uint32_t size = tex.size;
+    uint32_t variant = turnedFace(kept, turned, across);
+    if (variant) {
         across = turned;
     }
-    const Texture &tex = t.textures[flags & FACE_TEXTURE];
     if (!t.lod)
         return variant;
     // 4 x the texels along a line: the whole texture's width, or turned its
     // height
-    uint32_t size = tex.size;
     uint32_t texels = variant ? (size & 0xFF) << 3 : (size >> 8) << 6;
     uint32_t pixels = uint32_t(t.lod) * uint32_t(across & 0xFFFF);
     if (texels <= pixels || (size & 7))
@@ -451,7 +450,7 @@ static void roomQuads(const FaceRoom &room, RoomTextures &t, RoomSplit &split, C
         }
         else
         {
-            variant = roomVariant(t, flags, a, b, c, d);
+            variant = roomVariant(t, flags, a, b, c, d, kept);
             if (parity >= 0 && cacheable(t, flags)) {
                 q->flags = (q->flags & ROOM_QUAD_FLAGS) | ((variant | 8) << 24);
             }
@@ -523,8 +522,11 @@ void facesRoomC(const FaceRoom &room, RoomTextures &t, RoomSplit &split, Command
         }
         if (backface(a, b, c))
             continue;
-        uint32_t variant = roomVariant(t, q->flags, a, b, c, c);
-        uint32_t flags = q->flags | room.flags | FACE_TRIANGLE;
+        uint32_t flags = (q->flags & ROOM_QUAD_FLAGS) | room.flags | FACE_TRIANGLE;
+        uint32_t variant = roomVariant(t, flags, a, b, c, c, q->flags >> 24);
+        if (cacheable(t, flags)) {
+            const_cast<RoomQuad*>(q)->flags = (q->flags & ROOM_QUAD_FLAGS) | ((variant | 8) << 24);
+        }
         roomCommand(list, t, wholeTexture(t, flags, variant), a, b, c, c, zMax(a, b, c, c) >> OT_SHIFT);
     }
 }

@@ -417,6 +417,11 @@ struct RoomRun
     const RoomBox* boxes;       // +348 ... roomBoxes
     const RoomVertex* points;   // +352 the room's
     uint32_t fullOut;           // +356 the frame the full-res pool last had no room
+    int32_t margin;             // +360 DECIDE's margin on the turn (facesTurnMargin): 0 none
+    uint32_t pieceMask;         // +364 a split quad's pieces' word 1 anded with it: Fast's bit
+                                // cleared, or all kept (facesPiecesFast)
+    int32_t splitFar;           // +368 quads with every corner nearer split (facesSplitFar); 0: only
+                                // where whole they'd break
     const BoxSeen* seen;        // the frame's solid boxes (rooms.h roomsBoxes), for facesRoom
     int32_t seenCount;
     RoomBox roomBoxes[BOXES_SEEN];
@@ -429,6 +434,20 @@ struct RoomRun
 // the buffer is clear: they're few.
 enum FaceVoidWay { FACE_VOIDS_DRAWN, FACE_VOIDS_BOXED, FACE_VOIDS_NONE };
 extern "C" volatile int32_t gFacesVoidWay;
+
+// Whether a room face's turn, once decided, keeps till the other way saves an eighth of its lines
+// (facesroom.s DECIDE); set between frames.
+void facesTurnMargin(bool on);
+
+// Whether the pieces a quad near the camera is split into are drawn with Fast, reading every other
+// texel along their lines where those are shorter than the texels (off: every texel, as the
+// original's pieces); set between frames.
+void facesPiecesFast(bool on);
+
+// How near a quad must be, every corner of it, to be split into pieces (the original's 4096), besides
+// near the camera or far off the frame; 0: only where drawn whole it would break (a corner nearer than
+// the plane, or past the coordinates VDP1 takes); set between frames.
+void facesSplitFar(int32_t far);
 
 extern "C" void facesRoomAsm(const FaceRoom* room, RoomRun* run);
 extern "C" void facesRoomNear();    // facesroom.s's, as it calls it
