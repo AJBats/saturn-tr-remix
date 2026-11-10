@@ -47,27 +47,6 @@ void renderRoomsFlipped();
 // one along.
 void renderTexturesShifted();
 
-// The draw distance for the rooms and the items, in world units (the game's
-// 20 sectors unless the HW_LOG menu's Far moves it in), kept across levels.
-void renderFar(int32 far);
-
-// The fog's floor takes 16 off each channel, which leaves bright texels grey: on, a room
-// wholly there and with no face that shows there is dropped (RoomLevel.black) with
-// what stands in it; off, all drawn.
-void renderBlack(bool on);
-
-// A portal's window under so many pixels: not entered (renderer/rooms.h roomsTiny).
-void renderTiny(int32 pixels);
-
-// 4 x the texels a pixel a room face may take before its next mip level.
-void renderTexels(int32 lod);
-
-// What lies wholly behind the level's solid boxes left out (renderer/rooms.h roomsSolidBoxes).
-void renderBoxes(bool on);
-// Water's shimmers: one lit for so many pixels of water on the frame; 0 none.
-void renderShimmers(int32 oneIn);
-// Rooms under a floor on VDP2 kept to the floor's openings (renderer/faces.h).
-void renderUnderFloor(bool on);
 
 #ifdef HW_LOG
 // The debug page's stamps (renderer/rooms.h roomsHideWith, roomsListCopy, frame.h

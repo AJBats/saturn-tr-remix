@@ -62,7 +62,6 @@ static bool gEntriesListed;     // gEntryFirst made for the walk's entries
 static bool gItemsTest;
 static const uint32_t* gSines;
 static int32_t gSolidCount;
-static bool gBoxesOn = true;
 static BoxSeen gBoxes[2][BOXES_SEEN];       // two deep, as the jobs
 static int32_t gBoxCounts[2];
 
@@ -207,11 +206,6 @@ void roomsSolidBoxes(const SolidBox* boxes, uint32_t count)
     gSolidCount = count;
 }
 
-void roomsBoxesOn(bool on)
-{
-    gBoxesOn = on;
-}
-
 const BoxSeen* roomsBoxes(const FaceRoom* jobs, int32_t &count)
 {
     int32_t set = jobs == gJobs[1];
@@ -230,7 +224,7 @@ void roomsSeen(bool take)
     }
 #ifndef RENDER_LAB
     gCtx.boxes = gBoxes[set];
-    gCtx.solidCount = gBoxesOn ? gSolidCount : 0;
+    gCtx.solidCount = gSolidCount;
     roomsBoxesAsm(&gCtx);
     gBoxCounts[set] = gCtx.boxCount;
 #endif

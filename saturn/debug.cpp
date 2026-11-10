@@ -36,20 +36,8 @@ struct Option
 static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kTrace[] = { "Off", "Stages", "Detail" };
 #ifdef HW_LOG
-static const char* const kFar[] = { "20 sectors", "18 sectors", "16 sectors", "14 sectors", "12 sectors" };
-static int32 gFarStep;      // kFar's
 static const char* const kCamera[] = { "Ours", "Retail" };
-static bool gBlackOn = true;    // rooms wholly at the fog's floor, unseen there, left out
-static const char* const kTiny[] = { "Off", "64 px", "128 px", "256 px" };
-static int32 gTinyStep = 3;     // kTiny's
 static bool gHolesShown;        // what rooms' fills fill and what nothing draws, magenta
-static const char* const kTexels[] = { "1 a pixel", "1.5 a pixel" };
-static int32 gTexelStep = 1;    // kTexels'
-static bool gBoxesShut = true;  // what the level's solid boxes hide left out
-static bool gUnderKept = true;  // rooms under a floor on VDP2 kept to its openings
-static const char* const kShimmers[] = { "Off", "1 in 600", "1 in 300", "1 in 150", "1 in 100", "1 in 75" };
-static const int32 kShimmerOneIn[] = { 0, 600, 300, 150, 100, 75 };
-static int32 gShimmerStep = 3;  // kShimmers'
 #endif
 
 static bool gShowStats;
@@ -71,30 +59,9 @@ static const Option gOptions[] = {
     { "Trace", kTrace, TRACE_MODES,
         [] { return int32(traceMode()); },
         [](int32 v) { traceSetMode(v); } },
-    { "Far", kFar, 5,
-        [] { return gFarStep; },
-        [](int32 v) { gFarStep = v; renderFar((20 - 2 * v) * 1024); } },
-    { "Black", kOnOff, 2,
-        [] { return int32(gBlackOn); },
-        [](int32 v) { gBlackOn = v; renderBlack(v); } },
-    { "Tiny", kTiny, 4,
-        [] { return gTinyStep; },
-        [](int32 v) { gTinyStep = v; renderTiny(v ? 32 << v : 0); } },
-    { "Boxes", kOnOff, 2,
-        [] { return int32(gBoxesShut); },
-        [](int32 v) { gBoxesShut = v; renderBoxes(v); } },
-    { "Shimmers", kShimmers, 6,
-        [] { return gShimmerStep; },
-        [](int32 v) { gShimmerStep = v; renderShimmers(kShimmerOneIn[v]); } },
-    { "Under floor", kOnOff, 2,
-        [] { return int32(gUnderKept); },
-        [](int32 v) { gUnderKept = v; renderUnderFloor(v); } },
     { "Holes", kOnOff, 2,
         [] { return int32(gHolesShown); },
         [](int32 v) { gHolesShown = v; renderHolesShown(v); } },
-    { "Texels", kTexels, 2,
-        [] { return gTexelStep; },
-        [](int32 v) { gTexelStep = v; renderTexels(4 + 2 * v); } },
     { "Camera", kCamera, 2,
         [] { return int32(gCameraRetail); },
         [](int32 v) { gCameraRetail = v; } },
@@ -103,7 +70,7 @@ static const Option gOptions[] = {
 
 enum { OPTION_STATS,
 #ifdef HW_LOG
-       OPTION_TRACE, OPTION_FAR, OPTION_BLACK, OPTION_TINY, OPTION_BOXES, OPTION_SHIMMERS, OPTION_UNDER_FLOOR, OPTION_HOLES, OPTION_TEXELS, OPTION_CAMERA,
+       OPTION_TRACE, OPTION_HOLES, OPTION_CAMERA,
 #endif
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");

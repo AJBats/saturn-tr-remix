@@ -161,7 +161,6 @@ void roomsTiny(int32_t pixels);
 // The level's solid boxes, seen afresh for each walk. What lies wholly behind one on the
 // frame isn't drawn: a portal isn't entered, room faces aren't made (faces.h facesRoom).
 void roomsSolidBoxes(const SolidBox* boxes, uint32_t count);
-void roomsBoxesOn(bool on);
 
 // The boxes of a walk, by its jobs (roomsJobs, roomsJobsAhead).
 const BoxSeen* roomsBoxes(const FaceRoom* jobs, int32_t &count);

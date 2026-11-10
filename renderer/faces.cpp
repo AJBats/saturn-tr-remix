@@ -1186,7 +1186,6 @@ NEAR_CODE static void roomQuadNear(const FaceRoom &room, RoomTextures &t, const 
 #define COLUMNS         ((FRAME_WIDTH >> COLUMN_SHIFT) + 1)
 
 static int32_t gFloorY = FACES_NO_FLOOR;
-static bool gFloorKeep = true;
 static struct { int16_t first, end; } gUnder[UNDER_MAX];    // the commands of the rooms under the floor
 static int32_t gUnderCount;
 #define MASKS_MAX       8
@@ -1198,11 +1197,6 @@ static int16_t gColumnTop[COLUMNS], gColumnBottom[COLUMNS]; // the rows the open
 void facesFloorSet(int32_t y)
 {
     gFloorY = y;
-}
-
-void facesFloorKeep(bool on)
-{
-    gFloorKeep = on;
 }
 
 void facesFloorBegin()
@@ -1288,7 +1282,7 @@ static void masksDraw(CommandList &list, Command* cmds)
 
 void facesFloorRoom(const FaceRoom &room, const RoomLevel* level, int32_t first, int32_t end)
 {
-    if (first == end || level[room.room].yTop < gFloorY - 2 || gFloorY == FACES_NO_FLOOR || !gFloorKeep ||
+    if (first == end || level[room.room].yTop < gFloorY - 2 || gFloorY == FACES_NO_FLOOR ||
         gUnderCount == UNDER_MAX)
         return;
     gUnder[gUnderCount].first = int16_t(first);
@@ -1547,7 +1541,6 @@ static const uint8_t kShimmerAges[8] = { 0x80 | 4, 2, 1, 0, 0, 1, 2, 0x80 | 4 };
 #ifndef SHIMMER_ONE_IN
 #define SHIMMER_ONE_IN  150
 #endif
-static int32_t gShimmerOneIn = SHIMMER_ONE_IN;
 static ShimmerPiece gShimmerPieces[PIECES_MAX] __attribute__((aligned(16)));
 static uint8_t gShimmerBag[SHIMMER_BAG];            // pieces by chance, as offsets into gShimmerPieces
 static uint32_t gShimmerW1[8][2 * SHIMMER_TABLES];  // by age, then level: art's first word pair, then a line's
@@ -1563,11 +1556,6 @@ static int16_t gShimmerHeightY[SHIMMER_HEIGHTS];
 static int32_t gShimmerHeightCount;
 static int32_t gShimmerSlotZ[SHIMMER_HEIGHTS][8];   // the z past which a sector doesn't owe so many
 static int32_t gShimmerSlotOwed[SHIMMER_HEIGHTS];   // ... for what it owes at that height's distance
-
-void facesShimmersDensity(int32_t oneIn)
-{
-    gShimmerOneIn = oneIn;
-}
 
 // An equal share of the bag to dashes and to chunks, each piece as often as the texture has it.
 static void shimmersBag(int32_t pieces)
@@ -1805,7 +1793,7 @@ static void shimmersBorn(ShimmerSheet &s, const FaceRoom* rooms, uint32_t count,
     ShimmerLife* const lives = gShimmerLives[frame & 7];
     s.lives = lives;
     s.livesEnd = lives + SHIMMER_BORN_MAX;
-    const int32_t owed = (16 * 256) / gShimmerOneIn;
+    const int32_t owed = (16 * 256) / SHIMMER_ONE_IN;
     bool roomLeft = true;
     for (uint32_t i = 0; i < count; i++)
     {
@@ -1915,7 +1903,7 @@ static void shimmersBorn(ShimmerSheet &s, const FaceRoom* rooms, uint32_t count,
 int32_t facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const RoomGeometry* geometry,
                            CommandList &list, uint32_t frame)
 {
-    if (!gShimmerOneIn || !count)
+    if (!count)
         return 0;
     ShimmerSheet s;
     s.list = &list;

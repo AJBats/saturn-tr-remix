@@ -301,7 +301,6 @@ void facesRoom(const FaceRoom &room, RoomRun &run);
 #define SHIMMER_VRAM_BYTES  1024
 // their art, the level file's (pack_level.py water_art), and colour tables go here in VDP1 VRAM; 0, lines alone
 void facesShimmersInit(uint32_t vram, const uint8_t* art);
-void facesShimmersDensity(int32_t oneIn);
 struct ShimmerSide
 {
     int32_t o, e, f;        // o + e * x + f * z: how far past this side of the clip a sector's middle is
@@ -346,7 +345,6 @@ void facesShimmersReset();
 int32_t facesShimmersFrame(const FaceRoom* rooms, uint32_t count, const RoomLevel* level, const RoomGeometry* geometry,
                            CommandList &list, uint32_t frame);
 void facesFloorSet(int32_t y);          // the level's floor, or FACES_NO_FLOOR
-void facesFloorKeep(bool on);           // the menu's
 void facesFloorBegin();
 void facesFloorRoom(const FaceRoom &room, const RoomLevel* level, int32_t first, int32_t end);
 // A dip's commands; then, if there were any this frame, the masks': they're drawn as colour 0 inside the box

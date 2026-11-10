@@ -946,11 +946,6 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
     return s;
 }
 
-void frameTexels(int32_t lod)
-{
-    gRoomTextures.lod = lod;
-}
-
 void frameFar(int32_t far)
 {
     roomsFar(far);

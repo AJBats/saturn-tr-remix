@@ -39,7 +39,9 @@ static_assert(sizeof(ItemObj) == sizeof(render::GameItem) && sizeof(Texture) == 
 #define FACE_TYPE_LINE_H    8
 #define FACE_TYPE_LINE_V    9
 #define BAR_HEIGHT      5
-static int32 gTexels = 6;       // room faces' mip level: 1.5 texels a pixel (renderTexels)
+#define ROOM_TEXELS     6       // room faces' mip level: 4 x 1.5 texels a pixel along their lines
+#define DRAW_FAR        (20 * 1024) // the draw distance: 20 sectors, retail's
+#define TINY_WINDOW     256     // a portal's window under so many pixels isn't entered
 #define MAX_CALLS       384         // a frame's: its draws, and a viewport for each room seen
 #define NO_INDEX        0xFFFFFFFF
 
@@ -452,8 +454,6 @@ static void* highAllocDsp(uint32_t bytes)
     return osHighAlloc(bytes);
 }
 
-static bool gBlack = true;     // renderBlack's
-
 // Whether a face of room texture t shows at the fog's floor, in any frame of its animation:
 // shade 31 takes 16 off each channel, which leaves a bright texel grey (roomsDarkInit).
 static bool seenAtFloor(uint32 t)
@@ -517,7 +517,7 @@ static void roomTables()
         r.flags = info->flags;
         r.portals = info->portalsCount;
         r.vertices = info->verticesCount;
-        r.black = gBlack ? roomBlack(room) : 0;
+        r.black = roomBlack(room);
         r.first = portals;
         render::verticesRoomReach(i, (const render::RoomVertex*)room.data.vertices, info->verticesCount);
         memcpy(gPortals + portals, room.data.portals, info->portalsCount * sizeof(Portal));
@@ -557,51 +557,6 @@ void renderRoomsFlipped()
 void renderTexturesShifted()
 {
     render::frameTexturesShifted(level.animTexData);
-}
-
-static int32 gFar = 20 * 1024;  // renderFar's
-
-void renderFar(int32 far)
-{
-    gFar = far;
-    render::frameFar(far);
-}
-
-void renderTexels(int32 lod)
-{
-    gTexels = lod;
-    render::frameTexels(lod);
-}
-
-static int32 gTiny = 256;     // renderTiny's
-
-void renderTiny(int32 pixels)
-{
-    gTiny = pixels;
-    render::roomsTiny(pixels);
-}
-
-void renderShimmers(int32 oneIn)
-{
-    render::facesShimmersDensity(oneIn);
-}
-
-void renderBoxes(bool on)
-{
-    render::roomsBoxesOn(on);
-}
-
-void renderUnderFloor(bool on)
-{
-    render::facesFloorKeep(on);
-}
-
-void renderBlack(bool on)
-{
-    gBlack = on;
-    for (int32 i = 0; gRoomLevel && i < level.roomsCount; i++) {
-        gRoomLevel[i].black = on ? roomBlack(rooms[i]) : 0;
-    }
 }
 
 #ifdef HW_LOG
@@ -785,8 +740,8 @@ void renderLevelInit()
         crashLog("VERTS", uint32(failed));
         while (1);  // TODO error screen
     }
-    render::frameFar(gFar);
-    render::roomsTiny(gTiny);
+    render::frameFar(DRAW_FAR);
+    render::roomsTiny(TINY_WINDOW);
 
     uint32 hints = 0;
     for (uint32 i = 0; i < sizeof(gDepthHints) / sizeof(gDepthHints[0]) && hints < MAX_LEVEL_HINTS; i++)
@@ -831,7 +786,7 @@ void renderLevelInit()
     f.shade[0] = vram ? &gShadeCaches[0] : nullptr;     // none without VRAM for the copies
     f.shade[1] = vram ? &gShadeCaches[1] : nullptr;
     f.pmod = PMOD_LUT16 | PMOD_GOURAUD | PMOD_HSS;
-    f.lod = gTexels;
+    f.lod = ROOM_TEXELS;
     for (int32 l = 0; l < 3; l++) {
         f.pools[l] = gDetailPoolVram[l];
     }
