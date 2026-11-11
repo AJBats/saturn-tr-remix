@@ -2553,6 +2553,15 @@ Audit: SND-8*
 - **Effect:** two wolves, darts or gunmen collapse into one sound. Moving sources
   (boulders, running creatures) don't fade or pan as they move.
 - **Fix:** port the slot table into `soundPlay` and `sound.cpp`.
+- **More voices, a possible lever (2026-11-11):** the 8-voice limit comes partly from the sound
+  CPU's decode budget. The sound chip's own DSP (in the SCSP, not the SCU DSP that does our scene
+  work) is unused in ours. It could take the PlayStation ADPCM decoding off the 68000: the same
+  sound, with the 68000 free for more voices. Celeriyacon's sound driver decodes ADPCM on it.
+  Unproven: the PlayStation format changes its filter every 28 samples and the DSP has no
+  branches; the DSP runs one fixed step per 44.1 kHz sample while our voices play at many pitches;
+  its work area takes sound RAM from the pre-decoded copies (16 KB at least, from memory, to check);
+  and whether its reads slow the 68000's. Using it for vertices (Jollyroger's 2026 demo) was ruled
+  out for us: every vertex would cross the slow bus to sound RAM and back.
 
 ### 183. Looped sounds never stop
 *Severity: audible · Confidence: confirmed · Fix: medium · Audit: SND-9*
