@@ -166,7 +166,7 @@ static uint32_t shadedCopy(ShadeCache* cache, uint32_t w1, uint32_t g)
 {
     uint32_t table = w1 & 0xFFFF;
     uint32_t key = (table << 15) | g;
-    uint32_t slot = ((g << 3) ^ table) & 0xFF;
+    uint32_t slot = ((g << 3) ^ (table >> 2)) & 0xFF;     // tables lie 32 bytes apart: by table / 32
     if (cache->keys[slot] != key)
     {
         slot ^= 1;

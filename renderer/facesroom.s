@@ -1091,10 +1091,12 @@ _facesRoomAsm:
     mov     r0, r6              ! the cache
     mov.l   @(4, r9), r0
     extu.w  r0, r7              ! the table / 8
+    mov     r7, r0
+    shlr2   r0                  ! / 32: tables lie 32 bytes apart
     mov     r1, r2
     shll2   r2
     shll    r2
-    xor     r7, r2
+    xor     r0, r2
     extu.b  r2, r2              ! its slot, or the other of the pair
     shll8   r7
     shll2   r7

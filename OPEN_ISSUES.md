@@ -3502,6 +3502,9 @@ over 14.6, at most 188 · Fix: medium, parked*
   0.12 ms. The rise at `cistern-steps` is in room 90, not the animals: the same commands and pixels, but four big
   faces there went from a shaded copy of their colour table to real gouraud (+0.15 ms). The copies' cache picks
   its slot by the table's address (`renderer/faces.cpp` `shadedCopy`), and the tables moved.
+  Fixed 2026-11-11: the slot came from the table's address / 8, and tables lie 32 bytes apart, so only half
+  the slots could ever be picked; by address / 32 those faces are back on copies (Mednafen, `cistern-steps` VDP1
+  19.17 to 18.97 ms; faces left on gouraud for want of a slot about 11 to 1 a list there, `ledge` about 23 to 7).
 - The raptor and T-rex (branch `shell`), the user's choices: body, neck and tail one shell, legs in their pieces (joined,
   a leg crushes at its bends, and fixed to a bend it loses its feel). Raptor: claws fused and, with the arms, cards.
   T-rex: full arms, hands flat plates fused to the forearms. Arm cards on it saved 0.10 ms of CPU and 0.18 of VDP1 against

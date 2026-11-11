@@ -650,10 +650,12 @@ _facesMeshAsm:
     mov.l   r1, @-r15
     mov.l   @(4, r14), r0
     extu.w  r0, r5              ! the table / 8
+    mov     r5, r0
+    shlr2   r0                  ! / 32: tables lie 32 bytes apart
     mov     r1, r4
     shll2   r4
     shll    r4
-    xor     r5, r4
+    xor     r0, r4
     extu.b  r4, r4              ! its slot, or the other of the pair
     shll8   r5
     shll2   r5

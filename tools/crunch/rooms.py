@@ -499,7 +499,7 @@ class ShadeCache:
             self.next += 4
         table = self.addr[c]
         key = (table, level)
-        slot = ((level << 3) ^ table) & 0xFF
+        slot = ((level << 3) ^ (table >> 2)) & 0xFF
         for s in (slot, slot ^ 1):
             if self.keys[s] == key:
                 self.frames[s] = self.frame
