@@ -1,5 +1,5 @@
 """A view's whole frame by function, both CPUs, from a unified trace, the overlay paged away.
-python -I tools/frameprof.py DISC ELF NAME [--lists N] [--frame F] [--hold KEYS:N] [--labels] [--top N]
+python -I tools/frameprof.py DISC ELF NAME [--lists N] [--whole] [--frame F] [--hold KEYS:N] [--labels] [--top N]
 Prints cycles a list by function and CPU, and inside rooms.s, faces .s etc. by label with --labels."""
 import argparse
 import bisect
@@ -22,6 +22,9 @@ ap.add_argument('disc')
 ap.add_argument('elf')
 ap.add_argument('name')
 ap.add_argument('--lists', type=int, default=4, help='vblanks traced are 2 x this')
+ap.add_argument('--whole', action='store_true', help='trace exactly --lists whole lists: from the vblank after the '
+                'count of lists drawn moves to the vblank after it has moved that many more, so that a list is '
+                'not a window\'s cycles over however many lists happened to finish in it')
 ap.add_argument('--frame', type=int, default=2300)
 ap.add_argument('--hold', default='none')
 ap.add_argument('--top', type=int, default=34)
@@ -94,10 +97,20 @@ try:
                     m.send(f'input_release {k}', 'ok input_release', 10)
     else:
         m.send(f'run_to_frame {args.frame}', 'done run_to_frame', 900)
-    f0 = struct.unpack('>20I', m.read(S['_gStats'], 80))
+    def drawn():
+        return struct.unpack('>20I', m.read(S['_gStats'], 80))
+    if args.whole:
+        first = drawn()[6]
+        while drawn()[6] == first:
+            m.send('frame_advance 1', 'done frame_advance', 30)
+    f0 = drawn()
     m.send(f'unified_trace {path}', 'ok unified_trace', 10)
     m.send('insn_trace_unified 3 800000000', 'ok insn_trace_unified', 10)
-    m.send(f'frame_advance {args.lists * 2}', 'done frame_advance', 3600)
+    if args.whole:
+        while drawn()[6] < f0[6] + args.lists:
+            m.send('frame_advance 1', 'done frame_advance', 600)
+    else:
+        m.send(f'frame_advance {args.lists * 2}', 'done frame_advance', 3600)
     m.send('insn_trace_stop', 'ok insn_trace_stop', 60)
     m.send('unified_trace_stop', 'ok unified_trace_stop', 60)
     f1 = struct.unpack('>20I', m.read(S['_gStats'], 80))
