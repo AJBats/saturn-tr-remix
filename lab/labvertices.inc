@@ -304,7 +304,6 @@ static void roomProjectModel(const RoomRotated* src, int32_t count, Vertex* dst,
         {
             paths[PATH_FOG]++;
             paths[PATH_FOG_MAX] += shade + zz - FOG_MIN > SHADE_MAX;
-            clip |= shade + zz - FOG_MIN >= 31 << 8 ? rp.black : 0;
             shade = clamp(shade + zz - FOG_MIN, 0, SHADE_MAX);
         }
         uint32_t* out = (uint32_t*)(dst + k);
@@ -337,7 +336,6 @@ int32_t verticesRoomsSeldomCheck()
         RoomProject rp;
         rp.farTable = pass < 18 ? nullptr : gDivFar;
         rp.farScaled = pass % 6 / 3;
-        rp.black = pass & 1 ? 0x40 : 0;
         rp.points = gSeldomPoints;
         rp.x0 = windows[w][0];
         rp.y0 = windows[w][1];
