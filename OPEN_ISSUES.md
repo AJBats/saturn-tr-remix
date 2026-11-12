@@ -3507,6 +3507,13 @@ over 14.6, at most 188 · Fix: medium, parked*
   19.17 to 18.97 ms; faces left on gouraud for want of a slot about 11 to 1 a list there, `ledge` about 23 to 7).
   Saturn 2026-11-11, before and after the fix, 7 frames each at 30 fps: `cistern-steps` VDP1 16.7 to 16.5 ms
   every list, `ledge` 28.0 to 27.9; the CPUs' work the same within 0.15 ms.
+  The copies' CPU cost cut 2026-11-12 (e320c97: the far test on the greys, a leaner lookup, the same
+  copies). Saturn, 7 frames a run, each run twice: `ledge` room faces 15.2 to 14.4 ms, the master's draws
+  12.0 to 11.7, VDP1 27.9 both; `cistern-steps` room faces 10.3 to 10.0, VDP1 16.5 both. The trick's own
+  cost against copies off: `ledge` 2.66 to 1.57 ms, `cistern-steps` 0.91 to 0.59; it saves VDP1 2.6 and
+  1.0. Tried and dropped the same day: a memo of the frame's copies in front of the cache (0.05 to 0.18 ms
+  slower than without, both CPUs; branch `shade-memo`), and far faces without averaging (room faces 0.9
+  and 0.45 ms cheaper, VDP1 1.1 and 0.6 dearer; branch `shade-nofar`).
 - The raptor and T-rex (branch `shell`), the user's choices: body, neck and tail one shell, legs in their pieces (joined,
   a leg crushes at its bends, and fixed to a bend it loses its feel). Raptor: claws fused and, with the arms, cards.
   T-rex: full arms, hands flat plates fused to the forearms. Arm cards on it saved 0.10 ms of CPU and 0.18 of VDP1 against
