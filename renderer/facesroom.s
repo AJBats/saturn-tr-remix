@@ -20,8 +20,8 @@
 ! RoomQuad: uint32 flags; uint16 indices[4], byte offsets into the room's
 ! vertices. Vertex: int16 x, y; int16 z; uint8 g, clip.
 ! CommandList: +0 cmd, +4 end, +8 grd, +12 link, +16 grdLink.
-! ShadeCache: +0 frame, +4 validFrom, +8 vram, +12 miss(cache, key, slot),
-! +16 keys[256], +1040 frames[256].
+! ShadeCache: +0 frame, +4 copies (vram / 8), +8 vram, +12 miss(cache, key,
+! slot), +16 keys[256], +1040 frames[256].
 !
 ! Through a face: r1, r2, r3, r7 its corners A B C D; r4 the face; r5 the
 ! faces left; r9 its command, r10 its gouraud table, r11 its link, r12 its
@@ -804,9 +804,6 @@
     nop
     tst     r0, r0
     bf      .Lshaded\sfx
-    mov     r1, r2
-    mov     r1, r3
-    mov     r1, r7
 .Ltable\sfx:
     TABLE
 .Lshaded\sfx:
@@ -1081,161 +1078,183 @@ _facesRoomAsm:
 1:  rts
     nop
 
-    ! a shaded copy of the command's colour table (w1) for gouraud value r1
-    ! in the list's cache (flush.s .LshadeTable): w1 written through it, r0
-    ! not 0; else r0 0, r1 kept. r0, r2, r3, r6 .. r8
-.LshadedCopy:
+    ! a far face's colours r1, r2, r3, r7: within 2 levels, their mean level
+    ! at every corner, perhaps through a shaded copy of the colour table
+    ! (flush.s .LfarShade); else their gouraud table. The colours are greys
+    ! (render.cpp gShadeGouraud), a level times 1057: as their levels lie, so
+    ! do they, 2 levels 2114 apart. r0, r2, r3, r6 .. r8, r13, r14
+.LfarShade:
     mov.l   @(RUN_SHADE, gbr), r0
     tst     r0, r0
-    bt      9f
-    mov     r0, r6              ! the cache
-    mov.l   @(4, r9), r0
-    extu.w  r0, r7              ! the table / 8
+    bt      .LfarTable          ! no shaded copies
+    mov.w   .LtwoLevels, r8
+    mov     r1, r13
+    cmp/hi  r3, r1
+    bf/s    1f
+    mov     r3, r14
+    mov     r3, r13
+    mov     r1, r14
+1:  add     r8, r13             ! the darker of A and C, 2 levels up
+    cmp/hi  r13, r14
+    bt      .LfarTable          ! the brighter beyond it
+    mov     r2, r6
+    cmp/hi  r7, r2
+    bf/s    2f
     mov     r7, r0
-    shlr2   r0                  ! / 32: tables lie 32 bytes apart
-    mov     r1, r2
-    shll2   r2
-    shll    r2
-    xor     r0, r2
-    extu.b  r2, r2              ! its slot, or the other of the pair
-    shll8   r7
-    shll2   r7
-    shll2   r7
-    shll2   r7
-    shll    r7
-    or      r1, r7              ! the key: table << 15 | gouraud value
+    mov     r7, r6
     mov     r2, r0
-    shll2   r0
-    add     r6, r0
-    mov.l   @(16, r0), r0       ! keys[slot]
-    cmp/eq  r7, r0
-    bt      5f
-    mov     #1, r0
-    xor     r0, r2              ! the other
+2:  add     r8, r6              ! the darker of B and D, 2 levels up
+    cmp/hi  r6, r0
+    bt      .LfarTable
+    cmp/hi  r13, r0
+    bt      .LfarTable          ! B or D beyond A and C's darker
+    cmp/hi  r6, r14
+    bt      .LfarTable          ! A or C beyond B and D's darker
+    mov     r1, r0
+    and     #31, r0
+    mov     r0, r6              ! the levels' sum
     mov     r2, r0
+    and     #31, r0
+    add     r0, r6
+    mov     r3, r0
+    and     #31, r0
+    add     r0, r6
+    mov     r7, r0
+    and     #31, r0
+    add     r0, r6
+    add     #2, r6
+    shlr2   r6                  ! the mean level
+    mov.w   .LgreyStep, r0
+    mulu.w  r0, r6
+    mov.l   @(4, r9), r8        ! w1
+    mov.l   @(RUN_SHADE, gbr), r0
+    sts     macl, r1            ! a grey of that level
+    mov     r0, r6              ! the cache
+    mov     r1, r0              ! its copy: .LshadedCopy, inline
     shll2   r0
-    add     r6, r0
-    mov.l   @(16, r0), r0
-    cmp/eq  r7, r0
-    bf      7f
-5:  mov     r2, r3              ! a hit: if still valid, drawn this frame
-    shll2   r3
-    add     r6, r3
-    mov.w   .LframesAt, r0
-    add     r0, r3              ! &frames[slot]
-    mov.l   @r3, r0
-    mov.l   @(4, r6), r8        ! validFrom
-    cmp/hs  r8, r0
-    bf      7f
-    mov.l   @r6, r0
-    mov.l   r0, @r3
-    mov     r2, r0
     shll2   r0
-    shll2   r0
-    shll    r0                  ! slot * 32
-    mov.l   @(8, r6), r3
-    add     r3, r0
-    shlr2   r0
-    bra     8f
-    shlr    r0                  ! the copy / 8
-7:  sts.l   pr, @-r15           ! shadeTableMiss(cache, key, slot)
+    shll    r0
+    xor     r8, r0
+    mov.w   .LpairSlots, r2
+    and     r2, r0
+    add     r6, r0              ! its pair of slots: keys at +16
+    mov     r8, r7
+    shll16  r7
+    shlr    r7
+    or      r1, r7              ! the key: table << 15 | grey
+    mov.l   @(16, r0), r2
+    cmp/eq  r7, r2
+    bt      3f
+    mov.l   @(20, r0), r2
+    cmp/eq  r7, r2
+    bf      .LfarMiss
+    add     #4, r0
+3:  mov.l   @r6, r2             ! a hit: drawn this frame
+    mov.w   .LframesAt, r3
+    mov.l   r2, @(r0, r3)
+    sub     r6, r0
+    mov.l   @(4, r6), r2
+    add     r2, r0              ! the copy / 8
+4:  mov.l   .LnoGouraud, r2
+    and     r2, r8
+    or      r0, r8
+    rts
+    mov.l   r8, @(4, r9)        ! w1 through the copy
+.LfarMiss:
+    sts.l   pr, @-r15           ! shadeTableMiss(cache, key, slot)
     mov.l   r1, @-r15
     mov.l   r4, @-r15
     mov.l   r5, @-r15
+    sub     r6, r0
+    shlr2   r0
     mov     r6, r4
-    mov     r7, r5
-    mov     r2, r6
+    mov     r0, r6
     mov.l   @(12, r4), r0
     jsr     @r0
-    nop
+    mov     r7, r5
     mov.l   @r15+, r5
     mov.l   @r15+, r4
     mov.l   @r15+, r1
     lds.l   @r15+, pr
     tst     r0, r0
-    bt      9f
-8:  mov.l   @(4, r9), r2
-    mov.l   .LnoGouraud, r3
-    and     r3, r2
-    or      r0, r2
-    rts
-    mov.l   r2, @(4, r9)        ! w1 through the copy
-9:  rts
-    mov     #0, r0
-
-    .align 2
-.LnoGouraud:    .long   0xFFF80000  ! w1 without the colour calculation and table
-.LframesAt:     .short  1040        ! ShadeCache.frames
-    .align 2
-
-    ! a far face's colours r1, r2, r3, r7: within 2 levels (the shades are
-    ! greys), their mean at every corner, perhaps a shaded colour table
-    ! (flush.s .LfarShade); else their gouraud table; r0, r2, r3, r6 .. r8,
-    ! r13, r14
-.LfarShade:
-    mov.l   @(RUN_SHADE, gbr), r0
-    tst     r0, r0
-    bt      .LfarTable          ! no shaded tables
-    mov     r1, r0
-    and     #31, r0
-    mov     r0, r6              ! the levels' sum
-    mov     r0, r13             ! the darkest
-    mov     r0, r14             ! the brightest
-    mov     r2, r0
-    and     #31, r0
-    add     r0, r6
-    cmp/gt  r0, r13
-    bf      1f
-    mov     r0, r13
-1:  cmp/gt  r14, r0
-    bf      2f
-    mov     r0, r14
-2:  mov     r3, r0
-    and     #31, r0
-    add     r0, r6
-    cmp/gt  r0, r13
-    bf      3f
-    mov     r0, r13
-3:  cmp/gt  r14, r0
-    bf      4f
-    mov     r0, r14
-4:  mov     r7, r0
-    and     #31, r0
-    add     r0, r6
-    cmp/gt  r0, r13
-    bf      5f
-    mov     r0, r13
-5:  cmp/gt  r14, r0
-    bf      6f
-    mov     r0, r14
-6:  sub     r13, r14
-    mov     #2, r0
-    cmp/hi  r0, r14
-    bt      .LfarTable          ! too far apart
-    add     #2, r6
-    shlr2   r6                  ! the mean level
-    mov     r6, r1
-    shll2   r6
-    shll2   r6
-    shll    r6
-    or      r6, r1
-    shll2   r6
-    shll2   r6
-    shll    r6
-    or      r6, r1              ! a grey of that level
-    sts.l   pr, @-r15
-    bsr     .LshadedCopy
-    nop
-    lds.l   @r15+, pr
-    tst     r0, r0
-    bf      7f
-    mov     r1, r2
+    bf      4b                  ! (r8 kept by the call)
+    mov     r1, r2              ! none: the grey at every corner
     mov     r1, r3
     mov     r1, r7
 .LfarTable:
     TABLE
-7:  rts
+    rts
     nop
+
+    ! a shaded copy of the command's colour table (w1) for gouraud value r1
+    ! in the list's cache (flush.s .LshadeTable): w1 written through it, r0
+    ! not 0; else r0 0 and r1 at every corner (r2, r3, r7). r0, r2, r3,
+    ! r6 .. r8
+.LshadedCopy:
+    mov.l   @(RUN_SHADE, gbr), r0
+    tst     r0, r0
+    bt      9f
+    mov     r0, r6              ! the cache
+    mov.l   @(4, r9), r8        ! w1
+    mov     r1, r0
+    shll2   r0
+    shll2   r0
+    shll    r0
+    xor     r8, r0
+    mov.w   .LpairSlots, r2
+    and     r2, r0
+    add     r6, r0              ! the pair of slots: (g << 3 ^ table >> 2) & ~1, keys at +16
+    mov     r8, r7
+    shll16  r7
+    shlr    r7
+    or      r1, r7              ! the key: table << 15 | gouraud value
+    mov.l   @(16, r0), r2
+    cmp/eq  r7, r2
+    bt      5f
+    mov.l   @(20, r0), r2
+    cmp/eq  r7, r2
+    bf      7f
+    add     #4, r0
+5:  mov.l   @r6, r2             ! a hit: drawn this frame
+    mov.w   .LframesAt, r3
+    mov.l   r2, @(r0, r3)
+    sub     r6, r0
+    mov.l   @(4, r6), r2
+    add     r2, r0              ! the copy / 8
+8:  mov.l   .LnoGouraud, r2
+    and     r2, r8
+    or      r0, r8
+    rts
+    mov.l   r8, @(4, r9)        ! w1 through the copy
+7:  sts.l   pr, @-r15           ! shadeTableMiss(cache, key, slot)
+    mov.l   r1, @-r15
+    mov.l   r4, @-r15
+    mov.l   r5, @-r15
+    sub     r6, r0
+    shlr2   r0
+    mov     r6, r4
+    mov     r0, r6
+    mov.l   @(12, r4), r0
+    jsr     @r0
+    mov     r7, r5
+    mov.l   @r15+, r5
+    mov.l   @r15+, r4
+    mov.l   @r15+, r1
+    lds.l   @r15+, pr
+    tst     r0, r0
+    bf      8b
+9:  mov     r1, r2
+    mov     r1, r3
+    rts
+    mov     r1, r7
+
+    .align 2
+.LnoGouraud:    .long   0xFFF80000  ! w1 without the colour calculation and table
+.LframesAt:     .short  1040        ! ShadeCache.frames
+.LpairSlots:    .short  0x3F8       ! a pair's first slot * 4
+.LtwoLevels:    .short  2 * 1057
+.LgreyStep:     .short  1057        ! (1 << 10) | (1 << 5) | 1
+    .align 2
 
     ! the gouraud table of corners r1, r2, r3, r7 under water; r0, r6, r8,
     ! r14
@@ -2280,9 +2299,6 @@ _facesRoomNear:
     nop
     tst     r0, r0
     bf      7f
-    mov     r1, r2
-    mov     r1, r3
-    mov     r1, r7
 6:  TABLE
 7:  NEXT
     lds.l   @r15+, pr

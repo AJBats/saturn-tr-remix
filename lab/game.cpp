@@ -995,8 +995,8 @@ static inline int32_t offFrame(const Vertex* v)
 uint32_t shadeTableMiss(ShadeCache* cache, uint32_t key, uint32_t index)
 {
     uint32_t a = index & ~1;
-    uint32_t drawnA = cache->frames[a] >= cache->validFrom ? cache->frames[a] : 0;
-    uint32_t drawnB = cache->frames[a + 1] >= cache->validFrom ? cache->frames[a + 1] : 0;
+    uint32_t drawnA = cache->frames[a];
+    uint32_t drawnB = cache->frames[a + 1];
     index = drawnB < drawnA ? a + 1 : a;
     if (X_MIN(drawnA, drawnB) + 2 > cache->frame)
         return 0;
@@ -1548,8 +1548,22 @@ void gameInit()
     gShadeCaches = sceneArray<ShadeCache>("SHCA");
     for (int32_t i = 0; i < 2; i++)
     {
-        gShadeCaches[i].miss = shadeTableMiss;
-        gRefShadeCaches[i] = gShadeCaches[i];
+        ShadeCache &c = gShadeCaches[i];
+        if (c.copies != c.vram >> 3)
+        {
+            // captured before the caches kept their copies' place: +4 then
+            // held the frame from which copies were valid, and stale keys
+            // stayed in their slots
+            for (int32_t s = 0; s < 256; s++)
+            {
+                if (c.frames[s] < c.copies) {
+                    c.keys[s] = c.frames[s] = 0;
+                }
+            }
+            c.copies = c.vram >> 3;
+        }
+        c.miss = shadeTableMiss;
+        gRefShadeCaches[i] = c;
     }
     gDetailKeys = texturesKeys();
     gDetailSlots = texturesSlots();

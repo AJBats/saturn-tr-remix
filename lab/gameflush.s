@@ -35,8 +35,8 @@
 !   +80 uint32 mipTable         a mip level's colour table after the texture's:
 !                               4 a level (0: the tables as captured)
 !
-! ShadeCache (render.cpp): +0 frame, +4 validFrom, +8 vram, +12 miss,
-! +16 keys[256], +1040 frames[256].
+! ShadeCache (render.cpp): +0 frame, +4 copies, +8 vram, +12 miss,
+! +16 keys[256], +1040 frames[256]; a key 0 holds nothing.
 !
 ! Face: uint32 flags; Face* next; int16 indices[4].
 ! Vertex: int16 x, y; int16 z; uint8 g, clip.
@@ -272,10 +272,6 @@ _flushAsm:
     bf      .LshadeMiss
 1:  mov.w   .LshadeFrames, r0
     add     r2, r0
-    mov.l   @(r0, r3), r1       ! frames[slot]
-    mov.l   @(4, r3), r5        ! validFrom
-    cmp/hs  r5, r1
-    bf      .LshadeMiss
     mov.l   @r3, r1
     mov.l   r1, @(r0, r3)       ! drawn this frame
     mov.l   @(8, r3), r0        ! vram

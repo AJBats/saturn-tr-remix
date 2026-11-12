@@ -367,8 +367,8 @@ static render::ShadeCache gShadeCaches[2] __attribute__((aligned(16)));    // th
 static uint32_t shadeTableMiss(render::ShadeCache* cache, uint32_t key, uint32_t index)
 {
     uint32 a = index & ~1;
-    uint32 drawnA = cache->frames[a] >= cache->validFrom ? cache->frames[a] : 0;
-    uint32 drawnB = cache->frames[a + 1] >= cache->validFrom ? cache->frames[a + 1] : 0;
+    uint32 drawnA = cache->frames[a];
+    uint32 drawnB = cache->frames[a + 1];
     index = drawnB < drawnA ? a + 1 : a;
     if (X_MIN(drawnA, drawnB) + 2 > cache->frame)
         return 0;
@@ -394,10 +394,13 @@ static uint32_t shadeTableMiss(render::ShadeCache* cache, uint32_t key, uint32_t
 }
 
 // Every copy stale: the tables they copy, or the VRAM they live in, changed.
+// Their slots free, as if never drawn.
 static void shadeTablesReset()
 {
-    for (int32 i = 0; i < 2; i++) {
-        gShadeCaches[i].validFrom = gShadeCaches[i].frame + 1;
+    for (int32 i = 0; i < 2; i++)
+    {
+        memset(gShadeCaches[i].keys, 0, sizeof(gShadeCaches[i].keys));
+        memset(gShadeCaches[i].frames, 0, sizeof(gShadeCaches[i].frames));
     }
 }
 
@@ -657,8 +660,8 @@ void renderLevelInit()
         render::ShadeCache &c = gShadeCaches[i];
         memset(&c, 0, sizeof(c));
         c.frame = 2;
-        c.validFrom = 3;
         c.vram = vram ? vram + i * 256 * SHADE_TABLE_SIZE : 0;
+        c.copies = c.vram >> 3;
         c.miss = shadeTableMiss;
     }
 

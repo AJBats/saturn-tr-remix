@@ -166,17 +166,15 @@ static uint32_t shadedCopy(ShadeCache* cache, uint32_t w1, uint32_t g)
 {
     uint32_t table = w1 & 0xFFFF;
     uint32_t key = (table << 15) | g;
-    uint32_t slot = ((g << 3) ^ (table >> 2)) & 0xFF;     // tables lie 32 bytes apart: by table / 32
+    uint32_t slot = ((g << 3) ^ (table >> 2)) & 0xFE;     // tables lie 32 bytes apart: by table / 32
     if (cache->keys[slot] != key)
     {
         slot ^= 1;
         if (cache->keys[slot] != key)
             return cache->miss(cache, key, slot);
     }
-    if (cache->frames[slot] < cache->validFrom)
-        return cache->miss(cache, key, slot);
     cache->frames[slot] = cache->frame;
-    return (cache->vram + slot * SHADE_TABLE_SIZE) >> 3;
+    return cache->copies + slot * (SHADE_TABLE_SIZE >> 3);
 }
 
 // Under water red loses 2 steps for every 1024 units beyond the first 1024,

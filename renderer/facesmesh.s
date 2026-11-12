@@ -21,8 +21,8 @@
 ! CommandList: +0 cmd, +4 end, +8 grd, +12 link, +16 grdLink, +20 heads,
 ! +24 tails, +28 materials, +32 shadeGouraud, +36 shade (ShadeCache, or 0),
 ! +40 shadeLevel.
-! ShadeCache: +0 frame, +4 validFrom, +8 vram, +12 miss(cache, key, slot),
-! +16 keys[256], +1040 frames[256].
+! ShadeCache: +0 frame, +4 copies (vram / 8), +8 vram, +12 miss(cache, key,
+! slot), +16 keys[256], +1040 frames[256].
 !
 ! Through a face: r1, r2, r3, r7 its corners A B C D; r4 the face; r8 the
 ! vertices; r9 its command, r10 its gouraud table, r11 its link, r12 its
@@ -646,81 +646,60 @@ _facesMeshAsm:
     mov.l   @(36, r13), r6      ! the cache
     tst     r6, r6
     bt      9f
+    mov.l   @(4, r14), r5       ! w1
+    mov     r1, r0
+    shll2   r0
+    shll2   r0
+    shll    r0
+    xor     r5, r0
+    mov.w   .LpairSlots, r2
+    and     r2, r0
+    add     r6, r0              ! the pair of slots: (g << 3 ^ table >> 2) & ~1, keys at +16
+    mov     r5, r7
+    shll16  r7
+    shlr    r7
+    or      r1, r7              ! the key: table << 15 | gouraud value
+    mov.l   @(16, r0), r2
+    cmp/eq  r7, r2
+    bt      5f
+    mov.l   @(20, r0), r2
+    cmp/eq  r7, r2
+    bf      7f
+    add     #4, r0
+5:  mov.l   @r6, r2             ! a hit: drawn this frame
+    mov.w   .LframesAt, r3
+    mov.l   r2, @(r0, r3)
+    sub     r6, r0
+    mov.l   @(4, r6), r2
+    add     r2, r0              ! the copy / 8
+8:  mov.l   .LnoGouraud, r2
+    and     r2, r5
+    or      r0, r5
+    rts
+    mov.l   r5, @(4, r9)        ! w1 through the copy
+7:  sts.l   pr, @-r15           ! shadeTableMiss(cache, key, slot)
     mov.l   r4, @-r15
     mov.l   r1, @-r15
-    mov.l   @(4, r14), r0
-    extu.w  r0, r5              ! the table / 8
-    mov     r5, r0
-    shlr2   r0                  ! / 32: tables lie 32 bytes apart
-    mov     r1, r4
-    shll2   r4
-    shll    r4
-    xor     r0, r4
-    extu.b  r4, r4              ! its slot, or the other of the pair
-    shll8   r5
-    shll2   r5
-    shll2   r5
-    shll2   r5
-    shll    r5
-    or      r1, r5              ! the key: table << 15 | gouraud value
-    mov     r4, r0
-    shll2   r0
-    add     r6, r0
-    mov.l   @(16, r0), r0       ! keys[slot]
-    cmp/eq  r5, r0
-    bt      5f
-    mov     #1, r0
-    xor     r0, r4              ! the other
-    mov     r4, r0
-    shll2   r0
-    add     r6, r0
-    mov.l   @(16, r0), r0
-    cmp/eq  r5, r0
-    bf      7f
-5:  mov     r4, r1              ! a hit: if still valid, drawn this frame
-    shll2   r1
-    add     r6, r1
-    mov.w   .LframesAt, r0
-    add     r0, r1              ! &frames[slot]
-    mov.l   @r1, r0
-    mov.l   @(4, r6), r2        ! validFrom
-    cmp/hs  r2, r0
-    bf      7f
-    mov.l   @r6, r0
-    mov.l   r0, @r1
-    mov     r4, r0
-    shll2   r0
-    shll2   r0
-    shll    r0                  ! slot * 32
-    mov.l   @(8, r6), r1
-    add     r1, r0
+    sub     r6, r0
     shlr2   r0
-    bra     8f
-    shlr    r0                  ! the copy / 8
-7:  sts.l   pr, @-r15           ! shadeTableMiss(cache, key, slot)
-    mov     r4, r0
     mov     r6, r4
     mov     r0, r6
     mov.l   @(12, r4), r0
     jsr     @r0
-    nop
+    mov     r7, r5
+    mov.l   @r15+, r1
+    mov.l   @r15+, r4
     lds.l   @r15+, pr
     tst     r0, r0
-    bt      10f
-8:  mov.l   @(4, r14), r5
-    mov.l   .LnoGouraud, r6
-    and     r6, r5
-    or      r0, r5
-    mov.l   r5, @(4, r9)        ! w1 through the copy
-10: mov.l   @r15+, r1
-    rts
-    mov.l   @r15+, r4
+    bf/s    8b
+    mov.l   @(4, r14), r5       ! w1 again
 9:  rts
     mov     #0, r0
 
     .align 2
 .LnoGouraud:    .long   0xFFF80000  ! w1 without the colour calculation and table
 .LframesAt:     .short  1040        ! ShadeCache.frames
+.LpairSlots:    .short  0x3F8       ! a pair's first slot * 4
 
     ! under water, out of the way of the loops above
     .align 2

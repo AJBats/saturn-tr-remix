@@ -133,11 +133,12 @@ struct DetailSlot
 // The CPUs' caches of shaded copies of colour tables (render.cpp): a copy of
 // a face's table with a gouraud value added to its colours draws as gouraud
 // would, all corners taking that value, without its cost. Two-way set
-// associative by table and value, in VDP1 VRAM.
+// associative by table and value, in VDP1 VRAM. A key 0 holds nothing: the
+// keys and frames are cleared when the copies go stale.
 struct ShadeCache
 {
     uint32_t frame;         // the frame being built
-    uint32_t validFrom;     // copies drawn before this frame are stale
+    uint32_t copies;        // vram / 8, as a command's colour table takes it
     uint32_t vram;          // the copies' VDP1 VRAM offset; 0: none
     uint32_t (*miss)(ShadeCache* cache, uint32_t key, uint32_t index);
     uint32_t keys[256];     // table address / 8 << 15 | gouraud value
