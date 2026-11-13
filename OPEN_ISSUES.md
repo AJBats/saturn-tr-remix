@@ -3917,7 +3917,7 @@ word. Of the same kind and already open: 264, 265, 266.
 | Lost Valley sky | 16.42 -> 17.15 | | |
 | Vilcabamba | 26.28 -> 26.28 | | |
 
-Mednafen: hwtest discs held at their start, medians of 300 frames from frame 3000. Saturn: hwtable rows, build/night/black_before_table.txt and black_after_table.txt in ../trs_dev.
+Mednafen: hwtest discs held at their start, medians of 300 frames from frame 3000. Saturn: hwtable rows, build/night/black_before_table.txt and black_after_table.txt (main checkout; first written in ../trs_dev).
 
 ### 300. A block under a ceiling open to the room above can't be climbed
 *Closed 2026-11-05: 83d938b, one `alterFloor` that does what retail's AlterFloorHeight (`060249a0`) does. Mednafen, played from `tools/hwtest.sh khamoon-block` and `khamoon-stack`: three pulls, the push, the block, the pillar, along the crevice and out into room 5. Before the fix she stood at the block and nothing happened. Saturn not run: no timing or video in it.*
