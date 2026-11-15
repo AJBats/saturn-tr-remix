@@ -3694,11 +3694,13 @@ over 14.6, at most 188 · Fix: medium, parked*
 - To read: `shimmersBorn` and `facesShimmersFrame` in renderer/faces.cpp, renderer/shimmers.s, the sheets seen from below (`up`) and what `(height < 0) != (up != 0)` and `s.owed = absOf(height) * owed` do as the camera crosses the surface.
 
 ### 298. Walls stand on portals, so the walk looks through more than is open
-*Kind: speed - Size: 5-31% of all portal area by level (Tihocan 31%, Cistern 17%), not yet priced in ms - Fix: small, at pack time, not asked for yet*
+*Kind: speed - Size: 1.5-7% of portal area by level once see-through faces are left out (the 5-31% below counted water surfaces as walls); modelled, a general pass loses - Fix: a hand cut at a single portal at most*
 
 - Found at Natla's Mines, room 68's portal to 67: 6144 wide, but three of its six sectors are the right house's front wall, faces of room 68 standing right on the portal's plane. The walk takes the whole slot as open, so all of room 67 behind the wall is in the frame's list: 3.56 ms at the alley in Mednafen, leaving 1% of its pixels.
 - `tools/portalwalls.py [LEVEL ...]` counts it: of each portal, what faces flat on its plane and seen from the side it's looked through cover. Some are 100% covered, so never seen through from that side. Every level has such portals: LEVEL1 6.8%, 2 13.6%, 3A 6.3%, 3B 12.9%, 4 9.4%, 5 5.6%, 6 16.1%, 7A 17.0%, 7B 31.3%, 8A 10.1%, 8B 12.7%, 8C 15.1%, 10A 11.5%, 10B 17.4%, 10C 4.5%.
 - The fix would be in `tools/pack_level.py`: shrink a portal to what's open, or split it into its open parts, or drop it from that side. It costs nothing at run time, works in every state of the level and cuts both the walk and VDP1. To mind: doors. A door's hole isn't covered by a face, so it stays open; a face that moves (a flip map's alternate room) must be tested in each state.
+- Corrected 2026-11-14 (`tools/occmodel/export_portals.py`, occmodel `portals` mode): `portalwalls.py` took see-through faces for walls, and most of them are water surfaces lying on horizontal portals. Solid faces alone cover 1.5-7% of portal area: Tihocan 4.6% where it read 31.3%, Natla's Mines 3.2% where it read 11.5%. A cell is closed here only if its middle and four corners are under a solid face.
+- Priced in the model, 8,000 random views a level: one rectangle round what's open leaves 98-100% of the area (the Natla alley's portal 68 to 67 not cut at all), so it saves next to nothing. Exact rectangles leave 93-98% but multiply the portals the walk checks: heavy Cistern views 231 to 555 checks, room work and walk 24.3 to 31.0 ms (Mednafen cycles, modelled), for 12 fewer room vertices and VDP1 17.56 to 17.50 ms. Not worth a pass over the levels; a hand split at one portal where a view needs it is the most this is worth.
 
 ### 299. A door seen from behind its slab flickers against its frame
 *Kind: look - Size: a band along the door's near edge in motion - Fix: not now, the user's word: there are many of this class in the game*
@@ -3733,6 +3735,19 @@ over 14.6, at most 188 · Fix: medium, parked*
   the cistern". No coordinates.
 - To find it: the user walks there in Mednafen from the level start and saves a state, then `tools/hwtest.sh at` with that
   room and position, and the scene page's numbers on the Saturn as for 293.
+
+### 311. Draw order by sector column: room faces in an exact order, objects placed in it
+*Kind: look - Size: modelled, wrong pixels a view down 61% over all levels, room against room gone - Fix: large, not started; its cost in the game not priced*
+
+- The idea is Paul Douglas's (Tomb Raider's co-creator), 2026-11-14: the level partitions trivially into hulls that can be sorted almost perfectly; objects need inserting and clipping into that order.
+- In TR1's data the hulls are the sector columns. All 113,864 room faces of the 15 levels have their x and z corners on the 1024 grid and fit one sector column; no wall is diagonal; every floor and ceiling is one plane (TR1's slopes are planes; floors split in two came with TR3). So each room's column is a box with straight sides, and its faces never overlap one another on the screen.
+- The order: columns farthest first, by how many sectors away they are across plus along from the camera's column; columns of rooms stacked above or below by their height from the camera. A line of sight crosses columns with both counts never shrinking, so a column can only be hidden by one nearer in that count. An object's face goes after its own column's room faces; objects' faces among themselves by mean depth, as now.
+- Modelled (occmodel `sort` mode with `tools/occmodel/export_objects.py`: statics, and items in their start pose; 3,000 random views a level; a depth buffer as the truth; full resolution; a pixel wrong where the face painted last lies 0.2% or more behind the nearest). Wrong pixels a view, mean of the 15 levels: today 98.0; each object face in its own column 47.5; statics' faces also cut at the sector lines when packed 38.5; items' faces cut too (each frame) 32.7. Views with 100 or more wrong pixels: today 6.3-14.7% by level, statics cut 1.4-8.2%.
+- By kind, statics cut: room against room 14.6 to 0 (a pixel or two left at 7A, 8A, 8C, where two rooms share a column's air); objects showing through room faces 53.8 to 14.1; an object's own faces 20.8 either way, now half of what's left (painter's order inside one object, as today).
+- LEVEL1, cameras round the bridge planks (room 13, sectors 23-26 by 52-56): 95.3 to 38.2. Round the icicle: 59.7 to 7.4, views with 100+ wrong pixels 14.3% to 0.1%. (Today here is without the three hand stamps of `saturn/depth_hints.txt`, which the column order makes unnecessary in the model.)
+- A mesh's centre for all its faces does worse than today: big statics (the Caves' vine tube, the bridge ropes) span many columns.
+- What it lacks: an object's own faces and objects pushed into their own column's floor or wall stay as today; rooms sharing air in one column (0-15 pairs a level by a scan of the sectors' heights; 15 at LEVEL8C, 7 at Tihocan, rooms 26 and 27 at LEVEL1) need the walk's order; the model has no sprites, see-through faces, near-split pieces or Lara in motion, and random cameras, not the game's.
+- Not priced in the game. Room faces: the column's key would take the place of the farthest-corner test (`facesroom.s` BUCKET: 4 depth reads, 3 compares); the column from a packed byte a face, or from corner A's room vertex (its x and z bytes are 256-unit steps, so column = byte >> 2), with walls facing away from their column one less. Meshes: one column when a mesh's box sits in one, else each face. Cutting statics adds faces: at most +45% of static faces at LEVEL1, +60% 3A, +113% 8C, +116% 10B, 0-38% elsewhere; about 11 more faces in a view of 124 at LEVEL1. Buckets: 41 column distances (the far plane is 20 sectors) with depth steps for objects inside each.
 
 ## Production code: clean-up
 

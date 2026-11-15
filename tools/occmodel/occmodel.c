@@ -27,6 +27,9 @@
 //         occmodel LEVEL.bin one x y z room r00..r22 focal
 //         occmodel LEVEL.bin region x y z room r00..r22 focal RADIUS ARC_DEGREES PITCH_DEGREES VIEWS
 //         occmodel LEVEL.bin cameras VIEWS SEED
+//         occmodel LEVEL.bin portals PORTALS.bin VIEWS SEED [MIN_VERTS]   the walk with portals cut to what's open (issue 298)
+//         occmodel LEVEL.bin sort OBJECTS.bin VIEWS SEED      draw order: the game's painter's order and column order
+//                  against a depth buffer (OBJECTS from export_objects.py); sort OBJECTS.bin one x y z room yaw pitch: one view's worst pairs
 //         occmodel LEVEL.bin heaviest VIEWS SEED
 //         occmodel LEVEL.bin holes VIEWS SEED
 //         occmodel LEVEL.bin boxes FILE VIEWS SEED   solid boxes (x0 x1 y0 y1 z0 z1 a line) as the game has them
@@ -73,6 +76,8 @@ typedef struct {
     Quad* q;
     int (*t)[3];
     Portal* p;
+    Portal* p2;     // the portals mode's other set (export_portals.py), np2 of them
+    int np2;
     int (*s)[2];
     Occ* o;
     V3* vv;         // in view space, this view's
@@ -653,18 +658,22 @@ static int checkRect(Walk* w, int room, const Portal* p, Rect* out)
     return grown;
 }
 
+static int gAltPortals;     // the walk takes each room's p2 in place of p
+
 static void visitRect(Walk* w, int room, int depth)
 {
     if (depth > 200) { w->overflow = 1; return; }
     w->visits++;
     roomOccluders(w, room);
     Room* r = &rooms[room];
-    for (int k = 0; k < r->np; k++)
+    const Portal* ps = gAltPortals ? r->p2 : r->p;
+    int np = gAltPortals ? r->np2 : r->np;
+    for (int k = 0; k < np; k++)
     {
         Rect win;
-        if (checkRect(w, room, &r->p[k], &win))
+        if (checkRect(w, room, &ps[k], &win))
         {
-            int t = r->p[k].target;
+            int t = ps[k].target;
             visitRect(w, t, depth + 1);
             if (!w->listed[t]) {
                 w->listed[t] = 1;
@@ -3700,6 +3709,729 @@ static void planes(const char* name, int views, int floorY, int ceilingY)
         fclose(out);
 }
 
+
+// --- portals: each cut to what's open (issue 298) ------------------------------------------
+// The walk with the level's portals against the walk with export_portals.py's: room work, VDP1 and
+// the walk's own checks (Mednafen cycles as everywhere here), and pixels lost: faces the depth buffer
+// shows from the first walk that the second leaves out (room not listed, or culled by its window).
+static void portalsLoad(const char* path)
+{
+    FILE* f = fopen(path, "rb");
+    if (!f) { perror(path); exit(1); }
+    int n;
+    fread(&n, 4, 1, f);
+    if (n != nrooms) { fprintf(stderr, "%s: %d rooms, level has %d\n", path, n, nrooms); exit(1); }
+    for (int i = 0; i < nrooms; i++)
+    {
+        Room* r = &rooms[i];
+        fread(&r->np2, 4, 1, f);
+        r->p2 = malloc(sizeof(Portal) * (r->np2 + 1));
+        for (int k = 0; k < r->np2; k++) {
+            int c[16];
+            fread(c, 4, 16, f);
+            r->p2[k].target = c[0];
+            r->p2[k].n[0] = c[1]; r->p2[k].n[1] = c[2]; r->p2[k].n[2] = c[3];
+            for (int j = 0; j < 4; j++)
+                r->p2[k].c[j] = (V3){ c[4 + j * 3], c[5 + j * 3], c[6 + j * 3] };
+        }
+    }
+    fclose(f);
+}
+
+static int faceKeptBy(const Walk* w, int id)
+{
+    int room = faceRoom(id);
+    if (!w->listed[room])
+        return 0;
+    Room* r = &rooms[room];
+    int i = id - r->faceBase;
+    if (i < r->nq) {
+        int idx[4] = { r->q[i].a, r->q[i].b, r->q[i].c, r->q[i].d };
+        return !faceCulled(r, idx, 4, w->clip[room]);
+    }
+    return !faceCulled(r, r->t[i - r->nq], 3, w->clip[room]);
+}
+
+static void portalsRun(const char* name, int views, int minVerts)
+{
+    double n = 0, ms0 = 0, ms1 = 0, vd0 = 0, vd1 = 0, ck0 = 0, ck1 = 0, rooms0 = 0, rooms1 = 0, verts0 = 0, verts1 = 0, lost = 0;
+    double worstSave = 0, worstLost = 0;
+    long lostViews = 0;
+    for (int v = 0; v < views; v++)
+    {
+        V3 pos;
+        int room = randomPlace(&pos);
+        viewSet(pos, urand(0, 2 * (float)M_PI), urand(-0.5f, 0.5f));
+        gBase.useMask = 0; gBase.usePoly = 0; gBase.minArea = 256; gBase.useBoxes = 0; gBase.darkShade = 0;
+        gTry = gBase;
+        gAltPortals = 0;
+        walkRun(&gBase, room, 0);
+        Work a = listWork(&gBase);
+        if (a.verts < minVerts)
+            continue;
+        gAltPortals = 1;
+        walkRun(&gTry, room, 0);
+        gAltPortals = 0;
+        Work b = listWork(&gTry);
+        oracle(&gBase);
+        double lp = 0;
+        for (int id = 0; id < nfaces; id++)
+            if (facePx[id] && !faceKeptBy(&gTry, id))
+                lp += facePx[id];
+        n++;
+        double c0 = a.cycles + 600.0 * gBase.checks, c1 = b.cycles + 600.0 * gTry.checks;
+        ms0 += c0 / 28636.0; ms1 += c1 / 28636.0;
+        vd0 += a.vdp1 / 28636.0; vd1 += b.vdp1 / 28636.0;
+        ck0 += gBase.checks; ck1 += gTry.checks;
+        rooms0 += a.rooms; rooms1 += b.rooms;
+        verts0 += a.verts; verts1 += b.verts;
+        lost += lp;
+        if (lp > 0) lostViews++;
+        if (lp > worstLost) worstLost = lp;
+        if ((c0 - c1) / 28636.0 > worstSave) worstSave = (c0 - c1) / 28636.0;
+    }
+    if (!n) { printf("%s: no views of %d+ room vertices\n", name, minVerts); return; }
+    printf("%s views %.0f (%d+ room vertices): rooms %.1f -> %.1f, vertices %.0f -> %.0f, portal checks %.0f -> %.0f, "
+           "room work + walk %.2f -> %.2f ms (best view -%.2f), VDP1 %.2f -> %.2f ms; px lost a view %.1f, views losing any %.1f%%, worst %.0f\n",
+           name, n, minVerts, rooms0 / n, rooms1 / n, verts0 / n, verts1 / n, ck0 / n, ck1 / n, ms0 / n, ms1 / n, worstSave, vd0 / n, vd1 / n,
+           lost / n, 100.0 * lostViews / n, worstLost);
+}
+
+// --- sort: draw order against a depth buffer ---------------------------------------------
+// The same faces each view, several ways: a depth buffer (the truth); the game's painter's order
+// (room faces at their farthest corner, mesh faces at their mean, 16-unit buckets, in a bucket the
+// rooms' chain before the meshes', each chain last added first); and column order: rooms' sector
+// columns farthest first by sectors across plus along from the camera's column, columns stacked in
+// rooms above or below by their height from the camera, an object's face after its column's room
+// faces, objects' faces among themselves by mean depth. An object face's column:
+//   column-mesh   its mesh's centre's
+//   column-face   its middle's
+//   column-near   the nearest of its corners' (each moved a unit toward the middle)
+//   split-statics statics' faces cut at the sector lines (as a packer could), each piece in its own
+//                 column; items' faces by their middle
+//   split-all     items' faces cut too (what the game could only do each frame)
+// A pixel is wrong where the face painted last isn't the nearest and lies 0.2% or more farther.
+// Statics and items (export_objects.py) in their rooms; sprites and see-through room faces left
+// out; full resolution.
+typedef struct { int n; V3 c[4]; } OFace;
+typedef struct { V3 centre; int face0, nface; } OMesh;
+typedef struct { int room, kind, id, mesh0, nmesh; float lo[3], hi[3]; } Obj;
+static Obj* gObj;
+static OMesh* gOMesh;
+static OFace* gOFace;
+static int gObjN, gOMeshN, gOFaceN;
+
+static void objectsLoad(const char* path)
+{
+    FILE* f = fopen(path, "rb");
+    if (!f) { perror(path); exit(1); }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t* b = malloc(size);
+    fread(b, 1, size, f);
+    fclose(f);
+    long p = 0;
+#define RD_I() (p += 4, *(int32_t*)(b + p - 4))
+#define RD_F() (p += 4, *(float*)(b + p - 4))
+    gObjN = RD_I();
+    gObj = malloc(sizeof(Obj) * (gObjN + 1));
+    int capM = 1024, capF = 16384;
+    gOMesh = malloc(sizeof(OMesh) * capM);
+    gOFace = malloc(sizeof(OFace) * capF);
+    for (int i = 0; i < gObjN; i++)
+    {
+        Obj* o = &gObj[i];
+        o->room = RD_I(); o->kind = RD_I(); o->id = RD_I(); o->nmesh = RD_I();
+        o->mesh0 = gOMeshN;
+        for (int a = 0; a < 3; a++) { o->lo[a] = 1e30f; o->hi[a] = -1e30f; }
+        for (int m = 0; m < o->nmesh; m++)
+        {
+            if (gOMeshN == capM) { capM *= 2; gOMesh = realloc(gOMesh, sizeof(OMesh) * capM); }
+            OMesh* om = &gOMesh[gOMeshN++];
+            om->centre.x = RD_F(); om->centre.y = RD_F(); om->centre.z = RD_F();
+            om->nface = RD_I();
+            om->face0 = gOFaceN;
+            for (int k = 0; k < om->nface; k++)
+            {
+                if (gOFaceN == capF) { capF *= 2; gOFace = realloc(gOFace, sizeof(OFace) * capF); }
+                OFace* of = &gOFace[gOFaceN++];
+                of->n = RD_I();
+                for (int j = 0; j < of->n; j++) {
+                    of->c[j].x = RD_F(); of->c[j].y = RD_F(); of->c[j].z = RD_F();
+                    float c3[3] = { of->c[j].x, of->c[j].y, of->c[j].z };
+                    for (int a = 0; a < 3; a++) {
+                        if (c3[a] < o->lo[a]) o->lo[a] = c3[a];
+                        if (c3[a] > o->hi[a]) o->hi[a] = c3[a];
+                    }
+                }
+            }
+        }
+    }
+#undef RD_I
+#undef RD_F
+    free(b);
+}
+
+enum { SM_TODAY, SM_COLMESH, SM_COLFACE, SM_COLNEAR, SM_SPLITS, SM_SPLITALL, SM_COUNT };
+static const char* const kSortNames[SM_COUNT] = { "today", "column-mesh", "column-face", "column-near", "split-statics", "split-all" };
+enum { SK_ROOM, SK_OBJ };
+enum { SP_WHOLE, SP_CUT, SP_PIECE };     // a face drawn whole in every way; one cut into pieces in the split ways; a piece
+typedef struct {
+    int kind, room, id, obj, mesh, n, src, split, isStatic;
+    V3 v[8];
+    int bucket, add;
+    float mean;
+    int64_t key[SM_COUNT];
+} DFace;
+
+#define SORT_MAX 40000
+static DFace gDF[SORT_MAX];
+static int gDFN;
+static int gCamCx, gCamCz;
+
+static float szb[H][W];         // the truth's 1/z
+static int32_t sown[H][W];      // its face
+static float spz[H][W];         // painted 1/z
+static int32_t spown[H][W];     // painted face (its source)
+
+// a cell's height from the camera: 0 inside its air, else how far above or below; -1 if the room has no
+// air there, or (slack 0 or more) y lies more than slack outside it
+static float cellHeight(int room, int cx, int cz, float y, float slack)
+{
+    Room* r = &rooms[room];
+    int xi = cx - r->x / 1024, zi = cz - r->z / 1024;
+    if (xi < 0 || zi < 0 || xi >= r->xs || zi >= r->zs)
+        return -1;
+    int floor = r->s[xi * r->zs + zi][0], ceil = r->s[xi * r->zs + zi][1];
+    if (floor == -127 * 256 || ceil == -127 * 256 || floor <= ceil)
+        return -1;
+    if (slack >= 0 && (y < ceil - slack || y > floor + slack))     // slopes: a sector's heights are where it starts
+        return -1;
+    float d = 0;
+    if (cam.y < ceil) d = ceil - cam.y;
+    if (cam.y > floor) d = cam.y - floor;
+    return d;
+}
+
+static int64_t colKey(int cx, int cz, float height)
+{
+    int rank = abs(cx - gCamCx) + abs(cz - gCamCz);
+    int h = (int)(height / 8);
+    if (h > 65535) h = 65535;
+    return (int64_t)rank * 65536 + h;
+}
+
+// an object's point: its column, and the height of the cell holding it (its own room's, else any room's)
+static int64_t objKey(int room, V3 p)
+{
+    int cx = (int)floorf(p.x / 1024), cz = (int)floorf(p.z / 1024);
+    static const float kSlack[3] = { 0, 256, 1024 };
+    float h = -1;
+    for (int s = 0; s < 3 && h < 0; s++)
+    {
+        h = cellHeight(room, cx, cz, p.y, kSlack[s]);
+        for (int i = 0; i < nrooms && h < 0; i++)
+            if (!rooms[i].alt)
+                h = cellHeight(i, cx, cz, p.y, kSlack[s]);
+    }
+    if (h < 0)
+        h = cellHeight(room, cx, cz, p.y, -1);
+    if (h < 0)
+        h = fabsf(p.y - cam.y);
+    return colKey(cx, cz, h);
+}
+
+static void dfAddRoomFace(int room, const int* idx, int n, int id)
+{
+    if (gDFN == SORT_MAX) return;
+    Room* r = &rooms[room];
+    DFace* d = &gDF[gDFN];
+    d->kind = SK_ROOM; d->room = room; d->id = id; d->obj = -1; d->mesh = -1; d->n = n;
+    d->src = gDFN; d->split = SP_WHOLE; d->isStatic = 0;
+    float zmax = -1e30f, zsum = 0;
+    V3 c = { 0, 0, 0 };
+    for (int i = 0; i < n; i++) {
+        d->v[i] = r->vv[idx[i]];
+        if (d->v[i].z > zmax) zmax = d->v[i].z;
+        zsum += d->v[i].z;
+        c.x += r->v[idx[i]].x; c.y += r->v[idx[i]].y; c.z += r->v[idx[i]].z;
+    }
+    c.x /= n; c.y /= n; c.z /= n;
+    d->bucket = (int)(zmax / 16);
+    d->mean = zsum / n;
+    d->add = gDFN;
+    // the column it faces into: a step in front of it
+    V3 a = r->v[idx[0]], b = r->v[idx[1]], e = r->v[idx[2]];
+    float e1x = b.x - a.x, e1y = b.y - a.y, e1z = b.z - a.z, e2x = e.x - a.x, e2y = e.y - a.y, e2z = e.z - a.z;
+    float nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
+    float len = sqrtf(nx * nx + ny * ny + nz * nz);
+    if (len > 0) { c.x -= nx / len * 4; c.y -= ny / len * 4; c.z -= nz / len * 4; }
+    int cx = (int)floorf(c.x / 1024), cz = (int)floorf(c.z / 1024);
+    float h = cellHeight(room, cx, cz, 0, -1);
+    if (h < 0) h = 0;
+    int64_t k = colKey(cx, cz, h);
+    for (int m = 1; m < SM_COUNT; m++)
+        d->key[m] = k;
+    gDFN++;
+}
+
+// a step in front of a world polygon's middle (front: the side it's seen from), to find the cell it faces into
+static V3 faceFront(const V3* c, int n, const V3* normalOf)
+{
+    V3 m = { 0, 0, 0 };
+    for (int j = 0; j < n; j++) {
+        m.x += c[j].x; m.y += c[j].y; m.z += c[j].z;
+    }
+    m.x /= n; m.y /= n; m.z /= n;
+    V3 a = normalOf[0], b = normalOf[1], e = normalOf[2];
+    float e1x = b.x - a.x, e1y = b.y - a.y, e1z = b.z - a.z, e2x = e.x - a.x, e2y = e.y - a.y, e2z = e.z - a.z;
+    float nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
+    float len = sqrtf(nx * nx + ny * ny + nz * nz);
+    if (len > 0) { m.x -= nx / len * 4; m.y -= ny / len * 4; m.z -= nz / len * 4; }
+    return m;
+}
+
+static int objFacing(const OFace* f)
+{
+    V3 a = f->c[0], b = f->c[1], c = f->c[2];
+    float e1x = b.x - a.x, e1y = b.y - a.y, e1z = b.z - a.z, e2x = c.x - a.x, e2y = c.y - a.y, e2z = c.z - a.z;
+    float nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
+    return nx * (cam.x - a.x) + ny * (cam.y - a.y) + nz * (cam.z - a.z) < 0;
+}
+
+// a world polygon cut to x >= lo (side 1) or x < lo (side -1) on axis 0 (x) or 2 (z)
+static int polyCutAxis(V3* p, int n, int axis, float at, int side)
+{
+    V3 o[12];
+    int m = 0;
+    for (int i = 0; i < n && m < 11; i++)
+    {
+        V3 a = p[i], b = p[(i + 1) % n];
+        float da = ((axis == 0 ? a.x : a.z) - at) * side, db = ((axis == 0 ? b.x : b.z) - at) * side;
+        if (da >= 0) o[m++] = a;
+        if ((da >= 0) != (db >= 0)) {
+            float t = da / (da - db);
+            o[m++] = (V3){ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t };
+        }
+    }
+    memcpy(p, o, sizeof(V3) * m);
+    return m;
+}
+
+static void dfSetObj(DFace* d, int oi, int m, int k, const V3* world, int n)
+{
+    Obj* o = &gObj[oi];
+    d->kind = SK_OBJ; d->room = o->room; d->id = k; d->obj = oi; d->mesh = m; d->n = n;
+    d->isStatic = o->kind == 0;
+    float zsum = 0;
+    for (int j = 0; j < n; j++) {
+        d->v[j] = toView(world[j]);
+        zsum += d->v[j].z;
+    }
+    d->mean = zsum / n;
+    d->bucket = (int)(d->mean / 16);
+    d->add = gDFN;
+}
+
+// an object is drawn if its room is in the list and some of it is inside that room's window
+static void dfAddObject(const Walk* w, int oi)
+{
+    Obj* o = &gObj[oi];
+    if (o->room < 0 || o->room >= nrooms || !w->listed[o->room])
+        return;
+    Rect c = w->clip[o->room];
+    float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
+    int seen = 0;
+    for (int m = 0; m < o->nmesh; m++)
+    {
+        OMesh* om = &gOMesh[o->mesh0 + m];
+        for (int k = 0; k < om->nface; k++)
+            for (int j = 0; j < gOFace[om->face0 + k].n; j++)
+            {
+                V3 v = toView(gOFace[om->face0 + k].c[j]);
+                if (v.z < NEAR || v.z > gFar)
+                    continue;
+                seen = 1;
+                float sx = screenX(v), sy = screenY(v);
+                if (sx < x0) x0 = sx;
+                if (sx > x1) x1 = sx;
+                if (sy < y0) y0 = sy;
+                if (sy > y1) y1 = sy;
+            }
+    }
+    if (!seen || x1 < c.x0 || x0 > c.x1 || y1 < c.y0 || y0 > c.y1)
+        return;
+    for (int m = 0; m < o->nmesh; m++)
+    {
+        OMesh* om = &gOMesh[o->mesh0 + m];
+        int64_t meshKey = objKey(o->room, om->centre);
+        for (int k = 0; k < om->nface; k++)
+        {
+            OFace* f = &gOFace[om->face0 + k];
+            if (!objFacing(f) || gDFN >= SORT_MAX - 16)
+                continue;
+            int at = gDFN++;
+            DFace* d = &gDF[at];
+            dfSetObj(d, oi, m, k, f->c, f->n);
+            d->src = at;
+            V3 mid = { 0, 0, 0 };
+            for (int j = 0; j < f->n; j++) {
+                mid.x += f->c[j].x; mid.y += f->c[j].y; mid.z += f->c[j].z;
+            }
+            mid.x /= f->n; mid.y /= f->n; mid.z /= f->n;
+            V3 front = faceFront(f->c, f->n, f->c);
+            V3 off = { front.x - mid.x, front.y - mid.y, front.z - mid.z };
+            d->key[SM_COLMESH] = meshKey;
+            d->key[SM_COLFACE] = objKey(o->room, front);
+            int64_t nearest = -1;
+            float lo[2] = { 1e30f, 1e30f }, hi[2] = { -1e30f, -1e30f };
+            for (int j = 0; j < f->n; j++)
+            {
+                V3 q = { f->c[j].x + (mid.x - f->c[j].x) / 1024, f->c[j].y, f->c[j].z + (mid.z - f->c[j].z) / 1024 };
+                V3 qf = { q.x + off.x, q.y + off.y, q.z + off.z };
+                int64_t kq = objKey(o->room, qf);
+                if (nearest < 0 || kq < nearest) nearest = kq;
+                if (q.x < lo[0]) lo[0] = q.x;
+                if (q.x > hi[0]) hi[0] = q.x;
+                if (q.z < lo[1]) lo[1] = q.z;
+                if (q.z > hi[1]) hi[1] = q.z;
+            }
+            d->key[SM_COLNEAR] = nearest;
+            d->key[SM_SPLITS] = d->key[SM_SPLITALL] = d->key[SM_COLFACE];
+            int cx0 = (int)floorf(lo[0] / 1024), cx1 = (int)floorf(hi[0] / 1024);
+            int cz0 = (int)floorf(lo[1] / 1024), cz1 = (int)floorf(hi[1] / 1024);
+            d->split = SP_WHOLE;
+            if (cx0 == cx1 && cz0 == cz1)
+                continue;
+            d->split = SP_CUT;
+            for (int cx = cx0; cx <= cx1; cx++)
+                for (int cz = cz0; cz <= cz1; cz++)
+                {
+                    V3 p[12];
+                    memcpy(p, f->c, sizeof(V3) * f->n);
+                    int n = f->n;
+                    n = polyCutAxis(p, n, 0, cx * 1024.0f, 1);
+                    if (n >= 3) n = polyCutAxis(p, n, 0, (cx + 1) * 1024.0f, -1);
+                    if (n >= 3) n = polyCutAxis(p, n, 2, cz * 1024.0f, 1);
+                    if (n >= 3) n = polyCutAxis(p, n, 2, (cz + 1) * 1024.0f, -1);
+                    if (n < 3 || n > 8 || gDFN >= SORT_MAX)
+                        continue;
+                    DFace* e = &gDF[gDFN];
+                    dfSetObj(e, oi, m, k, p, n);
+                    e->src = at;
+                    e->split = SP_PIECE;
+                    V3 pm = { 0, 0, 0 };
+                    for (int j = 0; j < n; j++) {
+                        pm.x += p[j].x; pm.y += p[j].y; pm.z += p[j].z;
+                    }
+                    pm.x = pm.x / n + off.x; pm.y = pm.y / n + off.y; pm.z = pm.z / n + off.z;
+                    e->key[SM_SPLITS] = e->key[SM_SPLITALL] = objKey(o->room, pm);
+                    gDFN++;
+                }
+        }
+    }
+}
+
+static void sRaster(const DFace* d, int id, int depthTest)
+{
+    V3 t[12];
+    int m = 0;
+    for (int i = 0; i < d->n && m < 11; i++)
+    {
+        V3 a = d->v[i], b = d->v[(i + 1) % d->n];
+        if (a.z >= NEAR) t[m++] = a;
+        if ((a.z >= NEAR) != (b.z >= NEAR)) {
+            float k = (NEAR - a.z) / (b.z - a.z);
+            t[m++] = (V3){ a.x + (b.x - a.x) * k, a.y + (b.y - a.y) * k, NEAR };
+        }
+    }
+    if (m < 3)
+        return;
+    float sx[12], sy[12], iz[12];
+    for (int i = 0; i < m; i++) {
+        sx[i] = t[i].x / t[i].z * F + W / 2;
+        sy[i] = t[i].y / t[i].z * F + H / 2;
+        iz[i] = 1.0f / t[i].z;
+    }
+    for (int i = 1; i + 1 < m; i++)
+    {
+        float x0 = sx[0], y0 = sy[0], x1 = sx[i], y1 = sy[i], x2 = sx[i + 1], y2 = sy[i + 1];
+        float area = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0);
+        if (fabsf(area) < 1e-4f)
+            continue;
+        float inv = 1.0f / area;
+        int minx = (int)floorf(fminf(x0, fminf(x1, x2))), maxx = (int)ceilf(fmaxf(x0, fmaxf(x1, x2)));
+        int miny = (int)floorf(fminf(y0, fminf(y1, y2))), maxy = (int)ceilf(fmaxf(y0, fmaxf(y1, y2)));
+        if (minx < 0) minx = 0;
+        if (miny < 0) miny = 0;
+        if (maxx >= W) maxx = W - 1;
+        if (maxy >= H) maxy = H - 1;
+        for (int y = miny; y <= maxy; y++)
+        {
+            float py = y + 0.5f;
+            for (int x = minx; x <= maxx; x++)
+            {
+                float px = x + 0.5f;
+                float w0 = ((x1 - px) * (y2 - py) - (y1 - py) * (x2 - px)) * inv;
+                float w1 = ((x2 - px) * (y0 - py) - (y2 - py) * (x0 - px)) * inv;
+                float w2 = 1.0f - w0 - w1;
+                if (w0 < 0 || w1 < 0 || w2 < 0)
+                    continue;
+                float z = w0 * iz[0] + w1 * iz[i] + w2 * iz[i + 1];
+                if (depthTest) {
+                    if (z > szb[y][x]) { szb[y][x] = z; sown[y][x] = id; }
+                } else {
+                    spz[y][x] = z; spown[y][x] = id;
+                }
+            }
+        }
+    }
+}
+
+enum { SC_RR, SC_OR, SC_RO, SC_OO_SAME, SC_OO_DIFF, SC_COUNT };
+static const char* const kSortCats[SC_COUNT] = { "room/room", "obj over room", "room over obj", "obj/own", "obj/other" };
+static int gSortMode;
+static int gOrder[SORT_MAX];
+
+static int sortUses(const DFace* d, int mode)
+{
+    if (d->split == SP_WHOLE)
+        return 1;
+    int cut = mode == SM_SPLITALL || (mode == SM_SPLITS && d->isStatic);
+    return d->split == SP_PIECE ? cut : !cut;
+}
+
+static int sortCmp(const void* pa, const void* pb)
+{
+    const DFace* a = &gDF[*(const int*)pa];
+    const DFace* b = &gDF[*(const int*)pb];
+    if (gSortMode == SM_TODAY)
+    {
+        if (a->bucket != b->bucket) return a->bucket > b->bucket ? -1 : 1;
+        if (a->kind != b->kind) return a->kind < b->kind ? -1 : 1;
+        return a->add > b->add ? -1 : 1;
+    }
+    int64_t ka = a->key[gSortMode], kb = b->key[gSortMode];
+    if (ka != kb) return ka > kb ? -1 : 1;
+    if (a->kind != b->kind) return a->kind < b->kind ? -1 : 1;
+    if (a->kind == SK_OBJ && a->mean != b->mean) return a->mean > b->mean ? -1 : 1;
+    return a->add > b->add ? -1 : 1;
+}
+
+// the view's faces: its rooms' and the objects in them; the truth drawn
+static void sortGather(int room)
+{
+    gCamCx = (int)floorf(cam.x / 1024);
+    gCamCz = (int)floorf(cam.z / 1024);
+    gBase.useMask = 0; gBase.usePoly = 0; gBase.minArea = 256; gBase.useBoxes = 0; gBase.darkShade = 0;
+    walkRun(&gBase, room, 0);
+    gDFN = 0;
+    for (int l = 0; l < gBase.nlist; l++)
+    {
+        int rm = gBase.list[l];
+        Room* r = &rooms[rm];
+        Rect c = gBase.clip[rm];
+        roomProject(r);
+        for (int i = 0; i < r->nq; i++)
+        {
+            if (r->q[i].transp)
+                continue;
+            int idx[4] = { r->q[i].a, r->q[i].b, r->q[i].c, r->q[i].d };
+            if (faceFacing(r, idx) && !faceCulled(r, idx, 4, c))
+                dfAddRoomFace(rm, idx, 4, i);
+        }
+        for (int i = 0; i < r->nt; i++)
+        {
+            int* idx = r->t[i];
+            if (faceFacing(r, idx) && !faceCulled(r, idx, 3, c))
+                dfAddRoomFace(rm, idx, 3, r->nq + i);
+        }
+    }
+    for (int i = 0; i < gObjN; i++)
+        dfAddObject(&gBase, i);
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++) { szb[y][x] = 0; sown[y][x] = -1; }
+    for (int i = 0; i < gDFN; i++)
+        if (gDF[i].split != SP_PIECE)
+            sRaster(&gDF[i], i, 1);
+}
+
+// painted in a way; wrong pixels by kind into cats, the count returned
+static long sortPaint(int mode, long* cats)
+{
+    gSortMode = mode;
+    int n = 0;
+    for (int i = 0; i < gDFN; i++)
+        if (sortUses(&gDF[i], mode))
+            gOrder[n++] = i;
+    qsort(gOrder, n, sizeof(int), sortCmp);
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++) { spz[y][x] = 0; spown[y][x] = -1; }
+    for (int i = 0; i < n; i++)
+        sRaster(&gDF[gOrder[i]], gDF[gOrder[i]].src, 0);
+    long wrong = 0;
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++)
+        {
+            int t = sown[y][x], p = spown[y][x];
+            if (t < 0 || p < 0 || p == t || spz[y][x] >= szb[y][x] * 0.998f)
+                continue;
+            const DFace* dt = &gDF[t], *dp = &gDF[p];
+            int cat = dt->kind == SK_ROOM ? (dp->kind == SK_ROOM ? SC_RR : SC_OR)
+                                          : (dp->kind == SK_ROOM ? SC_RO : (dp->obj == dt->obj ? SC_OO_SAME : SC_OO_DIFF));
+            if (cats) cats[cat]++;
+            wrong++;
+        }
+    return wrong;
+}
+
+// a camera inside an object's box (a block, a statue) sees nothing a game camera would: such views left out
+static int inObject(V3 p)
+{
+    const float m = 32;
+    for (int i = 0; i < gObjN; i++)
+    {
+        const Obj* o = &gObj[i];
+        if (p.x > o->lo[0] - m && p.x < o->hi[0] + m && p.y > o->lo[1] - m && p.y < o->hi[1] + m && p.z > o->lo[2] - m && p.z < o->hi[2] + m)
+            return 1;
+    }
+    return 0;
+}
+
+static void sortRun(const char* name, int views)
+{
+    int inside = 0;
+    double sum[SM_COUNT][SC_COUNT];
+    long over100[SM_COUNT], over1000[SM_COUNT];
+    double faces = 0, objFaces = 0, pxAll = 0, pieces = 0, cut = 0;
+    long worst[SM_COUNT];
+    struct { V3 pos; float yaw, pitch; int room; } worstAt[SM_COUNT];
+    memset(sum, 0, sizeof(sum));
+    memset(over100, 0, sizeof(over100));
+    memset(over1000, 0, sizeof(over1000));
+    memset(worst, 0, sizeof(worst));
+    int done = 0;
+    for (int v = 0; v < views; v++)
+    {
+        V3 pos;
+        int room;
+        if (getenv("SORT_BOX")) {
+            // SORT_BOX="room x0 x1 y0 y1 z0 z1": cameras only in that box (a spot's surroundings)
+            float b[6];
+            sscanf(getenv("SORT_BOX"), "%d %f %f %f %f %f %f", &room, &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]);
+            pos = (V3){ urand(b[0], b[1]), urand(b[2], b[3]), urand(b[4], b[5]) };
+        } else
+            room = randomPlace(&pos);
+        float yaw = urand(0, 2 * (float)M_PI), pitch = urand(-0.5f, 0.5f);
+        if (inObject(pos)) {
+            inside++;
+            continue;
+        }
+        viewSet(pos, yaw, pitch);
+        sortGather(room);
+        done++;
+        for (int i = 0; i < gDFN; i++) {
+            if (gDF[i].split != SP_PIECE) faces++;
+            if (gDF[i].kind == SK_OBJ && gDF[i].split != SP_PIECE) objFaces++;
+            if (gDF[i].split == SP_PIECE) pieces++;
+            if (gDF[i].split == SP_CUT) cut++;
+        }
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                if (sown[y][x] >= 0) pxAll++;
+        for (int mode = 0; mode < SM_COUNT; mode++)
+        {
+            long cats[SC_COUNT] = { 0 };
+            long wrong = sortPaint(mode, cats);
+            for (int c = 0; c < SC_COUNT; c++)
+                sum[mode][c] += cats[c];
+            if (wrong >= 100) over100[mode]++;
+            if (wrong >= 1000) over1000[mode]++;
+            if (wrong > worst[mode]) {
+                worst[mode] = wrong;
+                worstAt[mode].pos = pos; worstAt[mode].yaw = yaw; worstAt[mode].pitch = pitch; worstAt[mode].room = room;
+            }
+        }
+    }
+    printf("%s: %d views (%d inside objects left out), %.0f faces a view (%.0f of objects, %.1f cut into %.1f pieces), %.0f px drawn\n", name,
+           done, inside, faces / done, objFaces / done, cut / done, pieces / done, pxAll / done);
+    for (int mode = 0; mode < SM_COUNT; mode++)
+    {
+        double all = 0;
+        for (int c = 0; c < SC_COUNT; c++)
+            all += sum[mode][c];
+        printf("  %-13s wrong px a view %7.1f  (", kSortNames[mode], all / done);
+        for (int c = 0; c < SC_COUNT; c++)
+            printf("%s %.1f%s", kSortCats[c], sum[mode][c] / done, c + 1 < SC_COUNT ? ", " : "");
+        printf(")  views 100+ %.1f%%, 1000+ %.1f%%, worst %ld at room %d %.0f %.0f %.0f yaw %d pitch %d\n",
+               100.0 * over100[mode] / done, 100.0 * over1000[mode] / done, worst[mode], worstAt[mode].room,
+               worstAt[mode].pos.x, worstAt[mode].pos.y, worstAt[mode].pos.z,
+               (int)(worstAt[mode].yaw / (2 * M_PI) * 65536) & 0xFFFF, (int)(worstAt[mode].pitch / (2 * M_PI) * 65536));
+    }
+}
+
+typedef struct { int painted, truth; long px; } SortPair;
+
+static void sortName(const DFace* d, char* out, size_t size)
+{
+    if (d->kind == SK_ROOM) {
+        snprintf(out, size, "room %d f%d", d->room, d->id);
+        return;
+    }
+    const Obj* o = &gObj[d->obj];
+    if (o->kind == 0)
+        snprintf(out, size, "static %d:%d m%d f%d", o->room, o->id, d->mesh, d->id);
+    else
+        snprintf(out, size, "item %d m%d f%d", o->id, d->mesh, d->id);
+}
+
+// one view, its worst pairs (painted over what should show) for each order
+static void sortOne(V3 pos, int room, float yaw, float pitch)
+{
+    viewSet(pos, yaw, pitch);
+    sortGather(room);
+    printf("view: rooms %d, faces %d\n", gBase.nlist, gDFN);
+    static SortPair pairs[4096];
+    for (int mode = 0; mode < SM_COUNT; mode++)
+    {
+        long wrong = sortPaint(mode, NULL);
+        int np = 0;
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+            {
+                int t = sown[y][x], p = spown[y][x];
+                if (t < 0 || p < 0 || p == t || spz[y][x] >= szb[y][x] * 0.998f)
+                    continue;
+                int k = 0;
+                while (k < np && !(pairs[k].painted == p && pairs[k].truth == t))
+                    k++;
+                if (k == np && np < 4096)
+                    pairs[np++] = (SortPair){ p, t, 0 };
+                if (k < 4096)
+                    pairs[k].px++;
+            }
+        printf("  %s: %ld wrong px\n", kSortNames[mode], wrong);
+        for (int shown = 0; shown < 6; shown++)
+        {
+            int best = -1;
+            for (int k = 0; k < np; k++)
+                if (pairs[k].px > 0 && (best < 0 || pairs[k].px > pairs[best].px))
+                    best = k;
+            if (best < 0)
+                break;
+            char a[64], b[64];
+            const DFace* dp = &gDF[pairs[best].painted], *dt = &gDF[pairs[best].truth];
+            sortName(dp, a, sizeof(a));
+            sortName(dt, b, sizeof(b));
+            int64_t kp = dp->key[mode == SM_TODAY ? SM_COLFACE : mode], kt = dt->key[mode == SM_TODAY ? SM_COLFACE : mode];
+            printf("    %5ld px  %-28s painted over %-28s rank/height %d/%d over %d/%d, mean z %.0f over %.0f\n", pairs[best].px, a, b,
+                   (int)(kp >> 16), (int)(kp & 0xFFFF) * 8, (int)(kt >> 16), (int)(kt & 0xFFFF) * 8, dp->mean, dt->mean);
+            pairs[best].px = -pairs[best].px;
+        }
+    }
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 4) {
@@ -3847,6 +4579,29 @@ int main(int argc, char** argv)
         for (int i = 0; i < gBase.nlist; i++)
             printf(" %d(%ld)", gBase.list[i], ownerPx[gBase.list[i]]);
         printf("\n");
+        return 0;
+    }
+    if (!strcmp(argv[2], "portals"))
+    {
+        portalsLoad(argv[3]);
+        gPlaceInner = 1;
+        rngState = (uint32_t)atoi(argv[5]) * 2654435761u + 12345u;
+        const char* name = strrchr(argv[1], '/');
+        portalsRun(name ? name + 1 : argv[1], atoi(argv[4]), argc > 6 ? atoi(argv[6]) : 0);
+        return 0;
+    }
+    if (!strcmp(argv[2], "sort"))
+    {
+        objectsLoad(argv[3]);
+        gPlaceInner = 1;
+        const char* name = strrchr(argv[1], '/');
+        if (argc > 4 && !strcmp(argv[4], "one")) {
+            V3 pos = { atof(argv[5]), atof(argv[6]), atof(argv[7]) };
+            sortOne(pos, atoi(argv[8]), atoi(argv[9]) * 2 * (float)M_PI / 65536, atoi(argv[10]) * 2 * (float)M_PI / 65536);
+            return 0;
+        }
+        rngState = (uint32_t)atoi(argv[5]) * 2654435761u + 12345u;
+        sortRun(name ? name + 1 : argv[1], atoi(argv[4]));
         return 0;
     }
     if (!strcmp(argv[2], "holes"))
