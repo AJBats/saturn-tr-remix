@@ -49,7 +49,11 @@ needs the lock held under that name, unless test does it all for you:
         the same from power-on, for the disc already on the card
 
 Exits with 1 if the plug doesn't answer or the reading isn't what it should
-be. The plug is a Shelly Plug US Gen4 on the home network, found by its name.
+be. The plug is a Shelly Plug US Gen4 on the home network. Windows finds its
+name (mDNS) only most of the time, so its address is kept beside the lock
+(tomb_hw_plug.json in %LOCALAPPDATA%) and checked by the plug's own id; when
+neither that address nor the name answers, the home network is searched for it,
+and a call that fails is tried again before giving up.
 OBS holds the capture card, so pictures come through its WebSocket server
 (Tools > WebSocket Server Settings, on), with the password from OBS's config.
 The SD mux is an SDWire, driven through Windows' own FTDI driver; the chip's
@@ -78,6 +82,9 @@ import urllib.parse
 import urllib.request
 
 PLUG = 'shellyplugusg4-e8f60a7d5608.local'
+PLUG_ID = 'shellyplugusg4-e8f60a7d5608'     # what the plug says it is (Shelly.GetDeviceInfo)
+PLUG_CACHE = os.path.expandvars(r'%LOCALAPPDATA%\tomb_hw_plug.json')   # its last address, for every project
+PLUG_TRIES = 4      # calls before giving up; from the third on, the plug is looked for again
 
 OFF_WATTS = 1.0     # less than this is nothing drawn
 ON_WATTS = 2.0      # more than this is the Saturn running
@@ -202,13 +209,98 @@ def lock_needed(name):
         state['until'] = time.time() + state.get('minutes', LOCK_MINUTES) * 60
 
 
-def plug(method, **params):
-    url = f'http://{PLUG}/rpc/{method}?{urllib.parse.urlencode(params)}'
+def plug_get(host, method, query='', timeout=5):
+    with urllib.request.urlopen(f'http://{host}/rpc/{method}?{query}', timeout=timeout) as r:
+        return json.load(r)
+
+
+def plug_is_ours(host, timeout=5):
     try:
-        with urllib.request.urlopen(url, timeout=5) as r:
-            return json.load(r)
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        fail(f'the plug at {PLUG} did not answer: {e}')
+        return plug_get(host, 'Shelly.GetDeviceInfo', timeout=timeout).get('id') == PLUG_ID
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
+def plug_remembered():
+    try:
+        with open(PLUG_CACHE) as f:
+            return json.load(f).get('ip')
+    except (OSError, ValueError):
+        return None
+
+
+def plug_remember(ip):
+    try:
+        with open(PLUG_CACHE + '.tmp', 'w') as f:
+            json.dump({'ip': ip, 'id': PLUG_ID, 'seen': time.time()}, f)
+        os.replace(PLUG_CACHE + '.tmp', PLUG_CACHE)
+    except OSError:
+        pass
+
+
+def plug_by_name():
+    try:
+        return socket.getaddrinfo(PLUG, 80, socket.AF_INET)[0][4][0]
+    except OSError:
+        return None
+
+
+def plug_search():
+    """The plug's address on this PC's own network (its /24), asked of every address at once; None if none says it."""
+    from concurrent.futures import ThreadPoolExecutor
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(('192.0.2.1', 9))         # (no packet: only picks the interface the home network is on)
+            mine = s.getsockname()[0]
+    except OSError:
+        return None
+    net = mine.rsplit('.', 1)[0]
+    hosts = [f'{net}.{k}' for k in range(1, 255) if f'{net}.{k}' != mine]
+    with ThreadPoolExecutor(64) as pool:
+        for host, ours in zip(hosts, pool.map(lambda h: plug_is_ours(h, timeout=1), hosts)):
+            if ours:
+                return host
+    return None
+
+
+plug_known = None   # the address this run checked: the plug's own id answered there
+
+
+def plug_address(look_again):
+    """Where the plug is: the address this run checked, else the remembered one, else the one its name gives, each
+    checked by the plug's id, else the network searched (look_again: start from the name and the search)."""
+    global plug_known
+    if plug_known and not look_again:
+        return plug_known
+    tried = set()
+    for find in ((plug_by_name, plug_search) if look_again else (plug_remembered, plug_by_name, plug_search)):
+        ip = find()
+        if ip and ip not in tried:
+            tried.add(ip)
+            if find is plug_search or plug_is_ours(ip):
+                if ip != plug_remembered():
+                    plug_remember(ip)
+                plug_known = ip
+                return ip
+    return None
+
+
+def plug(method, **params):
+    global plug_known
+    query = urllib.parse.urlencode(params)
+    errors = []
+    for attempt in range(PLUG_TRIES):
+        host = plug_address(look_again=attempt >= 2)
+        if host is None:
+            errors.append('not found (by name or on the network)')
+        else:
+            try:
+                return plug_get(host, method, query)
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                errors.append(f'{host}: {e}')
+                plug_known = None
+        time.sleep(1 + attempt)
+    fail(f'the plug {PLUG_ID} did not answer, {PLUG_TRIES} tries: ' + '; '.join(errors))
 
 
 def status():
