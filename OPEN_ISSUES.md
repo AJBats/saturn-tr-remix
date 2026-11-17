@@ -73,8 +73,8 @@ order; the few of its bugs a player runs into are listed at the end.
 
 | Order | Issue | Fix |
 |---|---|---|
-| 9 | 53. Starting inventory from the GBA demo: fully armed in the Caves, keys carry over | medium |
-| 10 | 52. Unlimited ammo, no empty click | medium |
+| 9 | 53. Starting inventory from the GBA demo: fully armed in the Caves, keys carry over | medium (closed) |
+| 10 | 52. Unlimited ammo, no empty click | medium (closed) |
 | 11 | 144, 159. Ammo counts in the ring and on the HUD (after 52) | medium, small |
 | 12 | 113. Save crystals are disabled | medium |
 | 13 | 152. The passport and save model are the GBA ones | large |
@@ -763,59 +763,6 @@ small · Audit: MATH-7*
 ---
 
 ## Weapons and combat
-
-### 52. Every weapon has unlimited ammo; no empty click, no switch back to pistols
-*Severity: gameplay · Confidence: confirmed · Fix: medium · Audit: GUN-1*
-
-- **Retail:** FireWeapon (`0601fd2c`; TR1X `larafire.c`).
-  - Each call does `ammo->ammo--`; the shotgun loses 6 per shot.
-  - At 0 it plays SFX 48 (the empty click) and requests pistols.
-  - Pistols are reset to 1000 on every shot.
-  - Starting ammo comes from the level's start info (InitialiseLaraInventory
-    `06020b20`).
-- **Ours:**
-  - `weaponFire` copies the ammo into a local `int16 ammo` and decrements that,
-    never the real value (`openlara/lara.h:3177`).
-  - `lara.h:2722-2725` sets every weapon to -1 (infinite).
-- **Effect:** magnums, Uzis and the shotgun never run out. The click and the
-  switch back to pistols never happen.
-- **Fix:** write the decrement back, count shotgun ammo 6 per shot, and start
-  from the start info (issue 53). Ammo pickups must then add ammo, and the ring
-  and HUD must show it (issues 144 and 159).
-
-### 53. Starting inventory and weapon state come from OpenLara's GBA demo
-*Severity: gameplay · Confidence: confirmed · Fix: medium · Audit: GUN-2,
-INV-6*
-
-- **Retail:**
-  - Every level start clears the rings back to the compass only
-    (Inv_RemoveAllItems `06019ca8`).
-  - It rebuilds weapons, ammo and medipacks from per-level start info
-    (InitialiseStartInfo `0602c088`, ModifyStartInfo `0602c0ec`,
-    CreateStartInfo `0602c20c`). Keys, puzzle items and lead bars never carry
-    over.
-  - A new game in Caves has pistols only and 0 medipacks.
-  - LaraInitialiseMeshes (`06020d34`) shows the holsters of the start gun type.
-    The shotgun on Lara's back appears only if she owns it.
-  - gun_status (drawn or not) and gun_type carry into the next level.
-  - Natla's Mines takes Lara's weapons away at its start.
-- **Ours:**
-  - `inventory.init()` (`openlara/inventory.h:231-258`) runs once, in gameInit
-    (`game.h:117`). It adds pistols, shotgun, magnums, Uzis, 10 small and 5
-    large medipacks (`inventory.h:246-254`), and `gameLoadLevel` never resets
-    the counts.
-  - `lara.h:2712` always selects pistols, with a TODO for Natla's Mines.
-  - `lara.h:2731` calls `meshSwapShotgun(false)` unconditionally.
-  - Lara always starts with her guns holstered.
-- **Effect:**
-  - Every new game is fully armed, and the shotgun shows on Lara's back in
-    level 1.
-  - Keys and puzzle items carry into later levels, and survive Exit to Title and
-    new games. Used medipacks stay used across new games.
-  - Finishing a level with the Uzis drawn starts the next level holstered with
-    pistols; retail starts it with the Uzis drawn.
-  - Natla's Mines keeps Lara's weapons.
-- **Fix:** per-level start info, as retail.
 
 ### 54. The target is dropped the moment it dies, and Lara retargets while Action is held
 *Severity: gameplay · Confidence: confirmed · Fix: small · Audit: GUN-3,
@@ -3659,6 +3606,63 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 52. Every weapon has unlimited ammo; no empty click, no switch back to pistols
+*Closed 2026-11-17: 90c90cd. Rounds counted (6 a shotgun shot), the click and the pistols when empty, boxes add rounds, guns take in boxes; saves keep rounds. The ring and HUD counts are issues 144 and 159.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: medium · Audit: GUN-1*
+
+- **Retail:** FireWeapon (`0601fd2c`; TR1X `larafire.c`).
+  - Each call does `ammo->ammo--`; the shotgun loses 6 per shot.
+  - At 0 it plays SFX 48 (the empty click) and requests pistols.
+  - Pistols are reset to 1000 on every shot.
+  - Starting ammo comes from the level's start info (InitialiseLaraInventory
+    `06020b20`).
+- **Ours:**
+  - `weaponFire` copies the ammo into a local `int16 ammo` and decrements that,
+    never the real value (`openlara/lara.h:3177`).
+  - `lara.h:2722-2725` sets every weapon to -1 (infinite).
+- **Effect:** magnums, Uzis and the shotgun never run out. The click and the
+  switch back to pistols never happen.
+- **Fix:** write the decrement back, count shotgun ammo 6 per shot, and start
+  from the start info (issue 53). Ammo pickups must then add ammo, and the ring
+  and HUD must show it (issues 144 and 159).
+
+### 53. Starting inventory and weapon state come from OpenLara's GBA demo
+*Closed 2026-11-17: 90c90cd. Retail's start info: per-level rebuild of the ring and her guns; Caves pistols only, Mines unarmed, home nothing. Retail forces the pistols as her gun at every level start (ModifyStartInfo), so a drawn Uzi at a level's end starts the next with the pistols drawn, not the Uzis as this entry said. START_LEVEL test starts get every gun.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: medium · Audit: GUN-2,
+INV-6*
+
+- **Retail:**
+  - Every level start clears the rings back to the compass only
+    (Inv_RemoveAllItems `06019ca8`).
+  - It rebuilds weapons, ammo and medipacks from per-level start info
+    (InitialiseStartInfo `0602c088`, ModifyStartInfo `0602c0ec`,
+    CreateStartInfo `0602c20c`). Keys, puzzle items and lead bars never carry
+    over.
+  - A new game in Caves has pistols only and 0 medipacks.
+  - LaraInitialiseMeshes (`06020d34`) shows the holsters of the start gun type.
+    The shotgun on Lara's back appears only if she owns it.
+  - gun_status (drawn or not) and gun_type carry into the next level.
+  - Natla's Mines takes Lara's weapons away at its start.
+- **Ours:**
+  - `inventory.init()` (`openlara/inventory.h:231-258`) runs once, in gameInit
+    (`game.h:117`). It adds pistols, shotgun, magnums, Uzis, 10 small and 5
+    large medipacks (`inventory.h:246-254`), and `gameLoadLevel` never resets
+    the counts.
+  - `lara.h:2712` always selects pistols, with a TODO for Natla's Mines.
+  - `lara.h:2731` calls `meshSwapShotgun(false)` unconditionally.
+  - Lara always starts with her guns holstered.
+- **Effect:**
+  - Every new game is fully armed, and the shotgun shows on Lara's back in
+    level 1.
+  - Keys and puzzle items carry into later levels, and survive Exit to Title and
+    new games. Used medipacks stay used across new games.
+  - Finishing a level with the Uzis drawn starts the next level holstered with
+    pistols; retail starts it with the Uzis drawn.
+  - Natla's Mines keeps Lara's weapons.
+- **Fix:** per-level start info, as retail.
 
 ### 2. Great Pyramid: the Scion can't be destroyed, so the exit never opens
 *Closed 2026-11-17: 11c7690. Scion3 (retail's Scion3Control): targetable 5 hit points, its death runs the trigger under it, bursts with -200 bounces; door 116 opens. Host and Mednafen (room 50, 2:5).*
