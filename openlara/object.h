@@ -299,7 +299,7 @@ struct Bubble : ItemObj
 {
     Bubble(Room* room) : ItemObj(room)
     {
-        soundPlay(SND_BUBBLE, &pos);
+        soundPlay(SND_BUBBLE, &pos, SND_WET);
         frameIndex = rand_draw() % (-level.models[type].count);
         vSpeed = -(10 + (rand_draw() % 6));
         angle = _vec3s(0, 0, ANGLE_90);

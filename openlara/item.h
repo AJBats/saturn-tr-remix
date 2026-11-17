@@ -41,7 +41,10 @@ static int32 gLoopsCount;
 
 void soundLoop(int16 id, int32 index, int32 volume, int32 pitch);
 
-void* soundPlay(int16 id, const vec3i* pos)
+// Retail's Sound_Effect (060236e0): a sound for the camera's side of the
+// water only, unless it plays anywhere; that's the whole of its underwater
+// sound (there's no muffling).
+void* soundPlay(int16 id, const vec3i* pos, int32 where)
 {
 #if defined(__32X__) || defined(__WIN32__) // TODO
     return NULL;
@@ -52,6 +55,15 @@ void* soundPlay(int16 id, const vec3i* pos)
 
     if (id < 0)
         return NULL;
+
+    // (a cutscene's camera is its own: there the side isn't asked)
+    if (pos && where != SND_ANY && gLevelID != LVL_TR1_CUT_1 && gLevelID != LVL_TR1_CUT_2 &&
+        gLevelID != LVL_TR1_CUT_3 && gLevelID != LVL_TR1_CUT_4)
+    {
+        const Room* cam = playersExtra[0].camera.view.room;
+        if (cam && (where & 1) != ROOM_FLAG_WATER(cam->info->flags))
+            return NULL;
+    }
 
     // TODO gym
     // 0 -> 200
@@ -452,7 +464,7 @@ void ItemObj::animCmd(bool fx, const Anim* anim)
             case ANIM_CMD_SOUND:
             {
                 if (fx && frameIndex == ptr[0]) {
-                    soundPlay(ptr[1] & 0x03FFF, &pos);
+                    soundPlay(ptr[1] & 0x03FFF, &pos, (type == ITEM_LARA) ? SND_ANY : ROOM_FLAG_WATER(room->info->flags));
                 }
                 ptr += 2;
                 break;

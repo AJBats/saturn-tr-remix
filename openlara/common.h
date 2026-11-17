@@ -3159,7 +3159,11 @@ void flipMap();
 void setEffect(int32 effect, const ItemObj* item);
 void cameraBounce(int32 bounce);
 void floorShake(const ItemObj* item);
-void* soundPlay(int16 id, const vec3i* pos);
+// where: SND_DRY plays only with the camera out of water, SND_WET only
+// under it, SND_ANY anywhere (retail's Sound_Effect flags 0, 1, 2); a sound
+// without a place plays anywhere
+enum { SND_DRY = 0, SND_WET = 1, SND_ANY = 2 };
+void* soundPlay(int16 id, const vec3i* pos, int32 where = SND_DRY);
 void soundStop(int16 id);
 void soundLoopsEnd();
 void soundLoopsStop();
