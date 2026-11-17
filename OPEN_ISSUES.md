@@ -210,39 +210,6 @@ Audit: LVL-2*
     doppelganger.
 - **Fix:** retail's limits, speed and decay.
 
-### 17. The camera shake model is different
-*Severity: visible · Confidence: confirmed · Fix: medium · Audit: CAM-11,
-CAM-23, LVL-19*
-
-- **Retail:** MoveCamera (`0600c054`) handles bounce.
-  - A positive bounce is a one-tick jolt of pos.y and target.y, which then
-    eases back.
-  - A negative bounce adds random ±|b|/2 jitter (control RNG) to pos x/y/z and
-    to the target, decaying by 5 per tick, so the view direction shakes too.
-  - The bounce is applied before GetFloor, so the camera room is re-resolved.
-- **Retail sources:**
-  - EarthQuake flip effect: -250 (`06015ac0`)
-  - Explosion: -75 (`06015d44`)
-  - Earthquake object: -150 or +50 (`06026800`)
-  - Torso landing: +500 (`06024b34`)
-  - Scion3: -200 every 10 ticks (`06026640`)
-  - DinoStomp anim effect (`060159b8`): a one-frame bounce of up to +100 within
-    16 sectors. Used by T-rex steps, falling ceilings landing, Thor's hammer,
-    the Mines cabin and the Torso.
-- **Ours:**
-  - `openlara/camera.h:593-598` is a vertical-only sine bob,
-    `sin(7πt)·t·48`, with no RNG.
-  - Callers set 5–30 ticks (`level.h:304-413`, `object.h:2167` and `2172`,
-    `enemy.h:3352`).
-  - `FX_FLOOR_SHAKE`/DinoStomp (`level.h:326-350`) shakes for up to 15 frames
-    within 15 sectors, using its own `>> 4` formula.
-  - The bob is applied after `view.room` is chosen (`camera.h:593-600`), so
-    wrong-room and water edge cases are possible.
-  - The Scion3 shake is missing entirely (issue 2).
-- **Effect:** earthquakes, the T-rex, explosions, the Torso boss, the Atlantis
-  and Great Pyramid scions.
-- **Fix:** port bounce into `move()`, with the retail strengths at each source.
-
 ### 18. Lava wedge death: no camera swing and no flames
 *Severity: visible · Confidence: confirmed · Fix: small (camera) · Audit:
 CAM-12*
@@ -1826,34 +1793,6 @@ CAM-16/17*
   - `MidasHand` has no draw override, so Palace Midas shows its placeholder model
     (mesh offset 0, 24 faces, the same mesh the camera target uses).
 
-### 127. Several flip effects are missing or wrong
-*Severity: audible / visible · Confidence: confirmed · Fix: small · Audit:
-LVL-16, SND-12/15*
-
-- **Retail:** the effect table at `0x06060c64` has 16 entries (no flicker); each
-  routine is between `06015ac0` and `06015be4`.
-- **Ours:** `openlara/level.h:322-418`.
-- **Differences:**
-
-  | Effect | Used in | Retail | Ours |
-  |---|---|---|---|
-  | 7 raising block (`06015bbc`) | Palace Midas, Khamoon | SFX 117 once | missing |
-  | 9 drop sand (`06015c70`) | Khamoon | SFX 161 once, then SFX 118 every frame for 4 s, rising from the camera target | missing |
-  | 15 chain block (`06015be4`) | Tihocan | SFX 173 (not loaded in that level), then splash SFX 33 at frame 55 | missing |
-  | 6 flood (`06015b44`) | Lost Valley, Cistern, Tihocan | SFX 81 every frame for 4 s (121 frames), positioned at Lara's x/z with a height moving from above her to below, so it swells and fades | one positionless loop that never stops (issue 183) |
-  | 8 stairs to slope (`06015c34`) | Khamoon, Obelisk, Atlantis | sound at frame 5 | plays immediately |
-  | 11 explosion (`06015d44`) | Natla's Mines | camera bounce -75 | 30-frame shake |
-  | 5 earthquake (`06015ac0`) | Palace Midas | bounce -250 at 0; sounds at 0, 3, 20, 35, 50, 70; ends at 105 | sounds at 0, 3, 18, 33, 48, 69, extra shakes |
-
-- **Also:** our `FX_UNK1`/`UNK3`/`UNK4` and effect 15 do nothing.
-
-### 128. A flip with no effect cancels a running effect
-*Severity: subtle · Confidence: confirmed · Fix: trivial · Audit: LVL-17*
-
-- **Retail:** TestTriggers (`06010350`, end) leaves the running effect alone when
-  the flip has none.
-- **Ours:** `openlara/room.h:1198` calls `setEffect(FX_NONE)` in that case.
-
 ### 129. Anim effect 14 (draw right gun) is missing
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-18*
 
@@ -1861,20 +1800,6 @@ LVL-16, SND-12/15*
   the pistol model's. The CUT_1 Lara uses it in CUT4.
 - **Ours:** the case is commented out (`openlara/item.h:415-416`).
 - **Effect:** Lara has no gun in her hand in CUT4.
-
-### 130. The Great Pyramid earthquake object is wrong, and carries TR2 behaviour
-*Severity: subtle / audible · Confidence: confirmed · Fix: small · Audit:
-LVL-20, SND-14*
-
-- **Retail:** EarthQuakeControl (`06026800`). There is a 1/256 draw-RNG chance
-  (rand < 0x100) of SFX 147 with bounce -150. Otherwise there is a 1/32
-  control-RNG chance (< 0x400) of SFX 70 with a one-frame bounce of +50.
-- **Ours:** `openlara/object.h:2164-2189`.
-  - It plays SFX 99 (a click, or absent) with a shake of 15 on < 0x400, and SFX
-    70 on < 0x800.
-  - It also wakes flame emitters and falling ceilings in the room. That is TRX's
-    TR2 earthquake (`TRX/src/trx/game/objects/general/earthquake.c`) leaking in.
-    No such items are in that room today, so the effect isn't visible yet.
 
 ### 131. Underwater switches reach too far and can be pulled again mid-animation
 *Severity: subtle · Confidence: confirmed · Fix: trivial · Audit: LVL-21*
@@ -3786,6 +3711,89 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 130. The Great Pyramid earthquake object is wrong, and carries TR2 behaviour
+*Closed 2026-11-17: 43d61c0. Retail's EarthQuakeControl: 1/256 draw-RNG SFX 147 with -150, else 1/32 control-RNG SFX 70 with +50; TR2's wakes dropped.*
+
+*Severity: subtle / audible · Confidence: confirmed · Fix: small · Audit:
+LVL-20, SND-14*
+
+- **Retail:** EarthQuakeControl (`06026800`). There is a 1/256 draw-RNG chance
+  (rand < 0x100) of SFX 147 with bounce -150. Otherwise there is a 1/32
+  control-RNG chance (< 0x400) of SFX 70 with a one-frame bounce of +50.
+- **Ours:** `openlara/object.h:2164-2189`.
+  - It plays SFX 99 (a click, or absent) with a shake of 15 on < 0x400, and SFX
+    70 on < 0x800.
+  - It also wakes flame emitters and falling ceilings in the room. That is TRX's
+    TR2 earthquake (`TRX/src/trx/game/objects/general/earthquake.c`) leaking in.
+    No such items are in that room today, so the effect isn't visible yet.
+
+### 128. A flip with no effect cancels a running effect
+*Closed 2026-11-17: 43d61c0. A flip without an effect leaves the running one.*
+
+*Severity: subtle · Confidence: confirmed · Fix: trivial · Audit: LVL-17*
+
+- **Retail:** TestTriggers (`06010350`, end) leaves the running effect alone when
+  the flip has none.
+- **Ours:** `openlara/room.h:1198` calls `setEffect(FX_NONE)` in that case.
+
+### 127. Several flip effects are missing or wrong
+*Closed 2026-11-17: 095d35a (flood), 43d61c0 (the rest). Effects run a tick at a time with retail's timings; checked each in the host (SOUNDS=1 BOUNCE=1 fx:N@T).*
+
+*Severity: audible / visible · Confidence: confirmed · Fix: small · Audit:
+LVL-16, SND-12/15*
+
+- **Retail:** the effect table at `0x06060c64` has 16 entries (no flicker); each
+  routine is between `06015ac0` and `06015be4`.
+- **Ours:** `openlara/level.h:322-418`.
+- **Differences:**
+
+  | Effect | Used in | Retail | Ours |
+  |---|---|---|---|
+  | 7 raising block (`06015bbc`) | Palace Midas, Khamoon | SFX 117 once | missing |
+  | 9 drop sand (`06015c70`) | Khamoon | SFX 161 once, then SFX 118 every frame for 4 s, rising from the camera target | missing |
+  | 15 chain block (`06015be4`) | Tihocan | SFX 173 (not loaded in that level), then splash SFX 33 at frame 55 | missing |
+  | 6 flood (`06015b44`) | Lost Valley, Cistern, Tihocan | SFX 81 every frame for 4 s (121 frames), positioned at Lara's x/z with a height moving from above her to below, so it swells and fades | one positionless loop that never stops (issue 183) |
+  | 8 stairs to slope (`06015c34`) | Khamoon, Obelisk, Atlantis | sound at frame 5 | plays immediately |
+  | 11 explosion (`06015d44`) | Natla's Mines | camera bounce -75 | 30-frame shake |
+  | 5 earthquake (`06015ac0`) | Palace Midas | bounce -250 at 0; sounds at 0, 3, 20, 35, 50, 70; ends at 105 | sounds at 0, 3, 18, 33, 48, 69, extra shakes |
+
+- **Also:** our `FX_UNK1`/`UNK3`/`UNK4` and effect 15 do nothing.
+
+### 17. The camera shake model is different
+*Closed 2026-11-17: 43d61c0. Retail's bounce in moveRetail (and the old camera's end), sources at retail's strengths; Scion3's -200 comes with issue 2.*
+
+*Severity: visible · Confidence: confirmed · Fix: medium · Audit: CAM-11,
+CAM-23, LVL-19*
+
+- **Retail:** MoveCamera (`0600c054`) handles bounce.
+  - A positive bounce is a one-tick jolt of pos.y and target.y, which then
+    eases back.
+  - A negative bounce adds random ±|b|/2 jitter (control RNG) to pos x/y/z and
+    to the target, decaying by 5 per tick, so the view direction shakes too.
+  - The bounce is applied before GetFloor, so the camera room is re-resolved.
+- **Retail sources:**
+  - EarthQuake flip effect: -250 (`06015ac0`)
+  - Explosion: -75 (`06015d44`)
+  - Earthquake object: -150 or +50 (`06026800`)
+  - Torso landing: +500 (`06024b34`)
+  - Scion3: -200 every 10 ticks (`06026640`)
+  - DinoStomp anim effect (`060159b8`): a one-frame bounce of up to +100 within
+    16 sectors. Used by T-rex steps, falling ceilings landing, Thor's hammer,
+    the Mines cabin and the Torso.
+- **Ours:**
+  - `openlara/camera.h:593-598` is a vertical-only sine bob,
+    `sin(7πt)·t·48`, with no RNG.
+  - Callers set 5–30 ticks (`level.h:304-413`, `object.h:2167` and `2172`,
+    `enemy.h:3352`).
+  - `FX_FLOOR_SHAKE`/DinoStomp (`level.h:326-350`) shakes for up to 15 frames
+    within 15 sectors, using its own `>> 4` formula.
+  - The bob is applied after `view.room` is chosen (`camera.h:593-600`), so
+    wrong-room and water edge cases are possible.
+  - The Scion3 shake is missing entirely (issue 2).
+- **Effect:** earthquakes, the T-rex, explosions, the Torso boss, the Atlantis
+  and Great Pyramid scions.
+- **Fix:** port bounce into `move()`, with the retail strengths at each source.
 
 ### 183. Looped sounds never stop (reported in play: the Cistern's flood)
 *Closed 2026-11-17: 095d35a. Loops follow retail's per-update rule (nearest source sets the level, unplayed or out of hearing stops; flips and the inventory stop them); the flood is retail's swell-and-fade, checked in Mednafen at the Cistern switch. Retail's per-frame restart of item loops and its octave-down loop keying are not copied (decisions table).*
