@@ -3095,7 +3095,7 @@ struct Lara : ItemObj
 
             int32 minDist = INT_MAX;
 
-            if (arm->target && arm->target->health > 0)
+                        if (arm->target)
             {
                 Sphere* spheres = gSpheres[0];
                 int32 spheresCount = arm->target->getSpheres(spheres, false);
@@ -3113,7 +3113,7 @@ struct Lara : ItemObj
                     if (s.center.z <= s.radius)
                         continue;
 
-                    if (fastLength(s.center.x, s.center.y) > s.radius)
+                                        if (X_SQR(s.center.x) + X_SQR(s.center.y) > X_SQR(s.radius))
                         continue;
 
                     int32 dist = s.center.z - s.radius;
@@ -3135,7 +3135,11 @@ struct Lara : ItemObj
                 to.pos.y += dir.y >> FIXED_SHIFT;
                 to.pos.z += dir.z >> FIXED_SHIFT;
 
-                arm->target->hit(params.damage, to.pos, 0);
+                if (arm->target->health > 0) {
+                    arm->target->hit(params.damage, to.pos, 0);
+                } else if (arm->target->type != ITEM_MUMMY) {
+                    arm->target->fxBlood(to.pos, 0, 0);    // a corpse bleeds, and counts no kill (retail's HitTarget)
+                }
             } else {
                 to.pos += dir;
 
@@ -3620,11 +3624,8 @@ struct Lara : ItemObj
     {
         ExtraInfoLara::Arm &arm = extraL->armR;
 
-        if (arm.target && arm.target->health <= 0)
-        {
-            arm.target = NULL;
-        }
-
+        // a target is held until Action is let go, dead or not (retail's
+        // LaraTargetInfo 0601f838 has no hit point test)
         if (!arm.target)
         {
             extraL->armR.aim = extraL->armL.aim = false;

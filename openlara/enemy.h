@@ -175,12 +175,15 @@ struct Enemy : ItemObj
             dz -= c * headOffset >> FIXED_SHIFT;
         }
 
-        int16 rot = phd_atan(dz, dx);
+                int16 rot = phd_atan(dz, dx);
 
-        tinfo.dist = fastLength(dx, dz);
+        // retail's CreatureAIInfo (06009950): the squared distance, far past
+        // 32000 either way; "Lara faces me" the turn between them wrapped
+        tinfo.dist2 = (abs(dx) > 32000 || abs(dz) > 32000) ? 0x7FFFFFFF : dx * dx + dz * dz;
+        tinfo.dist = phd_sqrt(tinfo.dist2);
         tinfo.angle = rot - angle.y;
         tinfo.front = abs(tinfo.angle) < ANGLE_90;
-        tinfo.behind = abs(rot - tinfo.target->angle.y - ANGLE_180) < ANGLE_90;
+        tinfo.behind = abs(int16(rot - tinfo.target->angle.y + ANGLE_180)) < ANGLE_90;
         tinfo.canAttack = tinfo.front && (abs(tinfo.target->pos.y - pos.y) < 256);
         tinfo.rotHead = (tinfo.front && mood != MOOD_SLEEP) ? tinfo.angle : 0;
     }
@@ -315,8 +318,8 @@ struct Enemy : ItemObj
         int32 dx = tinfo.waypoint.x - pos.x;
         int32 dz = tinfo.waypoint.z - pos.z;
         int16 turn = phd_atan(dz, dx) - angle.y;
-        int32 r = (hSpeed << FIXED_SHIFT) / maxTurn; //@DIV
-        int32 d = fastLength(dx, dz);
+                int32 r = (hSpeed << FIXED_SHIFT) / maxTurn; //@DIV
+        int32 d = (abs(dx) > 32000 || abs(dz) > 32000) ? 0x7FFF : int32(phd_sqrt(dx * dx + dz * dz));
         bool aim = (turn > -ANGLE_90) && (turn < ANGLE_90);
 
         if (!aim && (d < r))
@@ -1003,7 +1006,7 @@ struct Wolf : Enemy
     enum {
         HIT_MASK = 0x774F,  // body, head, front legs
 
-        DIST_STALK = 1023 * 3,
+                DIST_STALK = 1024 * 3,
         DIST_BITE = 345,
         DIST_ATTACK = 1024 + 512,
 
@@ -1080,9 +1083,11 @@ struct Wolf : Enemy
                 extraE->maxTurn = ENEMY_TURN_5;
                 tinfo.tilt = tinfo.turn;
 
+                                // retail's WolfControl (06032664): within the attack range it
+                // pounces if within half its square or if Lara faces it
                 if (tinfo.front && tinfo.dist < DIST_ATTACK)
                 {
-                    if (tinfo.dist <= (DIST_ATTACK >> 1) && !tinfo.behind)
+                    if (tinfo.dist2 <= DIST_ATTACK * DIST_ATTACK / 2 || tinfo.behind)
                     {
                         nextState = STATE_NONE;
                         return STATE_ATTACK;
@@ -2287,14 +2292,15 @@ struct Gunman : Enemy
         return trace(from, to, false);
     }
 
-    // TR1's ShotLara: the nearer, the likelier a hit; a miss ricochets by her
-    bool shoot(int32 damage, const vec3i &muzzle, int32 joint, int32 dist)
+        // TR1's ShotLara (060289b8): the nearer, the likelier a hit, by the
+    // squared distance; a miss ricochets by her
+    bool shoot(int32 damage, const vec3i &muzzle, int32 joint, int32 dist2)
     {
-        if (!tinfo.target || dist >= DIST_SHOOT)
+        const int32 range = DIST_SHOOT * DIST_SHOOT;
+        if (!tinfo.target || dist2 > range)
             return false;
 
-        const int32 range = X_SQR(DIST_SHOOT >> 4);
-        bool hit = rand_logic() < (range - X_SQR(dist >> 4)) / (range / 0x7FFF) - 0x2000;
+        bool hit = rand_logic() < (range - dist2) / (range / 0x7FFF) - 0x2000;
 
         if (hit) {
             bite(damage, muzzle, joint);
@@ -2454,10 +2460,10 @@ struct Larson : Gunman
                 if (!nextState)
                 {
                     if (twoGuns) {
-                        shoot(damage >> 1, _vec3i(60, 200, 0), 11, tinfo.dist);
-                        shoot(damage >> 1, _vec3i(-57, 200, 0), 14, tinfo.dist);
+                        shoot(damage >> 1, _vec3i(60, 200, 0), 11, tinfo.dist2);
+                        shoot(damage >> 1, _vec3i(-57, 200, 0), 14, tinfo.dist2);
                     } else {
-                        shoot(damage, _vec3i(-60, 170, 0), 14, tinfo.dist);
+                        shoot(damage, _vec3i(-60, 170, 0), 14, tinfo.dist2);
                     }
                     nextState = STATE_AIM;
                 }
@@ -2676,8 +2682,8 @@ struct Skater : Gunman
                 if (!turnSpeed && canShoot())
                 {
                     int32 damage = (state == STATE_SHOOT_1) ? DAMAGE_STOP : DAMAGE_SKATE;
-                    shoot(damage, _vec3i(0, 150, 34), 7, tinfo.dist);
-                    shoot(damage, _vec3i(0, 150, 37), 4, tinfo.dist);
+                    shoot(damage, _vec3i(0, 150, 34), 7, tinfo.dist2);
+                    shoot(damage, _vec3i(0, 150, 37), 4, tinfo.dist2);
                     turnSpeed = 1;
                 }
                 if (mood == MOOD_ESCAPE || tinfo.dist < DIST_TOO_CLOSE) {
@@ -2805,9 +2811,9 @@ struct Cowboy : Gunman
             case STATE_SHOOT:
             {
                 if (turnSpeed == 0) {
-                    shoot(DAMAGE, _vec3i(1, 200, 41), 5, tinfo.dist);
+                    shoot(DAMAGE, _vec3i(1, 200, 41), 5, tinfo.dist2);
                 } else if (turnSpeed == 6 && canShoot()) {
-                    shoot(DAMAGE, _vec3i(-2, 200, 40), 8, tinfo.dist);
+                    shoot(DAMAGE, _vec3i(-2, 200, 40), 8, tinfo.dist2);
                 }
                 turnSpeed++;
                 if (mood == MOOD_ESCAPE) {
@@ -2916,7 +2922,7 @@ struct MrT : Gunman
             {
                 if (!turnSpeed)
                 {
-                    shoot(DAMAGE, _vec3i(-20, 440, 20), 9, tinfo.dist >> 1);
+                    shoot(DAMAGE, _vec3i(-20, 440, 20), 9, tinfo.dist2 >> 1);   // retail halves Kold's squared distance
                     turnSpeed = 1;
                 }
                 if (mood == MOOD_ESCAPE) {

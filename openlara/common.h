@@ -2291,8 +2291,9 @@ struct TargetInfo
     int16 angle;
     int16 rotHead;
     int16 tilt;
-    int16 turn;
-    uint32 dist;
+        int16 turn;
+    uint32 dist;        // to the target, across
+    int32 dist2;        // its square, as retail's info.distance (0x7FFFFFFF when far)
     uint16 boxIndex;
     uint16 boxIndexTarget;
     uint16 zoneIndex;
