@@ -1336,26 +1336,6 @@ Audit: SND-8*
   and whether its reads slow the 68000's. Using it for vertices (Jollyroger's 2026 demo) was ruled
   out for us: every vertex would cross the slow bus to sound RAM and back.
 
-### 185. Missing sound calls
-*Severity: audible · Confidence: confirmed · Fix: small each · Audit: SND-12*
-
-| Sound | Retail | Ours |
-|---|---|---|
-| Splash on water entry (33) | Splash `060156e8` | `fxSplash` has no sound (`openlara/item.h:695`) |
-| Block landing thud (70), with floor shake | MovableBlockControl `0602409c` | TODO at `object.h:1228`; see issue 4 |
-| Lara hit by an enemy bullet (50) | GunHit `06028778` | `enemy.h:2257` `bite()` is silent; see issue 65 |
-| Natla's shot (123) | `0602500c` | `SND_NATLA_SHOT` never used; see issue 85 |
-| Missile impacts (10 / 104 / 50 / 31) | `060316a0` | missing, because shots are hitscan; see issue 84 |
-| Scion destruction (104 every 10 frames for 3 s) | `06026640` | missing; see issue 2 |
-| Body-part explosions (104) | `0603202c` / `0603255c` | missing; see issue 213 |
-| Lava fountain (149, every frame) | TR1X `lava.c` | missing; see issue 119 |
-| Lara burning (looped 150 on her joints) | `0603071c` | only damage. `room.h:911` plays 149 once on lava death instead; see issue 120 |
-| Raising block (117) | `06015bbc` | missing; see issue 127 |
-| Drop sand (161, then a moving 118 for 4 s) | `06015c70` | missing; see issue 127 |
-| Chain block (173 at frame 0, then 33 at frame 55) | `06015be4` | missing; see issue 127 |
-| Inventory deselect (112) | Display_Inventory `06017420`, case 10 | silent (`inventory.h:1194`) |
-| Underwater bubbles (37) | `060154c8` | none (`item.h:403-406`) |
-
 ### 186. Exploding deaths play a sound in ours; retail is silent
 *Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-13*
 
@@ -2449,6 +2429,28 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 185. Missing sound calls
+*Closed 2026-11-17: the splash and deselect sounds dd203a5; the rest by 84, 85, 2, 119, 120, 127, 4; the bullet hit is 65's, the bursts 213's.*
+
+*Severity: audible · Confidence: confirmed · Fix: small each · Audit: SND-12*
+
+| Sound | Retail | Ours |
+|---|---|---|
+| Splash on water entry (33) | Splash `060156e8` | `fxSplash` has no sound (`openlara/item.h:695`) |
+| Block landing thud (70), with floor shake | MovableBlockControl `0602409c` | TODO at `object.h:1228`; see issue 4 |
+| Lara hit by an enemy bullet (50) | GunHit `06028778` | `enemy.h:2257` `bite()` is silent; see issue 65 |
+| Natla's shot (123) | `0602500c` | `SND_NATLA_SHOT` never used; see issue 85 |
+| Missile impacts (10 / 104 / 50 / 31) | `060316a0` | missing, because shots are hitscan; see issue 84 |
+| Scion destruction (104 every 10 frames for 3 s) | `06026640` | missing; see issue 2 |
+| Body-part explosions (104) | `0603202c` / `0603255c` | missing; see issue 213 |
+| Lava fountain (149, every frame) | TR1X `lava.c` | missing; see issue 119 |
+| Lara burning (looped 150 on her joints) | `0603071c` | only damage. `room.h:911` plays 149 once on lava death instead; see issue 120 |
+| Raising block (117) | `06015bbc` | missing; see issue 127 |
+| Drop sand (161, then a moving 118 for 4 s) | `06015c70` | missing; see issue 127 |
+| Chain block (173 at frame 0, then 33 at frame 55) | `06015be4` | missing; see issue 127 |
+| Inventory deselect (112) | Display_Inventory `06017420`, case 10 | silent (`inventory.h:1194`) |
+| Underwater bubbles (37) | `060154c8` | none (`item.h:403-406`) |
 
 ### 193. Non-one-shot music triggers replay when Lara re-enters them
 *Closed 2026-11-17: as retail, 9903e3a.*
