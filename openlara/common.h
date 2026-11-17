@@ -1453,7 +1453,6 @@ struct Location {
 };
 
 enum CameraMode {
-    CAMERA_MODE_FREE,
     CAMERA_MODE_FOLLOW,
     CAMERA_MODE_COMBAT,
     CAMERA_MODE_LOOK,
@@ -1497,15 +1496,6 @@ struct Camera {
     bool updateCutscene();
 
     void init(ItemObj* lara);
-    Location getLocationForAngle(int32 angle, int32 distH, int32 distV);
-    void clip(Location &loc);
-    Location getBestLocation(bool clip);
-    void move(Location &to, int32 speed);
-    void updateFree();
-    void updateFollow(ItemObj* item);
-    void updateCombat(ItemObj* item);
-    void updateLook(ItemObj* item);
-    void updateFixed();
     void lookAt(int32 offset);
     void update();
     void toCombat();
@@ -1519,10 +1509,9 @@ struct Camera {
     void updateRetail();
 };
 
-// The original's camera and field of view rather than ours (camera.h), and the
-// view from where the camera is, with that field of view. gFocalScale, 2^14:
-// what the view's x and y rows are scaled by (renderer/draws.cpp).
-extern bool gCameraRetail;
+// The view from where the camera is, with retail's field of view (camera.h).
+// gFocalScale, 2^14: what the view's x and y rows are scaled by
+// (renderer/draws.cpp).
 extern "C" int32 gFocalScale;
 void cameraView(const vec3i &pos, int32 angleX, int32 angleY);
 

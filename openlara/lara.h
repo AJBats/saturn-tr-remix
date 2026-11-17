@@ -2838,21 +2838,6 @@ struct Lara : ItemObj
         if (input & IN_STEP_LEFT)  input &= ~IN_LEFT;     // a sidestep, not a turn
         if (input & IN_STEP_RIGHT) input &= ~IN_RIGHT;
     #endif
-
-        if (extraL->camera.mode == CAMERA_MODE_FREE) {
-            input = 0;
-        }
-
-        if (keys & IK_START)   input |= IN_START;
-
-        if (isKeyHit(IN_START) && (inventory.state == INV_STATE_NONE))
-        {
-            if (extraL->camera.mode != CAMERA_MODE_FREE) {
-                extraL->camera.mode = CAMERA_MODE_FREE;
-            } else {
-                extraL->camera.mode = CAMERA_MODE_FOLLOW;
-            }
-        }
     }
 
     // Not looking, the head comes back an eighth a tick, at once within snap
