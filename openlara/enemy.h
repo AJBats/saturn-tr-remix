@@ -2525,8 +2525,10 @@ struct Pierre : Larson
             turnSpeed++;
         }
         deathAnim(ANIM_DEATH);
-        if (health <= 0) {
+        if (health <= 0) {      // retail's PierreControl: his magnums, the scion piece, a key
+            drop(ITEM_MAGNUMS);
             drop(ITEM_SCION_PICKUP_DROP);
+            drop(ITEM_KEY_ITEM_1);
         }
     }
 
