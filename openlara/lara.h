@@ -363,6 +363,10 @@ struct Lara : ItemObj
                 item = item->nextItem;
             }
         }
+
+        // an item chosen in the ring is for this tick's holes only (retail
+        // clears g_InvChosen at the end of LaraBaddieCollision)
+        inventory.useSlot = SLOT_MAX;
     }
 
     void updateCollision()
@@ -587,18 +591,38 @@ struct Lara : ItemObj
         waterState = WATER_STATE_UNDER;
     }
 
-    bool s_checkLook()
+    // Look, held, turns her head instead of her (retail reads it only
+    // standing, LaraAsStop 0601b2e4, and treading water, LaraAsSurfTread
+    // 06021514): turn a tick each way up to yawMax, tilt between
+    // pitchMin and pitchMax, the torso after the head.
+    bool s_checkLook(int32 turn, int32 yawMax, int32 pitchMin, int32 pitchMax, bool surface)
     {
-        if (input & IN_LOOK) {
-            extraL->camera.mode = CAMERA_MODE_LOOK;
-            return true;
+        if (!(input & IN_LOOK) || extraL->camera.mode == CAMERA_MODE_FIXED)
+        {
+            if (extraL->camera.mode == CAMERA_MODE_LOOK) {
+                extraL->camera.mode = CAMERA_MODE_FOLLOW;
+            }
+            return false;
         }
 
-        if (extraL->camera.mode == CAMERA_MODE_LOOK) {
-            extraL->camera.mode = CAMERA_MODE_FOLLOW;
-        }
+        extraL->camera.mode = CAMERA_MODE_LOOK;
+        extraL->camera.lookAtItem = NULL;
 
-        return false;
+        vec3s &H = extraL->head.angle;
+        vec3s &T = extraL->torso.angle;
+        if ((input & IN_LEFT) && H.y > -yawMax) {
+            H.y -= turn;
+        } else if ((input & IN_RIGHT) && H.y < yawMax) {
+            H.y += turn;
+        }
+        if ((input & IN_UP) && H.x > pitchMin) {
+            H.x -= turn;
+        } else if ((input & IN_DOWN) && H.x < pitchMax) {
+            H.x += turn;
+        }
+        T.y = surface ? H.y / 2 : H.y;
+        T.x = surface ? 0 : H.x;
+        return true;
     }
 
     S_HANDLER( STATE_WALK )
@@ -638,7 +662,7 @@ struct Lara : ItemObj
 
         goalState = STATE_STOP;
 
-        if (s_checkLook())
+        if (s_checkLook(ANGLE(2), ANGLE(50), ANGLE(-42), ANGLE(22), false))
             return;
 
         if (input & IN_WALK) {
@@ -721,12 +745,6 @@ struct Lara : ItemObj
         if (s_checkDeath(STATE_STOP))
             return;
 
-        if (input & IN_LOOK)
-        {
-            goalState = STATE_STOP;
-            return;
-        }
-
         turnSpeed += LARA_TURN_ACCEL;
 
         if ((turnSpeed > LARA_TURN_SLOW || extraL->weaponState == WEAPON_STATE_READY) && !(input & IN_WALK))
@@ -745,12 +763,6 @@ struct Lara : ItemObj
     {
         if (s_checkDeath(STATE_STOP))
             return;
-            
-        if (input & IN_LOOK)
-        {
-            goalState = STATE_STOP;
-            return;
-        }
 
         turnSpeed -= LARA_TURN_ACCEL;
 
@@ -901,12 +913,6 @@ struct Lara : ItemObj
     {
         if (s_checkDeath(STATE_STOP))
             return;
-            
-        if (input & IN_LOOK)
-        {
-            goalState = STATE_STOP;
-            return;
-        }
 
         if (turnSpeed < 0) {
             turnSpeed = -LARA_TURN_FAST;
@@ -1029,7 +1035,7 @@ struct Lara : ItemObj
         if (s_checkDeath(STATE_DEATH_UW))
             return;
 
-        if (s_checkLook())
+        if (s_checkLook(ANGLE(3), ANGLE(50), ANGLE(-40), ANGLE(40), true))
             return;
 
         if (input & IN_LEFT) {
@@ -2781,48 +2787,33 @@ struct Lara : ItemObj
         }
     }
 
-    void updateLook()
+    // Not looking, the head comes back an eighth a tick, at once within snap
+    // (retail's LaraAboveWater 0601af90, LaraSurface), the torso with it.
+    // At the surface retail gives the torso's yaw half the head's pitch.
+    static int16 headBack(int16 a, int32 snap)
     {
+        return (a > -snap && a < snap) ? 0 : int16(a - a / 8);
+    }
+
+    void updateLookBack()
+    {
+        if (extraL->camera.mode == CAMERA_MODE_LOOK)
+            return;
+
         vec3s &H = extraL->head.angle;
         vec3s &T = extraL->torso.angle;
-
-        if (health <= 0) {
-            H = T = _vec3s(0, 0, 0);
-            return;
-        }
-
-        if ((input & IN_LOOK) && extraL->camera.mode != CAMERA_MODE_FIXED)
+        if (waterState == WATER_STATE_ABOVE)
         {
-            extraL->camera.lookAtItem = NULL;
-
-            if (input & IN_UP) {
-                H.x -= LARA_LOOK_TURN_SPEED;
-            }
-
-            if (input & IN_DOWN) {
-                H.x += LARA_LOOK_TURN_SPEED;
-            }
-
-            if (input & IN_LEFT) {
-                H.y -= LARA_LOOK_TURN_SPEED;
-            }
-
-            if (input & IN_RIGHT) {
-                H.y += LARA_LOOK_TURN_SPEED;
-            }
-
-            H.x = T.x = X_CLAMP(H.x, LARA_LOOK_ANGLE_MIN, LARA_LOOK_ANGLE_MAX);
-            H.y = T.y = X_CLAMP(H.y, -LARA_LOOK_ANGLE_Y, LARA_LOOK_ANGLE_Y);
-
-            input &= ~(IN_RIGHT | IN_LEFT | IN_UP | IN_DOWN);
-            return;
+            H.x = T.x = headBack(H.x, ANGLE(2));
+            H.y = T.y = headBack(H.y, ANGLE(2));
         }
-
-        if (extraL->camera.lastItem != NULL)
-            return;
-
-        H.x = T.x = angleDec(H.x, abs(H.x) >> 3);
-        H.y = T.y = angleDec(H.y, abs(H.y) >> 3);
+        else if (waterState == WATER_STATE_SURFACE)
+        {
+            H.y = headBack(H.y, ANGLE(3));
+            T.y = H.x / 2;
+            H.x = headBack(H.x, ANGLE(3));
+            T.x = 0;
+        }
     }
 
     // out of the water into the air, falling
@@ -2923,6 +2914,7 @@ struct Lara : ItemObj
         cinfo.stopOnLava  = false;
 
         updateState();
+        updateLookBack();
 
         angle.z = angleDec(angle.z, ANGLE(1));
         turnSpeed = angleDec(turnSpeed, ANGLE(2));
@@ -2943,6 +2935,7 @@ struct Lara : ItemObj
         cinfo.stopOnLava  = false;
 
         updateState();
+        updateLookBack();
 
         angle.z = angleDec(angle.z, ANGLE(2));
 
@@ -3850,8 +3843,6 @@ struct Lara : ItemObj
             deathCount = 0;
             inventory.open(this, INV_PAGE_DEATH);
         }
-
-        updateLook();
 
         updateWaterState();
 

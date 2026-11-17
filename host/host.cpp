@@ -290,6 +290,7 @@ static void printLara(int32 tick)
     if (getenv("GUNS"))     // GUNS=1: her weapon, its state and her target
     {
         const ItemObj* target = lara->extraL->armR.target;
+        printf("     head %d %d torso %d %d\n", lara->extraL->head.angle.x, lara->extraL->head.angle.y, lara->extraL->torso.angle.x, lara->extraL->torso.angle.y);
         printf("     weapon %d state %d goal %d target %d\n", lara->extraL->weapon, lara->extraL->weaponState,
                lara->extraL->goalWeapon, target ? int32(target - items) : -1);
     }

@@ -99,9 +99,10 @@ struct Object : ItemObj
     {
         Limit* limit = (Limit*)limitData;
 
-        int16 ax = abs(lara->angle.x - angle.x);
-        int16 ay = abs(lara->angle.y - angle.y);
-        int16 az = abs(lara->angle.z - angle.z);
+        // the turn between them, wrapped (retail's TestLaraPosition, 0600f1bc)
+        int32 ax = abs(int16(lara->angle.x - angle.x));
+        int32 ay = abs(int16(lara->angle.y - angle.y));
+        int32 az = abs(int16(lara->angle.z - angle.z));
 
         if (ax > limit->angle.x || ay > limit->angle.y || az > limit->angle.z)
             return false;
