@@ -82,8 +82,8 @@ order; the few of its bugs a player runs into are listed at the end.
 | 15 | 154. You can save while dead | small (closed) |
 | 16 | 157. No automatic GAME OVER | small to medium (closed) |
 | 17 | 49. Jump+Draw while dead revives Lara at full health | small (closed) |
-| 18 | 24, 75. Twelve creature types run the timid mood (24 first: the flag they share) | small |
-| 19 | 74. Every triggered creature's collision radius becomes 0 | small |
+| 18 | 24, 75. Twelve creature types run the timid mood (24 first: the flag they share) | small (closed) |
+| 19 | 74. Every triggered creature's collision radius becomes 0 | small (closed) |
 | 20 | 85. Natla's fight: no flight, rockets, sounds or music | large |
 | 21 | 86. Mutants: no flight, instant shots, no burst | large |
 | 22 | 87. Centaurs don't burst (with 213) | medium |
@@ -263,20 +263,6 @@ checked) · Fix: small · Audit: CAM-14*
 - **Effect:** on every load, retail's pull-back from above Lara's head is
   missing.
 - **Fix:** initialise the camera on load; stop saving it.
-
-### 24. The "already looked at" mark reuses ITEM_FLAG_ANIMATED
-*Severity: subtle (latent) · Confidence: confirmed (code) · Fix: small · Audit:
-CAM-19*
-
-- **Retail:** a separate looked_at bit.
-- **Ours:**
-  - `openlara/camera.h:484` sets `ITEM_FLAG_ANIMATED`, and `room.h:895` tests
-    it.
-  - That same flag selects the violent mood (`enemy.h:195`), and the Bear's
-    constructor sets it (`enemy.h:1170`).
-- **Effect:** none in TR1's data today. A look-at on an enemy would make it
-  violent, and a bear would count as already looked at.
-- **Fix:** separate the two before fixing issue 75.
 
 ### 25. The inventory's background scene is drawn without the camera shift
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: CAM-20*
@@ -987,51 +973,6 @@ SND-21*
 ---
 
 ## Creatures and AI
-
-### 74. Every triggered creature's collision radius becomes 0
-*Severity: gameplay / visible · Confidence: confirmed · Fix: small · Audit:
-AI-1*
-
-- **Retail:** CreatureAnimation (`0600b000`; TR1X `box.c`) pushes the creature
-  back from bad floor by the object's full radius (wolf 341). CreatureCreature
-  uses that radius squared. The radius comes from the object table (object setup
-  `0602cf08`; OBJECT_INFO +0x2a).
-- **Ours:**
-  - `openlara/enemy.h:35` stores `radius = _radius >> 1`, half the value.
-  - Worse, `radius` shares a union with `timer` (`common.h:1736`), and the
-    trigger code writes `item->timer = FD_TIMER(data)` on every item it
-    activates (`room.h:1010`).
-  - Every creature trigger in the levels has timer 0, so the radius is 0 from
-    first activation.
-  - The radius tests in `updateLocation` (`enemy.h:556-645`) and
-    `overlapsCreature` (`enemy.h:482`) never fire. Commit 1164c5a's wall-slide
-    and creature-parting only half-work: the edge clamp works, the radius part
-    doesn't.
-- **Effect:** in every level, creatures hug walls and ledges with half their body
-  inside them, and pairs of wolves or rats merge into each other.
-- **Fix:** give enemies their own radius field, or stop the trigger writing timer
-  on enemies; store the full radius.
-
-### 75. Only the bear uses the violent mood; 12 other creature types use the timid one
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-2*
-
-- **Retail:**
-  - CreatureMood(..., violent = 1) is called for the bear, crocodile, water
-    crocodile, lions, lioness, puma, raptor, T-rex, water rat, Kold, centaur,
-    mutants, Natla and the torso.
-  - Violent creatures always attack when Lara is in their zone, and flee only
-    when hit while she is out of it.
-  - Checked at the call sites in `060119e0`, `06011698`, `06011f94`,
-    `060122fc`, `06032a78`, `0602bd64`, `0602a558`, `06030cf8`, `06030ffc`,
-    `0602500c` and `06024b34`.
-- **Ours:** violent logic is chosen by `ITEM_FLAG_ANIMATED`
-  (`openlara/enemy.h:195`), which only the Bear sets (`enemy.h:1170`).
-- **Effect:** lions, raptors, the T-rex, crocodiles, Kold, centaurs and mutants
-  stalk instead of charging whenever Lara is more than 3 sectors away. They also
-  run away on about 1 hit in 16, or whenever hit while she is out of their zone.
-  Retail never does that.
-- **Fix:** a per-type violent flag. Separate it from the look-at mark first
-  (issue 24).
 
 ### 76. Wolf pounce decision is inverted, with the wrong distance
 *Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-5,
@@ -3465,6 +3406,71 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 74. Every triggered creature's collision radius becomes 0
+*Closed 2026-11-17: f8d1015. Whole radius; triggers skip the timer (radius) of creatures.*
+
+*Severity: gameplay / visible · Confidence: confirmed · Fix: small · Audit:
+AI-1*
+
+- **Retail:** CreatureAnimation (`0600b000`; TR1X `box.c`) pushes the creature
+  back from bad floor by the object's full radius (wolf 341). CreatureCreature
+  uses that radius squared. The radius comes from the object table (object setup
+  `0602cf08`; OBJECT_INFO +0x2a).
+- **Ours:**
+  - `openlara/enemy.h:35` stores `radius = _radius >> 1`, half the value.
+  - Worse, `radius` shares a union with `timer` (`common.h:1736`), and the
+    trigger code writes `item->timer = FD_TIMER(data)` on every item it
+    activates (`room.h:1010`).
+  - Every creature trigger in the levels has timer 0, so the radius is 0 from
+    first activation.
+  - The radius tests in `updateLocation` (`enemy.h:556-645`) and
+    `overlapsCreature` (`enemy.h:482`) never fire. Commit 1164c5a's wall-slide
+    and creature-parting only half-work: the edge clamp works, the radius part
+    doesn't.
+- **Effect:** in every level, creatures hug walls and ledges with half their body
+  inside them, and pairs of wolves or rats merge into each other.
+- **Fix:** give enemies their own radius field, or stop the trigger writing timer
+  on enemies; store the full radius.
+
+### 75. Only the bear uses the violent mood; 12 other creature types use the timid one
+*Closed 2026-11-17: f8d1015. Violent mood by type per retail's call sites; mutants timid on the ground, Natla violent from stage two.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-2*
+
+- **Retail:**
+  - CreatureMood(..., violent = 1) is called for the bear, crocodile, water
+    crocodile, lions, lioness, puma, raptor, T-rex, water rat, Kold, centaur,
+    mutants, Natla and the torso.
+  - Violent creatures always attack when Lara is in their zone, and flee only
+    when hit while she is out of it.
+  - Checked at the call sites in `060119e0`, `06011698`, `06011f94`,
+    `060122fc`, `06032a78`, `0602bd64`, `0602a558`, `06030cf8`, `06030ffc`,
+    `0602500c` and `06024b34`.
+- **Ours:** violent logic is chosen by `ITEM_FLAG_ANIMATED`
+  (`openlara/enemy.h:195`), which only the Bear sets (`enemy.h:1170`).
+- **Effect:** lions, raptors, the T-rex, crocodiles, Kold, centaurs and mutants
+  stalk instead of charging whenever Lara is more than 3 sectors away. They also
+  run away on about 1 hit in 16, or whenever hit while she is out of their zone.
+  Retail never does that.
+- **Fix:** a per-type violent flag. Separate it from the look-at mark first
+  (issue 24).
+
+### 24. The "already looked at" mark reuses ITEM_FLAG_ANIMATED
+*Closed 2026-11-17: f8d1015. ITEM_FLAG_LOOKED_AT for the look-at mark.*
+
+*Severity: subtle (latent) · Confidence: confirmed (code) · Fix: small · Audit:
+CAM-19*
+
+- **Retail:** a separate looked_at bit.
+- **Ours:**
+  - `openlara/camera.h:484` sets `ITEM_FLAG_ANIMATED`, and `room.h:895` tests
+    it.
+  - That same flag selects the violent mood (`enemy.h:195`), and the Bear's
+    constructor sets it (`enemy.h:1170`).
+- **Effect:** none in TR1's data today. A look-at on an enemy would make it
+  violent, and a bear would count as already looked at.
+- **Fix:** separate the two before fixing issue 75.
 
 ### 49. Pressing Jump+Draw while dead revives Lara at full health
 *Closed 2026-11-17: 7ddfb8a. Retail's crystals, passport (Load Game list from the save's progress, Start Game / Restart Level, Exit to Title), save prompts at crystals and level ends, GAME OVER after 10 s or 2 s plus a button; the revive cheat removed.*
