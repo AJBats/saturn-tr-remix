@@ -3,9 +3,9 @@
 #ifndef FMV_H
 #define FMV_H
 
-// Plays FMV/<name>.CPK to its end, or until START is pressed. Uses the sound
-// RAM and low work RAM, so it runs between levels.
-void fmvPlay(const char* name);
+// Plays FMV/<name>.CPK to its end, or until START is pressed if it may be
+// skipped. Uses the sound RAM and low work RAM, so it runs between levels.
+void fmvPlay(const char* name, bool skippable = true);
 
 // Shows BINDATA/<name>.BIN for up to the given number of frames, or until
 // START is pressed.

@@ -70,7 +70,12 @@ void Camera::updateCinematic()
         view.room = nextRoom;
     }
 
-    if (timer >= level.cameraFramesCount) {
+    // its end, or START (retail's DoCinematic, 0600d744)
+    static uint32 lastKeys = IK_START;
+    bool skip = (keys & IK_START) && !(lastKeys & IK_START);
+    lastKeys = keys;
+
+    if (timer >= level.cameraFramesCount || skip) {
         timer = level.cameraFramesCount - 1;
         nextLevel(LevelID(gLevelID + 1));
     }

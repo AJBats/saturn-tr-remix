@@ -437,6 +437,19 @@ void gameUpdate(int32 frames, bool items = true)
 {
     PROFILE(CNT_UPDATE);
 
+    // A+B+C+START: back to the title (retail's soft reset, its vblank handler 0603938c)
+    const uint32 reset = IK_A | IK_B | IK_C | IK_START;
+    if ((keys & reset) == reset && gLevelID != LVL_TR1_TITLE && gNextLevel == LVL_MAX)
+    {
+        if (inventory.state != INV_STATE_NONE)
+        {
+            closeBackground();
+            inventory.state = INV_STATE_NONE;
+        }
+        gameStartLevel(LVL_TR1_TITLE);
+    }
+
+
     if (frames > MAX_UPDATE_FRAMES) {
         frames = MAX_UPDATE_FRAMES;
     }

@@ -274,11 +274,15 @@ static uint16_t gPad;
 static uint32_t gSkipAt;    // testing: the vertical blank a START is made up at, 0 none
 #endif
 
-// START newly pressed
+static bool gSkippable;     // the video playing may be skipped
+
+// START newly pressed, where it skips
 static bool skipPressed()
 {
     uint16_t old = gPad;
     gPad = padButtons();
+    if (!gSkippable)
+        return false;
 #ifdef FMV_SKIP_AT
     if (gSkipAt && int32_t(gVblankCount - gSkipAt) >= 0)
     {
@@ -458,8 +462,9 @@ static void checkEnd(volatile uint16_t* bitmap, uint32_t lba)
 }
 #endif
 
-void fmvPlay(const char* name)
+void fmvPlay(const char* name, bool skippable)
 {
+    gSkippable = skippable;
     gBooks = (Codebooks*)renderScratch(sizeof(Codebooks) * MAX_STRIPS);
     char path[32] = "FMV/";
     strcat(path, name);
@@ -641,7 +646,9 @@ void fmvPlay(const char* name)
 
 void fmvPicture(const char* name, int width, int frames)
 {
+    gSkippable = true;
     screenShow(name, width);
+
 
     gPad = 0xFFFF;
     uint32_t start = gVblankCount;

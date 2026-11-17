@@ -124,7 +124,7 @@ static const char* levelVideo(LevelID id)
         case LVL_TR1_8A  : return "VISION";
         case LVL_TR1_10A : return "CANYON";
         case LVL_TR1_10B : return "PYRAMID";
-        case LVL_TR1_10C : return "PRISON";
+        case LVL_TR1_CUT_4 : return "PRISON";     // after Atlantis, before its cutscene
         default          : return NULL;
     }
 }
@@ -134,9 +134,10 @@ static void playVideos(LevelID id)
     if (gGameComplete && id == LVL_TR1_TITLE)
     {
         gGameComplete = false;
-        fmvPlay("END");
-        fmvPicture("CRED224", 320, 60 * 8);
-        fmvPicture("ENDPG224", 352, 60 * 8);
+        fmvPlay("END", false);
+        fmvPicture("CRED224", 320, 900);
+        fmvPlay("CORELOGO");
+        fmvPlay("CAFE");
         return;
     }
 
