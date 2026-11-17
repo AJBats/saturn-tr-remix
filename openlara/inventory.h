@@ -1513,6 +1513,7 @@ struct Inventory
 
                 if (!onItem() && (frameIndex == frameTarget))
                 {
+                    soundPlay(SND_INV_HIDE, NULL);  // retail's RNG_DESELECT (Display_Inventory, 06017420)
                     setState(INV_STATE_DESELECT, nextState, 8);
                     setSelection(false);
                     break;

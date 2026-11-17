@@ -818,6 +818,9 @@ void ItemObj::fxSplash()
     vec3i fxPos = pos;
     fxPos.y = getWaterLevel();
 
+    soundPlay(SND_SPLASH, &pos);    // retail's Splash (060156e8)
+
+
     // TODO TR3+
     for (int32 i = 0; i < 10; i++)
     {
