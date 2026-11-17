@@ -360,6 +360,17 @@ int main(int argc, char** argv)
     if (itemsDump) {
         printItems();
     }
+    for (const char* m = getenv("MODELS"); m && *m; m = strchr(m, ',') ? strchr(m, ',') + 1 : "")
+    {
+        const Model &model = level.models[atoi(m)];     // MODELS=TYPE,TYPE...: their models
+        printf("model %3d: count %d start %d node %d anim %d", atoi(m), model.count, model.start, model.nodeIndex, model.animIndex);
+        if (model.count > 0 && model.animIndex != 0xFFFF)
+        {
+            const Anim &anim = level.anims[model.animIndex];
+            printf(" (frames %d-%d rate %d)", anim.frameBegin, anim.frameEnd, anim.frameRate);
+        }
+        printf("\n");
+    }
 
     // As saturn/main.cpp runs it, a tick a frame: the first frame's update
     // whole; after it, while in play, the items' update a frame ahead (the

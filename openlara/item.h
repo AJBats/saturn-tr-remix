@@ -1735,7 +1735,7 @@ ItemObj* ItemObj::init(Room* room)
         // INIT_ITEM( UNUSED_6              , ??? );
         // INIT_ITEM( UNUSED_7              , ??? );
         // INIT_ITEM( INV_SCION             , ??? );
-        // INIT_ITEM( EXPLOSION             , ??? );
+        INIT_ITEM( EXPLOSION             , SpriteEffect );
         // INIT_ITEM( UNUSED_8              , ??? );
         INIT_ITEM( SPLASH                , SpriteEffect );
         // INIT_ITEM( UNUSED_9              , ??? );
@@ -1756,8 +1756,8 @@ ItemObj* ItemObj::init(Room* room)
         INIT_ITEM( VIEW_TARGET           , ViewTarget );
         INIT_ITEM( WATERFALL             , Waterfall );
         // INIT_ITEM( NATLA_BULLET          , ??? );
-        // INIT_ITEM( MUTANT_BULLET         , ??? );
-        // INIT_ITEM( CENTAUR_BULLET        , ??? );
+        INIT_ITEM( MUTANT_BULLET         , Missile );
+        INIT_ITEM( CENTAUR_BULLET        , Missile );
         // INIT_ITEM( UNUSED_15             , ??? );
         // INIT_ITEM( UNUSED_16             , ??? );
         // INIT_ITEM( LAVA_PARTICLE         , ??? );

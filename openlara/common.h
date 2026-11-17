@@ -2059,6 +2059,7 @@ enum SoundID
     SND_SHOTGUN_SHOT    = 45,
     SND_EMPTY           = 48,
     SND_HIT_UNDERWATER  = 50,
+    SND_BULLET_HIT      = 50,
         
     SND_UNDERWATER      = 60,
 

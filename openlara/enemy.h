@@ -2281,6 +2281,29 @@ struct Gunman : Enemy
         return hit;
     }
 
+    // A shot that flies (retail's ShardGun and RocketGun through
+    // CreatureEffect): from the joint's offset, aimed at Lara's chest, a
+    // little off (ShootAtLara). NULL if the level hasn't the model.
+    ItemObj* fire(ItemType fxType, const vec3i &offset, int32 joint)
+    {
+        Lara* lara = getLara(pos);
+        if (!level.models[fxType].count || !lara)
+            return NULL;
+
+        ItemObj* fx = ItemObj::add(fxType, room, pos + getJoint(joint, offset), angle.y);
+        if (!fx)
+            return NULL;
+
+        const AABBs &box = lara->getBoundingBox(true);
+        vec3i d = lara->pos - fx->pos;
+        d.y += box.maxY + (box.minY - box.maxY) * 3 / 4;
+        int32 dist = phd_sqrt(d.x * d.x + d.z * d.z);
+        fx->angle.x = int16(-phd_atan(dist, d.y) + (rand_logic() - 0x4000) / 0x40);
+        fx->angle.y = int16(phd_atan(d.z, d.x) + (rand_logic() - 0x4000) / 0x40);
+        fx->hSpeed = (fxType == ITEM_MUTANT_BULLET) ? 250 : 220;
+        return fx;
+    }
+
     void deathAnim(int32 anim)
     {
         if (health <= 0) {
@@ -2882,9 +2905,8 @@ struct MrT : Gunman
 
 
 // Atlantis' mutants: they claw at Lara close up and, the shooter and the
-// winged one, fire on her from afar (TR1's mutant control, on the ground:
-// the winged one doesn't take to the air here, and their shards and bombs
-// strike at once rather than fly). They burst when killed.
+// winged one, fire shards and rockets on her from afar (TR1's mutant
+// control, on the ground: the winged one doesn't take to the air here).
 struct Mutant : Gunman
 {
     enum {
@@ -2896,8 +2918,7 @@ struct Mutant : Gunman
         DIST_SHOOT = 3840,
         DAMAGE_CHARGE = 100,
         DAMAGE_LUNGE = 150,
-        DAMAGE_PUNCH = 200,
-        DAMAGE_SHOT = 100
+        DAMAGE_PUNCH = 200
     };
 
     enum {
@@ -3052,9 +3073,9 @@ struct Mutant : Gunman
             case STATE_SHOOT:
             {
                 if (turnSpeed == 1) {
-                    shoot(DAMAGE_SHOT, _vec3i(-35, 269, 0), 9, tinfo.dist);
+                    fire(ITEM_MUTANT_BULLET, _vec3i(-35, 269, 0), 9);
                 } else if (turnSpeed == 2) {
-                    shoot(DAMAGE_SHOT, _vec3i(51, 213, 0), 14, tinfo.dist);
+                    fire(ITEM_CENTAUR_BULLET, _vec3i(51, 213, 0), 14);
                 }
                 turnSpeed = 0;
                 break;
@@ -3066,16 +3087,14 @@ struct Mutant : Gunman
 };
 
 
-// Centaurs rear up and kick close by, and fire on Lara from afar (TR1's
-// CentaurControl; the bomb strikes at once rather than flying). They burst
-// when their death is done.
+// Centaurs rear up and kick close by, and fire rockets on Lara from afar
+// (TR1's CentaurControl). They burst when their death is done.
 struct Centaur : Gunman
 {
     enum {
         HIT_MASK = 0x30199,
         DIST_REAR = 1536,
         DAMAGE_REAR = 200,
-        DAMAGE_SHOT = 100,
         ANIM_DEATH = 8
     };
 
@@ -3153,7 +3172,7 @@ struct Centaur : Gunman
                 if (!nextState)
                 {
                     nextState = STATE_AIM;
-                    shoot(DAMAGE_SHOT, _vec3i(11, 415, 41), 13, tinfo.dist);
+                    fire(ITEM_CENTAUR_BULLET, _vec3i(11, 415, 41), 13);
                 }
                 break;
             }
@@ -3175,17 +3194,15 @@ struct Centaur : Gunman
 
 
 // Natla, in two stages (TR1's NatlaControl, on the ground: she doesn't fly
-// here, and her bombs and shards strike at once). Brought down to half her
-// health she falls and lies still for sixteen seconds, then rises with that
-// half and runs at Lara firing. turnSpeed is her shot timer, aggression marks
+// here). She fires rockets, three at a time; brought down to half her health
+// she falls and lies still for sixteen seconds, then rises with that half and
+// runs at Lara firing shards. turnSpeed is her shot timer, aggression marks
 // the second stage.
 struct Natla : Gunman
 {
     enum {
         HEALTH_STAGE_2 = 200,
-        DIE_TIME = 30 * 16,
-        DAMAGE_BOMB = 100,
-        DAMAGE_SHARD = 100
+        DIE_TIME = 30 * 16
     };
 
     enum {
@@ -3257,7 +3274,9 @@ struct Natla : Gunman
                     }
                     if (turnSpeed >= 20)
                     {
-                        shoot(DAMAGE_SHARD, _vec3i(5, 220, 7), 4, tinfo.dist);
+                        if (ItemObj* fx = fire(ITEM_MUTANT_BULLET, _vec3i(5, 220, 7), 4)) {
+                            soundPlay(SND_NATLA_SHOT, &fx->pos);
+                        }
                         turnSpeed = 0;
                     }
                     if (state == STATE_STAND && !canFire)
@@ -3315,8 +3334,13 @@ struct Natla : Gunman
             {
                 if (!nextState)
                 {
-                    for (int32 i = 0; i < 3; i++) {
-                        shoot(DAMAGE_BOMB, _vec3i(5, 220, 7), 4, tinfo.dist + i * 1024);
+                    // three rockets, two of them spread
+                    fire(ITEM_CENTAUR_BULLET, _vec3i(5, 220, 7), 4);
+                    for (int32 i = 0; i < 2; i++)
+                    {
+                        if (ItemObj* fx = fire(ITEM_CENTAUR_BULLET, _vec3i(5, 220, 7), 4)) {
+                            fx->angle.y += (rand_logic() - 0x4000) / 4;
+                        }
                     }
                     nextState = STATE_STOP;
                 }

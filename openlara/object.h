@@ -179,6 +179,118 @@ struct SpriteEffect : ItemObj
 };
 
 
+// A creature's shot that flies (retail's ControlMissile, 060316a0; TR1X
+// effects/missile.c). MUTANT_BULLET is the shard (O_MISSILE2): 30 to Lara, or
+// a ricochet off what it strikes. CENTAUR_BULLET is the rocket (O_MISSILE3):
+// 100 to Lara and a stagger, or where it strikes a burst that does up to 100
+// within a sector of her. hSpeed is its speed along its heading and pitch.
+struct Missile : ItemObj
+{
+    enum {
+        SHARD_DAMAGE = 30,
+        ROCKET_DAMAGE = 100,
+        ROCKET_RANGE = 1024 * 1024
+    };
+
+    Missile(Room* room) : ItemObj(room)
+    {
+        flags &= ~ITEM_FLAG_COLLISION;
+        activate();
+    }
+
+    // retail's ItemNearLara (06014f30): within dist of her across, and within
+    // her height
+    static bool nearLara(const Lara* lara, const vec3i &p, int32 dist)
+    {
+        int32 x = p.x - lara->pos.x;
+        int32 y = p.y - lara->pos.y;
+        int32 z = p.z - lara->pos.z;
+        if (x < -dist || x > dist || z < -dist || z > dist || y < -3 * 1024 || y > 3 * 1024 ||
+            x * x + z * z > dist * dist)
+            return false;
+        const AABBs &box = lara->getBoundingBox(true);
+        return y >= box.minY && y <= box.maxY + 100;
+    }
+
+    // what the shot turns into, where it is, heading and speed given
+    void become(ItemType fxType, int32 fxAngle, int32 fxSpeed, int32 fxTimer, int32 fxFrame)
+    {
+        vec3i p = pos;
+        Room* r = room;
+        remove();
+        ItemObj* fx = ItemObj::add(fxType, r, p, fxAngle);
+        if (!fx)
+            return;
+        fx->hSpeed = int16(fxSpeed);
+        fx->timer = int16(fxTimer);
+        fx->frameIndex = int16(fxFrame);
+        if (fxType != ITEM_RICOCHET) {
+            fx->flags |= ITEM_FLAG_ANIMATED;
+        }
+    }
+
+    virtual void update()
+    {
+        int32 s, c;
+        sincos(angle.x, s, c);
+        int32 speed = (hSpeed * c) >> FIXED_SHIFT;
+        pos.y += (hSpeed * sin(-angle.x)) >> FIXED_SHIFT;
+        sincos(angle.y, s, c);
+        pos.z += (speed * c) >> FIXED_SHIFT;
+        pos.x += (speed * s) >> FIXED_SHIFT;
+
+        Room* nextRoom = room->getRoom(pos.x, pos.y, pos.z);
+        const Sector* sector = nextRoom->getSector(pos.x, pos.z);
+        Lara* lara = getLara(pos);
+
+        if (pos.y >= sector->getFloor(pos.x, pos.y, pos.z) || pos.y <= sector->getCeiling(pos.x, pos.y, pos.z))
+        {
+            if (type == ITEM_MUTANT_BULLET)
+            {
+                soundPlay(SND_RICOCHET, &pos);
+                become(ITEM_RICOCHET, 0, 0, 6, rand_logic() / 11000);
+                return;
+            }
+
+            soundPlay(SND_EXPLOSION, &pos);
+            vec3i d = pos - lara->pos;
+            int32 range = d.x * d.x + d.y * d.y + d.z * d.z;
+            if (range < ROCKET_RANGE) {
+                lara->hit((ROCKET_RANGE - range) * ROCKET_DAMAGE / ROCKET_RANGE, pos, 0);
+            }
+            become(ITEM_EXPLOSION, 0, 0, 2, 0);
+            return;
+        }
+
+        if (nextRoom != room)
+        {
+            room->remove(this);
+            nextRoom->add(this);
+        }
+
+        if (!nearLara(lara, pos, 200))
+            return;
+
+        if (type == ITEM_MUTANT_BULLET)
+        {
+            lara->hit(SHARD_DAMAGE, pos, 0);
+            soundPlay(SND_BULLET_HIT, &pos);
+            become(ITEM_BLOOD, lara->angle.y, lara->hSpeed, 4, 0);
+            return;
+        }
+
+        lara->hit(ROCKET_DAMAGE, pos, 0);
+        if (lara->health > 0)
+        {
+            soundPlay(SND_DAMAGE, &lara->pos);
+            lara->animHit(pos.x - lara->pos.x, pos.z - lara->pos.z, 5);
+        }
+        soundPlay(SND_EXPLOSION, &pos);
+        become(ITEM_EXPLOSION, 0, 0, 2, 0);     // retail turns it with her, but a burst doesn't move
+    }
+};
+
+
 struct Bubble : ItemObj
 {
     Bubble(Room* room) : ItemObj(room)

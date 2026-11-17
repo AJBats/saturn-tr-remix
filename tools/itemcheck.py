@@ -30,7 +30,7 @@ def report(m, fr):
         raw = m.read(S['_items'] + i * 76, 76)
         flags = struct.unpack('>H', raw[26:28])[0]
         x, y, z = struct.unpack('>3i', raw[8:20])
-        print(f'  item {i}: flags {flags:04x} status {STATUS[(flags >> 3) & 3]} active-list {(flags >> 2) & 1} '
+        print(f'  item {i}: type {raw[52]} flags {flags:04x} status {STATUS[(flags >> 3) & 3]} active-list {(flags >> 2) & 1} '
               f'mask {(flags >> 9) & 31:02x} pos {x} {y} {z} state {raw[36]}')
     for room, sx, sz in sectors:
         r = m.read(S['_rooms'] + room * 64, 12)
@@ -58,6 +58,11 @@ try:
     for fr in frames.split(','):
         m.send(f'run_to_frame {fr}', 'done run_to_frame', 1200)
         report(m, fr)
+        if os.environ.get('SHOTS'):     # a picture at every frame, in a directory of the run's own
+            d = f'{ROOT}/build/{name}_shots_{os.getpid()}'
+            os.makedirs(d, exist_ok=True)
+            m.send(f'screenshot {d}/{fr}.png', 'screenshot', 30)
+            print(f'{d}/{fr}.png')
     shot = f'{ROOT}/build/{name}_shot.png'
     if os.path.exists(shot):
         os.replace(shot, shot + '.old')
