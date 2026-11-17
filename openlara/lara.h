@@ -3186,7 +3186,7 @@ struct Lara : ItemObj
         if (weaponState == WEAPON_STATE_DRAW)
         {
             const WeaponParams &params = weaponParams[extraL->weapon];
-            int32 anim = (extraL->weapon == WEAPON_SHOTGUN) ? ANIM_SHOTGUN_DRAW : ANIM_PISTOLS_PICK;
+            int32 anim = (extraL->weapon == WEAPON_SHOTGUN) ? ANIM_SHOTGUN_AIM : ANIM_PISTOLS_PICK;
             R.animIndex = L.animIndex = level.models[params.animType].animIndex + anim;
             R.frameIndex = L.frameIndex = 0;
         }
@@ -3316,78 +3316,113 @@ struct Lara : ItemObj
         }
     }
 
+    // The shotgun's arms run on retail's absolute frames of its five
+    // animations: aim 0, draw 13, recoil 47, undraw 80, unaim 114, end 127.
+    enum {
+        SG_AIM    = 0,
+        SG_DRAW   = 13,
+        SG_RECOIL = 47,
+        SG_UNDRAW = 80,
+        SG_UNAIM  = 114,
+        SG_END    = 127
+    };
+
+    int32 shotgunFrame() const
+    {
+        const ExtraInfoLara::Arm &arm = extraL->armR;
+        return level.anims[arm.animIndex].frameBegin + arm.frameIndex;
+    }
+
+    void setShotgunFrame(int32 ani)
+    {
+        int32 anim = (ani < SG_DRAW) ? 0 : (ani < SG_RECOIL) ? 1 : (ani < SG_UNDRAW) ? 2 : (ani < SG_UNAIM) ? 3 : 4;
+        anim += level.models[weaponParams[WEAPON_SHOTGUN].animType].animIndex;
+        extraL->armR.animIndex = extraL->armL.animIndex = anim;
+        extraL->armR.frameIndex = extraL->armL.frameIndex = ani - level.anims[anim].frameBegin;
+    }
+
+    // retail's DrawShotgun (0601e6f4): the meshes and SFX 6 at frame 23,
+    // ready at 47 (the arms at rest, frame 0)
     void weaponDrawShotgun()
     {
-        const WeaponParams &params = weaponParams[extraL->weapon];
+        int32 ani = shotgunFrame() + 1;
 
-        ExtraInfoLara::Arm &arm = extraL->armR;
-
-        const Anim* animPtr = level.anims + arm.animIndex;
-        int32 animLength = animPtr->frameEnd - animPtr->frameBegin;
-        int32 frame = arm.frameIndex + 1;
-        int32 anim = arm.animIndex - level.models[params.animType].animIndex;
-
-        ASSERT(anim == ANIM_SHOTGUN_DRAW);
-
-        if (frame == 10) {
+        if (ani < SG_DRAW || ani > SG_RECOIL)
+        {
+            ani = SG_DRAW;
+        }
+        else if (ani == SG_DRAW + 10)
+        {
             meshSwapShotgun(true);
             soundPlay(SND_DRAW, &pos);
         }
-
-        if (frame == animLength) {
+        else if (ani == SG_RECOIL)
+        {
             setWeaponState(WEAPON_STATE_READY);
+            extraL->armR.angle = extraL->armL.angle = _vec3s(0, 0, 0);
+            ani = SG_AIM;
         }
 
-        extraL->armR.angle = extraL->armL.angle = _vec3s(0, 0, 0);
-        extraL->armR.animIndex = extraL->armL.animIndex = anim + level.models[params.animType].animIndex;
-        extraL->armR.frameIndex = extraL->armL.frameIndex = frame;
+        setShotgunFrame(ani);
     }
 
+    // retail's UndrawShotgun (0601e76c): from rest straight to the undraw,
+    // the raise and the recoil lowered first; the meshes and SFX 6 at frame
+    // 101 (the Saturn's; the PC's is 100), free at 114
     void weaponHolsterShotgun()
     {
-        const WeaponParams &params = weaponParams[extraL->weapon];
-
-        // the torso comes back to the front (retail's UndrawShotgun, 0601e76c)
+        // the torso comes back to the front
         extraL->head.angle.x = extraL->head.angle.y = 0;
         extraL->torso.angle.x -= extraL->torso.angle.x / 2;
         extraL->torso.angle.y -= extraL->torso.angle.y / 2;
 
-        ExtraInfoLara::Arm &arm = extraL->armR;
+        int32 ani = shotgunFrame();
 
-        int32 frame = arm.frameIndex;
-        int32 anim = arm.animIndex - level.models[params.animType].animIndex;
-
-        if (anim == ANIM_SHOTGUN_AIM) {
-            if (frame == 0) {
-                anim = ANIM_SHOTGUN_DRAW;
-                const Anim* animPtr = level.anims + level.models[params.animType].animIndex + anim;
-                frame = animPtr->frameEnd - animPtr->frameBegin;
+        if (ani == SG_AIM)
+        {
+            ani = SG_UNDRAW;
+        }
+        else if (ani > SG_AIM && ani < SG_DRAW)
+        {
+            ani = (ani == SG_DRAW - 1) ? SG_UNAIM : ani + 1;
+        }
+        else if (ani == SG_RECOIL)
+        {
+            ani = SG_UNAIM;
+        }
+        else if (ani > SG_RECOIL && ani < SG_UNDRAW)
+        {
+            if (ani == SG_RECOIL + 12) {
+                ani = SG_AIM;
+            } else if (ani == SG_UNDRAW - 1) {
+                ani = SG_UNAIM;
             } else {
-                frame--;
+                ani++;
             }
-        } else if (anim == ANIM_SHOTGUN_FIRE) {
-            frame++;
-            if (frame > 12) {
-                anim = ANIM_SHOTGUN_DRAW;
-                const Anim* animPtr = level.anims + level.models[params.animType].animIndex + anim;
-                frame = animPtr->frameEnd - animPtr->frameBegin;
+        }
+        else if (ani >= SG_UNAIM && ani < SG_END)
+        {
+            ani++;
+            if (ani == SG_END) {
+                ani = SG_UNDRAW;
             }
-        } else if (anim == ANIM_SHOTGUN_DRAW) {
-            if (frame == 0) {
+        }
+        else if (ani >= SG_UNDRAW && ani < SG_UNAIM)
+        {
+            ani++;
+            if (ani == SG_UNDRAW + 21)
+            {
+                meshSwapShotgun(false);
+                soundPlay(SND_DRAW, &pos);
+            }
+            else if (ani == SG_UNAIM)
+            {
                 setWeaponState(WEAPON_STATE_FREE);
                 return;
-            } else {
-                if (frame == 10) {
-                    meshSwapShotgun(false);
-                    soundPlay(SND_HOLSTER, &pos);
-                }
-                frame--;
             }
         }
 
-        extraL->armR.angle = extraL->armL.angle = _vec3s(0, 0, 0);
-        extraL->armR.animIndex = extraL->armL.animIndex = anim + level.models[params.animType].animIndex;
-        extraL->armR.frameIndex = extraL->armL.frameIndex = frame;
+        setShotgunFrame(ani);
     }
 
     void weaponDraw()
@@ -3503,7 +3538,6 @@ struct Lara : ItemObj
     void weaponUpdateShotgun()
     {
         ExtraInfoLara::Arm &R = extraL->armR;
-        ExtraInfoLara::Arm &L = extraL->armL;
 
         weaponAim(R);
 
@@ -3514,75 +3548,93 @@ struct Lara : ItemObj
             extraL->head.angle.x = extraL->head.angle.y = 0;
         }
 
-        const WeaponParams &params = weaponParams[extraL->weapon];
+        // retail's AnimateShotgun (0601ea54). Locked on: raised, fired on
+        // Action, the recoil and pump run whole (47 to 79, SFX 9 at 57) and
+        // back to the shot. Not locked: raised while Action's held, the
+        // recoil cut at 59 back to rest, lowered with the unaim.
+        int32 ani = shotgunFrame();
+        bool action = (input & IN_ACTION) != 0;
 
-        ExtraInfoLara::Arm* arm = &extraL->armR;
-
-        const Anim* animPtr = level.anims + arm->animIndex;
-        int32 animLength = animPtr->frameEnd - animPtr->frameBegin;
-        int32 frame = arm->frameIndex;
-        int32 anim = arm->animIndex - level.models[params.animType].animIndex;
-
-        bool aim = ((input & IN_ACTION) && !arm->target) || arm->aim;
-
-        switch (anim)
+        if (R.aim)
         {
-            case ANIM_SHOTGUN_FIRE:
+            if (ani >= SG_AIM && ani < SG_DRAW)
             {
-                frame++;
-                if (frame == 10) {
+                ani++;
+                if (ani == SG_DRAW) {
+                    ani = SG_RECOIL;
+                }
+            }
+            else if (ani == SG_RECOIL)
+            {
+                if (action)
+                {
+                    weaponFire(&R);
+                    ani++;
+                }
+            }
+            else if (ani > SG_RECOIL && ani < SG_UNDRAW)
+            {
+                ani++;
+                if (ani == SG_UNDRAW) {
+                    ani = SG_RECOIL;
+                } else if (ani == SG_RECOIL + 10) {
                     soundPlay(SND_SHOTGUN_RELOAD, &pos);
-                } else if (frame == params.reloadTimer) {
-                    anim = ANIM_SHOTGUN_AIM;
-                    animPtr = level.anims + level.models[params.animType].animIndex + anim;
-                    frame = animPtr->frameEnd - animPtr->frameBegin;
-                } else if ((animLength - frame < 10) && !aim) {
-                    anim = ANIM_SHOTGUN_AIM;
-                    frame = animLength - frame; // how many frames left for fire animation
-                    animPtr = level.anims + level.models[params.animType].animIndex + anim;
-                    frame = animPtr->frameEnd - animPtr->frameBegin - frame; // offset aim frames from the end
                 }
-                break;
             }
-            case ANIM_SHOTGUN_DRAW:
+            else if (ani >= SG_UNAIM && ani < SG_END)
             {
-                if (aim)
-                {
-                    anim = ANIM_SHOTGUN_AIM;
-                    frame = 1;
+                ani++;
+                if (ani == SG_END) {
+                    ani = SG_AIM;
                 }
-                break;
             }
-            case ANIM_SHOTGUN_AIM:
+        }
+        else
+        {
+            if (ani == SG_AIM && action)
             {
-                if (aim)
+                ani++;
+            }
+            else if (ani > SG_AIM && ani < SG_DRAW)
+            {
+                ani++;
+                if (ani == SG_DRAW) {
+                    ani = action ? SG_RECOIL : SG_UNAIM;
+                }
+            }
+            else if (ani == SG_RECOIL)
+            {
+                if (action)
                 {
-                    if (frame == animLength)
-                    {
-                        if ((input & IN_ACTION) && weaponFire(arm))
-                        {
-                            frame = 1;
-                            anim = ANIM_SHOTGUN_FIRE;
-                        }
-                    } else {
-                        frame++;
-                    }
+                    weaponFire(&R);
+                    ani++;
                 } else {
-                    if (frame == 0) {
-                        anim = ANIM_SHOTGUN_DRAW;
-                        animPtr = level.anims + level.models[params.animType].animIndex + anim;
-                        animLength = animPtr->frameEnd - animPtr->frameBegin;
-                        frame = animLength;
-                    } else {
-                        frame--;
+                    ani = SG_UNAIM;
+                }
+            }
+            else if (ani > SG_RECOIL && ani < SG_UNDRAW)
+            {
+                if (ani == SG_RECOIL + 12) {
+                    ani = SG_AIM;
+                } else if (ani == SG_UNDRAW - 1) {
+                    ani = SG_UNAIM;
+                } else {
+                    ani++;
+                    if (ani == SG_RECOIL + 10) {
+                        soundPlay(SND_SHOTGUN_RELOAD, &pos);
                     }
                 }
-                break;
+            }
+            else if (ani >= SG_UNAIM && ani < SG_END)
+            {
+                ani++;
+                if (ani == SG_END) {
+                    ani = SG_AIM;
+                }
             }
         }
 
-        R.animIndex = L.animIndex = anim + level.models[params.animType].animIndex;
-        R.frameIndex = L.frameIndex = frame;
+        setShotgunFrame(ani);
     }
 
     void weaponUpdateState()

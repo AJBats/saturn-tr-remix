@@ -324,8 +324,9 @@ static void printLara(int32 tick)
     {
         const ItemObj* target = lara->extraL->armR.target;
         printf("     head %d %d torso %d %d\n", lara->extraL->head.angle.x, lara->extraL->head.angle.y, lara->extraL->torso.angle.x, lara->extraL->torso.angle.y);
-        printf("     weapon %d state %d goal %d target %d\n", lara->extraL->weapon, lara->extraL->weaponState,
-               lara->extraL->goalWeapon, target ? int32(target - items) : -1);
+        printf("     weapon %d state %d goal %d target %d arm %d:%d aim %d\n", lara->extraL->weapon, lara->extraL->weaponState,
+               lara->extraL->goalWeapon, target ? int32(target - items) : -1, lara->extraL->armR.animIndex,
+               level.anims[lara->extraL->armR.animIndex].frameBegin + lara->extraL->armR.frameIndex, lara->extraL->armR.aim);
     }
 }
 
