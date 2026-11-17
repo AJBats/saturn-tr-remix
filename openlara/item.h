@@ -786,10 +786,12 @@ int32 ItemObj::getBridgeFloor(int32 x, int32 z) const
     return pos.y + ((type == ITEM_BRIDGE_TILT_1) ? (h >> 2) : (h >> 1));
 }
 
+// A closed trapdoor covers its own sector and the one ahead of it (retail's
+// OnTrapDoor, 0602fadc).
 int32 ItemObj::getTrapDoorFloor(int32 x, int32 z) const
 {
-    int32 dx = (pos.x >> 10) - (x >> 10);
-    int32 dz = (pos.z >> 10) - (z >> 10);
+    int32 dx = (x >> 10) - (pos.x >> 10);
+    int32 dz = (z >> 10) - (pos.z >> 10);
 
     if (((dx ==  0) && (dz ==  0)) ||
         ((dx ==  0) && (dz ==  1) && (angle.y ==  ANGLE_0))   ||
