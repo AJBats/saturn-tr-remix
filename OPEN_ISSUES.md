@@ -119,7 +119,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 52 | 102. Blocking isn't implemented | medium (closed) |
 | 53 | 201. 10 ticks run at once after every load | small (closed) |
 | 54 | 163. No level statistics; the level timer never counts | medium (closed) |
-| 55 | 156. The bonus game after finishing is missing | medium |
+| 55 | 156. The bonus game after finishing is missing | medium (closed) |
 
 ### Tier 3: looks or sounds different all through
 
@@ -1066,18 +1066,6 @@ INV-9*
   - Internal memory only, with no boot checks and no messages.
   - Two files: TOMBR_SAVE (its comment is the level's file name) and TOMBR_CFG.
   - `osSaveSettings` rewrites backup RAM on every option toggle.
-
-### 156. The bonus game after finishing is missing
-*Severity: gameplay · Confidence: confirmed (decoded) · Fix: medium · Audit:
-INV-19*
-
-- **Retail:**
-  - The level stats routine (`06016558`) sets the bonus flag (`DAT_06092491`)
-    after the Great Pyramid's stats.
-  - ModifyStartInfo (`0602c0ec`) then gives all the guns with 1234 ammo.
-  - Ammo isn't used up, enemy hit points double (decomp.c:19227), ammo counts
-    are hidden, and "BONUS!" is printed.
-- **Ours:** none.
 
 ### 158. Health and air bars: position, size and colours
 *Severity: visible · Confidence: confirmed (the gouraud decode is likely) · Fix:
@@ -2597,6 +2585,20 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 156. The bonus game after finishing is missing
+*Closed 2026-11-17: as retail, e77434b; checked in the host through the Pyramid's end into a bonus Vilcabamba.*
+
+*Severity: gameplay · Confidence: confirmed (decoded) · Fix: medium · Audit:
+INV-19*
+
+- **Retail:**
+  - The level stats routine (`06016558`) sets the bonus flag (`DAT_06092491`)
+    after the Great Pyramid's stats.
+  - ModifyStartInfo (`0602c0ec`) then gives all the guns with 1234 ammo.
+  - Ammo isn't used up, enemy hit points double (decomp.c:19227), ammo counts
+    are hidden, and "BONUS!" is printed.
+- **Ours:** none.
 
 ### 163. No level statistics screen, and the level timer never counts
 *Closed 2026-11-17: the screen and the timer as retail, 7cf974a; checked in Mednafen at the Vilcabamba end.*
