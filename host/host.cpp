@@ -1,0 +1,304 @@
+// The game's logic alone, headless: a level loaded from its Saturn pack, run
+// tick by tick with the pad given, no picture and no sound. Built as the
+// Saturn build is (host/build.sh: __SATURN__ structures, big-endian 32-bit),
+// so the packs load unchanged; what the logic asks of the Saturn's hardware
+// is stubbed here.
+//
+//   logic DATA_DIR LEVEL TICKS [KEYS@FIRST-LAST ...] [--items] [--items-end]
+//
+// KEYS: UP, DOWN, LEFT, RIGHT, A, B, C, X, Y, Z, L, R, START joined by '+',
+// held from tick FIRST to LAST. Lara's state is printed every 30 ticks (EVERY
+// in the environment); --items prints every item slot before the first tick,
+// --items-end after the last.
+
+#include "game.h"
+
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <sys/mman.h>
+
+int32 fps;
+CpuState gHostCpuState;
+extern "C" { int32 gFocalScale = 1 << 14; }
+bool gListPending;
+
+// what newlib gives the Saturn build (host_platform.h)
+char* itoa(int value, char* str, int base)
+{
+    sprintf(str, base == 16 ? "%x" : "%d", value);
+    return str;
+}
+
+// Low work RAM where the Saturn has it: the level's pack loads at its bottom
+// (saturn/os.cpp LEVEL_ADDR), the creatures' path searches sit at its top
+// (enemy.h enemiesExtra), so the game's addresses are the Saturn's.
+#define LOW_RAM     0x00200000
+#define LEVEL_ADDR  ((uint8*)LOW_RAM)
+#define LEVEL_MAX   (LOW_RAM_TOP - uint32(LOW_RAM) - ENEMIES_EXTRA_BYTES)
+
+static const char* gDataDir = ".";
+
+static void lowRamMap()
+{
+    void* p = mmap((void*)LOW_RAM, 0x100000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+    if (p != (void*)LOW_RAM) {
+        fprintf(stderr, "can't map low work RAM at %08x\n", LOW_RAM);
+        exit(1);
+    }
+}
+
+const void* osLoadLevel(LevelID id)
+{
+    char path[512];
+    snprintf(path, sizeof(path), "%s/%s.PKD", gDataDir, (const char*)gLevelInfo[id].data);
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "can't open %s\n", path);
+        exit(1);
+    }
+    size_t n = fread(LEVEL_ADDR, 1, LEVEL_MAX, f);
+    fclose(f);
+    if (n == LEVEL_MAX) {
+        fprintf(stderr, "%s is bigger than low work RAM leaves\n", path);
+        exit(1);
+    }
+    return LEVEL_ADDR;
+}
+
+const void* osLoadScreen(LevelID id) { return NULL; }
+int32 osGetSystemTimeMS() { return 0; }     // as the Saturn's (saturn/os.cpp): every level's seeds 0
+void osGameComplete() {}
+void osDrawDebug() {}
+void osJoyVibrate(int32 index, int32 L, int32 R) {}
+void osSetPalette(const uint16* palette) {}
+void osPlaceRooms() {}
+void osRoomFacesFlipped() {}
+
+// settings and the saved game: none in backup RAM, as a fresh Saturn
+bool osSaveSettings() { return true; }
+bool osLoadSettings() { return false; }
+bool osCheckSave() { return false; }
+bool osSaveGame() { return true; }
+bool osLoadGame() { return false; }
+
+// sound: none
+void sndInitSamples() {}
+void sndFreeSamples() {}
+void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode) { return NULL; }
+void sndPlayTrack(int32 track) {}
+bool sndTrackIsPlaying() { return true; }
+void sndStopTrack() {}
+void sndStopSample(int32 index) {}
+void sndStop() {}
+
+// the renderer: none
+void renderInit() {}
+void renderFree() {}
+void renderLevelInit() {}
+void renderLevelFree() {}
+void renderUploadReady() {}
+void renderRoomsFlipped() {}
+void renderTexturesShifted() {}
+static Room* gNoRooms[1];
+Room** renderWalk(Room* cameraRoom) { return gNoRooms; }
+void renderModel(const ItemObj* item) {}
+void renderModelUnder(const ItemObj* item) {}
+void renderShadowCall(const ItemObj* item, int32 floor) {}
+void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index) {}
+void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index) {}
+void renderGlyph(int32 vx, int32 vy, int32 index) {}
+void renderFill(int32 x, int32 y, int32 width, int32 height, int32 shade, int32 z) {}
+void renderBorder(int32 x, int32 y, int32 width, int32 height, int32 color1, int32 color2, int32 z) {}
+void renderBar(int32 x, int32 y, int32 width, int32 value, BarType type) {}
+bool renderBackground(const void* background) { return false; }
+void* copyBackground() { return NULL; }
+void closeBackground() {}
+void setViewport(const RectMinMax &vp) {}
+void setPaletteIndex(int32 index) {}
+void setCameraWater(bool water) {}
+void setSceneClear(bool clear) {}
+void clear() {}
+void flush_c() {}
+
+// The pad, as tick ranges of held keys.
+struct Hold
+{
+    uint32 keys;
+    int32 first, last;
+};
+static Hold gHolds[64];
+static int32 gHoldCount;
+
+static uint32 parseKeys(const char* s)
+{
+    static const struct { const char* name; uint32 key; } names[] = {
+        { "UP", IK_UP }, { "DOWN", IK_DOWN }, { "LEFT", IK_LEFT }, { "RIGHT", IK_RIGHT },
+        { "A", IK_A }, { "B", IK_B }, { "C", IK_C }, { "X", IK_X }, { "Y", IK_Y }, { "Z", IK_Z },
+        { "L", IK_L }, { "R", IK_R }, { "START", IK_SELECT }    // inventory, as saturn/main.cpp maps it
+    };
+    uint32 k = 0;
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%s", s);
+    for (char* t = strtok(buf, "+"); t; t = strtok(NULL, "+"))
+    {
+        bool found = false;
+        for (uint32 i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+        {
+            if (!strcmp(t, names[i].name)) {
+                k |= names[i].key;
+                found = true;
+            }
+        }
+        if (!found) {
+            fprintf(stderr, "no key %s\n", t);
+            exit(1);
+        }
+    }
+    return k;
+}
+
+static uint32 keysAt(int32 tick)
+{
+    uint32 k = 0;
+    for (int32 i = 0; i < gHoldCount; i++)
+    {
+        if (tick >= gHolds[i].first && tick <= gHolds[i].last) {
+            k |= gHolds[i].keys;
+        }
+    }
+    return k;
+}
+
+static void printLara(int32 tick)
+{
+    const Lara* lara = players[0];
+    if (!lara) {
+        printf("tick %4d: no Lara\n", tick);
+        return;
+    }
+    printf("tick %4d: room %3d pos %6d %6d %6d angle %6d anim %3d frame %4d state %2d goal %2d health %4d water %d\n",
+           tick, int32(lara->room - rooms), lara->pos.x, lara->pos.y, lara->pos.z, uint16(lara->angle.y),
+           lara->animIndex, lara->frameIndex, lara->state, lara->goalState, lara->health, lara->waterState);
+}
+
+// Every item slot's bytes, the pointers in them as indices (they differ from
+// the Saturn's addresses): host/satitems.py prints the Saturn's the same way.
+static int32 itemIndex(const ItemObj* p)
+{
+    return p ? int32(p - items) : -1;
+}
+
+static void printItems()
+{
+    printf("layout size %d room %d extra %d next %d active %d sizeof(Room) %d items %d\n",
+           int32(sizeof(ItemObj)), int32(offsetof(ItemObj, room)), int32(offsetof(ItemObj, extra)),
+           int32(offsetof(ItemObj, nextItem)), int32(offsetof(ItemObj, nextActive)), int32(sizeof(Room)),
+           level.itemsCount);
+    for (int32 i = 0; i < MAX_ITEMS; i++)
+    {
+        const ItemObj* item = items + i;
+        uint8 raw[sizeof(ItemObj)];
+        memcpy(raw, item, sizeof(raw));
+        memset(raw, 0, 4);      // the vtable
+        memset(raw + offsetof(ItemObj, room), 0, 4);
+        memset(raw + offsetof(ItemObj, extra), 0, 4);
+        memset(raw + offsetof(ItemObj, nextItem), 0, 4);
+        memset(raw + offsetof(ItemObj, nextActive), 0, 4);
+        printf("item %3d: room %3d extra %d next %3d active %3d raw ", i, item->room ? int32(item->room - rooms) : -1,
+               item->extra ? 1 : 0, itemIndex(item->nextItem), itemIndex(item->nextActive));
+        for (uint32 j = 0; j < sizeof(raw); j++) {
+            printf("%02x", raw[j]);
+        }
+        printf("\n");
+    }
+}
+
+int main(int argc, char** argv)
+{
+    if (argc < 4) {
+        fprintf(stderr, "usage: logic DATA_DIR LEVEL TICKS [KEYS@FIRST-LAST ...] [--items]\n");
+        return 1;
+    }
+    gDataDir = argv[1];
+    int32 ticks = atoi(argv[3]);
+    bool itemsDump = false, itemsEnd = false;
+    for (int32 i = 4; i < argc; i++)
+    {
+        if (!strcmp(argv[i], "--items")) {
+            itemsDump = true;
+            continue;
+        }
+        if (!strcmp(argv[i], "--items-end")) {
+            itemsEnd = true;
+            continue;
+        }
+        char* at = strchr(argv[i], '@');
+        if (!at || gHoldCount == X_COUNT(gHolds)) {
+            fprintf(stderr, "bad hold %s\n", argv[i]);
+            return 1;
+        }
+        *at = 0;
+        Hold &h = gHolds[gHoldCount++];
+        h.keys = parseKeys(argv[i]);
+        h.first = h.last = atoi(at + 1);
+        if (const char* dash = strchr(at + 1, '-')) {
+            h.last = atoi(dash + 1);
+        }
+    }
+
+    gLevelID = LVL_MAX;
+    for (int32 i = 0; i < LVL_MAX; i++)
+    {
+        const char* name = (const char*)gLevelInfo[i].data;
+        if (name && !strcmp(name, argv[2])) {
+            gLevelID = LevelID(i);
+        }
+    }
+    if (gLevelID == LVL_MAX) {
+        fprintf(stderr, "no level %s\n", argv[2]);
+        return 1;
+    }
+
+    lowRamMap();
+
+    // the master's CPU state, as saturn/slave.cpp cpuInit
+    gHostCpuState.slave = false;
+    gHostCpuState.matrixPtr = gHostCpuState.matrixStack;
+
+    gameInit();
+    if (itemsDump) {
+        printItems();
+    }
+
+    // As saturn/main.cpp runs it, a tick a frame: the first frame's update
+    // whole; after it, while in play, the items' update a frame ahead (the
+    // slave's), then the rest at the frame's top.
+    clock_t t0 = clock();
+    bool handed = false;
+    for (int32 tick = 0; tick < ticks; tick++)
+    {
+        keys = keysAt(tick);
+        bool done = false;
+        if (handed)
+        {
+            gameUpdateItems(1);
+            done = true;
+        }
+        levelCommit();
+        gameUpdate(1, !done);
+        levelCommit();
+        handed = gameInPlay();
+
+        if (tick % (getenv("EVERY") ? atoi(getenv("EVERY")) : 30) == 0 || tick == ticks - 1) {
+            printLara(tick);
+        }
+    }
+    double s = double(clock() - t0) / CLOCKS_PER_SEC;
+    if (itemsEnd) {
+        printItems();
+    }
+    fprintf(stderr, "%d ticks in %.3f s: %.0f ticks a second\n", ticks, s, s > 0 ? ticks / s : 0.0);
+    return 0;
+}
