@@ -166,15 +166,9 @@ struct Enemy : ItemObj
             tinfo.zoneIndexTarget |= BOX_BLOCKED;
         }
 
-
         if (health <= 0)
             return;
 
-        if (tinfo.target->health <= 0)
-        {
-            hitMask = 0;
-            return;
-        }
 
         int32 dx = tinfo.target->pos.x - pos.x;
         int32 dz = tinfo.target->pos.z - pos.z;
@@ -197,7 +191,7 @@ struct Enemy : ItemObj
         tinfo.front = abs(tinfo.angle) < ANGLE_90;
         tinfo.behind = abs(int16(rot - tinfo.target->angle.y + ANGLE_180)) < ANGLE_90;
         tinfo.canAttack = tinfo.front && (abs(tinfo.target->pos.y - pos.y) < 256);
-        tinfo.rotHead = (tinfo.front && mood != MOOD_SLEEP) ? tinfo.angle : 0;
+        tinfo.rotHead = tinfo.front ? tinfo.angle : 0;
     }
 
     // my box was reached only through blocked boxes in the latest search
@@ -225,7 +219,6 @@ struct Enemy : ItemObj
 
         uint32 nextMood = tinfo.target->health <= 0 ? MOOD_SLEEP : (isViolent() ? getMoodWild() : getMoodNormal());
 
-        flags &= ~ITEM_FLAG_INJURED;
 
         if (mood != nextMood)
         {
@@ -360,11 +353,13 @@ struct Enemy : ItemObj
         int32 bMinZ = (box->minZ << 10) + 512;
         int32 bMaxZ = (box->maxZ << 10) - 512;
     
+        // retail's TargetBox (in CreatureMood, 0600a0fc): z picked before x,
+        // a flyer's height 384 above the floor, a walker's on it
         extraE->nav.nextBox = boxIndex;
-        extraE->nav.pos.x = bMinX + RAND_LOGIC(bMaxX - bMinX);
         extraE->nav.pos.z = bMinZ + RAND_LOGIC(bMaxZ - bMinZ);
+        extraE->nav.pos.x = bMinX + RAND_LOGIC(bMaxX - bMinX);
         extraE->nav.pos.y = box->floor;
-        if (extraE->nav.zoneType != ZONE_FLY)
+        if (extraE->nav.zoneType == ZONE_FLY)
             extraE->nav.pos.y -= 384;
     }
 
@@ -818,21 +813,18 @@ struct Enemy : ItemObj
         flags |= ITEM_FLAG_INJURED;
     }
 
+    // retail's CreatureCollision (0600ebbc): pushed to the edge of the box
+    // (no growth by her radius), staggered unless it's dying, whether its AI
+    // runs or not
     virtual void collide(Lara* lara, CollisionInfo* cinfo)
     {
-        if (!extraE) // disabled
-            return;
-
         if (!updateHitMask(lara, cinfo))
             return;
 
         if (!cinfo->enemyPush)
             return;
-        
-        int32 r = cinfo->radius;
-        cinfo->radius = 0;
-        collidePush(lara, cinfo, health > 0);   // no stagger once dying (retail's CreatureCollision)
-        cinfo->radius = r;
+
+        collidePush(lara, cinfo, health > 0, false);
     }
 
     virtual void update()
@@ -867,6 +859,15 @@ struct Enemy : ItemObj
 
         goalState = updateState();
 
+    #ifdef TRS_HOST
+        hostTargetInfo(this);
+    #endif
+
+        // what touched or hit it is used up (retail's AnimateItem clears
+        // touch_bits and hit_status as it starts)
+        hitMask = 0;
+        flags &= ~ITEM_FLAG_INJURED;
+
         animProcess();
 
         updateLocation();
@@ -877,7 +878,9 @@ struct Enemy : ItemObj
 
         if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INACTIVE)
         {
-            flags &= ~ITEM_FLAG_COLLISION;
+            if (type != ITEM_REX) {     // the dead T-rex stays solid (retail's DinoControl)
+                flags &= ~ITEM_FLAG_COLLISION;
+            }
             health = NOT_ENEMY;
             disable();
         #ifndef HIDE_CORPSES
@@ -1245,6 +1248,11 @@ struct Bear : Enemy
         Enemy::hit(damage, point, SND_HIT_BEAR);
     }
 
+    // retail's BearControl (0600947c). Our states: WALK its stroll on all
+    // fours, HIND its upright walk, HOWL its rearing, GROWL its roar, BITE
+    // and ATTACK its two attacks. turnSpeed is its flag: hurt, alive (it
+    // drops to all fours and strolls); falling dead from rearing, crushing
+    // Lara under it. A next state of 0 (the stroll) means none.
     virtual int32 updateState()
     {
         if (health <= 0)
@@ -1256,50 +1264,55 @@ struct Bear : Enemy
                 case STATE_WALK:
                 case STATE_RUN:
                     return STATE_STOP;
-                case STATE_STOP:
-                    flags &= ~ITEM_FLAG_REVERSE; // TODO special flag
-                    return STATE_DEATH;
                 case STATE_HOWL:
-                    flags |= ITEM_FLAG_REVERSE;
+                    turnSpeed = 1;
+                    return STATE_DEATH;
+                case STATE_STOP:
+                    turnSpeed = 0;
                     return STATE_DEATH;
                 case STATE_DEATH:
-                    if ((flags & ITEM_FLAG_REVERSE) && (hitMask & HIT_MASK) && tinfo.target) // fall on Lara 
+                    if (turnSpeed && (hitMask & HIT_MASK))
                     {
                         tinfo.target->hit(DAMAGE_FALL, _vec3i(0, 0, 0), 0);
-                        flags &= ~ITEM_FLAG_REVERSE;
+                        turnSpeed = 0;
                     }
-                    return STATE_DEATH;
-                default:
-                    return goalState;
+                    break;
             }
+            return goalState;
         }
 
-        // hold the injured flag until death
+        bool laraDead = tinfo.target->health <= 0;
+
         if (flags & ITEM_FLAG_INJURED) {
-            flags |= ITEM_FLAG_REVERSE;
-        } else {
-            if (flags & ITEM_FLAG_REVERSE) {
-                flags |= ITEM_FLAG_INJURED;
-            }
+            turnSpeed = 1;
         }
 
         switch (state)
         {
+            case STATE_STOP:
+            {
+                if (laraDead)
+                    return (tinfo.canAttack && tinfo.dist < 768) ? STATE_EAT : STATE_WALK;
+                if (nextState)
+                    return nextState;
+                return (mood == MOOD_SLEEP) ? STATE_WALK : STATE_RUN;
+            }
+
             case STATE_WALK:
             {
                 extraE->maxTurn = ENEMY_TURN_2;
 
-                if (tinfo.target->health <= 0 && tinfo.front && (hitMask & HIT_MASK))
-                    return nextState = STATE_STOP; // eat lara! >:E
+                if (laraDead && (hitMask & HIT_MASK) && tinfo.front)
+                    return STATE_STOP;      // to eat her
 
                 if (mood != MOOD_SLEEP)
                 {
                     if (mood == MOOD_ESCAPE) {
-                        nextState = STATE_NONE;
+                        nextState = STATE_WALK;
                     }
                     return STATE_STOP;
                 }
-                
+
                 if (rand_logic() < 0x50)
                 {
                     nextState = STATE_GROWL;
@@ -1308,73 +1321,35 @@ struct Bear : Enemy
                 break;
             }
 
-            case STATE_STOP:
-            {
-                if (tinfo.target->health <= 0)
-                    return (tinfo.canAttack && tinfo.dist < 768) ? STATE_EAT : STATE_WALK;
-                if (nextState)
-                    return nextState;
-                return (mood == MOOD_SLEEP) ? STATE_WALK : STATE_RUN;
-            }
-
-            case STATE_HIND:
-            {
-                if (flags & ITEM_FLAG_INJURED) {
-                    nextState = STATE_NONE;
-                    return STATE_HOWL;
-                }
-                if (tinfo.front && (hitMask & HIT_MASK))
-                    return STATE_HOWL;
-                if (mood == MOOD_ESCAPE) {
-                    nextState = STATE_NONE;
-                    return STATE_HOWL;
-                }
-                if (mood == MOOD_SLEEP || rand_logic() < 0x50) {
-                    nextState = STATE_GROWL;
-                    return STATE_HOWL;
-                }
-                if (tinfo.dist > 2048 || rand_logic() < 0x600) {
-                    nextState = STATE_STOP;
-                    return STATE_HOWL;
-                }
-                return STATE_HOWL;
-            }
-
             case STATE_RUN:
             {
                 extraE->maxTurn = ENEMY_TURN_5;
 
                 if (hitMask & HIT_MASK) {
                     tinfo.target->hit(3, pos, 0);
-                    if (health >= 0) {
-                        nextState = STATE_NONE;
-                    }
                 }
 
-                if (tinfo.target->health <= 0 || mood == MOOD_SLEEP)
+                if (mood == MOOD_SLEEP || laraDead)
                     return STATE_STOP;
 
-                if (!nextState && tinfo.front)
+                if (tinfo.front && !nextState)
                 {
-                    if (tinfo.dist < 2048)
+                    if (!turnSpeed && tinfo.dist < 2048 && rand_logic() < 0x300)
                     {
-                        if (!(flags & ITEM_FLAG_INJURED) && (rand_logic() < 0x300))
-                        {
-                            nextState = STATE_HOWL;
-                            return STATE_STOP;
-                        }
-                        if (tinfo.dist < 1024)
-                            return STATE_BITE;
+                        nextState = STATE_HOWL;
+                        return STATE_STOP;
                     }
+                    if (tinfo.dist < 1024)
+                        return STATE_BITE;
                 }
                 break;
             }
 
             case STATE_HOWL:
             {
-                if (flags & ITEM_FLAG_INJURED)
+                if (turnSpeed)
                 {
-                    nextState = STATE_NONE;
+                    nextState = STATE_WALK;
                     return STATE_STOP;
                 }
 
@@ -1390,9 +1365,41 @@ struct Bear : Enemy
                 return STATE_HIND;
             }
 
+            case STATE_HIND:
+            {
+                if (turnSpeed)
+                {
+                    nextState = STATE_WALK;
+                    return STATE_HOWL;
+                }
+
+                if (tinfo.front && (hitMask & HIT_MASK))
+                    return STATE_HOWL;
+
+                if (mood == MOOD_ESCAPE)
+                {
+                    nextState = STATE_WALK;
+                    return STATE_HOWL;
+                }
+
+                if (mood == MOOD_SLEEP || rand_logic() < 0x50)
+                {
+                    nextState = STATE_GROWL;
+                    return STATE_HOWL;
+                }
+
+                if (tinfo.dist > 2048 || rand_logic() < 0x600)
+                {
+                    nextState = STATE_STOP;
+                    return STATE_HOWL;
+                }
+                break;
+            }
+
             case STATE_BITE:
             {
-                if (!nextState && (hitMask & HIT_MASK)) {
+                if (!nextState && (hitMask & HIT_MASK))
+                {
                     bite(DAMAGE_BITE, _vec3i(0, 96, 335), 14);
                     nextState = STATE_STOP;
                 }
@@ -1401,7 +1408,8 @@ struct Bear : Enemy
 
             case STATE_ATTACK:
             {
-                if (!nextState && (hitMask & HIT_MASK) && tinfo.target) {
+                if (!nextState && (hitMask & HIT_MASK))
+                {
                     tinfo.target->hit(DAMAGE_ATTACK, _vec3i(0, 0, 0), 0);
                     nextState = STATE_HOWL;
                 }
@@ -2032,6 +2040,28 @@ struct Rat : Enemy
 };
 
 
+// A creature's kill: Lara at the creature and turned as it is, out of the
+// fall, in the special state on her extra model's animation, dead, no air,
+// hands busy and unarmed (retail's LaraDinoDeath 060125f4, and the torso's
+// attack 3 in AbortionControl 06024b34). Her special state sets the camera.
+void laraKilledBy(Lara* lara, ItemObj* by, int32 anim)
+{
+    if (lara->room != by->room)
+    {
+        lara->room->remove(lara);
+        by->room->add(lara);
+    }
+    lara->pos = by->pos;
+    lara->angle = _vec3s(0, by->angle.y, 0);
+    lara->flags &= ~ITEM_FLAG_GRAVITY;
+    lara->animSet(level.models[ITEM_LARA_SPEC].animIndex + anim, false);
+    lara->state = lara->goalState = Lara::STATE_SPECIAL;
+    lara->health = -1;
+    lara->oxygen = -1;
+    lara->extraL->weaponState = WEAPON_STATE_BUSY;
+    lara->extraL->weapon = WEAPON_NONE;
+}
+
 struct Rex : Enemy
 {
     enum {
@@ -2060,11 +2090,17 @@ struct Rex : Enemy
 
     virtual int32 updateState()
     {
+        // the head turns half the way to Lara, 5 degrees a tick, and the
+        // neck as far again (retail's CreatureHead(head >> 1), neck = head)
+        tinfo.rotHead >>= 1;
+        extraE->rotHead = angleLerp(extraE->rotHead, tinfo.rotHead, ANGLE(5));
+        extraE->rotNeck = extraE->rotHead;
+        tinfo.rotHead = extraE->rotHead;
+
         if (health <= 0) {
             return (state == STATE_STOP) ? STATE_DEATH : STATE_STOP;
         }
 
-        extraE->rotNeck = (extraE->rotHead >>= 1);
 
         if (hitMask)
         {
@@ -2120,22 +2156,9 @@ struct Rex : Enemy
                 nextState = STATE_WALK;
                 if (hitMask & HIT_MASK)
                 {
-                    angle.x = 0;
-                    angle.z = 0;
-
-                    tinfo.target->pos = pos;
-                    tinfo.target->angle = angle;
-                    tinfo.target->flags &= ~ITEM_FLAG_GRAVITY;
-                    tinfo.target->hit(DAMAGE_FATAL, _vec3i(0, 0, 0), 0);
-                    tinfo.target->meshSwap(ITEM_LARA_SPEC, 0xFFFFFFFF);
-                    tinfo.target->animSet(level.models[ITEM_LARA_SPEC].animIndex + 1, true);
-
-                    if (tinfo.target->room != room)
-                    {
-                        tinfo.target->room->remove(tinfo.target);
-                        room->add(tinfo.target);
-                    }
-
+                    Lara* lara = (Lara*)tinfo.target;
+                    laraKilledBy(lara, this, 1);
+                    lara->meshSwap(ITEM_LARA_SPEC, 0xFFFFFFFF);
                     return STATE_FATAL;
                 }
                 break;
@@ -3474,7 +3497,9 @@ struct Adam : Enemy
         }
 
         Lara* lara = (Lara*)tinfo.target;
-        int16 turn = tinfo.angle;
+
+        // it steers for its path's target, not for Lara (AbortionControl)
+        int16 turn = phd_atan(tinfo.waypoint.z - pos.z, tinfo.waypoint.x - pos.x) - angle.y;
 
         if (hitMask) {
             lara->hit(DAMAGE_TOUCH, pos, 0);
@@ -3521,7 +3546,8 @@ struct Adam : Enemy
 
             case STATE_FORWARD:
             {
-                angle.y += X_CLAMP(turn, -ANGLE(3), ANGLE(3));
+                // never turns: retail adds the turn to the goal state, not to
+                // the yaw (a TR1 bug, the Saturn's too), so it stops to turn
                 if (abs(turn) > ANGLE_45 || tinfo.dist < DIST_ATTACK)
                     return STATE_STOP;
                 break;
@@ -3561,11 +3587,20 @@ struct Adam : Enemy
 
             case STATE_ATTACK_3:
             {
+                // it takes her in its hand and crushes her: her extra model's
+                // first animation, the camera in to 2 sectors
                 if ((hitMask & HIT_MASK_RIGHT) || lara->health <= 0)
                 {
-                    lara->hit(LARA_MAX_HEALTH, pos, 0);
+                    laraKilledBy(lara, this, 0);
+                    lara->extraL->camera.targetDist = 2048;
                     return STATE_KILL;
                 }
+                break;
+            }
+
+            case STATE_KILL:
+            {
+                lara->extraL->camera.targetDist = 2048;
                 break;
             }
         }

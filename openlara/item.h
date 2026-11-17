@@ -1323,7 +1323,9 @@ bool ItemObj::collideBounds(Lara* lara, CollisionInfo* cinfo) const
            (pz <= a.maxZ + r);
 }
 
-void ItemObj::collidePush(Lara* lara, CollisionInfo* cinfo, bool enemyHit) const
+// retail's ItemPushLara (0600edf8): Lara out of the item's box (grown by
+// her radius for a big push), staggered if asked, then collided where she is
+void ItemObj::collidePush(Lara* lara, CollisionInfo* cinfo, bool enemyHit, bool bigPush) const
 {
     int32 dx = lara->pos.x - pos.x;
     int32 dz = lara->pos.z - pos.z;
@@ -1335,10 +1337,11 @@ void ItemObj::collidePush(Lara* lara, CollisionInfo* cinfo, bool enemyHit) const
     int32 pz = X_ROTY(dx, dz, s, c);
 
     const AABBs &box = getBoundingBox(false);
-    int32 minX = box.minX - cinfo->radius;
-    int32 maxX = box.maxX + cinfo->radius;
-    int32 minZ = box.minZ - cinfo->radius;
-    int32 maxZ = box.maxZ + cinfo->radius;
+    int32 r = bigPush ? cinfo->radius : 0;
+    int32 minX = box.minX - r;
+    int32 maxX = box.maxX + r;
+    int32 minZ = box.minZ - r;
+    int32 maxZ = box.maxZ + r;
 
     if ((px < minX) || (px > maxX) || (pz < minZ) || (pz > maxZ))
         return;
@@ -1381,8 +1384,8 @@ void ItemObj::collidePush(Lara* lara, CollisionInfo* cinfo, bool enemyHit) const
     cinfo->gapCeiling = 0;
 
     cinfo->setAngle(phd_atan(lara->pos.z - cinfo->pos.z, lara->pos.x - cinfo->pos.x));
-    
-    collideRoom(LARA_HEIGHT, 0);
+
+    lara->collideRoom(LARA_HEIGHT, 0);
 
     cinfo->setAngle(tmpAngle);
 

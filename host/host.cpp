@@ -24,6 +24,18 @@
 #include <unistd.h>
 #include <execinfo.h>
 
+// TINFO=ITEM: that creature's view of Lara each tick, as its state code sees it
+void hostTargetInfo(const ItemObj* enemy)
+{
+    static int32 watched = getenv("TINFO") ? atoi(getenv("TINFO")) : -1;
+    if (enemy - items != watched)
+        return;
+    printf("     tinfo %d: dist %d angle %d front %d behind %d bite %d zone %d/%d box %d/%d mood %d state %d goal %d next %d hit %08x\n",
+           watched, tinfo.dist, tinfo.angle, tinfo.front, tinfo.behind, tinfo.canAttack, tinfo.zoneIndex, tinfo.zoneIndexTarget,
+           tinfo.boxIndex, tinfo.boxIndexTarget, ((const Enemy*)enemy)->mood, enemy->state, enemy->goalState, enemy->nextState,
+           enemy->hitMask);
+}
+
 // WATCHDOG=SECONDS: a run still going then prints where it is (addresses for
 // addr2line -e build/host/logic) and stops
 static void watchdog(int)
@@ -432,6 +444,22 @@ int main(int argc, char** argv)
         }
         printf("\n");
     }
+    for (const char* m = getenv("ANIMS"); m && *m; m = strchr(m, ',') ? strchr(m, ',') + 1 : "")
+    {
+        const Anim &anim = level.anims[atoi(m)];       // ANIMS=INDEX,INDEX...: those animations and their state changes
+        printf("anim %3d: state %d frames %d-%d rate %d speed %d accel %d next %d:%d changes", atoi(m), anim.state,
+               anim.frameBegin, anim.frameEnd, anim.frameRate, anim.speed, anim.accel, anim.nextAnimIndex, anim.nextFrameIndex);
+        for (int32 i = 0; i < anim.statesCount; i++)
+        {
+            const AnimState &s = level.animStates[anim.statesStart + i];
+            for (int32 j = 0; j < s.rangesCount; j++)
+            {
+                const AnimRange &r = level.animRanges[s.rangesStart + j];
+                printf(" [%d: %d-%d -> %d:%d]", s.state, r.frameBegin, r.frameEnd, r.nextAnimIndex, r.nextFrameIndex);
+            }
+        }
+        printf("\n");
+    }
 
     // As saturn/main.cpp runs it, a tick a frame: the first frame's update
     // whole; after it, while in play, the items' update a frame ahead (the
@@ -463,9 +491,10 @@ int main(int argc, char** argv)
             for (const char* w = getenv("WATCH"); w && *w; w = strchr(w, ',') ? strchr(w, ',') + 1 : "")
             {
                 const ItemObj* item = items + atoi(w);    // WATCH=ITEM,ITEM...: those too
-                printf("     item %3d: room %3d pos %6d %6d %6d anim %3d frame %4d state %2d goal %2d flags %04x floor %6d\n",
+                printf("     item %3d: room %3d pos %6d %6d %6d anim %3d frame %4d state %2d goal %2d flags %04x floor %6d health %d%s\n",
                        atoi(w), item->room ? int32(item->room - rooms) : -1, item->pos.x, item->pos.y, item->pos.z,
-                       item->animIndex, item->frameIndex, item->state, item->goalState, item->flags, item->roomFloor);
+                       item->animIndex, item->frameIndex, item->state, item->goalState, item->flags, item->roomFloor,
+                       item->health, item->extra ? "" : " no AI");
             }
         }
     }

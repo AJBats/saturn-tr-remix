@@ -514,9 +514,16 @@ struct Door : Object
         animProcess();
     }
 
+    // retail's DoorCollision (0600ecc0): Lara pushed out of the panel,
+    // staggered while it moves
     virtual void collide(Lara* lara, CollisionInfo* cinfo)
     {
-        // TODO door collision
+        if (!updateHitMask(lara, cinfo))
+            return;
+
+        if (cinfo->enemyPush) {
+            collidePush(lara, cinfo, state != goalState);
+        }
     }
 
     // The door's sector and the one behind it shut or opened, in the room's
@@ -554,7 +561,16 @@ struct Door : Object
 
         Room* nextRoom;
 
-        blockBox(room->data.sectors[sector - room->sectors].boxIndex, close);
+        // the box blocked is the sector's own, or for a portal sector the one
+        // behind it (retail's InitialiseDoor, 06025960)
+        const Sector* old = room->data.sectors + (sector - room->sectors);
+        uint16 box = old->boxIndex;
+        Room* through = old->getNextRoom();
+        if (through) {
+            const Sector* behind = through->getSector(x, z);
+            box = through->data.sectors[behind - through->sectors].boxIndex;
+        }
+        blockBox(box, close);
 
         if (close) {
             nextRoom = sector->getNextRoom();

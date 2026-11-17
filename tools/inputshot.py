@@ -2,7 +2,8 @@
 a picture at frames, printing the level and Lara's position, gun, its state
 and her rounds with each (pictures in a directory of the run's own).
 python -I tools/inputshot.py DISC ELF NAME PRESSES SHOTS
-PRESSES: FRAME:BUTTON:VBLANKS,...  and kill@FRAME (Lara's health poked to 0)
+PRESSES: FRAME:BUTTON:VBLANKS,...  kill@FRAME (Lara's health poked to 0) and
+         hp@FRAME:VALUE (to that)
 SHOTS:   FRAME,FRAME,...
 Buttons are Mednafen's (A action, B jump, C draw, START the ring, UP...)."""
 import os
@@ -31,7 +32,11 @@ os.makedirs(OUT, exist_ok=True)
 events = []
 for p in filter(None, presses.split(',')):
     if p.startswith('kill@'):
-        events.append((int(p[5:]), 'kill', ''))
+        events.append((int(p[5:]), 'kill', '0'))
+        continue
+    if p.startswith('hp@'):
+        f, v = p[3:].split(':')
+        events.append((int(f), 'kill', v))
         continue
     f, b, n = p.split(':')
     events.append((int(f), 'press', b))
@@ -51,7 +56,8 @@ try:
         elif kind == 'kill':
             lara = struct.unpack('>I', m.read(S['_players'], 4))[0]
             if lara:
-                m.send('poke %08X 00 00' % (lara + 44), 'ok poke', 10)
+                v = int(b) & 0xFFFF
+                m.send('poke %08X %02X %02X' % (lara + 44, v >> 8, v & 0xFF), 'ok poke', 10)
         else:
             level = struct.unpack('>I', m.read(S['_gLevelID'], 4))[0]
             lara = struct.unpack('>I', m.read(S['_players'], 4))[0]

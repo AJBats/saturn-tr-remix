@@ -1860,7 +1860,7 @@ struct ItemObj
 
     uint32 collideSpheres(Lara* lara) const;
     bool collideBounds(Lara* lara, CollisionInfo* cinfo) const;
-    void collidePush(Lara* lara, CollisionInfo* cinfo, bool enemyHit) const;
+    void collidePush(Lara* lara, CollisionInfo* cinfo, bool enemyHit, bool bigPush = true) const;
     void collideRoom(int32 height, int32 yOffset) const;
 
     uint32 updateHitMask(Lara* lara, CollisionInfo* cinfo);
@@ -2808,6 +2808,7 @@ struct CpuState
 };
 
 #ifdef TRS_HOST
+void hostTargetInfo(const ItemObj* enemy);  // host/host.cpp: TINFO=ITEM prints its target info each tick
 extern CpuState gHostCpuState;      // host/host.cpp: the one CPU's
 inline CpuState* cpuState()
 {
