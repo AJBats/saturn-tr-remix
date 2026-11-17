@@ -117,7 +117,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 50 | 55. The shotgun's own animation scheme | medium |
 | 51 | 90, 92. Kold's long-range hit chance; the puma's hit points | small (closed) |
 | 52 | 102. Blocking isn't implemented | medium (closed) |
-| 53 | 201. 10 ticks run at once after every load | small |
+| 53 | 201. 10 ticks run at once after every load | small (closed) |
 | 54 | 163. No level statistics; the level timer never counts | medium |
 | 55 | 156. The bonus game after finishing is missing | medium |
 
@@ -1801,23 +1801,6 @@ Fix: small · Audit: MATH-5*
   Between 3 and 6 fps ours runs up to twice as many ticks per frame as retail.
 - **Fix:** cap at 5.
 
-### 201. After every level load, save load or cutscene start, 10 ticks run at once
-*Severity: visible, and gameplay at load points · Confidence: confirmed (the
-jump), likely (the audio lead) · Fix: small · Audit: MATH-9*
-
-- **Retail:** GameLoop (`0601636c`) starts with nframes = 1. The level-start
-  routine (`0603ab38`) zeroes the vblank counter (`DAT_06063888`) after loading.
-- **Ours:**
-  - `startLevel` and `gameLoad` run inside `gameUpdate`
-    (`openlara/game.h:323-333`). `lastTick` was set before the multi-second CD
-    load, so the next frame gets delta = 10 (`saturn/main.cpp:119`).
-  - So 0.33 s of game time passes in one displayed frame: enemies move, Lara
-    starts moving, and a cutscene skips 10 camera frames.
-  - `sndPlayTrack` starts the cutscene's audio at the end of the load, so the
-    picture probably leads the audio by about 8 ticks (0.27 s) for the whole
-    cutscene.
-- **Fix:** re-sync `lastTick = gVblankCount >> 1` after any load.
-
 ### 202. RNG seeds: every level start has the same seed, and saves restore it
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: MATH-10*
 
@@ -2745,6 +2728,25 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 201. After every level load, save load or cutscene start, 10 ticks run at once
+*Closed 2026-11-17: the clock restarts after each start, ff78ee4.*
+
+*Severity: visible, and gameplay at load points · Confidence: confirmed (the
+jump), likely (the audio lead) · Fix: small · Audit: MATH-9*
+
+- **Retail:** GameLoop (`0601636c`) starts with nframes = 1. The level-start
+  routine (`0603ab38`) zeroes the vblank counter (`DAT_06063888`) after loading.
+- **Ours:**
+  - `startLevel` and `gameLoad` run inside `gameUpdate`
+    (`openlara/game.h:323-333`). `lastTick` was set before the multi-second CD
+    load, so the next frame gets delta = 10 (`saturn/main.cpp:119`).
+  - So 0.33 s of game time passes in one displayed frame: enemies move, Lara
+    starts moving, and a cutscene skips 10 camera frames.
+  - `sndPlayTrack` starts the cutscene's audio at the end of the load, so the
+    picture probably leads the audio by about 8 ticks (0.27 s) for the whole
+    cutscene.
+- **Fix:** re-sync `lastTick = gVblankCount >> 1` after any load.
 
 ### 85. Natla's fight is missing flight, rockets, sounds and music
 *Closed 2026-11-17: ported from retail, c2af101.*
