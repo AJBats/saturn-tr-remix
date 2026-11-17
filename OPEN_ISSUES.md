@@ -96,8 +96,8 @@ order; the few of its bugs a player runs into are listed at the end.
 | 29 | 76. Wolf pounce inverted | small (closed) |
 | 30 | 77. "Lara is facing me" doesn't wrap the angle | small (closed) |
 | 31 | 54. Target dropped at death; retargets while Action held | small (closed) |
-| 32 | 120. Lara never catches fire | medium |
-| 33 | 119. Lava emitters throw nothing | medium |
+| 32 | 120. Lara never catches fire | medium (closed) |
+| 33 | 119. Lava emitters throw nothing | medium (closed) |
 | 34 | 117. Lightning: nothing drawn, wrong radius, no flinch | medium |
 | 35 | 37. Currents don't pull at the surface | small |
 | 36 | 38, 39. Lava edge doesn't stop a walk; lava floors kill off the lava | small |
@@ -1250,6 +1250,7 @@ LVL-8, AI-27*
 - **Effect:** hatched eggs keep their shell; Lara walks through eggs.
 
 ### 117. Lightning: nothing drawn, wrong strike radius, half the thunder, no flinch
+*Partly fixed 2026-11-17 (b634d11): radius, thunder twice, the flinch and the emitter's mesh are retail's. Left: the bolt (8 jagged steps, 2 branches) needs a line primitive in the renderer.*
 *Severity: visible / gameplay · Confidence: confirmed · Fix: medium · Audit:
 LVL-9, GFX-13*
 
@@ -1279,43 +1280,6 @@ GFX-15*
 - **Ours:** `Waterfall` has no update (`openlara/object.h:231-236`).
 - **Effect:** Lost Valley's 12 waterfall emitters, and the one in Natla's Mines,
   show no spray. The splash sprite effect already exists, so this is cheap.
-
-### 119. Lava emitters throw nothing
-*Severity: gameplay / visible / audible · Confidence: confirmed · Fix: medium ·
-Audit: LVL-11, GFX-14*
-
-- **Retail:** LavaEmitterControl (`060309b8`) and the lava blob (`06030aa0`);
-  TR1X `traps/lava.c`.
-  - Every active frame, an emitter throws a lava blob (object 176) with random
-    direction and speed, and plays SFX 149.
-  - Blobs fall under gravity 6, and do 10 damage on contact with Lara.
-  - The emitter is solid.
-- **Ours:** `LavaEmitter` has no update and an empty draw
-  (`openlara/object.h:239-244`); the lava blob isn't implemented.
-- **Effect:** no lava fountains, no damage from them, no sound. That is 6
-  emitters in Natla's Mines, 7 in Atlantis and 13 in the Great Pyramid.
-
-### 120. Lara never catches fire
-*Severity: gameplay / visible · Confidence: confirmed · Fix: medium · Audit:
-LVL-12, GFX-16*
-
-- **Retail:**
-  - FlameControl (`0603071c`; TR1X `traps/flame.c`). Within 600 units the fire
-    does 3 damage a frame. Within 300 it attaches a flame to one of Lara's
-    joints, with a counter of -1.
-  - That flame burns 5 a frame and loops SFX 150 until Lara is below a water
-    surface or dead. The emitter's own flame then pauses for 100 frames.
-  - LavaBurn (`060308b0`) puts 10 flames on random joints of her body.
-  - Flame effects (0xB2) are created around decomp.c:36110/36179/36224.
-- **Ours:**
-  - `Flame::update` (`openlara/object.h:1928-1945`) only deals proximity damage,
-    7 or 3 a frame, while she's near.
-  - The lava floor (`room.h:905-913`) and the lava wedge (`object.h:1734`) just
-    kill her, with no flames.
-- **Effect:** in Palace Midas (5 emitters), the Great Pyramid (7) and anywhere
-  with lava, Lara is never seen burning. In retail, fire is near-certain death
-  unless she reaches water; in ours, stepping away stops it.
-- **Fix:** an "attached to Lara" flame effect, plus LavaBurn.
 
 ### 121. Doors don't push Lara out of the way
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-13*
@@ -3197,6 +3161,47 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 119. Lava emitters throw nothing
+*Closed 2026-11-17: b634d11. Fountains throw blobs (10 damage), keeping 16 item slots free.*
+
+*Severity: gameplay / visible / audible · Confidence: confirmed · Fix: medium ·
+Audit: LVL-11, GFX-14*
+
+- **Retail:** LavaEmitterControl (`060309b8`) and the lava blob (`06030aa0`);
+  TR1X `traps/lava.c`.
+  - Every active frame, an emitter throws a lava blob (object 176) with random
+    direction and speed, and plays SFX 149.
+  - Blobs fall under gravity 6, and do 10 damage on contact with Lara.
+  - The emitter is solid.
+- **Ours:** `LavaEmitter` has no update and an empty draw
+  (`openlara/object.h:239-244`); the lava blob isn't implemented.
+- **Effect:** no lava fountains, no damage from them, no sound. That is 6
+  emitters in Natla's Mines, 7 in Atlantis and 13 in the Great Pyramid.
+
+### 120. Lara never catches fire
+*Closed 2026-11-17: b634d11. FlameControl's fire on Lara and LavaBurn's ten flames.*
+
+*Severity: gameplay / visible · Confidence: confirmed · Fix: medium · Audit:
+LVL-12, GFX-16*
+
+- **Retail:**
+  - FlameControl (`0603071c`; TR1X `traps/flame.c`). Within 600 units the fire
+    does 3 damage a frame. Within 300 it attaches a flame to one of Lara's
+    joints, with a counter of -1.
+  - That flame burns 5 a frame and loops SFX 150 until Lara is below a water
+    surface or dead. The emitter's own flame then pauses for 100 frames.
+  - LavaBurn (`060308b0`) puts 10 flames on random joints of her body.
+  - Flame effects (0xB2) are created around decomp.c:36110/36179/36224.
+- **Ours:**
+  - `Flame::update` (`openlara/object.h:1928-1945`) only deals proximity damage,
+    7 or 3 a frame, while she's near.
+  - The lava floor (`room.h:905-913`) and the lava wedge (`object.h:1734`) just
+    kill her, with no flames.
+- **Effect:** in Palace Midas (5 emitters), the Great Pyramid (7) and anywhere
+  with lava, Lara is never seen burning. In retail, fire is near-certain death
+  unless she reaches water; in ours, stepping away stops it.
+- **Fix:** an "attached to Lara" flame effect, plus LavaBurn.
 
 ### 54. The target is dropped the moment it dies, and Lara retargets while Action is held
 *Closed 2026-11-17: 40c4c6c. See the commit: exact squared tests and distances, wrapped facing, the wolf's pounce rule, targets held through death.*
