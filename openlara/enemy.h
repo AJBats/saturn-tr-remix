@@ -38,7 +38,7 @@ struct Enemy : ItemObj
     #else
         health = _health;
     #endif
-        radius = _radius >> 1;
+        radius = _radius;  // retail's object radius (OBJECT_INFO +0x2a), whole
         headOffset = _headOffset;
         aggression = _aggression;
     }
@@ -198,7 +198,7 @@ struct Enemy : ItemObj
             extraE->nav.nextBox = NO_BOX;
         }
 
-        uint32 nextMood = tinfo.target->health <= 0 ? MOOD_SLEEP : ((flags & ITEM_FLAG_ANIMATED) ? getMoodWild() : getMoodNormal());
+        uint32 nextMood = tinfo.target->health <= 0 ? MOOD_SLEEP : (isViolent() ? getMoodWild() : getMoodNormal());
 
         flags &= ~ITEM_FLAG_INJURED;
 
@@ -341,6 +341,34 @@ struct Enemy : ItemObj
         extraE->nav.pos.y = box->floor;
         if (extraE->nav.zoneType != ZONE_FLY)
             extraE->nav.pos.y -= 384;
+    }
+
+    // Retail's CreatureMood violent argument (its call sites in issue 75):
+    // these attack whenever Lara is in their zone and flee only when hit while
+    // she's out of it. Mutants are timid on the ground (they're violent only
+    // flying, issue 86); Natla is from her second stage.
+    bool isViolent() const
+    {
+        switch (type)
+        {
+            case ITEM_BEAR:
+            case ITEM_CROCODILE_LAND:
+            case ITEM_CROCODILE_WATER:
+            case ITEM_LION_MALE:
+            case ITEM_LION_FEMALE:
+            case ITEM_PUMA:
+            case ITEM_RAPTOR:
+            case ITEM_REX:
+            case ITEM_RAT_WATER:
+            case ITEM_MR_T:
+            case ITEM_CENTAUR:
+            case ITEM_ADAM:
+                return true;
+            case ITEM_NATLA:
+                return aggression || health <= 1;
+            default:
+                return false;
+        }
     }
 
     uint32 getMoodWild()
@@ -1182,7 +1210,6 @@ struct Bear : Enemy
 
     Bear(Room* room) : Enemy(room, 20, 341, 500, AGGRESSION_LVL_3)
     {
-        flags |= ITEM_FLAG_ANIMATED; // TODO WILD flag
     }
 
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)

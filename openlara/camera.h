@@ -481,7 +481,7 @@ void Camera::lookAt(int32 offset)
 
     laraItem->extraL->torso.angle = laraItem->extraL->head.angle;
 
-    lookAtItem->flags |= ITEM_FLAG_ANIMATED; // use as once flag
+    lookAtItem->flags |= ITEM_FLAG_LOOKED_AT;
     mode = CAMERA_MODE_LOOK;
 }
 

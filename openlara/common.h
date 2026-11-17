@@ -1207,6 +1207,7 @@ struct FixedCamera {
 #define ITEM_FLAGS_MASK_SHIFT       9
 #define ITEM_FLAGS_MASK_ALL         31
 
+#define ITEM_FLAG_LOOKED_AT         (1 << 0)    // a trigger's look-at has had its turn (retail's looked_at)
 #define ITEM_FLAG_GRAVITY           (1 << 1)
 #define ITEM_FLAG_ACTIVE            (1 << 2)
 #define ITEM_FLAG_STATUS            (3 << ITEM_FLAGS_STATUS_SHIFT)

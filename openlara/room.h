@@ -719,7 +719,7 @@ void checkCamera(const FloorData* fd, Camera* camera)
             break;
     };
 
-    if (!lookAt && camera->lookAtItem && camera->lookAtItem != camera->lastItem && (camera->lookAtItem->flags & ITEM_FLAG_ANIMATED)) {
+    if (!lookAt && camera->lookAtItem && camera->lookAtItem != camera->lastItem && (camera->lookAtItem->flags & ITEM_FLAG_LOOKED_AT)) {
         camera->lookAtItem = NULL;
     }
 }
@@ -834,9 +834,14 @@ void checkTrigger(const FloorData* fd, ItemObj* lara)
                 if (item->flags & ITEM_FLAG_ONCE)
                     break;
 
-                item->timer = FD_TIMER(data);
-                if (item->timer != 1) {
-                    item->timer *= 30;
+                // a creature's timer holds its radius: they have no use for a
+                // trigger's timer, nor have retail's
+                if (item->health == NOT_ENEMY)
+                {
+                    item->timer = FD_TIMER(data);
+                    if (item->timer != 1) {
+                        item->timer *= 30;
+                    }
                 }
 
                 if (FD_TRIGGER_TYPE(cmd) == TRIGGER_TYPE_SWITCH) {
