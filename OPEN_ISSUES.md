@@ -1363,29 +1363,6 @@ Audit: SND-8*
   and whether its reads slow the 68000's. Using it for vertices (Jollyroger's 2026 demo) was ruled
   out for us: every vertex would cross the slow bus to sound RAM and back.
 
-### 184. Room sound sources are never played
-*Severity: audible · Confidence: confirmed · Fix: medium (needs 183) · Audit:
-SND-10*
-
-- **Retail:** SoundEffects (`06014fbc`) plays every room sound source each frame
-  (`DAT_06093a20`, count `DAT_06074c64`), with SPM 0. It uses flag 0x80 when the
-  room is unflipped and 0x40 when flipped. The data:
-
-  | Level | Sources |
-  |---|---|
-  | Lost Valley (LEVEL3A) | 10 × SFX 80 |
-  | Qualopec (LEVEL3B) | 1 × SFX 79 |
-  | Tihocan (LEVEL7B) | 1 × SFX 80 |
-  | Natla's Mines (LEVEL10A) | 12 × SFX 79 |
-  | Atlantis (LEVEL10B) | 38 × SFX 148 (flags 0xC0) |
-  | Great Pyramid (LEVEL10C) | 8 × SFX 148 |
-
-- **Ours:** the sources are packed (`tools/pack_level.py:694`) and loaded
-  (`openlara/fmt/phd.h:560`), but never used.
-- **Effect:** the waterfalls in Lost Valley, Qualopec, Tihocan and the Mines, and
-  the lava in Atlantis and the Pyramid, are silent.
-- **Fix:** a per-frame loop after the camera update.
-
 ### 185. Missing sound calls
 *Severity: audible · Confidence: confirmed · Fix: small each · Audit: SND-12*
 
@@ -1415,43 +1392,6 @@ SND-10*
   - In LEVEL7B, 172 is the placeholder click.
 - **Ours:** `openlara/enemy.h:2868`, `3043` and `3321` play 171.
 - **Decision:** keep retail's silence, or keep 171?
-
-### 187. The Caves-area levels play track 5 at load and loop it forever
-*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-14*
-
-- **Retail:** no level-start track. The only CD plays are:
-  - floor triggers (TriggerCDTrack `06011488`/`060115dc`);
-  - the secret jingle;
-  - Natla and the skater;
-  - cutscenes;
-  - the title track, looped.
-
-  Track 5, a 2-minute cue, plays only from its floor triggers (LEVEL1 0:3:1 and
-  others), once.
-- **Ours:**
-  - `openlara/common.cpp:46-50` sets `TRACK_TR1_CAVES` (5) for LEVEL1, 2, 3A
-    and 3B, and `game.h:258` plays it at load.
-  - `game.h:294-297` restarts it whenever the CD is idle, including after every
-    triggered track and during the inventory.
-- **Fix:** use `TRACK_NONE`, and auto-restart only at the title.
-
-### 188. Opening the inventory doesn't stop sound effects or pause the music
-*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-15,
-INV-41*
-
-- **Retail:** Display_Inventory (`06017420`) calls StopAmbientSounds and
-  StopAllSamples (`0603c6d4`), then S_CDPause (`0603c7f4`) unless it's in title
-  mode. On exit, ControlPhase calls the CD resume (`0603c80c`), which resumes at
-  level 0xA0.
-- **Ours:** `openlara/inventory.h:520` does neither.
-- **Fix:** add a CDC pause and resume to `saturn/cd.cpp`.
-
-### 189. Music keeps playing after Lara dies
-*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-16*
-
-- **Retail:** LaraControl (`06020144`) calls S_CDStop (`0603c77c`) when Lara's hit
-  points first drop below 1 (TR1X `laramisc.c:161`).
-- **Ours:** no stop anywhere in `openlara/lara.h`.
 
 ### 190. Loading a save replays the saved track from the start
 *Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-17*
@@ -2585,6 +2525,74 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 189. Music keeps playing after Lara dies
+*Closed 2026-11-17: as retail, 305318a.*
+
+*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-16*
+
+- **Retail:** LaraControl (`06020144`) calls S_CDStop (`0603c77c`) when Lara's hit
+  points first drop below 1 (TR1X `laramisc.c:161`).
+- **Ours:** no stop anywhere in `openlara/lara.h`.
+
+### 188. Opening the inventory doesn't stop sound effects or pause the music
+*Closed 2026-11-17: as retail, 305318a.*
+
+*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-15,
+INV-41*
+
+- **Retail:** Display_Inventory (`06017420`) calls StopAmbientSounds and
+  StopAllSamples (`0603c6d4`), then S_CDPause (`0603c7f4`) unless it's in title
+  mode. On exit, ControlPhase calls the CD resume (`0603c80c`), which resumes at
+  level 0xA0.
+- **Ours:** `openlara/inventory.h:520` does neither.
+- **Fix:** add a CDC pause and resume to `saturn/cd.cpp`.
+
+### 187. The Caves-area levels play track 5 at load and loop it forever
+*Closed 2026-11-17: as retail, 305318a.*
+
+*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-14*
+
+- **Retail:** no level-start track. The only CD plays are:
+  - floor triggers (TriggerCDTrack `06011488`/`060115dc`);
+  - the secret jingle;
+  - Natla and the skater;
+  - cutscenes;
+  - the title track, looped.
+
+  Track 5, a 2-minute cue, plays only from its floor triggers (LEVEL1 0:3:1 and
+  others), once.
+- **Ours:**
+  - `openlara/common.cpp:46-50` sets `TRACK_TR1_CAVES` (5) for LEVEL1, 2, 3A
+    and 3B, and `game.h:258` plays it at load.
+  - `game.h:294-297` restarts it whenever the CD is idle, including after every
+    triggered track and during the inventory.
+- **Fix:** use `TRACK_NONE`, and auto-restart only at the title.
+
+### 184. Room sound sources are never played
+*Closed 2026-11-17: as retail, 305318a.*
+
+*Severity: audible · Confidence: confirmed · Fix: medium (needs 183) · Audit:
+SND-10*
+
+- **Retail:** SoundEffects (`06014fbc`) plays every room sound source each frame
+  (`DAT_06093a20`, count `DAT_06074c64`), with SPM 0. It uses flag 0x80 when the
+  room is unflipped and 0x40 when flipped. The data:
+
+  | Level | Sources |
+  |---|---|
+  | Lost Valley (LEVEL3A) | 10 × SFX 80 |
+  | Qualopec (LEVEL3B) | 1 × SFX 79 |
+  | Tihocan (LEVEL7B) | 1 × SFX 80 |
+  | Natla's Mines (LEVEL10A) | 12 × SFX 79 |
+  | Atlantis (LEVEL10B) | 38 × SFX 148 (flags 0xC0) |
+  | Great Pyramid (LEVEL10C) | 8 × SFX 148 |
+
+- **Ours:** the sources are packed (`tools/pack_level.py:694`) and loaded
+  (`openlara/fmt/phd.h:560`), but never used.
+- **Effect:** the waterfalls in Lost Valley, Qualopec, Tihocan and the Mines, and
+  the lava in Atlantis and the Pyramid, are silent.
+- **Fix:** a per-frame loop after the camera update.
 
 ### 156. The bonus game after finishing is missing
 *Closed 2026-11-17: as retail, e77434b; checked in the host through the Pyramid's end into a bonus Vilcabamba.*
