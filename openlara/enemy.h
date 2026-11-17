@@ -1524,8 +1524,11 @@ struct Bat : Enemy
 };
 
 
-// The crocodile on land, the alligator in water (TR1's CrocodileControl and
-// AlligatorControl).
+// The crocodile on land and the alligator in water, as retail's CrocControl
+// and AlligatorControl (06011698): one turns into the other as it enters an
+// underwater room or leaves the water; the alligator swims up and down at
+// 16 a tick, kept a step below the surface, and dead it floats up 32 a tick
+// to the surface, where its AI is let go.
 struct Crocodile : Enemy
 {
     enum {
@@ -1554,7 +1557,40 @@ struct Crocodile : Enemy
         STATE_SWIM_DEATH
     };
 
-    Crocodile(Room* room) : Enemy(room, 20, 341, 600, AGGRESSION_LVL_2) {}
+    Crocodile(Room* room) : Enemy(room, 20, 341, 600, AGGRESSION_LVL_2)
+    {
+        if (type == ITEM_CROCODILE_WATER) {
+            aggression = 0x400;     // the alligator's smartness (retail's object table)
+        }
+    }
+
+    // the land crocodile walking its ground path, or the alligator swimming
+    // its at 16 a tick, with each one's smartness
+    void setForm(ItemType form)
+    {
+        type = form;
+        bool water = (form == ITEM_CROCODILE_WATER);
+        aggression = water ? 0x400 : AGGRESSION_LVL_2;
+        if (extraE)
+        {
+            extraE->nav.stepHeight = water ? 20 * 1024 : 256;
+            extraE->nav.dropHeight = water ? -20 * 1024 : -256;
+            extraE->nav.vSpeed = water ? 16 : 0;
+            extraE->nav.zoneType = water ? ZONE_FLY : ZONE_GROUND_1;
+        }
+    }
+
+    // the other form, on its first animation; the state number carries over
+    // from the animation it was on (retail reads it before the change)
+    int32 changeForm(ItemType form)
+    {
+        int32 s = level.anims[animIndex].state;
+        setForm(form);
+        animIndex = level.models[type].animIndex;
+        frameIndex = level.anims[animIndex].frameBegin;
+        state = goalState = s;
+        return s;
+    }
 
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
@@ -1566,113 +1602,159 @@ struct Crocodile : Enemy
         }
     }
 
+    virtual void update()
+    {
+        if (type == ITEM_CROCODILE_WATER && health <= 0)
+        {
+            if (state != STATE_SWIM_DEATH)
+            {
+                animSet(level.models[type].animIndex + ANIM_DEATH_WATER, true);
+                health = NOT_ENEMY;
+            }
+
+            int32 wh = getWaterLevel();
+            if (wh == WALL)
+            {
+                setForm(ITEM_CROCODILE_LAND);
+                animSet(level.models[type].animIndex + ANIM_DEATH_LAND, true);
+                pos.y = room->getRoom(pos.x, pos.y, pos.z)->getSector(pos.x, pos.z)->getFloor(pos.x, pos.y, pos.z);
+                angle.x = 0;
+            }
+            else if (pos.y > wh + 32)
+            {
+                pos.y -= 32;
+            }
+            else if (pos.y < wh)
+            {
+                pos.y = wh;
+                if (extraE) {
+                    disable();
+                }
+            }
+
+            animProcess();
+            updateRoom();
+            return;
+        }
+
+        Enemy::update();
+    }
+
     virtual int32 updateState()
     {
-        if (health <= 0)
-            return goalState;
-
         if (type == ITEM_CROCODILE_WATER)
         {
-            extraE->maxTurn = ENEMY_TURN_2 + ANGLE(1);
+            // dead it's update()'s
+            extraE->maxTurn = ANGLE(3);
 
+            int32 goal = goalState;
             if (state == STATE_SWIM)
             {
                 if (tinfo.canAttack && hitMask)
-                    return STATE_SWIM_ATTACK;
+                    goal = STATE_SWIM_ATTACK;
             }
             else if (state == STATE_SWIM_ATTACK)
             {
                 if (frameIndex == level.anims[animIndex].frameBegin) {
                     nextState = STATE_NONE;
                 }
-                if (!tinfo.canAttack || !hitMask)
-                    return STATE_SWIM;
-                if (!nextState)
-                {
+                if (!tinfo.canAttack || !hitMask) {
+                    goal = STATE_SWIM;
+                } else if (!nextState) {
                     bite(DAMAGE_BITE, _vec3i(5, -21, 467), 9);
                     nextState = STATE_SWIM;
                 }
             }
-            return goalState;
+
+            int32 wh = getWaterLevel();
+            if (wh == WALL)
+            {
+                pos.y = roomFloor;
+                angle.x = 0;
+                return changeForm(ITEM_CROCODILE_LAND);
+            }
+            if (pos.y < wh + 256) {
+                pos.y = wh + 256;
+            }
+            return goal;
         }
 
-        bool fastTurn = (mood == MOOD_ATTACK) && (tinfo.dist > DIST_FAST_TURN) &&
-                        (abs(tinfo.angle) > ANGLE_90);
+        int32 goal = goalState;
 
-        if (state == STATE_FAST_TURN) {
-            angle.y += ANGLE(6);
-            extraE->maxTurn = 0;
-        } else {
-            extraE->maxTurn = ENEMY_TURN_2 + ANGLE(1);
-        }
-
-        switch (state)
+        if (health > 0)
         {
-            case STATE_STOP:
+            extraE->maxTurn = ANGLE(3);
+
+            // the fast turn's 6 degrees a tick in place of the path's turn
+            if (state == STATE_FAST_TURN)
             {
-                if (tinfo.canAttack && tinfo.dist < DIST_BITE)
-                    return STATE_ATTACK;
-                if (mood == MOOD_ESCAPE)
-                    return STATE_RUN;
-                if (mood == MOOD_ATTACK)
-                    return fastTurn ? STATE_FAST_TURN : STATE_RUN;
-                if (mood == MOOD_STALK)
-                    return STATE_WALK;
-                break;
+                angle.y += ANGLE(6) - tinfo.turn;
+                tinfo.turn = 0;
             }
 
-            case STATE_WALK:
-            {
-                if (tinfo.front && (hitMask & HIT_MASK))
-                    return STATE_STOP;
-                if (mood == MOOD_ATTACK || mood == MOOD_ESCAPE)
-                    return STATE_RUN;
-                if (mood == MOOD_SLEEP)
-                    return STATE_STOP;
-                break;
-            }
+            bool fastTurn = (mood == MOOD_ATTACK) && (tinfo.dist > DIST_FAST_TURN) &&
+                            (abs(tinfo.angle) > ANGLE_90);
 
-            case STATE_FAST_TURN:
+            switch (state)
             {
-                if (abs(tinfo.angle) < ANGLE_90)
-                    return STATE_WALK;
-                break;
-            }
+                case STATE_STOP:
+                    if (tinfo.canAttack && tinfo.dist < DIST_BITE) {
+                        goal = STATE_ATTACK;
+                    } else if (mood == MOOD_ESCAPE) {
+                        goal = STATE_RUN;
+                    } else if (mood == MOOD_ATTACK) {
+                        goal = fastTurn ? STATE_FAST_TURN : STATE_RUN;
+                    } else if (mood == MOOD_STALK) {
+                        goal = STATE_WALK;
+                    }
+                    break;
 
-            case STATE_RUN:
-            {
-                if (tinfo.front && (hitMask & HIT_MASK))
-                    return STATE_STOP;
-                if (mood == MOOD_STALK)
-                    return STATE_WALK;
-                if (mood == MOOD_SLEEP || fastTurn)
-                    return STATE_STOP;
-                break;
-            }
+                case STATE_WALK:
+                    if (tinfo.front && (hitMask & HIT_MASK)) {
+                        goal = STATE_STOP;
+                    } else if (mood == MOOD_ATTACK || mood == MOOD_ESCAPE) {
+                        goal = STATE_RUN;
+                    } else if (mood == MOOD_SLEEP) {
+                        goal = STATE_STOP;
+                    }
+                    break;
 
-            case STATE_ATTACK:
-            {
-                if (!nextState)
-                {
-                    bite(DAMAGE_BITE, _vec3i(5, -21, 467), 9);
-                    nextState = STATE_STOP;
-                }
-                break;
+                case STATE_FAST_TURN:
+                    if (abs(tinfo.angle) < ANGLE_90) {
+                        goal = STATE_WALK;
+                    }
+                    break;
+
+                case STATE_RUN:
+                    if (tinfo.front && (hitMask & HIT_MASK)) {
+                        goal = STATE_STOP;
+                    } else if (mood == MOOD_STALK) {
+                        goal = STATE_WALK;
+                    } else if (mood == MOOD_SLEEP || fastTurn) {
+                        goal = STATE_STOP;
+                    }
+                    break;
+
+                case STATE_ATTACK:
+                    if (!nextState)
+                    {
+                        bite(DAMAGE_BITE, _vec3i(5, -21, 467), 9);
+                        nextState = STATE_STOP;
+                    }
+                    break;
             }
         }
 
-        return goalState;
+        // alive or dead, in an underwater room it's the alligator
+        if (ROOM_FLAG_WATER(room->info->flags))
+            return changeForm(ITEM_CROCODILE_WATER);
+
+        return goal;
     }
 
     virtual void initExtra()
     {
-        if (type == ITEM_CROCODILE_LAND) {
-            extraE->nav.stepHeight = 256;
-            extraE->nav.dropHeight = -256;
-        } else {
-            extraE->nav.stepHeight = 20 * 1024;
-            extraE->nav.dropHeight = -20 * 1024;
-        }
+        setForm(ItemType(type));
     }
 };
 
@@ -1953,6 +2035,10 @@ struct Gorilla : Enemy
 };
 
 
+// The rat, and the water rat (vole) it is in water, as retail's RatControl
+// and VoleControl (0602ba74): a rat in water becomes a water rat at the
+// surface, a water rat out of it a rat; the water rat walks its ground path
+// and rises or sinks 32 a tick to the surface.
 struct Rat : Enemy
 {
     Rat(Room* room) : Enemy(room, 5, 204, 200, AGGRESSION_LVL_2) {}
@@ -1978,7 +2064,8 @@ struct Rat : Enemy
 
     enum {
         STATE_SWIM = 1,
-        STATE_SWIM_BITE
+        STATE_SWIM_BITE,
+        STATE_SWIM_DEATH
     };
 
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
@@ -1991,22 +2078,66 @@ struct Rat : Enemy
         }
     }
 
-    // TR1's RatControl and VoleControl
+    // the water rat's height before the move, and the water's (retail's
+    // VoleControl keeps them across CreatureAnimation)
+    static int32 sHeight;
+    static int32 sWater;
+    static bool sRise;
+
+    virtual void update()
+    {
+        if (type == ITEM_RAT_WATER && health <= 0)
+        {
+            if (state != STATE_SWIM_DEATH) {
+                animSet(level.models[type].animIndex + ANIM_DEATH_WATER, true);
+            }
+            animProcess();
+            if (getWaterLevel() == WALL)
+            {
+                type = ITEM_RAT_LAND;
+                animSet(level.models[type].animIndex + ANIM_DEATH_LAND, true);
+                pos.y = roomFloor;
+            }
+            return;
+        }
+
+        sRise = false;
+        Enemy::update();
+
+        if (sRise)
+        {
+            if (sWater - sHeight < -32) {
+                pos.y = sHeight - 32;
+            } else if (sWater - sHeight > 32) {
+                pos.y = sHeight + 32;
+            } else {
+                pos.y = sWater;
+            }
+            updateRoom();
+        }
+    }
+
+    // the other form, on its first animation
+    int32 changeForm(ItemType form)
+    {
+        type = form;
+        animIndex = level.models[type].animIndex;
+        frameIndex = level.anims[animIndex].frameBegin;
+        state = goalState = level.anims[animIndex].state;
+        return state;
+    }
+
     virtual int32 updateState()
     {
-        if (health <= 0)
-            return goalState;
-
-        extraE->maxTurn = ANGLE(6);
-
         if (type == ITEM_RAT_WATER)
         {
             extraE->maxTurn = ANGLE(3);
 
+            int32 goal = goalState;
             if (state == STATE_SWIM)
             {
                 if (tinfo.front && (hitMask & HIT_MASK))
-                    return STATE_SWIM_BITE;
+                    goal = STATE_SWIM_BITE;
             }
             else if (state == STATE_SWIM_BITE)
             {
@@ -2015,58 +2146,82 @@ struct Rat : Enemy
                     bite(DAMAGE, _vec3i(0, -11, 108), 3);
                     nextState = STATE_SWIM;
                 }
-                return STATE_NONE;
+                goal = STATE_NONE;
             }
-            return goalState;
+
+            sWater = getWaterLevel();
+            if (sWater == WALL) {
+                goal = changeForm(ITEM_RAT_LAND);
+            }
+
+            // it moves on the floor, its height set after
+            sHeight = pos.y;
+            sRise = true;
+            pos.y = roomFloor;
+            return goal;
         }
 
-        switch (state)
+        int32 goal = goalState;
+
+        if (health > 0)
         {
-            case STATE_STOP:
-            {
-                if (nextState)
-                    return nextState;
-                if (tinfo.canAttack && tinfo.dist < DIST_BITE)
-                    return STATE_BITE;
-                return STATE_RUN;
-            }
+            extraE->maxTurn = ANGLE(6);
 
-            case STATE_RUN:
+            switch (state)
             {
-                if (tinfo.front && (hitMask & HIT_MASK))
-                    return STATE_STOP;
-                if (tinfo.canAttack && tinfo.dist < DIST_CHARGE)
-                    return STATE_CHARGE;
-                if (tinfo.front && rand_logic() < 256)
-                {
-                    nextState = STATE_POSE;
-                    return STATE_STOP;
-                }
-                break;
-            }
+                case STATE_STOP:
+                    if (nextState) {
+                        goal = nextState;
+                    } else if (tinfo.canAttack && tinfo.dist < DIST_BITE) {
+                        goal = STATE_BITE;
+                    } else {
+                        goal = STATE_RUN;
+                    }
+                    break;
 
-            case STATE_BITE:
-            case STATE_CHARGE:
-            {
-                if (!nextState && tinfo.front && (hitMask & HIT_MASK))
-                {
-                    bite(DAMAGE, _vec3i(0, -11, 108), 3);
-                    nextState = (state == STATE_BITE) ? STATE_STOP : STATE_RUN;
-                }
-                break;
-            }
+                case STATE_RUN:
+                    if (tinfo.front && (hitMask & HIT_MASK)) {
+                        goal = STATE_STOP;
+                    } else if (tinfo.canAttack && tinfo.dist < DIST_CHARGE) {
+                        goal = STATE_CHARGE;
+                    } else if (tinfo.front && rand_logic() < 256) {
+                        nextState = STATE_POSE;
+                        goal = STATE_STOP;
+                    }
+                    break;
 
-            case STATE_POSE:
-            {
-                if (mood != MOOD_SLEEP || rand_logic() < 256)
-                    return STATE_STOP;
-                break;
+                case STATE_BITE:
+                case STATE_CHARGE:
+                    if (!nextState && tinfo.front && (hitMask & HIT_MASK))
+                    {
+                        bite(DAMAGE, _vec3i(0, -11, 108), 3);
+                        nextState = (state == STATE_BITE) ? STATE_STOP : STATE_RUN;
+                    }
+                    break;
+
+                case STATE_POSE:
+                    if (mood != MOOD_SLEEP || rand_logic() < 256) {
+                        goal = STATE_STOP;
+                    }
+                    break;
             }
         }
 
-        return goalState;
+        // alive or dead, in water it's the water rat, at the surface
+        int32 wh = getWaterLevel();
+        if (wh != WALL)
+        {
+            pos.y = wh;
+            return changeForm(ITEM_RAT_WATER);
+        }
+
+        return goal;
     }
 };
+
+int32 Rat::sHeight;
+int32 Rat::sWater;
+bool Rat::sRise;
 
 
 // A creature's kill: Lara at the creature and turned as it is, out of the
