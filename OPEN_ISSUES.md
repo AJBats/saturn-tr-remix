@@ -108,7 +108,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 41 | 114. Boulders never reset | small (closed) |
 | 42 | 115. Centaur statues wake on proximity, don't shatter | small, medium |
 | 43 | 80, 78, 79. Crocodiles and rats: land and water forms, depth, pool bottom | medium |
-| 44 | 88. The torso boss: no grab kill, wrong steering | medium |
+| 44 | 88. The torso boss: no grab kill, wrong steering | medium (closed) |
 | 45 | 89. The T-rex walks without stopping | small (closed) |
 | 46 | 82. T-rex, centaurs, winged mutant ignore blockable boxes | small (closed) |
 | 47 | 83. Natla never re-aims her path | small |
@@ -540,24 +540,6 @@ Audit: LARA-18*
 - Air refills by 10 per frame on land (`lara.h:3954`); retail sets it full
   instantly. Not visible.
 
-### 48. Enemy and door pushes are buggy
-*Severity: gameplay / visible · Confidence: confirmed · Fix: small · Audit:
-LARA-20*
-
-- **Retail:**
-  - ItemPushLara (`0600edf8`), after pushing Lara, re-collides at Lara's own
-    position.
-  - Creatures push with bigpush = 0, to the edge of their bounding box
-    (CreatureCollision `0600ebbc`).
-  - Objects and doors use bigpush = 1 (`0600ec4c`, `0600ecc0`).
-- **Ours** (`openlara/item.h:1231-1300`):
-  - **(a)** `collideRoom` (`item.h:1290`) runs on the pushing item, not on Lara.
-    This is an upstream OpenLara bug. Pushes into walls aren't undone, and valid
-    pushes can be reverted.
-  - **(b)** The box always grows by Lara's radius (`item.h:1243-1246`), so
-    creatures hold her 100 units further away than retail.
-- **Fix:** `lara->collideRoom`, and a bigpush flag.
-
 ### 50. Lara's save block omits moveAngle, turnSpeed and swimTimer
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-22*
 
@@ -835,78 +817,6 @@ Audit: AI-15*
 - **Ours:** the rocket flies since issue 84 (f484e2d). On death the centaur
   just turns invisible (issue 213).
 
-### 88. The torso boss doesn't grab Lara for its kill, and steers wrongly
-*Severity: gameplay / visible · Confidence: confirmed · Fix: medium · Audit:
-AI-16, CAM-23*
-
-- **Retail:** AbortionControl (`06024b34`; TR1X `ai/abortion.c`).
-  - **ATTACK3** (case 6) moves Lara to the torso and sets the O_LARA_EXTRA
-    animation 0 and AS_SPECIAL. It holsters her guns, sets air to -1, and sets
-    the camera to target_distance 2048 with FOLLOW_CENTRE.
-  - **Steering:** it steers toward the path target, not toward Lara.
-  - **FORWARD:** never turns. This is a TR1 bug: the turn is added to
-    goal_anim_state instead of yaw (verified on Saturn, case 7).
-  - **Death:** ExplodingDeath(-1, 250).
-- **Ours:** `openlara/enemy.h:3416-3423` only calls `lara->hit(1000)`, so Lara
-  drops in her normal death while the torso crushes empty air.
-  - FORWARD turns 3° per frame toward Lara (`enemy.h:3378`).
-  - The death has no body parts.
-- **Decision:** reproduce the FORWARD no-turn bug? It shapes how the fight plays.
-
-### 93. The bear never eats Lara's body
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-21*
-
-- **Retail:** BearControl (`0600947c`, case 1). With Lara dead, the bear goes
-  from STOP to EAT when she is within bite range and closer than 768.
-- **Ours:**
-  - `updateTargetInfo` returns early when Lara is dead, and zeroes `canAttack`,
-    `front` and `hitMask` (`openlara/enemy.h:155-159`).
-  - So the EAT check at `enemy.h:1244` can never pass.
-- **Fix:** keep computing the target info after her death, as retail does.
-
-### 94. The bear's upright walk is cut short every frame
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-22*
-
-- **Retail:** BearControl, case 2. WALK keeps its goal unless roar, drop, touch
-  or escape applies.
-- **Ours:** the upright-walk state (`STATE_HIND`) always ends with
-  `return STATE_HOWL` (`openlara/enemy.h:1270`), so the bear drops straight back
-  to rearing.
-- **Fix:** return goalState.
-
-### 95. The T-rex's head and neck barely turn toward Lara
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-23*
-
-- **Retail:** CreatureHead(head >> 1) and neck = head, so up to 45° each.
-- **Ours:** `openlara/enemy.h:1997` halves the actual head each frame and then
-  lerps. It settles at about 10° for the head and 5° for the neck.
-
-### 96. Lara walks through the dead T-rex
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-24*
-
-- **Retail:** DinoControl sets collidable = 1 every frame, including on the
-  frame it deactivates (`|= 4` on byte 0x44).
-- **Ours:** collision is cleared on deactivation (`openlara/enemy.h:809-817`).
-
-### 97. The T-rex kill doesn't set up Lara's state or the camera
-*Severity: visible · Confidence: confirmed (missing state), suspected (that her
-guns stay visible) · Fix: small · Audit: AI-25*
-
-- **Retail:** LaraDinoDeath (`060125f4`) sets Lara's guns to hands-busy and
-  unarmed, sets air to -1, and sets the camera to follow-centre at 170° yaw and
-  -25° pitch.
-- **Ours:** `openlara/enemy.h:2048-2072` only moves Lara, swaps her meshes and
-  sets the animation.
-
-### 98. Bored flying creatures aim at the floor
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-26*
-
-- **Retail:** TargetBox, in CreatureMood (`0600a0fc`), sets the target y to the
-  box height - 384 for flyers, and to the box height for walkers.
-- **Ours:** `openlara/enemy.h:335-337` has the two swapped.
-- **Effect:** after biting, a bored bat dives to floor level, and a bored water
-  crocodile aims at the bottom.
-
 ### 99. The gorilla can't climb onto blocks, and its sidestep turns differ
 *Severity: visible · Confidence: confirmed · Fix: medium · Audit: AI-28*
 
@@ -988,14 +898,6 @@ AI-29*
 - The wolf's bite state sets its goal to RUN (`enemy.h:1129`); retail leaves the
   goal alone.
 
-### 109. The bear's hurt flag is sticky
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-38*
-
-- **Ours:** once the bear is hurt, the injured flag is set again every frame
-  (`openlara/enemy.h:1207-1214`). The violent mood therefore always treats it as
-  just hit.
-- **Effect:** a hurt bear flees whenever Lara is out of its zone.
-
 ### 110. Dead flyers drift toward a stale waypoint
 *Severity: subtle · Confidence: likely · Fix: small · Audit: AI-39*
 
@@ -1074,26 +976,6 @@ GFX-15*
 - **Ours:** `Waterfall` has no update (`openlara/object.h:231-236`).
 - **Effect:** Lost Valley's 12 waterfall emitters, and the one in Natla's Mines,
   show no spray. The splash sprite effect already exists, so this is cheap.
-
-### 121. Doors don't push Lara out of the way
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-13*
-
-- **Retail:** DoorCollision (`0600ecc0`) pushes Lara out of the door's bounds,
-  with a hit reaction while the door is moving. The Saturn has no "Lara is near
-  the door" check; that is a TR1X addition.
-- **Ours:** `openlara/object.h:279-282` is a TODO.
-- **Effect:** Lara can clip into door panels as they open and close.
-
-### 123. Doors don't block enemy pathfinding through portal sectors
-*Severity: subtle (AI) · Confidence: confirmed · Fix: small · Audit: LVL-13*
-
-- **Retail:** InitialiseDoor (`06025960`; TR1X `objects/door.c`) blocks the box
-  of the sector in the room behind the portal.
-- **Ours:** `openlara/object.h:303` uses the portal sector's own box, which is
-  "no box".
-- **Effect:** 68 of the 93 doors sampled are affected, blockable ones included
-  (Caves 28; Vilcabamba 8, 15, 22; Folly 1, 86; Atlantis 18, 21, 28, and
-  others). Creatures path through closed doors.
 
 ### 124. Qualopec and Sanctuary scion pickup: the cinematic is rotated 90°
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-14,
@@ -2942,6 +2824,146 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 123. Doors don't block enemy pathfinding through portal sectors
+*Closed 2026-11-17: ported from retail, 5a3516f.*
+
+*Severity: subtle (AI) · Confidence: confirmed · Fix: small · Audit: LVL-13*
+
+- **Retail:** InitialiseDoor (`06025960`; TR1X `objects/door.c`) blocks the box
+  of the sector in the room behind the portal.
+- **Ours:** `openlara/object.h:303` uses the portal sector's own box, which is
+  "no box".
+- **Effect:** 68 of the 93 doors sampled are affected, blockable ones included
+  (Caves 28; Vilcabamba 8, 15, 22; Folly 1, 86; Atlantis 18, 21, 28, and
+  others). Creatures path through closed doors.
+
+### 121. Doors don't push Lara out of the way
+*Closed 2026-11-17: ported from retail, 5a3516f.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-13*
+
+- **Retail:** DoorCollision (`0600ecc0`) pushes Lara out of the door's bounds,
+  with a hit reaction while the door is moving. The Saturn has no "Lara is near
+  the door" check; that is a TR1X addition.
+- **Ours:** `openlara/object.h:279-282` is a TODO.
+- **Effect:** Lara can clip into door panels as they open and close.
+
+### 48. Enemy and door pushes are buggy
+*Closed 2026-11-17: ported from retail, 5a3516f.*
+
+*Severity: gameplay / visible · Confidence: confirmed · Fix: small · Audit:
+LARA-20*
+
+- **Retail:**
+  - ItemPushLara (`0600edf8`), after pushing Lara, re-collides at Lara's own
+    position.
+  - Creatures push with bigpush = 0, to the edge of their bounding box
+    (CreatureCollision `0600ebbc`).
+  - Objects and doors use bigpush = 1 (`0600ec4c`, `0600ecc0`).
+- **Ours** (`openlara/item.h:1231-1300`):
+  - **(a)** `collideRoom` (`item.h:1290`) runs on the pushing item, not on Lara.
+    This is an upstream OpenLara bug. Pushes into walls aren't undone, and valid
+    pushes can be reverted.
+  - **(b)** The box always grows by Lara's radius (`item.h:1243-1246`), so
+    creatures hold her 100 units further away than retail.
+- **Fix:** `lara->collideRoom`, and a bigpush flag.
+
+### 98. Bored flying creatures aim at the floor
+*Closed 2026-11-17: ported from retail, 5a3516f.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-26*
+
+- **Retail:** TargetBox, in CreatureMood (`0600a0fc`), sets the target y to the
+  box height - 384 for flyers, and to the box height for walkers.
+- **Ours:** `openlara/enemy.h:335-337` has the two swapped.
+- **Effect:** after biting, a bored bat dives to floor level, and a bored water
+  crocodile aims at the bottom.
+
+### 109. The bear's hurt flag is sticky
+*Closed 2026-11-17: ported from retail, 5a3516f.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-38*
+
+- **Ours:** once the bear is hurt, the injured flag is set again every frame
+  (`openlara/enemy.h:1207-1214`). The violent mood therefore always treats it as
+  just hit.
+- **Effect:** a hurt bear flees whenever Lara is out of its zone.
+
+### 94. The bear's upright walk is cut short every frame
+*Closed 2026-11-17: ported from retail, 5a3516f.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-22*
+
+- **Retail:** BearControl, case 2. WALK keeps its goal unless roar, drop, touch
+  or escape applies.
+- **Ours:** the upright-walk state (`STATE_HIND`) always ends with
+  `return STATE_HOWL` (`openlara/enemy.h:1270`), so the bear drops straight back
+  to rearing.
+- **Fix:** return goalState.
+
+### 93. The bear never eats Lara's body
+*Closed 2026-11-17: ported from retail, 5a3516f.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-21*
+
+- **Retail:** BearControl (`0600947c`, case 1). With Lara dead, the bear goes
+  from STOP to EAT when she is within bite range and closer than 768.
+- **Ours:**
+  - `updateTargetInfo` returns early when Lara is dead, and zeroes `canAttack`,
+    `front` and `hitMask` (`openlara/enemy.h:155-159`).
+  - So the EAT check at `enemy.h:1244` can never pass.
+- **Fix:** keep computing the target info after her death, as retail does.
+
+### 96. Lara walks through the dead T-rex
+*Closed 2026-11-17: ported from retail, 5a3516f.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-24*
+
+- **Retail:** DinoControl sets collidable = 1 every frame, including on the
+  frame it deactivates (`|= 4` on byte 0x44).
+- **Ours:** collision is cleared on deactivation (`openlara/enemy.h:809-817`).
+
+### 95. The T-rex's head and neck barely turn toward Lara
+*Closed 2026-11-17: ported from retail, 5a3516f.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-23*
+
+- **Retail:** CreatureHead(head >> 1) and neck = head, so up to 45° each.
+- **Ours:** `openlara/enemy.h:1997` halves the actual head each frame and then
+  lerps. It settles at about 10° for the head and 5° for the neck.
+
+### 97. The T-rex kill doesn't set up Lara's state or the camera
+*Closed 2026-11-17: ported from retail, 5a3516f.*
+
+*Severity: visible · Confidence: confirmed (missing state), suspected (that her
+guns stay visible) · Fix: small · Audit: AI-25*
+
+- **Retail:** LaraDinoDeath (`060125f4`) sets Lara's guns to hands-busy and
+  unarmed, sets air to -1, and sets the camera to follow-centre at 170° yaw and
+  -25° pitch.
+- **Ours:** `openlara/enemy.h:2048-2072` only moves Lara, swaps her meshes and
+  sets the animation.
+
+### 88. The torso boss doesn't grab Lara for its kill, and steers wrongly
+*Closed 2026-11-17: ported from retail, 5a3516f. Decision taken: the forward walk's no-turn bug is reproduced (retail Saturn has it).*
+
+*Severity: gameplay / visible · Confidence: confirmed · Fix: medium · Audit:
+AI-16, CAM-23*
+
+- **Retail:** AbortionControl (`06024b34`; TR1X `ai/abortion.c`).
+  - **ATTACK3** (case 6) moves Lara to the torso and sets the O_LARA_EXTRA
+    animation 0 and AS_SPECIAL. It holsters her guns, sets air to -1, and sets
+    the camera to target_distance 2048 with FOLLOW_CENTRE.
+  - **Steering:** it steers toward the path target, not toward Lara.
+  - **FORWARD:** never turns. This is a TR1 bug: the turn is added to
+    goal_anim_state instead of yaw (verified on Saturn, case 7).
+  - **Death:** ExplodingDeath(-1, 250).
+- **Ours:** `openlara/enemy.h:3416-3423` only calls `lara->hit(1000)`, so Lara
+  drops in her normal death while the torso crushes empty air.
+  - FORWARD turns 3° per frame toward Lara (`enemy.h:3378`).
+  - The death has no body parts.
+- **Decision:** reproduce the FORWARD no-turn bug? It shapes how the fight plays.
 
 ### 90. Kold's hit chance at range is too high
 *Closed 2026-11-17: already fixed by 40c4c6c (Kold passes half the squared distance, tinfo.dist2 >> 1).*
