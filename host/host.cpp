@@ -4,12 +4,14 @@
 // so the packs load unchanged; what the logic asks of the Saturn's hardware
 // is stubbed here.
 //
-//   logic DATA_DIR LEVEL TICKS [KEYS@FIRST-LAST ...] [--items] [--items-end]
+//   logic DATA_DIR LEVEL TICKS [KEYS@FIRST-LAST ...] [ACTION@TICK ...]
+//         [--items] [--items-end] [--list-end]
 //
 // KEYS: UP, DOWN, LEFT, RIGHT, A, B, C, X, Y, Z, L, R, START joined by '+',
-// held from tick FIRST to LAST. Lara's state is printed every 30 ticks (EVERY
-// in the environment); --items prints every item slot before the first tick,
-// --items-end after the last.
+// held from tick FIRST to LAST. ACTION: hit:ITEM:DAMAGE, flag:ITEM:HEX or
+// wake:ITEM (actsAt). Lara's state is printed every 30 ticks (EVERY in the
+// environment); --items prints every item slot before the first tick,
+// --items-end after the last, --list-end the items in rooms after the last.
 
 #include "game.h"
 
@@ -159,6 +161,65 @@ static uint32 parseKeys(const char* s)
     return k;
 }
 
+// Test actions on an item at a tick, before that tick's update:
+//   hit:ITEM:DAMAGE@TICK    the item hit (ItemObj::hit at its own position)
+//   flag:ITEM:HEX@TICK      flag bits set (0x100 ONCE, as a spent trigger leaves it)
+//   wake:ITEM@TICK          its code bits completed and triggered, as a trigger's object action
+struct Act
+{
+    char kind;
+    int32 item, value, tick;
+};
+static Act gActs[64];
+static int32 gActCount;
+
+static bool parseAct(const char* arg)
+{
+    Act a;
+    a.kind = arg[0];
+    if (gActCount == X_COUNT(gActs) || (sscanf(arg, "hit:%d:%d@%d", &a.item, &a.value, &a.tick) != 3 &&
+        sscanf(arg, "flag:%d:%x@%d", &a.item, &a.value, &a.tick) != 3 &&
+        (a.value = 0, sscanf(arg, "wake:%d@%d", &a.item, &a.tick) != 2))) {
+        return false;
+    }
+    gActs[gActCount++] = a;
+    return true;
+}
+
+static void actsAt(int32 tick)
+{
+    for (int32 i = 0; i < gActCount; i++)
+    {
+        const Act &a = gActs[i];
+        if (a.tick != tick)
+            continue;
+        ItemObj* item = items + a.item;
+        if (a.kind == 'h') {
+            item->hit(a.value, item->pos, 0);
+        } else if (a.kind == 'f') {
+            item->flags |= a.value;
+        } else if (!(item->flags & ITEM_FLAG_ACTIVE)) {
+            item->flags |= ITEM_FLAG_MASK;
+            item->trigger();
+        }
+    }
+}
+
+// The items in rooms: index, type, room, position, status, health.
+static void listItems()
+{
+    static const char* status[] = { "none", "active", "inactive", "invisible" };
+    for (int32 i = 0; i < MAX_ITEMS; i++)
+    {
+        const ItemObj* item = items + i;
+        if (!item->room)
+            continue;
+        printf("item %3d: type %3d room %3d pos %6d %6d %6d status %-9s health %d\n", i, item->type,
+               int32(item->room - rooms), item->pos.x, item->pos.y, item->pos.z,
+               status[(item->flags & ITEM_FLAG_STATUS) >> ITEM_FLAGS_STATUS_SHIFT], item->health);
+    }
+}
+
 static uint32 keysAt(int32 tick)
 {
     uint32 k = 0;
@@ -223,7 +284,7 @@ int main(int argc, char** argv)
     }
     gDataDir = argv[1];
     int32 ticks = atoi(argv[3]);
-    bool itemsDump = false, itemsEnd = false;
+    bool itemsDump = false, itemsEnd = false, listEnd = false;
     for (int32 i = 4; i < argc; i++)
     {
         if (!strcmp(argv[i], "--items")) {
@@ -232,6 +293,17 @@ int main(int argc, char** argv)
         }
         if (!strcmp(argv[i], "--items-end")) {
             itemsEnd = true;
+            continue;
+        }
+        if (!strcmp(argv[i], "--list-end")) {
+            listEnd = true;
+            continue;
+        }
+        if (strchr(argv[i], ':')) {
+            if (!parseAct(argv[i])) {
+                fprintf(stderr, "bad action %s\n", argv[i]);
+                return 1;
+            }
             continue;
         }
         char* at = strchr(argv[i], '@');
@@ -280,6 +352,7 @@ int main(int argc, char** argv)
     for (int32 tick = 0; tick < ticks; tick++)
     {
         keys = keysAt(tick);
+        actsAt(tick);
         bool done = false;
         if (handed)
         {
@@ -298,6 +371,9 @@ int main(int argc, char** argv)
     double s = double(clock() - t0) / CLOCKS_PER_SEC;
     if (itemsEnd) {
         printItems();
+    }
+    if (listEnd) {
+        listItems();
     }
     fprintf(stderr, "%d ticks in %.3f s: %.0f ticks a second\n", ticks, s, s > 0 ? ticks / s : 0.0);
     return 0;
