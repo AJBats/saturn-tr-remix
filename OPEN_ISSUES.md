@@ -1157,19 +1157,6 @@ INV-29*
 - **Ours:** everything can be skipped (`saturn/fmv.cpp:265-270`), EIDOS shows
   for 180 vblanks, and `saturn/screen.cpp` cuts hard everywhere.
 
-### 167. Cutscenes can't be skipped
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-30*
-
-- **Retail:** DoCinematic (`0600d744`) ends on START.
-- **Ours:** `openlara/camera.h:43-77` ignores input.
-
-### 168. No A+B+C+START soft reset
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-31*
-
-- **Retail:** the vblank handler (`0603938c`) sets `DAT_06060c00`. Gameplay,
-  menus and FMVs then exit to the title.
-- **Ours:** none (`saturn/input.cpp`).
-
 ### 169. No pause on pad disconnect; only a pad in port 1
 *Severity: subtle · Confidence: likely · Fix: small · Audit: INV-32*
 
@@ -2400,6 +2387,23 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 168. No A+B+C+START soft reset
+*Closed 2026-11-17: retail's soft reset, 7d97d09; it tested a key the pad never sets until 132c5ee. Seen in Mednafen: A+B+C+START in the Caves goes to the title.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-31*
+
+- **Retail:** the vblank handler (`0603938c`) sets `DAT_06060c00`. Gameplay,
+  menus and FMVs then exit to the title.
+- **Ours:** none (`saturn/input.cpp`).
+
+### 167. Cutscenes can't be skipped
+*Closed 2026-11-17: retail's DoCinematic skip, 7d97d09; it tested a key the pad never sets until 132c5ee. Seen in Mednafen: START ends CUT1.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-30*
+
+- **Retail:** DoCinematic (`0600d744`) ends on START.
+- **Ours:** `openlara/camera.h:43-77` ignores input.
 
 ### 181. Random pitch wobble is ±10% in ours and effectively none in retail
 *Closed 2026-11-17: as retail, dc4acbe.*
