@@ -81,13 +81,15 @@ struct Command
 };
 static_assert(sizeof(Command) == 16, "sound.68k's commands");
 
-// OpenLara volume (1..64, 64 full) as SCSP total level: 16 steps per halving
+// OpenLara volume (1..64, 64 full) as SCSP total level, retail's curve
+// (06046d60): level 0xC0 + volume - 1, TL (0x10000 - level^2) >> 9, so 0 to
+// 56 (0 to -21 dB); 0 is silent
 static const uint8 gVolumeTL[65] = {
-    255, 96, 80, 71, 64, 59, 55, 51, 48, 45, 43, 41, 39,
-    37, 35, 33, 32, 31, 29, 28, 27, 26, 25, 24, 23, 22,
-    21, 20, 19, 18, 17, 17, 16, 15, 15, 14, 13, 13, 12,
-    11, 11, 10, 10, 9, 9, 8, 8, 7, 7, 6, 6, 5,
-    5, 4, 4, 3, 3, 3, 2, 2, 1, 1, 1, 0, 0,
+    255, 56, 55, 54, 53, 52, 52, 51, 50, 49, 49, 48, 47,
+    46, 45, 45, 44, 43, 42, 41, 41, 40, 39, 38, 37, 36,
+    36, 35, 34, 33, 32, 31, 30, 30, 29, 28, 27, 26, 25,
+    24, 23, 22, 21, 21, 20, 19, 18, 17, 16, 15, 14, 13,
+    12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
 };
 
 static uint32 entryOf(int32 index)

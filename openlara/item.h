@@ -95,17 +95,20 @@ void* soundPlay(int16 id, const vec3i* pos, int32 where)
         volume -= rand_draw() >> 2;
     }
 
-    volume = X_MIN(volume, 0x7FFF) >> 9;
-
+    // any level above none plays, the quietest at retail's lowest level
+    // (its 06046d60): 1..64, 64 full
     if (volume <= 0)
         return NULL;
 
-    volume += 1; // 63 to 64 (1 << SND_VOL_SHIFT) for 100% vol samples
+    volume = (X_MIN(volume, 0x7FFF) >> 9) + 1;
 
+    // retail's pitch wobble moves the frequency by a few raw FNS units, far
+    // too little to hear (its driver adds (pitch - 100) >> 1): the draw is
+    // taken as retail takes it, the pitch left alone
     int32 pitch = 128;
 
     if (SI_PITCH(b->flags)) {
-        pitch += ((rand_draw() * 13) >> 14) - 13;
+        rand_draw();
     }
 
     int32 index = b->index;
