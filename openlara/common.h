@@ -3065,6 +3065,7 @@ void nextLevel(LevelID next);
 void flipMap();
 void setEffect(int32 effect, const ItemObj* item);
 void shakeCamera(int32 frames, bool add);
+void floorShake(const ItemObj* item);
 void* soundPlay(int16 id, const vec3i* pos);
 void soundStop(int16 id);
 

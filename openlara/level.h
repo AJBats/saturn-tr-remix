@@ -343,6 +343,29 @@ void shakeCamera(int32 frames, bool add)
     }
 }
 
+// The floor shaking under something heavy that lands (retail's DinoStomp,
+// 060159b8, in our shake model: issue 17): up to half a second, fading out 15
+// sectors away.
+void floorShake(const ItemObj* item)
+{
+    const int32 range = (15 * 1024) >> 4;
+    for (int32 i = 0; i < MAX_PLAYERS; i++)
+    {
+        if (!players[i])
+            continue;
+
+        Camera &camera = players[i]->extraL->camera;
+        int32 dx = (item->pos.x - camera.view.pos.x) >> 4;
+        int32 dy = (item->pos.y - camera.view.pos.y) >> 4;
+        int32 dz = (item->pos.z - camera.view.pos.z) >> 4;
+        if (X_MAX(X_MAX(abs(dx), abs(dy)), abs(dz)) >= range)
+            continue;
+
+        int32 d2 = dx * dx + dy * dy + dz * dz;
+        camera.shake = X_MAX(0, 15 * (range * range - d2) / (range * range));
+    }
+}
+
 // Level effects, from triggers and animations (OpenLara's Level::setEffect
 // and updateEffect), in 30 Hz frames.
 static int32 gEffect = FX_NONE;
@@ -359,22 +382,8 @@ void setEffect(int32 effect, const ItemObj* item)
     {
         case FX_FLOOR_SHAKE:
         {
-            // up to half a second, fading out 15 sectors away
-            const int32 range = (15 * 1024) >> 4;
-            for (int32 i = 0; i < MAX_PLAYERS; i++)
-            {
-                if (!players[i] || !item)
-                    continue;
-
-                Camera &camera = players[i]->extraL->camera;
-                int32 dx = (item->pos.x - camera.view.pos.x) >> 4;
-                int32 dy = (item->pos.y - camera.view.pos.y) >> 4;
-                int32 dz = (item->pos.z - camera.view.pos.z) >> 4;
-                if (X_MAX(X_MAX(abs(dx), abs(dy)), abs(dz)) >= range)
-                    continue;
-
-                int32 d2 = dx * dx + dy * dy + dz * dz;
-                camera.shake = X_MAX(0, 15 * (range * range - d2) / (range * range));
+            if (item) {
+                floorShake(item);
             }
             gEffect = FX_NONE;
             break;

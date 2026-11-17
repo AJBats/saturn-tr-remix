@@ -1240,7 +1240,9 @@ struct Block : Object
 
         updateRoom(); // it'll get roomFloor and gLastFloorData
 
-        if (pos.y > roomFloor)
+        // retail's MovableBlockControl (0602409c): above the floor it falls,
+        // and lands with a stomp and a thud
+        if (pos.y < roomFloor)
         {
             flags |= ITEM_FLAG_GRAVITY;
         }
@@ -1249,7 +1251,8 @@ struct Block : Object
             flags &= ~(ITEM_FLAG_GRAVITY | ITEM_FLAG_STATUS);
             flags |= ITEM_FLAG_STATUS_INACTIVE;
             pos.y = roomFloor;
-            // TODO EarthQuake + playSound 70 (Thor room)
+            floorShake(this);
+            soundPlay(SND_BOULDER, &pos);
         }
 
         if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INACTIVE)
@@ -1826,9 +1829,21 @@ struct HammerHandle : Object
 
             case STATE_DONE:
             {
-                vec3i h = headPos();
-                room->getRoom(h.x, h.y, h.z)->getSector(h.x, h.z)->getFloor(h.x, h.y, h.z);
+                // retail's ThorsHammerControl (06022c3c): the heavy trigger
+                // under the handle, then the head's square raised two blocks
+                // while Lara lives (retail's kill leaves her -1 hit points,
+                // our killLara 0)
+                room->getRoom(pos.x, pos.y, pos.z)->getSector(pos.x, pos.z)->getFloor(pos.x, pos.y, pos.z);
                 checkTrigger(gLastFloorData, NULL);
+
+                if (getLara(pos)->health > 0)
+                {
+                    vec3i handle = pos;
+                    pos = headPos();
+                    alterFloor(this, -2048);
+                    pos = handle;
+                }
+
                 flags &= ~ITEM_FLAG_STATUS;
                 flags |= ITEM_FLAG_STATUS_INACTIVE;
                 deactivate();
