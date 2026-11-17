@@ -57,7 +57,7 @@ struct Enemy : ItemObj
 
         extra->enemy = this;
         extra->rotHead = extra->rotNeck = 0;
-        extra->maxTurn = 0;
+        extra->maxTurn = ANGLE_1;   // as retail's InitialiseSlot sets it
         extra->nav.stepHeight = 256;
         extra->nav.dropHeight = -256;
         extra->nav.vSpeed = 0;
@@ -205,6 +205,11 @@ struct Enemy : ItemObj
 
     void updateMood()
     {
+        updateMood(isViolent());
+    }
+
+    void updateMood(bool violent)
+    {
         // retail's CreatureMood (0600a0fc): no way there drops the box asked
         // for; a target box gone bad drops it too, and with Lara in reach
         // turns the creature bored, to pick again
@@ -220,7 +225,7 @@ struct Enemy : ItemObj
             extraE->nav.nextBox = NO_BOX;
         }
 
-        uint32 nextMood = tinfo.target->health <= 0 ? MOOD_SLEEP : (isViolent() ? getMoodWild() : getMoodNormal());
+        uint32 nextMood = tinfo.target->health <= 0 ? MOOD_SLEEP : (violent ? getMoodWild() : getMoodNormal());
 
 
         if (mood != nextMood)
@@ -390,8 +395,6 @@ struct Enemy : ItemObj
             case ITEM_CENTAUR:
             case ITEM_ADAM:
                 return true;
-            case ITEM_NATLA:
-                return aggression || health <= 1;
             default:
                 return false;
         }
@@ -3013,9 +3016,11 @@ struct MrT : Gunman
 };
 
 
-// Atlantis' mutants: they claw at Lara close up and, the shooter and the
-// winged one, fire shards and rockets on her from afar (TR1's mutant
-// control, on the ground: the winged one doesn't take to the air here).
+// Atlantis' mutants, as retail's FlyerControl (06030ffc): they claw at Lara
+// close up and, the shooter and the winged one, fire shards and rockets on
+// her from afar. The winged one takes to the air when it can neither reach
+// nor shoot her, or flees, and lands once it can reach her. turnSpeed is
+// retail's creature flags (BULLET_1, BULLET_2, FLY_MODE, TWIST).
 struct Mutant : Gunman
 {
     enum {
@@ -3028,6 +3033,13 @@ struct Mutant : Gunman
         DAMAGE_CHARGE = 100,
         DAMAGE_LUNGE = 150,
         DAMAGE_PUNCH = 200
+    };
+
+    enum {
+        BULLET_1 = 1,
+        BULLET_2 = 2,
+        FLY_MODE = 4,
+        TWIST    = 8
     };
 
     enum {
@@ -3053,6 +3065,9 @@ struct Mutant : Gunman
         if (type != ITEM_MUTANT_1) {
             visibleMask = 0xFFE07FFF; // no wings
         }
+        if (type == ITEM_MUTANT_2) {
+            aggression = 0x2000;    // the shooter's smartness (retail's object table)
+        }
     }
 
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
@@ -3071,97 +3086,159 @@ struct Mutant : Gunman
         }
     }
 
-    virtual int32 updateState()
+    // its path on the ground, or in the air at 32 a tick
+    void ground()
     {
-        if (health <= 0)
-            return goalState;
+        extraE->nav.stepHeight = 256;
+        extraE->nav.dropHeight = -256;
+        extraE->nav.vSpeed = 0;
+        extraE->nav.zoneType = ZONE_GROUND_1;
+    }
 
-        bool canFire = (type != ITEM_MUTANT_3) && canShoot() && (!checkZone() || tinfo.dist > DIST_SHOOT) &&
-                     abs(tinfo.angle) < ANGLE_45;
+    void air()
+    {
+        extraE->nav.stepHeight = 30 * 1024;
+        extraE->nav.dropHeight = -30 * 1024;
+        extraE->nav.vSpeed = 32;
+        extraE->nav.zoneType = ZONE_FLY;
+    }
+
+    virtual void update()
+    {
+        if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INVISIBLE)
+        {
+            if (!enable(false))
+                return;
+            flags &= ~ITEM_FLAG_STATUS;
+            flags |= ITEM_FLAG_STATUS_ACTIVE;
+        }
+
+        if (!extraE || health <= 0)
+            return;
+
+        ground();
+        updateTargetInfo();
+
+        // a shot: in sight, out of reach or far, its side picking the gun
+        bool shoot1 = false;
+        bool shoot2 = false;
+        if (type != ITEM_MUTANT_3 && canShoot() && (!checkZone() || tinfo.dist > DIST_SHOOT))
+        {
+            if (tinfo.angle > 0 && tinfo.angle < ANGLE_45) {
+                shoot1 = true;
+            } else if (tinfo.angle < 0 && tinfo.angle > -ANGLE_45) {
+                shoot2 = true;
+            }
+        }
+
+        if (type == ITEM_MUTANT_1)
+        {
+            if (state == STATE_FLY)
+            {
+                if ((turnSpeed & FLY_MODE) && mood != MOOD_ESCAPE && checkZone()) {
+                    turnSpeed &= ~FLY_MODE;
+                }
+                if (!(turnSpeed & FLY_MODE)) {
+                    updateMood(true);
+                }
+                air();
+                updateTargetInfo();
+            }
+            else if ((!checkZone() && !shoot1 && !shoot2 && (!tinfo.front || mood == MOOD_SLEEP)) || mood == MOOD_ESCAPE)
+            {
+                turnSpeed |= FLY_MODE;
+            }
+        }
+
+        int16 head = tinfo.front ? tinfo.angle : 0;
+
+        if (state != STATE_FLY) {
+            updateMood(false);
+        } else if (turnSpeed & FLY_MODE) {
+            updateMood(true);
+        }
+
+        updateNavigation();
 
         switch (state)
         {
             case STATE_MUMMY:
-            case STATE_FLY:
-                return STATE_STOP;
+                goalState = STATE_STOP;
+                break;
 
             case STATE_STOP:
-            {
-                if (hitMask & HIT_MASK)
-                    return STATE_ATTACK_3;
-                if (tinfo.canAttack && tinfo.dist < DIST_ATTACK_3)
-                    return STATE_ATTACK_3;
-                if (tinfo.canAttack && tinfo.dist < DIST_ATTACK_1)
-                    return STATE_ATTACK_1;
-                if (canFire)
-                    return (tinfo.angle > 0) ? STATE_AIM_1 : STATE_AIM_2;
-                if (mood == MOOD_SLEEP || (mood == MOOD_STALK && tinfo.dist < DIST_WALK))
-                    return STATE_POSE;
-                return STATE_RUN;
-            }
+                turnSpeed &= ~(BULLET_1 | BULLET_2 | TWIST);
+                if (turnSpeed & FLY_MODE) {
+                    goalState = STATE_FLY;
+                } else if ((hitMask & HIT_MASK) || (tinfo.canAttack && tinfo.dist < DIST_ATTACK_3)) {
+                    goalState = STATE_ATTACK_3;
+                } else if (tinfo.canAttack && tinfo.dist < DIST_ATTACK_1) {
+                    goalState = STATE_ATTACK_1;
+                } else if (shoot1) {
+                    goalState = STATE_AIM_1;
+                } else if (shoot2) {
+                    goalState = STATE_AIM_2;
+                } else if (mood == MOOD_SLEEP || (mood == MOOD_STALK && tinfo.dist < DIST_WALK)) {
+                    goalState = STATE_POSE;
+                } else {
+                    goalState = STATE_RUN;
+                }
+                break;
 
             case STATE_POSE:
-            {
-                if (canFire)
-                    return STATE_STOP;
-                if (mood == MOOD_STALK)
-                {
-                    if (tinfo.dist >= DIST_WALK)
-                        return STATE_STOP;
-                    if (checkZone() || rand_logic() < 256)
-                        return STATE_WALK;
-                }
-                else if (mood == MOOD_SLEEP)
-                {
-                    if (rand_logic() < 256)
-                        return STATE_WALK;
-                }
-                else
-                {
-                    return STATE_STOP;
+                head = 0;
+                if (shoot1 || shoot2 || (turnSpeed & FLY_MODE)) {
+                    goalState = STATE_STOP;
+                } else if (mood == MOOD_STALK) {
+                    if (tinfo.dist < DIST_WALK) {
+                        if (checkZone() || rand_logic() < 0x100) {
+                            goalState = STATE_WALK;
+                        }
+                    } else {
+                        goalState = STATE_STOP;
+                    }
+                } else if (mood == MOOD_SLEEP && rand_logic() < 0x100) {
+                    goalState = STATE_WALK;
+                } else if (mood == MOOD_ATTACK || mood == MOOD_ESCAPE) {
+                    goalState = STATE_STOP;
                 }
                 break;
-            }
 
             case STATE_WALK:
-            {
                 extraE->maxTurn = ENEMY_TURN_2;
-
-                if (canFire || mood == MOOD_ATTACK || mood == MOOD_ESCAPE)
-                    return STATE_STOP;
-                if (mood == MOOD_SLEEP || (mood == MOOD_STALK && !checkZone()))
-                {
-                    if (rand_logic() < 80)
-                        return STATE_POSE;
-                }
-                else if (mood == MOOD_STALK && tinfo.dist > DIST_WALK)
-                {
-                    return STATE_STOP;
+                if (shoot1 || shoot2 || (turnSpeed & FLY_MODE)) {
+                    goalState = STATE_STOP;
+                } else if (mood == MOOD_ATTACK || mood == MOOD_ESCAPE) {
+                    goalState = STATE_STOP;
+                } else if (mood == MOOD_SLEEP || (mood == MOOD_STALK && !checkZone())) {
+                    if (rand_logic() < 80) {
+                        goalState = STATE_POSE;
+                    }
+                } else if (mood == MOOD_STALK && tinfo.dist > DIST_WALK) {
+                    goalState = STATE_STOP;
                 }
                 break;
-            }
 
             case STATE_RUN:
-            {
                 extraE->maxTurn = ANGLE(6);
-
-                if (hitMask & HIT_MASK)
-                    return STATE_STOP;
-                if (tinfo.canAttack && tinfo.dist < DIST_ATTACK_1)
-                    return STATE_STOP;
-                if (tinfo.front && tinfo.dist < DIST_ATTACK_2)
-                    return STATE_ATTACK_2;
-                if (canFire)
-                    return STATE_STOP;
-                if (mood == MOOD_SLEEP || (mood == MOOD_STALK && tinfo.dist < DIST_WALK))
-                    return STATE_STOP;
+                if (turnSpeed & FLY_MODE) {
+                    goalState = STATE_STOP;
+                } else if (hitMask & HIT_MASK) {
+                    goalState = STATE_STOP;
+                } else if (tinfo.canAttack && tinfo.dist < DIST_ATTACK_1) {
+                    goalState = STATE_STOP;
+                } else if (tinfo.front && tinfo.dist < DIST_ATTACK_2) {
+                    goalState = STATE_ATTACK_2;
+                } else if (shoot1 || shoot2) {
+                    goalState = STATE_STOP;
+                } else if (mood == MOOD_SLEEP || (mood == MOOD_STALK && tinfo.dist < DIST_WALK)) {
+                    goalState = STATE_STOP;
+                }
                 break;
-            }
 
             case STATE_ATTACK_1:
             case STATE_ATTACK_2:
             case STATE_ATTACK_3:
-            {
                 if (!nextState && (hitMask & HIT_MASK))
                 {
                     int32 damage = (state == STATE_ATTACK_1) ? DAMAGE_LUNGE :
@@ -3170,28 +3247,59 @@ struct Mutant : Gunman
                     nextState = (state == STATE_ATTACK_2) ? STATE_RUN : STATE_STOP;
                 }
                 break;
-            }
 
             case STATE_AIM_1:
+                turnSpeed |= TWIST | BULLET_1;
+                goalState = shoot1 ? STATE_SHOOT : STATE_STOP;
+                break;
+
             case STATE_AIM_2:
-            {
-                turnSpeed = (state == STATE_AIM_1) ? 1 : 2;
-                return canFire ? STATE_SHOOT : STATE_STOP;
-            }
+                turnSpeed |= BULLET_2;
+                goalState = shoot2 ? STATE_SHOOT : STATE_STOP;
+                break;
 
             case STATE_SHOOT:
-            {
-                if (turnSpeed == 1) {
+                if (turnSpeed & BULLET_1)
+                {
+                    turnSpeed &= ~BULLET_1;
                     fire(ITEM_MUTANT_BULLET, _vec3i(-35, 269, 0), 9);
-                } else if (turnSpeed == 2) {
+                }
+                else if (turnSpeed & BULLET_2)
+                {
+                    turnSpeed &= ~BULLET_2;
                     fire(ITEM_CENTAUR_BULLET, _vec3i(51, 213, 0), 14);
                 }
-                turnSpeed = 0;
                 break;
-            }
+
+            case STATE_FLY:
+                if (!(turnSpeed & FLY_MODE) && pos.y == roomFloor) {
+                    goalState = STATE_STOP;
+                }
+                break;
         }
 
-        return goalState;
+        // the head turns with its body twisted to aim, the neck otherwise
+        if (!(turnSpeed & TWIST)) {
+            extraE->rotHead = extraE->rotNeck;
+        }
+        extraE->rotHead = angleLerp(extraE->rotHead, head, ANGLE(5));
+        if (!(turnSpeed & TWIST))
+        {
+            extraE->rotNeck = extraE->rotHead;
+            extraE->rotHead = 0;
+        } else {
+            extraE->rotNeck = 0;
+        }
+
+    #ifdef TRS_HOST
+        hostTargetInfo(this);
+    #endif
+
+        hitMask = 0;
+        flags &= ~ITEM_FLAG_INJURED;
+
+        animProcess();
+        updateLocation();
     }
 };
 
@@ -3302,16 +3410,21 @@ struct Centaur : Gunman
 };
 
 
-// Natla, in two stages (TR1's NatlaControl, on the ground: she doesn't fly
-// here). She fires rockets, three at a time; brought down to half her health
-// she falls and lies still for sixteen seconds, then rises with that half and
-// runs at Lara firing shards. turnSpeed is her shot timer, aggression marks
-// the second stage.
+// Natla, as retail's NatlaControl (0602500c). Above 200 hit points she
+// flies, firing a rocket every 30 ticks, until she has a shot, when she
+// lands (1 in 256 a tick) and fires three rockets at once from the ground,
+// taking off again whenever she has none. Brought down to 200 she falls and
+// lies untargetable for 16 seconds, then rises to the music of track 54 and
+// runs at Lara firing shards every 20 ticks. In flight her body turns to
+// Lara 5 degrees a tick while she moves along her path. turnSpeed is
+// retail's creature flags: the tick count below, FLY_MODE above.
 struct Natla : Gunman
 {
     enum {
-        HEALTH_STAGE_2 = 200,
-        DIE_TIME = 30 * 16
+        NEAR_DEATH = 200,
+        DIE_TIME   = 30 * 16,
+        FLY_MODE   = 0x8000,
+        TIMER      = 0x7FFF
     };
 
     enum {
@@ -3327,137 +3440,272 @@ struct Natla : Gunman
         STATE_DEATH
     };
 
-    Natla(Room* room) : Gunman(room, 400, 204)
+    Natla(Room* room) : Gunman(room, 400, 204) {}
+
+    // her path on the ground, or in the air at 32 a tick
+    void ground()
     {
-        aggression = 0;
+        extraE->nav.stepHeight = 256;
+        extraE->nav.dropHeight = -256;
+        extraE->nav.vSpeed = 0;
+        extraE->nav.zoneType = ZONE_GROUND_1;
     }
 
-    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    void air()
     {
-        if (state == STATE_SEMIDEATH)
-            return;
+        extraE->nav.stepHeight = 20 * 1024;
+        extraE->nav.dropHeight = -20 * 1024;
+        extraE->nav.vSpeed = 32;
+        extraE->nav.zoneType = ZONE_FLY;
+    }
 
-        health -= damage;
-        fxBlood(point, 0, 0);
+    bool hasShot()
+    {
+        return abs(tinfo.angle) < ANGLE(30) && canShoot();
+    }
 
-        if (!aggression && health <= HEALTH_STAGE_2) {
-            health = 1; // she plays dead before the second stage
-        } else if (health <= 0) {
-            gSaveGame.kills++;
+    // a shot from her gun, its pitch held by her gun arm, and its sound
+    void shoot(ItemType fxType, int16 &gun, bool sound)
+    {
+        if (ItemObj* fx = fire(fxType, _vec3i(5, 220, 7), 4))
+        {
+            gun = fx->angle.x;
+            if (sound) {
+                soundPlay(SND_NATLA_SHOT, &fx->pos);
+            }
         }
     }
 
-    virtual int32 updateState()
+    virtual void update()
     {
-        turnSpeed++;
+        static int16 facing;    // retail's own static: her body's turn from her path
 
-        if (health <= 0 && state != STATE_SEMIDEATH)
-            return STATE_DEATH;
-
-        bool canFire = abs(tinfo.angle) < ANGLE(30) && canShoot();
-
-        if (aggression || health <= 1)
+        if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INVISIBLE)
         {
+            if (!enable(false))
+                return;
+            flags &= ~ITEM_FLAG_STATUS;
+            flags |= ITEM_FLAG_STATUS_ACTIVE;
+        }
+
+        if (!extraE)
+            return;
+
+        int16 head = 0;
+        int16 turn = 0;
+        int16 bank = 0;
+        int16 gun = int16(extraE->rotHead * 7 / 8);
+        int32 timer = turnSpeed & TIMER;
+
+        if (health <= 0 && health > NOT_ENEMY)
+        {
+            goalState = STATE_DEATH;
+        }
+        else if (health <= NEAR_DEATH)
+        {
+            ground();
+            updateTargetInfo();
+            if (tinfo.front) {
+                head = tinfo.angle;
+            }
+            updateMood(true);
             extraE->maxTurn = ANGLE(6);
+            updateNavigation();
+            turn = tinfo.turn;
+
+            bool shot = hasShot();
+
+            if (facing)
+            {
+                angle.y += facing;
+                facing = 0;
+            }
 
             switch (state)
             {
                 case STATE_FALL:
-                {
-                    if (pos.y >= roomFloor)
+                    if (pos.y < roomFloor)
+                    {
+                        flags |= ITEM_FLAG_GRAVITY;
+                        hSpeed = 0;
+                    }
+                    else
                     {
                         flags &= ~ITEM_FLAG_GRAVITY;
+                        goalState = STATE_SEMIDEATH;
                         pos.y = roomFloor;
-                        turnSpeed = 0;
-                        return STATE_SEMIDEATH;
+                        timer = 0;
                     }
-                    flags |= ITEM_FLAG_GRAVITY;
                     break;
-                }
 
                 case STATE_STAND:
-                case STATE_RUN:
-                {
-                    if (state == STATE_RUN) {
-                        tinfo.tilt = tinfo.turn;
+                    if (!shot) {
+                        goalState = STATE_RUN;
                     }
-                    if (turnSpeed >= 20)
+                    if (timer >= 20)
                     {
-                        if (ItemObj* fx = fire(ITEM_MUTANT_BULLET, _vec3i(5, 220, 7), 4)) {
-                            soundPlay(SND_NATLA_SHOT, &fx->pos);
-                        }
-                        turnSpeed = 0;
+                        shoot(ITEM_MUTANT_BULLET, gun, true);
+                        timer = 0;
                     }
-                    if (state == STATE_STAND && !canFire)
-                        return STATE_RUN;
-                    if (state == STATE_RUN && canFire)
-                        return STATE_STAND;
                     break;
-                }
+
+                case STATE_RUN:
+                    bank = turn;
+                    if (timer >= 20)
+                    {
+                        shoot(ITEM_MUTANT_BULLET, gun, true);
+                        timer = 0;
+                    }
+                    if (shot) {
+                        goalState = STATE_STAND;
+                    }
+                    break;
 
                 case STATE_SEMIDEATH:
-                {
-                    extraE->maxTurn = 0;
-                    if (turnSpeed >= DIE_TIME)
+                    if (timer == DIE_TIME)
                     {
-                        health = HEALTH_STAGE_2;
-                        aggression = 1;
+                        goalState = STATE_STAND;
                         turnSpeed = 0;
-                        return STATE_STAND;
+                        timer = 0;
+                        health = NEAR_DEATH;
+                        sndPlayTrack(54);
+                    } else {
+                        health = NOT_ENEMY;     // Lara can't target her
                     }
                     break;
-                }
 
                 case STATE_FLY:
-                    turnSpeed = 0;
-                    return STATE_FALL;
+                    goalState = STATE_FALL;
+                    timer = 0;
+                    break;
 
                 case STATE_STOP:
                 case STATE_AIM:
                 case STATE_SHOOT:
-                    turnSpeed = 0;
-                    return STATE_SEMIDEATH;
+                    goalState = STATE_SEMIDEATH;
+                    timer = 0;
+                    break;
             }
-            return goalState;
         }
-
-        extraE->maxTurn = ANGLE(5);
-
-        switch (state)
+        else
         {
-            case STATE_STOP:
-                turnSpeed = 0;
-                return STATE_AIM;
+            ground();
+            updateTargetInfo();
 
-            case STATE_FLY:
-                return STATE_STOP;
+            bool shot = hasShot();
 
-            case STATE_AIM:
+            if (state == STATE_FLY && (turnSpeed & FLY_MODE))
             {
-                if (nextState)
-                    return nextState;
-                return canFire ? STATE_SHOOT : STATE_STOP;
+                if (shot && rand_logic() < 0x100) {
+                    turnSpeed &= ~FLY_MODE;
+                }
+                if (!(turnSpeed & FLY_MODE)) {
+                    updateMood(true);
+                }
+                air();
+                updateTargetInfo();
+            }
+            else if (!shot)
+            {
+                turnSpeed |= FLY_MODE;
             }
 
-            case STATE_SHOOT:
+            if (tinfo.front) {
+                head = tinfo.angle;
+            }
+
+            if (state != STATE_FLY || (turnSpeed & FLY_MODE)) {
+                updateMood(false);
+            }
+
+            angle.y -= facing;
+            extraE->maxTurn = ANGLE(5);
+            updateNavigation();
+            turn = tinfo.turn;
+
+            if (state == STATE_FLY)
             {
-                if (!nextState)
-                {
-                    // three rockets, two of them spread
-                    fire(ITEM_CENTAUR_BULLET, _vec3i(5, 220, 7), 4);
-                    for (int32 i = 0; i < 2; i++)
-                    {
-                        if (ItemObj* fx = fire(ITEM_CENTAUR_BULLET, _vec3i(5, 220, 7), 4)) {
-                            fx->angle.y += (rand_logic() - 0x4000) / 4;
-                        }
+                facing += X_CLAMP(tinfo.angle, -ANGLE(5), ANGLE(5));
+                angle.y += facing;
+            }
+            else
+            {
+                angle.y += facing - turn;
+                facing = 0;
+            }
+
+            switch (state)
+            {
+                case STATE_STOP:
+                    timer = 0;
+                    goalState = (turnSpeed & FLY_MODE) ? STATE_FLY : STATE_AIM;
+                    break;
+
+                case STATE_FLY:
+                    if (!(turnSpeed & FLY_MODE) && pos.y == roomFloor) {
+                        goalState = STATE_STOP;
                     }
-                    nextState = STATE_STOP;
-                }
-                break;
+                    if (timer >= 30)
+                    {
+                        shoot(ITEM_CENTAUR_BULLET, gun, true);
+                        timer = 0;
+                    }
+                    break;
+
+                case STATE_AIM:
+                    if (nextState) {
+                        goalState = nextState;
+                    } else {
+                        goalState = shot ? STATE_SHOOT : STATE_STOP;
+                    }
+                    break;
+
+                case STATE_SHOOT:
+                    if (!nextState)
+                    {
+                        // three rockets, two of them spread
+                        shoot(ITEM_CENTAUR_BULLET, gun, false);
+                        for (int32 i = 0; i < 2; i++)
+                        {
+                            if (ItemObj* fx = fire(ITEM_CENTAUR_BULLET, _vec3i(5, 220, 7), 4)) {
+                                fx->angle.y += (rand_logic() - 0x4000) / 4;
+                            }
+                        }
+                        nextState = STATE_STOP;
+                    }
+                    break;
             }
         }
 
-        return goalState;
+        tilt(bank);
+        extraE->rotNeck = -head;
+        if (gun) {
+            extraE->rotHead = gun;
+        }
+
+        timer++;
+        turnSpeed = (turnSpeed & FLY_MODE) | (timer & TIMER);
+
+    #ifdef TRS_HOST
+        hostTargetInfo(this);
+    #endif
+
+        hitMask = 0;
+        flags &= ~ITEM_FLAG_INJURED;
+
+        tinfo.turn = turn;
+        angle.y -= facing;
+        animProcess();
+        updateLocation();
+        angle.y += facing;
+
+        if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INACTIVE)
+        {
+            flags &= ~ITEM_FLAG_COLLISION;
+            health = NOT_ENEMY;
+            disable();
+            deactivate();
+        }
     }
 };
 
