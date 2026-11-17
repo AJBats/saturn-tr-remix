@@ -2944,7 +2944,7 @@ word. Of the same kind and already open: 264, 265, 266.
 ## Closed
 
 ### 90. Kold's hit chance at range is too high
-*Closed 2026-11-17: already fixed by 5800a03 (Kold passes half the squared distance, tinfo.dist2 >> 1).*
+*Closed 2026-11-17: already fixed by 40c4c6c (Kold passes half the squared distance, tinfo.dist2 >> 1).*
 
 *Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-18*
 
