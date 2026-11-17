@@ -1729,7 +1729,7 @@ ItemObj* ItemObj::init(Room* room)
         // INIT_ITEM( UNUSED_5              , ??? );
         INIT_ITEM( SCION_PICKUP_QUALOPEC , Pickup );
         INIT_ITEM( SCION_PICKUP_DROP     , Pickup );
-        INIT_ITEM( SCION_TARGET          , ViewTarget );
+        INIT_ITEM( SCION_TARGET          , Scion3 );
         INIT_ITEM( SCION_PICKUP_HOLDER   , Pickup );
         // INIT_ITEM( SCION_HOLDER          , ??? );
         // INIT_ITEM( UNUSED_6              , ??? );

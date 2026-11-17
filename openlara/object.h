@@ -340,6 +340,67 @@ struct ViewTarget : Object
 };
 
 
+// The Great Pyramid's Scion (SCION_TARGET, retail's O_SCION_ITEM3 and its
+// Scion3Control, 06026640): a trigger wakes it, and then Lara's guns lock on
+// to its 5 hit points. Shot to pieces it vanishes, sets off the trigger
+// under it (the way out), and bursts every 10 ticks for 3 s, shaking the
+// camera. timer counts the ticks since.
+struct Scion3 : Object
+{
+    Scion3(Room* room) : Object(room)
+    {
+        health = 5;
+    }
+
+    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
+    {
+        if (health > 0 && health <= damage) {
+            gSaveGame.kills++;
+        }
+        health -= damage;
+        fxBlood(point, angle.y, 0);     // retail's HitTarget, 0601fff4
+    }
+
+    virtual void update()
+    {
+        if (health > 0)
+        {
+            timer = 0;
+            animProcess();
+            return;
+        }
+
+        if (timer == 0)
+        {
+            flags = (flags & ~ITEM_FLAG_STATUS) | ITEM_FLAG_STATUS_INVISIBLE;
+            health = NOT_ENEMY;
+            room->getRoom(pos.x, pos.y, pos.z)->getSector(pos.x, pos.z)->getFloor(pos.x, pos.y, pos.z);
+            checkTrigger(gLastFloorData, NULL);
+        }
+
+        if (timer % 10 == 0)
+        {
+            vec3i p = pos;
+            p.x += (rand_logic() - 0x4000) / 32;
+            p.y += (rand_logic() - 0x4000) / 256 - 500;
+            p.z += (rand_logic() - 0x4000) / 32;
+            ItemObj* fx = ItemObj::add(ITEM_EXPLOSION, room, p, 0);
+            if (fx)
+            {
+                fx->timer = 2;
+                fx->flags |= ITEM_FLAG_ANIMATED;
+                soundPlay(SND_EXPLOSION, &fx->pos);
+                cameraBounce(-200);
+            }
+        }
+
+        if (++timer >= 90) {
+            remove();
+        }
+    }
+};
+
+
 struct Waterfall : Object
 {
     Waterfall(Room* room) : Object(room) {}

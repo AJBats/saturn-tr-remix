@@ -259,6 +259,12 @@ static void printLara(int32 tick)
     printf("tick %4d: room %3d pos %6d %6d %6d angle %6d anim %3d frame %4d state %2d goal %2d health %4d water %d\n",
            tick, int32(lara->room - rooms), lara->pos.x, lara->pos.y, lara->pos.z, uint16(lara->angle.y),
            lara->animIndex, lara->frameIndex, lara->state, lara->goalState, lara->health, lara->waterState);
+    if (getenv("GUNS"))     // GUNS=1: her weapon, its state and her target
+    {
+        const ItemObj* target = lara->extraL->armR.target;
+        printf("     weapon %d state %d goal %d target %d\n", lara->extraL->weapon, lara->extraL->weaponState,
+               lara->extraL->goalWeapon, target ? int32(target - items) : -1);
+    }
 }
 
 // Every item slot's bytes, the pointers in them as indices (they differ from
