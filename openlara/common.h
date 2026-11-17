@@ -626,7 +626,10 @@ enum InputState {
     IN_WEAPON = (1 << 8),
     IN_LOOK   = (1 << 9),
     IN_START  = (1 << 10),
-    IN_SELECT = (1 << 11)
+    IN_SELECT = (1 << 11),
+    IN_STEP_LEFT  = (1 << 12),  // retail's own bits for the sidesteps and the roll
+    IN_STEP_RIGHT = (1 << 13),
+    IN_ROLL   = (1 << 14)
 };
 
 struct vec3s {

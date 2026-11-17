@@ -551,7 +551,7 @@ struct Lara : ItemObj
             return false;
         }
 
-        bool roll = (input & (IN_UP | IN_DOWN)) == (IN_UP | IN_DOWN);
+        bool roll = (input & IN_ROLL) != 0;
 
         if ((waterState == WATER_STATE_ABOVE) && roll)
         {
@@ -665,18 +665,16 @@ struct Lara : ItemObj
         if (s_checkLook(ANGLE(2), ANGLE(50), ANGLE(-42), ANGLE(22), false))
             return;
 
-        if (input & IN_WALK) {
-            if ((input & IN_LEFT) && s_checkFront(-ANGLE_90, LARA_RADIUS + 16)) {
-                goalState = STATE_STEP_LEFT;
-            } else if ((input & IN_RIGHT) && s_checkFront(ANGLE_90, LARA_RADIUS + 16)) {
-                goalState = STATE_STEP_RIGHT;
-            }
-        } else {
-            if (input & IN_LEFT) {
-                goalState = STATE_TURN_LEFT;
-            } else if (input & IN_RIGHT) {
-                goalState = STATE_TURN_RIGHT;
-            }
+        if ((input & IN_STEP_LEFT) && s_checkFront(-ANGLE_90, LARA_RADIUS + 16)) {
+            goalState = STATE_STEP_LEFT;
+        } else if ((input & IN_STEP_RIGHT) && s_checkFront(ANGLE_90, LARA_RADIUS + 16)) {
+            goalState = STATE_STEP_RIGHT;
+        }
+
+        if (input & IN_LEFT) {
+            goalState = STATE_TURN_LEFT;
+        } else if (input & IN_RIGHT) {
+            goalState = STATE_TURN_RIGHT;
         }
 
         if (input & IN_JUMP) {
@@ -796,10 +794,10 @@ struct Lara : ItemObj
     {
         extraL->camera.targetAngle.x = ANGLE(-60);
 
-        s_ignoreEnemy();
-        if (input & IN_LEFT) {
+                s_ignoreEnemy();
+        if (input & (IN_LEFT | IN_STEP_LEFT)) {
             goalState = STATE_HANG_LEFT;
-        } else if (input & IN_RIGHT) {
+        } else if (input & (IN_RIGHT | IN_STEP_RIGHT)) {
             goalState = STATE_HANG_RIGHT;
         }
     }
@@ -927,26 +925,36 @@ struct Lara : ItemObj
         }
     }
 
+        // a sidestep's turn (retail's LaraAsStepLeft and LaraAsStepRight)
+    void s_stepTurn()
+    {
+        if (input & IN_LEFT) {
+            turnSpeed = X_MAX(turnSpeed - LARA_TURN_ACCEL, -LARA_TURN_SLOW);
+        } else if (input & IN_RIGHT) {
+            turnSpeed = X_MIN(turnSpeed + LARA_TURN_ACCEL, LARA_TURN_SLOW);
+        }
+    }
+
     S_HANDLER( STATE_STEP_RIGHT )
     {
         if (s_checkDeath(STATE_STOP))
             return;
-            
-        if ((input & (IN_WALK | IN_RIGHT)) != (IN_WALK | IN_RIGHT))
-        {
+
+        if (!(input & IN_STEP_RIGHT)) {
             goalState = STATE_STOP;
         }
+        s_stepTurn();
     }
 
     S_HANDLER( STATE_STEP_LEFT )
     {
         if (s_checkDeath(STATE_STOP))
             return;
-            
-        if ((input & (IN_WALK | IN_LEFT)) != (IN_WALK | IN_LEFT))
-        {
+
+        if (!(input & IN_STEP_LEFT)) {
             goalState = STATE_STOP;
         }
+        s_stepTurn();
     }
 
     S_HANDLER( STATE_ROLL_END )
@@ -1005,7 +1013,7 @@ struct Lara : ItemObj
 
         s_ignoreEnemy();
 
-        if (!(input & IN_LEFT)) {
+                if (!(input & (IN_LEFT | IN_STEP_LEFT))) {
             goalState = STATE_HANG;
         }
     }
@@ -1016,7 +1024,7 @@ struct Lara : ItemObj
 
         s_ignoreEnemy();
 
-        if (!(input & IN_RIGHT)) {
+                if (!(input & (IN_RIGHT | IN_STEP_RIGHT))) {
             goalState = STATE_HANG;
         }
     }
@@ -1048,9 +1056,11 @@ struct Lara : ItemObj
             goalState = STATE_SURF_SWIM;
         } else if (input & IN_DOWN) {
             goalState = STATE_SURF_BACK;
-        } else if ((input & (IN_WALK | IN_LEFT)) == (IN_WALK | IN_LEFT)) {
+                }
+
+        if (input & IN_STEP_LEFT) {
             goalState = STATE_SURF_LEFT;
-        } else if ((input & (IN_WALK | IN_RIGHT)) == (IN_WALK | IN_RIGHT)) {
+        } else if (input & IN_STEP_RIGHT) {
             goalState = STATE_SURF_RIGHT;
         }
 
@@ -1203,14 +1213,26 @@ struct Lara : ItemObj
         vSpeed = X_MIN(vSpeed + LARA_SURF_ACCEL, LARA_SURF_SPEED_MAX);    
     }
 
+        // swimming sideways at the surface she turns at half the slow rate
+    // (retail's LaraAsSurfLeft and LaraAsSurfRight)
+    void s_surfSideTurn()
+    {
+        if (input & IN_LEFT) {
+            angle.y -= LARA_TURN_SLOW / 2;
+        } else if (input & IN_RIGHT) {
+            angle.y += LARA_TURN_SLOW / 2;
+        }
+    }
+
     S_HANDLER( STATE_SURF_LEFT )
     {
         if (s_checkDeath(STATE_DEATH_UW))
             return;
 
-        extraL->swimTimer = 0;
+                extraL->swimTimer = 0;
 
-        if ((input & (IN_WALK | IN_LEFT)) != (IN_WALK | IN_LEFT)) {
+        s_surfSideTurn();
+        if (!(input & IN_STEP_LEFT)) {
             goalState = STATE_SURF_TREAD;
         }
 
@@ -1222,9 +1244,10 @@ struct Lara : ItemObj
         if (s_checkDeath(STATE_DEATH_UW))
             return;
 
-        extraL->swimTimer = 0;
+                extraL->swimTimer = 0;
 
-        if ((input & (IN_WALK | IN_RIGHT)) != (IN_WALK | IN_RIGHT)) {
+        s_surfSideTurn();
+        if (!(input & IN_STEP_RIGHT)) {
             goalState = STATE_SURF_TREAD;
         }
 
@@ -2701,13 +2724,22 @@ struct Lara : ItemObj
             if (keys & IK_R) input |= IN_WALK;
         }
     #elif defined(__32X__) || defined(__SATURN__)
-        // 6 buttons
-        if (keys & IK_A) input |= IN_ACTION;
-        if (keys & IK_B) input |= IN_JUMP;
-        if (keys & IK_C) input |= IN_WEAPON;
-        if (keys & IK_X) input |= IN_WALK;
-        if (keys & IK_Y) input |= IN_UP | IN_DOWN;
-        if (keys & IK_Z) input |= IN_LOOK;
+        // retail's Control Method 1 (S_UpdateInput 060374b4, its table at
+        // 0x060637fc); in the menus A and C choose, B goes back
+        if (inventory.state != INV_STATE_NONE)
+        {
+            if (keys & (IK_A | IK_C)) input |= IN_ACTION;
+            if (keys & IK_B) input |= IN_JUMP;
+        } else {
+            if (keys & IK_A) input |= IN_JUMP;
+            if (keys & IK_B) input |= IN_ACTION;
+            if (keys & IK_C) input |= IN_WEAPON;
+            if (keys & IK_X) input |= IN_STEP_LEFT;
+            if (keys & IK_Y) input |= IN_LOOK;
+            if (keys & IK_Z) input |= IN_STEP_RIGHT;
+            if (keys & IK_L) input |= IN_WALK;
+            if (keys & IK_R) input |= IN_ROLL;
+        }
     #elif defined(__GBA__) || defined(__GBA_WIN__)
         int32 ikA, ikB;
 
