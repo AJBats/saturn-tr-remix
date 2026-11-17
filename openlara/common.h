@@ -1875,6 +1875,7 @@ struct ItemObj
     void meshSwap(ItemType type, uint32 mask);
 
     ItemObj* init(Room* room);
+    ItemObj* create(Room* room);
 
     X_INLINE ItemObj() {}
     ItemObj(Room* room);
@@ -2758,7 +2759,8 @@ struct Progress
 {
     StartInfo starts[LVL_MAX];
     uint8 position;
-    uint8 pad[3];
+    uint8 bonus;        // the game finished: the bonus game (retail's 0x06092491, saved with the rest)
+    uint8 pad[2];
 };
 
 // The file in backup RAM: the level played's header (cleared at each

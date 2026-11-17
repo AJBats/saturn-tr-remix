@@ -1710,9 +1710,9 @@ struct Inventory
             const ExtraInfoLara* e = lara->extraL;
             switch (slot)
             {
-                case SLOT_SHOTGUN       : ammoString(buf, e->ammo[WEAPON_SHOTGUN] / 6, 5, 'A'); break;
-                case SLOT_MAGNUMS       : ammoString(buf, e->ammo[WEAPON_MAGNUMS], 5, 'B'); break;
-                case SLOT_UZIS          : ammoString(buf, e->ammo[WEAPON_UZIS], 5, 'C'); break;
+                case SLOT_SHOTGUN       : if (!gProgress.bonus) ammoString(buf, e->ammo[WEAPON_SHOTGUN] / 6, 5, 'A'); break;
+                case SLOT_MAGNUMS       : if (!gProgress.bonus) ammoString(buf, e->ammo[WEAPON_MAGNUMS], 5, 'B'); break;
+                case SLOT_UZIS          : if (!gProgress.bonus) ammoString(buf, e->ammo[WEAPON_UZIS], 5, 'C'); break;
                 case SLOT_AMMO_SHOTGUN  :
                 case SLOT_AMMO_MAGNUMS  :
                 case SLOT_AMMO_UZIS     : ammoString(buf, counts[slot] * 2, 0, 0); break;
@@ -1886,12 +1886,27 @@ void startInfoModify(LevelID id)
         s.gun = WEAPON_NONE;
         s.available = available;
     }
+
+    // the bonus game: every gun with 1234 rounds, the uzis to hand (retail's
+    // ModifyStartInfo, 0602c0ec, past the Gym)
+    if (gProgress.bonus && id != LVL_TR1_GYM)
+    {
+        s.guns = (1 << WEAPON_NONE) - 1;
+        s.ammo[WEAPON_MAGNUMS] = s.ammo[WEAPON_UZIS] = s.ammo[WEAPON_SHOTGUN] = 1234;
+        s.gun = WEAPON_UZIS;
+    }
 }
 
 // A new game (retail's InitialiseStartInfo, 0602c088): every level's start
 // as a new game gives it, the Gym and the Caves the only ones reached.
 void startInfoNewGame()
 {
+    if (gProgress.bonus)
+    {
+        gProgress.position = 0;
+        return;
+    }
+
     memset(&gProgress, 0, sizeof(gProgress));
     for (int32 i = 0; i < LVL_MAX; i++)
     {

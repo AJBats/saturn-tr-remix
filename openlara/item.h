@@ -1591,7 +1591,19 @@ void ItemObj::meshSwap(ItemType type, uint32 mask)
     }
 }
 
+// The item's own object; in the bonus game a creature has twice its hit
+// points (retail's InitialiseItem doubles every item's before its own
+// initialise, which puts Lara's back to 1000).
 ItemObj* ItemObj::init(Room* room)
+{
+    ItemObj* item = create(room);
+    if (gProgress.bonus && item->health > 0 && type != ITEM_LARA) {
+        item->health *= 2;
+    }
+    return item;
+}
+
+ItemObj* ItemObj::create(Room* room)
 {
     #define INIT_ITEM(type, className) case ITEM_##type : return new (this) className(room)
 

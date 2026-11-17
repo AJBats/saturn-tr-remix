@@ -319,8 +319,9 @@ void drawHUD(Lara* lara)
         renderBar(x, y, 100, v, BAR_HEALTH);
     }
 
-    // the rounds of the gun drawn, but the pistols' (retail's DrawAmmoInfo, 06015f8c)
-    if (lara->extraL->weaponState == WEAPON_STATE_READY)
+    // the rounds of the gun drawn, but the pistols', and none in the bonus
+    // game (retail's DrawAmmoInfo, 06015f8c)
+    if (lara->extraL->weaponState == WEAPON_STATE_READY && !gProgress.bonus)
     {
         const ExtraInfoLara* e = lara->extraL;
         char buf[16];

@@ -42,6 +42,15 @@ void nextLevel(LevelID next)
         gStatsDue = true;
     }
 
+    // the Pyramid finished: the bonus game from now, offered to save
+    // (retail's stats screen sets the flag, then the save prompt)
+    if (gLevelID == LVL_TR1_10C && next > gLevelID && next < LVL_LOAD)
+    {
+        gProgress.bonus = 1;
+        gProgress.position = 0;
+        gSavePromptDue = true;
+    }
+
     if (next > gLevelID && next <= LVL_TR1_10C)
     {
         if (isPlayLevel(gLevelID) && gLevelID != LVL_TR1_GYM && players[0])

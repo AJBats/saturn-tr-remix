@@ -318,7 +318,8 @@ static void printLara(int32 tick)
                 printf(" %d:%d", i, inventory.counts[i]);
             }
         }
-        printf(" rounds %d %d %d %d\n", lara->extraL->ammo[0], lara->extraL->ammo[1], lara->extraL->ammo[2], lara->extraL->ammo[3]);
+        printf(" rounds %d %d %d %d%s\n", lara->extraL->ammo[0], lara->extraL->ammo[1], lara->extraL->ammo[2], lara->extraL->ammo[3],
+               gProgress.bonus ? " bonus" : "");
     }
     if (getenv("GUNS"))     // GUNS=1: her weapon, its state and her target
     {

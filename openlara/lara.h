@@ -3097,8 +3097,8 @@ struct Lara : ItemObj
     bool weaponFire(const ExtraInfoLara::Arm* arm)
     {
         int16 &ammo = extraL->ammo[extraL->weapon];
-        if (extraL->weapon == WEAPON_PISTOLS) {
-            ammo = 1000;
+        if (extraL->weapon == WEAPON_PISTOLS || gProgress.bonus) {
+            ammo = 1000;    // the pistols never run out, nor any gun in the bonus game
         }
         bool fired = false;
 
