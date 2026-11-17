@@ -3661,7 +3661,7 @@ word. Of the same kind and already open: 264, 265, 266.
 ## Closed
 
 ### 2. Great Pyramid: the Scion can't be destroyed, so the exit never opens
-*Closed 2026-11-17: Scion3 (retail's Scion3Control): targetable 5 hit points, its death runs the trigger under it, bursts with -200 bounces; door 116 opens. Host and Mednafen (room 50, 2:5).*
+*Closed 2026-11-17: 11c7690. Scion3 (retail's Scion3Control): targetable 5 hit points, its death runs the trigger under it, bursts with -200 bounces; door 116 opens. Host and Mednafen (room 50, 2:5).*
 
 *Severity: gameplay (blocks the ending) · Confidence: confirmed · Fix: medium ·
 Audit: LVL-2*
