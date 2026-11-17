@@ -4,6 +4,7 @@
 
 #include "backup.h"
 #include "system.h"
+#include "common.h"
 
 #include <string.h>
 
@@ -45,24 +46,21 @@ struct BupStub
     int32_t (*dir)(uint32_t device, const char* filename, uint32_t count, BupDir* dirs);
 };
 
-static uint32_t gLibrary[4096];
-static uint32_t gWork[2048];
+// The library's 16 KB and its 8 KB of work, at the top of low work RAM
+// (common.h BACKUP_WORK_ADDR): copied there at each use, as a video between
+// levels may have been there since.
 static BupStub* gStub;
-static bool gInternal;
 
 static bool init()
 {
-    if (gStub)
-        return gInternal;
-
+    uint32_t* area = (uint32_t*)BACKUP_WORK_ADDR;
     BupConfig config[3];
     smpcCommand(SMPC_RESDISA);
-    BUP_INIT(gLibrary, gWork, config);
+    BUP_INIT(area, area + 4096, config);
     smpcCommand(SMPC_RESENAB);
 
     gStub = BUP_VECTORS;
-    gInternal = config[0].unit != 0;
-    return gInternal;
+    return config[0].unit != 0;
 }
 
 // size of the named file, or -1

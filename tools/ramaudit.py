@@ -11,7 +11,10 @@ reads what os.cpp took for it:
   a room's faces are where its RoomData points); the rest stay in low work
   RAM, where the slave reads them slower;
   low work RAM: the level's file, its room texture set, the colour tables'
-  other versions and the inventory's item textures (osLoadLevel).
+  other versions and the inventory's item textures (osLoadLevel), then
+  the creatures' path cells and, with all the rest, the pool of changeable
+  sectors (gameLoadLevel): what that pool leaves unused is the level's
+  spare low work RAM.
 
 Before that, the program's own high work RAM from its ELF: code and data,
 bss (its biggest buffers), the arena and the stack.
@@ -35,7 +38,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SIZE = os.path.join(ROOT, 'toolchain', 'gcc-14.2.0', 'sh2eb-elf', 'bin', 'sh2eb-elf-size')
 KB = 1024
 HWRAM_TOP = 0x06100000
-LWRAM, LWRAM_BYTES = 0x00200000, 1024 * KB
+SECTOR_SIZE = 8             # openlara Sector
+NO_ROOM = 0xFF
 MASTER_STACK = 8 * KB       # os.cpp
 ROOM_SIZE, ROOM_QUADS = 64, 12  # openlara Room, its data.quads
 
@@ -74,14 +78,17 @@ def program(elf, syms, top):
     return arena_start, arena
 
 
-def rooms_placed(med, rooms, name):
-    """The level's rooms (its packed file's count) and how many have their
-    faces in high work RAM."""
+def rooms_placed(med, rooms, ranks, name):
+    """The rooms the packer ranked for high work RAM (level.roomsHigh, up to
+    NO_ROOM: a flipped room shares its pair's place, and so isn't ranked),
+    how many of them have their faces there, and the level's rooms."""
     with open(os.path.join(ROOT, 'build', 'data', name + '.PKD'), 'rb') as f:
         count = struct.unpack('>6xH', f.read(8))[0]     # pack_level's header: 'SAT1', 0, rooms
     data = med.read(rooms, ROOM_SIZE * count)
-    placed = sum(struct.unpack_from('>I', data, ROOM_SIZE * i + ROOM_QUADS)[0] >> 24 == 0x06 for i in range(count))
-    return placed, count
+    order = med.read(struct.unpack('>I', med.read(ranks, 4))[0], count)
+    ranked = list(order[:order.index(NO_ROOM)] if NO_ROOM in order else order)
+    placed = sum(struct.unpack_from('>I', data, ROOM_SIZE * i + ROOM_QUADS)[0] >> 24 == 0x06 for i in ranked)
+    return placed, len(ranked), count
 
 
 def main():
@@ -103,15 +110,18 @@ def main():
     arena_start, arena = program(elf, syms, args.top)
 
     high_free = capture.symbol(syms, '__ZL9gHighFree')
-    low_free = capture.symbol(syms, '__ZL8gLowFree')
+    dyn_count = capture.symbol(syms, '_dynSectorsCount')
+    dyn_max = capture.symbol(syms, '_dynSectorsMax')
     rooms = capture.symbol(syms, '_rooms')
+    level = syms['_level'][0]
+    ranks = level[0] + level[1] - 4    # level.roomsHigh, Level's last field
     next_level = capture.symbol(syms, '_gNextLevel')
     level_id = capture.symbol(syms, '_gLevelID')
     skip = capture.symbol(syms, '__ZL10gSkipVideo')
     frames = capture.symbol(syms, '_gStats') + 24     # gStats.frames: the game's frames drawn
 
     print()
-    print('Each level (KB):          arena used  left   rooms\' faces placed   low work RAM used  left')
+    print('Each level (KB):          arena used  left   ranked rooms placed (all)   changeable sectors  low work RAM spare')
     med = capture.Mednafen(os.path.join(ROOT, args.build, 'disc', 'tomb.cue'), name='ramaudit')
     try:
         med.send('deterministic', 'deterministic', 10)
@@ -138,12 +148,13 @@ def main():
             frame += 240
             med.send(f'run_to_frame {frame}', 'done run_to_frame', 900)
             high = struct.unpack('>I', med.read(high_free, 4))[0] - arena_start
-            low = struct.unpack('>I', med.read(low_free, 4))[0] - LWRAM
-            placed, count = rooms_placed(med, rooms, name)
-            faces = f'{placed:3d} of {count:3d}'
-            note = '' if placed == count else '  some in low work RAM'
-            print(f'  {name:8s} (id {lid:2d})        {high / KB:6.1f} {(arena - high) / KB:6.1f}   {faces:>16s}   '
-                  f'       {low / KB:6.1f} {(LWRAM_BYTES - low) / KB:6.1f}{note}', flush=True)
+            used = struct.unpack('>i', med.read(dyn_count, 4))[0]
+            pool = struct.unpack('>i', med.read(dyn_max, 4))[0]
+            placed, ranked, count = rooms_placed(med, rooms, ranks, name)
+            faces = f'{placed:3d} of {ranked:3d} ({count:3d})'
+            note = '' if placed == ranked else '  ranked rooms in low work RAM'
+            print(f'  {name:8s} (id {lid:2d})        {high / KB:6.1f} {(arena - high) / KB:6.1f}   {faces:>22s}   '
+                  f'   {used:5d} of {pool:5d}   {(pool - used) * SECTOR_SIZE / KB:6.1f}{note}', flush=True)
     finally:
         med.quit()
 

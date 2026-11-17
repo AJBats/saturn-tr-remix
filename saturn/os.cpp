@@ -14,13 +14,31 @@
 #include "trace.h"
 #include "vram.h"
 
-// Packed levels load into low work RAM, which nothing else uses.
+// Packed levels load into low work RAM, which nothing else uses: the pack,
+// its texture set, then what the game asks for (osLowAlloc), under the save
+// library's work area (common.h).
 #define LEVEL_ADDR  ((uint8*)0x00200000)
-#ifdef HW_LOG
-#define LEVEL_MAX   (LOW_RAM_TOP - uint32(LEVEL_ADDR) - ENEMIES_EXTRA_BYTES)
-#else
-#define LEVEL_MAX   (LOW_RAM_TOP - uint32(LEVEL_ADDR) - ENEMIES_EXTRA_BYTES)
-#endif
+#define LEVEL_MAX   (BACKUP_WORK_ADDR - uint32(LEVEL_ADDR))
+
+static uint8* gLowFree;     // the low work RAM the level leaves, from here to BACKUP_WORK_ADDR
+
+void* osLowAlloc(uint32 bytes)
+{
+    bytes = (bytes + 15) & ~15;
+    if (bytes > osLowLeft())
+    {
+        crashLog("LOWRAM", bytes);
+        while (1);  // TODO error screen
+    }
+    uint8* p = gLowFree;
+    gLowFree += bytes;
+    return p;
+}
+
+uint32 osLowLeft()
+{
+    return BACKUP_WORK_ADDR - uint32(gLowFree);
+}
 
 // The size of DATA/<name><ext>, or 0 if the disc has none.
 static uint32 fileSize(const char* name, const char* ext)
@@ -326,6 +344,7 @@ const void* osLoadLevel(LevelID id)
     uint8* subData = LEVEL_ADDR + levelSize;
     uint32 subSize = loadOrHalt(name, ".SUB", subData, LEVEL_MAX - levelSize);
     detailInit(VRAM_TEX_BASE + texSize, subData, subSize);
+    gLowFree = (uint8*)((uint32(subData) + subSize + 15) & ~15);
 
     // a floor and ceiling on VDP2, if the level has them: straight to bank B
     uint32 planeCells = fileSize(name, ".PLC");

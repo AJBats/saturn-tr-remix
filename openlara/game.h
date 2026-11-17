@@ -12,6 +12,7 @@
 
 EWRAM_DATA LevelID gNextLevel = LVL_MAX;
 EWRAM_DATA uint32 gLevelStarts;     // levels, saves and cutscenes started: the clock restarts after each
+EWRAM_DATA Nav::Cell* gLaraNavCells;  // the players' path searches' cells, a level's boxes each (gameLoadLevel)
 static bool gSavePromptDue;     // the level's end asks "Save Game?" before the next loads
 static bool gStatsDue;          // and before that shows the finished level's statistics
 EWRAM_DATA LevelStats gLevelStats;
@@ -240,6 +241,19 @@ void gameLoadLevel(const void* data)
     gCurTrack = -1;
 
     readLevel((uint8*)data);
+
+    // from the low work RAM the level leaves: the creatures' and Lara's path
+    // searches (hers follows water currents), a cell a box each, then all the
+    // rest for the rooms' changeable sectors
+    Nav::Cell* cells = (Nav::Cell*)osLowAlloc((MAX_ENEMIES + MAX_PLAYERS) * level.boxesCount * sizeof(Nav::Cell));
+    for (int32 i = 0; i < MAX_ENEMIES; i++) {
+        enemiesExtra[i].nav.cells = cells + i * level.boxesCount;
+    }
+    gLaraNavCells = cells + MAX_ENEMIES * level.boxesCount;
+    dynSectorsCount = 0;
+    dynSectorsMax = int32(osLowLeft() / sizeof(Sector));
+    dynSectors = (Sector*)osLowAlloc(dynSectorsMax * sizeof(Sector));
+
     setEffect(FX_NONE, NULL);
     soundLoopsStop();
 

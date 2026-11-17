@@ -1,5 +1,7 @@
 """Every level loaded and run a while in Mednafen from one disc: frames moving, stats, a picture, no crash.
-python -I tools/levelsmoke.py DISC ELF NAME [FIRST_ID LAST_ID]"""
+python -I tools/levelsmoke.py DISC ELF NAME [FIRST_ID LAST_ID]
+The disc must start in a level (make disc HW_LOG=1 START_LEVEL=LVL_TR1_GYM): the
+title's ring holds a level asked for until it closes. Each level's videos are skipped."""
 import bisect
 import os
 import re
@@ -46,7 +48,10 @@ m = Mednafen(f'{disc}/tomb.cue', 'ls' + name[-6:])
 frame = 2600
 try:
     m.send(f'run_to_frame {frame}', 'done run_to_frame', 1200)
+    if word(m, S['_gLevelID']) == 0:
+        sys.exit('the disc is at the title: build it with START_LEVEL (see above)')
     for level in range(first, last + 1):
+        m.send(f'poke {S["__ZL10gSkipVideo"]:x} 1', 'ok poke', 10)
         m.send(f'poke {S["_gNextLevel"]:x} 0 0 0 {level:x}', 'ok poke', 10)
         f0 = stats(m)[6]
         moved = False
@@ -69,7 +74,9 @@ try:
         if os.path.exists(path):
             os.replace(path, path + '.old')
         m.send(f'screenshot {path}', 'screenshot', 30)
-        print(f'level {level:2}: {"ok " if moved else "NOT MOVING"} now {word(m, S["_gLevelID"]):2} frames {s[6]:6} cpu {s[2] * TICK_MS:5.1f} slave {s[15] * TICK_MS:5.1f} vdp1 {s[10] * TICK_MS:5.1f} rooms {s[18]:2} roomv {s[14]:4} high left? master {named(pc)[:40]} slave {named(spc)[:40]}', flush=True)
+        # changeable sectors used of what the level's low work RAM leaves
+        dyn = f'dyn {word(m, S["_dynSectorsCount"])}/{word(m, S["_dynSectorsMax"])} ' if '_dynSectorsMax' in S else ''
+        print(f'level {level:2}: {"ok " if moved else "NOT MOVING"} now {word(m, S["_gLevelID"]):2} frames {s[6]:6} cpu {s[2] * TICK_MS:5.1f} slave {s[15] * TICK_MS:5.1f} vdp1 {s[10] * TICK_MS:5.1f} rooms {s[18]:2} roomv {s[14]:4} {dyn}master {named(pc)[:40]} slave {named(spc)[:40]}', flush=True)
         if 'crash' in named(pc) or 'crash' in named(spc):
             print('  CRASHED')
             break

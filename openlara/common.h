@@ -491,7 +491,6 @@ extern uint8* vramPtr;
     #define OL_CONTROLS
 #endif
 
-#define MAX_DYN_SECTORS     (1024*3 + 256)  // Atlantis takes 3084 at its start
 #define MAX_SAMPLES         180
 
 #ifndef VIEW_DIST
@@ -1549,7 +1548,7 @@ struct Nav
         uint16 next;
     };
 
-    Cell cells[MAX_BOXES];
+    Cell* cells;        // level.boxesCount of them, in low work RAM (gameLoadLevel)
     uint32 cellsCount;
 
     uint32 zoneType;
@@ -1763,6 +1762,12 @@ struct ExtraInfoEnemy
 
 #define ENEMIES_EXTRA_BYTES (((MAX_ENEMIES * sizeof(ExtraInfoEnemy)) + 15) & ~15u)
 #define LOW_RAM_TOP         (0x00300000 - 256)  // the trace's header above (saturn/trace.cpp)
+
+// Low work RAM from the top down: the trace's header, the creatures' AI
+// slots, the save library's work area (saturn/backup.cpp, only while it's
+// used), then what the level's pack and texture set leave (osLowAlloc).
+#define BACKUP_WORK_BYTES   (24 * 1024)
+#define BACKUP_WORK_ADDR    (LOW_RAM_TOP - ENEMIES_EXTRA_BYTES - BACKUP_WORK_BYTES)
 
 struct ItemObj
 {
@@ -3242,6 +3247,12 @@ void osPlaceRooms(); // the rooms' vertices in high work RAM, where the DSP read
 // the rest staying in low work RAM; after a flip map, the faces flipped into
 // a room with a place there move into it (osRoomFacesFlipped).
 void* osHighAlloc(uint32 bytes);
+void* osLowAlloc(uint32 bytes);     // from the low work RAM the level leaves, all of it again for the next
+uint32 osLowLeft();
+extern Sector* dynSectors;          // the rooms' changeable sectors (Room::modify), in low work RAM
+extern Nav::Cell* gLaraNavCells;
+extern int32 dynSectorsCount;
+extern int32 dynSectorsMax;
 const void* osMeshStore();
 void osPlaceRoomFaces();
 void osRoomFacesFlipped();

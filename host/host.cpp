@@ -67,7 +67,26 @@ char* itoa(int value, char* str, int base)
 // (enemy.h enemiesExtra), so the game's addresses are the Saturn's.
 #define LOW_RAM     0x00200000
 #define LEVEL_ADDR  ((uint8*)LOW_RAM)
-#define LEVEL_MAX   (LOW_RAM_TOP - uint32(LOW_RAM) - ENEMIES_EXTRA_BYTES)
+#define LEVEL_MAX   (BACKUP_WORK_ADDR - uint32(LOW_RAM))
+
+static uint8* gLowFree;     // as saturn/os.cpp's: what the level leaves of low work RAM
+
+void* osLowAlloc(uint32 bytes)
+{
+    bytes = (bytes + 15) & ~15;
+    if (bytes > osLowLeft()) {
+        fprintf(stderr, "low work RAM: %u bytes more than the level leaves\n", bytes);
+        exit(1);
+    }
+    uint8* p = gLowFree;
+    gLowFree += bytes;
+    return p;
+}
+
+uint32 osLowLeft()
+{
+    return BACKUP_WORK_ADDR - uint32(gLowFree);
+}
 
 static const char* gDataDir = ".";
 
@@ -91,6 +110,7 @@ const void* osLoadLevel(LevelID id)
     }
     size_t n = fread(LEVEL_ADDR, 1, LEVEL_MAX, f);
     fclose(f);
+    gLowFree = LEVEL_ADDR + ((n + 15) & ~15);
     if (n == LEVEL_MAX) {
         fprintf(stderr, "%s is bigger than low work RAM leaves\n", path);
         exit(1);
@@ -511,7 +531,7 @@ int main(int argc, char** argv)
         listItems();
     }
     if (getenv("DYN")) {
-        printf("dynamic sectors %d of %d\n", dynSectorsCount, MAX_DYN_SECTORS);
+        printf("dynamic sectors %d of %d\n", dynSectorsCount, dynSectorsMax);
     }
     fprintf(stderr, "%d ticks in %.3f s: %.0f ticks a second\n", ticks, s, s > 0 ? ticks / s : 0.0);
     return 0;

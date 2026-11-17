@@ -2670,6 +2670,7 @@ struct Lara : ItemObj
 
         extraL = &playersExtra[playerIndex];
         memset(extraL, 0, sizeof(*extraL));
+        extraL->nav.cells = gLaraNavCells + playerIndex * level.boxesCount;
         extraL->hitQuadrant = -1;
 
         // her guns and ammo from what she brought (retail's

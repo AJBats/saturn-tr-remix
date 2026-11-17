@@ -142,10 +142,6 @@ uint8* pushToVRAM(uint8* ptr, Model* model)
 
 void readLevel(const uint8* data)
 {
-//#ifdef ROM_READ
-    dynSectorsCount = 0;
-//#endif
-
     memset(&level, 0, sizeof(level));
 
     gAnimTexFrame = 0;

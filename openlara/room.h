@@ -6,8 +6,9 @@
 EWRAM_DATA Room* roomsList[MAX_ROOM_LIST];
 
 //#ifdef ROM_READ
+EWRAM_DATA Sector* dynSectors;
 EWRAM_DATA int32 dynSectorsCount;
-EWRAM_DATA Sector dynSectors[MAX_DYN_SECTORS];   // EWRAM 8k
+EWRAM_DATA int32 dynSectorsMax;
 //#endif
 
 const Sector* Sector::getSectorBelow(int32 posX, int32 posZ) const
@@ -430,7 +431,7 @@ bool Room::modify()
     if (sectors == data.sectors)
     {
         int32 count = info->xSectors * info->zSectors;
-        if (dynSectorsCount + count > MAX_DYN_SECTORS)
+        if (dynSectorsCount + count > dynSectorsMax)
             return false;
 
         sectors = dynSectors + dynSectorsCount;
