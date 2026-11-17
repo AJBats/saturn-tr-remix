@@ -83,6 +83,9 @@ endif
 ifdef HW_LOG
 CFLAGS  += -DHW_LOG     # testing on hardware: the boot log, stats, measurements and frame trace on screen
 endif
+ifdef RETAIL_CONTROLS
+CFLAGS  += -DRETAIL_CONTROLS    # with HW_LOG: retail's pad layout, not OpenLara's the debug builds keep
+endif
 ifdef SYNC_TEST
 CFLAGS  += -DSYNC_TEST  # testing, with HW_LOG: the CPUs' synchronisation test at boot (synctest.cpp)
 endif

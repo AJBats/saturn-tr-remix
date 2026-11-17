@@ -484,6 +484,13 @@ extern uint8* vramPtr;
 #define MAX_PORTALS         16
 #define MAX_CAUSTICS        32
 #define MAX_RAND_TABLE      32
+// Debug (HW_LOG) builds keep OpenLara's pad layout, so the debug menu works
+// as it always has; release builds have retail's Control Method 1. make
+// RETAIL_CONTROLS=1 gives a debug build retail's too.
+#if defined(HW_LOG) && !defined(RETAIL_CONTROLS)
+    #define OL_CONTROLS
+#endif
+
 #define MAX_DYN_SECTORS     (1024*3 + 256)  // Atlantis takes 3084 at its start
 #define MAX_SAMPLES         180
 

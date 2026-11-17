@@ -2736,6 +2736,24 @@ struct Lara : ItemObj
             if (keys & IK_L) input |= IN_LOOK;
             if (keys & IK_R) input |= IN_WALK;
         }
+    #elif (defined(__32X__) || defined(__SATURN__)) && defined(OL_CONTROLS)
+        // OpenLara's layout, which debug builds keep for the debug menu: A
+        // Action, B jump, C draw, X walk (with left or right and no forward
+        // or back a sidestep), Y roll, Z look; the shoulders are the overlay's
+        if (keys & IK_A) input |= IN_ACTION;
+        if (keys & IK_B) input |= IN_JUMP;
+        if (keys & IK_C) input |= IN_WEAPON;
+        if (keys & IK_X) input |= IN_WALK;
+        if (keys & IK_Y) input |= IN_ROLL;
+        if (keys & IK_Z) input |= IN_LOOK;
+        if ((keys & IK_X) && !(keys & (IK_UP | IK_DOWN)))
+        {
+            if (keys & IK_LEFT) {
+                input |= IN_STEP_LEFT;
+            } else if (keys & IK_RIGHT) {
+                input |= IN_STEP_RIGHT;
+            }
+        }
     #elif defined(__32X__) || defined(__SATURN__)
         // retail's Control Method 1 (S_UpdateInput 060374b4, its table at
         // 0x060637fc); in the menus A and C choose, B goes back
@@ -2815,6 +2833,10 @@ struct Lara : ItemObj
         if (keys & IK_UP)      input |= IN_UP;
         if (keys & IK_DOWN)    input |= IN_DOWN;
         if (keys & IK_SELECT)  input |= IN_SELECT;
+    #ifdef OL_CONTROLS
+        if (input & IN_STEP_LEFT)  input &= ~IN_LEFT;     // a sidestep, not a turn
+        if (input & IN_STEP_RIGHT) input &= ~IN_RIGHT;
+    #endif
 
         if (extraL->camera.mode == CAMERA_MODE_FREE) {
             input = 0;

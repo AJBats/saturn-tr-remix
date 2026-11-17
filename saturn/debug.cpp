@@ -6,11 +6,11 @@
 // there), and the menu is one of its pages, where its d-pad and A, B, C work
 // the menu too (Lara stands still).
 //
-// Also in HW_LOG builds: look (Y) held, a tap of R or L freezes the view, on
-// any page, whatever it's turned to the page after; Lara holds still with her
-// look held, the game runs on, the numbers are its own. A tap of Y lets go.
-// Y held, START freezes it and opens the page of occlusion stamps; START again
-// goes back and lets go.
+// Also in HW_LOG builds: look held (Z, or Y with RETAIL_CONTROLS), a tap of R
+// or L freezes the view, on any page, whatever it's turned to the page after;
+// Lara holds still with her look held, the game runs on, the numbers are its
+// own. A tap of look lets go. Look held, START freezes it and opens the page
+// of occlusion stamps; START again goes back and lets go.
 
 #include "debug.h"
 #include "common.h"
@@ -18,6 +18,14 @@
 #include "dsp.h"
 #include "hw.h"
 #include "slave.h"
+
+// the player's look button: OpenLara's Z in debug builds, retail's Y with
+// RETAIL_CONTROLS
+#ifdef OL_CONTROLS
+    #define IK_LOOK IK_Z
+#else
+    #define IK_LOOK IK_Y
+#endif
 #include "input.h"
 #include "overlay.h"
 #include "render.h"
@@ -90,7 +98,7 @@ static bool gMenuOpen;
 // and the occlusion stamps.
 enum OverlayPage { PAGE_BENCH, PAGE_FRAME, PAGE_STAGES, PAGE_MENU, PAGE_NONE, PAGE_PLAYBACK, PAGE_OCCLUDE, PAGE_COUNT };
 static int32 gPage;
-static int32 gPageBack;             // the page look (Y) and START left
+static int32 gPageBack;             // the page look and START left
 static bool gFrozen;                // the view: the game has only look held
 #ifdef HW_LOOK
 static volatile bool gLooking;      // a test disc for tools/hw.py, looking about by itself (Makefile)
@@ -165,15 +173,15 @@ uint32_t debugGameKeys(uint32_t pressed)
         pressed &= ~IK_SELECT;
     }
     pressed &= ~(IK_L | IK_R);      // the shoulders page the overlay: Lara can't walk or roll here
-    if (pressed & IK_Y) {
+    if (pressed & IK_LOOK) {
         pressed &= ~IK_SELECT;      // look and START is the page's
     }
 #ifdef HW_LOOK
     if (gLooking)
-        return IK_Y | HW_LOOK;
+        return IK_LOOK | HW_LOOK;
 #endif
     if (gFrozen)
-        return IK_Y;
+        return IK_LOOK;
     if (menuShown() || gPage == PAGE_OCCLUDE)
         return 0;
 #endif
@@ -187,20 +195,20 @@ void debugUpdate()
 
 #ifdef HW_LOG
     // the player's pad: its shoulder buttons are the overlay's (debugGameKeys
-    // keeps them from Lara), look (Y) with them freezes the view
+    // keeps them from Lara), look with them freezes the view
     static uint32 shoulders, held;
     uint32 pressed2 = keys & (IK_L | IK_R) & ~shoulders;
     uint32 rising = keys & ~held;
     held = keys;
     int32 was = gPage;
-    if ((keys & IK_Y) && (pressed2 & (IK_L | IK_R))) {
+    if ((keys & IK_LOOK) && (pressed2 & (IK_L | IK_R))) {
         gFrozen = true;
-    } else if (gFrozen && (rising & IK_Y)) {
+    } else if (gFrozen && (rising & IK_LOOK)) {
         gFrozen = false;
     }
     if (rising & IK_SELECT)
     {
-        if (keys & IK_Y)
+        if (keys & IK_LOOK)
         {
             gFrozen = true;
             if (gPage != PAGE_OCCLUDE) {
