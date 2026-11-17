@@ -84,8 +84,8 @@ order; the few of its bugs a player runs into are listed at the end.
 | 17 | 49. Jump+Draw while dead revives Lara at full health | small (closed) |
 | 18 | 24, 75. Twelve creature types run the timid mood (24 first: the flag they share) | small (closed) |
 | 19 | 74. Every triggered creature's collision radius becomes 0 | small (closed) |
-| 20 | 85. Natla's fight: no flight, rockets, sounds or music | large |
-| 21 | 86. Mutants: no flight, instant shots, no burst | large |
+| 20 | 85. Natla's fight: no flight, rockets, sounds or music | large (closed) |
+| 21 | 86. Mutants: no burst (flight done c2af101) | medium, with 213 |
 | 22 | 87. Centaurs don't burst (with 213) | medium |
 | 23 | 29. Button layout and control model | medium (closed) |
 | 24 | 30. Look works in every state and freezes Lara | small (closed) |
@@ -111,7 +111,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 44 | 88. The torso boss: no grab kill, wrong steering | medium (closed) |
 | 45 | 89. The T-rex walks without stopping | small (closed) |
 | 46 | 82. T-rex, centaurs, winged mutant ignore blockable boxes | small (closed) |
-| 47 | 83. Natla never re-aims her path | small |
+| 47 | 83. Natla never re-aims her path | small (closed) |
 | 48 | 81. Fleeing creatures don't turn back | small (closed) |
 | 49 | 62. Low creatures never stagger Lara | small (closed) |
 | 50 | 55. The shotgun's own animation scheme | medium |
@@ -763,36 +763,6 @@ AI-9*
   land crocodile or rat that enters water walks along the bottom, and dead water
   crocodiles stay down.
 
-### 83. Natla never re-aims her path at Lara
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-12*
-
-- **Retail:** Natla's smartness is 0x7FFF (object table).
-- **Ours:**
-  - The Natla constructor sets `aggression = 0` (`openlara/enemy.h:3140`), then
-    reuses the field as her stage flag (0 or 1).
-  - `moodAttack` (`enemy.h:269`) returns at once whenever rand ≥ aggression.
-- **Effect:** in stage 2 she runs to random boxes instead of at Lara.
-- **Fix:** use another field for the stage.
-
-### 85. Natla's fight is missing flight, rockets, sounds and music
-*Severity: gameplay · Confidence: confirmed · Fix: large · Audit: AI-13,
-SND-19*
-
-- **Retail:** NatlaControl (`0602500c`; TR1X `ai/natla.c`).
-  - **Stage 1:** she flies (fly speed 32) and fires a rocket every 30 frames.
-    She lands with a 1/128 chance per frame once she has a shot, and on the
-    ground fires 3 spread rockets. Each shot plays SFX 123.
-  - **Lying down:** her hit points are DONT_TARGET, so Lara can't target her.
-    Music track 54 plays when she rises, once the semi-death timer reaches 480.
-  - **Stage 2:** her shards do 30 damage and travel at 250 per frame.
-- **Ours:** `openlara/enemy.h` Natla.
-  - No flight. Her rockets and shards fly since issue 84 (f484e2d), and the
-    stage-two shards play SFX 123.
-  - Her health is held at 1, so Lara's guns still lock on (`lara.h:3763` only
-    skips health ≤ 0).
-  - No SFX 123 and no track 54.
-- **Needs:** 84 and 83.
-
 ### 86. Mutants: the winged one doesn't fly, shots are instant, they don't burst
 *Severity: gameplay · Confidence: confirmed · Fix: large · Audit: AI-14*
 
@@ -803,10 +773,10 @@ SND-19*
     Lara.
   - The shooter's smartness is 0x2000.
 - **Ours:** `openlara/enemy.h` Mutant.
-  - Ground only. Shards and rockets fly since issue 84 (f484e2d).
-  - On death it shows blood and the body vanishes (`enemy.h:2864-2875`).
-  - The shooter's smartness is 0x7FFF.
-- **Needs:** 84 and 213.
+  - Flight, the shooter's smartness and the aims follow FlyerControl since
+    c2af101. Shards and rockets fly since issue 84 (f484e2d).
+  - Left: on death it shows blood and the body vanishes (`Mutant::hit`).
+- **Needs:** 213.
 
 ### 87. Centaurs don't burst
 *Severity: gameplay · Confidence: confirmed · Fix: large (shared with 84, 213) ·
@@ -2775,6 +2745,40 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 85. Natla's fight is missing flight, rockets, sounds and music
+*Closed 2026-11-17: ported from retail, c2af101.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: large · Audit: AI-13,
+SND-19*
+
+- **Retail:** NatlaControl (`0602500c`; TR1X `ai/natla.c`).
+  - **Stage 1:** she flies (fly speed 32) and fires a rocket every 30 frames.
+    She lands with a 1/128 chance per frame once she has a shot, and on the
+    ground fires 3 spread rockets. Each shot plays SFX 123.
+  - **Lying down:** her hit points are DONT_TARGET, so Lara can't target her.
+    Music track 54 plays when she rises, once the semi-death timer reaches 480.
+  - **Stage 2:** her shards do 30 damage and travel at 250 per frame.
+- **Ours:** `openlara/enemy.h` Natla.
+  - No flight. Her rockets and shards fly since issue 84 (f484e2d), and the
+    stage-two shards play SFX 123.
+  - Her health is held at 1, so Lara's guns still lock on (`lara.h:3763` only
+    skips health ≤ 0).
+  - No SFX 123 and no track 54.
+- **Needs:** 84 and 83.
+
+### 83. Natla never re-aims her path at Lara
+*Closed 2026-11-17: ported from retail, c2af101.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-12*
+
+- **Retail:** Natla's smartness is 0x7FFF (object table).
+- **Ours:**
+  - The Natla constructor sets `aggression = 0` (`openlara/enemy.h:3140`), then
+    reuses the field as her stage flag (0 or 1).
+  - `moodAttack` (`enemy.h:269`) returns at once whenever rand ≥ aggression.
+- **Effect:** in stage 2 she runs to random boxes instead of at Lara.
+- **Fix:** use another field for the stage.
 
 ### 110. Dead flyers drift toward a stale waypoint
 *Closed 2026-11-17: ported from retail, 1e6b1dc.*
