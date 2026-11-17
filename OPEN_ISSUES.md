@@ -48,6 +48,118 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 
 The section at the very end lists the issues that need a decision first.
 
+## Burn-down order
+
+Set 2026-11-17: the order we fix them in, the biggest difference from retail
+first. Within a tier, the bigger effect on play goes first, and between equals,
+the smaller fix. An issue another needs goes before it. The rendering section's
+speed and memory work isn't a difference from retail and stays out of this
+order; the few of its bugs a player runs into are listed at the end.
+
+### Tier 1: the game can't be finished
+
+| Order | Issue | Fix |
+|---|---|---|
+| 1 | 1. Items that start hidden never appear (Mines fuse, pistols, boat...) | small |
+| 2 | 3. Thor's hammer tests the wrong sector (Folly) | small |
+| 3 | 4. Pushed and falling blocks never fall (Folly) | small |
+| 4 | 7. Trapdoors support the wrong second sector | small |
+| 5 | 5. Pierre drops only the scion; Tihocan's second key is missing | small |
+| 6 | 6. Atlantis doppelganger: wrong mirror point, no triggers, no death | small to medium |
+| 7 | 84. Enemy projectiles and the explosion effect (the Scion needs the explosion) | large |
+| 8 | 2. The Great Pyramid's Scion can't be destroyed | medium |
+
+### Tier 2: the rules of the game differ everywhere
+
+| Order | Issue | Fix |
+|---|---|---|
+| 9 | 53. Starting inventory from the GBA demo: fully armed in the Caves, keys carry over | medium |
+| 10 | 52. Unlimited ammo, no empty click | medium |
+| 11 | 144, 159. Ammo counts in the ring and on the HUD (after 52) | medium, small |
+| 12 | 113. Save crystals are disabled | medium |
+| 13 | 152. The passport and save model are the GBA ones | large |
+| 14 | 153. Saving asks nothing and confirms nothing | medium |
+| 15 | 154. You can save while dead | small |
+| 16 | 157. No automatic GAME OVER | small to medium |
+| 17 | 49. Jump+Draw while dead revives Lara at full health | small |
+| 18 | 24, 75. Twelve creature types run the timid mood (24 first: the flag they share) | small |
+| 19 | 74. Every triggered creature's collision radius becomes 0 | small |
+| 20 | 85. Natla's fight: no flight, rockets, sounds or music | large |
+| 21 | 86. Mutants: no flight, instant shots, no burst | large |
+| 22 | 87. Centaurs: instant rocket, no burst | large |
+| 23 | 29. Button layout and control model | medium |
+| 24 | 30. Look works in every state and freezes Lara | small |
+| 25 | 133. A key chosen away from a keyhole auto-inserts later | small |
+| 26 | 51. Switches, keyholes and blocks work with Lara's back turned | small |
+| 27 | 58. Shot hit test: targets 15% smaller | small |
+| 28 | 112. AI distances approximate; enemy gunfire's hit chance off | small |
+| 29 | 76. Wolf pounce inverted | small |
+| 30 | 77. "Lara is facing me" doesn't wrap the angle | small |
+| 31 | 54. Target dropped at death; retargets while Action held | small |
+| 32 | 120. Lara never catches fire | medium |
+| 33 | 119. Lava emitters throw nothing | medium |
+| 34 | 117. Lightning: nothing drawn, wrong radius, no flinch | medium |
+| 35 | 37. Currents don't pull at the surface | small |
+| 36 | 38, 39. Lava edge doesn't stop a walk; lava floors kill off the lava | small |
+| 37 | 42. Slide direction bugs | small |
+| 38 | 35. Surface swimming and climbing out are looser | small to medium |
+| 39 | 32. Underwater turning is slower and ramps up | small |
+| 40 | 122. Closed doors don't block in flipped rooms | medium |
+| 41 | 114. Boulders never reset | small |
+| 42 | 115. Centaur statues wake on proximity, don't shatter | small, medium |
+| 43 | 80, 78, 79. Crocodiles and rats: land and water forms, depth, pool bottom | medium |
+| 44 | 88. The torso boss: no grab kill, wrong steering | medium |
+| 45 | 89. The T-rex walks without stopping | small |
+| 46 | 82. T-rex, centaurs, winged mutant ignore blockable boxes | small |
+| 47 | 83. Natla never re-aims her path | small |
+| 48 | 81. Fleeing creatures don't turn back | small |
+| 49 | 62. Low creatures never stagger Lara | small |
+| 50 | 55. The shotgun's own animation scheme | medium |
+| 51 | 90, 92. Kold's long-range hit chance; the puma's hit points | small |
+| 52 | 102. Blocking isn't implemented | medium |
+| 53 | 201. 10 ticks run at once after every load | small |
+| 54 | 163. No level statistics; the level timer never counts | medium |
+| 55 | 156. The bonus game after finishing is missing | medium |
+
+### Tier 3: looks or sounds different all through
+
+In this order, by group:
+
+- **Sound:** 183 looped sounds never stop (reported in play: the Cistern's
+  flood) with 127's flood effect, then the rest of 127; 184 room sound sources
+  silent (waterfalls, lava); 178 underwater gating; 189 music after death; 188
+  inventory doesn't pause sound; 187 the Caves' track 5; 185 missing calls; 179
+  pan; 180 volume curve; 181 pitch wobble; 190, 191, 192, 193.
+- **Screens and HUD:** 158 health and air bars; 160 pickup notification; 215
+  fades; 161 FPS counter; 162 title screen; 145 options ring; 141 item poses;
+  142 compass; 143 medipack bar; 146, 147 labels; 164 FMV order; 165 ending;
+  167 cutscenes can't be skipped; 166 FMV skipping and fades; 168 soft reset.
+- **Camera:** 16 look-ats; 17 shake; 18 lava death; 22 camera after a load; 19
+  cutscene field of view; 21 CUT3's flip; 263 near faces; 262 near plane.
+- **Creatures and combat:** 213 exploding deaths (after 84); 116 egg shells;
+  212 doppelganger drawing; 65 gunmen's blood, sound and flash; 61 stagger
+  length; 64 blood; 67 gun flash; 71 rats chirp; 93-101 creature animation.
+- **Scene and objects:** 196 projection divide jitter; 210 flat-lit creatures;
+  208 shadows; 206 sprites in fog; 207 room sprites near the camera; 214 Midas
+  twinkles; 118 waterfall mist; 121 doors push Lara; 124, 125, 126 scion and
+  Midas cinematics; 129 draw right gun; 130 the Pyramid's earthquake.
+- **Lara:** 31 look treading water; 33 underwater pitch; 40 handstand; 43
+  step-down animation.
+
+### Tier 4: subtle numbers
+
+By area: camera 20, 24, 25, 27, 28; Lara 36, 41, 44-48, 50; weapons 57, 60,
+63, 66, 68, 72, 73; creatures 103-111; level 123, 128, 131, 132, 134-139;
+inventory and flow 148, 149, 151, 155, 169-173; audio 177, 182, 186, 194;
+numbers and timing 197-200, 202-204; scene 209, 211, 216-218.
+
+### Alongside: bugs a player runs into that aren't retail differences
+
+309 faces missing after a load (reported in play); 287 the T-rex's music on
+the Saturn; 310 the Cistern's spout; 292 Khamoon room 14 at 15 fps; 293 and
+255 the Cistern's slow spots; 280 the flooded Cistern from above; 296
+shimmers shrink; 286 low detail for a frame after the inventory.
+
 ---
 
 ## Progression blockers
@@ -406,7 +518,7 @@ CAM-22*
   of issues 251-252.
 
 ### 263. Near the camera retail splits faces in 3D, two levels deep; ours warps and leaves holes
-*Kind: visible · Size: medium · Fix: port from retail (`0603fce0`..`06040ec0`)*
+*Kind: visible Â· Size: medium Â· Fix: port from retail (`0603fce0`..`06040ec0`)*
 
 - **Retail:**
   - A room quad goes to the split path (`06040038`) when any corner is near the camera or over
@@ -438,7 +550,7 @@ CAM-22*
 - Takes in issues 252 and 262.
 
 ### 264. Room vertices could be freed room by room
-*Kind: memory, speed · Size: maybe tens of KB of high work RAM · Fix: to be costed*
+*Kind: memory, speed Â· Size: maybe tens of KB of high work RAM Â· Fix: to be costed*
 
 - `gRoomRotated` (12 bytes each, what the DSP rotates, 43.8 KB) and `gVertices` (8 bytes each, what the
   faces read, 44 KB with the meshes') hold every listed room's vertices for the frame, and a view
@@ -452,7 +564,7 @@ CAM-22*
   Not costed.
 
 ### 265. The backup library sits in high work RAM, 24 KB used only to save or load
-*Kind: memory · Size: 24 KB of high work RAM · Fix: small, one thing to test*
+*Kind: memory Â· Size: 24 KB of high work RAM Â· Fix: small, one thing to test*
 
 - `saturn/backup.cpp`: `gLibrary` 16 KB, where the BIOS copies its backup code and runs it from, and
   `gWork` 8 KB, its scratch. Neither is touched in play. Moved out, they would take a test disc's
@@ -463,7 +575,7 @@ CAM-22*
   (`BUP_INIT`, today once, `gStub` keeps it). Calling it twice is untested, in Mednafen and on the Saturn.
 
 ### 266. The saved game's buffer is bigger than any level's save
-*Kind: memory · Size: about 3 KB of high work RAM · Fix: small*
+*Kind: memory Â· Size: about 3 KB of high work RAM Â· Fix: small*
 
 - `gSaveFile` is 8 KB (`SAVEGAME_SIZE`, from OpenLara's GBA build). The Cistern's save is 2,750 bytes
   for its 109 items; the largest level, LEVEL10B, has 192, about 5 KB by scale.
@@ -471,7 +583,7 @@ CAM-22*
   `EnemySave` or `LaraSave`), over `level.itemsCount`. Size it from the levels, checked by the packer.
 
 ### 268. A mesh's face near the camera can walk thousands of lines off the frame
-*Kind: speed (VDP1) · Size: 9.97 ms of one list, Mednafen, one face that drew nothing · Fix: to be costed*
+*Kind: speed (VDP1) Â· Size: 9.97 ms of one list, Mednafen, one face that drew nothing Â· Fix: to be costed*
 
 - `tools/hwtest.sh valley-trex`, frame 1960: static 26, a tree: corners (319,-404) (998,-1024) (896,1023)
   (315,301), 2,048 lines, 103,395 pixels walked, 0 written. Coordinates are clamped at +-1024.
@@ -479,7 +591,7 @@ CAM-22*
 - Only when a near mesh face reaches far off the frame, so this is a spike and not the level's steady cost.
 
 ### 270. Plants walk far more pixels than they write
-*Kind: speed (VDP1) · Size: among the plants, statics 12.7 of 42.7 ms for 17% of the frame's pixels · Fix: assets*
+*Kind: speed (VDP1) Â· Size: among the plants, statics 12.7 of 42.7 ms for 17% of the frame's pixels Â· Fix: assets*
 
 - `tools/stepwise.py`, `valley-plants`, Mednafen: statics walk 68,897 pixels to write 26,727, 0.47 ms a 1000 px
   written against the rooms' 0.24. VDP1 walks see-through texels as it does the rest. Static 21's 40x56 face walks
@@ -2563,7 +2675,7 @@ Audit: SND-8*
   and whether its reads slow the 68000's. Using it for vertices (Jollyroger's 2026 demo) was ruled
   out for us: every vertex would cross the slow bus to sound RAM and back.
 
-### 183. Looped sounds never stop
+### 183. Looped sounds never stop (reported in play: the Cistern's flood)
 *Severity: audible Â· Confidence: confirmed Â· Fix: medium Â· Audit: SND-9*
 
 - **Retail:**
@@ -2576,9 +2688,10 @@ Audit: SND-8*
   - The flood (`06015b44`) is issue 127.
   - The flame (`06030670`/`0603071c`) calls StopEffect(150) when it goes out.
 - **Ours:**
-  - `openlara/level.h:353` plays FX_FLOOD as one positionless LOOP call that is
+  - `openlara/level.h:383` plays FX_FLOOD as one positionless LOOP call that is
     never stopped. In Lost Valley, the Cistern and Tihocan the full-volume roar
-    continues until the level ends.
+    continues until the level ends. Reported in play 2026-11-17: in the
+    Cistern, after the switch floods the rooms, the flood sound loops forever.
   - `object.h:1936` loops 150 for the Flame, and FlameEmitter
     (`object.h:1960`) removes the flame with no `soundStop`, so the loop runs
     on.
@@ -4026,7 +4139,7 @@ Mednafen: hwtest discs held at their start, medians of 300 frames from frame 300
 ### 288. Boxes under the flooded Cistern's statues pop between textured and flat
 *Closed 2026-11-04: 6368808. Mednafen at the reported view, flat room faces 7-9 a frame to 0, VDP1 33.70 to 33.87 ms.*
 
-*Kind: look · Size: a handful of faces in rooms full of textures · Fix: small*
+*Kind: look Â· Size: a handful of faces in rooms full of textures Â· Fix: small*
 
 - The user's report, 2026-11-04, on the shimmers build, reproduced on main's code with the water texture: not shimmers, and the rats and going in and out of the room aren't needed.
 - `tools/hwtest.sh cistern-flood-statues`. At the view the half-size pool holds 64 of 64, all drawn that frame, while the full-res pool holds 30-35 of 128. A texture with no smaller mip than half size then had nowhere to go but its mean colour, and which textures lost out changed with the view.
@@ -4035,7 +4148,7 @@ Mednafen: hwtest discs held at their start, medians of 300 frames from frame 300
 ### 269. Flat floors and ceilings on a VDP2 plane
 *Closed 2026-11-04: branch vdp2-planes, docs/vdp2-production.md. The Cistern (floor, ceiling) and Lost Valley (floor) are on it. Saturn, room 103 about 22 degrees up: VDP1 20.5, master 27.4, slave 24.7 ms, 30.0 fps.*
 
-*Kind: speed, look · Size: see below · Fix: large, only if it pays*
+*Kind: speed, look Â· Size: see below Â· Fix: large, only if it pays*
 
 - The user's idea (2026-11-03): one big flat floor, Lost Valley's or the Cistern's, drawn by a VDP2 rotation
   plane under VDP1's frame, with correct perspective and no VDP1 warp.
@@ -4424,7 +4537,7 @@ CAM-9*
 - **Done:** `updateLook` no longer looks at targets. Head and torso move only
   for a locked arm, in `weaponUpdatePistols` and `weaponUpdateShotgun`, as
   PistolHandler and RifleHandler. At `tools/hwtest.sh cistern-look`, with the
-  crocodiles awake, Look reaches -42° smoothly. Auto-aim, on the wolves in
+  crocodiles awake, Look reaches -42Â° smoothly. Auto-aim, on the wolves in
   Mednafen: both wolves are found, locked and killed with Action held, with the
   pistols and with the shotgun, and no wolf in plain reach went untargeted but
   for the tick after readying and the tick after a kill.
