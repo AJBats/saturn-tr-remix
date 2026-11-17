@@ -2583,7 +2583,7 @@ word. Of the same kind and already open: 264, 265, 266.
 
 | Issue | Decision |
 |---|---|
-| **88** | Retail's torso charges without turning (a retail bug). Reproduce it? |
+| **88** | Retail's torso charges without turning (a retail bug). Reproduced for now (5a3516f, its forward case in `Adam::updateState`); the user evaluates whether to keep it. |
 | **99** | Retail's gorilla sidestep turns wrongly (a retail bug). Reproduce it? |
 | **11** | Retail's CombatCamera uses a stale target_square. Reproduce it? |
 | **139** | Retail's gym counter starts at 150 and is never reset. Reproduce it? |
