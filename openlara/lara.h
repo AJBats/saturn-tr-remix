@@ -574,11 +574,13 @@ struct Lara : ItemObj
             angle.x += ANGLE(2);
         }
 
+                // 6 degrees a tick at once, no turn rate under water (retail's
+        // LaraAsSwim/Glide/Tread, 06021c9c 06021d58 06021e20)
         if (input & IN_LEFT) {
-            turnSpeed = X_MAX(turnSpeed - LARA_TURN_ACCEL, -LARA_TURN_MED);
+            angle.y -= LARA_TURN_MED;
             angle.z -= LARA_TILT_ACCEL * 2;
         } else if (input & IN_RIGHT) {
-            turnSpeed = X_MIN(turnSpeed + LARA_TURN_ACCEL,  LARA_TURN_MED);
+            angle.y += LARA_TURN_MED;
             angle.z += LARA_TILT_ACCEL * 2;
         }
     }
@@ -1444,30 +1446,43 @@ struct Lara : ItemObj
 
         c_applyOffset();
 
-        int16 realAngle;
+                // retail's TestLaraSlide (0601e404): the steeper tilt says the way,
+        // z's when steeper than x's; the turn between it and her wrapped; the
+        // slide (re)started, and her facing set, only when she wasn't sliding
+        // that way already
+        static int16 slideAngle = 1;
+        int16 realAngle = 0;
 
         if (cinfo.slantX > 2) {
             realAngle = -ANGLE_90;
         } else if (cinfo.slantX < -2) {
-            realAngle =  ANGLE_90;
-        } else if (cinfo.slantZ > 2) {
+            realAngle = ANGLE_90;
+        }
+        if (cinfo.slantZ > 2 && cinfo.slantZ > abs(cinfo.slantX)) {
             realAngle = ANGLE_180;
-        } else {
+        } else if (cinfo.slantZ < -2 && -cinfo.slantZ > abs(cinfo.slantX)) {
             realAngle = 0;
         }
 
-        if (abs(realAngle - angle.y) <= ANGLE_90) {
-            if (state != STATE_SLIDE) {
+        if (abs(int16(realAngle - angle.y)) <= ANGLE_90)
+        {
+            if (state != STATE_SLIDE || slideAngle != realAngle)
+            {
                 animSet(ANIM_SLIDE_FORTH, true);
+                extraL->moveAngle = realAngle;
+                angle.y = realAngle;
+                slideAngle = realAngle;
             }
-            extraL->moveAngle = realAngle;
-            angle.y = realAngle;
-        } else {
-            if (state != STATE_SLIDE_BACK) {
+        }
+        else
+        {
+            if (state != STATE_SLIDE_BACK || slideAngle != realAngle)
+            {
                 animSet(ANIM_SLIDE_BACK, true);
+                extraL->moveAngle = realAngle;
+                angle.y = realAngle + ANGLE_180;
+                slideAngle = realAngle;
             }
-            extraL->moveAngle = realAngle;
-            angle.y = realAngle + ANGLE_180;
         }
 
         return true;
@@ -2963,11 +2978,12 @@ struct Lara : ItemObj
         cinfo.pos         = pos;
         cinfo.enemyPush   = false;
         cinfo.enemyHit    = false;
-        cinfo.stopOnSlant = false;
+                cinfo.stopOnSlant = false;
         cinfo.stopOnLava  = false;
 
         updateState();
         updateLookBack();
+        updateFlow();
 
         angle.z = angleDec(angle.z, ANGLE(2));
 
@@ -3009,10 +3025,18 @@ struct Lara : ItemObj
 
         vec3i target = nav.getWaypoint(boxIndex, pos);
 
-        int32 speed = sink->roomIndex * 6; // ... and its room its strength
+                int32 speed = sink->roomIndex * 6; // ... and its room its strength
         pos.x += X_CLAMP(target.x - pos.x, -speed, speed);
         pos.y += X_CLAMP(target.y - pos.y, -speed, speed);
         pos.z += X_CLAMP(target.z - pos.z, -speed, speed);
+
+        // the move collided as a swim's, its way her facing, and then her
+        // place the one she moves on from (retail's LaraWaterCurrent, 06022150)
+        cinfo.setAngle(phd_atan(pos.z - cinfo.pos.z, pos.x - cinfo.pos.x));
+        collideRoom(LARA_HEIGHT_UW, LARA_HEIGHT_UW / 2);
+        c_applyOffset();
+        c_checkWallUW();
+        cinfo.pos = pos;
     }
 
     void updateUnder()
@@ -3028,13 +3052,11 @@ struct Lara : ItemObj
         cinfo.stopOnSlant = false;
         cinfo.stopOnLava  = false;
 
-        updateState();
+                updateState();
 
         updateFlow();
 
         angle.z = angleDec(angle.z, ANGLE(2));
-        turnSpeed = angleDec(turnSpeed, ANGLE(2));
-        angle.y += turnSpeed;
 
         angle.x = X_CLAMP(angle.x, ANGLE(-85), ANGLE(85));
         angle.z = X_CLAMP(angle.z, ANGLE(-22), ANGLE(22));
@@ -3893,9 +3915,10 @@ struct Lara : ItemObj
             }
         }
 
-        if (waterState != WATER_STATE_UNDER) {
-            extraL->flowSink = NULL; // currents pull only under water
+                if (waterState == WATER_STATE_ABOVE) {
+            extraL->flowSink = NULL; // currents pull in water and at the surface (retail's LaraSurface too)
         }
+
 
         switch (waterState)
         {

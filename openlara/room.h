@@ -731,10 +731,8 @@ void checkTrigger(const FloorData* fd, ItemObj* lara)
 
     if (FD_FLOOR_TYPE(*fd) == FLOOR_TYPE_LAVA)
     {
-        // standing in it, or swimming, is fatal (TR1's LavaBurn)
-        if (lara && lara->health > 0 &&
-            (!(lara->flags & ITEM_FLAG_GRAVITY) || lara->waterState != WATER_STATE_ABOVE))
-        {
+                // standing on it is fatal (retail's TestTriggers: not heavy, at the floor)
+        if (lara && lara->pos.y == lara->roomFloor) {
             lavaBurn(lara);
         }
 

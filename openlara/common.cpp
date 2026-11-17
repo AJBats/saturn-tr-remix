@@ -1417,9 +1417,9 @@ void CollisionInfo::setSide(CollisionInfo::SideType st, int32 floor, int32 ceili
             floor = -0x7FFF;
         } else if (stopOnSlant && floor > 0 && slantType == SLANT_HIGH) {
             floor = 512;
-        }/* TODO lava else if (stopOnLava && floor > 0 && trigger && FloorData(*(uint16*)trigger).cmd.func == FloorData::LAVA) {
-            floor = 512;
-        }*/
+                } else if (stopOnLava && floor > 0 && gLastFloorData && FD_FLOOR_TYPE(*gLastFloorData) == FLOOR_TYPE_LAVA) {
+            floor = 512;    // lava below is a drop to a careful walk (retail's lava_is_pit)
+        }
     }
 
     Side *s = &m + st;

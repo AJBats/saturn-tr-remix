@@ -2284,6 +2284,12 @@ void lavaBurn(ItemObj* lara)
     if (lara->health <= 0)
         return;
 
+    // only on the floor at the bottom, not a bridge or block over the lava
+    Room* bottom = lara->room->getRoom(lara->pos.x, 32000, lara->pos.z);
+    if (lara->roomFloor != bottom->getSector(lara->pos.x, lara->pos.z)->getFloor(lara->pos.x, 32000, lara->pos.z))
+        return;
+
+
     lara->hit(LARA_MAX_HEALTH, lara->pos, 0);
     for (int32 i = 0; i < 10; i++)
     {
