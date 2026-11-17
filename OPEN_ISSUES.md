@@ -856,55 +856,6 @@ AI-29*
 - **Effect:** walking wolves, a posing Larson and other bored creatures don't
   turn their heads toward Lara.
 
-### 104. Flyers in transit fly too low
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-33*
-
-- **Retail:** CalculateTarget lifts a flyer's target to at least 1024 above
-  each box on the path.
-- **Ours:** keeps the current height on secondary targets (`openlara/nav.h`).
-- **Effect:** bats fly lower along corridors.
-
-### 105. No random target point when there's no path
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-34*
-
-- **Retail:** with no path yet, the target is a random point in the last box.
-- **Ours:** clamps instead (`openlara/nav.h:307-311`).
-
-### 106. Fly checks: no fly-height floor test, and the ceiling test uses the origin
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-35*
-
-- **Retail:** BadFloor rejects a floor where `y > height + fly`. The ceiling
-  test uses the creature's top bound.
-- **Ours:** there is no fly test (`openlara/enemy.h:457-472`), and the ceiling
-  test uses the origin (`enemy.h:676-688`).
-- **Effect:** bats can poke into ceilings.
-
-### 107. The creature turn is applied after the move
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-36*
-
-- **Retail:** CreatureTurn (`0600be48`) rotates before AnimateItem, so the
-  creature moves along its new heading.
-- **Ours:** `angle.y += turn` is applied after the move
-  (`openlara/enemy.h:807`).
-- **Effect:** a one-frame lag of up to 6°.
-
-### 108. Wolf and raptor details
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-37*
-
-- Ours tilts the wolf and the raptor while walking (`openlara/enemy.h:1022`,
-  `2139`); retail doesn't.
-- The raptor's walk roar lacks retail's `info.ahead` check (`enemy.h:2144`).
-- The wolf's bite lacks `info.ahead` (`enemy.h:1125`).
-- The wolf's bite state sets its goal to RUN (`enemy.h:1129`); retail leaves the
-  goal alone.
-
-### 110. Dead flyers drift toward a stale waypoint
-*Severity: subtle · Confidence: likely · Fix: small · Audit: AI-39*
-
-- **Ours:** dead bats and dead water crocodiles move vertically toward the shared
-  global `tinfo.waypoint` (`openlara/enemy.h:657`). That waypoint was left by
-  whichever creature updated last.
-
 ### 111. The water crocodile's smartness is 0x2000; retail's is 0x400
 *Severity: subtle · Confidence: confirmed (object table) · Fix: small · Audit:
 AI-40*
@@ -2824,6 +2775,67 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 110. Dead flyers drift toward a stale waypoint
+*Closed 2026-11-17: ported from retail, 1e6b1dc.*
+
+*Severity: subtle · Confidence: likely · Fix: small · Audit: AI-39*
+
+- **Ours:** dead bats and dead water crocodiles move vertically toward the shared
+  global `tinfo.waypoint` (`openlara/enemy.h:657`). That waypoint was left by
+  whichever creature updated last.
+
+### 108. Wolf and raptor details
+*Closed 2026-11-17: ported from retail, 1e6b1dc.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-37*
+
+- Ours tilts the wolf and the raptor while walking (`openlara/enemy.h:1022`,
+  `2139`); retail doesn't.
+- The raptor's walk roar lacks retail's `info.ahead` check (`enemy.h:2144`).
+- The wolf's bite lacks `info.ahead` (`enemy.h:1125`).
+- The wolf's bite state sets its goal to RUN (`enemy.h:1129`); retail leaves the
+  goal alone.
+
+### 107. The creature turn is applied after the move
+*Closed 2026-11-17: ported from retail, 1e6b1dc.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-36*
+
+- **Retail:** CreatureTurn (`0600be48`) rotates before AnimateItem, so the
+  creature moves along its new heading.
+- **Ours:** `angle.y += turn` is applied after the move
+  (`openlara/enemy.h:807`).
+- **Effect:** a one-frame lag of up to 6°.
+
+### 106. Fly checks: no fly-height floor test, and the ceiling test uses the origin
+*Closed 2026-11-17: ported from retail, 1e6b1dc.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-35*
+
+- **Retail:** BadFloor rejects a floor where `y > height + fly`. The ceiling
+  test uses the creature's top bound.
+- **Ours:** there is no fly test (`openlara/enemy.h:457-472`), and the ceiling
+  test uses the origin (`enemy.h:676-688`).
+- **Effect:** bats can poke into ceilings.
+
+### 105. No random target point when there's no path
+*Closed 2026-11-17: ported from retail, 1e6b1dc.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-34*
+
+- **Retail:** with no path yet, the target is a random point in the last box.
+- **Ours:** clamps instead (`openlara/nav.h:307-311`).
+
+### 104. Flyers in transit fly too low
+*Closed 2026-11-17: ported from retail, 1e6b1dc.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-33*
+
+- **Retail:** CalculateTarget lifts a flyer's target to at least 1024 above
+  each box on the path.
+- **Ours:** keeps the current height on secondary targets (`openlara/nav.h`).
+- **Effect:** bats fly lower along corridors.
 
 ### 123. Doors don't block enemy pathfinding through portal sectors
 *Closed 2026-11-17: ported from retail, 5a3516f.*
