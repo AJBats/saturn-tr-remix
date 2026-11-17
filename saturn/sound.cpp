@@ -544,6 +544,24 @@ void sndStopSample(int32 index)
     }
 }
 
+// The inventory open over the game (retail's Display_Inventory, 06017420):
+// every sample stopped, the CD paused; and on, where it was, after.
+void sndPause()
+{
+    for (int32 v = 0; v < VOICES; v++)
+    {
+        if (gVoices[v].sample >= 0) {
+            voiceStop(v);
+        }
+    }
+    cdPauseAudio();
+}
+
+void sndResume()
+{
+    cdResumeAudio();
+}
+
 // Stops every voice and waits for the sound CPU to have (so the samples may
 // be replaced).
 void sndStop()

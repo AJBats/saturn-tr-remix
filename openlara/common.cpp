@@ -42,11 +42,11 @@ const LevelInfo gLevelInfo[LVL_MAX] = {
 // TR1
     LEVEL_INFO( TITLE     , STR_EMPTY         , TRACK_TR1_TITLE     , 0 ),
     LEVEL_INFO( GYM       , STR_TR1_GYM       , TRACK_NONE          , 0 ),
-    LEVEL_INFO( LEVEL1    , STR_TR1_LEVEL1    , TRACK_TR1_CAVES     , 3 ),
-    LEVEL_INFO( LEVEL2    , STR_TR1_LEVEL2    , TRACK_TR1_CAVES     , 3 ),
+    LEVEL_INFO( LEVEL1    , STR_TR1_LEVEL1    , TRACK_NONE          , 3 ),
+    LEVEL_INFO( LEVEL2    , STR_TR1_LEVEL2    , TRACK_NONE          , 3 ),
 #if defined(__SATURN__)
-    LEVEL_INFO( LEVEL3A   , STR_TR1_LEVEL3A   , TRACK_TR1_CAVES     , 5 ),
-    LEVEL_INFO( LEVEL3B   , STR_TR1_LEVEL3B   , TRACK_TR1_CAVES     , 3 ),
+    LEVEL_INFO( LEVEL3A   , STR_TR1_LEVEL3A   , TRACK_NONE          , 5 ),
+    LEVEL_INFO( LEVEL3B   , STR_TR1_LEVEL3B   , TRACK_NONE          , 3 ),
     LEVEL_INFO( CUT1      , STR_EMPTY         , TRACK_TR1_CUT_1     , 0 ),
     LEVEL_INFO( LEVEL4    , STR_TR1_LEVEL4    , TRACK_TR1_WIND      , 4 ),
     LEVEL_INFO( LEVEL5    , STR_TR1_LEVEL5    , TRACK_TR1_WIND      , 3 ),

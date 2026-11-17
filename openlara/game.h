@@ -390,12 +390,27 @@ bool gameInPlay()
 
 // The items' and the level's update for frames ticks: gameUpdate's in play,
 // and on the Saturn the slave's for the next frame (saturn/main.cpp).
+// The level's sound sources, every tick: those of the rooms as they are,
+// unflipped (0x80) or flipped (0x40) (retail's SoundEffects, 06014fbc).
+void soundSources()
+{
+    uint16 mask = gSaveGame.flipped ? 0x40 : 0x80;
+    for (int32 i = 0; i < level.soundSourcesCount; i++)
+    {
+        const SoundSource &s = level.soundSources[i];
+        if (s.flags & mask) {
+            soundPlay(s.id, &s.pos);
+        }
+    }
+}
+
 void gameUpdateItems(int32 frames)
 {
     for (int32 i = 0; i < frames; i++)
     {
         updateItems();
         updateEffect();
+        soundSources();
     }
     gSaveGame.time += frames;   // the level's time taken (retail's ControlPhase counts each tick)
     updateLevel(frames);
@@ -424,7 +439,9 @@ void gameUpdate(int32 frames, bool items = true)
         frames = MAX_UPDATE_FRAMES;
     }
 
-    if (!sndTrackIsPlaying()) {
+    // the title's music loops; a level has none of its own, only what its
+    // triggers play, once (retail plays no level-start track)
+    if (gLevelID == LVL_TR1_TITLE && !sndTrackIsPlaying()) {
         gCurTrack = -1;
         sndPlayTrack(getAmbientTrack());
     }
@@ -436,6 +453,12 @@ void gameUpdate(int32 frames, bool items = true)
         ASSERT(lara);
         lara->updateInput();
         inventory.update(frames);
+
+        // closed onto the game, the CD plays on (retail's ControlPhase)
+        if (inventory.state == INV_STATE_NONE && gNextLevel == LVL_MAX) {
+            sndResume();
+        }
+
 
         if ((inventory.page != INV_PAGE_TITLE) && (inventory.state == INV_STATE_NONE))
         {

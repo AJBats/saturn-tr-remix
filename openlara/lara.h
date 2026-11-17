@@ -3965,10 +3965,16 @@ struct Lara : ItemObj
                 inventory.open(this, INV_PAGE_MAIN);
             }
         }
-        else if ((++deathCount > 300 || (deathCount > 60 && keys)) && (gBrightness == 0))
+        else
         {
-            deathCount = 0;
-            inventory.open(this, INV_PAGE_DEATH);
+            if (deathCount == 0) {
+                sndStopTrack();     // the music stops as she dies (retail's LaraControl, 06020144)
+            }
+            if ((++deathCount > 300 || (deathCount > 60 && keys)) && (gBrightness == 0))
+            {
+                deathCount = 0;
+                inventory.open(this, INV_PAGE_DEATH);
+            }
         }
 
         updateWaterState();

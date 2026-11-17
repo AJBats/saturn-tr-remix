@@ -32,6 +32,8 @@ void cdStreamStop();
 // Plays an audio track once, to its end; reads stop it.
 int cdPlayTrack(uint32_t track);
 void cdStopAudio();
+void cdPauseAudio();     // the pickup kept where it is
+void cdResumeAudio();    // and playing on from there
 bool cdAudioPlaying();
 
 #endif

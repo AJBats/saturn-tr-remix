@@ -612,6 +612,13 @@ struct Inventory
     {
         this->lara = lara;
 
+        if (page != INV_PAGE_TITLE)
+        {
+            soundLoopsStop();
+            sndPause();
+        }
+
+
         if (page == INV_PAGE_TITLE) {
             background = osLoadScreen(LVL_TR1_TITLE);
         } else {

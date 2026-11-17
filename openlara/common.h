@@ -3199,6 +3199,8 @@ bool sndTrackIsPlaying();
 void sndStopTrack();
 void sndStopSample(int32 index);
 void sndStop();
+void sndPause();        // the inventory's: every sample stopped, the CD paused
+void sndResume();       // and the CD going on where it was
 
 void palGrayRemap(uint8* data, int32 size);
 void palSet(const uint16* palette, int32 gamma, int32 bright);

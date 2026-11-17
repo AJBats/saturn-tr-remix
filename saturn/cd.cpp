@@ -180,6 +180,7 @@ static int cmdConnectCdDevice(uint8_t filter)
 }
 
 static bool gAudio;    // a track was started and nothing has stopped it since
+static bool gPaused;   // paused by cdPauseAudio, to go on from the same place
 
 static int cmdPlay(uint32_t fad, uint32_t sectors)
 {
@@ -191,6 +192,7 @@ static int cmdPlay(uint32_t fad, uint32_t sectors)
 
 int cdPlayTrack(uint32_t track)
 {
+    gPaused = false;
     CD_HIRQ = ~PEND;
     // positions as track << 8 | index: index 1 up to the track's last index
     int ret = cmdChecked(0, 0x1000, (track << 8) | 1, 0x0000, (track << 8) | 99);
@@ -200,10 +202,31 @@ int cdPlayTrack(uint32_t track)
 
 void cdStopAudio()
 {
+    gPaused = false;
     if (!gAudio)
         return;
     gAudio = false;
     cmdChecked(0, 0x11FF, 0xFFFF, 0, 0); // seek to "pause"
+}
+
+void cdPauseAudio()
+{
+    if (!gAudio || (CD_HIRQ & PEND))
+        return;
+    gAudio = false;
+    gPaused = true;
+    cmdChecked(0, 0x11FF, 0xFFFF, 0, 0); // seek to "pause": the pickup stays where it is
+}
+
+void cdResumeAudio()
+{
+    if (!gPaused)
+        return;
+    gPaused = false;
+    CD_HIRQ = ~PEND;
+    // play from the pickup's place to the end already set, the mode unchanged
+    int ret = cmdChecked(0, 0x10FF, 0xFFFF, 0xFFFF, 0xFFFF);
+    gAudio = (ret == 0);
 }
 
 bool cdAudioPlaying()
