@@ -484,7 +484,7 @@ extern uint8* vramPtr;
 #define MAX_PORTALS         16
 #define MAX_CAUSTICS        32
 #define MAX_RAND_TABLE      32
-#define MAX_DYN_SECTORS     (1024*3)
+#define MAX_DYN_SECTORS     (1024*3 + 256)  // Atlantis takes 3084 at its start
 #define MAX_SAMPLES         180
 
 #ifndef VIEW_DIST
@@ -1005,7 +1005,7 @@ struct Room {
     uint8 alternateRoom; // the room flip maps swap with this one, or NO_ROOM (info is swapped with the rest)
     bool visible;
 
-    void modify();
+    bool modify();
     void reset();
 
     void add(ItemObj* item);

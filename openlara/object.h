@@ -492,7 +492,7 @@ struct Door : Object
     Door(Room* room) : Object(room)
     {
         flags |= ITEM_FLAG_COLLISION;
-        action(true);
+        action(true, true);
     }
 
     virtual void update()
@@ -501,13 +501,13 @@ struct Door : Object
             if (state == STATE_CLOSE) {
                 goalState = STATE_OPEN;
             } else {
-                action(false);
+                action(false, false);
             }
         } else {
             if (state == STATE_OPEN) {
                 goalState = STATE_CLOSE;
             } else {
-                action(true);
+                action(true, false);
             }
         }
 
@@ -519,20 +519,36 @@ struct Door : Object
         // TODO door collision
     }
 
-    void action(bool close)
+    // The door's sector and the one behind it shut or opened, in the room's
+    // flipped version too (retail's DoorControl 06025e94 writes all four).
+    // A closing door's sectors aren't shut while Lara is within 2 sectors of
+    // it (retail's LaraDoorCollision), but at the level's start.
+    void action(bool close, bool init)
     {
+        if (close && !init)
+        {
+            Lara* lara = getLara(pos);
+            int32 dx = abs(pos.x - lara->pos.x) >> 8;
+            int32 dy = abs(pos.y - lara->pos.y) >> 8;
+            int32 dz = abs(pos.z - lara->pos.z) >> 8;
+            if (dx * dx + dy * dy + dz * dz < X_SQR(2048 >> 8))
+                return;
+        }
+
         vec3i nextPos = getBlockOffset(angle.y, 1);
         nextPos.x = pos.x + (nextPos.x << 10);
         nextPos.z = pos.z + (nextPos.z << 10);
 
         setDoorState(close, false, room, nextPos.x, nextPos.z); // use the sector behind the door
-
-        // TODO flip rooms
+        if (room->alternateRoom != NO_ROOM) {
+            setDoorState(close, false, rooms + room->alternateRoom, nextPos.x, nextPos.z);
+        }
     }
 
     void setDoorState(bool close, bool behind, Room* room, int32 x, int32 z)
     {
-        room->modify(); // make room->sectors dynamic (non ROM)
+        if (!room->modify())    // make room->sectors dynamic (non ROM)
+            return;
 
         Sector* sector = (Sector*)room->getSector(x, z); // now we can modify room sectors
 
@@ -1328,7 +1344,8 @@ struct TrapDartEmitter : Object
 void alterFloor(ItemObj* item, int32 offset)
 {
     Room* room = item->room->getRoom(item->pos.x, item->pos.y, item->pos.z);
-    room->modify();
+    if (!room->modify())
+        return;
 
     Sector* sector = (Sector*)room->getSector(item->pos.x, item->pos.z);
     const Sector* top = room->getRoom(item->pos.x, item->pos.y + offset - 1024, item->pos.z)->getSector(item->pos.x, item->pos.z);
@@ -1775,8 +1792,38 @@ struct TrapBoulder : Object
         updateRoom();
     }
 
+    // Stopped, the boulder stays on the active list; when its trigger lets
+    // go (an antipad) it's back where it started, set to roll again
+    // (retail's RollingBallControl, 0602f33c).
+    void reset()
+    {
+        const ItemObjInfo* info = level.itemsInfo + ((ItemObj*)this - items);
+        Room* home = rooms + info->roomIndex;
+        pos.x = info->pos.x + (home->info->x << 8);
+        pos.y = info->pos.y;
+        pos.z = info->pos.z + (home->info->z << 8);
+        if (room != home)
+        {
+            room->remove(this);
+            home->add(this);
+        }
+        animSet(level.models[type].animIndex, true);
+        goalState = nextState = state;
+        flags &= ~ITEM_FLAG_STATUS;
+        deactivate();
+        updateRoom();
+    }
+
     virtual void update()
     {
+        if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INACTIVE)
+        {
+            if (!isActive()) {
+                reset();
+            }
+            return;
+        }
+
         if ((flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_ACTIVE)
             return;
 
@@ -1823,7 +1870,6 @@ struct TrapBoulder : Object
             hitMask = 0;
             flags &= ~ITEM_FLAG_STATUS;
             flags |= ITEM_FLAG_STATUS_INACTIVE;
-            deactivate();
         }
     }
 

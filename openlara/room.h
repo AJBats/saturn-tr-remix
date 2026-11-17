@@ -423,20 +423,21 @@ Room** Room::getAdjRooms()
     return roomsList;
 }
 
-void Room::modify()
+// The room's sectors made a copy that can change, from the pool, once;
+// false if the pool hasn't room for them (the room's sectors stay as they are).
+bool Room::modify()
 {
-//#ifdef ROM_READ
     if (sectors == data.sectors)
     {
-        // convert room->sectors to mutable (non-ROM) data
-        sectors = dynSectors + dynSectorsCount;
-        memcpy((Sector*)sectors, data.sectors, info->xSectors * info->zSectors * sizeof(Sector));
+        int32 count = info->xSectors * info->zSectors;
+        if (dynSectorsCount + count > MAX_DYN_SECTORS)
+            return false;
 
-        dynSectorsCount += info->xSectors * info->zSectors;
-        //printf("dynSectors: %d\n", dynSectorsCount);
-        ASSERT(dynSectorsCount <= MAX_DYN_SECTORS);
+        sectors = dynSectors + dynSectorsCount;
+        memcpy((Sector*)sectors, data.sectors, count * sizeof(Sector));
+        dynSectorsCount += count;
     }
-//#endif
+    return true;
 }
 
 void Room::add(ItemObj* item)

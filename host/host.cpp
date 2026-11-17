@@ -178,6 +178,7 @@ static uint32 parseKeys(const char* s)
 // Test actions on an item at a tick, before that tick's update:
 //   hit:ITEM:DAMAGE@TICK    the item hit (ItemObj::hit at its own position)
 //   flag:ITEM:HEX@TICK      flag bits set (0x100 ONCE, as a spent trigger leaves it)
+//   clear:ITEM:HEX@TICK     flag bits cleared (0x3E00 the code bits, as an antipad clears them)
 //   wake:ITEM@TICK          its code bits completed and triggered, as a trigger's object action
 //   fx:EFFECT@TICK          the level effect started, as a trigger's flip starts it
 //   next:LEVEL@TICK         nextLevel to that LevelID, as a level's end (its "Save Game?" answered by A),
@@ -198,7 +199,8 @@ static bool parseAct(const char* arg)
     a.kind = arg[0];
     if (gActCount == X_COUNT(gActs) || (sscanf(arg, "hit:%d:%d@%d", &a.item, &a.value, &a.tick) != 3 &&
         sscanf(arg, "flag:%d:%x@%d", &a.item, &a.value, &a.tick) != 3 &&
-        (a.value = 0, sscanf(arg, "wake:%d@%d", &a.item, &a.tick) != 2) &&
+        (a.kind = 'c', sscanf(arg, "clear:%d:%x@%d", &a.item, &a.value, &a.tick) != 3) &&
+        (a.value = 0, a.kind = 'w', sscanf(arg, "wake:%d@%d", &a.item, &a.tick) != 2) &&
         (a.item = 0, a.kind = 'x', sscanf(arg, "fx:%d@%d", &a.value, &a.tick) != 2) &&
         (a.kind = 'n', sscanf(arg, "next:%d@%d", &a.value, &a.tick) != 2) &&
         (a.kind = 'g', sscanf(arg, "give:%d@%d", &a.value, &a.tick) != 2) &&
@@ -221,6 +223,8 @@ static void actsAt(int32 tick)
             item->hit(a.value, item->pos, 0);
         } else if (a.kind == 'f') {
             item->flags |= a.value;
+        } else if (a.kind == 'c') {
+            item->flags &= ~a.value;
         } else if (a.kind == 'x') {
             setEffect(a.value, players[0]);
         } else if (a.kind == 'u') {
@@ -449,6 +453,9 @@ int main(int argc, char** argv)
     }
     if (listEnd) {
         listItems();
+    }
+    if (getenv("DYN")) {
+        printf("dynamic sectors %d of %d\n", dynSectorsCount, MAX_DYN_SECTORS);
     }
     fprintf(stderr, "%d ticks in %.3f s: %.0f ticks a second\n", ticks, s, s > 0 ? ticks / s : 0.0);
     return 0;
