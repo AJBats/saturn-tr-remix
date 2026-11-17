@@ -102,7 +102,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 35 | 37. Currents don't pull at the surface | small (closed) |
 | 36 | 38, 39. Lava edge doesn't stop a walk; lava floors kill off the lava | small (closed) |
 | 37 | 42. Slide direction bugs | small (closed) |
-| 38 | 35. Surface swimming and climbing out are looser | small to medium |
+| 38 | 35. Surface swimming and climbing out are looser | small to medium (closed) |
 | 39 | 32. Underwater turning is slower and ramps up | small (closed) |
 | 40 | 122. Closed doors don't block in flipped rooms | medium (closed) |
 | 41 | 114. Boulders never reset | small (closed) |
@@ -422,35 +422,6 @@ CAM-22*
   (`0602201c`) flips its facing when the pitch passes ±90°.
 - **Ours:** `openlara/lara.h:3162` clamps to ±85°, and `c_swim` (`lara.h:2057`)
   always faces forward.
-
-### 35. Surface swimming over shallow water, and climbing out, is looser than retail
-*Severity: gameplay · Confidence: confirmed · Fix: small to medium · Audit:
-LARA-7*
-
-- **Retail** (LaraSurface `0602111c`, LaraSurfaceCollision `060217cc`,
-  LaraTestWaterClimbOut `060218e8`):
-  - Surface collision is a 700-tall box: probe at y+700, height 700, step-up
-    limit -100, ceiling 100.
-  - Lara is stopped when the floor under her is less than 700 below her, or on a
-    front, ceiling or clamp hit.
-  - Side hits turn her ±5°.
-  - Climb-out works only onto a ledge between 511 above and 100 below the
-    waterline (`front_floor + 0x4BB <= 0x263`).
-- **Ours:**
-  - `c_surf` uses an 800-tall box (`openlara/lara.h:2069`).
-  - Surface swim forward allows a 384 step-up (`lara.h:2540`); the other surface
-    states allow 128 (`lara.h:3085`).
-  - The mid-floor stop applies only on steep slopes (`lara.h:1438`).
-  - Climb-out allows a ledge up to 316 below the surface (`lara.h:1713`), and
-    needs 100 more headroom.
-  - Ceilings less than 100 above the water block surface swimming.
-- **Effect:** in the shallow spots from issue 34, Lara swims over submerged
-  ledges with her legs through the floor. She can climb onto ledges 100–316
-  underwater, which retail refuses.
-- **Fix:**
-  - Collide at y+700 with height 700 and step-up -100.
-  - Stop when the middle floor is below 0.
-  - Climb-out range [-512, 100].
 
 ### 36. Climb-out isn't tested while treading water
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-8*
@@ -2728,6 +2699,37 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 35. Surface swimming over shallow water, and climbing out, is looser than retail
+*Closed 2026-11-17: ported from retail, 435efdf.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small to medium · Audit:
+LARA-7*
+
+- **Retail** (LaraSurface `0602111c`, LaraSurfaceCollision `060217cc`,
+  LaraTestWaterClimbOut `060218e8`):
+  - Surface collision is a 700-tall box: probe at y+700, height 700, step-up
+    limit -100, ceiling 100.
+  - Lara is stopped when the floor under her is less than 700 below her, or on a
+    front, ceiling or clamp hit.
+  - Side hits turn her ±5°.
+  - Climb-out works only onto a ledge between 511 above and 100 below the
+    waterline (`front_floor + 0x4BB <= 0x263`).
+- **Ours:**
+  - `c_surf` uses an 800-tall box (`openlara/lara.h:2069`).
+  - Surface swim forward allows a 384 step-up (`lara.h:2540`); the other surface
+    states allow 128 (`lara.h:3085`).
+  - The mid-floor stop applies only on steep slopes (`lara.h:1438`).
+  - Climb-out allows a ledge up to 316 below the surface (`lara.h:1713`), and
+    needs 100 more headroom.
+  - Ceilings less than 100 above the water block surface swimming.
+- **Effect:** in the shallow spots from issue 34, Lara swims over submerged
+  ledges with her legs through the floor. She can climb onto ledges 100–316
+  underwater, which retail refuses.
+- **Fix:**
+  - Collide at y+700 with height 700 and step-up -100.
+  - Stop when the middle floor is below 0.
+  - Climb-out range [-512, 100].
 
 ### 201. After every level load, save load or cutscene start, 10 ticks run at once
 *Closed 2026-11-17: the clock restarts after each start, ff78ee4.*
