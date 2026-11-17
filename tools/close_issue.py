@@ -16,8 +16,16 @@ entry = m.group(0).rstrip('\n')
 open_part = open_part[:m.start()] + open_part[m.end():]
 head, rest = entry.split('\n', 1)
 entry = f'{head}\n*{line}*\n\n{rest}\n'
-# the burn-down row: "| order | N. title | fix |" gets "closed" in its fix column
-open_part, k = re.subn(rf'^(\| \d+ \| {n}\. [^|]*\| )([^|]*)\|$', r'\1\2(closed) |', open_part, count=1, flags=re.M)
+# the burn-down row that lists it ("| order | N. title | fix |", or "N, M. title"
+# for several) gets "closed" in its fix column once none of its issues is open
+k = 0
+for row in re.finditer(r'^(\| \d+ \| ((?:\d+, )*\d+)\. [^|]*\| )([^|]*)\|$', open_part, re.M):
+    listed = [int(v) for v in row.group(2).split(', ')]
+    if n in listed and '(closed)' not in row.group(3) and \
+            not any(re.search(rf'^### {m}\. ', open_part, re.M) for m in listed):
+        open_part = open_part[:row.start()] + f'{row.group(1)}{row.group(3)}(closed) |' + open_part[row.end():]
+        k = 1
+        break
 closed = '\n' + entry + closed if closed.startswith('\n') else '\n' + entry + '\n' + closed
 open(PATH, 'w', encoding='utf-8', newline='\n').write(open_part + '\n## Closed\n' + closed)
 print(f'issue {n} closed; burn-down row marked: {bool(k)}')
