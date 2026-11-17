@@ -30,6 +30,7 @@ EWRAM_DATA StaticMesh staticMeshes[MAX_STATIC_MESHES];
 
 EWRAM_DATA ItemObj* ItemObj::sFirstActive;
 EWRAM_DATA ItemObj* ItemObj::sFirstFree;
+EWRAM_DATA int32 ItemObj::sFreeCount;
 
 EWRAM_DATA int32 gBrightness;
 

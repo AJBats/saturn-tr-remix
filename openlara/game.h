@@ -130,8 +130,9 @@ bool gameLoad()
     inventory.setSlots(gSaveGame.invSlots);
     inventory.replaceGuns();
 
-    ItemObj::sFirstActive = NULL;
+        ItemObj::sFirstActive = NULL;
     ItemObj::sFirstFree = items + level.itemsCount;
+    ItemObj::sFreeCount = MAX_ITEMS - level.itemsCount;
 
     uint8* ptr = gSaveData;
     ItemObj* item = items;
@@ -234,7 +235,8 @@ void gameLoadLevel(const void* data)
     {
         items[i].nextItem = items + i + 1;
     }
-    ItemObj::sFirstFree = items + level.itemsCount;
+        ItemObj::sFirstFree = items + level.itemsCount;
+    ItemObj::sFreeCount = MAX_ITEMS - level.itemsCount;
 
     for (int32 i = 0; i < MAX_PLAYERS; i++)
     {

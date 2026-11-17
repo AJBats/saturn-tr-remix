@@ -735,8 +735,7 @@ void checkTrigger(const FloorData* fd, ItemObj* lara)
         if (lara && lara->health > 0 &&
             (!(lara->flags & ITEM_FLAG_GRAVITY) || lara->waterState != WATER_STATE_ABOVE))
         {
-            soundPlay(SND_LAVA, &lara->pos);
-            lara->hit(LARA_MAX_HEALTH, lara->pos, 0);
+            lavaBurn(lara);
         }
 
         if (FD_END(*fd))

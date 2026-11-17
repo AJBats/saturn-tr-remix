@@ -657,8 +657,9 @@ ItemObj* ItemObj::add(ItemType type, Room* room, const vec3i &pos, int32 angleY)
         return NULL;
     }
 
-    ItemObj* item = ItemObj::sFirstFree;
+        ItemObj* item = ItemObj::sFirstFree;
     ItemObj::sFirstFree = item->nextItem;
+    ItemObj::sFreeCount--;
 
     // the slot can still hold the flags of an item of the last level: a full
     // trigger mask among them makes the constructor activate it, and an effect
@@ -686,8 +687,9 @@ void ItemObj::remove()
         if (playersExtra[i].armL.target == this) playersExtra[i].armL.target = NULL;
     }
 
-    nextItem = ItemObj::sFirstFree;
+        nextItem = ItemObj::sFirstFree;
     ItemObj::sFirstFree = this;
+    ItemObj::sFreeCount++;
 }
 
 void ItemObj::activate()
@@ -1760,7 +1762,7 @@ ItemObj* ItemObj::init(Room* room)
         INIT_ITEM( CENTAUR_BULLET        , Missile );
         // INIT_ITEM( UNUSED_15             , ??? );
         // INIT_ITEM( UNUSED_16             , ??? );
-        // INIT_ITEM( LAVA_PARTICLE         , ??? );
+                INIT_ITEM( LAVA_PARTICLE         , LavaParticle );
         INIT_ITEM( LAVA_EMITTER          , LavaEmitter );
         INIT_ITEM( FLAME                 , Flame );
         INIT_ITEM( FLAME_EMITTER         , FlameEmitter );

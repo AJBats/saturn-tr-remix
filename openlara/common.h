@@ -1814,7 +1814,8 @@ struct ItemObj
     ItemObj* nextActive;
 
     static ItemObj* sFirstActive;
-    static ItemObj* sFirstFree;
+        static ItemObj* sFirstFree;
+    static int32 sFreeCount;    // the slots on it
 
     static ItemObj* add(ItemType type, Room* room, const vec3i &pos, int32 angleY);
     void remove();
@@ -3122,6 +3123,7 @@ void readLevel(const uint8 *data);
 bool trace(const Location &from, Location &to, bool accurate);
 
 Lara* getLara(const vec3i &pos);
+void lavaBurn(ItemObj* lara);
 
 bool useSwitch(ItemObj* item, int32 timer);
 bool useKey(ItemObj* item, ItemObj* lara);

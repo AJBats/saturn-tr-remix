@@ -180,6 +180,21 @@ struct SpriteEffect : ItemObj
 };
 
 
+// Retail's ItemNearLara (06014f30): within dist of her across, and within
+// her height.
+bool itemNearLara(const Lara* lara, const vec3i &p, int32 dist)
+{
+    int32 x = p.x - lara->pos.x;
+    int32 y = p.y - lara->pos.y;
+    int32 z = p.z - lara->pos.z;
+    if (x < -dist || x > dist || z < -dist || z > dist || y < -3 * 1024 || y > 3 * 1024 ||
+        x * x + z * z > dist * dist)
+        return false;
+    const AABBs &box = lara->getBoundingBox(true);
+    return y >= box.minY && y <= box.maxY + 100;
+}
+
+
 // A creature's shot that flies (retail's ControlMissile, 060316a0; TR1X
 // effects/missile.c). MUTANT_BULLET is the shard (O_MISSILE2): 30 to Lara, or
 // a ricochet off what it strikes. CENTAUR_BULLET is the rocket (O_MISSILE3):
@@ -199,19 +214,7 @@ struct Missile : ItemObj
         activate();
     }
 
-    // retail's ItemNearLara (06014f30): within dist of her across, and within
-    // her height
-    static bool nearLara(const Lara* lara, const vec3i &p, int32 dist)
-    {
-        int32 x = p.x - lara->pos.x;
-        int32 y = p.y - lara->pos.y;
-        int32 z = p.z - lara->pos.z;
-        if (x < -dist || x > dist || z < -dist || z > dist || y < -3 * 1024 || y > 3 * 1024 ||
-            x * x + z * z > dist * dist)
-            return false;
-        const AABBs &box = lara->getBoundingBox(true);
-        return y >= box.minY && y <= box.maxY + 100;
-    }
+    
 
     // what the shot turns into, where it is, heading and speed given
     void become(ItemType fxType, int32 fxAngle, int32 fxSpeed, int32 fxTimer, int32 fxFrame)
@@ -269,7 +272,7 @@ struct Missile : ItemObj
             nextRoom->add(this);
         }
 
-        if (!nearLara(lara, pos, 200))
+        if (!itemNearLara(lara, pos, 200))
             return;
 
         if (type == ITEM_MUTANT_BULLET)
@@ -410,11 +413,72 @@ struct Waterfall : Object
 };
 
 
+// A lava fountain (retail's LavaEmitterControl, 060309b8): unseen and solid;
+// triggered, a blob of lava a tick, any way, with its sound. Its blobs keep
+// 16 slots free for what the game needs (retail's had their own pool).
 struct LavaEmitter : Object
 {
     LavaEmitter(Room* room) : Object(room) {}
 
+    virtual void update()
+    {
+        if (ItemObj::sFreeCount <= 16)
+            return;
+
+        ItemObj* fx = ItemObj::add(ITEM_LAVA_PARTICLE, room, pos, int16((rand_logic() - 0x4000) * 2));
+        if (fx)
+        {
+            fx->hSpeed = int16(rand_logic() >> 10);
+            fx->vSpeed = int16(-rand_logic() / 200);
+            fx->frameIndex = int16((4 * rand_logic()) / 0x7FFF);
+            soundPlay(SND_LAVA, &pos);
+        }
+    }
+
     virtual void draw() {}
+};
+
+// A blob of lava (retail's LavaControl, 06030aa0): it flies and falls, gone
+// at a floor or ceiling, or on Lara for 10.
+struct LavaParticle : ItemObj
+{
+    LavaParticle(Room* room) : ItemObj(room)
+    {
+        flags &= ~ITEM_FLAG_COLLISION;
+        activate();
+    }
+
+    virtual void update()
+    {
+        int32 s, c;
+        sincos(angle.y, s, c);
+        pos.z += (hSpeed * c) >> FIXED_SHIFT;
+        pos.x += (hSpeed * s) >> FIXED_SHIFT;
+        vSpeed += GRAVITY;
+        pos.y += vSpeed;
+
+        Room* nextRoom = room->getRoom(pos.x, pos.y, pos.z);
+        const Sector* sector = nextRoom->getSector(pos.x, pos.z);
+        if (pos.y >= sector->getFloor(pos.x, pos.y, pos.z) || pos.y < sector->getCeiling(pos.x, pos.y, pos.z))
+        {
+            remove();
+            return;
+        }
+
+        Lara* lara = getLara(pos);
+        if (itemNearLara(lara, pos, 200))
+        {
+            lara->hit(10, pos, 0);
+            remove();
+            return;
+        }
+
+        if (nextRoom != room)
+        {
+            room->remove(this);
+            nextRoom->add(this);
+        }
+    }
 };
 
 
@@ -1931,7 +1995,7 @@ struct TrapLava : Object
         {
             Lara* lara = getLara(pos);
             if (lara->health > 0) {
-                lara->hit(LARA_MAX_HEALTH, pos, 0);
+                lavaBurn(lara);
             }
         }
     }
@@ -2073,19 +2137,37 @@ struct HammerHandle : Object
 // is near, and lights the room (its flip map) while it does (TR1's
 // LightningControl, without the bolt itself). headOffset counts down the
 // strike, aggression is 1 while striking.
+// The lightning (retail's 0602281c control, 06022888 collision, 06022358
+// draw): headOffset counts down, aggression is the bolt on, turnSpeed that it
+// struck Lara. A many-mesh emitter shows only its first mesh and strikes
+// within 2560, a one-mesh one within 1024. The bolt itself isn't drawn yet.
 struct Lightning : Object
 {
     Lightning(Room* room) : Object(room)
     {
         headOffset = 1;
+        turnSpeed = 0;
+        if (level.models[type].count > 1) {
+            visibleMask = 1;
+        }
+    }
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        // struck, she flinches every tick of the bolt
+        if (!turnSpeed)
+            return;
+        lara->extraL->hitQuadrant = X_MIN(1 + (rand_logic() * 4) / (ANGLE_180 - 1), 3);
+        lara->extraL->hitTimer = 2;
     }
 
     virtual void update()
     {
-        if (!isActive())
+                if (!isActive())
         {
             headOffset = 1;
             aggression = 0;
+            turnSpeed = 0;
             if (gSaveGame.flipped) {
                 flipMap();
             }
@@ -2097,9 +2179,10 @@ struct Lightning : Object
         if (--headOffset)
             return;
 
-        if (aggression)
+                if (aggression)
         {
             aggression = 0;
+            turnSpeed = 0;
             headOffset = 35 + ((rand_logic() * 45) >> 15);
             if (gSaveGame.flipped) {
                 flipMap();
@@ -2111,31 +2194,32 @@ struct Lightning : Object
             headOffset = 20;
 
             Lara* lara = getLara(pos);
-            vec3i d = lara->pos - pos;
-            if (abs(d.x) < 2560 && abs(d.z) < 2560 && abs(d.y) < 3072 &&
-                X_SQR(d.x >> 4) + X_SQR(d.z >> 4) < X_SQR(2560 >> 4))
+            if (itemNearLara(lara, pos, (level.models[type].count > 1) ? 2560 : 1024))
             {
                 lara->hit(400, pos, 0);
+                turnSpeed = 1;
             }
 
             if (!gSaveGame.flipped) {
                 flipMap();
             }
-            soundPlay(SND_LIGHTNING, &pos);
         }
-    }
 
-    virtual void draw() {}
+        soundPlay(SND_LIGHTNING, &pos);     // thunder as it starts and as it ends
+    }
 };
 
 
-// A fire, for as long as its emitter is triggered: too near it singes Lara,
-// in it she burns.
+// A fire (retail's FlameControl, 0603071c). An emitter's burns where it is:
+// within 600 of Lara it singes her 3 a tick, and within 300 sets her alight
+// and rests 100 ticks. One on Lara (turnSpeed below 0, her joint -1 -
+// turnSpeed) goes with her and burns her 5 a tick until it's under water.
 struct Flame : Object
 {
     Flame(Room* room) : Object(room)
     {
         frameIndex = 0;
+        turnSpeed = 0;
         activate();
     }
 
@@ -2145,17 +2229,71 @@ struct Flame : Object
             frameIndex = 0;
         }
 
+        Lara* lara = getLara(pos);
+
+        if (turnSpeed < 0)
+        {
+            pos = lara->pos + lara->getJoint(-1 - turnSpeed, _vec3i(0, 0, (turnSpeed == -1) ? -100 : 0));
+            if (room != lara->room)
+            {
+                room->remove(this);
+                lara->room->add(this);
+            }
+
+            int32 water = lara->getWaterLevel();
+            if (water != WALL && pos.y > water)
+            {
+                remove();
+                return;
+            }
+
+            soundPlay(SND_FLAME, &pos);
+            lara->hit(5, pos, 0);
+            return;
+        }
+
         soundPlay(SND_FLAME, &pos);
 
-        Lara* lara = getLara(pos);
-        vec3i d = lara->pos - pos;
-        if (lara->health > 0 && abs(d.x) < 600 && abs(d.z) < 600 && abs(d.y) < 1024)
+        if (turnSpeed)
         {
-            int32 dist = X_SQR(d.x >> 2) + X_SQR(d.z >> 2);
-            lara->hit((dist < X_SQR(300 >> 2)) ? 7 : 3, pos, 0);
+            turnSpeed--;
+            return;
+        }
+
+        if (!itemNearLara(lara, pos, 600))
+            return;
+
+        lara->hit(3, pos, 0);
+
+        vec3i d = lara->pos - pos;
+        if (d.x * d.x + d.z * d.z < 300 * 300)
+        {
+            turnSpeed = 100;
+            ItemObj* fx = ItemObj::add(ITEM_FLAME, lara->room, lara->pos, 0);
+            if (fx) {
+                fx->turnSpeed = -1;
+            }
         }
     }
 };
+
+// Lara in lava (retail's LavaBurn, 060308b0): dead, ten flames on her
+// (retail takes joints up to 23 of her 15; these keep to hers).
+void lavaBurn(ItemObj* lara)
+{
+    if (lara->health <= 0)
+        return;
+
+    lara->hit(LARA_MAX_HEALTH, lara->pos, 0);
+    for (int32 i = 0; i < 10; i++)
+    {
+        ItemObj* fx = ItemObj::add(ITEM_FLAME, lara->room, lara->pos, 0);
+        if (!fx)
+            break;
+        fx->frameIndex = int16((-level.models[ITEM_FLAME].count * rand_logic()) >> 15);
+        fx->turnSpeed = int16(-1 - ((rand_logic() * JOINT_MAX) >> 15));
+    }
+}
 
 struct FlameEmitter : Object // headOffset: the flame's item index + 1
 {
