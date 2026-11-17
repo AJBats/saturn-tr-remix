@@ -61,8 +61,8 @@ order; the few of its bugs a player runs into are listed at the end.
 | Order | Issue | Fix |
 |---|---|---|
 | 1 | 1. Items that start hidden never appear (Mines fuse, pistols, boat...) | small (closed) |
-| 2 | 3. Thor's hammer tests the wrong sector (Folly) | small |
-| 3 | 4. Pushed and falling blocks never fall (Folly) | small |
+| 2 | 3. Thor's hammer tests the wrong sector (Folly) | small (closed) |
+| 3 | 4. Pushed and falling blocks never fall (Folly) | small (closed) |
 | 4 | 7. Trapdoors support the wrong second sector | small |
 | 5 | 5. Pierre drops only the scion; Tihocan's second key is missing | small |
 | 6 | 6. Atlantis doppelganger: wrong mirror point, no triggers, no death | small to medium |
@@ -187,40 +187,6 @@ Audit: LVL-2*
 - **Fix:**
   - A Scion3 class: 5 hit points, targetable, with the death sequence above.
   - The explosion sprite effect, which 84-87 need too.
-
-### 3. Thor's hammer tests its heavy trigger in the wrong sector
-*Severity: gameplay (blocks St. Francis' Folly) · Confidence: confirmed · Fix:
-small · Audit: LVL-3*
-
-- **Retail:** Thor's hammer control (`06022c3c`, case 3; TR1X
-  `objects/thors_hammer.c`). When the hammer reaches its "done" state, the heavy
-  trigger test runs at the **handle's** own position. Only then does
-  AlterFloorHeight (`060249a0`) raise the floor by 2048 at the head's position.
-- **Ours:** `openlara/object.h:1824-1826` tests at the head's position.
-  - That sector (room 25, sector 48) holds only a pad trigger.
-  - So the heavy trigger in room 25, sector 51, which activates blocks 19 and
-    20, never fires.
-- **Effect:** the Folly's Thor room can't be completed. This, issue 1 and issue
-  4 each block it on their own.
-- **Fix:** run the trigger test at the handle's position.
-
-### 4. Pushed and falling blocks never fall, and land with no thud
-*Severity: gameplay (blocks St. Francis' Folly) · Confidence: confirmed · Fix:
-small · Audit: LVL-4*
-
-- **Retail:** MovableBlockControl (`0602409c`) turns gravity on when the block is
-  above the floor (`pos.y < height`). On landing it calls DinoStomp (a camera
-  bump) and plays SFX 70.
-- **Ours:**
-  - `openlara/object.h:1219` tests `pos.y > roomFloor`, which is inverted.
-    Upstream has the same bug.
-  - Line 1228 is a TODO for the landing ("EarthQuake + playSound 70").
-- **Effect:**
-  - Blocks pushed off a ledge hover in mid-air.
-  - The Folly's blocks 19 and 20 start 4096 and 6144 units above the floor they
-    must reach.
-  - No block anywhere lands with a thud.
-- **Fix:** invert the test, and add the stomp and SFX 70.
 
 ### 5. Pierre drops only the scion; Tihocan's second key is missing
 *Severity: gameplay (likely blocks Tomb of Tihocan) · Confidence: likely · Fix:
@@ -3916,6 +3882,44 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 4. Pushed and falling blocks never fall, and land with no thud
+*Closed 2026-11-17: 32c4676, as retail's MovableBlockControl: above the floor a block falls, and lands with the floor shaking and sound 70. Mednafen: the Folly's blocks 19 and 20 fall 4096 and 6144 and settle; a push on flat floor stays level.*
+
+*Severity: gameplay (blocks St. Francis' Folly) · Confidence: confirmed · Fix:
+small · Audit: LVL-4*
+
+- **Retail:** MovableBlockControl (`0602409c`) turns gravity on when the block is
+  above the floor (`pos.y < height`). On landing it calls DinoStomp (a camera
+  bump) and plays SFX 70.
+- **Ours:**
+  - `openlara/object.h:1219` tests `pos.y > roomFloor`, which is inverted.
+    Upstream has the same bug.
+  - Line 1228 is a TODO for the landing ("EarthQuake + playSound 70").
+- **Effect:**
+  - Blocks pushed off a ledge hover in mid-air.
+  - The Folly's blocks 19 and 20 start 4096 and 6144 units above the floor they
+    must reach.
+  - No block anywhere lands with a thud.
+- **Fix:** invert the test, and add the stomp and SFX 70.
+
+### 3. Thor's hammer tests its heavy trigger in the wrong sector
+*Closed 2026-11-17: 32c4676, as retail's ThorsHammerControl: the heavy trigger under the handle, and the head's square raised two blocks while Lara lives (missing too). Mednafen: blocks 19 and 20 released, the floor 75 -> 67.*
+
+*Severity: gameplay (blocks St. Francis' Folly) · Confidence: confirmed · Fix:
+small · Audit: LVL-3*
+
+- **Retail:** Thor's hammer control (`06022c3c`, case 3; TR1X
+  `objects/thors_hammer.c`). When the hammer reaches its "done" state, the heavy
+  trigger test runs at the **handle's** own position. Only then does
+  AlterFloorHeight (`060249a0`) raise the floor by 2048 at the head's position.
+- **Ours:** `openlara/object.h:1824-1826` tests at the head's position.
+  - That sector (room 25, sector 48) holds only a pad trigger.
+  - So the heavy trigger in room 25, sector 51, which activates blocks 19 and
+    20, never fires.
+- **Effect:** the Folly's Thor room can't be completed. This, issue 1 and issue
+  4 each block it on their own.
+- **Fix:** run the trigger test at the handle's position.
 
 ### 1. Items that start hidden never appear when their trigger fires
 *Closed 2026-11-17: ba2cd3d, as retail's TestTriggers: a non-creature turns active whatever its status; pickups and holes, with no control routine, are left not active and off the active list. Mednafen: the Mines' pistols (82) shown, Qualopec's slab (38) falls with its collision live.*
