@@ -694,7 +694,10 @@ void ItemObj::remove()
 
 void ItemObj::activate()
 {
-    //ASSERT(!flags.active) TODO check LEVEL3B
+    // once on the list only: a second insert would loop the list (retail's
+    // AddActiveItem stops the game there)
+    if (flags & ITEM_FLAG_ACTIVE)
+        return;
 
     flags |= ITEM_FLAG_ACTIVE;
 
@@ -1340,7 +1343,7 @@ void ItemObj::collidePush(Lara* lara, CollisionInfo* cinfo, bool enemyHit) const
     if ((px < minX) || (px > maxX) || (pz < minZ) || (pz > maxZ))
         return;
 
-    enemyHit = enemyHit && cinfo->enemyHit && ((box.maxY - box.minY) > 256);
+    enemyHit = enemyHit && cinfo->enemyHit;
 
     int32 ax = px - minX;
     int32 bx = maxX - px;
@@ -1351,10 +1354,10 @@ void ItemObj::collidePush(Lara* lara, CollisionInfo* cinfo, bool enemyHit) const
         px -= ax;
     } else if (bx <= ax && bx <= az && bx <= bz) {
         px += bx;
-    } else if (az <= ax && az <= bx && az <= bz) {
-        pz -= az;
-    } else {
+    } else if (bz <= ax && bz <= bx && bz <= az) {
         pz += bz;
+    } else {
+        pz -= az;
     }
 
     s = -s;

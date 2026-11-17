@@ -68,6 +68,12 @@ struct Enemy : ItemObj
         const Sector* sector = room->getSector(pos.x, pos.z);
         ASSERT(sector->boxIndex != NO_BOX);
         extraE->nav.init(sector->boxIndex);
+
+        // the T-rex, the winged mutant and the centaur never path into a
+        // box a block could stand in (retail's InitialiseSlot, 06023278)
+        if (type == ITEM_REX || type == ITEM_MUTANT_1 || type == ITEM_CENTAUR) {
+            extraE->nav.mask = BOX_BLOCKABLE;
+        }
     }
 
     bool enable(bool forced)
@@ -153,7 +159,13 @@ struct Enemy : ItemObj
         tinfo.zoneIndex = zones[tinfo.boxIndex];
         tinfo.zoneIndexTarget = zones[tinfo.boxIndexTarget];
 
-        //@TODO blocking
+        // Lara out of reach (never this zone) when her box is blocked to me,
+        // or my box was reached only through blocked boxes (retail's
+        // CreatureAIInfo, 06009950)
+        if ((tinfo.boxIndexTarget != NO_BOX && (level.boxes[tinfo.boxIndexTarget].overlap & extraE->nav.mask)) || searchBlocked()) {
+            tinfo.zoneIndexTarget |= BOX_BLOCKED;
+        }
+
 
         if (health <= 0)
             return;
@@ -188,14 +200,24 @@ struct Enemy : ItemObj
         tinfo.rotHead = (tinfo.front && mood != MOOD_SLEEP) ? tinfo.angle : 0;
     }
 
+    // my box was reached only through blocked boxes in the latest search
+    X_INLINE bool searchBlocked() const
+    {
+        return extraE->nav.cells[tinfo.boxIndex].weight == uint16(extraE->nav.weight | NAV_BLOCKED);
+    }
+
     void updateMood()
     {
-        //if (extraE->nav.cells[extraE->boxIndex].weight == ) //@TODO blocking
+        // retail's CreatureMood (0600a0fc): no way there drops the box asked
+        // for; a target box gone bad drops it too, and with Lara in reach
+        // turns the creature bored, to pick again
+        if (searchBlocked()) {
+            extraE->nav.nextBox = NO_BOX;
+        }
 
         if (mood != MOOD_ATTACK && extraE->nav.nextBox != NO_BOX && !checkZone(extraE->nav.endBox))
         {
-            bool inZone = checkZone();
-            if (!inZone) {
+            if (checkZone()) {
                 mood = MOOD_SLEEP;
             }
             extraE->nav.nextBox = NO_BOX;
@@ -401,7 +423,7 @@ struct Enemy : ItemObj
         }
          
         if (mood == MOOD_ATTACK)
-            return ((flags & ITEM_FLAG_INJURED) && rand_logic() < 0x800) ? MOOD_ESCAPE : (!inZone ? MOOD_SLEEP : mood);
+            return ((flags & ITEM_FLAG_INJURED) && (rand_logic() < 0x800 || !inZone)) ? MOOD_ESCAPE : (!inZone ? MOOD_SLEEP : mood);
 
         return (inZone && rand_logic() < 0x100) ? MOOD_STALK : mood;
     }
@@ -423,7 +445,8 @@ struct Enemy : ItemObj
 
         const Box &b = level.boxes[boxIndex];
 
-        //@TODO blocking
+        if (b.overlap & extraE->nav.mask)   // blocked to me (retail's ValidBox, 0600a04c)
+            return false;
 
         return (pos.x <= (b.minX << 10)) || (pos.x >= ((b.maxX << 10) - 1)) || 
                (pos.z <= (b.minZ << 10)) || (pos.z >= ((b.maxZ << 10) - 1));
@@ -808,7 +831,7 @@ struct Enemy : ItemObj
         
         int32 r = cinfo->radius;
         cinfo->radius = 0;
-        collidePush(lara, cinfo, true);
+        collidePush(lara, cinfo, health > 0);   // no stagger once dying (retail's CreatureCollision)
         cinfo->radius = r;
     }
 
@@ -1625,7 +1648,7 @@ struct Lion : Enemy
         {
             case ITEM_LION_MALE   : health = 30; aggression = AGGRESSION_LVL_MAX; break;
             case ITEM_LION_FEMALE : health = 25; break;
-            case ITEM_PUMA        : health = 40; break;
+            case ITEM_PUMA        : health = 45; break;   // retail's object table, entry 14
         }
     }
 
@@ -2067,7 +2090,7 @@ struct Rex : Enemy
             case STATE_WALK:
             {
                 extraE->maxTurn = ENEMY_TURN_2;
-                if ((mood != MOOD_SLEEP) && !walk)
+                if ((mood != MOOD_SLEEP) || !walk)   // stop-and-go (retail's DinoControl, 060122fc)
                     return STATE_STOP;
                 if (tinfo.front && (rand_logic() < 0x200))
                 {

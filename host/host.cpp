@@ -20,6 +20,23 @@
 #include <stdlib.h>
 #include <time.h>
 #include <sys/mman.h>
+#include <signal.h>
+#include <unistd.h>
+#include <execinfo.h>
+
+// WATCHDOG=SECONDS: a run still going then prints where it is (addresses for
+// addr2line -e build/host/logic) and stops
+static void watchdog(int)
+{
+    void* frames[32];
+    int32 count = backtrace(frames, 32);
+    fprintf(stderr, "watchdog: still running, stack:");
+    for (int32 i = 0; i < count; i++) {
+        fprintf(stderr, " %p", frames[i]);
+    }
+    fprintf(stderr, "\n");
+    _exit(3);
+}
 
 int32 fps;
 CpuState gHostCpuState;
@@ -337,6 +354,11 @@ int main(int argc, char** argv)
     if (argc < 4) {
         fprintf(stderr, "usage: logic DATA_DIR LEVEL TICKS [KEYS@FIRST-LAST ...] [--items]\n");
         return 1;
+    }
+    setvbuf(stdout, NULL, _IOLBF, 0);   // a line at a time, so a run that hangs still shows where
+    if (getenv("WATCHDOG")) {
+        signal(SIGALRM, watchdog);
+        alarm(atoi(getenv("WATCHDOG")));
     }
     gDataDir = argv[1];
     int32 ticks = atoi(argv[3]);

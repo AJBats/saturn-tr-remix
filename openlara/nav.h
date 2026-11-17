@@ -3,10 +3,6 @@
 
 #include "common.h"
 
-#define NAV_INDEX   0x3FFF
-#define NAV_WEIGHT  0x7FFF
-#define NAV_BLOCKED 0x8000
-
 void Nav::init(uint32 boxIndex)
 {
     switch (stepHeight)
