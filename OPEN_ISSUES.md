@@ -294,23 +294,6 @@ CAM-22*
 
 ---
 
-### 261. A player's choice of camera
-*Kind: feature · Size: small · Fix: an in-game option*
-
-- The user's idea (2026-11-02): retail's camera is now the game's, and it would be fun to let the
-  player switch to OpenLara's in the game's options. Both are in `openlara/camera.h`; `gCameraRetail`
-  and the HW_LOG menu's Camera row switch them today.
-- OpenLara's follow camera has the shape of TR3 and TR4's, not TR1's (found 2026-11-03). Their PS1
-  chase cameras open with `if (elevation == 0) elevation = -1820` (-10 degrees): TR3 `TOMB3.EXE`
-  `00023e4c`, TR4 `SLUS_008.85` `00026740`, as `updateFollow` does. TR1 on the Saturn and PS1 and TR2
-  on PS1 have no such line; on the TR1 Saturn the chase sits level with Lara's shoulders. After it
-  come five tries at a place and a 768 squared test, as `getBestLocation` has; TR1 follows the
-  pathfinding boxes instead. TRX has the same split as its Camera mode setting (`box_camera.c` TR1
-  and TR2, `los_camera.c` TR3 and TR4), so the option could carry those names.
-- What separates them: 10 degrees of tilt and the field of view. Heaviest tenth of views over all
-  levels (`tools/occmodel` `cameras`): FOV 80 adds 8% room vertices and 25% faces kept, the level
-  view 2% and 1%. Room 103 is the exception with rooms overhead, where the tilt counts about as much.
-
 ### 262. The near plane is 64 where retail's is 80
 *Kind: visible · Size: small · Fix: decide with the near-face work*
 
@@ -1096,14 +1079,6 @@ small · Audit: INV-21*
   - Up to 3 at once, each stepping left by (W/10)·4/3.
   - It's a 2D sprite, not a spinning model.
 - **Ours:** nothing (`openlara/object.h:579-664` only adds to the counts).
-
-### 161. The FPS counter is on by default
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-24*
-
-- **Ours:** `gSettings.video_fps = 1` (`openlara/game.h:113`), shown by
-  `saturn/debug.cpp:1063`. There is also a Show FPS toggle in the ring.
-- **Retail:** none.
-- **Decision:** keep it during development?
 
 ### 162. No "Press START" title screen, no attract demos, no return to it
 *Severity: visible · Confidence: confirmed · Fix: medium (screen), large (demos)
@@ -2387,6 +2362,35 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 161. The FPS counter is on by default
+*Closed 2026-11-17: the game as shipped has no FPS counter (debug.cpp and the overlay are HW_LOG builds' only, f4c813f); HW_LOG builds keep theirs. The ring's Show FPS now does nothing: issue 145 takes it out with the other options retail lacks.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-24*
+
+- **Ours:** `gSettings.video_fps = 1` (`openlara/game.h:113`), shown by
+  `saturn/debug.cpp:1063`. There is also a Show FPS toggle in the ring.
+- **Retail:** none.
+- **Decision:** keep it during development?
+
+### 261. A player's choice of camera
+*Closed 2026-11-17: dropped. The user: "theres only ONE version of the game as we cannot even have room for the code that gives us options." OpenLara's camera and the menu's Camera row are gone, 0e6bec7.*
+
+*Kind: feature · Size: small · Fix: an in-game option*
+
+- The user's idea (2026-11-02): retail's camera is now the game's, and it would be fun to let the
+  player switch to OpenLara's in the game's options. Both are in `openlara/camera.h`; `gCameraRetail`
+  and the HW_LOG menu's Camera row switch them today.
+- OpenLara's follow camera has the shape of TR3 and TR4's, not TR1's (found 2026-11-03). Their PS1
+  chase cameras open with `if (elevation == 0) elevation = -1820` (-10 degrees): TR3 `TOMB3.EXE`
+  `00023e4c`, TR4 `SLUS_008.85` `00026740`, as `updateFollow` does. TR1 on the Saturn and PS1 and TR2
+  on PS1 have no such line; on the TR1 Saturn the chase sits level with Lara's shoulders. After it
+  come five tries at a place and a 768 squared test, as `getBestLocation` has; TR1 follows the
+  pathfinding boxes instead. TRX has the same split as its Camera mode setting (`box_camera.c` TR1
+  and TR2, `los_camera.c` TR3 and TR4), so the option could carry those names.
+- What separates them: 10 degrees of tilt and the field of view. Heaviest tenth of views over all
+  levels (`tools/occmodel` `cameras`): FOV 80 adds 8% room vertices and 25% faces kept, the level
+  view 2% and 1%. Room 103 is the exception with rooms overhead, where the tilt counts about as much.
 
 ### 168. No A+B+C+START soft reset
 *Closed 2026-11-17: retail's soft reset, 7d97d09; it tested a key the pad never sets until 132c5ee. Seen in Mednafen: A+B+C+START in the Caves goes to the title.*
