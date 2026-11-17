@@ -2170,8 +2170,8 @@ struct Boat : Object
 };
 
 
-// The Great Pyramid shakes while triggered, now and then bringing down a
-// ceiling or setting a fire in the room.
+// The Great Pyramid shaking while triggered (retail's EarthQuakeControl,
+// 06026800): now and then a rumble with a shake, or a stomp with a drop.
 struct Earthquake : Object
 {
     Earthquake(Room* room) : Object(room) {}
@@ -2181,31 +2181,15 @@ struct Earthquake : Object
         if (!isActive())
             return;
 
-        int32 r = rand_logic();
-        if (r < 0x400)
+        if (rand_draw() < 0x100)
         {
-            shakeCamera(15, false);
-            soundPlay(SND_ROCK, NULL);
+            cameraBounce(-150);
+            soundPlay(SND_STOMP, NULL);
         }
-        else if (r < 0x800)
+        else if (rand_logic() < 0x400)
         {
-            shakeCamera(5, false);
+            cameraBounce(50);
             soundPlay(SND_BOULDER, NULL);
-        }
-
-        r = rand_logic();
-        if (r < 1024)
-        {
-            ItemType wanted = (r < 512) ? ITEM_FLAME_EMITTER : ITEM_TRAP_CEILING;
-            for (ItemObj* item = room->firstItem; item; item = item->nextItem)
-            {
-                if (item->type == wanted && !(item->flags & ITEM_FLAG_ACTIVE) &&
-                    (item->flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INACTIVE)
-                {
-                    wake(item);
-                    break;
-                }
-            }
         }
     }
 

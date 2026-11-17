@@ -85,14 +85,27 @@ bool osCheckSave() { return false; }
 bool osSaveGame() { return true; }
 bool osLoadGame() { return false; }
 
-// sound: none
+// sound: none; SOUNDS=1 prints what the game plays and stops, by tick
+static int32 gHostTick;
+
 void sndInitSamples() {}
 void sndFreeSamples() {}
-void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode) { return NULL; }
+void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
+{
+    if (getenv("SOUNDS")) {
+        printf("tick %4d: sample %3d level %2d pitch %3d mode %d\n", gHostTick, index, volume, pitch, mode);
+    }
+    return NULL;
+}
 void sndPlayTrack(int32 track) {}
 bool sndTrackIsPlaying() { return true; }
 void sndStopTrack() {}
-void sndStopSample(int32 index) {}
+void sndStopSample(int32 index)
+{
+    if (getenv("SOUNDS")) {
+        printf("tick %4d: sample %3d stopped\n", gHostTick, index);
+    }
+}
 void sndStop() {}
 
 // the renderer: none
@@ -165,6 +178,7 @@ static uint32 parseKeys(const char* s)
 //   hit:ITEM:DAMAGE@TICK    the item hit (ItemObj::hit at its own position)
 //   flag:ITEM:HEX@TICK      flag bits set (0x100 ONCE, as a spent trigger leaves it)
 //   wake:ITEM@TICK          its code bits completed and triggered, as a trigger's object action
+//   fx:EFFECT@TICK          the level effect started, as a trigger's flip starts it
 struct Act
 {
     char kind;
@@ -179,7 +193,8 @@ static bool parseAct(const char* arg)
     a.kind = arg[0];
     if (gActCount == X_COUNT(gActs) || (sscanf(arg, "hit:%d:%d@%d", &a.item, &a.value, &a.tick) != 3 &&
         sscanf(arg, "flag:%d:%x@%d", &a.item, &a.value, &a.tick) != 3 &&
-        (a.value = 0, sscanf(arg, "wake:%d@%d", &a.item, &a.tick) != 2))) {
+        (a.value = 0, sscanf(arg, "wake:%d@%d", &a.item, &a.tick) != 2) &&
+        (a.item = 0, a.kind = 'x', sscanf(arg, "fx:%d@%d", &a.value, &a.tick) != 2))) {
         return false;
     }
     gActs[gActCount++] = a;
@@ -198,6 +213,8 @@ static void actsAt(int32 tick)
             item->hit(a.value, item->pos, 0);
         } else if (a.kind == 'f') {
             item->flags |= a.value;
+        } else if (a.kind == 'x') {
+            setEffect(a.value, players[0]);
         } else if (!(item->flags & ITEM_FLAG_ACTIVE)) {
             item->flags |= ITEM_FLAG_MASK;
             item->trigger();
@@ -351,6 +368,7 @@ int main(int argc, char** argv)
     bool handed = false;
     for (int32 tick = 0; tick < ticks; tick++)
     {
+        gHostTick = tick;
         keys = keysAt(tick);
         actsAt(tick);
         bool done = false;
@@ -363,6 +381,10 @@ int main(int argc, char** argv)
         gameUpdate(1, !done);
         levelCommit();
         handed = gameInPlay();
+
+        if (getenv("BOUNCE") && players[0] && players[0]->extraL->camera.bounce) {
+            printf("tick %4d: camera bounce %d\n", tick, players[0]->extraL->camera.bounce);
+        }
 
         if (tick % (getenv("EVERY") ? atoi(getenv("EVERY")) : 30) == 0 || tick == ticks - 1) {
             printLara(tick);

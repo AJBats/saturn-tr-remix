@@ -333,148 +333,188 @@ void levelCommit()
     }
 }
 
-void shakeCamera(int32 frames, bool add)
+void cameraBounce(int32 bounce)
 {
     for (int32 i = 0; i < MAX_PLAYERS; i++)
     {
-        if (!players[i])
-            continue;
-
-        Camera &camera = players[i]->extraL->camera;
-        camera.shake = add ? camera.shake + frames : frames;
+        if (players[i]) {
+            players[i]->extraL->camera.bounce = bounce;
+        }
     }
 }
 
-// The floor shaking under something heavy that lands (retail's DinoStomp,
-// 060159b8, in our shake model: issue 17): up to half a second, fading out 15
-// sectors away.
+// The camera dropping as something heavy lands (retail's DinoStomp, 060159b8):
+// by up to 100 for a tick, less with the square of its distance from the
+// camera, none 16 sectors away.
 void floorShake(const ItemObj* item)
 {
-    const int32 range = (15 * 1024) >> 4;
     for (int32 i = 0; i < MAX_PLAYERS; i++)
     {
         if (!players[i])
             continue;
 
         Camera &camera = players[i]->extraL->camera;
-        int32 dx = (item->pos.x - camera.view.pos.x) >> 4;
-        int32 dy = (item->pos.y - camera.view.pos.y) >> 4;
-        int32 dz = (item->pos.z - camera.view.pos.z) >> 4;
-        if (X_MAX(X_MAX(abs(dx), abs(dy)), abs(dz)) >= range)
+        int32 dx = item->pos.x - camera.view.pos.x;
+        int32 dy = item->pos.y - camera.view.pos.y;
+        int32 dz = item->pos.z - camera.view.pos.z;
+        if (abs(dx) >= 16 * 1024 || abs(dy) >= 16 * 1024 || abs(dz) >= 16 * 1024)
             continue;
 
-        int32 d2 = dx * dx + dy * dy + dz * dz;
-        camera.shake = X_MAX(0, 15 * (range * range - d2) / (range * range));
+        int32 d2 = (dx * dx + dy * dy + dz * dz) / 256;
+        camera.bounce = (0x100000 - d2) * 100 / 0x100000;
     }
 }
 
-// Level effects, from triggers and animations (OpenLara's Level::setEffect
-// and updateEffect), in 30 Hz frames.
+// The level's running effect (retail's flip effect, 06060c08, and its timer
+// 06060c0c): set by a trigger along with a flip of the rooms, then run once a
+// tick until it ends (retail runs it from SoundEffects, 06014fbc; its routines
+// are at 0x06060c64).
 static int32 gEffect = FX_NONE;
 static int32 gEffectTimer;
-static int32 gEffectIdx;
 
 void setEffect(int32 effect, const ItemObj* item)
 {
+    if (effect == FX_FLOOR_SHAKE)   // an animation's, at once
+    {
+        if (item) {
+            floorShake(item);
+        }
+        return;
+    }
+
     gEffect = effect;
     gEffectTimer = 0;
-    gEffectIdx = 0;
-
-    switch (effect)
-    {
-        case FX_FLOOR_SHAKE:
-        {
-            if (item) {
-                floorShake(item);
-            }
-            gEffect = FX_NONE;
-            break;
-        }
-
-        case FX_STAIRS2SLOPE:
-            soundPlay(SND_STAIRS2SLOPE, NULL);
-            break;
-
-        case FX_EXPLOSION:
-            soundPlay(SND_TNT, NULL);
-            shakeCamera(30, false);
-            break;
-    }
 }
 
-static void updateEffect(int32 frames)
+// A sound rising away below the camera's target, 100 a tick (drop sand,
+// 06015c70; power up, 06015ce4).
+static void soundBelowTarget(int16 id, int32 t)
 {
-    if (gEffect == FX_NONE)
+    vec3i pos = players[0]->extraL->camera.target.pos;
+    pos.y += t * 100;
+    soundPlay(id, &pos);
+}
+
+static void updateEffect()
+{
+    if (gEffect == FX_NONE || !players[0])
         return;
 
-    gEffectTimer += frames;
+    int32 t = gEffectTimer++;
+    bool done = false;
 
     switch (gEffect)
     {
-        case FX_FLOOD:
+        case FX_EARTHQUAKE:     // 06015ac0
         {
-            // retail's Flood (06015b44): the roar for 4 s at Lara, from 3000
-            // below the camera's target up to it in a second, then down
-            // again, so it swells and fades
-            int32 t = gEffectTimer - frames;
-            if (t >= 121 || !players[0]) {
-                gEffect = FX_NONE;
-                break;
+            if (t == 0) {
+                soundPlay(SND_ROCK, NULL);
+                cameraBounce(-250);
+            } else if (t == 3) {
+                soundPlay(SND_STOMP, NULL);
+            } else if (t == 35) {
+                soundPlay(SND_ROCK, NULL);
+            } else if (t == 20 || t == 50 || t == 70) {
+                soundPlay(SND_BOULDER, NULL);
             }
-            vec3i pos = players[0]->pos;
-            pos.y = players[0]->extraL->camera.target.pos.y + 100 * ((t < 30) ? 30 - t : t - 30);
-            soundPlay(SND_FLOOD, &pos);
+            done = (t == 104);
             break;
         }
 
-        case FX_TR1_FLICKER:
+        case FX_FLOOD:          // 06015b44
+        {
+            // the roar for 4 s at Lara, from 3000 below the camera's target up
+            // to it in a second, then down again, so it swells and fades
+            done = (t >= 121);
+            if (!done)
+            {
+                vec3i pos = players[0]->pos;
+                pos.y = players[0]->extraL->camera.target.pos.y + 100 * ((t < 30) ? 30 - t : t - 30);
+                soundPlay(SND_FLOOD, &pos);
+            }
+            break;
+        }
+
+        case FX_RAISING_BLOCK:  // 06015bbc
+        {
+            soundPlay(SND_RAISING_BLOCK, NULL);
+            done = true;
+            break;
+        }
+
+        case FX_STAIRS2SLOPE:   // 06015c34
+        {
+            if (t == 5) {
+                soundPlay(SND_STAIRS2SLOPE, NULL);
+                done = true;
+            }
+            break;
+        }
+
+        case FX_DROP_SAND:      // 06015c70
+        {
+            done = (t >= 121);
+            if (!done)
+            {
+                if (t == 0) {
+                    soundPlay(SND_SAND_DROP, NULL);
+                }
+                soundBelowTarget(SND_SAND, t);
+            }
+            break;
+        }
+
+        case FX_POWER_UP:       // 06015ce4
+        {
+            done = (t >= 121);
+            if (!done) {
+                soundBelowTarget(SND_POWER_UP, t);
+            }
+            break;
+        }
+
+        case FX_EXPLOSION:      // 06015d44
+        {
+            soundPlay(SND_TNT, NULL);
+            cameraBounce(-75);
+            done = true;
+            break;
+        }
+
+        case FX_TR1_CHAIN_BLOCK:    // 06015be4
+        {
+            if (t == 0) {
+                soundPlay(SND_CHAIN_BLOCK, NULL);
+            }
+            if (t == 54) {
+                soundPlay(SND_SPLASH, NULL);
+                done = true;
+            }
+            break;
+        }
+
+        case FX_TR1_FLICKER:    // OpenLara's (PC TR1's; not in the Saturn's table)
         {
             // the lights go out and come back: the rooms flip back and forth
-            static const uint8 times[] = { 90, 93, 105, 108, 123 };
-            while (gEffectIdx < 5 && gEffectTimer > times[gEffectIdx])
-            {
-                gEffectIdx++;
+            done = (t == 123);
+            if (t == 90 || t == 93 || t == 105 || t == 108 || done) {
                 flipMap();
-            }
-            if (gEffectIdx == 5) {
-                gEffect = FX_NONE;
-            }
-            break;
-        }
-
-        case FX_EARTHQUAKE:
-        {
-            static const struct { uint8 time; int16 sound; uint8 shake; } steps[] = {
-                {  0, SND_ROCK,    30 },
-                {  3, SND_STOMP,   0  },
-                { 18, SND_BOULDER, 15 },
-                { 33, SND_ROCK,    0  },
-                { 48, SND_BOULDER, 15 },
-                { 69, SND_BOULDER, 15 },
-            };
-            while (gEffectIdx < 6 && gEffectTimer > steps[gEffectIdx].time)
-            {
-                soundPlay(steps[gEffectIdx].sound, NULL);
-                if (steps[gEffectIdx].shake) {
-                    shakeCamera(steps[gEffectIdx].shake, gEffectIdx > 0);
-                }
-                gEffectIdx++;
-            }
-            if (gEffectIdx == 6) {
-                gEffect = FX_NONE;
             }
             break;
         }
 
         default:
-            gEffect = FX_NONE;
+            done = true;
+    }
+
+    if (done) {
+        gEffect = FX_NONE;
     }
 }
 
 void updateLevel(int32 frames)
 {
     updateFading(frames);
-    updateEffect(frames);
 
     gCausticsFrame += frames;
 

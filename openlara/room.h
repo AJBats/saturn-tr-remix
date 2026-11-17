@@ -1014,11 +1014,14 @@ void checkTrigger(const FloorData* fd, ItemObj* lara)
             break;
     };
 
-    // a trigger's effect comes with its flip
+    // a trigger's effect comes with its flip; a flip without one leaves the
+    // running effect be (retail's TestTriggers, 06010350)
     if (needFlip)
     {
         flipMap();
-        setEffect(effect, lara);
+        if (effect != FX_NONE) {
+            setEffect(effect, lara);
+        }
     }
 
     if (cameraItem && (camera->mode == CAMERA_MODE_FIXED || camera->mode == CAMERA_MODE_OBJECT))

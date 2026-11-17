@@ -3415,7 +3415,7 @@ struct Adam : Enemy
                 {
                     flags &= ~ITEM_FLAG_GRAVITY;
                     pos.y = roomFloor;
-                    shakeCamera(15, false);
+                    cameraBounce(500);  // retail's 06024b34
                     return STATE_STOP;
                 }
                 break;

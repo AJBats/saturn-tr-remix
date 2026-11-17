@@ -152,7 +152,7 @@ void Camera::init(ItemObj* lara)
     timer = 0;
     index = -1;
     lastIndex = -1;
-    shake = 0;
+    bounce = 0;
     shift = 0;
 
     mode = CAMERA_MODE_FOLLOW;
@@ -725,6 +725,33 @@ void Camera::smartShift(Location &ideal, bool look)
 
 // MoveCamera (0600c054): a speedth of the way there, out of the floor and
 // ceiling by a shift of the height it looks from.
+// Retail's bounce (MoveCamera, 0600c054): below 0, each tick a random jolt of
+// up to half of it on each axis, to the camera and its target alike (retail
+// gives the target y the x jolt too), easing by 5; above 0, both drop by it
+// for one tick.
+static void bounceView(vec3i &pos, vec3i &target, int32 &bounce)
+{
+    if (bounce > 0)
+    {
+        pos.y += bounce;
+        target.y += bounce;
+        bounce = 0;
+    }
+    else if (bounce < 0)
+    {
+        int32 d = (rand_logic() - 0x4000) * bounce / 0x7FFF;
+        pos.x += d;
+        target.y += d;
+        d = (rand_logic() - 0x4000) * bounce / 0x7FFF;
+        pos.y += d;
+        target.y += d;
+        d = (rand_logic() - 0x4000) * bounce / 0x7FFF;
+        pos.z += d;
+        target.z += d;
+        bounce += 5;
+    }
+}
+
 void Camera::moveRetail(Location &ideal, int32 speed)
 {
     view.pos.x += (ideal.pos.x - view.pos.x) / speed;
@@ -744,6 +771,9 @@ void Camera::moveRetail(Location &ideal, int32 speed)
     }
 
     int32 ceiling = sector->getCeiling(view.pos.x, view.pos.y, view.pos.z) + GROUND_SHIFT;
+
+    bounceView(view.pos, target.pos, bounce);
+
     shift = 0;
     if (height != WALL - GROUND_SHIFT && ceiling != WALL + GROUND_SHIFT)
     {
@@ -1044,12 +1074,6 @@ void Camera::updateRetail()
     vec3i dir = target.pos - pos;
     anglesFromVector(dir.x, dir.y, dir.z, angle.x, angle.y);
 
-    if (shake > 0)
-    {
-        pos.y += (sin(shake * (7 * ANGLE_180 / 30)) * shake * 48 / 30) >> FIXED_SHIFT;
-        shake--;
-    }
-
     cameraView(pos, angle.x, angle.y);
 }
 
@@ -1166,18 +1190,13 @@ void Camera::update()
         center = false;
     }
 
+    bounceView(view.pos, target.pos, bounce);
+
     vec3i pos = view.pos;
     pos.y += shift;
 
     vec3i dir = target.pos - pos;
     anglesFromVector(dir.x, dir.y, dir.z, angle.x, angle.y);
-
-    // earthquakes and stomps bob the view: sin(7 pi t) * t * 48, t in seconds
-    if (shake > 0)
-    {
-        pos.y += (sin(shake * (7 * ANGLE_180 / 30)) * shake * 48 / 30) >> FIXED_SHIFT;
-        shake--;
-    }
 
     matrixSetView(pos, angle.x, angle.y);
 }

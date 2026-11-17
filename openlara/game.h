@@ -297,6 +297,7 @@ void gameUpdateItems(int32 frames)
     for (int32 i = 0; i < frames; i++)
     {
         updateItems();
+        updateEffect();
     }
     updateLevel(frames);
     soundLoopsEnd();

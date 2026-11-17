@@ -1475,7 +1475,7 @@ struct Camera {
     bool lastFixed;
     bool center;
 
-    int32 shake; // frames left of shaking
+    int32 bounce; // retail's: below 0 the view shakes, easing by 5 a tick; above 0 it drops once
     int32 shift; // the view's height moved into the camera's sector (move)
 
     vec3i cutPos;   // an in-level cinematic's origin and heading
@@ -1994,10 +1994,10 @@ enum EffectType
     FX_FINISH_LEVEL   ,
     FX_EARTHQUAKE     ,
     FX_FLOOD          ,
-    FX_UNK1           ,
+    FX_RAISING_BLOCK  ,
     FX_STAIRS2SLOPE   ,
-    FX_UNK3           ,
-    FX_UNK4           ,
+    FX_DROP_SAND      ,
+    FX_POWER_UP       ,
     FX_EXPLOSION      ,
     FX_LARA_HANDSFREE ,
     FX_FLIP_MAP       ,
@@ -2021,6 +2021,7 @@ enum EffectType
     FX_ASSAULT_FINISH ,
     FX_FOOTPRINT      ,
 // specific
+    FX_TR1_CHAIN_BLOCK = 15,    // the level effect 15 (an animation's 15 draws the left gun)
     FX_TR1_FLICKER    = 16
 };
 
@@ -2084,7 +2085,8 @@ enum SoundID
     SND_INV_WEAPON      = 114,
     SND_INV_PAGE        = 115,
     SND_HEALTH          = 116,
-        
+    SND_RAISING_BLOCK   = 117,
+    SND_SAND            = 118,
     SND_STAIRS2SLOPE    = 119,
 
     SND_NATLA_SHOT      = 123,
@@ -2097,10 +2099,12 @@ enum SoundID
     SND_LAVA            = 149,
     SND_FLAME           = 150,
     SND_DART            = 151,
-        
+    SND_POWER_UP        = 155,
+    SND_SAND_DROP       = 161,
     SND_TNT             = 170,
     SND_MUTANT_DEATH    = 171,
     SND_SECRET          = 173,
+    SND_CHAIN_BLOCK     = 173,
 
     SND_HELICOPTER      = 297,
 
@@ -3077,7 +3081,7 @@ void startLevel(LevelID id);
 void nextLevel(LevelID next);
 void flipMap();
 void setEffect(int32 effect, const ItemObj* item);
-void shakeCamera(int32 frames, bool add);
+void cameraBounce(int32 bounce);
 void floorShake(const ItemObj* item);
 void* soundPlay(int16 id, const vec3i* pos);
 void soundStop(int16 id);
