@@ -606,6 +606,16 @@ void ItemObj::activate()
     ItemObj::sFirstActive = this;
 }
 
+// Retail TestTriggers (06010350): an item that isn't a creature turns active
+// whatever its status, so one the level hides until triggered appears.
+void ItemObj::trigger()
+{
+    hitMask = 0;
+    flags &= ~ITEM_FLAG_STATUS;
+    flags |= ITEM_FLAG_STATUS_ACTIVE;
+    activate();
+}
+
 void ItemObj::deactivate()
 {
     ItemObj* prev = NULL;

@@ -730,6 +730,15 @@ struct Enemy : ItemObj
         }
     }
 
+    virtual void trigger()
+    {
+        activate();
+
+        if (!(flags & ITEM_FLAG_STATUS) && (flags & ITEM_FLAG_ACTIVE)) {
+            flags |= ITEM_FLAG_STATUS_ACTIVE;
+        }
+    }
+
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
         ASSERT(health > 0);

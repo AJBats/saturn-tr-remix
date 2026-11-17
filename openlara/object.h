@@ -545,6 +545,18 @@ struct Pickup : Object
         frameIndex = 0;
     }
 
+    // Retail gives pickups no control routine (but the scion in Atlantis'
+    // holder), so AddActiveItem (0601ab6c) leaves them off the active list,
+    // not active: shown, and there to pick up.
+    virtual void activate()
+    {
+        if (type == ITEM_SCION_PICKUP_HOLDER) {
+            Object::activate();
+        } else {
+            flags &= ~ITEM_FLAG_STATUS;
+        }
+    }
+
     bool use()
     {
         if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INVISIBLE)
@@ -706,6 +718,12 @@ bool usePickup(ItemObj* item)
 struct Hole : Object // parent class for KeyHole and PuzzleHole
 {
     Hole(Room* room) : Object(room) {}
+
+    // No control routine in retail either: off the active list, not active.
+    virtual void activate()
+    {
+        flags &= ~ITEM_FLAG_STATUS;
+    }
 
     void apply(int32 offset, Lara* lara, Lara::State stateUse)
     {

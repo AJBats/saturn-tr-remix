@@ -857,11 +857,7 @@ void checkTrigger(const FloorData* fd, ItemObj* lara)
                 if (item->flags & ITEM_FLAG_ACTIVE)
                     break;
 
-                item->activate();
-
-                if (!(item->flags & ITEM_FLAG_STATUS) && (item->flags & ITEM_FLAG_ACTIVE)) {
-                    item->flags |= ITEM_FLAG_STATUS_ACTIVE;
-                }
+                item->trigger();
 
                 break;
             }

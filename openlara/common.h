@@ -1836,6 +1836,7 @@ struct ItemObj
     ItemObj(Room* room);
     virtual void activate();
     virtual void deactivate();
+    virtual void trigger();     // a trigger's object action, its code bits full
     virtual void hit(int32 damage, const vec3i &point, int32 soundId);
     virtual void collide(Lara* lara, CollisionInfo* cinfo);
     virtual void update();
