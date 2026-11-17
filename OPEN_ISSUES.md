@@ -107,7 +107,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 40 | 122. Closed doors don't block in flipped rooms | medium (closed) |
 | 41 | 114. Boulders never reset | small (closed) |
 | 42 | 115. Centaur statues don't shatter (wake done 345a620) | medium, with 213 |
-| 43 | 80, 78, 79. Crocodiles and rats: land and water forms, depth, pool bottom | medium |
+| 43 | 80, 78, 79. Crocodiles and rats: land and water forms, depth, pool bottom | medium (closed) |
 | 44 | 88. The torso boss: no grab kill, wrong steering | medium (closed) |
 | 45 | 89. The T-rex walks without stopping | small (closed) |
 | 46 | 82. T-rex, centaurs, winged mutant ignore blockable boxes | small (closed) |
@@ -694,46 +694,6 @@ SND-21*
 
 ## Creatures and AI
 
-### 78. The water crocodile can't move up or down
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-7*
-
-- **Retail:** AlligatorControl (`06011698`) flies at 16 per frame, and stays at
-  least 256 below the water surface.
-- **Ours:** `Crocodile::initExtra` (`openlara/enemy.h:1560-1569`) never sets
-  `nav.vSpeed`, so it stays 0 from `setExtra` (line 57). `updateLocation` clamps
-  vertical movement to ±0.
-- **Effect:** water crocodiles stay at their starting depth, and can bite Lara
-  only at that depth. This affects the Folly, Colosseum, Midas, Cistern,
-  Tihocan, Khamoon and Obelisk.
-- **Fix:** vSpeed 16, plus the surface clamp.
-
-### 79. Water rats crawl along the pool bottom
-*Severity: gameplay / visible · Confidence: confirmed · Fix: small · Audit:
-AI-8*
-
-- **Retail:** VoleControl (`0602bd64`) moves pos.y toward the water surface by
-  32 per frame.
-- **Ours:** ITEM_RAT_WATER uses ground navigation and floor-following
-  (`openlara/enemy.h:702-710`), so it sinks 64 per frame to the floor.
-- **Effect:** in Midas and the Cistern, water rats crawl along the pool floor and
-  can't bite Lara swimming at the surface.
-
-### 80. Crocodiles and rats don't switch between land and water forms
-*Severity: gameplay / visible · Confidence: confirmed · Fix: medium · Audit:
-AI-9*
-
-- **Retail:**
-  - A land crocodile entering an underwater room becomes the water crocodile. A
-    water crocodile with no water under it becomes the land one.
-  - A rat in water becomes a water rat, and a water rat leaving water becomes a
-    rat.
-  - A dead water crocodile floats up at 32 per frame to the surface, then its AI
-    is released.
-  - `06011698`, `0602ba74`.
-- **Ours:** the type is fixed (`openlara/enemy.h:1462-1490`, `1888-1914`). A
-  land crocodile or rat that enters water walks along the bottom, and dead water
-  crocodiles stay down.
-
 ### 86. Mutants: the winged one doesn't fly, shots are instant, they don't burst
 *Severity: gameplay · Confidence: confirmed · Fix: large · Audit: AI-14*
 
@@ -796,12 +756,6 @@ AI-29*
 - **Ours:** `openlara/enemy.h:179` requires `mood != MOOD_SLEEP`.
 - **Effect:** walking wolves, a posing Larson and other bored creatures don't
   turn their heads toward Lara.
-
-### 111. The water crocodile's smartness is 0x2000; retail's is 0x400
-*Severity: subtle · Confidence: confirmed (object table) · Fix: small · Audit:
-AI-40*
-
-- **Ours:** it reuses the land crocodile's value (`openlara/enemy.h:1450`).
 
 ## Level logic, traps and objects
 
@@ -2695,6 +2649,60 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 111. The water crocodile's smartness is 0x2000; retail's is 0x400
+*Closed 2026-11-17: ported from retail, 437aa86.*
+
+*Severity: subtle · Confidence: confirmed (object table) · Fix: small · Audit:
+AI-40*
+
+- **Ours:** it reuses the land crocodile's value (`openlara/enemy.h:1450`).
+
+### 79. Water rats crawl along the pool bottom
+*Closed 2026-11-17: ported from retail, 437aa86.*
+
+*Severity: gameplay / visible · Confidence: confirmed · Fix: small · Audit:
+AI-8*
+
+- **Retail:** VoleControl (`0602bd64`) moves pos.y toward the water surface by
+  32 per frame.
+- **Ours:** ITEM_RAT_WATER uses ground navigation and floor-following
+  (`openlara/enemy.h:702-710`), so it sinks 64 per frame to the floor.
+- **Effect:** in Midas and the Cistern, water rats crawl along the pool floor and
+  can't bite Lara swimming at the surface.
+
+### 78. The water crocodile can't move up or down
+*Closed 2026-11-17: ported from retail, 437aa86.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-7*
+
+- **Retail:** AlligatorControl (`06011698`) flies at 16 per frame, and stays at
+  least 256 below the water surface.
+- **Ours:** `Crocodile::initExtra` (`openlara/enemy.h:1560-1569`) never sets
+  `nav.vSpeed`, so it stays 0 from `setExtra` (line 57). `updateLocation` clamps
+  vertical movement to ±0.
+- **Effect:** water crocodiles stay at their starting depth, and can bite Lara
+  only at that depth. This affects the Folly, Colosseum, Midas, Cistern,
+  Tihocan, Khamoon and Obelisk.
+- **Fix:** vSpeed 16, plus the surface clamp.
+
+### 80. Crocodiles and rats don't switch between land and water forms
+*Closed 2026-11-17: ported from retail, 437aa86.*
+
+*Severity: gameplay / visible · Confidence: confirmed · Fix: medium · Audit:
+AI-9*
+
+- **Retail:**
+  - A land crocodile entering an underwater room becomes the water crocodile. A
+    water crocodile with no water under it becomes the land one.
+  - A rat in water becomes a water rat, and a water rat leaving water becomes a
+    rat.
+  - A dead water crocodile floats up at 32 per frame to the surface, then its AI
+    is released.
+  - `06011698`, `0602ba74`.
+- **Ours:** the type is fixed (`openlara/enemy.h:1462-1490`, `1888-1914`). A
+  land crocodile or rat that enters water walks along the bottom, and dead water
+  crocodiles stay down.
 
 ### 35. Surface swimming over shallow water, and climbing out, is looser than retail
 *Closed 2026-11-17: ported from retail, 435efdf.*
