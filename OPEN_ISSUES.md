@@ -88,9 +88,9 @@ order; the few of its bugs a player runs into are listed at the end.
 | 21 | 86. Mutants: no flight, instant shots, no burst | large |
 | 22 | 87. Centaurs don't burst (with 213) | medium |
 | 23 | 29. Button layout and control model | medium |
-| 24 | 30. Look works in every state and freezes Lara | small |
-| 25 | 133. A key chosen away from a keyhole auto-inserts later | small |
-| 26 | 51. Switches, keyholes and blocks work with Lara's back turned | small |
+| 24 | 30. Look works in every state and freezes Lara | small (closed) |
+| 25 | 133. A key chosen away from a keyhole auto-inserts later | small (closed) |
+| 26 | 51. Switches, keyholes and blocks work with Lara's back turned | small (closed) |
 | 27 | 58. Shot hit test: targets 15% smaller | small |
 | 28 | 112. AI distances approximate; enemy gunfire's hit chance off | small |
 | 29 | 76. Wolf pounce inverted | small |
@@ -444,31 +444,6 @@ INV-33*
   - Map retail method 1 (optionally all three methods).
   - Port the retail state checks that use them.
 
-### 30. Look works in every state and freezes Lara's movement
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: LARA-2,
-CAM-6*
-
-- **Retail:**
-  - The look bit is read only in LaraAsStop (`0601b2e4`) and LaraAsSurfTread
-    (`06021514`); there are no other reads in the decomp.
-  - In any other state Look is ignored and steering keeps working.
-  - LaraAboveWater (`0601af90`) has no look code.
-- **Ours:**
-  - `updateLook` (`openlara/lara.h:2852-2918`, called at `3940`) runs before the
-    state handlers in every state and water state.
-  - It turns the head and torso, then strips the directions:
-    `input &= ~(IN_RIGHT|IN_LEFT|IN_UP|IN_DOWN)`.
-  - The turn states also drop to Stop on Look (`lara.h:744`). That is TR1X's
-    optional "enhanced look", not the original.
-- **Effect:**
-  - Holding Look while running stops Lara, because forward is removed.
-  - It freezes steering in jumps and swims, and shimmying while hanging.
-  - Retail keeps running and only looks once she stands still.
-- **Fix:**
-  - Do the head look only inside the Stop and Surface-tread handlers, with
-    retail's limits.
-  - Decay the head after the state handler, only when not looking.
-
 ### 31. Looking while treading water uses the land settings
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: LARA-3*
 
@@ -717,28 +692,6 @@ LARA-20*
   swimTimer.
 - **Effect:** after a load, Lara's movement can differ for a frame or two, for
   example mid-swim.
-
-### 51. Switches, keyholes, puzzle holes and blocks can be used with Lara's back turned
-*Severity: gameplay · Confidence: confirmed (code plus exhaustive count) · Fix:
-small · Audit: MATH-7*
-
-- **Retail:** TestLaraPosition (`0600f1bc`; TR1X `collide.c`) takes
-  (int16)(lara.rot - item.rot) and compares it against signed bounds.
-- **Ours:** `openlara/object.h:102-104` does
-  `int16 ay = abs(lara->angle.y - angle.y)`. A raw difference of 32768 or more
-  becomes negative and passes `ay > limit`.
-- **Effect:** with the 30° yaw limit, the heading test is wrong for:
-  - 150° of Lara's headings, for items with yaw -32768 (facing south)
-  - 90°, for items with yaw ±16384
-  - one value, for items with yaw 0
-
-  Standing in a switch's or keyhole's box with her back to it, or side-on, Lara
-  can still use it. This affects LIMIT_SWITCH, LIMIT_HOLE, LIMIT_BLOCK and
-  LIMIT_MIDAS. Pickups are unaffected, because their item takes Lara's heading
-  first.
-- **Fix:** cast the difference to int16 before `abs`.
-
----
 
 ## Weapons and combat
 
@@ -1612,22 +1565,6 @@ CAM-16/17*
   - Silent for a used hole (`openlara/object.h:715`).
   - Repeats "no" for as long as Action is held (`object.h:745`).
   - Also requires the plain-stand animation (`object.h:718`).
-
-### 133. An item chosen away from a keyhole stays armed and auto-inserts later
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: INV-7,
-LVL-23*
-
-- **Retail:** the collision routine clears g_InvChosen at the end of every frame
-  (`DAT_0606277a = 0xFFFF`, near decomp.c:10620; TR1X `collide.c`).
-- **Ours:**
-  - `onItem` (`openlara/inventory.h:1010-1028`) sets `useSlot`.
-  - `useItem` returns false for keys, so `game.h:308-310` never clears it.
-  - `Hole::apply` (`object.h:721`) then skips the Action check while `useSlot`
-    is set.
-- **Effect:** select a key in open space, and the next time Lara stands at any
-  keyhole or puzzle hole she uses it without pressing Action. A wrong hole gives
-  the "no" sound.
-- **Fix:** clear `useSlot` after the frame it was chosen in.
 
 ### 134. Pushing and pulling blocks ignores static meshes
 *Severity: subtle · Confidence: likely (TR1X TestBlockPush/TestBlockPull;
@@ -3406,6 +3343,75 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 30. Look works in every state and freezes Lara's movement
+*Closed 2026-11-17: c5805c6. Look only in Stop and SurfTread with retail's speeds and limits; head eases back after the handler.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: LARA-2,
+CAM-6*
+
+- **Retail:**
+  - The look bit is read only in LaraAsStop (`0601b2e4`) and LaraAsSurfTread
+    (`06021514`); there are no other reads in the decomp.
+  - In any other state Look is ignored and steering keeps working.
+  - LaraAboveWater (`0601af90`) has no look code.
+- **Ours:**
+  - `updateLook` (`openlara/lara.h:2852-2918`, called at `3940`) runs before the
+    state handlers in every state and water state.
+  - It turns the head and torso, then strips the directions:
+    `input &= ~(IN_RIGHT|IN_LEFT|IN_UP|IN_DOWN)`.
+  - The turn states also drop to Stop on Look (`lara.h:744`). That is TR1X's
+    optional "enhanced look", not the original.
+- **Effect:**
+  - Holding Look while running stops Lara, because forward is removed.
+  - It freezes steering in jumps and swims, and shimmying while hanging.
+  - Retail keeps running and only looks once she stands still.
+- **Fix:**
+  - Do the head look only inside the Stop and Surface-tread handlers, with
+    retail's limits.
+  - Decay the head after the state handler, only when not looking.
+
+### 133. An item chosen away from a keyhole stays armed and auto-inserts later
+*Closed 2026-11-17: c5805c6. useSlot cleared at the end of Lara's collision each tick.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: INV-7,
+LVL-23*
+
+- **Retail:** the collision routine clears g_InvChosen at the end of every frame
+  (`DAT_0606277a = 0xFFFF`, near decomp.c:10620; TR1X `collide.c`).
+- **Ours:**
+  - `onItem` (`openlara/inventory.h:1010-1028`) sets `useSlot`.
+  - `useItem` returns false for keys, so `game.h:308-310` never clears it.
+  - `Hole::apply` (`object.h:721`) then skips the Action check while `useSlot`
+    is set.
+- **Effect:** select a key in open space, and the next time Lara stands at any
+  keyhole or puzzle hole she uses it without pressing Action. A wrong hole gives
+  the "no" sound.
+- **Fix:** clear `useSlot` after the frame it was chosen in.
+
+### 51. Switches, keyholes, puzzle holes and blocks can be used with Lara's back turned
+*Closed 2026-11-17: c5805c6. Heading difference wrapped to int16 before abs.*
+
+*Severity: gameplay · Confidence: confirmed (code plus exhaustive count) · Fix:
+small · Audit: MATH-7*
+
+- **Retail:** TestLaraPosition (`0600f1bc`; TR1X `collide.c`) takes
+  (int16)(lara.rot - item.rot) and compares it against signed bounds.
+- **Ours:** `openlara/object.h:102-104` does
+  `int16 ay = abs(lara->angle.y - angle.y)`. A raw difference of 32768 or more
+  becomes negative and passes `ay > limit`.
+- **Effect:** with the 30° yaw limit, the heading test is wrong for:
+  - 150° of Lara's headings, for items with yaw -32768 (facing south)
+  - 90°, for items with yaw ±16384
+  - one value, for items with yaw 0
+
+  Standing in a switch's or keyhole's box with her back to it, or side-on, Lara
+  can still use it. This affects LIMIT_SWITCH, LIMIT_HOLE, LIMIT_BLOCK and
+  LIMIT_MIDAS. Pickups are unaffected, because their item takes Lara's heading
+  first.
+- **Fix:** cast the difference to int16 before `abs`.
+
+---
 
 ### 74. Every triggered creature's collision radius becomes 0
 *Closed 2026-11-17: f8d1015. Whole radius; triggers skip the timer (radius) of creatures.*
