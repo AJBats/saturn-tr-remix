@@ -220,10 +220,16 @@ void ItemObj::move()
 
     if (flags & ITEM_FLAG_GRAVITY)
     {
-        sp += anim->accel * (frameIndex - anim->frameBegin - 1);
-        hSpeed -= sp >> 16;
-        sp += anim->accel;
-        hSpeed += sp >> 16;
+        // in the air Lara's speed follows her animation's acceleration
+        // (retail's AnimateLara); anything else keeps the speed it had
+        // (AnimateItem, 0600f894)
+        if (type == ITEM_LARA)
+        {
+            sp += anim->accel * (frameIndex - anim->frameBegin - 1);
+            hSpeed -= sp >> 16;
+            sp += anim->accel;
+            hSpeed += sp >> 16;
+        }
 
         vSpeed += (vSpeed < 128) ? GRAVITY : 1;
 

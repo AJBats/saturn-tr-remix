@@ -882,20 +882,23 @@ struct Enemy : ItemObj
 };
 
 
-// Lara's double in Atlantis mirrors her about the centre of the room she
-// starts in, and dies when her mirrored ground gives way under her (TR1's
-// BaconLaraControl). Shooting her hurts Lara. turnSpeed counts the frames her
-// fall has been pending (two, as she runs a frame behind); aggression is set
-// once she falls.
+// Lara's double in Atlantis mirrors her about the middle of the arena, room
+// 10, and falls when her mirrored ground is a pit Lara's isn't; her fall and
+// her landing test the heavy triggers under her, which open the way on, and
+// she lies dead (retail's ControlEvilLara, 06020e84). Shooting her hurts Lara.
+// aggression is set once she falls.
 struct Doppelganger : Enemy
 {
+    enum {
+        MIRROR_X = 0x12000,     // twice the arena's middle: (36864, 61440)
+        MIRROR_Z = 0x1E000
+    };
+
     Doppelganger(Room* room) : Enemy(room, LARA_MAX_HEALTH, 10, 0, 0)
     {
         headOffset = 0;
-        turnSpeed = 0;
         aggression = 0;
         flags &= ~ITEM_FLAG_SHADOW;
-        roomFloor = room - rooms; // the room she mirrors about, until she runs
     }
 
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
@@ -907,29 +910,33 @@ struct Doppelganger : Enemy
 
     virtual void update()
     {
-        Lara* lara = getLara(pos);
+        if (!aggression) {
+            mirror();
+        }
 
         if (aggression)
         {
             animProcess();
-            updateRoom();
+            updateRoom(); // roomFloor and gLastFloorData under her
+            checkTrigger(gLastFloorData, NULL);
+
             if (pos.y >= roomFloor)
             {
                 pos.y = roomFloor;
-                flags &= ~(ITEM_FLAG_GRAVITY | ITEM_FLAG_STATUS);
-                flags |= ITEM_FLAG_STATUS_INACTIVE;
+                room->getRoom(pos.x, pos.y, pos.z)->getSector(pos.x, pos.z)->getFloor(pos.x, pos.y, pos.z);
+                checkTrigger(gLastFloorData, NULL);
+                flags &= ~ITEM_FLAG_GRAVITY;
                 vSpeed = 0;
-                health = 0;
-                deactivate();
+                goalState = nextState = Lara::STATE_DEATH;
             }
-            return;
         }
+    }
 
-        const RoomInfo* home = rooms[roomFloor].info;
-        int32 cx = (home->x << 8) + (home->xSectors << 9);
-        int32 cz = (home->z << 8) + (home->zSectors << 9);
+    void mirror()
+    {
+        Lara* lara = getLara(pos);
 
-        vec3i p = _vec3i(2 * cx - lara->pos.x, lara->pos.y, 2 * cz - lara->pos.z);
+        vec3i p = _vec3i(MIRROR_X - lara->pos.x, lara->pos.y, MIRROR_Z - lara->pos.z);
 
         Room* nextRoom = lara->room->getRoom(p.x, p.y, p.z);
         int32 floor = nextRoom->getSector(p.x, p.z)->getFloor(p.x, p.y, p.z);
@@ -949,12 +956,6 @@ struct Doppelganger : Enemy
         }
 
         if (floor < laraFloor + 1024 || (lara->flags & ITEM_FLAG_GRAVITY))
-        {
-            turnSpeed = 0;
-            return;
-        }
-
-        if (++turnSpeed < 2)
             return;
 
         // the pit takes her
@@ -965,7 +966,6 @@ struct Doppelganger : Enemy
         flags |= ITEM_FLAG_GRAVITY;
         pos.y += 50;
         aggression = 1;
-        roomFloor = floor;
     }
 };
 
