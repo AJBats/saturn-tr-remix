@@ -60,7 +60,7 @@ order; the few of its bugs a player runs into are listed at the end.
 
 | Order | Issue | Fix |
 |---|---|---|
-| 1 | 1. Items that start hidden never appear (Mines fuse, pistols, boat...) | small |
+| 1 | 1. Items that start hidden never appear (Mines fuse, pistols, boat...) | small (closed) |
 | 2 | 3. Thor's hammer tests the wrong sector (Folly) | small |
 | 3 | 4. Pushed and falling blocks never fall (Folly) | small |
 | 4 | 7. Trapdoors support the wrong second sector | small |
@@ -163,35 +163,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 ---
 
 ## Progression blockers
-
-### 1. Items that start hidden never appear when their trigger fires
-*Severity: gameplay (blocks progress) · Confidence: confirmed · Fix: small ·
-Audit: LVL-1*
-
-- **Retail:** TestTriggers (`06010350`), object action. Once an item's code bits
-  are complete and it isn't already active, a non-creature item is set active
-  unconditionally (status byte 0x20) and added to the active list. Items with no
-  control routine then drop back to "not active", but they are visible and can
-  be touched.
-- **Ours:**
-  - Items flagged "once" in the level data start invisible
-    (`openlara/item.h:1058-1062`, ONCE → `ITEM_FLAG_STATUS_INVISIBLE`).
-  - The trigger (`openlara/room.h:1033-1037`) calls `activate()` and sets
-    `STATUS_ACTIVE` only when the status is 0, so invisible items stay
-    invisible.
-  - They aren't drawn (`draw.h:851`) and Lara's collision loop skips them
-    (`lara.h:361`).
-  - Creatures are unaffected; `Enemy::activate` (`enemy.h:714`) handles them.
-- **Effect** (from the level data):
-  - **Natla's Mines:** fuse item 42 (switch 79) never appears, so the fuse
-    puzzle can't be finished. The pistols (82) and the boat (2) never appear
-    either.
-  - **Atlantis:** the Uzis (37) never appear.
-  - **Tomb of Qualopec:** the ceiling slabs that collapse after the scion is
-    taken (24, 25, 26, 68, 38, 39) fall invisibly and do no damage.
-  - **St. Francis' Folly:** blocks 19 and 20 never appear (see 3 and 4).
-- **Fix:** in the trigger's object action, clear the hidden status of
-  non-creature items and set them active, as retail does.
 
 ### 2. Great Pyramid: the Scion can't be destroyed, so the exit never opens
 *Severity: gameplay (blocks the ending) · Confidence: confirmed · Fix: medium ·
@@ -3945,6 +3916,37 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 1. Items that start hidden never appear when their trigger fires
+*Closed 2026-11-17: ba2cd3d, as retail's TestTriggers: a non-creature turns active whatever its status; pickups and holes, with no control routine, are left not active and off the active list. Mednafen: the Mines' pistols (82) shown, Qualopec's slab (38) falls with its collision live.*
+
+*Severity: gameplay (blocks progress) · Confidence: confirmed · Fix: small ·
+Audit: LVL-1*
+
+- **Retail:** TestTriggers (`06010350`), object action. Once an item's code bits
+  are complete and it isn't already active, a non-creature item is set active
+  unconditionally (status byte 0x20) and added to the active list. Items with no
+  control routine then drop back to "not active", but they are visible and can
+  be touched.
+- **Ours:**
+  - Items flagged "once" in the level data start invisible
+    (`openlara/item.h:1058-1062`, ONCE → `ITEM_FLAG_STATUS_INVISIBLE`).
+  - The trigger (`openlara/room.h:1033-1037`) calls `activate()` and sets
+    `STATUS_ACTIVE` only when the status is 0, so invisible items stay
+    invisible.
+  - They aren't drawn (`draw.h:851`) and Lara's collision loop skips them
+    (`lara.h:361`).
+  - Creatures are unaffected; `Enemy::activate` (`enemy.h:714`) handles them.
+- **Effect** (from the level data):
+  - **Natla's Mines:** fuse item 42 (switch 79) never appears, so the fuse
+    puzzle can't be finished. The pistols (82) and the boat (2) never appear
+    either.
+  - **Atlantis:** the Uzis (37) never appear.
+  - **Tomb of Qualopec:** the ceiling slabs that collapse after the scion is
+    taken (24, 25, 26, 68, 38, 39) fall invisibly and do no damage.
+  - **St. Francis' Folly:** blocks 19 and 20 never appear (see 3 and 4).
+- **Fix:** in the trigger's object action, clear the hidden status of
+  non-creature items and set them active, as retail does.
 
 ### 308. A skipped video leaves the screen black for a minute on the Saturn
 *Closed 2026-11-10: fmvPlay ends its stream (cd.cpp cdStreamStop): the drive paused, then what it read dropped.*
