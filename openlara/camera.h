@@ -70,9 +70,9 @@ void Camera::updateCinematic()
         view.room = nextRoom;
     }
 
-    // its end, or START (retail's DoCinematic, 0600d744)
-    static uint32 lastKeys = IK_START;
-    bool skip = (keys & IK_START) && !(lastKeys & IK_START);
+    // its end, or START (retail's DoCinematic, 0600d744): the pad's START is IK_SELECT (saturn/main.cpp)
+    static uint32 lastKeys = IK_SELECT;
+    bool skip = (keys & IK_SELECT) && !(lastKeys & IK_SELECT);
     lastKeys = keys;
 
     if (timer >= level.cameraFramesCount || skip) {

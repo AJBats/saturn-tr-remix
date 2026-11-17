@@ -452,7 +452,7 @@ void gameUpdate(int32 frames, bool items = true)
     PROFILE(CNT_UPDATE);
 
     // A+B+C+START: back to the title (retail's soft reset, its vblank handler 0603938c)
-    const uint32 reset = IK_A | IK_B | IK_C | IK_START;
+    const uint32 reset = IK_A | IK_B | IK_C | IK_SELECT;     // the pad's START is IK_SELECT (saturn/main.cpp)
     if ((keys & reset) == reset && gLevelID != LVL_TR1_TITLE && gNextLevel == LVL_MAX)
     {
         if (inventory.state != INV_STATE_NONE)
