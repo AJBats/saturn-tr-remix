@@ -214,8 +214,8 @@ static void listItems()
         const ItemObj* item = items + i;
         if (!item->room)
             continue;
-        printf("item %3d: type %3d room %3d pos %6d %6d %6d status %-9s health %d\n", i, item->type,
-               int32(item->room - rooms), item->pos.x, item->pos.y, item->pos.z,
+        printf("item %3d: type %3d room %3d pos %6d %6d %6d yaw %5d status %-9s health %d\n", i, item->type,
+               int32(item->room - rooms), item->pos.x, item->pos.y, item->pos.z, uint16(item->angle.y),
                status[(item->flags & ITEM_FLAG_STATUS) >> ITEM_FLAGS_STATUS_SHIFT], item->health);
     }
 }

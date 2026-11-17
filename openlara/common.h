@@ -3081,6 +3081,8 @@ void shakeCamera(int32 frames, bool add);
 void floorShake(const ItemObj* item);
 void* soundPlay(int16 id, const vec3i* pos);
 void soundStop(int16 id);
+void soundLoopsEnd();
+void soundLoopsStop();
 
 // TR1's box flags: a door or a block can stand in a blockable box, and blocks
 // it for enemies' paths while it does

@@ -26,6 +26,21 @@ int32 alignOffset(int32 a, int32 b)
     return -(a + 1);
 }
 
+#define MAX_LOOPS 8
+
+struct Loop
+{
+    int16 id;
+    int16 index;    // the sample, chosen when it started
+    int16 pitch;
+    int16 volume;   // the loudest this update, 0 if unplayed
+};
+
+static Loop gLoops[MAX_LOOPS];
+static int32 gLoopsCount;
+
+void soundLoop(int16 id, int32 index, int32 volume, int32 pitch);
+
 void* soundPlay(int16 id, const vec3i* pos)
 {
 #if defined(__32X__) || defined(__WIN32__) // TODO
@@ -86,6 +101,12 @@ void* soundPlay(int16 id, const vec3i* pos)
         index += (rand_draw() * SI_COUNT(b->flags)) >> 15;
     }
 
+    if (SI_MODE(b->flags) == LOOP)
+    {
+        soundLoop(id, index, volume, pitch);
+        return NULL;
+    }
+
     return sndPlaySample(index, volume, pitch, SI_MODE(b->flags));
 }
 
@@ -106,6 +127,73 @@ void soundStop(int16 id)
     {
         sndStopSample(b->index + i);
     }
+
+    for (int32 i = 0; i < gLoopsCount; i++)
+    {
+        if (gLoops[i].id == id) {
+            gLoops[i] = gLoops[--gLoopsCount];
+            break;
+        }
+    }
+}
+
+// The looped sounds played this update, started or set to their level at its
+// end (soundLoopsEnd).
+void soundLoop(int16 id, int32 index, int32 volume, int32 pitch)
+{
+    int32 i = 0;
+    while (i < gLoopsCount && gLoops[i].id != id) {
+        i++;
+    }
+
+    if (i == gLoopsCount)
+    {
+        if (gLoopsCount == MAX_LOOPS)
+            return;
+        gLoopsCount++;
+        gLoops[i].id = id;
+        gLoops[i].index = int16(index);
+        gLoops[i].pitch = int16(pitch);
+        gLoops[i].volume = 0;
+    }
+
+    // the nearest source sets the level
+    if (gLoops[i].volume < volume) {
+        gLoops[i].volume = int16(volume);
+    }
+}
+
+// A looped sound plays for as long as something plays it every update, at
+// the level of the nearest source; one nobody played this update, or played
+// out of hearing, stops (retail's SoundEffects 06014fbc and 06023c7c). Retail
+// also restarts the loops items play every frame, as it resets the levels
+// after the items ran; ours keeps them (issue 183).
+void soundLoopsEnd()
+{
+    int32 i = 0;
+    while (i < gLoopsCount)
+    {
+        Loop &loop = gLoops[i];
+        if (loop.volume)
+        {
+            sndPlaySample(loop.index, loop.volume, loop.pitch, LOOP);
+            loop.volume = 0;
+            i++;
+        } else {
+            sndStopSample(loop.index);
+            gLoops[i] = gLoops[--gLoopsCount];
+        }
+    }
+}
+
+// Every loop stopped: a flip of the rooms (retail's FlipMap 060112a8 calls
+// StopAmbientSounds), a new level.
+void soundLoopsStop()
+{
+    for (int32 i = 0; i < gLoopsCount; i++) {
+        sndStopSample(gLoops[i].index);
+    }
+    gLoopsCount = 0;
 }
 
 int32 ItemObj::getFrames(const AnimFrame* &frameA, const AnimFrame* &frameB, int32 &animFrameRate) const

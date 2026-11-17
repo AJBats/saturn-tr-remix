@@ -154,6 +154,7 @@ void gameLoadLevel(const void* data)
 
     readLevel((uint8*)data);
     setEffect(FX_NONE, NULL);
+    soundLoopsStop();
 
     // prepare rooms
     for (int32 i = 0; i < level.roomsCount; i++)
@@ -298,6 +299,7 @@ void gameUpdateItems(int32 frames)
         updateItems();
     }
     updateLevel(frames);
+    soundLoopsEnd();
 }
 
 // The game's update for frames ticks; without the items' if they are updated
@@ -317,6 +319,7 @@ void gameUpdate(int32 frames, bool items = true)
 
     if (inventory.state != INV_STATE_NONE)
     {
+        soundLoopsEnd();    // nothing plays them here: the loops stop, as in retail's inventory
         Lara* lara = (Lara*)inventory.lara;
         ASSERT(lara);
         lara->updateInput();

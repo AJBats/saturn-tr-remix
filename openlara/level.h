@@ -291,6 +291,8 @@ static void flipBlocks(Room* room, int32 offset)
 
 void flipMap()
 {
+    soundLoopsStop();
+
     for (int32 i = 0; i < level.roomsCount; i++)
     {
         Room* room = rooms + i;
@@ -389,10 +391,6 @@ void setEffect(int32 effect, const ItemObj* item)
             break;
         }
 
-        case FX_FLOOD:
-            soundPlay(SND_FLOOD, NULL);
-            break;
-
         case FX_STAIRS2SLOPE:
             soundPlay(SND_STAIRS2SLOPE, NULL);
             break;
@@ -413,6 +411,22 @@ static void updateEffect(int32 frames)
 
     switch (gEffect)
     {
+        case FX_FLOOD:
+        {
+            // retail's Flood (06015b44): the roar for 4 s at Lara, from 3000
+            // below the camera's target up to it in a second, then down
+            // again, so it swells and fades
+            int32 t = gEffectTimer - frames;
+            if (t >= 121 || !players[0]) {
+                gEffect = FX_NONE;
+                break;
+            }
+            vec3i pos = players[0]->pos;
+            pos.y = players[0]->extraL->camera.target.pos.y + 100 * ((t < 30) ? 30 - t : t - 30);
+            soundPlay(SND_FLOOD, &pos);
+            break;
+        }
+
         case FX_TR1_FLICKER:
         {
             // the lights go out and come back: the rooms flip back and forth
