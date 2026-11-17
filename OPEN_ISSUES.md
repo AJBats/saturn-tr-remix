@@ -1846,19 +1846,6 @@ INV-3*
 - **Effect:** with one medipack no health bar shows, and the bar is in the wrong
   place.
 
-### 144. No ammo counts and no ammo-box items in the ring
-*Severity: visible · Confidence: confirmed · Fix: medium (needs issue 52) ·
-Audit: INV-5*
-
-- **Retail:** RingNotActive (`06018f8c`) and Inv_AddItem (`060196d8`).
-  - The shotgun shows "%5d A" (ammo/6), the magnums "%5d B" and the Uzis
-    "%5d C", in small digits at (64, −56).
-  - Ammo boxes show count × 2.
-  - Ammo picked up without its gun appears as its own ring item: Shotgun Shells,
-    Magnum Clips, Uzi Clips. Picking up the gun converts the boxes into ammo.
-- **Ours:** the main ring never lists SLOT_AMMO_*
-  (`openlara/inventory.h:467-481`), and draws no ammo text.
-
 ### 145. The options ring holds the wrong items
 *Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-8,
 SND-C10*
@@ -2066,14 +2053,6 @@ small · Audit: INV-21*
   - 100 + 2 by 5 + 2.
   - The health rows are about 4 levels darker per channel; the air bar uses a
     different, bluer ramp.
-
-### 159. No HUD ammo counter
-*Severity: visible · Confidence: confirmed · Fix: small (after issue 52) ·
-Audit: INV-22*
-
-- **Retail:** DrawAmmoInfo (`06015f8c`) and MakeAmmoString (`06015f34`). With a
-  non-pistol gun drawn, it prints "%5d A/B/C" in small digits at (256, 64).
-- **Ours:** none.
 
 ### 160. No pickup notification
 *Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-23*
@@ -3606,6 +3585,31 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 159. No HUD ammo counter
+*Closed 2026-11-17: c4279b5. HUD rounds for the shotgun, magnums and Uzis at (256, 64).*
+
+*Severity: visible · Confidence: confirmed · Fix: small (after issue 52) ·
+Audit: INV-22*
+
+- **Retail:** DrawAmmoInfo (`06015f8c`) and MakeAmmoString (`06015f34`). With a
+  non-pistol gun drawn, it prints "%5d A/B/C" in small digits at (256, 64).
+- **Ours:** none.
+
+### 144. No ammo counts and no ammo-box items in the ring
+*Closed 2026-11-17: c4279b5. Boxes in the ring in their gun's place, gun rounds and box counts in small digits at retail's place.*
+
+*Severity: visible · Confidence: confirmed · Fix: medium (needs issue 52) ·
+Audit: INV-5*
+
+- **Retail:** RingNotActive (`06018f8c`) and Inv_AddItem (`060196d8`).
+  - The shotgun shows "%5d A" (ammo/6), the magnums "%5d B" and the Uzis
+    "%5d C", in small digits at (64, −56).
+  - Ammo boxes show count × 2.
+  - Ammo picked up without its gun appears as its own ring item: Shotgun Shells,
+    Magnum Clips, Uzi Clips. Picking up the gun converts the boxes into ammo.
+- **Ours:** the main ring never lists SLOT_AMMO_*
+  (`openlara/inventory.h:467-481`), and draws no ammo text.
 
 ### 52. Every weapon has unlimited ammo; no empty click, no switch back to pistols
 *Closed 2026-11-17: 90c90cd. Rounds counted (6 a shotgun shot), the click and the pistols when empty, boxes add rounds, guns take in boxes; saves keep rounds. The ring and HUD counts are issues 144 and 159.*
