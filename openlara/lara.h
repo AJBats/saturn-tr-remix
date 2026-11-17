@@ -1427,7 +1427,7 @@ struct Lara : ItemObj
 
     bool c_checkWallSurf()
     {
-        if ((cinfo.m.floor < 0 && cinfo.m.slantType == SLANT_HIGH) || (cinfo.type & (CT_FRONT | CT_CEILING | CT_FRONT_CEILING | CT_FLOOR_CEILING))) {
+        if ((cinfo.m.floor < 0) || (cinfo.type & (CT_FRONT | CT_CEILING | CT_FRONT_CEILING | CT_FLOOR_CEILING))) {
             pos  = cinfo.pos;
             vSpeed = 0;
         } else if (cinfo.type == CT_LEFT) {
@@ -1696,8 +1696,14 @@ struct Lara : ItemObj
         return true;
     }
 
+    // retail's LaraTestWaterClimbOut (060218e8): facing the way she moves, a
+    // wall ahead, Action, a level ledge 511 above to 100 below the waterline
+    // with headroom; she's put on it at the wall, climbing out
     bool c_checkWaterOut()
     {
+        if (angle.y != extraL->moveAngle)
+            return false;
+
         if (!(input & IN_ACTION) ||
             (cinfo.type != CT_FRONT) ||
             (cinfo.f.ceiling > 0) ||
@@ -1709,7 +1715,7 @@ struct Lara : ItemObj
 
         int32 h = cinfo.f.floor + LARA_HEIGHT_SURF;
 
-        if (h <= -512 || h > 316)
+        if (h < -512 || h > 100)
             return false;
 
         if (alignAngle(angle.y, ANGLE(35)))
@@ -1720,17 +1726,6 @@ struct Lara : ItemObj
         updateRoom(-LARA_HEIGHT / 2);
 
         alignWall(-LARA_RADIUS);
-        
-        if ((h < -128)) { // TODO || (level->version & TR::VER_TR1)) {
-            animSet(ANIM_WATER_OUT, true);
-        //    specular = LARA_WET_SPECULAR;
-        } else if (h < 128) {
-            animSet(ANIM_SURF_OUT, true);
-        } else {
-            animSet(ANIM_SURF_STAND, true);
-        }
-
-        //game->waterDrop(pos, 128.0f, 0.2f);
 
         animSet(ANIM_WATER_OUT, true);
         setWeaponState(WEAPON_STATE_BUSY);
@@ -2063,9 +2058,10 @@ struct Lara : ItemObj
             return;
     }
 
-    void c_surf()
+    // true when she dives, the water under her gone too shallow to float in
+    bool c_surf()
     {
-        collideRoom(LARA_HEIGHT_SURF + 100, LARA_HEIGHT_SURF);
+        collideRoom(LARA_HEIGHT_SURF, LARA_HEIGHT_SURF);
 
         c_applyOffset();
 
@@ -2084,8 +2080,9 @@ struct Lara : ItemObj
         int32 waterLevel = getWaterLevel();
         if (waterLevel - pos.y <= -100) {
             s_dive();
-            return;
+            return true;
         }
+        return false;
     }
 
     C_HANDLER( STATE_WALK )
@@ -2498,16 +2495,17 @@ struct Lara : ItemObj
     C_HANDLER( STATE_SURF_TREAD )
     {
         c_angle(ANGLE_0);
-        c_surf();
+        if (!c_surf()) {
+            c_checkWaterOut();
+        }
     }
 
     C_HANDLER( STATE_SURF_SWIM )
     {
-        cinfo.gapNeg = -LARA_STEP_HEIGHT;
-
         c_angle(ANGLE_0);
-        c_surf();
-        c_checkWaterOut();
+        if (!c_surf()) {
+            c_checkWaterOut();
+        }
     }
 
     C_HANDLER( STATE_UW_DIVE )
@@ -2973,7 +2971,7 @@ struct Lara : ItemObj
         cinfo.trigger     = NULL;
         cinfo.radius      = LARA_RADIUS;
         cinfo.gapPos      = -WALL;
-        cinfo.gapNeg      = -128;
+        cinfo.gapNeg      = -100;   // retail's LaraSurface
         cinfo.gapCeiling  = 100;
         cinfo.pos         = pos;
         cinfo.enemyPush   = false;
