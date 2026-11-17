@@ -11,6 +11,7 @@
 #include "inventory.h"
 
 EWRAM_DATA LevelID gNextLevel = LVL_MAX;
+EWRAM_DATA uint32 gLevelStarts;     // levels, saves and cutscenes started: the clock restarts after each
 static bool gSavePromptDue;     // the level's end asks "Save Game?" before the next loads
 
 // A level Lara plays: not the title, nor a cutscene.
@@ -438,6 +439,7 @@ void gameUpdate(int32 frames, bool items = true)
         } else {
             startLevel(gLevelID);
         }
+        gLevelStarts++;
         gameUpdate(1);
     }
 }

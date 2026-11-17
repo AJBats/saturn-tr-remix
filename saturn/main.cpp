@@ -104,7 +104,14 @@ static void frameUpdate(int32 delta, uint32 tick)
     bool done = gNextDone;
     gNextDone = false;
     levelCommit();
+    uint32 starts = gLevelStarts;
     gameUpdate(delta, !done);
+    if (gLevelStarts != starts) {
+        // a load took seconds: the clock starts again from now, one tick to
+        // the next frame (retail's GameLoop starts with one, and its level
+        // start zeroes the vblank count)
+        tick = gVblankCount >> 1;
+    }
     renderPoll();
     if (!done) {
         sndFrame();
@@ -195,7 +202,11 @@ int main()
         }
 #endif
         renderPoll();
+        uint32 starts = gLevelStarts;
         frameUpdate(delta, tick);
+        if (gLevelStarts != starts) {
+            lastTick = (gVblankCount - tickDelay) >> 1;    // see frameUpdate
+        }
 #ifdef HW_LOG
         if (const ItemObj* lara = (const ItemObj*)(const void*)players[0]) {
             tracePlace(uint32(lara->room - rooms), lara->pos.x, lara->pos.y, lara->pos.z, uint16(lara->angle.y));
