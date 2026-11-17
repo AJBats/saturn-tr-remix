@@ -76,12 +76,12 @@ order; the few of its bugs a player runs into are listed at the end.
 | 9 | 53. Starting inventory from the GBA demo: fully armed in the Caves, keys carry over | medium (closed) |
 | 10 | 52. Unlimited ammo, no empty click | medium (closed) |
 | 11 | 144, 159. Ammo counts in the ring and on the HUD (after 52) | medium, small (closed) |
-| 12 | 113. Save crystals are disabled | medium |
-| 13 | 152. The passport and save model are the GBA ones | large |
-| 14 | 153. Saving asks nothing and confirms nothing | medium |
-| 15 | 154. You can save while dead | small |
-| 16 | 157. No automatic GAME OVER | small to medium |
-| 17 | 49. Jump+Draw while dead revives Lara at full health | small |
+| 12 | 113. Save crystals are disabled | medium (closed) |
+| 13 | 152. The passport and save model are the GBA ones | large (closed) |
+| 14 | 153. Saving asks nothing and confirms nothing | medium (closed) |
+| 15 | 154. You can save while dead | small (closed) |
+| 16 | 157. No automatic GAME OVER | small to medium (closed) |
+| 17 | 49. Jump+Draw while dead revives Lara at full health | small (closed) |
 | 18 | 24, 75. Twelve creature types run the timid mood (24 first: the flag they share) | small |
 | 19 | 74. Every triggered creature's collision radius becomes 0 | small |
 | 20 | 85. Natla's fight: no flight, rockets, sounds or music | large |
@@ -723,14 +723,6 @@ LARA-20*
   - **(b)** The box always grows by Lara's radius (`item.h:1243-1246`), so
     creatures hold her 100 units further away than retail.
 - **Fix:** `lara->collideRoom`, and a bigpush flag.
-
-### 49. Pressing Jump+Draw while dead revives Lara at full health
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: LARA-21*
-
-- **Retail:** nothing like it.
-- **Ours:** `openlara/lara.h:3930-3933` calls `restore()` (`lara.h:417-425`),
-  which gives full health. It is a leftover OpenLara cheat.
-- **Fix:** remove it.
 
 ### 50. Lara's save block omits moveAngle, turnSpeed and swimTimer
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-22*
@@ -1465,41 +1457,6 @@ MATH-6, MATH-8*
 
 ## Level logic, traps and objects
 
-### 113. Save crystals are disabled (reported in play)
-*Severity: gameplay · Confidence: confirmed · Fix: medium (with 152-153) ·
-Audit: LVL-30*
-
-- **Ours:** `openlara/object.h:399-411` sets the crystal (item 83) invisible
-  ("disable crystals for now"), its `collide` is a TODO, and it is never
-  activated.
-- **Retail:** save crystal init `0602ba1c`, control `0602ba34`, draw
-  `0602ba5c`, collision `0602b940`; PC equivalent `savegame_crystal.c`.
-  - **Where:** every level except the Gym has 1 to 7 crystals.
-  - **Init:** added to the active list at level start.
-  - **Control:** animates every frame. Its one animation is 60 frames at rate 8
-    (8 keyframes), looping about every 2 s. The keyframes spin it about Y and bob
-    it between about -268 and -404 above the item's origin.
-  - **Draw:** the ordinary animated-item routine (`060130fc`). There is no
-    special glow. The mesh is a 5-vertex, 6-triangle flat-coloured bipyramid,
-    lit by vertex normals.
-  - **Collision, every frame:**
-    1. Solid push first (ObjectCollision `0600ec4c`).
-    2. Then require Action pressed, guns holstered, Lara not in the air, and
-       Lara standing still.
-    3. Turn the crystal to Lara's yaw (x and z rotation 0), and test her position
-       with the pickup bounds at `0x06062c2c`: x ±256, y ±100, z -256 to +100,
-       Lara's pitch within ±10°.
-    4. If she passes, set the crystal invisible **before** building the save
-       (CreateSaveGameInfo `0602c35c`), so the save already has it used.
-    5. Call `0603c1bc`(save buffer, 0xD7C, 1). That shows the "Save Game?"
-       YES/NO prompt (default YES), writes backup RAM, and ends with "Save
-       Complete!" for 60 vblanks. On failure it shows "The file could not be
-       saved! Try Again? YES/NO".
-    6. On success the crystal stays invisible and is removed from the room, so
-       it's single use. On NO or a failure, its status goes back to active.
-  - There is no Lara animation and no sound in the collision itself.
-- **Related:** the save model itself (152), the prompt (153), backup RAM (155).
-
 ### 114. Boulders never reset
 *Severity: gameplay · Confidence: confirmed · Fix: small · Audit: LVL-6*
 
@@ -1929,65 +1886,6 @@ INV-9*
   - No deselect sound (`openlara/inventory.h:1194`).
   - Items always close by reversing to frame 0.
 
-### 152. The passport and the save/load model are the GBA ones, not the Saturn's
-*Severity: gameplay · Confidence: confirmed · Fix: large · Audit: INV-15,
-INV-32*
-
-- **Retail:** Option_Passport (`06026a90`), the load list (`06016a58`),
-  CreateSaveGameInfo (`0602c35c`), the prompt and write (`0603c1bc`,
-  `0602cb54`), BUP write (`0604605c`).
-  - **Pages:**
-
-    | Page | In game | At the title |
-    |---|---|---|
-    | 0 | Load Game | Load Game |
-    | 1 | Restart Level | Start Game |
-    | 2 | Exit to Title | (can't be reached) |
-
-  - **There is no Save page.** Page 0 is skipped (forced to page 1) when saving
-    is disabled or no save file exists.
-  - **Load Game:** pressing A opens a "Select Level" requester (5 lines, width
-    272). It lists every level reached so far, from the start-info "available"
-    bits, plus "Current Position" after its level. Otherwise it shows "No save
-    games!".
-  - **Choosing a level** restarts it from its level-start inventory and plays
-    its FMV. StartGame (`06016214`) plays FMVs for the Gym, Caves, Folly,
-    Khamoon, Mines and Atlantis. Restart Level does the same for the current
-    level. "Current Position" plays no FMV.
-  - Page titles sit at y −24, with a background box and outline. There are no
-    arrow glyphs.
-- **Ours:** `openlara/inventory.h:831-905`, `1236-1261`.
-  - Pages are Load / Save / Exit, and the in-game passport opens on Save
-    (`inventory.h:437`).
-  - Load lists only "Caves", "City of Vilcabamba" and "Current Position"
-    (`inventory.h:1251-1258`), so anyone can jump straight to level 2.
-  - The title passport can't flip; there is no Start Game and no Restart Level.
-  - Arrow glyphs are drawn beside the title (`inventory.h:1512-1523`).
-- **Related:** saving moves to crystals and the end-of-level prompt (113, 153).
-
-### 153. Saving: retail asks and confirms; ours saves silently and shows GBA error text
-*Severity: gameplay · Confidence: confirmed · Fix: medium · Audit: INV-16*
-
-- **Retail:**
-  - At a crystal (`0602b940`): "Save Game?" YES/NO, default YES. Success shows
-    "Save Complete!" for 60 vblanks. Failure shows "The file could not be saved!
-    Try Again? YES/NO". The crystal is used up only on a successful save.
-  - After every level's stats screen there is also a "Save Game?" prompt
-    (`0602cb54`).
-- **Ours:**
-  - The passport's Save page writes at once, with no prompt and no confirmation
-    (`openlara/inventory.h:879-896`).
-  - On failure it shows STR_GBA_SAVE_WARNING_1-3: "No SRAM or FRAM / Saves will
-    be lost / after GBA reboot!".
-
-### 154. You can save while dead
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: INV-17*
-
-- **Retail:** there is no save page anywhere.
-- **Ours:** the death page allows paging to SAVE_GAME
-  (`openlara/inventory.h:843-866`), so `gameSave()` writes a dead Lara over the
-  only save.
-
 ### 155. Backup RAM handling differs
 *Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-18*
 
@@ -2015,24 +1913,6 @@ INV-19*
   - Ammo isn't used up, enemy hit points double (decomp.c:19227), ammo counts
     are hidden, and "BONUS!" is printed.
 - **Ours:** none.
-
-### 157. No automatic GAME OVER, the wrong options, and it can be backed out of
-*Severity: gameplay · Confidence: confirmed · Fix: small to medium · Audit:
-INV-20*
-
-- **Retail:** ControlPhase (`0600f66c`; TR1X `game.c`) and Display_Inventory(4)
-  (`06017420`).
-  - GAME OVER opens after Lara.death_count passes 300 frames (10 s), or 60
-    frames (2 s) plus any button.
-  - Its ring is titled "GAME OVER" and holds Game and Gamma. The passport opens
-    automatically on Load Game / Restart Level / Exit to Title.
-  - B is ignored, so it can't be left.
-- **Ours:**
-  - Only START opens it (`openlara/lara.h:3937`), at any moment after death,
-    with no timer.
-  - The ring holds Passport, Controls, Detail and Sound.
-  - B returns to the dead game (`inventory.h:1000-1004`, `1161`).
-  - There is no Restart Level.
 
 ### 158. Health and air bars: position, size and colours
 *Severity: visible · Confidence: confirmed (the gouraud decode is likely) · Fix:
@@ -3585,6 +3465,138 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 49. Pressing Jump+Draw while dead revives Lara at full health
+*Closed 2026-11-17: 7ddfb8a. Retail's crystals, passport (Load Game list from the save's progress, Start Game / Restart Level, Exit to Title), save prompts at crystals and level ends, GAME OVER after 10 s or 2 s plus a button; the revive cheat removed.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: LARA-21*
+
+- **Retail:** nothing like it.
+- **Ours:** `openlara/lara.h:3930-3933` calls `restore()` (`lara.h:417-425`),
+  which gives full health. It is a leftover OpenLara cheat.
+- **Fix:** remove it.
+
+### 157. No automatic GAME OVER, the wrong options, and it can be backed out of
+*Closed 2026-11-17: 7ddfb8a. Retail's crystals, passport (Load Game list from the save's progress, Start Game / Restart Level, Exit to Title), save prompts at crystals and level ends, GAME OVER after 10 s or 2 s plus a button; the revive cheat removed.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small to medium · Audit:
+INV-20*
+
+- **Retail:** ControlPhase (`0600f66c`; TR1X `game.c`) and Display_Inventory(4)
+  (`06017420`).
+  - GAME OVER opens after Lara.death_count passes 300 frames (10 s), or 60
+    frames (2 s) plus any button.
+  - Its ring is titled "GAME OVER" and holds Game and Gamma. The passport opens
+    automatically on Load Game / Restart Level / Exit to Title.
+  - B is ignored, so it can't be left.
+- **Ours:**
+  - Only START opens it (`openlara/lara.h:3937`), at any moment after death,
+    with no timer.
+  - The ring holds Passport, Controls, Detail and Sound.
+  - B returns to the dead game (`inventory.h:1000-1004`, `1161`).
+  - There is no Restart Level.
+
+### 154. You can save while dead
+*Closed 2026-11-17: 7ddfb8a. Retail's crystals, passport (Load Game list from the save's progress, Start Game / Restart Level, Exit to Title), save prompts at crystals and level ends, GAME OVER after 10 s or 2 s plus a button; the revive cheat removed.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: INV-17*
+
+- **Retail:** there is no save page anywhere.
+- **Ours:** the death page allows paging to SAVE_GAME
+  (`openlara/inventory.h:843-866`), so `gameSave()` writes a dead Lara over the
+  only save.
+
+### 153. Saving: retail asks and confirms; ours saves silently and shows GBA error text
+*Closed 2026-11-17: 7ddfb8a. Retail's crystals, passport (Load Game list from the save's progress, Start Game / Restart Level, Exit to Title), save prompts at crystals and level ends, GAME OVER after 10 s or 2 s plus a button; the revive cheat removed.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: medium · Audit: INV-16*
+
+- **Retail:**
+  - At a crystal (`0602b940`): "Save Game?" YES/NO, default YES. Success shows
+    "Save Complete!" for 60 vblanks. Failure shows "The file could not be saved!
+    Try Again? YES/NO". The crystal is used up only on a successful save.
+  - After every level's stats screen there is also a "Save Game?" prompt
+    (`0602cb54`).
+- **Ours:**
+  - The passport's Save page writes at once, with no prompt and no confirmation
+    (`openlara/inventory.h:879-896`).
+  - On failure it shows STR_GBA_SAVE_WARNING_1-3: "No SRAM or FRAM / Saves will
+    be lost / after GBA reboot!".
+
+### 152. The passport and the save/load model are the GBA ones, not the Saturn's
+*Closed 2026-11-17: 7ddfb8a. Retail's crystals, passport (Load Game list from the save's progress, Start Game / Restart Level, Exit to Title), save prompts at crystals and level ends, GAME OVER after 10 s or 2 s plus a button; the revive cheat removed.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: large · Audit: INV-15,
+INV-32*
+
+- **Retail:** Option_Passport (`06026a90`), the load list (`06016a58`),
+  CreateSaveGameInfo (`0602c35c`), the prompt and write (`0603c1bc`,
+  `0602cb54`), BUP write (`0604605c`).
+  - **Pages:**
+
+    | Page | In game | At the title |
+    |---|---|---|
+    | 0 | Load Game | Load Game |
+    | 1 | Restart Level | Start Game |
+    | 2 | Exit to Title | (can't be reached) |
+
+  - **There is no Save page.** Page 0 is skipped (forced to page 1) when saving
+    is disabled or no save file exists.
+  - **Load Game:** pressing A opens a "Select Level" requester (5 lines, width
+    272). It lists every level reached so far, from the start-info "available"
+    bits, plus "Current Position" after its level. Otherwise it shows "No save
+    games!".
+  - **Choosing a level** restarts it from its level-start inventory and plays
+    its FMV. StartGame (`06016214`) plays FMVs for the Gym, Caves, Folly,
+    Khamoon, Mines and Atlantis. Restart Level does the same for the current
+    level. "Current Position" plays no FMV.
+  - Page titles sit at y −24, with a background box and outline. There are no
+    arrow glyphs.
+- **Ours:** `openlara/inventory.h:831-905`, `1236-1261`.
+  - Pages are Load / Save / Exit, and the in-game passport opens on Save
+    (`inventory.h:437`).
+  - Load lists only "Caves", "City of Vilcabamba" and "Current Position"
+    (`inventory.h:1251-1258`), so anyone can jump straight to level 2.
+  - The title passport can't flip; there is no Start Game and no Restart Level.
+  - Arrow glyphs are drawn beside the title (`inventory.h:1512-1523`).
+- **Related:** saving moves to crystals and the end-of-level prompt (113, 153).
+
+### 113. Save crystals are disabled (reported in play)
+*Closed 2026-11-17: 7ddfb8a. Retail's crystals, passport (Load Game list from the save's progress, Start Game / Restart Level, Exit to Title), save prompts at crystals and level ends, GAME OVER after 10 s or 2 s plus a button; the revive cheat removed.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: medium (with 152-153) ·
+Audit: LVL-30*
+
+- **Ours:** `openlara/object.h:399-411` sets the crystal (item 83) invisible
+  ("disable crystals for now"), its `collide` is a TODO, and it is never
+  activated.
+- **Retail:** save crystal init `0602ba1c`, control `0602ba34`, draw
+  `0602ba5c`, collision `0602b940`; PC equivalent `savegame_crystal.c`.
+  - **Where:** every level except the Gym has 1 to 7 crystals.
+  - **Init:** added to the active list at level start.
+  - **Control:** animates every frame. Its one animation is 60 frames at rate 8
+    (8 keyframes), looping about every 2 s. The keyframes spin it about Y and bob
+    it between about -268 and -404 above the item's origin.
+  - **Draw:** the ordinary animated-item routine (`060130fc`). There is no
+    special glow. The mesh is a 5-vertex, 6-triangle flat-coloured bipyramid,
+    lit by vertex normals.
+  - **Collision, every frame:**
+    1. Solid push first (ObjectCollision `0600ec4c`).
+    2. Then require Action pressed, guns holstered, Lara not in the air, and
+       Lara standing still.
+    3. Turn the crystal to Lara's yaw (x and z rotation 0), and test her position
+       with the pickup bounds at `0x06062c2c`: x ±256, y ±100, z -256 to +100,
+       Lara's pitch within ±10°.
+    4. If she passes, set the crystal invisible **before** building the save
+       (CreateSaveGameInfo `0602c35c`), so the save already has it used.
+    5. Call `0603c1bc`(save buffer, 0xD7C, 1). That shows the "Save Game?"
+       YES/NO prompt (default YES), writes backup RAM, and ends with "Save
+       Complete!" for 60 vblanks. On failure it shows "The file could not be
+       saved! Try Again? YES/NO".
+    6. On success the crystal stays invisible and is removed from the room, so
+       it's single use. On NO or a failure, its status goes back to active.
+  - There is no Lara animation and no sound in the collision itself.
+- **Related:** the save model itself (152), the prompt (153), backup RAM (155).
 
 ### 159. No HUD ammo counter
 *Closed 2026-11-17: c4279b5. HUD rounds for the shotgun, magnums and Uzis at (256, 64).*
