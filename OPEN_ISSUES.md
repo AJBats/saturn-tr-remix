@@ -65,7 +65,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 3 | 4. Pushed and falling blocks never fall (Folly) | small (closed) |
 | 4 | 7. Trapdoors support the wrong second sector | small (closed) |
 | 5 | 5. Pierre drops only the scion; Tihocan's second key is missing | small (closed) |
-| 6 | 6. Atlantis doppelganger: wrong mirror point, no triggers, no death | small to medium |
+| 6 | 6. Atlantis doppelganger: wrong mirror point, no triggers, no death | small to medium (closed) |
 | 7 | 84. Enemy projectiles and the explosion effect (the Scion needs the explosion) | large |
 | 8 | 2. The Great Pyramid's Scion can't be destroyed | medium |
 
@@ -187,30 +187,6 @@ Audit: LVL-2*
 - **Fix:**
   - A Scion3 class: 5 hit points, targetable, with the death sequence above.
   - The explosion sprite effect, which 84-87 need too.
-
-### 6. Atlantis doppelganger: wrong mirror point, no floor triggers, no death
-*Severity: gameplay (likely blocks Atlantis) · Confidence: confirmed for the
-code, likely for the softlock · Fix: small to medium · Audit: AI-4*
-
-- **Retail:** ControlEvilLara (`06020e84`; TR1X `ai/evil_lara.c`).
-  - She mirrors Lara about the fixed point (36864, 61440), the centre of room
-    10, the arena: x = 0x12000 - x, z = 0x1E000 - z.
-  - While falling and on landing she runs TestTriggers on her floor, heavy
-    triggers included.
-  - Then she plays the death state (8).
-- **Ours:**
-  - `openlara/enemy.h:913-917` mirrors about the centre of her start room:
-    room 57, centre (29184, 59904), so she lands about 15 sectors off.
-  - The fall code (`enemy.h:897-910`) never runs the floor triggers and leaves
-    her frozen in the fall pose.
-- **Level data:** the only trigger that activates door 31 is the heavy trigger
-  at room 10, sector (9, 3). Trapdoor 32 also has a switch.
-- **Effect:** the double is in the wrong place, and door 31 probably never
-  opens, which likely blocks Atlantis. How she is drawn is issue 212.
-- **Fix:**
-  - Use retail's constants.
-  - Run the floor triggers (heavy) on her fall and landing.
-  - Set the death goal state.
 
 ## Camera
 
@@ -3841,6 +3817,32 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 6. Atlantis doppelganger: wrong mirror point, no floor triggers, no death
+*Closed 2026-11-17: 0d542b1, as retail's ControlEvilLara: retail's mirror point, an immediate fall, the heavy triggers on her fall and landing, the death state. Also non-Lara items keep their speed in the air (AnimateItem), which had carried her out of the pit. Host logic build: with trapdoor 32 open she drops to the pit floor and door 31 opens.*
+
+*Severity: gameplay (likely blocks Atlantis) · Confidence: confirmed for the
+code, likely for the softlock · Fix: small to medium · Audit: AI-4*
+
+- **Retail:** ControlEvilLara (`06020e84`; TR1X `ai/evil_lara.c`).
+  - She mirrors Lara about the fixed point (36864, 61440), the centre of room
+    10, the arena: x = 0x12000 - x, z = 0x1E000 - z.
+  - While falling and on landing she runs TestTriggers on her floor, heavy
+    triggers included.
+  - Then she plays the death state (8).
+- **Ours:**
+  - `openlara/enemy.h:913-917` mirrors about the centre of her start room:
+    room 57, centre (29184, 59904), so she lands about 15 sectors off.
+  - The fall code (`enemy.h:897-910`) never runs the floor triggers and leaves
+    her frozen in the fall pose.
+- **Level data:** the only trigger that activates door 31 is the heavy trigger
+  at room 10, sector (9, 3). Trapdoor 32 also has a switch.
+- **Effect:** the double is in the wrong place, and door 31 probably never
+  opens, which likely blocks Atlantis. How she is drawn is issue 212.
+- **Fix:**
+  - Use retail's constants.
+  - Run the floor triggers (heavy) on her fall and landing.
+  - Set the death goal state.
 
 ### 5. Pierre drops only the scion; Tihocan's second key is missing
 *Closed 2026-11-17: 8a1febf, as retail's PierreControl: magnums, scion piece and Key 1 dropped where he dies. Host logic build: all three appear in room 110, beside keyhole 87.*
