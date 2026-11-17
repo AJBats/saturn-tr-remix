@@ -404,16 +404,6 @@ struct Lara : ItemObj
         soundStop(SND_SCREAM);
     }
 
-    void restore()
-    {
-        if (health > 0)
-            return;
-
-        health = LARA_MAX_HEALTH;
-        oxygen = LARA_MAX_OXYGEN;
-        animSet(ROOM_FLAG_WATER(room->info->flags) ? Lara::ANIM_UNDERWATER : Lara::ANIM_STAND, true, 0);
-    }
-
 // common
     bool alignAngle(int16 &angle, int16 threshold)
     {
@@ -2642,7 +2632,7 @@ struct Lara : ItemObj
 
         // her guns and ammo from what she brought (retail's
         // InitialiseLaraInventory 06020b20 and LaraInitialiseMeshes 06020d34)
-        const StartInfo &s = gStartInfo;
+        const StartInfo &s = gProgress.starts[gLevelID];
         extraL->weapon = extraL->goalWeapon = s.gun;
         setWeaponState(WEAPON_STATE_FREE);
         meshSwap(ITEM_LARA, 0xFFFFFFFF);
@@ -3845,14 +3835,20 @@ struct Lara : ItemObj
 
         updateInput();
 
-        if ((input & (IN_JUMP | IN_WEAPON)) == (IN_JUMP | IN_WEAPON))
+        // dead, GAME OVER comes up after 10 s, or after 2 s at any button
+        // (retail's ControlPhase, 0600f66c: DEATH_WAIT 300, DEATH_WAIT_MIN 60)
+        static int32 deathCount;
+        if (health > 0)
         {
-            restore();
+            deathCount = 0;
+            if (isKeyHit(IN_SELECT) && (gBrightness == 0)) {
+                inventory.open(this, INV_PAGE_MAIN);
+            }
         }
-
-        if (isKeyHit(IN_SELECT) && (gBrightness == 0))
+        else if ((++deathCount > 300 || (deathCount > 60 && keys)) && (gBrightness == 0))
         {
-            inventory.open(this, (health > 0) ? INV_PAGE_MAIN : INV_PAGE_DEATH);
+            deathCount = 0;
+            inventory.open(this, INV_PAGE_DEATH);
         }
 
         updateLook();

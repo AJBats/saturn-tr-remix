@@ -1600,6 +1600,7 @@ struct StartInfo
     uint8 medis;
     uint8 bigMedis;
     uint8 scions;
+    uint8 available;    // reached: the passport's Load Game lists it
 };
 
 // A box of ammo's rounds (retail's Inv_AddItem, 060196d8): 2 shotgun shots
@@ -1902,15 +1903,6 @@ struct SaveGame
     uint8  flipmaps[MAX_FLIPMAPS];
 };
 
-// The file in backup RAM: the header, then the item data.
-struct SaveFile
-{
-    SaveGame game;
-    uint8    data[SAVEGAME_SIZE - sizeof(SaveGame)];
-};
-
-#define gSaveGame   gSaveFile.game
-#define gSaveData   gSaveFile.data
 
 #define SETTINGS_SIZE   128
 
@@ -2432,9 +2424,14 @@ enum StringID {
     , STR_INV_TITLE_OPTIONS
     , STR_INV_TITLE_MAIN
     , STR_INV_TITLE_KEYS
+    , STR_INV_TITLE_GAME_OVER
 // save game page
     , STR_SAVEGAME
     , STR_CURRENT_POSITION
+    , STR_SAVE_COMPLETE
+    , STR_SAVE_FAILED
+    , STR_TRY_AGAIN
+    , STR_NO_SAVE_GAMES
 // inventory option
     , STR_GAME
     , STR_MAP
@@ -2726,6 +2723,30 @@ enum LevelID
     LVL_MAX
 };
 
+// The game's progress (retail's START_INFO array, saved with the game): what
+// Lara starts each level she has reached with, and whether the file holds
+// her position too (saved at a crystal) or only the progress (saved at a
+// level's end, retail's start[21] cleared then).
+struct Progress
+{
+    StartInfo starts[LVL_MAX];
+    uint8 position;
+    uint8 pad[3];
+};
+
+// The file in backup RAM: the level played's header (cleared at each
+// level's start), the progress, then the item data.
+struct SaveFile
+{
+    SaveGame game;
+    Progress progress;
+    uint8    data[SAVEGAME_SIZE - sizeof(SaveGame) - sizeof(Progress)];
+};
+
+#define gSaveGame   gSaveFile.game
+#define gSaveData   gSaveFile.data
+#define gProgress   gSaveFile.progress
+
 extern const LevelInfo gLevelInfo[LVL_MAX];
 extern LevelID gLevelID;
 
@@ -2754,7 +2775,6 @@ extern Sphere gSpheres[2][MAX_SPHERES];
 
 extern Settings gSettings;
 extern SaveFile gSaveFile;
-extern StartInfo gStartInfo;
 
 extern int32 gCurTrack;
 extern int32 gAnimTexFrame;
@@ -3130,7 +3150,11 @@ X_INLINE void blockBox(uint16 boxIndex, bool blocked)
     }
 }
 bool gameSave();
+bool gameSaveProgress();
 bool gameLoad();
+void gameStartLevel(LevelID id);
+void startInfoNewGame();
+bool readSaveProgress(Progress &progress, uint8 &level);
 
 int32 doTutorial(ItemObj* lara, int32 track);
 
@@ -3164,6 +3188,7 @@ bool osLoadSettings();
 bool osCheckSave();
 bool osSaveGame();
 bool osLoadGame();
+bool osReadSave();
 void osJoyVibrate(int32 index, int32 L, int32 R);
 void osSetPalette(const uint16* palette);
 const void* osLoadScreen(LevelID id);

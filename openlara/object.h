@@ -569,17 +569,35 @@ struct CinematicObject : Object
 };
 
 
+// The save crystal (retail's 0602ba1c init, 0602ba34 control, 0602b940
+// collision): it spins and bobs on its own animation from the level's start.
+// Lara beside it, standing, guns away, Action: it goes, and "Save Game?" saves
+// her position with it gone; a NO brings it back.
 struct Crystal : Object
 {
     Crystal(Room* room) : Object(room)
     {
-        flags &= ~ITEM_FLAG_STATUS;
-        flags |= ITEM_FLAG_STATUS_INVISIBLE; // disable crystals for now
+        activate();
     }
 
     virtual void collide(Lara* lara, CollisionInfo* cinfo)
     {
-        // TODO
+        if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INVISIBLE)
+            return;
+
+        collideDefault(lara, cinfo);
+
+        if (!(lara->input & IN_ACTION) || (lara->extraL->weaponState != WEAPON_STATE_FREE) ||
+            (lara->flags & ITEM_FLAG_GRAVITY) || (lara->state != Lara::STATE_STOP))
+            return;
+
+        angle.x = angle.z = 0;
+        angle.y = lara->angle.y;
+        if (!checkLimit(lara, LIMIT_PICKUP))
+            return;
+
+        flags = (flags & ~ITEM_FLAG_STATUS) | ITEM_FLAG_STATUS_INVISIBLE;
+        inventory.openSave(lara, this, false);
     }
 };
 

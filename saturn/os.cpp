@@ -74,16 +74,22 @@ bool osSaveGame()
     strncpy(comment, (const char*)gLevelInfo[gLevelID].data, sizeof(comment));
     comment[sizeof(comment) - 1] = 0;
 
-    return backupWrite(SAVE_FILE, comment, &gSaveFile, sizeof(SaveGame) + gSaveGame.dataSize);
+    return backupWrite(SAVE_FILE, comment, &gSaveFile, offsetof(SaveFile, data) + gSaveGame.dataSize);
 }
 
 bool osLoadGame()
 {
-    if (!backupRead(SAVE_FILE, &gSaveFile, sizeof(gSaveFile)))
+    if (!osReadSave())
         return false;
 
     gSkipVideo = true;
     return true;
+}
+
+// The saved game read into gSaveFile, nothing more (the passport's list).
+bool osReadSave()
+{
+    return backupRead(SAVE_FILE, &gSaveFile, sizeof(gSaveFile));
 }
 
 void osJoyVibrate(int32 index, int32 L, int32 R)

@@ -11,18 +11,30 @@
 #include "inventory.h"
 
 EWRAM_DATA LevelID gNextLevel = LVL_MAX;
+static bool gSavePromptDue;     // the level's end asks "Save Game?" before the next loads
+
+// A level Lara plays: not the title, nor a cutscene.
+static bool isPlayLevel(LevelID id)
+{
+    return (id != LVL_TR1_TITLE) && (id < LVL_LOAD) && (id != LVL_TR1_CUT_1) && (id != LVL_TR1_CUT_2) &&
+           (id != LVL_TR1_CUT_3) && (id != LVL_TR1_CUT_4);
+}
 
 void nextLevel(LevelID next)
 {
-    // what she takes on: a new game from the title starts with nothing (the
-    // Caves give her the pistols); the end of a level she plays, what she
-    // has (retail's CreateStartInfo); a cutscene passes it on
-    if (next < LVL_LOAD)
+    // a level's end: what she takes into the next level she plays (retail's
+    // CreateStartInfo, past the cutscene between), which is reached now; her
+    // position saved before is behind her (retail clears start[21]). Coming
+    // into a level from the one before, or its cutscene, "Save Game?" first.
+    if (next > gLevelID && next <= LVL_TR1_10C)
     {
-        if (gLevelID == LVL_TR1_TITLE) {
-            startInfoNewGame();
-        } else if (next > gLevelID && gLevelID != LVL_TR1_GYM && !isCutsceneLevel() && players[0]) {
-            startInfoCreate(players[0]->extraL);
+        if (isPlayLevel(gLevelID) && gLevelID != LVL_TR1_GYM && players[0])
+        {
+            startInfoCreate(isPlayLevel(next) ? next : LevelID(next + 1), players[0]->extraL);
+            gProgress.position = 0;
+        }
+        if (isPlayLevel(next) && (isPlayLevel(gLevelID) || isCutsceneLevel()) && gLevelID != LVL_TR1_GYM) {
+            gSavePromptDue = true;
         }
     }
 
@@ -42,8 +54,40 @@ void nextLevel(LevelID next)
     gNextLevel = next;
 }
 
+// A level started afresh from what she reached it with (the passport's
+// Restart Level, Start Game, or a level from its Load Game list).
+void gameStartLevel(LevelID id)
+{
+    gSavePromptDue = false;
+    gNextLevel = id;
+}
+
+// The progress alone, at a level's end: the levels reached, no position.
+bool gameSaveProgress()
+{
+    gProgress.position = 0;
+    gSaveGame.dataSize = 0;
+    return osSaveGame();
+}
+
+// The saved game's progress and level, for the passport's list; the game
+// played stays as it is (the file is read whole over the save buffer, whose
+// item data is only ever a save's or a load's).
+bool readSaveProgress(Progress &progress, uint8 &level)
+{
+    SaveGame game = gSaveGame;
+    Progress keep = gProgress;
+    bool ok = osReadSave();
+    progress = gProgress;
+    level = gSaveGame.level;
+    gSaveGame = game;
+    gProgress = keep;
+    return ok;
+}
+
 bool gameSave()
 {
+    gProgress.position = 1;
     gSaveGame.level = gLevelID;
     gSaveGame.track = gCurTrack;
     gSaveGame.randSeedLogic = gRandSeedLogic;
@@ -129,7 +173,7 @@ void gameInit()
 
     // a level started straight from boot (make START_LEVEL) is a test's
     if (gLevelID != LVL_TR1_TITLE) {
-        startInfoTestingKit();
+        startInfoTestingKit(gLevelID);
     }
 
     startLevel(gLevelID);
@@ -174,12 +218,9 @@ void gameLoadLevel(const void* data)
     setEffect(FX_NONE, NULL);
     soundLoopsStop();
 
-    // what Lara starts with, for the level she plays (her constructor takes
-    // her guns from it, the ring is filled from it below)
-    bool play = (gLevelID != LVL_TR1_TITLE) && !isCutsceneLevel();
-    if (play) {
-        startInfoModify(gLevelID);
-    }
+    // a level she plays starts from what she reached it with (her
+    // constructor takes her guns from it, the ring is filled from it below)
+    bool play = isPlayLevel(gLevelID);
 
     // prepare rooms
     for (int32 i = 0; i < level.roomsCount; i++)
@@ -332,6 +373,18 @@ void gameUpdateItems(int32 frames)
     soundLoopsEnd();
 }
 
+// What the menus read the pad through: Lara, or with none (a cutscene's end)
+// a stand-in holding only her input.
+ItemObj* menuLara()
+{
+    if (players[0])
+        return players[0];
+    static uint32 standIn[(sizeof(ItemObj) + 3) / 4];
+    ItemObj* item = (ItemObj*)standIn;
+    item->extraL = playersExtra;
+    return item;
+}
+
 // The game's update for frames ticks; without the items' if they are updated
 // already (items false).
 void gameUpdate(int32 frames, bool items = true)
@@ -365,6 +418,13 @@ void gameUpdate(int32 frames, bool items = true)
 
     if ((inventory.page != INV_PAGE_TITLE) && (inventory.state == INV_STATE_NONE) && (gNextLevel == LVL_MAX) && items) {
         gameUpdateItems(frames);
+    }
+
+    if ((gNextLevel != LVL_MAX) && (inventory.state == INV_STATE_NONE) && gSavePromptDue)
+    {
+        gSavePromptDue = false;
+        inventory.openSave(menuLara(), NULL, true);
+        return;
     }
 
     if ((gNextLevel != LVL_MAX) && (inventory.state == INV_STATE_NONE))

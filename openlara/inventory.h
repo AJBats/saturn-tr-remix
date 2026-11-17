@@ -38,7 +38,8 @@ enum InvPage {
     INV_PAGE_USE,
     INV_PAGE_MAIN,
     INV_PAGE_KEYS,
-    INV_PAGE_OPTIONS
+    INV_PAGE_OPTIONS,
+    INV_PAGE_SAVE
 };
 
 enum InvSlot {
@@ -76,7 +77,7 @@ enum InvSlot {
 
 enum PassportPage {
     PASSPORT_PAGE_LOAD_GAME,
-    PASSPORT_PAGE_SAVE_GAME,
+    PASSPORT_PAGE_RESTART,
     PASSPORT_PAGE_EXIT_TO_TITLE
 };
 
@@ -200,6 +201,16 @@ struct Inventory
     int32   optionsHeight;
 
     PassportPage passportPage;
+    bool hasSave;               // a saved game is in backup RAM, the passport's Load Game page there
+
+    // the passport's Load Game list: the saved game's progress and level
+    Progress fileProgress;
+    uint8 fileLevel;
+
+    // the "Save Game?" prompt (INV_PAGE_SAVE)
+    int32 savePrompt;           // SAVE_ASK, SAVE_RETRY, SAVE_DONE
+    bool saveProgressOnly;      // a level's end's: the progress, no position
+    ItemObj* saveCrystal;       // the crystal it's for, used up by a save
 
     int32 frameIndex;
     int32 frameTarget;
@@ -271,8 +282,8 @@ struct Inventory
 
     // A level's start (retail's InitialiseLaraInventory, 06020b20): the ring
     // emptied but for the compass and the options, then filled with what she
-    // brought (gStartInfo): her guns, boxes of ammo for those she hasn't, her
-    // medipacks and scions.
+    // brought (the level's start in gProgress): her guns, boxes of ammo for
+    // those she hasn't, her medipacks and scions.
     void startLevel()
     {
         for (int32 i = 0; i < SLOT_PASSPORT; i++)
@@ -282,7 +293,7 @@ struct Inventory
             }
         }
 
-        const StartInfo &s = gStartInfo;
+        const StartInfo &s = gProgress.starts[gLevelID];
         for (int32 w = 0; w < WEAPON_NONE; w++)
         {
             if (s.guns & (1 << w)) {
@@ -499,7 +510,8 @@ struct Inventory
         itemVisMask = 0xFFFFFFFF;
 
         if (selected && slot == SLOT_PASSPORT) {
-            passportPage = (page == INV_PAGE_OPTIONS) ? PASSPORT_PAGE_SAVE_GAME : PASSPORT_PAGE_LOAD_GAME;
+            hasSave = osCheckSave();
+            passportPage = hasSave ? PASSPORT_PAGE_LOAD_GAME : PASSPORT_PAGE_RESTART;
             frameTarget += passportPage * 5;
         }
     }
@@ -514,8 +526,14 @@ struct Inventory
 
         switch (page)
         {
-            case INV_PAGE_TITLE:
             case INV_PAGE_DEATH:
+            {
+                ADD_SLOT(SLOT_PASSPORT);
+                ADD_SLOT(SLOT_DETAIL);
+                break;
+            }
+
+            case INV_PAGE_TITLE:
             case INV_PAGE_OPTIONS:
             {
                 ADD_SLOT(SLOT_PASSPORT);
@@ -629,6 +647,106 @@ struct Inventory
         update(1);
     }
 
+    enum { SAVE_ASK, SAVE_RETRY, SAVE_DONE };
+
+    // The "Save Game?" prompt (retail's 0603c1bc and 0602cb54), over the
+    // game's picture: at a crystal it saves her position, at a level's end
+    // the progress only. YES is chosen first; "Save Complete!" shows for a
+    // second after; a failed write asks "Try Again?". A crystal is used up
+    // only by a save.
+    void openSave(ItemObj* lara, ItemObj* crystal, bool progressOnly)
+    {
+        this->lara = lara;
+        background = copyBackground();
+        page = INV_PAGE_SAVE;
+        state = INV_STATE_READY;
+        nextState = INV_STATE_NONE;
+        timer = 0;
+        savePrompt = SAVE_ASK;
+        saveCrystal = crystal;
+        saveProgressOnly = progressOnly;
+        optionIndex = 0;
+    }
+
+    void closeSave(bool saved)
+    {
+        if (saveCrystal && !saved) {
+            saveCrystal->flags = (saveCrystal->flags & ~ITEM_FLAG_STATUS) | ITEM_FLAG_STATUS_ACTIVE;
+        }
+        saveCrystal = NULL;
+        closeBackground();
+        page = INV_PAGE_MAIN;
+        state = INV_STATE_NONE;
+    }
+
+    void onSave(int32 frames)
+    {
+        if (savePrompt == SAVE_DONE)
+        {
+            timer -= frames;
+            if (timer <= 0) {
+                closeSave(true);
+            }
+            return;
+        }
+
+        if (lara->isKeyHit(IN_LEFT) || lara->isKeyHit(IN_RIGHT))
+        {
+            optionIndex ^= 1;
+            soundPlay(SND_INV_PAGE, NULL);
+        }
+
+        if (!lara->isKeyHit(IN_ACTION))
+            return;
+
+        if (optionIndex == 1)
+        {
+            closeSave(false);
+            return;
+        }
+
+        if (saveProgressOnly ? gameSaveProgress() : gameSave())
+        {
+            savePrompt = SAVE_DONE;
+            timer = 30;
+        } else {
+            savePrompt = SAVE_RETRY;
+            optionIndex = 0;
+        }
+    }
+
+    void drawSave()
+    {
+        int32 y = FRAME_HEIGHT / 2;
+
+        if (savePrompt == SAVE_DONE)
+        {
+            drawText(0, y, STR[STR_SAVE_COMPLETE], TEXT_ALIGN_CENTER);
+            return;
+        }
+
+        if (savePrompt == SAVE_RETRY)
+        {
+            drawText(0, y - 20, STR[STR_SAVE_FAILED], TEXT_ALIGN_CENTER);
+            drawText(0, y, STR[STR_TRY_AGAIN], TEXT_ALIGN_CENTER);
+        } else {
+            drawText(0, y, STR[STR_SAVEGAME], TEXT_ALIGN_CENTER);
+        }
+
+        // YES and NO side by side, the one chosen framed
+        for (int32 i = 0; i < 2; i++)
+        {
+            const char* str = STR[i ? STR_NO : STR_YES];
+            int32 x = i ? 26 : -26;
+            drawText(x, y + 20, str, TEXT_ALIGN_CENTER);
+            if (optionIndex == i)
+            {
+                int32 w = getTextWidth(str) + 8;
+                renderBorder(FRAME_WIDTH / 2 + x - w / 2, y + 20 - 14, w, 18, 15, 15, 1);
+            }
+        }
+    }
+
     void close()
     {
         closeBackground();
@@ -660,6 +778,12 @@ struct Inventory
             case INV_PAGE_OPTIONS:
             {
                 title = STR_INV_TITLE_OPTIONS;
+                break;
+            }
+
+            case INV_PAGE_DEATH:
+            {
+                title = STR_INV_TITLE_GAME_OVER;
                 break;
             }
             default: ;
@@ -720,8 +844,8 @@ struct Inventory
             {
                 if (passportPage == PASSPORT_PAGE_LOAD_GAME)
                     return STR_LOAD_GAME;
-                if (passportPage == PASSPORT_PAGE_SAVE_GAME)
-                    return STR_SAVE_GAME;
+                if (passportPage == PASSPORT_PAGE_RESTART)
+                    return (page == INV_PAGE_TITLE) ? STR_START_GAME : STR_RESTART_LEVEL;
                 if (passportPage == PASSPORT_PAGE_EXIT_TO_TITLE)
                     return STR_EXIT_TO_TITLE;
             }
@@ -898,80 +1022,92 @@ struct Inventory
         }
     }
 
+    // The passport (retail's Option_Passport, 06026a90): Load Game (only
+    // with a saved game), then Start Game at the title or Restart Level, then
+    // Exit to Title (not at the title). There is no saving here: that's the
+    // crystals' and the levels' ends'.
     void onPassport()
     {
-        if ((passportPage == PASSPORT_PAGE_SAVE_GAME) && (optionsCount > 0)) // error message
+        int32 first = hasSave ? PASSPORT_PAGE_LOAD_GAME : PASSPORT_PAGE_RESTART;
+        int32 last = (page == INV_PAGE_TITLE) ? PASSPORT_PAGE_RESTART : PASSPORT_PAGE_EXIT_TO_TITLE;
+
+        if (lara->isKeyHit(IN_RIGHT) && (passportPage < last))
         {
-            if (lara->isKeyHit(IN_ACTION) || lara->isKeyHit(IN_JUMP))
-            {
-                frameTarget = 0;
-                nextState = INV_STATE_CLOSE;
-            }
+            passportPage = PassportPage(passportPage + 1);
+            frameTarget += 5;
+            initOptions();
+            soundPlay(SND_INV_PAGE, NULL);
+        }
+        else if (lara->isKeyHit(IN_LEFT) && (passportPage > first))
+        {
+            passportPage = PassportPage(passportPage - 1);
+            frameTarget -= 5;
+            initOptions();
+            soundPlay(SND_INV_PAGE, NULL);
+        }
+
+        if (!lara->isKeyHit(IN_ACTION))
             return;
-        }
 
-        if ((page == INV_PAGE_OPTIONS) || (page == INV_PAGE_DEATH))
+        if (passportPage == PASSPORT_PAGE_LOAD_GAME)
         {
-            if ((passportPage == PASSPORT_PAGE_LOAD_GAME) && lara->isKeyHit(IN_RIGHT)) {
-                passportPage = PASSPORT_PAGE_SAVE_GAME;
-                frameTarget += 5;
-                initOptions();
-                soundPlay(SND_INV_PAGE, NULL);
-            } else if ((passportPage == PASSPORT_PAGE_SAVE_GAME) && lara->isKeyHit(IN_RIGHT)) {
-                passportPage = PASSPORT_PAGE_EXIT_TO_TITLE;
-                frameTarget += 5;
-                initOptions();
-                soundPlay(SND_INV_PAGE, NULL);
-            } else if ((passportPage == PASSPORT_PAGE_EXIT_TO_TITLE) && lara->isKeyHit(IN_LEFT)) {
-                passportPage = PASSPORT_PAGE_SAVE_GAME;
-                frameTarget -= 5;
-                initOptions();
-                soundPlay(SND_INV_PAGE, NULL);
-            } else if ((passportPage == PASSPORT_PAGE_SAVE_GAME) && lara->isKeyHit(IN_LEFT)) {
-                passportPage = PASSPORT_PAGE_LOAD_GAME;
-                frameTarget -= 5;
-                initOptions();
-                soundPlay(SND_INV_PAGE, NULL);
+            const Option &opt = options[optionIndex];
+            if (opt.type != OPT_BUTTON)
+                return;     // "No save games!"
+
+            if (opt.value == LVL_LOAD) {
+                nextLevel(LVL_LOAD);
+            } else {
+                gProgress = fileProgress;   // the saved game's, the level from its start
+                gameStartLevel(LevelID(opt.value));
             }
         }
-
-        if (lara->isKeyHit(IN_ACTION))
+        else if (passportPage == PASSPORT_PAGE_RESTART)
         {
-            Option &opt = options[optionIndex];
-
-            if (passportPage == PASSPORT_PAGE_LOAD_GAME)
+            if (page == INV_PAGE_TITLE)
             {
-                nextLevel(LevelID(opt.value));
-                frameTarget = 0;
-                nextState = INV_STATE_CLOSE;
+                startInfoNewGame();
+                gameStartLevel(LVL_TR1_1);
+            } else {
+                gameStartLevel(gLevelID);
             }
-            
-            if (passportPage == PASSPORT_PAGE_SAVE_GAME)
+        }
+        else
+        {
+            nextLevel(LVL_TR1_TITLE);
+        }
+
+        frameTarget = 0;
+        nextState = INV_STATE_CLOSE;
+    }
+
+    // The Load Game list (retail's 06016a58, after reading the file,
+    // 0602c040): every level the saved game has reached, and after its
+    // level "Current Position" if it holds one, chosen first.
+    void initLoadList()
+    {
+        optionsWidth = 272;
+
+        int32 chosen = -1;
+        if (readSaveProgress(fileProgress, fileLevel))
+        {
+            for (int32 id = LVL_TR1_1; id <= LVL_TR1_10C; id++)
             {
-                if (!gameSave())
+                if (fileProgress.starts[id].available && gLevelInfo[id].title != STR_EMPTY) {
+                    OPTION_BTN(gLevelInfo[id].title, id);
+                }
+                if ((id == fileLevel) && fileProgress.position)
                 {
-                    optionsHeight = 4;
-                    optionsCount = 0;
-                    optionIndex = OPT_ID_OK;
-                    OPTION_SPACE();
-                    OPTION_TEXT(STR_GBA_SAVE_WARNING_1);
-                    OPTION_TEXT(STR_GBA_SAVE_WARNING_2);
-                    OPTION_TEXT(STR_GBA_SAVE_WARNING_3);
-                    OPTION_SPACE();
-                    OPTION_BTN(STR_OK, 0);
-                } else {
-                    frameTarget = 0;
-                    nextState = INV_STATE_CLOSE;
+                    OPTION_BTN(STR_CURRENT_POSITION, LVL_LOAD);
+                    chosen = optionsCount - 1;
                 }
             }
-
-            if (passportPage == PASSPORT_PAGE_EXIT_TO_TITLE)
-            {
-                nextLevel(LVL_TR1_TITLE);
-                frameTarget = 0;
-                nextState = INV_STATE_CLOSE;
-            }
         }
+
+        if (optionsCount == 0) {
+            OPTION_TEXT(STR_NO_SAVE_GAMES);
+        }
+        optionIndex = (chosen >= 0) ? chosen : (optionsCount - 1);
     }
 
     void onDetail()
@@ -1067,7 +1203,7 @@ struct Inventory
     {
         onOption();
 
-        if (lara->input & (IN_JUMP | IN_SELECT))
+        if ((lara->input & (IN_JUMP | IN_SELECT)) && (page != INV_PAGE_DEATH || itemsList[itemIndex] != SLOT_PASSPORT))
         {
             frameTarget = 0;
             nextState = INV_STATE_READY;
@@ -1127,6 +1263,12 @@ struct Inventory
         if (page == INV_PAGE_END)
         {
             onEnd();
+            return;
+        }
+
+        if (page == INV_PAGE_SAVE)
+        {
+            onSave(frames);
             return;
         }
 
@@ -1228,7 +1370,7 @@ struct Inventory
                             setRot(ANGLE_180, rot - ANGLE_180);
                             setPitch(-ANGLE_45);
                         }
-                    } else if ((lara->isKeyHit(IN_SELECT) || lara->isKeyHit(IN_JUMP)) && (page != INV_PAGE_TITLE)) {
+                    } else if ((lara->isKeyHit(IN_SELECT) || lara->isKeyHit(IN_JUMP)) && (page != INV_PAGE_TITLE) && (page != INV_PAGE_DEATH)) {
                         soundPlay(SND_INV_HIDE, NULL);
                         useSlot = SLOT_MAX;
                         close();
@@ -1316,16 +1458,8 @@ struct Inventory
         {
             case SLOT_PASSPORT:
             {
-                if (passportPage == PASSPORT_PAGE_LOAD_GAME)
-                {
-                    OPTION_BTN(STR_TR1_LEVEL1, LVL_TR1_1);
-                    OPTION_BTN(STR_TR1_LEVEL2, LVL_TR1_2);
-                    if (osCheckSave())
-                    {
-                        OPTION_SPACE();
-                        OPTION_BTN(STR_CURRENT_POSITION, LVL_LOAD);
-                        optionIndex = optionsCount - 1;
-                    }
+                if (passportPage == PASSPORT_PAGE_LOAD_GAME) {
+                    initLoadList();
                 }
                 break;
             }
@@ -1565,6 +1699,12 @@ struct Inventory
             return;
         }
 
+        if (page == INV_PAGE_SAVE)
+        {
+            drawSave();
+            return;
+        }
+
         drawPage();
 
         if (state == INV_STATE_READY    ||
@@ -1597,20 +1737,6 @@ struct Inventory
                 const char* str = STR[getItemStr()];
 
                 drawText(0, FRAME_HEIGHT - 8, str, TEXT_ALIGN_CENTER);
-
-                if ((state == INV_STATE_SHOW) && (itemsList[itemIndex] == SLOT_PASSPORT))
-                {
-                    if ((page == INV_PAGE_OPTIONS) || (page == INV_PAGE_DEATH))
-                    {
-                        int32 len = getTextWidth(str);
-                        if ((passportPage == PASSPORT_PAGE_LOAD_GAME) || (passportPage == PASSPORT_PAGE_SAVE_GAME)) {
-                            drawText((FRAME_WIDTH + len) / 2 + 4, FRAME_HEIGHT - 8, "$\x6D", TEXT_ALIGN_LEFT);
-                        }
-                        if ((passportPage == PASSPORT_PAGE_SAVE_GAME) || (passportPage == PASSPORT_PAGE_EXIT_TO_TITLE)) {
-                            drawText((FRAME_WIDTH - len) / 2 - 18, FRAME_HEIGHT - 8, "$\x6C", TEXT_ALIGN_LEFT);
-                        }
-                    }
-                }
             }
 
         }
@@ -1619,57 +1745,13 @@ struct Inventory
 
 EWRAM_DATA Inventory inventory;
 
-// A new game: nothing yet (the first level gives her the pistols).
-void startInfoNewGame()
-{
-    memset(&gStartInfo, 0, sizeof(gStartInfo));
-    gStartInfo.gun = WEAPON_NONE;
-}
-
-// A level started straight from boot (make START_LEVEL), for testing: every
-// gun with plenty of ammo and medipacks, as the GBA demo gave.
-void startInfoTestingKit()
-{
-    startInfoNewGame();
-    gStartInfo.guns = (1 << WEAPON_NONE) - 1;
-    for (int32 w = 0; w < WEAPON_NONE; w++) {
-        gStartInfo.ammo[w] = 9999;
-    }
-    gStartInfo.gun = WEAPON_PISTOLS;
-    gStartInfo.medis = 10;
-    gStartInfo.bigMedis = 5;
-}
-
-// A level's end (retail's CreateStartInfo, 0602c20c): what she takes on.
-void startInfoCreate(const ExtraInfoLara* extra)
-{
-    StartInfo &s = gStartInfo;
-    s.guns = 0;
-    for (int32 w = 0; w < WEAPON_NONE; w++)
-    {
-        const GunSlots &g = gGunSlots[w];
-        if (inventory.counts[g.gun]) {
-            s.guns |= 1 << w;
-            s.ammo[w] = extra->ammo[w];
-        } else {
-            s.ammo[w] = inventory.counts[g.ammo] * g.box;
-        }
-    }
-    s.ammo[WEAPON_PISTOLS] = 1000;
-    s.medis = uint8(inventory.counts[SLOT_MEDIKIT_SMALL]);
-    s.bigMedis = uint8(inventory.counts[SLOT_MEDIKIT_BIG]);
-    s.scions = uint8(inventory.counts[SLOT_SCION]);
-    s.gun = extra->weapon;
-    s.ready = (extra->weaponState == WEAPON_STATE_READY);
-}
-
 // The level she starts (retail's ModifyStartInfo, 0602c0ec): she holds her
 // pistols, with 1000 rounds. The Caves are a new game's start, pistols only;
 // the Mines take her guns (their ammo stays with her, as boxes); her home
 // gives her nothing.
 void startInfoModify(LevelID id)
 {
-    StartInfo &s = gStartInfo;
+    StartInfo &s = gProgress.starts[id];
     s.guns |= 1 << WEAPON_PISTOLS;
     s.gun = WEAPON_PISTOLS;
     s.ammo[WEAPON_PISTOLS] = 1000;
@@ -1690,8 +1772,69 @@ void startInfoModify(LevelID id)
     }
     else if (id == LVL_TR1_GYM)
     {
-        startInfoNewGame();
+        uint8 available = s.available;
+        memset(&s, 0, sizeof(s));
+        s.gun = WEAPON_NONE;
+        s.available = available;
     }
+}
+
+// A new game (retail's InitialiseStartInfo, 0602c088): every level's start
+// as a new game gives it, the Gym and the Caves the only ones reached.
+void startInfoNewGame()
+{
+    memset(&gProgress, 0, sizeof(gProgress));
+    for (int32 i = 0; i < LVL_MAX; i++)
+    {
+        gProgress.starts[i].gun = WEAPON_NONE;
+        startInfoModify(LevelID(i));
+    }
+    gProgress.starts[LVL_TR1_GYM].available = 1;
+    gProgress.starts[LVL_TR1_1].available = 1;
+}
+
+// A level started straight from boot (make START_LEVEL), for testing: every
+// gun with plenty of ammo and medipacks, as the GBA demo gave, then what
+// that level does to them.
+void startInfoTestingKit(LevelID id)
+{
+    startInfoNewGame();
+    StartInfo &s = gProgress.starts[id];
+    s.guns = (1 << WEAPON_NONE) - 1;
+    for (int32 w = 0; w < WEAPON_NONE; w++) {
+        s.ammo[w] = 9999;
+    }
+    s.gun = WEAPON_PISTOLS;
+    s.medis = 10;
+    s.bigMedis = 5;
+    s.available = 1;
+    startInfoModify(id);
+}
+
+// A level's end (retail's CreateStartInfo, 0602c20c, then ModifyStartInfo):
+// what she takes into level id, which is reached now.
+void startInfoCreate(LevelID id, const ExtraInfoLara* extra)
+{
+    StartInfo &s = gProgress.starts[id];
+    s.guns = 0;
+    for (int32 w = 0; w < WEAPON_NONE; w++)
+    {
+        const GunSlots &g = gGunSlots[w];
+        if (inventory.counts[g.gun]) {
+            s.guns |= 1 << w;
+            s.ammo[w] = extra->ammo[w];
+        } else {
+            s.ammo[w] = inventory.counts[g.ammo] * g.box;
+        }
+    }
+    s.ammo[WEAPON_PISTOLS] = 1000;
+    s.medis = uint8(inventory.counts[SLOT_MEDIKIT_SMALL]);
+    s.bigMedis = uint8(inventory.counts[SLOT_MEDIKIT_BIG]);
+    s.scions = uint8(inventory.counts[SLOT_SCION]);
+    s.gun = extra->weapon;
+    s.ready = (extra->weaponState == WEAPON_STATE_READY);
+    s.available = 1;
+    startInfoModify(id);
 }
 
 #endif

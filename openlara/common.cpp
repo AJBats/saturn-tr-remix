@@ -10,7 +10,6 @@ EWRAM_DATA TargetInfo tinfo;
 
 EWRAM_DATA Settings gSettings;
 EWRAM_DATA SaveFile gSaveFile;
-EWRAM_DATA StartInfo gStartInfo;
 
 EWRAM_DATA int32 gCurTrack;
 EWRAM_DATA int32 gAnimTexFrame;

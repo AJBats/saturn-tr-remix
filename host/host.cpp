@@ -84,6 +84,7 @@ bool osLoadSettings() { return false; }
 bool osCheckSave() { return false; }
 bool osSaveGame() { return true; }
 bool osLoadGame() { return false; }
+bool osReadSave() { return false; }
 
 // sound: none; SOUNDS=1 prints what the game plays and stops, by tick
 static int32 gHostTick;
@@ -179,7 +180,8 @@ static uint32 parseKeys(const char* s)
 //   flag:ITEM:HEX@TICK      flag bits set (0x100 ONCE, as a spent trigger leaves it)
 //   wake:ITEM@TICK          its code bits completed and triggered, as a trigger's object action
 //   fx:EFFECT@TICK          the level effect started, as a trigger's flip starts it
-//   next:LEVEL@TICK         nextLevel to that LevelID, as a level's end, the title's new game or its passport
+//   next:LEVEL@TICK         nextLevel to that LevelID, as a level's end (its "Save Game?" answered by A),
+//                           or from the title a new game
 //   give:TYPE@TICK          the pickup of that item type, as Lara picking it up
 //   use:SLOT@TICK           that ring slot used, as chosen in the ring (a gun, a medipack)
 struct Act
@@ -226,6 +228,9 @@ static void actsAt(int32 tick)
         } else if (a.kind == 'g') {
             inventory.add(ItemType(a.value));
         } else if (a.kind == 'n') {
+            if (gLevelID == LVL_TR1_TITLE) {
+                startInfoNewGame();     // the passport's Start Game
+            }
             nextLevel(LevelID(a.value));
             inventory.state = INV_STATE_NONE;   // the ring shut, as its passport shuts it
         } else if (!(item->flags & ITEM_FLAG_ACTIVE)) {
@@ -274,7 +279,7 @@ static void printLara(int32 tick)
            lara->animIndex, lara->frameIndex, lara->state, lara->goalState, lara->health, lara->waterState);
     if (getenv("INV"))      // INV=1: the level, the ring's counts and her rounds
     {
-        printf("     level %d ring", gLevelID);
+        printf("     level %d inv state %d page %d ring", gLevelID, inventory.state, inventory.page);
         for (int32 i = 0; i < SLOT_PASSPORT; i++) {
             if (inventory.counts[i]) {
                 printf(" %d:%d", i, inventory.counts[i]);
