@@ -106,7 +106,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 39 | 32. Underwater turning is slower and ramps up | small (closed) |
 | 40 | 122. Closed doors don't block in flipped rooms | medium (closed) |
 | 41 | 114. Boulders never reset | small (closed) |
-| 42 | 115. Centaur statues wake on proximity, don't shatter | small, medium |
+| 42 | 115. Centaur statues don't shatter (wake done 345a620) | medium, with 213 |
 | 43 | 80, 78, 79. Crocodiles and rats: land and water forms, depth, pool bottom | medium |
 | 44 | 88. The torso boss: no grab kill, wrong steering | medium (closed) |
 | 45 | 89. The T-rex walks without stopping | small (closed) |
@@ -817,12 +817,8 @@ medium (shatter) · Audit: LVL-7, AI-27*
   - Until it wakes, it is solid and pushes Lara.
   - When it wakes, it shatters into pieces (ExplodingDeath `06031c64`) with SFX
     104. The centaur takes the statue's exact yaw and is enabled with force.
-- **Ours:**
-  - `openlara/object.h:2006` activates the statue in its constructor, and
-    `object.h:1997-2023` just hides it.
-  - There are no shards and no collision.
-  - The spawned centaur gets the Enemy constructor's random ±45° yaw
-    (`enemy.h:29`), because the yaw is set before the constructor runs.
+- **Ours:** the trigger, the collision and the yaw follow retail since
+  345a620. Left: the statue just vanishes, no shards.
 - **Needs:** 213 for the shards.
 
 ### 116. Mutant eggs throw no shell shards, and Lara walks through them
