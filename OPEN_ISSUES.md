@@ -118,7 +118,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 51 | 90, 92. Kold's long-range hit chance; the puma's hit points | small (closed) |
 | 52 | 102. Blocking isn't implemented | medium (closed) |
 | 53 | 201. 10 ticks run at once after every load | small (closed) |
-| 54 | 163. No level statistics; the level timer never counts | medium |
+| 54 | 163. No level statistics; the level timer never counts | medium (closed) |
 | 55 | 156. The bonus game after finishing is missing | medium |
 
 ### Tier 3: looks or sounds different all through
@@ -1134,22 +1134,6 @@ small · Audit: INV-21*
 - **Ours:** `saturn/main.cpp:70-78`, `os.cpp:106-111`. Straight from the CAFE
   FMV to the ring. No Press START, no demos, and B does nothing.
 - **Needs:** demos need deterministic logic (issue 202).
-
-### 163. No level statistics screen, and the level timer never counts
-*Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-26,
-MATH-16, LVL-32*
-
-- **Retail:** the stats screen (`06016558`) and the level-complete sequencer
-  (`060163d8`).
-  - After every level except the Gym: fade to black, then the USAOPT background.
-  - The lines are: the level name; "KILLS n"; "PICKUPS n"; "SECRETS n of m"
-    (totals at `0x06060d24`); "TIME TAKEN m:ss" or "h:mm:ss" (timer/30).
-  - It waits 4 flips, then for A or C, then shows the Save Game? prompt.
-  - For Qualopec, Tihocan, Natla's Mines and Atlantis the stats come after the
-    following cutscene.
-  - The game timer (`DAT_06092484`) counts every tick in ControlPhase.
-- **Ours:** none. `STR_LEVEL_STATS` is unused, `gSaveGame.time` is never
-  incremented, and `nextLevel` (`openlara/game.h:15-31`) jumps straight on.
 
 ### 164. The PRISON FMV and CUT4 play in the wrong order
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-27*
@@ -2613,6 +2597,24 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 163. No level statistics screen, and the level timer never counts
+*Closed 2026-11-17: the screen and the timer as retail, 7cf974a; checked in Mednafen at the Vilcabamba end.*
+
+*Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-26,
+MATH-16, LVL-32*
+
+- **Retail:** the stats screen (`06016558`) and the level-complete sequencer
+  (`060163d8`).
+  - After every level except the Gym: fade to black, then the USAOPT background.
+  - The lines are: the level name; "KILLS n"; "PICKUPS n"; "SECRETS n of m"
+    (totals at `0x06060d24`); "TIME TAKEN m:ss" or "h:mm:ss" (timer/30).
+  - It waits 4 flips, then for A or C, then shows the Save Game? prompt.
+  - For Qualopec, Tihocan, Natla's Mines and Atlantis the stats come after the
+    following cutscene.
+  - The game timer (`DAT_06092484`) counts every tick in ControlPhase.
+- **Ours:** none. `STR_LEVEL_STATS` is unused, `gSaveGame.time` is never
+  incremented, and `nextLevel` (`openlara/game.h:15-31`) jumps straight on.
 
 ### 55. The shotgun runs OpenLara's own animation scheme
 *Closed 2026-11-17: ported from retail, 78da850.*
