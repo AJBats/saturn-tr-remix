@@ -75,7 +75,7 @@ order; the few of its bugs a player runs into are listed at the end.
 |---|---|---|
 | 9 | 53. Starting inventory from the GBA demo: fully armed in the Caves, keys carry over | medium (closed) |
 | 10 | 52. Unlimited ammo, no empty click | medium (closed) |
-| 11 | 144, 159. Ammo counts in the ring and on the HUD (after 52) | medium, small |
+| 11 | 144, 159. Ammo counts in the ring and on the HUD (after 52) | medium, small (closed) |
 | 12 | 113. Save crystals are disabled | medium |
 | 13 | 152. The passport and save model are the GBA ones | large |
 | 14 | 153. Saving asks nothing and confirms nothing | medium |
