@@ -99,11 +99,11 @@ order; the few of its bugs a player runs into are listed at the end.
 | 32 | 120. Lara never catches fire | medium (closed) |
 | 33 | 119. Lava emitters throw nothing | medium (closed) |
 | 34 | 117. Lightning: nothing drawn, wrong radius, no flinch | medium |
-| 35 | 37. Currents don't pull at the surface | small |
-| 36 | 38, 39. Lava edge doesn't stop a walk; lava floors kill off the lava | small |
-| 37 | 42. Slide direction bugs | small |
+| 35 | 37. Currents don't pull at the surface | small (closed) |
+| 36 | 38, 39. Lava edge doesn't stop a walk; lava floors kill off the lava | small (closed) |
+| 37 | 42. Slide direction bugs | small (closed) |
 | 38 | 35. Surface swimming and climbing out are looser | small to medium |
-| 39 | 32. Underwater turning is slower and ramps up | small |
+| 39 | 32. Underwater turning is slower and ramps up | small (closed) |
 | 40 | 122. Closed doors don't block in flipped rooms | medium |
 | 41 | 114. Boulders never reset | small |
 | 42 | 115. Centaur statues wake on proximity, don't shatter | small, medium |
@@ -415,23 +415,6 @@ CAM-22*
   head.
 - **Effect:** looking around while treading water.
 
-### 32. Underwater turning is slower and ramps up
-*Severity: gameplay (feel) · Confidence: confirmed · Fix: small · Audit:
-LARA-4*
-
-- **Retail:**
-  - y_rot changes by ±1092 (6°) every frame, instantly, in Swim, Glide and
-    Tread (`06021c9c`, `06021d58`, `06021e20`).
-  - turn_rate isn't used underwater (LaraUnderWater `06021ab8`).
-- **Ours:**
-  - `s_turnUW` (`openlara/lara.h:585-600`) builds turnSpeed by 409 per frame up
-    to 1092.
-  - `updateUnder` (`lara.h:3159-3160`) takes 364 off before applying it. So the
-    most she turns is 4° per frame, after a ramp of about 16 frames.
-  - turnSpeed left over from land also spins her for a few frames after she
-    enters the water.
-- **Fix:** add ±1092 to angle.y directly, and don't apply turnSpeed underwater.
-
 ### 33. Underwater pitch is limited to ±85° instead of ±100°
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: LARA-5*
 
@@ -477,51 +460,6 @@ LARA-7*
 - **Ours:** only the Surface-swim collision calls `c_checkWaterOut`
   (`openlara/lara.h:2544`).
 
-### 37. Water currents don't pull Lara at the surface
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: LARA-9*
-
-- **Retail:**
-  - LaraSurface (`0602111c`) calls LaraWaterCurrent (`06022150`) just as
-    underwater does.
-  - After the current moves her, it runs a full collision with wall deflection
-    and resets the "old" position.
-  - The sink trigger sets the current regardless of water state.
-- **Ours:**
-  - `openlara/lara.h:3958-3960` ignores the sink unless she's underwater.
-  - `updateFlow` (`lara.h:3109-3139`) does no collision after moving her.
-
-### 38. Lava doesn't stop a walking Lara at its edge
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: LARA-10*
-
-- **Retail:**
-  - The walk collision (ColWalk `0601c1cc`, flags | 0xE0) sets
-    lava_is_pit.
-  - GetCollisionInfo (`0600dc00`; trigger type 5 → 0x200) then treats a lower
-    lava floor ahead as a 512 drop. A walking Lara stops at the edge like a
-    ledge.
-- **Ours:** the lava case is commented out as a TODO in
-  `CollisionInfo::setSide` (`openlara/common.cpp:1509-1511`), so `stopOnLava`
-  does nothing.
-- **Effect:** walking carefully beside lava walks her straight in. Natla's Mines
-  has 225 lava sectors, Atlantis 386 and the Great Pyramid 200.
-- **Fix:** restore the lava-is-pit case.
-
-### 39. Lava floors kill Lara when she isn't standing on the lava
-*Severity: gameplay · Confidence: likely (TR1X `lava.c`, Saturn trigger code
-`06010350`) · Fix: small · Audit: LARA-11*
-
-- **Retail:**
-  - The lava floor burns Lara only when she is on it, `pos.y == floor`, not when
-    heavy.
-  - LavaBurn (`060308b0`) re-reads the floor height at y = 32000.
-  - So standing on a bridge or block over lava, or hanging from a ledge, is
-    safe.
-- **Ours:** `openlara/room.h:907-913` kills her whenever she isn't in the air, or
-  is swimming. It plays SND_LAVA instead of setting her alight.
-- **Effect:** hanging over a lava sector, or swimming above a lava floor, kills
-  Lara.
-- **Fix:** retail's condition. The flames are issue 120.
-
 ### 40. Walk+Up while hanging does a handstand retail Saturn never does
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: LARA-12*
 
@@ -537,28 +475,6 @@ LARA-7*
 - **Ours:** anything closer than 850 either way (`openlara/lara.h:2346`).
 - **Effect:** after shimmying onto a ledge more than 256 lower, ours still allows
   a pull-up from the wrong height.
-
-### 42. Slide direction bugs
-*Severity: gameplay · Confidence: confirmed (a, b), likely (c) · Fix: small ·
-Audit: LARA-14, MATH-7*
-
-- **Retail:** TestLaraSlide (`0601e404`; TR1X `lara.c`) and LaraSlideSlope
-  (`0601d658`).
-  - The angle difference is computed in 16-bit wrapped arithmetic.
-  - The z tilt wins when |z| > |x| > 2.
-  - The slide animation restarts only when the slope angle changes.
-- **Ours,** `c_checkSlide` (`openlara/lara.h:1450-1487`):
-  - **(a)** `abs(realAngle - angle.y)` isn't wrapped (`lara.h:1472`). On slopes
-    descending toward -z (realAngle = -32768), any heading between 90° and 180°
-    picks the back-slide and turns Lara around, where retail slides her forward.
-    This affects 8–152 slope entries per level.
-  - **(b)** When |z| > |x| ≥ 3, ours slides along x. That's 56 slopes in Lost
-    Valley, 25 in Qualopec, 18 in Sanctuary, and 1–6 in the Colosseum,
-    Atlantis, Tihocan and the Pyramid.
-  - **(c)** Hitting a wall mid-slide sets goal Stop and doesn't restart the
-    slide. Slide anim 70 has a Stop transition to 71, so Lara briefly stands up;
-    retail restarts the slide. Ours also re-snaps her facing every frame.
-- **Fix:** int16 wrap, retail's tilt precedence, and retail's restart rule.
 
 ### 43. Walking backwards off a step plays the wrong step-down animation
 *Severity: subtle / visible · Confidence: confirmed · Fix: small · Audit:
@@ -3161,6 +3077,100 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 42. Slide direction bugs
+*Closed 2026-11-17: 8a4f6cf. Ported from retail (see the commit).*
+
+*Severity: gameplay · Confidence: confirmed (a, b), likely (c) · Fix: small ·
+Audit: LARA-14, MATH-7*
+
+- **Retail:** TestLaraSlide (`0601e404`; TR1X `lara.c`) and LaraSlideSlope
+  (`0601d658`).
+  - The angle difference is computed in 16-bit wrapped arithmetic.
+  - The z tilt wins when |z| > |x| > 2.
+  - The slide animation restarts only when the slope angle changes.
+- **Ours,** `c_checkSlide` (`openlara/lara.h:1450-1487`):
+  - **(a)** `abs(realAngle - angle.y)` isn't wrapped (`lara.h:1472`). On slopes
+    descending toward -z (realAngle = -32768), any heading between 90° and 180°
+    picks the back-slide and turns Lara around, where retail slides her forward.
+    This affects 8–152 slope entries per level.
+  - **(b)** When |z| > |x| ≥ 3, ours slides along x. That's 56 slopes in Lost
+    Valley, 25 in Qualopec, 18 in Sanctuary, and 1–6 in the Colosseum,
+    Atlantis, Tihocan and the Pyramid.
+  - **(c)** Hitting a wall mid-slide sets goal Stop and doesn't restart the
+    slide. Slide anim 70 has a Stop transition to 71, so Lara briefly stands up;
+    retail restarts the slide. Ours also re-snaps her facing every frame.
+- **Fix:** int16 wrap, retail's tilt precedence, and retail's restart rule.
+
+### 39. Lava floors kill Lara when she isn't standing on the lava
+*Closed 2026-11-17: 8a4f6cf. Ported from retail (see the commit).*
+
+*Severity: gameplay · Confidence: likely (TR1X `lava.c`, Saturn trigger code
+`06010350`) · Fix: small · Audit: LARA-11*
+
+- **Retail:**
+  - The lava floor burns Lara only when she is on it, `pos.y == floor`, not when
+    heavy.
+  - LavaBurn (`060308b0`) re-reads the floor height at y = 32000.
+  - So standing on a bridge or block over lava, or hanging from a ledge, is
+    safe.
+- **Ours:** `openlara/room.h:907-913` kills her whenever she isn't in the air, or
+  is swimming. It plays SND_LAVA instead of setting her alight.
+- **Effect:** hanging over a lava sector, or swimming above a lava floor, kills
+  Lara.
+- **Fix:** retail's condition. The flames are issue 120.
+
+### 38. Lava doesn't stop a walking Lara at its edge
+*Closed 2026-11-17: 8a4f6cf. Ported from retail (see the commit).*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: LARA-10*
+
+- **Retail:**
+  - The walk collision (ColWalk `0601c1cc`, flags | 0xE0) sets
+    lava_is_pit.
+  - GetCollisionInfo (`0600dc00`; trigger type 5 → 0x200) then treats a lower
+    lava floor ahead as a 512 drop. A walking Lara stops at the edge like a
+    ledge.
+- **Ours:** the lava case is commented out as a TODO in
+  `CollisionInfo::setSide` (`openlara/common.cpp:1509-1511`), so `stopOnLava`
+  does nothing.
+- **Effect:** walking carefully beside lava walks her straight in. Natla's Mines
+  has 225 lava sectors, Atlantis 386 and the Great Pyramid 200.
+- **Fix:** restore the lava-is-pit case.
+
+### 37. Water currents don't pull Lara at the surface
+*Closed 2026-11-17: 8a4f6cf. Ported from retail (see the commit).*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: LARA-9*
+
+- **Retail:**
+  - LaraSurface (`0602111c`) calls LaraWaterCurrent (`06022150`) just as
+    underwater does.
+  - After the current moves her, it runs a full collision with wall deflection
+    and resets the "old" position.
+  - The sink trigger sets the current regardless of water state.
+- **Ours:**
+  - `openlara/lara.h:3958-3960` ignores the sink unless she's underwater.
+  - `updateFlow` (`lara.h:3109-3139`) does no collision after moving her.
+
+### 32. Underwater turning is slower and ramps up
+*Closed 2026-11-17: 8a4f6cf. Ported from retail (see the commit).*
+
+*Severity: gameplay (feel) · Confidence: confirmed · Fix: small · Audit:
+LARA-4*
+
+- **Retail:**
+  - y_rot changes by ±1092 (6°) every frame, instantly, in Swim, Glide and
+    Tread (`06021c9c`, `06021d58`, `06021e20`).
+  - turn_rate isn't used underwater (LaraUnderWater `06021ab8`).
+- **Ours:**
+  - `s_turnUW` (`openlara/lara.h:585-600`) builds turnSpeed by 409 per frame up
+    to 1092.
+  - `updateUnder` (`lara.h:3159-3160`) takes 364 off before applying it. So the
+    most she turns is 4° per frame, after a ramp of about 16 frames.
+  - turnSpeed left over from land also spins her for a few frames after she
+    enters the water.
+- **Fix:** add ±1092 to angle.y directly, and don't apply turnSpeed underwater.
 
 ### 119. Lava emitters throw nothing
 *Closed 2026-11-17: b634d11. Fountains throw blobs (10 damage), keeping 16 item slots free.*
