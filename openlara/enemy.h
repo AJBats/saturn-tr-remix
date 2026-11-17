@@ -167,8 +167,11 @@ struct Enemy : ItemObj
         }
 
         if (health <= 0)
+        {
+            tinfo.waypoint = pos;
+            tinfo.waypoint.y = extraE->waypointY;
             return;
-
+        }
 
         int32 dx = tinfo.target->pos.x - pos.x;
         int32 dz = tinfo.target->pos.z - pos.z;
@@ -324,6 +327,7 @@ struct Enemy : ItemObj
     void updateNavigation()
     {
         tinfo.waypoint = extraE->nav.getWaypoint(tinfo.boxIndex, pos);
+        extraE->waypointY = tinfo.waypoint.y;
 
         int16 maxTurn = extraE->maxTurn;
 
@@ -340,7 +344,9 @@ struct Enemy : ItemObj
         if (!aim && (d < r))
             maxTurn >>= 1;
 
+        // turned now, so it moves along the new heading (retail's CreatureTurn, 0600be48)
         tinfo.turn = X_CLAMP(turn, -maxTurn, maxTurn);
+        angle.y += tinfo.turn;
     }
 
     void setNextBox(int16 boxIndex)
@@ -506,6 +512,13 @@ struct Enemy : ItemObj
         tinfo.target->hit(damage, offset, 0);
     }
 
+    // retail's CreatureTilt: the bank eases toward four times the turn, 3
+    // degrees a tick
+    void tilt(int32 value)
+    {
+        angle.z += X_CLAMP((value << 2) - angle.z, -ANGLE(3), ANGLE(3));
+    }
+
     // TR1's box test (TRX Box_BadFloor): a floor the creature can't step to
     // from the height of its box, a blocked or missing box, or a step down
     // into a box higher than the one its path goes through next.
@@ -523,7 +536,10 @@ struct Enemy : ItemObj
         if (d > extraE->nav.stepHeight || d < extraE->nav.dropHeight)
             return true;
 
-        return d < -extraE->nav.stepHeight && b.floor > nextHeight;
+        if (d < -extraE->nav.stepHeight && b.floor > nextHeight)
+            return true;
+
+        return extraE->nav.zoneType == ZONE_FLY && y > b.floor + extraE->nav.vSpeed;
     }
 
     // A moving creature ahead of this one in its room's list and nearer than
@@ -574,7 +590,10 @@ struct Enemy : ItemObj
         const vec3i old = tinfo.pos;
         const uint16* zones = getZones();
 
-        int32 y = pos.y + getFrame()->box.minY;
+        // its top (the water crocodile's at its origin: retail zeroes the
+        // alligator's frame bounds as it flies, and they stay so)
+        int32 top = (type == ITEM_CROCODILE_WATER) ? 0 : getFrame()->box.minY;
+        int32 y = pos.y + top;
         int32 boxHeight = (tinfo.boxIndex == NO_BOX) ? roomFloor : level.boxes[tinfo.boxIndex].floor;
 
         const Sector* sector = room->getRoom(pos.x, y, pos.z)->getSector(pos.x, pos.z);
@@ -695,8 +714,8 @@ struct Enemy : ItemObj
         {
             pos.x += shiftX;
             pos.z += shiftZ;
-            angle.y += tinfo.turn; // turns twice as fast against a wall
-            tinfo.tilt <<= 1;
+            angle.y += tinfo.turn;  // turns twice as fast against a wall
+            tilt(tinfo.tilt << 1);
         }
 
         if (overlapsCreature())
@@ -709,45 +728,46 @@ struct Enemy : ItemObj
 
         if (extraE->nav.zoneType == ZONE_FLY)
         {
-            int32 dy = X_CLAMP(tinfo.waypoint.y - pos.y, -extraE->nav.vSpeed, extraE->nav.vSpeed);
-            int32 fy = pos.y + dy;
+            // retail's CreatureAnimation: up or down toward the waypoint at its
+            // climb speed, back off a floor it's under or a ceiling its top is
+            // over, and its pitch eases to its climb a degree a tick
+            int32 vs = extraE->nav.vSpeed;
+            int32 dy = X_CLAMP(tinfo.waypoint.y - pos.y, -vs, vs);
 
-            const Sector* s = room->getSector(pos.x, pos.z);
+            const Sector* s = room->getRoom(pos.x, y, pos.z)->getSector(pos.x, pos.z);
+            int32 floor = s->getFloor(pos.x, y, pos.z);
 
-            int32 floor = s->getFloor(pos.x, fy, pos.z);
-            if (fy > floor)
+            if (pos.y + dy > floor)
             {
                 if (pos.y > floor)
                 {
                     pos.x = old.x;
                     pos.z = old.z;
-                    dy = -extraE->nav.vSpeed; // go up
+                    dy = -vs;
                 } else {
                     pos.y = floor;
                     dy = 0;
                 }
             }
-
-            int32 ceiling = s->getCeiling(pos.x, fy, pos.z);
-            if (fy < ceiling)
+            else
             {
-                if (pos.y < ceiling)
+                int32 ceiling = s->getCeiling(pos.x, y, pos.z);
+                if (pos.y + top + dy < ceiling)
                 {
-                    pos.x = old.x;
-                    pos.z = old.z;
-                    dy = extraE->nav.vSpeed; // go down
-                } else {
-                    pos.y = ceiling;
-                    dy = 0;
+                    if (pos.y + top < ceiling)
+                    {
+                        pos.x = old.x;
+                        pos.z = old.z;
+                        dy = vs;
+                    } else {
+                        dy = 0;
+                    }
                 }
             }
 
             pos.y += dy;
 
-            int32 pitch = 0;
-            if (hSpeed) {
-                pitch = phd_atan(hSpeed, -dy);
-            }
+            int32 pitch = hSpeed ? phd_atan(hSpeed, -dy) : 0;
             angle.x = angleLerp(angle.x, pitch, ANGLE_1);
 
             updateRoom();
@@ -868,13 +888,13 @@ struct Enemy : ItemObj
         hitMask = 0;
         flags &= ~ITEM_FLAG_INJURED;
 
+        tilt(tinfo.tilt);
+        extraE->rotHead = angleLerp(extraE->rotHead, tinfo.rotHead, ANGLE(5));
+
         animProcess();
 
         updateLocation();
 
-        extraE->rotHead = angleLerp(extraE->rotHead, tinfo.rotHead, ANGLE(5));
-        angle.z += X_CLAMP((tinfo.tilt << 2) - angle.z, -ANGLE(3), ANGLE(3));
-        angle.y += tinfo.turn;
 
         if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INACTIVE)
         {
@@ -1062,7 +1082,7 @@ struct Wolf : Enemy
 
     Wolf(Room* room) : Enemy(room, 6, 341, 375, AGGRESSION_LVL_2)
     {
-        frameIndex = level.anims[animIndex].frameEnd - 1;
+        frameIndex = 96;    // asleep (retail's InitialiseWolf, 06032634)
     }
 
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
@@ -1070,10 +1090,11 @@ struct Wolf : Enemy
         Enemy::hit(damage, point, SND_HIT_WOLF);
 
         if (health <= 0) {
-            animSet(level.models[type].animIndex + ANIM_DEATH + RAND_LOGIC(3), true);
+            animSet(level.models[type].animIndex + ANIM_DEATH + rand_logic() / 11000, true);
         }
     }
 
+    // retail's WolfControl (06032664); GROWL is its crouch
     virtual int32 updateState()
     {
         if (health <= 0)
@@ -1081,6 +1102,22 @@ struct Wolf : Enemy
 
         switch (state)
         {
+            case STATE_SLEEP:
+            {
+                tinfo.rotHead = 0;
+                if (mood == MOOD_ESCAPE || checkZone())
+                {
+                    nextState = STATE_GROWL;
+                    return STATE_STOP;
+                }
+                if (rand_logic() < 0x20)
+                {
+                    nextState = STATE_WALK;
+                    return STATE_STOP;
+                }
+                break;
+            }
+
             case STATE_STOP:
             {
                 if (nextState)
@@ -1091,59 +1128,46 @@ struct Wolf : Enemy
             case STATE_WALK:
             {
                 extraE->maxTurn = ENEMY_TURN_2;
-                tinfo.tilt = tinfo.turn >> 1;
-
-                if (mood != MOOD_SLEEP) {
+                if (mood != MOOD_SLEEP)
+                {
                     nextState = STATE_NONE;
                     return STATE_STALK;
                 }
-                if (rand_logic() < 0x20) {
+                if (rand_logic() < 0x20)
+                {
                     nextState = STATE_SLEEP;
                     return STATE_STOP;
                 }
                 break;
             }
 
-            case STATE_RUN:
+            case STATE_GROWL:
             {
-                extraE->maxTurn = ENEMY_TURN_5;
-                tinfo.tilt = tinfo.turn;
-
-                                // retail's WolfControl (06032664): within the attack range it
-                // pounces if within half its square or if Lara faces it
-                if (tinfo.front && tinfo.dist < DIST_ATTACK)
-                {
-                    if (tinfo.dist2 <= DIST_ATTACK * DIST_ATTACK / 2 || tinfo.behind)
-                    {
-                        nextState = STATE_NONE;
-                        return STATE_ATTACK;
-                    }
-                    nextState = STATE_STALK;
-                    return STATE_GROWL;
-                }
-                if (mood == MOOD_STALK && tinfo.dist < DIST_STALK)
-                {
-                    nextState = STATE_STALK;
-                    return STATE_GROWL;
-                }
+                if (nextState)
+                    return nextState;
+                if (mood == MOOD_ESCAPE)
+                    return STATE_RUN;
+                if (tinfo.dist < DIST_BITE && tinfo.canAttack)
+                    return STATE_BITE;
+                if (mood == MOOD_STALK)
+                    return STATE_STALK;
                 if (mood == MOOD_SLEEP)
-                    return STATE_GROWL;
-                break;
+                    return STATE_STOP;
+                return STATE_RUN;
             }
 
             case STATE_STALK:
             {
                 extraE->maxTurn = ENEMY_TURN_2;
-
                 if (mood == MOOD_ESCAPE)
                     return STATE_RUN;
-                if ((tinfo.dist < DIST_BITE) && tinfo.canAttack && (tinfo.target->health > 0))
+                if (tinfo.dist < DIST_BITE && tinfo.canAttack)
                     return STATE_BITE;
                 if (tinfo.dist > DIST_STALK)
                     return STATE_RUN;
                 if (mood == MOOD_ATTACK)
                 {
-                    if (!tinfo.front || (tinfo.dist > DIST_ATTACK) || tinfo.behind)
+                    if (!tinfo.front || tinfo.dist > DIST_ATTACK || tinfo.behind)
                         return STATE_RUN;
                     break;
                 }
@@ -1157,37 +1181,38 @@ struct Wolf : Enemy
                 break;
             }
 
-            case STATE_SLEEP:
+            case STATE_RUN:
             {
-                if ((mood == MOOD_ESCAPE) || checkZone())
-                    nextState = STATE_GROWL;
-                else if (rand_logic() < 0x20)
-                    nextState = STATE_WALK;
-                else
-                    break;
-                return STATE_STOP;
-            }
+                extraE->maxTurn = ENEMY_TURN_5;
+                tinfo.tilt = tinfo.turn;
 
-            case STATE_GROWL:
-            {
-                if (nextState)
-                    return nextState;
-                if (mood == MOOD_ESCAPE)
-                    return STATE_RUN;
-                if (tinfo.dist < DIST_BITE && tinfo.canAttack && (tinfo.target->health > 0))
-                    return STATE_BITE;
-                if (mood == MOOD_STALK)
-                    return STATE_STALK;
+                // within the attack range it pounces if within half its
+                // square or if Lara faces it, else it crouches to stalk
+                if (tinfo.front && tinfo.dist < DIST_ATTACK)
+                {
+                    if (tinfo.dist2 > DIST_ATTACK * DIST_ATTACK / 2 && !tinfo.behind)
+                    {
+                        nextState = STATE_STALK;
+                        return STATE_GROWL;
+                    }
+                    nextState = STATE_NONE;
+                    return STATE_ATTACK;
+                }
+                if (mood == MOOD_STALK && tinfo.dist < DIST_STALK)
+                {
+                    nextState = STATE_STALK;
+                    return STATE_GROWL;
+                }
                 if (mood == MOOD_SLEEP)
-                    return STATE_STOP;
-                return STATE_RUN;
+                    return STATE_GROWL;
+                break;
             }
 
             case STATE_ATTACK:
             {
                 tinfo.tilt = tinfo.turn;
-
-                if (!nextState && (hitMask & HIT_MASK)) {
+                if (!nextState && (hitMask & HIT_MASK))
+                {
                     bite(DAMAGE_ATTACK, _vec3i(0, -14, 174), 6);
                     nextState = STATE_RUN;
                 }
@@ -1196,11 +1221,12 @@ struct Wolf : Enemy
 
             case STATE_BITE:
             {
-                if (!nextState && (hitMask & HIT_MASK)) {
+                if (!nextState && (hitMask & HIT_MASK) && tinfo.front)
+                {
                     bite(DAMAGE_BITE, _vec3i(0, -14, 174), 6);
                     nextState = STATE_GROWL;
                 }
-                return STATE_RUN;
+                break;
             }
         }
 
@@ -2204,10 +2230,11 @@ struct Raptor : Enemy
         Enemy::hit(damage, point, 0);
 
         if (health <= 0) {
-            animSet(level.models[type].animIndex + ANIM_DEATH_1 + RAND_LOGIC(2), true);
+            animSet(level.models[type].animIndex + ANIM_DEATH_1 + rand_logic() / 16200, true);  // a third, rarely
         }
     }
 
+    // retail's RaptorControl (06011f94); BITE is its third attack
     virtual int32 updateState()
     {
         if (health <= 0)
@@ -2215,7 +2242,8 @@ struct Raptor : Enemy
 
         switch (state)
         {
-            case STATE_STOP: {
+            case STATE_STOP:
+            {
                 if (nextState)
                     return nextState;
                 if ((hitMask & HIT_MASK) || (tinfo.canAttack && tinfo.dist < DIST_BITE))
@@ -2227,21 +2255,21 @@ struct Raptor : Enemy
                 return STATE_RUN;
             }
 
-            case STATE_WALK: {
+            case STATE_WALK:
+            {
                 extraE->maxTurn = ENEMY_TURN_1;
-                tinfo.tilt = tinfo.turn >> 1;
-
                 if (mood != MOOD_SLEEP)
                     return STATE_STOP;
-
-                if (rand_logic() < 0x100) {
+                if (tinfo.front && rand_logic() < 0x100)
+                {
                     nextState = STATE_ROAR;
                     return STATE_STOP;
                 }
                 break;
             }
 
-            case STATE_RUN: {
+            case STATE_RUN:
+            {
                 extraE->maxTurn = ENEMY_TURN_4;
                 tinfo.tilt = tinfo.turn;
 
@@ -2255,7 +2283,7 @@ struct Raptor : Enemy
                     return (rand_logic() < 0x2000) ? STATE_STOP : STATE_ATTACK_2;
                 }
 
-                if (tinfo.front && (mood != MOOD_ESCAPE) && (rand_logic() < 0x100))
+                if (tinfo.front && mood != MOOD_ESCAPE && rand_logic() < 0x100)
                 {
                     nextState = STATE_ROAR;
                     return STATE_STOP;
@@ -2271,7 +2299,9 @@ struct Raptor : Enemy
             case STATE_BITE:
             {
                 tinfo.tilt = tinfo.turn;
-                if (!nextState && tinfo.front && (hitMask & HIT_MASK)) {
+                // the lunges need Lara ahead, the bite doesn't
+                if (!nextState && (hitMask & HIT_MASK) && (tinfo.front || state == STATE_BITE))
+                {
                     bite(DAMAGE_ATTACK, _vec3i(0, 66, 318), 22);
                     nextState = (state == STATE_ATTACK_2) ? STATE_RUN : STATE_STOP;
                 }

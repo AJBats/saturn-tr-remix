@@ -87,226 +87,195 @@ vec3i Nav::getWaypoint(uint32 boxIndex, const vec3i &from)
     if (boxIndex == endBox)
         return pos;
 
+    // retail's CalculateTarget (TR1X box.c): along the path's boxes toward the
+    // target box, the farthest point the boxes passed so far all let the
+    // creature head for in a line; a flyer at least a sector above each box's
+    // floor, a walker no lower than it; with the path cut short, a random
+    // point in the last box reached. Boxes: z is retail's left and right, x
+    // its top and bottom, z tested first.
+    enum {
+        CLIP_LEFT      = (1 << 0),
+        CLIP_RIGHT     = (1 << 1),
+        CLIP_TOP       = (1 << 2),
+        CLIP_BOTTOM    = (1 << 3),
+        CLIP_ALL       = (CLIP_LEFT | CLIP_RIGHT | CLIP_TOP | CLIP_BOTTOM),
+        CLIP_SECONDARY = (1 << 4)
+    };
+
     vec3i wp = from;
 
     if (boxIndex == NO_BOX)
         return wp;
 
-    const Box* box = level.boxes + boxIndex;
-
-    int32 bMinX = (box->minX << 10);
-    int32 bMaxX = (box->maxX << 10) - 1;
-    int32 bMinZ = (box->minZ << 10);
-    int32 bMaxZ = (box->maxZ << 10) - 1;
-
-    int32 minX = bMinX;
-    int32 maxX = bMaxX;
-    int32 minZ = bMinZ;
-    int32 maxZ = bMaxZ;
-
-#if 0
-    while ((boxIndex != NO_BOX) && !(level.boxes[boxIndex].overlap & mask))
-    {
-        box = level.boxes + boxIndex;
-    
-        bMinX = (box->minX << 10);
-        bMaxX = (box->maxX << 10) - 1;
-        bMinZ = (box->minZ << 10);
-        bMaxZ = (box->maxZ << 10) - 1;
-
-        if (from.x >= bMinX && from.x <= bMaxX && from.z >= bMinZ && from.z <= bMaxZ)
-        {
-            minX = bMinX;
-            maxX = bMaxX;
-            minZ = bMinZ;
-            maxZ = bMaxZ;
-        } else {
-            if ((wp.x < bMinX) || (wp.x > bMaxX))
-            {
-                if ((wp.z < minZ) || (wp.z > maxZ))
-                    break;
-                wp.x = X_CLAMP(wp.x, bMinX + 512, bMaxX - 512);
-                minZ = X_MAX(minZ, bMinZ);
-                maxZ = X_MIN(maxZ, bMaxZ);
-            }
-
-            if ((wp.z < bMinZ) || (wp.z > bMaxZ))
-            {
-                if ((wp.x < minX) || (wp.x > maxX))
-                    break;
-                wp.z = X_CLAMP(wp.z, bMinZ + 512, bMaxZ - 512);
-                minX = X_MAX(minX, bMinX);
-                maxX = X_MIN(maxX, bMaxX);
-            }
-        }
-
-        if (boxIndex == endBox)
-        {
-            wp.x = X_CLAMP(wp.x, bMinX + 512, bMaxX - 512);
-            wp.z = X_CLAMP(wp.z, bMinZ + 512, bMaxZ - 512);
-            break;
-        }
-
-        boxIndex = cells[boxIndex].end;
-    }
-
-#else
-    enum ClipFlag {
-        CLIP_MIN_X = (1 << 0),
-        CLIP_MAX_X = (1 << 1),
-        CLIP_MIN_Z = (1 << 2),
-        CLIP_MAX_Z = (1 << 3),
-        CLIP_DONE  = (1 << 4),
-        CLIP_ALL   = (CLIP_MIN_X | CLIP_MAX_X | CLIP_MIN_Z | CLIP_MAX_Z)
-    };
-
-    int32 clip = CLIP_ALL;
+    int32 left = 0, right = 0, top = 0, bottom = 0;
+    int32 primeFree = CLIP_ALL;
+    const Box* box;
 
     do {
         box = level.boxes + boxIndex;
-        bMinX = (box->minX << 10);
-        bMaxX = (box->maxX << 10) - 1;
-        bMinZ = (box->minZ << 10);
-        bMaxZ = (box->maxZ << 10) - 1;
+        int32 bLeft   = box->minZ << 10;
+        int32 bRight  = (box->maxZ << 10) - 1;
+        int32 bTop    = box->minX << 10;
+        int32 bBottom = (box->maxX << 10) - 1;
 
-        if (from.x >= bMinX && from.x <= bMaxX && from.z >= bMinZ && from.z <= bMaxZ)
+        int32 floor = box->floor - ((zoneType == ZONE_FLY) ? 1024 : 0);
+        if (wp.y > floor) {
+            wp.y = floor;
+        }
+
+        if (from.z >= bLeft && from.z <= bRight && from.x >= bTop && from.x <= bBottom)
         {
-            minX = bMinX;
-            maxX = bMaxX;
-            minZ = bMinZ;
-            maxZ = bMaxZ;
-        } else {
-
-            if (from.x < bMinX)
+            left = bLeft;
+            right = bRight;
+            top = bTop;
+            bottom = bBottom;
+        }
+        else
+        {
+            if (from.z < bLeft)
             {
-                if ((clip & CLIP_MIN_X) && from.z >= bMinZ && from.z <= bMaxZ)
+                if ((primeFree & CLIP_LEFT) && from.x >= bTop && from.x <= bBottom)
                 {
-                    wp.x = X_MAX(wp.x, bMinX + 512);
-                
-                    if (clip & CLIP_DONE)
-                        return wp;
-                    minZ = X_MAX(minZ, bMinZ);
-                    maxZ = X_MIN(maxZ, bMaxZ);
-
-                    clip = CLIP_MIN_X;
-                } else {
-                    if (clip != CLIP_MIN_X)
-                    {
-                        wp.x = maxX - 512;
-                    
-                        if (clip != CLIP_ALL)
-                            return wp;
-
-                        clip = CLIP_DONE;
+                    if (wp.z < bLeft + 512) {
+                        wp.z = bLeft + 512;
                     }
+                    if (primeFree & CLIP_SECONDARY)
+                        return wp;
+                    top = X_MAX(top, bTop);
+                    bottom = X_MIN(bottom, bBottom);
+                    primeFree = CLIP_LEFT;
+                }
+                else if (primeFree != CLIP_LEFT)
+                {
+                    wp.z = right - 512;
+                    if (primeFree != CLIP_ALL)
+                        return wp;
+                    primeFree |= CLIP_SECONDARY;
                 }
             }
-            
-            if (from.x > bMaxX)
+            else if (from.z > bRight)
             {
-                if ((clip & CLIP_MAX_X) && from.z >= bMinZ && from.z <= bMaxZ)
+                if ((primeFree & CLIP_RIGHT) && from.x >= bTop && from.x <= bBottom)
                 {
-                    wp.x = X_MIN(wp.x, bMaxX - 512);
-                
-                    if (clip & CLIP_DONE)
-                        return wp;
-                    minZ = X_MAX(minZ, bMinZ);
-                    maxZ = X_MIN(maxZ, bMaxZ);
-
-                    clip = CLIP_MAX_X;
-                } else {
-                    if (clip != CLIP_MAX_X)
-                    {
-                        wp.x = minX + 512;
-                    
-                        if (clip != CLIP_ALL)
-                            return wp;
-
-                        clip = CLIP_DONE;
+                    if (wp.z > bRight - 512) {
+                        wp.z = bRight - 512;
                     }
+                    if (primeFree & CLIP_SECONDARY)
+                        return wp;
+                    top = X_MAX(top, bTop);
+                    bottom = X_MIN(bottom, bBottom);
+                    primeFree = CLIP_RIGHT;
+                }
+                else if (primeFree != CLIP_RIGHT)
+                {
+                    wp.z = left + 512;
+                    if (primeFree != CLIP_ALL)
+                        return wp;
+                    primeFree |= CLIP_SECONDARY;
                 }
             }
 
-            if (from.z < bMinZ)
+            if (from.x < bTop)
             {
-                if ((clip & CLIP_MIN_Z) && from.x >= bMinX && from.x <= bMaxX)
+                if ((primeFree & CLIP_TOP) && from.z >= bLeft && from.z <= bRight)
                 {
-                    wp.z = X_MAX(wp.z, bMinZ + 512);
-                
-                    if (clip & CLIP_DONE)
-                        return wp;
-                    minX = X_MAX(minX, bMinX);
-                    maxX = X_MIN(maxX, bMaxX);
-
-                    clip = CLIP_MIN_Z;
-                } else {
-                    if (clip != CLIP_MIN_Z)
-                    {
-                        wp.z = maxZ - 512;
-                    
-                        if (clip != CLIP_ALL)
-                            return wp;
-
-                        clip = CLIP_DONE;
+                    if (wp.x < bTop + 512) {
+                        wp.x = bTop + 512;
                     }
+                    if (primeFree & CLIP_SECONDARY)
+                        return wp;
+                    left = X_MAX(left, bLeft);
+                    right = X_MIN(right, bRight);
+                    primeFree = CLIP_TOP;
+                }
+                else if (primeFree != CLIP_TOP)
+                {
+                    wp.x = bottom - 512;
+                    if (primeFree != CLIP_ALL)
+                        return wp;
+                    primeFree |= CLIP_SECONDARY;
                 }
             }
-            
-            if (from.z > bMaxZ)
+            else if (from.x > bBottom)
             {
-                if ((clip & CLIP_MAX_Z) && from.x >= bMinX && from.x <= bMaxX)
+                if ((primeFree & CLIP_BOTTOM) && from.z >= bLeft && from.z <= bRight)
                 {
-                    wp.z = X_MIN(wp.z, bMaxZ - 512);
-                
-                    if (clip & CLIP_DONE)
-                        return wp;
-                    minX = X_MAX(minX, bMinX);
-                    maxX = X_MIN(maxX, bMaxX);
-
-                    clip = CLIP_MAX_Z;
-                } else {
-                    if (clip != CLIP_MAX_Z)
-                    {
-                        wp.z = minZ + 512;
-                    
-                        if (clip != CLIP_ALL)
-                            return wp;
-
-                        clip = CLIP_DONE;
+                    if (wp.x > bBottom - 512) {
+                        wp.x = bBottom - 512;
                     }
+                    if (primeFree & CLIP_SECONDARY)
+                        return wp;
+                    left = X_MAX(left, bLeft);
+                    right = X_MIN(right, bRight);
+                    primeFree = CLIP_BOTTOM;
+                }
+                else if (primeFree != CLIP_BOTTOM)
+                {
+                    wp.x = top + 512;
+                    if (primeFree != CLIP_ALL)
+                        return wp;
+                    primeFree |= CLIP_SECONDARY;
                 }
             }
         }
 
         if (boxIndex == endBox)
         {
-            if (clip & (CLIP_MIN_X | CLIP_MAX_X)) {
-                wp.x = pos.x;
-            } else if (!(clip & CLIP_DONE)) {
-                wp.x = X_CLAMP(wp.x, bMinX + 512, bMaxX - 512);
+            if (primeFree & (CLIP_LEFT | CLIP_RIGHT)) {
+                wp.z = pos.z;
+            } else if (!(primeFree & CLIP_SECONDARY)) {
+                if (wp.z < bLeft + 512) {
+                    wp.z = bLeft + 512;
+                } else if (wp.z > bRight - 512) {
+                    wp.z = bRight - 512;
+                }
             }
 
-            if (clip & (CLIP_MIN_Z | CLIP_MAX_Z)) {
-                wp.z = pos.z;
-            } else if (!(clip & CLIP_DONE)) {
-                wp.z = X_CLAMP(wp.z, bMinZ + 512, bMaxZ - 512);
+            if (primeFree & (CLIP_TOP | CLIP_BOTTOM)) {
+                wp.x = pos.x;
+            } else if (!(primeFree & CLIP_SECONDARY)) {
+                if (wp.x < bTop + 512) {
+                    wp.x = bTop + 512;
+                } else if (wp.x > bBottom - 512) {
+                    wp.x = bBottom - 512;
+                }
             }
 
             wp.y = pos.y;
-
             return wp;
         }
 
         boxIndex = cells[boxIndex].end;
-    } while ((boxIndex != NO_BOX) && !(level.boxes[boxIndex].overlap & mask));
+        if (boxIndex != NO_BOX && (level.boxes[boxIndex].overlap & mask))
+            break;
+    } while (boxIndex != NO_BOX);
 
-    if (!(clip & CLIP_DONE))
-    {
-        wp.x = X_CLAMP(wp.x, bMinX + 512, bMaxX - 512);
-        wp.z = X_CLAMP(wp.z, bMinZ + 512, bMaxZ - 512);
+    int32 bLeft   = box->minZ << 10;
+    int32 bRight  = (box->maxZ << 10) - 1;
+    int32 bTop    = box->minX << 10;
+    int32 bBottom = (box->maxX << 10) - 1;
+
+    if (primeFree & (CLIP_LEFT | CLIP_RIGHT)) {
+        wp.z = bLeft + 512 + RAND_LOGIC(bRight - bLeft - 1024);
+    } else if (!(primeFree & CLIP_SECONDARY)) {
+        if (wp.z < bLeft + 512) {
+            wp.z = bLeft + 512;
+        } else if (wp.z > bRight - 512) {
+            wp.z = bRight - 512;
+        }
     }
-#endif
-    wp.y = box->floor - ((zoneType == ZONE_FLY) ? 384 : 0); // TODO check for 320
+
+    if (primeFree & (CLIP_TOP | CLIP_BOTTOM)) {
+        wp.x = bTop + 512 + RAND_LOGIC(bBottom - bTop - 1024);
+    } else if (!(primeFree & CLIP_SECONDARY)) {
+        if (wp.x < bTop + 512) {
+            wp.x = bTop + 512;
+        } else if (wp.x > bBottom - 512) {
+            wp.x = bBottom - 512;
+        }
+    }
+
+    wp.y = box->floor - ((zoneType == ZONE_FLY) ? 384 : 0);
 
     return wp;
 }

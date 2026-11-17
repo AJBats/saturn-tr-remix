@@ -1747,7 +1747,7 @@ struct ExtraInfoEnemy
     int16 rotNeck;
 
     int16 maxTurn;
-    int16 _reserved;
+    int16 waypointY;    // its last waypoint's height: a dead flyer still heads for it (retail's creature target)
 
     Enemy* enemy;
 
