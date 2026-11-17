@@ -366,6 +366,13 @@ int main(int argc, char** argv)
 
         if (tick % (getenv("EVERY") ? atoi(getenv("EVERY")) : 30) == 0 || tick == ticks - 1) {
             printLara(tick);
+            for (const char* w = getenv("WATCH"); w && *w; w = strchr(w, ',') ? strchr(w, ',') + 1 : "")
+            {
+                const ItemObj* item = items + atoi(w);    // WATCH=ITEM,ITEM...: those too
+                printf("     item %3d: room %3d pos %6d %6d %6d anim %3d frame %4d state %2d goal %2d flags %04x floor %6d\n",
+                       atoi(w), item->room ? int32(item->room - rooms) : -1, item->pos.x, item->pos.y, item->pos.z,
+                       item->animIndex, item->frameIndex, item->state, item->goalState, item->flags, item->roomFloor);
+            }
         }
     }
     double s = double(clock() - t0) / CLOCKS_PER_SEC;
