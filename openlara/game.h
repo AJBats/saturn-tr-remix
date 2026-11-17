@@ -197,10 +197,12 @@ void gameInit()
 
     inventory.init();
 
+#if defined(START_LEVEL) || defined(TRS_HOST)
     // a level started straight from boot (make START_LEVEL) is a test's
     if (gLevelID != LVL_TR1_TITLE) {
         startInfoTestingKit(gLevelID);
     }
+#endif
 
     startLevel(gLevelID);
 }

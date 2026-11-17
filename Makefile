@@ -60,8 +60,9 @@ export PATH := $(abspath $(SH_BIN))$(PATHSEP)$(PATH)
 CC      := $(SH_PREFIX)gcc
 CXX     := $(SH_PREFIX)g++
 OBJCOPY := $(SH_PREFIX)objcopy
-# -ffunction-sections: saturn.ld places the hot functions first, in a fixed order
-CFLAGS  := -m2 -mb $(OPT) -Wall -D__SATURN__ -Isaturn -Iopenlara -Irenderer -I$(BUILD)/gen -ffunction-sections
+# -ffunction-sections: saturn.ld places the hot functions first, in a fixed
+# order; with -fdata-sections the linker drops what nothing uses (--gc-sections)
+CFLAGS  := -m2 -mb $(OPT) -Wall -D__SATURN__ -Isaturn -Iopenlara -Irenderer -I$(BUILD)/gen -ffunction-sections -fdata-sections
 ifdef START_LEVEL
 CFLAGS  += -DSTART_LEVEL=$(START_LEVEL)   # testing
 endif
@@ -105,7 +106,7 @@ endif
 # subclass over them (ItemObj::init); the constructors read those fields.
 CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
 	-fno-asynchronous-unwind-tables -fno-lifetime-dse -Wno-class-memaccess
-LDFLAGS := -nostdlib -T saturn/saturn.ld -Wl,--no-warn-rwx-segments
+LDFLAGS := -nostdlib -T saturn/saturn.ld -Wl,--no-warn-rwx-segments -Wl,--gc-sections
 
 # sources compiled with -O2 in place of $(OPT) (touch them when it changes):
 # the renderer's, as the lab measures it; the game's logic in main.cpp

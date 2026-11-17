@@ -1,5 +1,7 @@
 // Debug overlay (see overlay.h).
 
+#ifdef HW_LOG
+
 #include "overlay.h"
 #include "font.h"
 #include "hw.h"
@@ -237,3 +239,5 @@ void overlayFrame()
     }
     screenOverlay(free && any);
 }
+
+#endif

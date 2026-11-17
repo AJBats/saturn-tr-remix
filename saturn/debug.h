@@ -1,18 +1,18 @@
-// The debug pad on port 2: a menu of options to compare in game, and lines of
-// frame statistics.
+// HW_LOG builds' debug pad on port 2: a menu of options to compare in game,
+// and lines of frame statistics. The game as shipped has none of it.
 #ifndef DEBUG_H
 #define DEBUG_H
 
 #include <stdint.h>
 
+#ifdef HW_LOG
 // Once a frame, before the game update: reads the debug pad.
 void debugUpdate();
 
 // The keys the game gets of the player's: none while the overlay's menu has the
-// pad, only look while the view is frozen (HW_LOG).
+// pad, only look while the view is frozen.
 uint32_t debugGameKeys(uint32_t pressed);
 
-#ifdef HW_LOG
 // Starts the measurement table's sampling profiler (debug.cpp).
 void debugProfileInit();
 

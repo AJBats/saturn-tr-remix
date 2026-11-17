@@ -62,7 +62,9 @@ static void nextFrame()
     cachePurge();       // the game as the master left it
     traceBegin(TRACE_SLAVE, TR_SLAVE_UPDATE);
     updateInput();
+#ifdef HW_LOG
     keys = debugGameKeys(keys);
+#endif
     uint32 tick = gVblankCount >> 1;
     int32 delta = X_MAX(X_MIN(int32(tick - gNextTick), MAX_UPDATE_FRAMES), 1);
     gNextTick = tick;
@@ -193,8 +195,8 @@ int main()
         traceBeginAt(TRACE_MASTER, t0, TR_UPDATE);
         uint32 waited = nextFrameWait();
         updateInput();
-        debugUpdate();
 #ifdef HW_LOG
+        debugUpdate();
         if (debugHeld())
         {
             debugPlayFrame();

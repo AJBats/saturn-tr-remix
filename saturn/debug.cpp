@@ -1,16 +1,18 @@
-// The debug pad (port 2). Mednafen keys in brackets:
-//   START [Tab]       opens and closes the menu (not in HW_LOG builds)
+// HW_LOG builds only: the game as shipped has none of this. The debug pad
+// (port 2), Mednafen keys in brackets:
 //   up/down [arrows]  pick an option, left/right change it
-// Changes show for a moment at the bottom of the screen. In HW_LOG builds the
-// player's pad pages the overlay with R and L (so Lara can't walk or roll
-// there), and the menu is one of its pages, where its d-pad and A, B, C work
-// the menu too (Lara stands still).
+// Changes show for a moment at the bottom of the screen. The player's pad
+// pages the overlay with R and L (so Lara can't walk or roll there), and the
+// menu is one of its pages, where its d-pad and A, B, C work the menu too
+// (Lara stands still).
 //
-// Also in HW_LOG builds: look held (Z, or Y with RETAIL_CONTROLS), a tap of R
+// Look held (Z, or Y with RETAIL_CONTROLS), a tap of R
 // or L freezes the view, on any page, whatever it's turned to the page after;
 // Lara holds still with her look held, the game runs on, the numbers are its
 // own. A tap of look lets go. Look held, START freezes it and opens the page
 // of occlusion stamps; START again goes back and lets go.
+
+#ifdef HW_LOG
 
 #include "debug.h"
 #include "common.h"
@@ -45,13 +47,9 @@ struct Option
 
 static const char* const kOnOff[] = { "Off", "On" };
 static const char* const kTrace[] = { "Off", "Stages", "Detail" };
-#ifdef HW_LOG
-static const char* const kCamera[] = { "Ours", "Retail" };
 static bool gHolesShown;        // what rooms' fills fill and what nothing draws, magenta
-#endif
 
 static bool gShowStats;
-#ifdef HW_LOG
 static void benchUpdate();
 static void occludeUpdate(uint16 pressed);
 static void occludeDraw();
@@ -59,38 +57,26 @@ static void frameShown(uint32_t plot);
 #define FRAME_ROW   (OVERLAY_ROWS - 2)  // and the row under it (frameShown)
 static volatile bool gFrameRows;    // they are pinned
 static void sceneUpdate();
-#endif
 
 static const Option gOptions[] = {
     { "Stats", kOnOff, 2,
         [] { return int32(gShowStats); },
         [](int32 v) { gShowStats = v; } },
-#ifdef HW_LOG
     { "Trace", kTrace, TRACE_MODES,
         [] { return int32(traceMode()); },
         [](int32 v) { traceSetMode(v); } },
     { "Holes", kOnOff, 2,
         [] { return int32(gHolesShown); },
         [](int32 v) { gHolesShown = v; renderHolesShown(v); } },
-    { "Camera", kCamera, 2,
-        [] { return int32(gCameraRetail); },
-        [](int32 v) { gCameraRetail = v; } },
-#endif
 };
 
 enum { OPTION_STATS,
-#ifdef HW_LOG
-       OPTION_TRACE, OPTION_HOLES, OPTION_CAMERA,
-#endif
+       OPTION_TRACE, OPTION_HOLES,
        OPTION_COUNT };
 static_assert(OPTION_COUNT == sizeof(gOptions) / sizeof(gOptions[0]), "an OPTION_ for each option");
 
 static uint16 gPad;
 static int32 gCursor;
-#ifndef HW_LOG
-static bool gMenuOpen;
-#endif
-#ifdef HW_LOG
 // R and L page through the overlay: the bench's table, then (held on the
 // menu's Way, Base unless changed) the scene's rows with each frame's CPU,
 // slave and VDP1 time, each frame's time by stage, the menu over each frame's
@@ -104,9 +90,7 @@ static bool gFrozen;                // the view: the game has only look held
 static volatile bool gLooking;      // a test disc for tools/hw.py, looking about by itself (Makefile)
 #endif
 static bool gStartSwallowed;        // START opened or left the page: the game never sees it
-#endif
 
-#ifdef HW_LOG
 // The playback page holds the game and shows the trace's frames (trace.h)
 // alone: on this colour round the overlay's text, for tools/trace.py to find.
 #define PLAYBACK_BACK   RGB(0, 16, 31)
@@ -136,7 +120,6 @@ void debugPlayFrame()
 {
     tracePlayFrame();
 }
-#endif
 
 static const char* gMessage;
 static const char* gMessageName;
@@ -155,16 +138,11 @@ static void step(int32 index, int32 delta)
 
 static bool menuShown()
 {
-#ifdef HW_LOG
     return gPage == PAGE_MENU;
-#else
-    return gMenuOpen;
-#endif
 }
 
 uint32_t debugGameKeys(uint32_t pressed)
 {
-#ifdef HW_LOG
     if (gStartSwallowed)
     {
         if (!(pressed & IK_SELECT)) {
@@ -184,7 +162,6 @@ uint32_t debugGameKeys(uint32_t pressed)
         return IK_LOOK;
     if (menuShown() || gPage == PAGE_OCCLUDE)
         return 0;
-#endif
     return pressed;
 }
 
@@ -193,7 +170,6 @@ void debugUpdate()
     traceBegin(TRACE_MASTER, TR_DEBUG);
     uint16 pad = padDebug();
 
-#ifdef HW_LOG
     // the player's pad: its shoulder buttons are the overlay's (debugGameKeys
     // keeps them from Lara), look with them freezes the view
     static uint32 shoulders, held;
@@ -256,16 +232,9 @@ void debugUpdate()
         pad |= padButtons() & ~(PAD_START | PAD_L | PAD_R | PAD_Y);
     }
     keys = debugGameKeys(keys);
-#endif
 
     uint16 pressed = pad & ~gPad;
     gPad = pad;
-
-#ifndef HW_LOG
-    if (pressed & PAD_START) {
-        gMenuOpen = !gMenuOpen;
-    }
-#endif
 
     if (menuShown())
     {
@@ -283,7 +252,6 @@ void debugUpdate()
         }
     }
 
-#ifdef HW_LOG
     occludeUpdate(pressed);
     vdp1OnShown(frameShown);
     if ((gPage == PAGE_BENCH || gPage == PAGE_NONE || gPage == PAGE_PLAYBACK) && gFrameRows)
@@ -301,7 +269,6 @@ void debugUpdate()
     }
     benchUpdate();
     sceneUpdate();
-#endif
     traceEnd(TRACE_MASTER, TR_DEBUG);
 }
 
@@ -330,7 +297,6 @@ static uint32 framePercent(uint32 ticks)
     return ticks * 100 / 7457;
 }
 
-#ifdef HW_LOG
 // Hardware measurements without a second pad: while the bench page shows,
 // every 4 seconds of play the frame's averages over the last 3 seconds, and
 // where the master's time went then.
@@ -1167,9 +1133,8 @@ static void benchDraw()
         }
     }
 }
-#endif
 
-#if defined(HW_LOG) && defined(SYNC_TEST)
+#ifdef SYNC_TEST
 static char* appendShare(char* p, const char* name, uint32 value)
 {
     p = append(p, name);
@@ -1238,7 +1203,6 @@ static void drawDebug()
 {
     char text[64];
 
-#ifdef HW_LOG
     if (gPage == PAGE_NONE)
     {
         // the frame rate alone, a row the bitmap takes again once a second
@@ -1247,7 +1211,6 @@ static void drawDebug()
         overlayFrame();
         return;
     }
-#endif
 
     if (gSettings.video_fps)
     {
@@ -1268,11 +1231,7 @@ static void drawDebug()
         }
     }
 
-#ifdef HW_LOG
     int32 row = OVERLAY_ROWS - 3;   // above the frame rows
-#else
-    int32 row = OVERLAY_ROWS - 1;
-#endif
 
     if (int32(gMessageEnd - gVblankCount) > 0)
     {
@@ -1290,7 +1249,6 @@ static void drawDebug()
         overlayRow(row--, text, OVERLAY_CENTRE);
     }
 
-#ifdef HW_LOG
     if (!menuShown() && gPage != PAGE_NONE)
     {
         if (gPage != PAGE_BENCH)
@@ -1313,7 +1271,8 @@ static void drawDebug()
             benchDraw();
         }
     }
-#endif
 
     overlayFrame();
 }
+
+#endif
