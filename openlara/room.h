@@ -977,12 +977,16 @@ void checkTrigger(const FloorData* fd, ItemObj* lara)
                 else
                     flags |= FD_MASK(data);
 
+                // played unless it's the level's current track, which only
+                // a level's start resets (retail's TriggerCDTrack, 06011488)
                 if ((flags & TRACK_FLAG_MASK) == TRACK_FLAG_MASK)
                 {
                     if (FD_ONCE(data)) {
                         flags |= TRACK_FLAG_ONCE;
                     }
-                    sndPlayTrack(track);
+                    if (track != gLevelTrack) {
+                        musicPlay(track);
+                    }
                 } else {
                     sndStopTrack();
                 }

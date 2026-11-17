@@ -171,9 +171,7 @@ bool gameLoad()
         }
     }
 
-    if (gSaveGame.track != -1) {
-        sndPlayTrack(gSaveGame.track);
-    }
+    
 
     gRandSeedLogic = gSaveGame.randSeedLogic;
     gRandSeedDraw = gSaveGame.randSeedDraw;
@@ -342,6 +340,7 @@ void gameLoadLevel(const void* data)
 
 void startLevel(LevelID id)
 {
+    gLevelTrack = -1;
     gRandSeedLogic = osGetSystemTimeMS() * 3;
     gRandSeedDraw = osGetSystemTimeMS() * 7;
 
@@ -353,6 +352,9 @@ void startLevel(LevelID id)
 
     sndInitSamples();
     sndPlayTrack(getAmbientTrack());
+    if (isCutsceneLevel()) {
+        sndWaitTrack();     // its pictures keep time with the track (retail's StartSyncedAudio, 0603c794)
+    }
 }
 
 void updateItems()

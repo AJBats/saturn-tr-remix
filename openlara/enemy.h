@@ -2877,6 +2877,11 @@ struct Skater : Gunman
         if (health <= 0)
             return goalState;
 
+        // his music once he's hurt (retail's 06029ac0)
+        if (health < 120 && gLevelTrack != 56) {
+            musicPlay(56);
+        }
+
         extraE->maxTurn = ANGLE(4);
 
         switch (state)
@@ -3723,7 +3728,7 @@ struct Natla : Gunman
                         turnSpeed = 0;
                         timer = 0;
                         health = NEAR_DEATH;
-                        sndPlayTrack(54);
+                        musicPlay(54);
                     } else {
                         health = NOT_ENEMY;     // Lara can't target her
                     }

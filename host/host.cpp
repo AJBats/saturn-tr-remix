@@ -139,6 +139,7 @@ void sndStopSample(int32 index)
 void sndStop() {}
 void sndPause() {}
 void sndResume() {}
+bool sndWaitTrack() { return true; }
 
 // the renderer: none
 void renderInit() {}

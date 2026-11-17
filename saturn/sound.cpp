@@ -508,9 +508,6 @@ void sndPlayTrack(int32 track)
     if (!gSettings.audio_music)
         return;
 
-    if (track == gCurTrack)
-        return;
-
     gCurTrack = track;
 
     if (!trackOnDisc(track))
@@ -560,6 +557,11 @@ void sndPause()
 void sndResume()
 {
     cdResumeAudio();
+}
+
+bool sndWaitTrack()
+{
+    return trackOnDisc(gCurTrack) && gSettings.audio_music && cdWaitPlaying();
 }
 
 // Stops every voice and waits for the sound CPU to have (so the samples may

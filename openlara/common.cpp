@@ -12,6 +12,13 @@ EWRAM_DATA Settings gSettings;
 EWRAM_DATA SaveFile gSaveFile;
 
 EWRAM_DATA int32 gCurTrack;
+EWRAM_DATA int32 gLevelTrack = -1;
+
+void musicPlay(int32 track)
+{
+    gLevelTrack = track;
+    sndPlayTrack(track);
+}
 EWRAM_DATA int32 gAnimTexFrame;
 
 int16 gViewRotation[9];

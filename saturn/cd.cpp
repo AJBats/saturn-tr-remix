@@ -52,6 +52,7 @@
 #define STATUS_WAIT         0x80
 #define STATUS_REJECT       0xFF
 #define STATUS_PAUSE        0x01
+#define STATUS_PLAY         0x03
 #define STATUS_OPEN         0x06
 #define STATUS_NO_DISC      0x07
 #define STATUS_ERROR        0x09
@@ -207,6 +208,18 @@ void cdStopAudio()
         return;
     gAudio = false;
     cmdChecked(0, 0x11FF, 0xFFFF, 0, 0); // seek to "pause"
+}
+
+bool cdWaitPlaying()
+{
+    for (int32_t i = 0; i < 20000; i++)
+    {
+        CdRegs in = { 0x0000, 0, 0, 0 };
+        CdRegs res;
+        if (cdCommand(0, in, &res) == 0 && STATUS_CODE(res.cr1) == STATUS_PLAY)
+            return true;
+    }
+    return false;
 }
 
 void cdPauseAudio()

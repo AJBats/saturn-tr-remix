@@ -2806,6 +2806,9 @@ extern Settings gSettings;
 extern SaveFile gSaveFile;
 
 extern int32 gCurTrack;
+extern int32 gLevelTrack;   // the track the level last played (retail's 0x06060bf0): reset only as a level starts
+void musicPlay(int32 track);    // a track played, and made the level's
+bool sndWaitTrack();            // till the drive plays (a cutscene's start)
 extern int32 gAnimTexFrame;
 extern int32 gBrightness;
 // The drawing state each CPU keeps for itself, so that both can draw at once:
