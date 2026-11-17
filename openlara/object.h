@@ -2412,16 +2412,27 @@ void wake(ItemObj* item)
     item->activate();
 }
 
+// A centaur statue in Tomb of Tihocan, as retail's InitialiseStatue and
+// StatueControl (06032454, 0603255c): solid, holding a hidden centaur turned
+// as it is; once its trigger has woken it, Lara within 3.5 sectors (and a
+// sector up or down) frees the centaur, at once and forced into the AI, with
+// SFX 104. (The statue's shatter waits for issue 213.)
 struct CentaurStatue : Object
 {
     CentaurStatue(Room* room) : Object(room)
     {
         ItemObj* centaur = spawnHidden(this, ITEM_CENTAUR);
-        if (centaur) {
+        if (centaur)
+        {
             centaur->animSet(level.models[ITEM_CENTAUR].animIndex + 7, true, 36); // rearing
+            centaur->angle.y = angle.y;     // not the creature's random turn
         }
         headOffset = centaur ? uint16(centaur - items) + 1 : 0;
-        activate();
+    }
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        collideDefault(lara, cinfo);
     }
 
     virtual void update()
@@ -2430,15 +2441,22 @@ struct CentaurStatue : Object
         vec3i d = lara->pos - pos;
 
         if (d.y > -1024 && d.y < 1024 && abs(d.x) < 3584 && abs(d.z) < 3584 &&
-            X_SQR(d.x >> 4) + X_SQR(d.z >> 4) < X_SQR(3584 >> 4))
+            X_SQR(d.x) + X_SQR(d.z) < X_SQR(3584))
         {
-            soundPlay(SND_EXPLOSION, &pos);
-            if (headOffset) {
-                wake(items + headOffset - 1);
-            }
-            flags &= ~ITEM_FLAG_STATUS;
+            flags &= ~(ITEM_FLAG_STATUS | ITEM_FLAG_COLLISION);
             flags |= ITEM_FLAG_STATUS_INVISIBLE;
             deactivate();
+
+            if (headOffset)
+            {
+                Enemy* centaur = (Enemy*)(items + headOffset - 1);
+                centaur->hitMask = 0;
+                centaur->flags &= ~ITEM_FLAG_STATUS;
+                centaur->flags |= ITEM_FLAG_STATUS_ACTIVE | ITEM_FLAG_MASK;
+                centaur->ItemObj::activate();
+                centaur->enable(true);
+                soundPlay(SND_EXPLOSION, &centaur->pos);
+            }
         }
     }
 };
