@@ -91,11 +91,11 @@ order; the few of its bugs a player runs into are listed at the end.
 | 24 | 30. Look works in every state and freezes Lara | small (closed) |
 | 25 | 133. A key chosen away from a keyhole auto-inserts later | small (closed) |
 | 26 | 51. Switches, keyholes and blocks work with Lara's back turned | small (closed) |
-| 27 | 58. Shot hit test: targets 15% smaller | small |
-| 28 | 112. AI distances approximate; enemy gunfire's hit chance off | small |
-| 29 | 76. Wolf pounce inverted | small |
-| 30 | 77. "Lara is facing me" doesn't wrap the angle | small |
-| 31 | 54. Target dropped at death; retargets while Action held | small |
+| 27 | 58. Shot hit test: targets 15% smaller | small (closed) |
+| 28 | 112. AI distances approximate; enemy gunfire's hit chance off | small (closed) |
+| 29 | 76. Wolf pounce inverted | small (closed) |
+| 30 | 77. "Lara is facing me" doesn't wrap the angle | small (closed) |
+| 31 | 54. Target dropped at death; retargets while Action held | small (closed) |
 | 32 | 120. Lara never catches fire | medium |
 | 33 | 119. Lava emitters throw nothing | medium |
 | 34 | 117. Lightning: nothing drawn, wrong radius, no flinch | medium |
@@ -652,31 +652,6 @@ LARA-20*
 
 ## Weapons and combat
 
-### 54. The target is dropped the moment it dies, and Lara retargets while Action is held
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: GUN-3,
-GUN-14*
-
-- **Retail:**
-  - LaraTargetInfo (`0601f838`) has no hit-point check.
-  - LaraGetNewTarget (`0601f9f4`) runs only when the target is NULL, which only
-    happens when Action is released.
-  - FireWeapon and HitTarget keep hitting the dead creature, with blood each
-    time.
-  - All 6 shotgun pellets test the same target, dead or not.
-- **Ours:**
-  - `openlara/lara.h:3699` drops the target
-    (`if (arm.target && arm.target->health <= 0) arm.target = NULL`), and
-    weaponFindTargets runs in the same frame.
-  - `lara.h:3212` skips the sphere test on a dead target, so the remaining
-    pellets of a killing shotgun blast ricochet as sparks.
-- **Effect:** holding fire through a pack of wolves swaps to the next wolf
-  automatically. Retail Lara keeps pumping bullets into the corpse until you let
-  go of Action.
-- **Fix:**
-  - Drop the health check.
-  - Allow hits on a target at 0 hp or below: blood, but no kill count.
-  - Relax the ASSERT in `Enemy::hit`.
-
 ### 55. The shotgun runs OpenLara's own animation scheme
 *Severity: gameplay / visible · Confidence: confirmed (timing and sound) · Fix:
 medium · Audit: GUN-4, GUN-24*
@@ -723,20 +698,6 @@ medium · Audit: GUN-4, GUN-24*
 - **Effect:** Lara's upper body rocks during the shotgun's draw, recoil and
   reload; in retail only the arms move.
 - **Fix:** delete the block.
-
-### 58. The shot hit test uses an approximate length, so targets are 15% smaller
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: GUN-7,
-MATH-6*
-
-- **Retail:** FireWeapon (`0601fd2c`) accepts a sphere when x² + y² ≤ r²,
-  exactly (a mul.l sequence).
-- **Ours:** `openlara/lara.h:3230` rejects the shot when
-  `fastLength(s.center.x, s.center.y) > s.radius`. `fastLength` is max + min/2,
-  which overestimates by up to 12%.
-- **Effect:** each sphere accepts only about 85% of its true area. There are more
-  misses and ricochets, so fights take more shots; it shows most with pistols
-  and Uzis at range.
-- **Fix:** an exact squared test.
 
 ### 60. Selecting the current, holstered weapon in the ring draws it
 *Severity: gameplay (minor) · Confidence: likely (the decomp is unambiguous;
@@ -883,34 +844,6 @@ SND-21*
 ---
 
 ## Creatures and AI
-
-### 76. Wolf pounce decision is inverted, with the wrong distance
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-5,
-MATH-7*
-
-- **Retail:** WolfControl (`06032664`), RUN state (TR1X `ai/wolf.c`). Within
-  1536 units, the wolf pounces (ATTACK) if it is within half the squared attack
-  range (about 1086 linear), **or** if Lara is facing it. It drops to stalking
-  only when it is far and her back is turned.
-- **Ours:** `openlara/enemy.h:1040-1049` pounces only when within 768 (half the
-  linear range) **and** Lara is not facing it; otherwise it growls and stalks.
-  The facing flag itself is broken half the time (issue 77).
-- **Effect:** wolves in Caves, Vilcabamba, Lost Valley and Qualopec seldom
-  pounce. They creep up and bite (100 damage) instead of pouncing (50).
-
-### 77. The "Lara is facing me" test doesn't wrap the angle
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-6,
-MATH-9*
-
-- **Retail:** CreatureAIInfo (`06009950`) computes
-  enemy_facing = (int16)(angle - lara_yrot + 0x8000), then tests |·| < 90°.
-- **Ours:** `openlara/enemy.h:177` does
-  `abs(rot - target->angle.y - ANGLE_180) < ANGLE_90` in int32. It is wrong for
-  25% of all angle pairs (half of the true cases), depending on the sign of
-  rot - ay.
-- **Effect:** the wolf's STALK/RUN choices (`enemy.h:1042`, `1072`) and the
-  T-rex's walk decision (`enemy.h:2005`) are wrong about half the time.
-- **Fix:** cast the difference to int16.
 
 ### 78. The water crocodile can't move up or down
 *Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-7*
@@ -1269,42 +1202,6 @@ Audit: AI-31*
 AI-40*
 
 - **Ours:** it reuses the land crocodile's value (`openlara/enemy.h:1450`).
-
-### 112. AI distances use an approximation, and enemy gunfire's hit chance is off
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-41,
-MATH-6, MATH-8*
-
-- **Retail:**
-  - CreatureAIInfo (`06009950`; TR1X `box.c:75`) sets distance = dx² + dz², and
-    every range is a squared constant. CreatureTurn compares x² + z² < range².
-  - ShotLara (`060289b8`; TR1X `people.c:97-107`): hit if
-    rand < (R - d²) / (R / 0x7FFF) - 0x2000, with R = 7168² and an exact d².
-- **Ours:**
-  - `tinfo.dist = fastLength(dx, dz)`, which is max + min/2
-    (`openlara/enemy.h:174`, `common.h:2787`). `updateNavigation` uses it too
-    (`enemy.h:313`).
-  - It overestimates by 0% along the world axes, 6.1% at 45° and 11.8% at
-    26.6°, 8.7% on average. Every bite, attack, pounce and stalk threshold
-    triggers up to 10.6% closer on diagonal approaches; a wolf bite at 345
-    effectively becomes 309.
-  - Enemy gunfire (`enemy.h:2254-2255`) squares `fastLength >> 4`. R = 448²
-    makes R/0x7FFF truncate to 6 instead of 6.125. The range gate also uses
-    `fastLength` (`enemy.h:2237`, `2252`).
-- **Effect on gunfire hit probability** (retail, then ours along an axis / at
-  26.6° / at 45°):
-
-  | Distance | Retail | Ours |
-  |---|---|---|
-  | 1 sector | 0.730 | 0.750 / 0.745 / 0.748 |
-  | 3 sectors | 0.566 | 0.583 / 0.538 / 0.561 |
-  | 5 sectors | 0.240 | 0.250 / 0.123 / 0.186 |
-
-  The effective maximum range drops from 7 to 6.26 sectors on diagonals.
-- **Fix:** set `tinfo.dist = phd_sqrt(dx² + dz²)` once per creature per tick. The
-  linear constants already equal the square roots of retail's, except
-  DIST_STALK (3069 against 3072). Exact squares in the gunfire.
-
----
 
 ## Level logic, traps and objects
 
@@ -3300,6 +3197,119 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 54. The target is dropped the moment it dies, and Lara retargets while Action is held
+*Closed 2026-11-17: 40c4c6c. See the commit: exact squared tests and distances, wrapped facing, the wolf's pounce rule, targets held through death.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: GUN-3,
+GUN-14*
+
+- **Retail:**
+  - LaraTargetInfo (`0601f838`) has no hit-point check.
+  - LaraGetNewTarget (`0601f9f4`) runs only when the target is NULL, which only
+    happens when Action is released.
+  - FireWeapon and HitTarget keep hitting the dead creature, with blood each
+    time.
+  - All 6 shotgun pellets test the same target, dead or not.
+- **Ours:**
+  - `openlara/lara.h:3699` drops the target
+    (`if (arm.target && arm.target->health <= 0) arm.target = NULL`), and
+    weaponFindTargets runs in the same frame.
+  - `lara.h:3212` skips the sphere test on a dead target, so the remaining
+    pellets of a killing shotgun blast ricochet as sparks.
+- **Effect:** holding fire through a pack of wolves swaps to the next wolf
+  automatically. Retail Lara keeps pumping bullets into the corpse until you let
+  go of Action.
+- **Fix:**
+  - Drop the health check.
+  - Allow hits on a target at 0 hp or below: blood, but no kill count.
+  - Relax the ASSERT in `Enemy::hit`.
+
+### 77. The "Lara is facing me" test doesn't wrap the angle
+*Closed 2026-11-17: 40c4c6c. See the commit: exact squared tests and distances, wrapped facing, the wolf's pounce rule, targets held through death.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-6,
+MATH-9*
+
+- **Retail:** CreatureAIInfo (`06009950`) computes
+  enemy_facing = (int16)(angle - lara_yrot + 0x8000), then tests |·| < 90°.
+- **Ours:** `openlara/enemy.h:177` does
+  `abs(rot - target->angle.y - ANGLE_180) < ANGLE_90` in int32. It is wrong for
+  25% of all angle pairs (half of the true cases), depending on the sign of
+  rot - ay.
+- **Effect:** the wolf's STALK/RUN choices (`enemy.h:1042`, `1072`) and the
+  T-rex's walk decision (`enemy.h:2005`) are wrong about half the time.
+- **Fix:** cast the difference to int16.
+
+### 76. Wolf pounce decision is inverted, with the wrong distance
+*Closed 2026-11-17: 40c4c6c. See the commit: exact squared tests and distances, wrapped facing, the wolf's pounce rule, targets held through death.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-5,
+MATH-7*
+
+- **Retail:** WolfControl (`06032664`), RUN state (TR1X `ai/wolf.c`). Within
+  1536 units, the wolf pounces (ATTACK) if it is within half the squared attack
+  range (about 1086 linear), **or** if Lara is facing it. It drops to stalking
+  only when it is far and her back is turned.
+- **Ours:** `openlara/enemy.h:1040-1049` pounces only when within 768 (half the
+  linear range) **and** Lara is not facing it; otherwise it growls and stalks.
+  The facing flag itself is broken half the time (issue 77).
+- **Effect:** wolves in Caves, Vilcabamba, Lost Valley and Qualopec seldom
+  pounce. They creep up and bite (100 damage) instead of pouncing (50).
+
+### 112. AI distances use an approximation, and enemy gunfire's hit chance is off
+*Closed 2026-11-17: 40c4c6c. See the commit: exact squared tests and distances, wrapped facing, the wolf's pounce rule, targets held through death.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-41,
+MATH-6, MATH-8*
+
+- **Retail:**
+  - CreatureAIInfo (`06009950`; TR1X `box.c:75`) sets distance = dx² + dz², and
+    every range is a squared constant. CreatureTurn compares x² + z² < range².
+  - ShotLara (`060289b8`; TR1X `people.c:97-107`): hit if
+    rand < (R - d²) / (R / 0x7FFF) - 0x2000, with R = 7168² and an exact d².
+- **Ours:**
+  - `tinfo.dist = fastLength(dx, dz)`, which is max + min/2
+    (`openlara/enemy.h:174`, `common.h:2787`). `updateNavigation` uses it too
+    (`enemy.h:313`).
+  - It overestimates by 0% along the world axes, 6.1% at 45° and 11.8% at
+    26.6°, 8.7% on average. Every bite, attack, pounce and stalk threshold
+    triggers up to 10.6% closer on diagonal approaches; a wolf bite at 345
+    effectively becomes 309.
+  - Enemy gunfire (`enemy.h:2254-2255`) squares `fastLength >> 4`. R = 448²
+    makes R/0x7FFF truncate to 6 instead of 6.125. The range gate also uses
+    `fastLength` (`enemy.h:2237`, `2252`).
+- **Effect on gunfire hit probability** (retail, then ours along an axis / at
+  26.6° / at 45°):
+
+  | Distance | Retail | Ours |
+  |---|---|---|
+  | 1 sector | 0.730 | 0.750 / 0.745 / 0.748 |
+  | 3 sectors | 0.566 | 0.583 / 0.538 / 0.561 |
+  | 5 sectors | 0.240 | 0.250 / 0.123 / 0.186 |
+
+  The effective maximum range drops from 7 to 6.26 sectors on diagonals.
+- **Fix:** set `tinfo.dist = phd_sqrt(dx² + dz²)` once per creature per tick. The
+  linear constants already equal the square roots of retail's, except
+  DIST_STALK (3069 against 3072). Exact squares in the gunfire.
+
+---
+
+### 58. The shot hit test uses an approximate length, so targets are 15% smaller
+*Closed 2026-11-17: 40c4c6c. See the commit: exact squared tests and distances, wrapped facing, the wolf's pounce rule, targets held through death.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: GUN-7,
+MATH-6*
+
+- **Retail:** FireWeapon (`0601fd2c`) accepts a sphere when x² + y² ≤ r²,
+  exactly (a mul.l sequence).
+- **Ours:** `openlara/lara.h:3230` rejects the shot when
+  `fastLength(s.center.x, s.center.y) > s.radius`. `fastLength` is max + min/2,
+  which overestimates by up to 12%.
+- **Effect:** each sphere accepts only about 85% of its true area. There are more
+  misses and ricochets, so fights take more shots; it shows most with pistols
+  and Uzis at range.
+- **Fix:** an exact squared test.
 
 ### 29. The button layout and control model differ from retail
 *Closed 2026-11-17: 91bad01. Control Method 1; own step/roll bits; Walk+direction turns slowly; turn while stepping; step buttons shimmy and surf sideways. Methods 2 and 3 come with the options ring (145).*
