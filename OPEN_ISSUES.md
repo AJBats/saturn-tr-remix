@@ -109,14 +109,14 @@ order; the few of its bugs a player runs into are listed at the end.
 | 42 | 115. Centaur statues wake on proximity, don't shatter | small, medium |
 | 43 | 80, 78, 79. Crocodiles and rats: land and water forms, depth, pool bottom | medium |
 | 44 | 88. The torso boss: no grab kill, wrong steering | medium |
-| 45 | 89. The T-rex walks without stopping | small |
-| 46 | 82. T-rex, centaurs, winged mutant ignore blockable boxes | small |
+| 45 | 89. The T-rex walks without stopping | small (closed) |
+| 46 | 82. T-rex, centaurs, winged mutant ignore blockable boxes | small (closed) |
 | 47 | 83. Natla never re-aims her path | small |
-| 48 | 81. Fleeing creatures don't turn back | small |
-| 49 | 62. Low creatures never stagger Lara | small |
+| 48 | 81. Fleeing creatures don't turn back | small (closed) |
+| 49 | 62. Low creatures never stagger Lara | small (closed) |
 | 50 | 55. The shotgun's own animation scheme | medium |
-| 51 | 90, 92. Kold's long-range hit chance; the puma's hit points | small |
-| 52 | 102. Blocking isn't implemented | medium |
+| 51 | 90, 92. Kold's long-range hit chance; the puma's hit points | small (closed) |
+| 52 | 102. Blocking isn't implemented | medium (closed) |
 | 53 | 201. 10 ticks run at once after every load | small |
 | 54 | 163. No level statistics; the level timer never counts | medium |
 | 55 | 156. The bonus game after finishing is missing | medium |
@@ -642,26 +642,6 @@ not seen running) · Fix: small · Audit: GUN-9*
 - **Effect:** brief wolf contacts give longer stagger poses, and intermittent
   contact plays fewer body-slam sounds.
 
-### 62. Low creatures never stagger Lara
-*Severity: visible · Confidence: confirmed (code), likely (which creatures) ·
-Fix: small · Audit: GUN-11*
-
-- **Retail:** CreatureCollision (`0600ebbc`) staggers whenever the creature is
-  alive and the stagger is enabled. There is no height gate.
-- **Ours:** `openlara/item.h:1251` requires `(box.maxY - box.minY) > 256`.
-- **Effect:** rats, water rats and bats push Lara without staggering her, and
-  possibly crocodiles too, depending on their box sizes.
-
-### 63. A dying creature still staggers Lara
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: GUN-12*
-
-- **Retail:** CreatureCollision passes spaz = 0 when the creature's hp is 0 or
-  below.
-- **Ours:** `openlara/enemy.h:765` calls `collidePush(lara, cinfo, true)`
-  regardless of health.
-- **Effect:** touching a creature during its death animation makes Lara stagger
-  in ours only.
-
 ### 64. Blood from Lara's bullets is stationary, and the mummy doesn't bleed
 *Severity: visible (subtle) · Confidence: confirmed · Fix: small · Audit:
 GUN-13*
@@ -801,30 +781,6 @@ AI-9*
   land crocodile or rat that enters water walks along the bottom, and dead water
   crocodiles stay down.
 
-### 81. Fleeing creatures don't turn back when they reach their flee point
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-10*
-
-- **Retail:** CreatureMood (`0600a0fc`; TR1X `box.c`). If the target box is no
-  longer valid and Lara is in the creature's zone, the mood becomes BORED. BORED
-  then re-picks ATTACK or STALK.
-- **Ours:** `openlara/enemy.h:186-193` sets SLEEP when Lara is **not** in the
-  zone, and otherwise keeps the mood. A fleeing creature keeps picking new escape
-  boxes until a 1/128-per-frame recovery roll.
-- **Effect:** wolves, rats, gorillas and gunmen flee far longer than in retail.
-
-### 82. The T-rex, centaurs and the winged mutant ignore blockable boxes
-*Severity: gameplay · Confidence: likely (code certain, level effect inferred)
-· Fix: small · Audit: AI-11*
-
-- **Retail:** InitialiseSlot (`06023278`; TR1X `lot.c`) gives the T-rex, the
-  winged mutant (O_WARRIOR1) and the centaur the BLOCKABLE (0x8000) block mask.
-  They never path into blockable boxes, and BadFloor treats those boxes as
-  walls.
-- **Ours:** `openlara/nav.h:26` uses the BLOCKED (0x4000) mask for every
-  creature.
-- **Effect:** Lost Valley has 19 blockable boxes, so the T-rex may follow Lara
-  into hiding spots it can't reach in retail.
-
 ### 83. Natla never re-aims her path at Lara
 *Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-12*
 
@@ -896,50 +852,6 @@ AI-16, CAM-23*
   - FORWARD turns 3° per frame toward Lara (`enemy.h:3378`).
   - The death has no body parts.
 - **Decision:** reproduce the FORWARD no-turn bug? It shapes how the fight plays.
-
-### 89. The T-rex walks continuously; retail's stops and goes
-*Severity: gameplay / visible · Confidence: confirmed · Fix: small · Audit:
-AI-17*
-
-- **Retail:** DinoControl (`060122fc`, case 2). WALK goes to STOP if
-  `mood != BORED || !flags`, which gives the familiar stop-and-go stomping.
-- **Ours:** `openlara/enemy.h:2023` stops only if `mood != SLEEP && !walk`.
-
-### 90. Kold's hit chance at range is too high
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-18*
-
-- **Retail:** BaldyControl (`0602a558`; TR1X `ai/baldy.c`) passes
-  ShotLara(info.distance / 2), half of the **squared** distance.
-- **Ours:** `openlara/enemy.h:2803` passes `tinfo.dist >> 1`, half of the
-  **linear** distance. That is a quarter of the squared distance.
-- **Effect:** at 6 sectors he hits about 57% of the time instead of 38%.
-
-### 92. The puma has 40 hit points; retail's has 45
-*Severity: gameplay (subtle) · Confidence: confirmed (object table entry 14 =
-0x2D) · Fix: small · Audit: AI-20*
-
-- **Ours:** `openlara/enemy.h:1581` sets 40.
-- **Effect:** pumas in Khamoon and the Obelisk die one magnum shot early.
-- **Checked:** the puma is the only difference. The hit points the Saturn's
-  object setup (`0602cf08`) writes at OBJECT_INFO +0x26 match ours for every
-  other creature:
-
-  | Creature | HP | Creature | HP |
-  |---|---|---|---|
-  | wolf | 6 | bear | 20 |
-  | bat | 1 | crocodile, alligator | 20 |
-  | lion | 30 | lioness | 25 |
-  | gorilla | 22 | rat, water rat | 5 |
-  | T-rex | 100 | raptor | 20 |
-  | mutant | 50 | centaur | 120 |
-  | mummy | 18 | Larson | 50 |
-  | Pierre | 70 | skater | 125 |
-  | cowboy | 150 | Kold | 200 |
-  | Natla | 400 | torso | 500 |
-  | doppelganger | 1000 | | |
-
-- **Damage:** the retail weapon table at `0x06062814` gives 1 (pistols), 2
-  (magnums), 1 (Uzis) and 4 per shotgun pellet. These match ours too.
 
 ### 93. The bear never eats Lara's body
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-21*
@@ -1033,28 +945,6 @@ AI-29*
 - **Ours:** `openlara/enemy.h:179` requires `mood != MOOD_SLEEP`.
 - **Effect:** walking wolves, a posing Larson and other bored creatures don't
   turn their heads toward Lara.
-
-### 102. Blocking is not implemented
-*Severity: subtle (gameplay in places) · Confidence: confirmed · Fix: medium ·
-Audit: AI-31*
-
-- **Retail:** CreatureAIInfo (`06009950`), CreatureMood (`0600a0fc`) and
-  ValidBox (`0600a04c`).
-  - Lara's zone is marked BLOCKED when her box is blocked, for example when she
-    stands on a pushable block.
-  - A box reachable only through blocked boxes clears the required box.
-  - ValidBox rejects blocked boxes.
-- **Ours:** `@TODO blocking` at `openlara/enemy.h:150`, `184` and `389`.
-- **Effect:** creatures keep "attacking" a Lara standing on a block, and can pick
-  target boxes behind closed doors.
-
-### 103. Creatures hit while Lara is out of their zone rarely flee
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-32*
-
-- **Retail:** CreatureMood, attack mood: when the creature is hit and Lara is out
-  of its zone, it always flees.
-- **Ours:** it flees 1 time in 16, and otherwise goes bored
-  (`openlara/enemy.h:367`).
 
 ### 104. Flyers in transit fly too low
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-33*
@@ -3052,6 +2942,134 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 90. Kold's hit chance at range is too high
+*Closed 2026-11-17: already fixed by 5800a03 (Kold passes half the squared distance, tinfo.dist2 >> 1).*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-18*
+
+- **Retail:** BaldyControl (`0602a558`; TR1X `ai/baldy.c`) passes
+  ShotLara(info.distance / 2), half of the **squared** distance.
+- **Ours:** `openlara/enemy.h:2803` passes `tinfo.dist >> 1`, half of the
+  **linear** distance. That is a quarter of the squared distance.
+- **Effect:** at 6 sectors he hits about 57% of the time instead of 38%.
+
+### 92. The puma has 40 hit points; retail's has 45
+*Closed 2026-11-17: ported from retail, 9615207.*
+
+*Severity: gameplay (subtle) · Confidence: confirmed (object table entry 14 =
+0x2D) · Fix: small · Audit: AI-20*
+
+- **Ours:** `openlara/enemy.h:1581` sets 40.
+- **Effect:** pumas in Khamoon and the Obelisk die one magnum shot early.
+- **Checked:** the puma is the only difference. The hit points the Saturn's
+  object setup (`0602cf08`) writes at OBJECT_INFO +0x26 match ours for every
+  other creature:
+
+  | Creature | HP | Creature | HP |
+  |---|---|---|---|
+  | wolf | 6 | bear | 20 |
+  | bat | 1 | crocodile, alligator | 20 |
+  | lion | 30 | lioness | 25 |
+  | gorilla | 22 | rat, water rat | 5 |
+  | T-rex | 100 | raptor | 20 |
+  | mutant | 50 | centaur | 120 |
+  | mummy | 18 | Larson | 50 |
+  | Pierre | 70 | skater | 125 |
+  | cowboy | 150 | Kold | 200 |
+  | Natla | 400 | torso | 500 |
+  | doppelganger | 1000 | | |
+
+- **Damage:** the retail weapon table at `0x06062814` gives 1 (pistols), 2
+  (magnums), 1 (Uzis) and 4 per shotgun pellet. These match ours too.
+
+### 63. A dying creature still staggers Lara
+*Closed 2026-11-17: ported from retail, 9615207.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: GUN-12*
+
+- **Retail:** CreatureCollision passes spaz = 0 when the creature's hp is 0 or
+  below.
+- **Ours:** `openlara/enemy.h:765` calls `collidePush(lara, cinfo, true)`
+  regardless of health.
+- **Effect:** touching a creature during its death animation makes Lara stagger
+  in ours only.
+
+### 62. Low creatures never stagger Lara
+*Closed 2026-11-17: ported from retail, 9615207.*
+
+*Severity: visible · Confidence: confirmed (code), likely (which creatures) ·
+Fix: small · Audit: GUN-11*
+
+- **Retail:** CreatureCollision (`0600ebbc`) staggers whenever the creature is
+  alive and the stagger is enabled. There is no height gate.
+- **Ours:** `openlara/item.h:1251` requires `(box.maxY - box.minY) > 256`.
+- **Effect:** rats, water rats and bats push Lara without staggering her, and
+  possibly crocodiles too, depending on their box sizes.
+
+### 103. Creatures hit while Lara is out of their zone rarely flee
+*Closed 2026-11-17: ported from retail, 9615207.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: AI-32*
+
+- **Retail:** CreatureMood, attack mood: when the creature is hit and Lara is out
+  of its zone, it always flees.
+- **Ours:** it flees 1 time in 16, and otherwise goes bored
+  (`openlara/enemy.h:367`).
+
+### 102. Blocking is not implemented
+*Closed 2026-11-17: ported from retail, 9615207.*
+
+*Severity: subtle (gameplay in places) · Confidence: confirmed · Fix: medium ·
+Audit: AI-31*
+
+- **Retail:** CreatureAIInfo (`06009950`), CreatureMood (`0600a0fc`) and
+  ValidBox (`0600a04c`).
+  - Lara's zone is marked BLOCKED when her box is blocked, for example when she
+    stands on a pushable block.
+  - A box reachable only through blocked boxes clears the required box.
+  - ValidBox rejects blocked boxes.
+- **Ours:** `@TODO blocking` at `openlara/enemy.h:150`, `184` and `389`.
+- **Effect:** creatures keep "attacking" a Lara standing on a block, and can pick
+  target boxes behind closed doors.
+
+### 81. Fleeing creatures don't turn back when they reach their flee point
+*Closed 2026-11-17: ported from retail, 9615207.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: AI-10*
+
+- **Retail:** CreatureMood (`0600a0fc`; TR1X `box.c`). If the target box is no
+  longer valid and Lara is in the creature's zone, the mood becomes BORED. BORED
+  then re-picks ATTACK or STALK.
+- **Ours:** `openlara/enemy.h:186-193` sets SLEEP when Lara is **not** in the
+  zone, and otherwise keeps the mood. A fleeing creature keeps picking new escape
+  boxes until a 1/128-per-frame recovery roll.
+- **Effect:** wolves, rats, gorillas and gunmen flee far longer than in retail.
+
+### 82. The T-rex, centaurs and the winged mutant ignore blockable boxes
+*Closed 2026-11-17: ported from retail, 9615207.*
+
+*Severity: gameplay · Confidence: likely (code certain, level effect inferred)
+· Fix: small · Audit: AI-11*
+
+- **Retail:** InitialiseSlot (`06023278`; TR1X `lot.c`) gives the T-rex, the
+  winged mutant (O_WARRIOR1) and the centaur the BLOCKABLE (0x8000) block mask.
+  They never path into blockable boxes, and BadFloor treats those boxes as
+  walls.
+- **Ours:** `openlara/nav.h:26` uses the BLOCKED (0x4000) mask for every
+  creature.
+- **Effect:** Lost Valley has 19 blockable boxes, so the T-rex may follow Lara
+  into hiding spots it can't reach in retail.
+
+### 89. The T-rex walks continuously; retail's stops and goes
+*Closed 2026-11-17: ported from retail, 9615207.*
+
+*Severity: gameplay / visible · Confidence: confirmed · Fix: small · Audit:
+AI-17*
+
+- **Retail:** DinoControl (`060122fc`, case 2). WALK goes to STOP if
+  `mood != BORED || !flags`, which gives the familiar stop-and-go stomping.
+- **Ours:** `openlara/enemy.h:2023` stops only if `mood != SLEEP && !walk`.
 
 ### 114. Boulders never reset
 *Closed 2026-11-17: 37383f1. Stopped boulders reset when their trigger lets go.*
