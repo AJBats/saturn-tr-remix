@@ -63,7 +63,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 1 | 1. Items that start hidden never appear (Mines fuse, pistols, boat...) | small (closed) |
 | 2 | 3. Thor's hammer tests the wrong sector (Folly) | small (closed) |
 | 3 | 4. Pushed and falling blocks never fall (Folly) | small (closed) |
-| 4 | 7. Trapdoors support the wrong second sector | small |
+| 4 | 7. Trapdoors support the wrong second sector | small (closed) |
 | 5 | 5. Pierre drops only the scion; Tihocan's second key is missing | small |
 | 6 | 6. Atlantis doppelganger: wrong mirror point, no triggers, no death | small to medium |
 | 7 | 84. Enemy projectiles and the explosion effect (the Scion needs the explosion) | large |
@@ -227,31 +227,6 @@ code, likely for the softlock · Fix: small to medium · Audit: AI-4*
   - Use retail's constants.
   - Run the floor triggers (heavy) on her fall and landing.
   - Set the death goal state.
-
-### 7. Trapdoors support the wrong second sector (mirrored)
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: LVL-5*
-
-- **Retail:** OnTrapDoor (`0602fadc`; TR1X `objects/trapdoor.c`). A closed
-  trapdoor covers its own sector plus one neighbour:
-
-  | Yaw | Neighbour |
-  |---|---|
-  | 0 | z+1 |
-  | 180° | z-1 |
-  | 90° | x+1 |
-  | -90° | x-1 |
-
-- **Ours:** `openlara/item.h:801-805` takes dx/dz as trapdoor minus query, so it
-  covers the opposite neighbour in every case.
-- **Effect:** Lara falls through the far half of a closed trapdoor, and can walk
-  on air on the other side. Affected items:
-  - City of Vilcabamba: 27, 61, 62
-  - City of Khamoon: 34, 35, 40, 41, 54, 56, 57, 59, 80
-  - Atlantis: 119, 120
-  - Great Pyramid: 13, 14, 114, 115
-- **Fix:** flip the signs.
-
----
 
 ## Camera
 
@@ -3882,6 +3857,33 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 7. Trapdoors support the wrong second sector (mirrored)
+*Closed 2026-11-17: c8dd58f, as retail's OnTrapDoor: the second sector is the one ahead. Mednafen: Lara stands between Khamoon's trapdoors 54 and 59 (room 42, sector 7:4), which neither covered before. In Vilcabamba the mirrored sector was a wall or a floor, so nothing changes there.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: LVL-5*
+
+- **Retail:** OnTrapDoor (`0602fadc`; TR1X `objects/trapdoor.c`). A closed
+  trapdoor covers its own sector plus one neighbour:
+
+  | Yaw | Neighbour |
+  |---|---|
+  | 0 | z+1 |
+  | 180° | z-1 |
+  | 90° | x+1 |
+  | -90° | x-1 |
+
+- **Ours:** `openlara/item.h:801-805` takes dx/dz as trapdoor minus query, so it
+  covers the opposite neighbour in every case.
+- **Effect:** Lara falls through the far half of a closed trapdoor, and can walk
+  on air on the other side. Affected items:
+  - City of Vilcabamba: 27, 61, 62
+  - City of Khamoon: 34, 35, 40, 41, 54, 56, 57, 59, 80
+  - Atlantis: 119, 120
+  - Great Pyramid: 13, 14, 114, 115
+- **Fix:** flip the signs.
+
+---
 
 ### 4. Pushed and falling blocks never fall, and land with no thud
 *Closed 2026-11-17: 32c4676, as retail's MovableBlockControl: above the floor a block falls, and lands with the floor shaking and sound 70. Mednafen: the Folly's blocks 19 and 20 fall 4096 and 6144 and settle; a push on flat floor stays level.*
