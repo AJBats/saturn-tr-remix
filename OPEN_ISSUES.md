@@ -87,7 +87,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 20 | 85. Natla's fight: no flight, rockets, sounds or music | large |
 | 21 | 86. Mutants: no flight, instant shots, no burst | large |
 | 22 | 87. Centaurs don't burst (with 213) | medium |
-| 23 | 29. Button layout and control model | medium |
+| 23 | 29. Button layout and control model | medium (closed) |
 | 24 | 30. Look works in every state and freezes Lara | small (closed) |
 | 25 | 133. A key chosen away from a keyhole auto-inserts later | small (closed) |
 | 26 | 51. Switches, keyholes and blocks work with Lara's back turned | small (closed) |
@@ -400,49 +400,6 @@ CAM-22*
 - For the asset study: crop see-through borders from plant textures and their quads, fewer overlapping leaves.
 
 ## Lara: movement, collision, water, controls
-
-### 29. The button layout and control model differ from retail
-*Severity: gameplay · Confidence: confirmed · Fix: medium · Audit: LARA-1,
-INV-33*
-
-- **Retail:**
-  - S_UpdateInput (`060374b4`) maps the pad through a control-method table at
-    `0x060637fc`. Default "Control Method 1":
-
-    | Button | Action |
-    |---|---|
-    | A | Jump |
-    | B | Action |
-    | C | Draw |
-    | X | Step Left |
-    | Y | Look |
-    | Z | Step Right |
-    | L | Walk |
-    | R | Roll |
-    | START | Inventory |
-
-  - Methods 2 and 3 can be picked in the options (issue 145). In those, L and R
-    are always the sidesteps.
-  - Sidestep and roll have their own input bits: 0x400 step left, 0x800 step
-    right, 0x1000 roll.
-  - Walk+Left/Right from standing is a slow turn.
-  - Lara can turn while sidestepping, on land and at the surface.
-  - Roll is read only by LaraAsStop and LaraAsRun. The step and surface handlers
-    are `0601b9e0`, `0601ba68`, `06021414`, `06021494` and `06021514`.
-- **Ours:**
-  - `openlara/lara.h:2765-2772` maps A Action, B Jump, C Weapon, X Walk, Y = UP
-    and DOWN together (roll), Z Look. L and R do nothing.
-  - Sidestep is Walk+direction (`lara.h:664-676`, `944-964`, `1065-1069`), with
-    no turning while stepping.
-  - Because roll sets UP and DOWN, outside Stop and Run it acts as forward: a
-    pull-up while hanging, a forward jump from the crouch, surface swim forward,
-    nose-down underwater, keep walking.
-- **Effect:** every button press differs from retail. Walk+Left gives a sidestep
-  where retail gives a slow turn.
-- **Fix:**
-  - Add the roll, step-left and step-right input bits.
-  - Map retail method 1 (optionally all three methods).
-  - Port the retail state checks that use them.
 
 ### 31. Looking while treading water uses the land settings
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: LARA-3*
@@ -3343,6 +3300,51 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 29. The button layout and control model differ from retail
+*Closed 2026-11-17: 91bad01. Control Method 1; own step/roll bits; Walk+direction turns slowly; turn while stepping; step buttons shimmy and surf sideways. Methods 2 and 3 come with the options ring (145).*
+
+*Severity: gameplay · Confidence: confirmed · Fix: medium · Audit: LARA-1,
+INV-33*
+
+- **Retail:**
+  - S_UpdateInput (`060374b4`) maps the pad through a control-method table at
+    `0x060637fc`. Default "Control Method 1":
+
+    | Button | Action |
+    |---|---|
+    | A | Jump |
+    | B | Action |
+    | C | Draw |
+    | X | Step Left |
+    | Y | Look |
+    | Z | Step Right |
+    | L | Walk |
+    | R | Roll |
+    | START | Inventory |
+
+  - Methods 2 and 3 can be picked in the options (issue 145). In those, L and R
+    are always the sidesteps.
+  - Sidestep and roll have their own input bits: 0x400 step left, 0x800 step
+    right, 0x1000 roll.
+  - Walk+Left/Right from standing is a slow turn.
+  - Lara can turn while sidestepping, on land and at the surface.
+  - Roll is read only by LaraAsStop and LaraAsRun. The step and surface handlers
+    are `0601b9e0`, `0601ba68`, `06021414`, `06021494` and `06021514`.
+- **Ours:**
+  - `openlara/lara.h:2765-2772` maps A Action, B Jump, C Weapon, X Walk, Y = UP
+    and DOWN together (roll), Z Look. L and R do nothing.
+  - Sidestep is Walk+direction (`lara.h:664-676`, `944-964`, `1065-1069`), with
+    no turning while stepping.
+  - Because roll sets UP and DOWN, outside Stop and Run it acts as forward: a
+    pull-up while hanging, a forward jump from the crouch, surface swim forward,
+    nose-down underwater, keep walking.
+- **Effect:** every button press differs from retail. Walk+Left gives a sidestep
+  where retail gives a slow turn.
+- **Fix:**
+  - Add the roll, step-left and step-right input bits.
+  - Map retail method 1 (optionally all three methods).
+  - Port the retail state checks that use them.
 
 ### 30. Look works in every state and freezes Lara's movement
 *Closed 2026-11-17: c5805c6. Look only in Stop and SurfTread with retail's speeds and limits; head eases back after the handler.*
