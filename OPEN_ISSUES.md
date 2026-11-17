@@ -1266,35 +1266,6 @@ listen) · Fix: small to medium · Audit: SND-5*
   (needs issue 182).
 - **Decision:** reproduce the wrap quirk?
 
-### 180. The volume-to-attenuation curve differs
-*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-6*
-
-- **Retail:** level to TL (`06046d60`): level = 0xC0 + (vol >> 9), then
-  TL = (0x10000 − level²) >> 9.
-  - That is TL 0..56, a range of 0 to −21 dB. Half volume gives −11 dB.
-  - Volumes 1..511 still play, at −21 dB.
-- **Ours:**
-  - `openlara/item.h:73-78` drops anything with volume below 512.
-  - `gVolumeTL` (`saturn/sound.cpp:52`) is amplitude-linear: half volume is
-    −6 dB, and the minimum is −30 to −36 dB.
-- **Effect:** retail is quieter at mid distance and louder at the far edge. In
-  ours, far sounds fade away completely.
-- **Fix:** retail's formula, keep sounds with volume ≥ 1, then the sample
-  attenuation (issue 177).
-
-### 181. Random pitch wobble is ±10% in ours and effectively none in retail
-*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-7*
-
-- **Retail:** Sound_Effect (`060236e0`) and S_SoundPlaySample (`0603c478`). The
-  pitch is 90..109, but the driver adds (pitch − 100) >> 1 raw FNS units to the
-  base word. That's about −0.25% to +0.4%: inaudible.
-- **Ours:** `openlara/item.h:80-84` gives 115..140 / 128. `pitchOctFns` turns
-  that into ±10%, applied to every sound flagged P: footsteps, gunshots and most
-  creatures.
-- **Effect:** repeated sounds vary in pitch in ours; retail's repeats are
-  identical.
-- **Fix:** drop it, or reproduce the FNS offset.
-
 ### 182. The sound-slot model doesn't match retail
 *Severity: subtle to audible · Confidence: confirmed · Fix: medium to large ·
 Audit: SND-8*
@@ -2429,6 +2400,39 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 181. Random pitch wobble is ±10% in ours and effectively none in retail
+*Closed 2026-11-17: as retail, dc4acbe.*
+
+*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-7*
+
+- **Retail:** Sound_Effect (`060236e0`) and S_SoundPlaySample (`0603c478`). The
+  pitch is 90..109, but the driver adds (pitch − 100) >> 1 raw FNS units to the
+  base word. That's about −0.25% to +0.4%: inaudible.
+- **Ours:** `openlara/item.h:80-84` gives 115..140 / 128. `pitchOctFns` turns
+  that into ±10%, applied to every sound flagged P: footsteps, gunshots and most
+  creatures.
+- **Effect:** repeated sounds vary in pitch in ours; retail's repeats are
+  identical.
+- **Fix:** drop it, or reproduce the FNS offset.
+
+### 180. The volume-to-attenuation curve differs
+*Closed 2026-11-17: as retail, dc4acbe.*
+
+*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-6*
+
+- **Retail:** level to TL (`06046d60`): level = 0xC0 + (vol >> 9), then
+  TL = (0x10000 − level²) >> 9.
+  - That is TL 0..56, a range of 0 to −21 dB. Half volume gives −11 dB.
+  - Volumes 1..511 still play, at −21 dB.
+- **Ours:**
+  - `openlara/item.h:73-78` drops anything with volume below 512.
+  - `gVolumeTL` (`saturn/sound.cpp:52`) is amplitude-linear: half volume is
+    −6 dB, and the minimum is −30 to −36 dB.
+- **Effect:** retail is quieter at mid distance and louder at the far edge. In
+  ours, far sounds fade away completely.
+- **Fix:** retail's formula, keep sounds with volume ≥ 1, then the sample
+  attenuation (issue 177).
 
 ### 185. Missing sound calls
 *Closed 2026-11-17: the splash and deselect sounds dd203a5; the rest by 84, 85, 2, 119, 120, 127, 4; the bullet hit is 65's, the bursts 213's.*
