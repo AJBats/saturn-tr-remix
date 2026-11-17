@@ -64,7 +64,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 2 | 3. Thor's hammer tests the wrong sector (Folly) | small (closed) |
 | 3 | 4. Pushed and falling blocks never fall (Folly) | small (closed) |
 | 4 | 7. Trapdoors support the wrong second sector | small (closed) |
-| 5 | 5. Pierre drops only the scion; Tihocan's second key is missing | small |
+| 5 | 5. Pierre drops only the scion; Tihocan's second key is missing | small (closed) |
 | 6 | 6. Atlantis doppelganger: wrong mirror point, no triggers, no death | small to medium |
 | 7 | 84. Enemy projectiles and the explosion effect (the Scion needs the explosion) | large |
 | 8 | 2. The Great Pyramid's Scion can't be destroyed | medium |
@@ -187,22 +187,6 @@ Audit: LVL-2*
 - **Fix:**
   - A Scion3 class: 5 hit points, targetable, with the death sequence above.
   - The explosion sprite effect, which 84-87 need too.
-
-### 5. Pierre drops only the scion; Tihocan's second key is missing
-*Severity: gameplay (likely blocks Tomb of Tihocan) · Confidence: likely · Fix:
-small · Audit: AI-3*
-
-- **Retail:** PierreControl (`06028ef0`), on death, calls SpawnItem
-  (`0601aca0`) three times: the magnums (0x56), scion piece 2 (0x90) and Key 1
-  (0x81). TR1X `ai/pierre.c` matches.
-- **Ours:** `openlara/enemy.h:2445` drops only `ITEM_SCION_PICKUP_DROP`.
-- **Level data (LEVEL7B):**
-  - Two Key 1 keyholes (items 48 and 87), but only one Key 1 placed (item 11).
-  - Pierre (item 82) stands in room 110, next to keyhole 87 in room 111, so the
-    second key should be his.
-- **Effect:** the second gold keyhole probably can never be opened, and Lara
-  never gets his magnums.
-- **Fix:** drop all three items.
 
 ### 6. Atlantis doppelganger: wrong mirror point, no floor triggers, no death
 *Severity: gameplay (likely blocks Atlantis) · Confidence: confirmed for the
@@ -3857,6 +3841,24 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 5. Pierre drops only the scion; Tihocan's second key is missing
+*Closed 2026-11-17: 8a1febf, as retail's PierreControl: magnums, scion piece and Key 1 dropped where he dies. Host logic build: all three appear in room 110, beside keyhole 87.*
+
+*Severity: gameplay (likely blocks Tomb of Tihocan) · Confidence: likely · Fix:
+small · Audit: AI-3*
+
+- **Retail:** PierreControl (`06028ef0`), on death, calls SpawnItem
+  (`0601aca0`) three times: the magnums (0x56), scion piece 2 (0x90) and Key 1
+  (0x81). TR1X `ai/pierre.c` matches.
+- **Ours:** `openlara/enemy.h:2445` drops only `ITEM_SCION_PICKUP_DROP`.
+- **Level data (LEVEL7B):**
+  - Two Key 1 keyholes (items 48 and 87), but only one Key 1 placed (item 11).
+  - Pierre (item 82) stands in room 110, next to keyhole 87 in room 111, so the
+    second key should be his.
+- **Effect:** the second gold keyhole probably can never be opened, and Lara
+  never gets his magnums.
+- **Fix:** drop all three items.
 
 ### 7. Trapdoors support the wrong second sector (mirrored)
 *Closed 2026-11-17: c8dd58f, as retail's OnTrapDoor: the second sector is the one ahead. Mednafen: Lara stands between Khamoon's trapdoors 54 and 59 (room 42, sector 7:4), which neither covered before. In Vilcabamba the mirrored sector was a wall or a floor, so nothing changes there.*
