@@ -544,12 +544,17 @@ X_INLINE void X_SWAP(T &a, T &b)
 
 // The product of two values that fit 16 bits. The SH-2 multiplies those with
 // muls.w, where GCC takes mul.l, several cycles slower.
-#ifdef __SATURN__
+#if defined(__SATURN__) && !defined(TRS_HOST)
 X_INLINE int32 mul16(int32 a, int32 b)
 {
     int32 r;
     asm("muls.w %1, %2\n\tsts macl, %0" : "=r"(r) : "r"(a), "r"(b) : "macl");
     return r;
+}
+#elif defined(TRS_HOST)
+X_INLINE int32 mul16(int32 a, int32 b)  // as muls.w: each value's low 16 bits, signed
+{
+    return int32(int16(a)) * int32(int16(b));
 }
 #else
 X_INLINE int32 mul16(int32 a, int32 b)
@@ -2744,6 +2749,13 @@ struct CpuState
     AABBs tmpBox;           // ItemObj::getBoundingBox's
 };
 
+#ifdef TRS_HOST
+extern CpuState gHostCpuState;      // host/host.cpp: the one CPU's
+inline CpuState* cpuState()
+{
+    return &gHostCpuState;
+}
+#else
 // GBR changes only at boot: the compiler may reuse a read.
 inline CpuState* cpuState()
 {
@@ -2751,6 +2763,7 @@ inline CpuState* cpuState()
     asm("stc gbr, %0" : "=r"(state));
     return state;
 }
+#endif
 
 #define gLightAmbient   (cpuState()->lightAmbient)
 #define gLightRange     (cpuState()->lightRange)
