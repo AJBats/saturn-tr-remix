@@ -1242,33 +1242,6 @@ SND-3*
   11 dB louder than retail.
 - **Fix:** a table in `sfx.py`, and an attenuation bit in the offsets.
 
-### 178. The underwater/surface sound gating doesn't exist
-*Severity: audible · Confidence: confirmed · Fix: medium · Audit: SND-4*
-
-- **Retail:** Sound_Effect (`060236e0`; TR1X `sound.c`) returns early when
-  `flags != 2 && (flags & 1) != (room[camera.pos.room].flags & 1)`. The callers
-  pass:
-
-  | Caller | Flags |
-  |---|---|
-  | Lara's anim sounds (AnimateLara `06020540`) | 2, always |
-  | Other items' anim sounds (AnimateItem `0600f894`) | the item's room flags |
-  | Bubbles (`060154c8`) | 1, underwater only |
-  | The camera woosh, inventory, passport, medipack | 2 |
-  | Everything else, including sound sources and flip effects | 0, only when the camera is dry |
-
-- **There is no muffle filter;** this gating is the whole underwater audio
-  effect.
-- **Ours:** `soundPlay(id, pos)` has no flags (`openlara/item.h:29`).
-- **Effect:**
-  - With the camera underwater, retail silences land creatures, guns, traps,
-    waterfalls and lava.
-  - With the camera dry, retail silences underwater creatures and bubbles.
-  - Ours plays all of them all the time.
-- **Fix:** add a flags argument plus the camera-room test. The anim command at
-  `item.h:361` passes `type == ITEM_LARA ? 2 : room->info->flags`; tag each other
-  call site per the table.
-
 ### 179. No stereo pan
 *Severity: audible · Confidence: confirmed (code; which side is left needs a
 listen) · Fix: small to medium · Audit: SND-5*
@@ -2525,6 +2498,35 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 178. The underwater/surface sound gating doesn't exist
+*Closed 2026-11-17: as retail, 87a2384.*
+
+*Severity: audible · Confidence: confirmed · Fix: medium · Audit: SND-4*
+
+- **Retail:** Sound_Effect (`060236e0`; TR1X `sound.c`) returns early when
+  `flags != 2 && (flags & 1) != (room[camera.pos.room].flags & 1)`. The callers
+  pass:
+
+  | Caller | Flags |
+  |---|---|
+  | Lara's anim sounds (AnimateLara `06020540`) | 2, always |
+  | Other items' anim sounds (AnimateItem `0600f894`) | the item's room flags |
+  | Bubbles (`060154c8`) | 1, underwater only |
+  | The camera woosh, inventory, passport, medipack | 2 |
+  | Everything else, including sound sources and flip effects | 0, only when the camera is dry |
+
+- **There is no muffle filter;** this gating is the whole underwater audio
+  effect.
+- **Ours:** `soundPlay(id, pos)` has no flags (`openlara/item.h:29`).
+- **Effect:**
+  - With the camera underwater, retail silences land creatures, guns, traps,
+    waterfalls and lava.
+  - With the camera dry, retail silences underwater creatures and bubbles.
+  - Ours plays all of them all the time.
+- **Fix:** add a flags argument plus the camera-room test. The anim command at
+  `item.h:361` passes `type == ITEM_LARA ? 2 : room->info->flags`; tag each other
+  call site per the table.
 
 ### 189. Music keeps playing after Lara dies
 *Closed 2026-11-17: as retail, 305318a.*
