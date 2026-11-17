@@ -179,6 +179,9 @@ static uint32 parseKeys(const char* s)
 //   flag:ITEM:HEX@TICK      flag bits set (0x100 ONCE, as a spent trigger leaves it)
 //   wake:ITEM@TICK          its code bits completed and triggered, as a trigger's object action
 //   fx:EFFECT@TICK          the level effect started, as a trigger's flip starts it
+//   next:LEVEL@TICK         nextLevel to that LevelID, as a level's end, the title's new game or its passport
+//   give:TYPE@TICK          the pickup of that item type, as Lara picking it up
+//   use:SLOT@TICK           that ring slot used, as chosen in the ring (a gun, a medipack)
 struct Act
 {
     char kind;
@@ -194,7 +197,10 @@ static bool parseAct(const char* arg)
     if (gActCount == X_COUNT(gActs) || (sscanf(arg, "hit:%d:%d@%d", &a.item, &a.value, &a.tick) != 3 &&
         sscanf(arg, "flag:%d:%x@%d", &a.item, &a.value, &a.tick) != 3 &&
         (a.value = 0, sscanf(arg, "wake:%d@%d", &a.item, &a.tick) != 2) &&
-        (a.item = 0, a.kind = 'x', sscanf(arg, "fx:%d@%d", &a.value, &a.tick) != 2))) {
+        (a.item = 0, a.kind = 'x', sscanf(arg, "fx:%d@%d", &a.value, &a.tick) != 2) &&
+        (a.kind = 'n', sscanf(arg, "next:%d@%d", &a.value, &a.tick) != 2) &&
+        (a.kind = 'g', sscanf(arg, "give:%d@%d", &a.value, &a.tick) != 2) &&
+        (a.kind = 'u', sscanf(arg, "use:%d@%d", &a.value, &a.tick) != 2))) {
         return false;
     }
     gActs[gActCount++] = a;
@@ -215,6 +221,13 @@ static void actsAt(int32 tick)
             item->flags |= a.value;
         } else if (a.kind == 'x') {
             setEffect(a.value, players[0]);
+        } else if (a.kind == 'u') {
+            players[0]->useItem(InvSlot(a.value));
+        } else if (a.kind == 'g') {
+            inventory.add(ItemType(a.value));
+        } else if (a.kind == 'n') {
+            nextLevel(LevelID(a.value));
+            inventory.state = INV_STATE_NONE;   // the ring shut, as its passport shuts it
         } else if (!(item->flags & ITEM_FLAG_ACTIVE)) {
             item->flags |= ITEM_FLAG_MASK;
             item->trigger();
@@ -259,6 +272,16 @@ static void printLara(int32 tick)
     printf("tick %4d: room %3d pos %6d %6d %6d angle %6d anim %3d frame %4d state %2d goal %2d health %4d water %d\n",
            tick, int32(lara->room - rooms), lara->pos.x, lara->pos.y, lara->pos.z, uint16(lara->angle.y),
            lara->animIndex, lara->frameIndex, lara->state, lara->goalState, lara->health, lara->waterState);
+    if (getenv("INV"))      // INV=1: the level, the ring's counts and her rounds
+    {
+        printf("     level %d ring", gLevelID);
+        for (int32 i = 0; i < SLOT_PASSPORT; i++) {
+            if (inventory.counts[i]) {
+                printf(" %d:%d", i, inventory.counts[i]);
+            }
+        }
+        printf(" rounds %d %d %d %d\n", lara->extraL->ammo[0], lara->extraL->ammo[1], lara->extraL->ammo[2], lara->extraL->ammo[3]);
+    }
     if (getenv("GUNS"))     // GUNS=1: her weapon, its state and her target
     {
         const ItemObj* target = lara->extraL->armR.target;

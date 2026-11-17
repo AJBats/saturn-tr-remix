@@ -2640,29 +2640,40 @@ struct Lara : ItemObj
         memset(extraL, 0, sizeof(*extraL));
         extraL->hitQuadrant = -1;
 
-        extraL->weapon = extraL->goalWeapon = WEAPON_PISTOLS; // TODO LEVEL10A
+        // her guns and ammo from what she brought (retail's
+        // InitialiseLaraInventory 06020b20 and LaraInitialiseMeshes 06020d34)
+        const StartInfo &s = gStartInfo;
+        extraL->weapon = extraL->goalWeapon = s.gun;
         setWeaponState(WEAPON_STATE_FREE);
         meshSwap(ITEM_LARA, 0xFFFFFFFF);
 
-        bool isHome = gLevelID == LVL_TR1_GYM;
+        for (int32 w = 0; w < WEAPON_NONE; w++) {
+            extraL->ammo[w] = (s.guns & (1 << w)) ? s.ammo[w] : 0;
+        }
+        extraL->ammo[WEAPON_PISTOLS] = 1000;
 
-        if (isHome) {
+        if (gLevelID == LVL_TR1_GYM) {
             meshSwap(ITEM_LARA_SPEC, JOINT_MASK_UPPER | JOINT_MASK_LOWER);
-            extraL->ammo[WEAPON_PISTOLS] = 0;
         } else {
-            extraL->ammo[WEAPON_PISTOLS] = -1;
-            extraL->ammo[WEAPON_MAGNUMS] = -1;
-            extraL->ammo[WEAPON_UZIS] = -1;
-            extraL->ammo[WEAPON_SHOTGUN] = -1;
-
-            if (extraL->weapon != WEAPON_MAX)
-            {
-                meshSwapPistols(JOINT_MASK_LEG_R1 | JOINT_MASK_LEG_L1, JOINT_MASK_ARM_R3 | JOINT_MASK_ARM_L3);
-                // TODO check if shotgun on back
+            // the holsters show her gun, the pistols' if she holds the shotgun
+            int32 holster = s.gun;
+            if (holster == WEAPON_SHOTGUN) {
+                holster = (s.guns & ~(1 << WEAPON_SHOTGUN)) ? WEAPON_PISTOLS : WEAPON_NONE;
+            }
+            if (holster != WEAPON_NONE) {
+                meshSwap(weaponParams[holster].modelType, JOINT_MASK_LEG_R1 | JOINT_MASK_LEG_L1);
+            }
+            // the shotgun on her back only if she has it
+            if (s.guns & (1 << WEAPON_SHOTGUN)) {
                 meshSwapShotgun(false);
             }
-
-            //extraL->weapon = extraL->goalWeapon = WEAPON_SHOTGUN;
+            // pistols drawn at the last level's end are drawn still
+            if (s.ready && s.gun != WEAPON_NONE && s.gun != WEAPON_SHOTGUN)
+            {
+                meshSwapPistols(JOINT_MASK_ARM_R3 | JOINT_MASK_ARM_L3, JOINT_MASK_LEG_R1 | JOINT_MASK_LEG_L1);
+                extraL->armR.animIndex = extraL->armL.animIndex = level.models[weaponParams[s.gun].animType].animIndex + ANIM_PISTOLS_AIM;
+                setWeaponState(WEAPON_STATE_READY);
+            }
         }
 
         animSet(ANIM_STAND, true, 0);
@@ -3023,19 +3034,16 @@ struct Lara : ItemObj
         pos.z += (cx * ((cy * vSpeed) >> 16)) >> FIXED_SHIFT;
     }
 
+    // Retail's FireWeapon (0601fd2c): a round a shot, a round a pellet for the
+    // shotgun's 6; the pistols never run out. Out of rounds, the click, and
+    // her pistols asked for.
     bool weaponFire(const ExtraInfoLara::Arm* arm)
     {
-        int16 ammo = extraL->ammo[extraL->weapon];
-
-        if (!ammo) {
-            soundPlay(SND_EMPTY, &pos);
-            extraL->goalWeapon = WEAPON_PISTOLS;
-            return false;
+        int16 &ammo = extraL->ammo[extraL->weapon];
+        if (extraL->weapon == WEAPON_PISTOLS) {
+            ammo = 1000;
         }
-
-        if (ammo > 0) {
-            ammo--;
-        }
+        bool fired = false;
 
         const WeaponParams &params = weaponParams[extraL->weapon]; 
 
@@ -3049,6 +3057,18 @@ struct Lara : ItemObj
 
         for (int32 i = 0; i < count; i++)
         {
+            if (ammo <= 0)
+            {
+                ammo = 0;
+                soundPlay(SND_EMPTY, &pos);
+                if (inventory.counts[SLOT_PISTOLS]) {
+                    extraL->goalWeapon = WEAPON_PISTOLS;
+                }
+                continue;
+            }
+            ammo--;
+            fired = true;
+
             int32 aimX = int32(rand_logic() - 0x4000) * params.spread >> 16;
             int32 aimY = int32(rand_logic() - 0x4000) * params.spread >> 16;
 
@@ -3109,9 +3129,10 @@ struct Lara : ItemObj
             }
         }
 
-        soundPlay(params.soundId, &pos);
-
-        return true;
+        if (fired) {
+            soundPlay(params.soundId, &pos);
+        }
+        return fired;
     }
 
     void setWeaponState(WeaponState weaponState)
@@ -3550,8 +3571,11 @@ struct Lara : ItemObj
 
         if (extraL->weaponState == WEAPON_STATE_FREE)
         {
-            if (extraL->ammo[WEAPON_PISTOLS] != 0)
-            {
+            // unarmed, she draws the pistols if she has found them (retail's LaraGun)
+            if (extraL->weapon == WEAPON_NONE && inventory.counts[SLOT_PISTOLS]) {
+                extraL->weapon = extraL->goalWeapon = WEAPON_PISTOLS;
+            }
+            if (extraL->weapon != WEAPON_NONE) {
                 setWeaponState(WEAPON_STATE_DRAW);
             }
         }
@@ -3969,6 +3993,8 @@ struct Lara : ItemObj
         int16 cameraViewY;
         int16 cameraViewZ;
 
+        int16 ammo[WEAPON_NONE];
+
         uint16 meshes[JOINT_MAX];
     };
 
@@ -3997,6 +4023,8 @@ struct Lara : ItemObj
         sg->cameraViewX = extraL->camera.view.pos.x - (camRoom->info->x << 8);
         sg->cameraViewY = extraL->camera.view.pos.y - (camRoom->info->yTop);
         sg->cameraViewZ = extraL->camera.view.pos.z - (camRoom->info->z << 8);
+
+        memcpy(sg->ammo, extraL->ammo, sizeof(sg->ammo));
 
         ASSERT(sizeof(sg->meshes) == sizeof(extraL->meshes));
         memcpy(sg->meshes, extraL->meshes, sizeof(extraL->meshes));
@@ -4031,6 +4059,8 @@ struct Lara : ItemObj
         extraL->camera.view.pos.x = sg->cameraViewX + (camRoom->info->x << 8);
         extraL->camera.view.pos.y = sg->cameraViewY + (camRoom->info->yTop);
         extraL->camera.view.pos.z = sg->cameraViewZ + (camRoom->info->z << 8);
+
+        memcpy(extraL->ammo, sg->ammo, sizeof(sg->ammo));
 
         ASSERT(sizeof(sg->meshes) == sizeof(extraL->meshes));
         memcpy(extraL->meshes, sg->meshes, sizeof(extraL->meshes));

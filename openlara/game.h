@@ -14,6 +14,18 @@ EWRAM_DATA LevelID gNextLevel = LVL_MAX;
 
 void nextLevel(LevelID next)
 {
+    // what she takes on: a new game from the title starts with nothing (the
+    // Caves give her the pistols); the end of a level she plays, what she
+    // has (retail's CreateStartInfo); a cutscene passes it on
+    if (next < LVL_LOAD)
+    {
+        if (gLevelID == LVL_TR1_TITLE) {
+            startInfoNewGame();
+        } else if (next > gLevelID && gLevelID != LVL_TR1_GYM && !isCutsceneLevel() && players[0]) {
+            startInfoCreate(players[0]->extraL);
+        }
+    }
+
 #if defined(__SATURN__) // the Saturn has every level, and the ending
     if (next > LVL_TR1_10C && next < LVL_LOAD)
     {
@@ -72,6 +84,7 @@ bool gameLoad()
     }
 
     inventory.setSlots(gSaveGame.invSlots);
+    inventory.replaceGuns();
 
     ItemObj::sFirstActive = NULL;
     ItemObj::sFirstFree = items + level.itemsCount;
@@ -114,6 +127,11 @@ void gameInit()
 
     inventory.init();
 
+    // a level started straight from boot (make START_LEVEL) is a test's
+    if (gLevelID != LVL_TR1_TITLE) {
+        startInfoTestingKit();
+    }
+
     startLevel(gLevelID);
 }
 
@@ -155,6 +173,13 @@ void gameLoadLevel(const void* data)
     readLevel((uint8*)data);
     setEffect(FX_NONE, NULL);
     soundLoopsStop();
+
+    // what Lara starts with, for the level she plays (her constructor takes
+    // her guns from it, the ring is filled from it below)
+    bool play = (gLevelID != LVL_TR1_TITLE) && !isCutsceneLevel();
+    if (play) {
+        startInfoModify(gLevelID);
+    }
 
     // prepare rooms
     for (int32 i = 0; i < level.roomsCount; i++)
@@ -204,6 +229,10 @@ void gameLoadLevel(const void* data)
             }
 
             item->init(rooms + info->roomIndex);
+        }
+
+        if (play) {
+            inventory.startLevel();
         }
 
         if (isCutsceneLevel())

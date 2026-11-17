@@ -139,6 +139,14 @@ const InvItem INV_SLOTS[SLOT_MAX] = {
 #define FRAME_PASSPORT 14
 #define FRAME_COMPASS  10
 
+// Each gun's ring slot, its ammo's, its pickup and its ammo's, and a box's rounds.
+static const struct GunSlots { InvSlot gun, ammo; ItemType item, ammoItem; int16 box; } gGunSlots[WEAPON_NONE] = {
+    { SLOT_PISTOLS, SLOT_AMMO_PISTOLS, ITEM_PISTOLS, ITEM_AMMO_PISTOLS, 0            },
+    { SLOT_MAGNUMS, SLOT_AMMO_MAGNUMS, ITEM_MAGNUMS, ITEM_AMMO_MAGNUMS, AMMO_MAGNUMS },
+    { SLOT_UZIS,    SLOT_AMMO_UZIS,    ITEM_UZIS,    ITEM_AMMO_UZIS,    AMMO_UZIS    },
+    { SLOT_SHOTGUN, SLOT_AMMO_SHOTGUN, ITEM_SHOTGUN, ITEM_AMMO_SHOTGUN, AMMO_SHOTGUN },
+};
+
 struct Inventory
 {
     InvSlot useSlot;
@@ -242,19 +250,53 @@ struct Inventory
         add(ITEM_INV_HOME);
 
         add(ITEM_INV_COMPASS);
+    }
 
-        if (gLevelID != LVL_TR1_GYM)
+    // The copies left in the level of a gun she has turn to boxes of its
+    // ammo (retail's GlobalItemReplace).
+    void replaceGuns()
+    {
+        for (int32 w = WEAPON_MAGNUMS; w < WEAPON_NONE; w++)
         {
-            add(ITEM_INV_PISTOLS);
-            add(ITEM_INV_SHOTGUN);
-            add(ITEM_INV_MAGNUMS);
-            add(ITEM_INV_UZIS);
-            add(ITEM_INV_MEDIKIT_SMALL, 10);
-            add(ITEM_INV_MEDIKIT_BIG, 5);
+            if (!counts[gGunSlots[w].gun])
+                continue;
+            for (int32 i = 0; i < level.itemsCount; i++)
+            {
+                if (items[i].type == gGunSlots[w].item) {
+                    items[i].type = gGunSlots[w].ammoItem;
+                }
+            }
+        }
+    }
+
+    // A level's start (retail's InitialiseLaraInventory, 06020b20): the ring
+    // emptied but for the compass and the options, then filled with what she
+    // brought (gStartInfo): her guns, boxes of ammo for those she hasn't, her
+    // medipacks and scions.
+    void startLevel()
+    {
+        for (int32 i = 0; i < SLOT_PASSPORT; i++)
+        {
+            if (i != SLOT_COMPASS) {
+                counts[i] = 0;
+            }
         }
 
-        //add(ITEM_INV_KEY_ITEM_1);
-        //add(ITEM_INV_PUZZLE_1);
+        const StartInfo &s = gStartInfo;
+        for (int32 w = 0; w < WEAPON_NONE; w++)
+        {
+            if (s.guns & (1 << w)) {
+                counts[gGunSlots[w].gun] = 1;
+            } else if (gGunSlots[w].box) {
+                counts[gGunSlots[w].ammo] = s.ammo[w] / gGunSlots[w].box;
+            }
+        }
+        counts[SLOT_SCION] = s.scions;
+        counts[SLOT_MEDIKIT_SMALL] = s.medis;
+        counts[SLOT_MEDIKIT_BIG] = s.bigMedis;
+        numKeys = s.scions;
+
+        replaceGuns();
     }
 
     ItemType remapToInv(ItemType type)
@@ -323,6 +365,29 @@ struct Inventory
     void add(ItemType type, int32 count = 1)
     {
         InvSlot slot = remapToSlot(type);
+
+        // retail's Inv_AddItem (060196d8): a gun takes in the boxes she
+        // carried and a box's worth of its own, and its copies in the level
+        // become boxes; a box goes into the gun she has, or into the ring
+        for (int32 w = WEAPON_MAGNUMS; w < WEAPON_NONE; w++)
+        {
+            const GunSlots &g = gGunSlots[w];
+            int16 &ammo = playersExtra[0].ammo[w];
+            if (slot == g.gun)
+            {
+                ammo += (counts[g.ammo] + 1) * g.box;
+                counts[g.ammo] = 0;
+                counts[slot] = 1;
+                replaceGuns();
+                return;
+            }
+            if (slot == g.ammo && counts[g.gun])
+            {
+                ammo += count * g.box;
+                return;
+            }
+        }
+
         counts[slot] += count;
         // TODO check max
 
@@ -1538,5 +1603,80 @@ struct Inventory
 };
 
 EWRAM_DATA Inventory inventory;
+
+// A new game: nothing yet (the first level gives her the pistols).
+void startInfoNewGame()
+{
+    memset(&gStartInfo, 0, sizeof(gStartInfo));
+    gStartInfo.gun = WEAPON_NONE;
+}
+
+// A level started straight from boot (make START_LEVEL), for testing: every
+// gun with plenty of ammo and medipacks, as the GBA demo gave.
+void startInfoTestingKit()
+{
+    startInfoNewGame();
+    gStartInfo.guns = (1 << WEAPON_NONE) - 1;
+    for (int32 w = 0; w < WEAPON_NONE; w++) {
+        gStartInfo.ammo[w] = 9999;
+    }
+    gStartInfo.gun = WEAPON_PISTOLS;
+    gStartInfo.medis = 10;
+    gStartInfo.bigMedis = 5;
+}
+
+// A level's end (retail's CreateStartInfo, 0602c20c): what she takes on.
+void startInfoCreate(const ExtraInfoLara* extra)
+{
+    StartInfo &s = gStartInfo;
+    s.guns = 0;
+    for (int32 w = 0; w < WEAPON_NONE; w++)
+    {
+        const GunSlots &g = gGunSlots[w];
+        if (inventory.counts[g.gun]) {
+            s.guns |= 1 << w;
+            s.ammo[w] = extra->ammo[w];
+        } else {
+            s.ammo[w] = inventory.counts[g.ammo] * g.box;
+        }
+    }
+    s.ammo[WEAPON_PISTOLS] = 1000;
+    s.medis = uint8(inventory.counts[SLOT_MEDIKIT_SMALL]);
+    s.bigMedis = uint8(inventory.counts[SLOT_MEDIKIT_BIG]);
+    s.scions = uint8(inventory.counts[SLOT_SCION]);
+    s.gun = extra->weapon;
+    s.ready = (extra->weaponState == WEAPON_STATE_READY);
+}
+
+// The level she starts (retail's ModifyStartInfo, 0602c0ec): she holds her
+// pistols, with 1000 rounds. The Caves are a new game's start, pistols only;
+// the Mines take her guns (their ammo stays with her, as boxes); her home
+// gives her nothing.
+void startInfoModify(LevelID id)
+{
+    StartInfo &s = gStartInfo;
+    s.guns |= 1 << WEAPON_PISTOLS;
+    s.gun = WEAPON_PISTOLS;
+    s.ammo[WEAPON_PISTOLS] = 1000;
+
+    if (id == LVL_TR1_1)
+    {
+        s.ammo[WEAPON_MAGNUMS] = s.ammo[WEAPON_UZIS] = s.ammo[WEAPON_SHOTGUN] = 0;
+        s.guns = 1 << WEAPON_PISTOLS;
+        s.medis = s.bigMedis = s.scions = 0;
+        s.ready = 0;
+    }
+    else if (id == LVL_TR1_10A)
+    {
+        s.guns = 0;
+        s.scions = 0;
+        s.ready = 0;
+        s.gun = WEAPON_NONE;
+    }
+    else if (id == LVL_TR1_GYM)
+    {
+        startInfoNewGame();
+    }
+}
 
 #endif

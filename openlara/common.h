@@ -1586,6 +1586,28 @@ enum Weapon
     WEAPON_MAX
 };
 
+// What Lara takes into a level (retail's START_INFO at 0x06092324, made at a
+// level's end by CreateStartInfo 0602c20c and changed for the next level by
+// ModifyStartInfo 0602c0ec): her guns, the ammo of each (as boxes in the ring
+// for the guns she hasn't), her medipacks and scions, her gun and whether
+// it's drawn. Keys, puzzle items and lead bars never go with her.
+struct StartInfo
+{
+    int16 ammo[WEAPON_MAX];
+    uint8 guns;         // 1 << Weapon of those she has
+    uint8 gun;          // the gun she holds, WEAPON_NONE for none
+    uint8 ready;        // drawn
+    uint8 medis;
+    uint8 bigMedis;
+    uint8 scions;
+};
+
+// A box of ammo's rounds (retail's Inv_AddItem, 060196d8): 2 shotgun shots
+// of 6 pellets, 50 magnum rounds, 100 Uzi rounds.
+#define AMMO_SHOTGUN    12
+#define AMMO_MAGNUMS    50
+#define AMMO_UZIS       100
+
 struct WeaponParams
 {
     ItemType modelType;
@@ -2732,6 +2754,7 @@ extern Sphere gSpheres[2][MAX_SPHERES];
 
 extern Settings gSettings;
 extern SaveFile gSaveFile;
+extern StartInfo gStartInfo;
 
 extern int32 gCurTrack;
 extern int32 gAnimTexFrame;
