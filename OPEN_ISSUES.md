@@ -1366,55 +1366,6 @@ Audit: SND-8*
 - **Ours:** `openlara/enemy.h:2868`, `3043` and `3321` play 171.
 - **Decision:** keep retail's silence, or keep 171?
 
-### 190. Loading a save replays the saved track from the start
-*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-17*
-
-- **Retail:** plays no CD on load; it's silent until the next trigger.
-- **Ours:** `openlara/game.h:37` saves `gCurTrack`, even track 13 or 5, and
-  `game.h:92` replays it from the start.
-
-### 191. Cutscene audio isn't synced, and CUT4 restarts its track
-*Severity: audible · Confidence: confirmed (CUT4), likely (desync) · Fix: small
-· Audit: SND-18*
-
-- **Retail:** the cutscene start (`0600d574`).
-  - StartSyncedAudio (`0603c794`) starts the track and waits until the drive
-    reports PLAY.
-  - It then sets `DAT_06062ad0 = 0`, muting all sound effects. That's inaudible
-    in practice: the Saturn CUT levels have no usable samples.
-  - The CD is never restarted.
-- **Ours:**
-  - Starts the track immediately, without waiting (`openlara/game.h:258`), so
-    the audio lags by the seek time. See also issue 201.
-  - CUT4 runs 66.7 s against the 63.5 s of track 22, so `game.h:294` restarts
-    the track for the last 3 s or so.
-
-### 192. Natla's track 54 and the skater's track 56 are missing
-*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-19*
-
-- **Retail:**
-  - Natla (`0602500c`) plays track 54 when her semi-death timer reaches 480
-    frames.
-  - The skater (`06029ac0`) plays track 56 when his hit points drop below 120 and
-    the current track isn't 56, and sets the current track.
-- **Ours:** `openlara/enemy.h:3204` and the skater have no calls.
-
-### 193. Non-one-shot music triggers replay when Lara re-enters them
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: SND-20*
-
-- **Retail:**
-  - The current track (`DAT_06060bf0`) is reset only at level init (`0602ce48`),
-    not when a track stops or ends. So the same trigger doesn't play its track
-    again until a different track has played.
-  - The secret jingle, S_CDPlay(13), doesn't set the current track.
-- **Ours:**
-  - `gCurTrack` resets to −1 when the CD ends or stops (`openlara/game.h:295`,
-    `saturn/sound.cpp:234`).
-  - So non-oneshot triggers replay on re-entry: LEVEL1 track 9, LEVEL4 track 7,
-    LEVEL8B tracks 3, 4 and 5, track 8 in LEVEL10B and 10C, and LEVEL3B track 17
-    after its antipad stop.
-  - Separately, `sndPlayTrack(13)` is ignored while 13 is still playing.
-
 ### 194. Retail CD music is mono (left channel only); ours is stereo
 *Severity: audible · Confidence: confirmed (code) · Fix: small, if wanted ·
 Audit: SND-C9*
@@ -2498,6 +2449,63 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 193. Non-one-shot music triggers replay when Lara re-enters them
+*Closed 2026-11-17: as retail, 9903e3a.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: SND-20*
+
+- **Retail:**
+  - The current track (`DAT_06060bf0`) is reset only at level init (`0602ce48`),
+    not when a track stops or ends. So the same trigger doesn't play its track
+    again until a different track has played.
+  - The secret jingle, S_CDPlay(13), doesn't set the current track.
+- **Ours:**
+  - `gCurTrack` resets to −1 when the CD ends or stops (`openlara/game.h:295`,
+    `saturn/sound.cpp:234`).
+  - So non-oneshot triggers replay on re-entry: LEVEL1 track 9, LEVEL4 track 7,
+    LEVEL8B tracks 3, 4 and 5, track 8 in LEVEL10B and 10C, and LEVEL3B track 17
+    after its antipad stop.
+  - Separately, `sndPlayTrack(13)` is ignored while 13 is still playing.
+
+### 192. Natla's track 54 and the skater's track 56 are missing
+*Closed 2026-11-17: as retail, 9903e3a.*
+
+*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-19*
+
+- **Retail:**
+  - Natla (`0602500c`) plays track 54 when her semi-death timer reaches 480
+    frames.
+  - The skater (`06029ac0`) plays track 56 when his hit points drop below 120 and
+    the current track isn't 56, and sets the current track.
+- **Ours:** `openlara/enemy.h:3204` and the skater have no calls.
+
+### 191. Cutscene audio isn't synced, and CUT4 restarts its track
+*Closed 2026-11-17: as retail, 9903e3a.*
+
+*Severity: audible · Confidence: confirmed (CUT4), likely (desync) · Fix: small
+· Audit: SND-18*
+
+- **Retail:** the cutscene start (`0600d574`).
+  - StartSyncedAudio (`0603c794`) starts the track and waits until the drive
+    reports PLAY.
+  - It then sets `DAT_06062ad0 = 0`, muting all sound effects. That's inaudible
+    in practice: the Saturn CUT levels have no usable samples.
+  - The CD is never restarted.
+- **Ours:**
+  - Starts the track immediately, without waiting (`openlara/game.h:258`), so
+    the audio lags by the seek time. See also issue 201.
+  - CUT4 runs 66.7 s against the 63.5 s of track 22, so `game.h:294` restarts
+    the track for the last 3 s or so.
+
+### 190. Loading a save replays the saved track from the start
+*Closed 2026-11-17: as retail, 9903e3a.*
+
+*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-17*
+
+- **Retail:** plays no CD on load; it's silent until the next trigger.
+- **Ours:** `openlara/game.h:37` saves `gCurTrack`, even track 13 or 5, and
+  `game.h:92` replays it from the start.
 
 ### 178. The underwater/surface sound gating doesn't exist
 *Closed 2026-11-17: as retail, 87a2384.*
