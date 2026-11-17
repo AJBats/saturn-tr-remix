@@ -66,7 +66,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 4 | 7. Trapdoors support the wrong second sector | small (closed) |
 | 5 | 5. Pierre drops only the scion; Tihocan's second key is missing | small (closed) |
 | 6 | 6. Atlantis doppelganger: wrong mirror point, no triggers, no death | small to medium (closed) |
-| 7 | 84. Enemy projectiles and the explosion effect (the Scion needs the explosion) | large |
+| 7 | 84. Enemy projectiles and the explosion effect (the Scion needs the explosion) | large (closed) |
 | 8 | 2. The Great Pyramid's Scion can't be destroyed | medium |
 
 ### Tier 2: the rules of the game differ everywhere
@@ -86,7 +86,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 19 | 74. Every triggered creature's collision radius becomes 0 | small |
 | 20 | 85. Natla's fight: no flight, rockets, sounds or music | large |
 | 21 | 86. Mutants: no flight, instant shots, no burst | large |
-| 22 | 87. Centaurs: instant rocket, no burst | large |
+| 22 | 87. Centaurs don't burst (with 213) | medium |
 | 23 | 29. Button layout and control model | medium |
 | 24 | 30. Look works in every state and freezes Lara | small |
 | 25 | 133. A key chosen away from a keyhole auto-inserts later | small |
@@ -1221,35 +1221,6 @@ AI-9*
 - **Effect:** in stage 2 she runs to random boxes instead of at Lara.
 - **Fix:** use another field for the stage.
 
-### 84. Enemy projectiles and the explosion effect don't exist
-*Severity: gameplay / visible · Confidence: confirmed · Fix: large (shared by
-85-87 and issue 2) · Audit: AI-13/14/15, GFX-10*
-
-- **Retail:**
-  - Projectiles are effects that travel:
-
-    | Projectile | Fired by | Damage | Speed |
-    |---|---|---|---|
-    | Shard (O_MISSILE2 mesh, shade 3584) | ShardGun | 30 | 250 |
-    | Rocket (O_MISSILE3 mesh) | RocketGun | 100, plus splash within 1024 | 220 |
-    | O_MISSILE1 | Natla | | |
-
-  - A hit makes Lara flinch, with the hit-direction stagger and SFX 31.
-  - Missiles turn into O_EXPLOSION1 sprites on impact.
-  - Saturn: effects 0xAC and 0xAD created around decomp.c:37010/37039;
-    ControlMissile `060316a0`. TR1X `effects/missile.c`. LEVEL10C holds the
-    MISSILE2/3 meshes.
-- **Ours:**
-  - `openlara/enemy.h:2817-2820` and `3110-3115` say "strike at once rather than
-    fly". Every shot is instant hitscan at 100 damage, with no visible
-    projectile.
-  - The NATLA/MUTANT/CENTAUR_BULLET and EXPLOSION types are not instanced
-    (`item.h:1647`, `1665-1668`).
-  - Lara never staggers from a projectile, and SFX 31 never plays.
-- **Effect:** Atlantis and Great Pyramid enemies hurt Lara with nothing visible
-  travelling, can't be dodged, and nothing explodes.
-- **Fix:** missile and explosion effects, ported from missile.c.
-
 ### 85. Natla's fight is missing flight, rockets, sounds and music
 *Severity: gameplay · Confidence: confirmed · Fix: large · Audit: AI-13,
 SND-19*
@@ -1261,8 +1232,9 @@ SND-19*
   - **Lying down:** her hit points are DONT_TARGET, so Lara can't target her.
     Music track 54 plays when she rises, once the semi-death timer reaches 480.
   - **Stage 2:** her shards do 30 damage and travel at 250 per frame.
-- **Ours:** `openlara/enemy.h:3116-3263`.
-  - No flight and no projectiles; shots are instant hitscan at 100 damage.
+- **Ours:** `openlara/enemy.h` Natla.
+  - No flight. Her rockets and shards fly since issue 84 (f484e2d), and the
+    stage-two shards play SFX 123.
   - Her health is held at 1, so Lara's guns still lock on (`lara.h:3763` only
     skips health ≤ 0).
   - No SFX 123 and no track 54.
@@ -1277,20 +1249,20 @@ SND-19*
   - On death, ExplodingDeath(-1, 100) (`06031c64`) throws body parts that hurt
     Lara.
   - The shooter's smartness is 0x2000.
-- **Ours:** `openlara/enemy.h:2822-3000`.
-  - Ground only, with instant `shoot()` at 100 damage for both shot types.
+- **Ours:** `openlara/enemy.h` Mutant.
+  - Ground only. Shards and rockets fly since issue 84 (f484e2d).
   - On death it shows blood and the body vanishes (`enemy.h:2864-2875`).
   - The shooter's smartness is 0x7FFF.
 - **Needs:** 84 and 213.
 
-### 87. Centaurs: the rocket is instant, and they don't burst
+### 87. Centaurs don't burst
 *Severity: gameplay · Confidence: confirmed · Fix: large (shared with 84, 213) ·
 Audit: AI-15*
 
 - **Retail:** CentaurControl (`06030cf8`; TR1X `ai/centaur.c`) fires RocketGun,
   a travelling projectile, and dies with ExplodingDeath(-1, 100).
-- **Ours:** `openlara/enemy.h:3085-3093` hits instantly, and on death the centaur
-  just turns invisible (`enemy.h:3039-3047`).
+- **Ours:** the rocket flies since issue 84 (f484e2d). On death the centaur
+  just turns invisible (issue 213).
 
 ### 88. The torso boss doesn't grab Lara for its kill, and steers wrongly
 *Severity: gameplay / visible · Confidence: confirmed · Fix: medium · Audit:
@@ -3711,6 +3683,37 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 84. Enemy projectiles and the explosion effect don't exist
+*Closed 2026-11-17: f484e2d. Shards and rockets fly (Missile, retail's ControlMissile), explosions are sprite effects; mutants, centaurs and Natla fire them. Checked in the host and in Mednafen at Tihocan room 90.*
+
+*Severity: gameplay / visible · Confidence: confirmed · Fix: large (shared by
+85-87 and issue 2) · Audit: AI-13/14/15, GFX-10*
+
+- **Retail:**
+  - Projectiles are effects that travel:
+
+    | Projectile | Fired by | Damage | Speed |
+    |---|---|---|---|
+    | Shard (O_MISSILE2 mesh, shade 3584) | ShardGun | 30 | 250 |
+    | Rocket (O_MISSILE3 mesh) | RocketGun | 100, plus splash within 1024 | 220 |
+    | O_MISSILE1 | Natla | | |
+
+  - A hit makes Lara flinch, with the hit-direction stagger and SFX 31.
+  - Missiles turn into O_EXPLOSION1 sprites on impact.
+  - Saturn: effects 0xAC and 0xAD created around decomp.c:37010/37039;
+    ControlMissile `060316a0`. TR1X `effects/missile.c`. LEVEL10C holds the
+    MISSILE2/3 meshes.
+- **Ours:**
+  - `openlara/enemy.h:2817-2820` and `3110-3115` say "strike at once rather than
+    fly". Every shot is instant hitscan at 100 damage, with no visible
+    projectile.
+  - The NATLA/MUTANT/CENTAUR_BULLET and EXPLOSION types are not instanced
+    (`item.h:1647`, `1665-1668`).
+  - Lara never staggers from a projectile, and SFX 31 never plays.
+- **Effect:** Atlantis and Great Pyramid enemies hurt Lara with nothing visible
+  travelling, can't be dodged, and nothing explodes.
+- **Fix:** missile and explosion effects, ported from missile.c.
 
 ### 130. The Great Pyramid earthquake object is wrong, and carries TR2 behaviour
 *Closed 2026-11-17: 43d61c0. Retail's EarthQuakeControl: 1/256 draw-RNG SFX 147 with -150, else 1/32 control-RNG SFX 70 with +50; TR2's wakes dropped.*
