@@ -67,7 +67,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 5 | 5. Pierre drops only the scion; Tihocan's second key is missing | small (closed) |
 | 6 | 6. Atlantis doppelganger: wrong mirror point, no triggers, no death | small to medium (closed) |
 | 7 | 84. Enemy projectiles and the explosion effect (the Scion needs the explosion) | large (closed) |
-| 8 | 2. The Great Pyramid's Scion can't be destroyed | medium |
+| 8 | 2. The Great Pyramid's Scion can't be destroyed | medium (closed) |
 
 ### Tier 2: the rules of the game differ everywhere
 
@@ -163,30 +163,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 ---
 
 ## Progression blockers
-
-### 2. Great Pyramid: the Scion can't be destroyed, so the exit never opens
-*Severity: gameplay (blocks the ending) · Confidence: confirmed · Fix: medium ·
-Audit: LVL-2*
-
-- **Retail:**
-  - SCION_ITEM3 (object 145) has 5 hit points and is drawn by
-    DrawAnimatingItem. Its mesh is 123 vertices, in LEVEL10C.
-  - Scion3Control (`06026640`), when its health runs out:
-    1. It goes invisible and runs a heavy trigger test at its own position.
-    2. It spawns an explosion every 10 frames for 90 frames (3 s), each with
-       SFX 104 and camera bounce -200.
-    3. It removes itself.
-  - The heavy trigger under it (room 50, sector 60) opens DOOR_2 116, the only
-    way out. It also starts the earthquake (108), CD track 16 and the lightning
-    (107).
-- **Ours:** `openlara/item.h:1642` maps SCION_TARGET to `ViewTarget`. Its draw is
-  empty (`object.h:227`) and it can't be targeted. The explosion effect (object
-  151) isn't implemented; its `INIT_ITEM` is commented out in `item.h`. Both
-  come from upstream OpenLara.
-- **Effect:** the final Scion is absent and the game can't be finished.
-- **Fix:**
-  - A Scion3 class: 5 hit points, targetable, with the death sequence above.
-  - The explosion sprite effect, which 84-87 need too.
 
 ## Camera
 
@@ -3683,6 +3659,32 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 2. Great Pyramid: the Scion can't be destroyed, so the exit never opens
+*Closed 2026-11-17: Scion3 (retail's Scion3Control): targetable 5 hit points, its death runs the trigger under it, bursts with -200 bounces; door 116 opens. Host and Mednafen (room 50, 2:5).*
+
+*Severity: gameplay (blocks the ending) · Confidence: confirmed · Fix: medium ·
+Audit: LVL-2*
+
+- **Retail:**
+  - SCION_ITEM3 (object 145) has 5 hit points and is drawn by
+    DrawAnimatingItem. Its mesh is 123 vertices, in LEVEL10C.
+  - Scion3Control (`06026640`), when its health runs out:
+    1. It goes invisible and runs a heavy trigger test at its own position.
+    2. It spawns an explosion every 10 frames for 90 frames (3 s), each with
+       SFX 104 and camera bounce -200.
+    3. It removes itself.
+  - The heavy trigger under it (room 50, sector 60) opens DOOR_2 116, the only
+    way out. It also starts the earthquake (108), CD track 16 and the lightning
+    (107).
+- **Ours:** `openlara/item.h:1642` maps SCION_TARGET to `ViewTarget`. Its draw is
+  empty (`object.h:227`) and it can't be targeted. The explosion effect (object
+  151) isn't implemented; its `INIT_ITEM` is commented out in `item.h`. Both
+  come from upstream OpenLara.
+- **Effect:** the final Scion is absent and the game can't be finished.
+- **Fix:**
+  - A Scion3 class: 5 hit points, targetable, with the death sequence above.
+  - The explosion sprite effect, which 84-87 need too.
 
 ### 84. Enemy projectiles and the explosion effect don't exist
 *Closed 2026-11-17: f484e2d. Shards and rockets fly (Missile, retail's ControlMissile), explosions are sprite effects; mutants, centaurs and Natla fire them. Checked in the host and in Mednafen at Tihocan room 90.*
