@@ -2547,37 +2547,6 @@ Audit: SND-8*
   and whether its reads slow the 68000's. Using it for vertices (Jollyroger's 2026 demo) was ruled
   out for us: every vertex would cross the slow bus to sound RAM and back.
 
-### 183. Looped sounds never stop (reported in play: the Cistern's flood)
-*Severity: audible · Confidence: confirmed · Fix: medium · Audit: SND-9*
-
-- **Retail:**
-  - The looped (mode 2) sounds are 79, 80, 81, 118, 148, 150, 154 and 155.
-  - Every frame, SoundEffects (`06014fbc`) resets the ambient loudness. Sources
-    and flip effects then call Sound_Effect, and the nearest emitter sets the
-    volume and pan.
-  - A slot nobody played that frame is stopped (`06023c7c`).
-  - FlipMap (`060112a8`) and the inventory call StopAmbientSounds (`06023c00`).
-  - The flood (`06015b44`) is issue 127.
-  - The flame (`06030670`/`0603071c`) calls StopEffect(150) when it goes out.
-- **Ours:**
-  - `openlara/level.h:383` plays FX_FLOOD as one positionless LOOP call that is
-    never stopped. In Lost Valley, the Cistern and Tihocan the full-volume roar
-    continues until the level ends. Reported in play 2026-11-17: in the
-    Cistern, after the switch floods the rooms, the flood sound loops forever.
-  - `object.h:1936` loops 150 for the Flame, and FlameEmitter
-    (`object.h:1960`) removes the flame with no `soundStop`, so the loop runs
-    on.
-  - The last emitter called sets the volume, not the nearest. Going out of range
-    freezes a loop at its last volume.
-- **Fix:** ambient-slot logic, plus a per-frame "not played means stop" rule.
-- **Retail quirks to decide on (likely):**
-  - Item-driven loops (fire) are reset in the same frame they're played, because
-    items run before SoundEffects. So retail restarts them every frame, which
-    stutters.
-  - Looped voices are keyed with 0x1830 (`06046c5c`): LPCTL 1 plus **PCM8B**, on
-    data loaded as 16-bit (LEA = bytes/2 − 2). So retail's loops play about an
-    octave lower, over the first half of the data.
-
 ### 184. Room sound sources are never played
 *Severity: audible · Confidence: confirmed · Fix: medium (needs 183) · Audit:
 SND-10*
@@ -3817,6 +3786,39 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 183. Looped sounds never stop (reported in play: the Cistern's flood)
+*Closed 2026-11-17: 095d35a. Loops follow retail's per-update rule (nearest source sets the level, unplayed or out of hearing stops; flips and the inventory stop them); the flood is retail's swell-and-fade, checked in Mednafen at the Cistern switch. Retail's per-frame restart of item loops and its octave-down loop keying are not copied (decisions table).*
+
+*Severity: audible · Confidence: confirmed · Fix: medium · Audit: SND-9*
+
+- **Retail:**
+  - The looped (mode 2) sounds are 79, 80, 81, 118, 148, 150, 154 and 155.
+  - Every frame, SoundEffects (`06014fbc`) resets the ambient loudness. Sources
+    and flip effects then call Sound_Effect, and the nearest emitter sets the
+    volume and pan.
+  - A slot nobody played that frame is stopped (`06023c7c`).
+  - FlipMap (`060112a8`) and the inventory call StopAmbientSounds (`06023c00`).
+  - The flood (`06015b44`) is issue 127.
+  - The flame (`06030670`/`0603071c`) calls StopEffect(150) when it goes out.
+- **Ours:**
+  - `openlara/level.h:383` plays FX_FLOOD as one positionless LOOP call that is
+    never stopped. In Lost Valley, the Cistern and Tihocan the full-volume roar
+    continues until the level ends. Reported in play 2026-11-17: in the
+    Cistern, after the switch floods the rooms, the flood sound loops forever.
+  - `object.h:1936` loops 150 for the Flame, and FlameEmitter
+    (`object.h:1960`) removes the flame with no `soundStop`, so the loop runs
+    on.
+  - The last emitter called sets the volume, not the nearest. Going out of range
+    freezes a loop at its last volume.
+- **Fix:** ambient-slot logic, plus a per-frame "not played means stop" rule.
+- **Retail quirks to decide on (likely):**
+  - Item-driven loops (fire) are reset in the same frame they're played, because
+    items run before SoundEffects. So retail restarts them every frame, which
+    stutters.
+  - Looped voices are keyed with 0x1830 (`06046c5c`): LPCTL 1 plus **PCM8B**, on
+    data loaded as 16-bit (LEA = bytes/2 − 2). So retail's loops play about an
+    octave lower, over the first half of the data.
 
 ### 6. Atlantis doppelganger: wrong mirror point, no floor triggers, no death
 *Closed 2026-11-17: 0d542b1, as retail's ControlEvilLara: retail's mirror point, an immediate fall, the heavy triggers on her fall and landing, the death state. Also non-Lara items keep their speed in the air (AnimateItem), which had carried her out of the pit. Host logic build: with trapdoor 32 open she drops to the pit floor and door 31 opens.*
