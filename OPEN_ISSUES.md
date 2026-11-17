@@ -114,7 +114,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 47 | 83. Natla never re-aims her path | small (closed) |
 | 48 | 81. Fleeing creatures don't turn back | small (closed) |
 | 49 | 62. Low creatures never stagger Lara | small (closed) |
-| 50 | 55. The shotgun's own animation scheme | medium |
+| 50 | 55. The shotgun's own animation scheme | medium (closed) |
 | 51 | 90, 92. Kold's long-range hit chance; the puma's hit points | small (closed) |
 | 52 | 102. Blocking isn't implemented | medium (closed) |
 | 53 | 201. 10 ticks run at once after every load | small (closed) |
@@ -520,42 +520,6 @@ Audit: LARA-18*
   example mid-swim.
 
 ## Weapons and combat
-
-### 55. The shotgun runs OpenLara's own animation scheme
-*Severity: gameplay / visible · Confidence: confirmed (timing and sound) · Fix:
-medium · Audit: GUN-4, GUN-24*
-
-- **Retail:** AnimateShotgun (`0601ea54`), UndrawShotgun (`0601e76c`),
-  DrawShotgun (`0601e6f4`); TR1X `lara1gun.c`.
-  - The frames are absolute:
-
-    | Frames | Phase |
-    |---|---|
-    | 0–12 | AIM |
-    | 13–46 | DRAW |
-    | 47–79 | RECOIL |
-    | 80–113 | UNDRAW |
-    | 114–126 | UNAIM |
-
-  - Locked on a target: fire, run 48 to 79, back to 47. That is a 33-frame
-    cycle.
-  - Not locked (Action held, no target): the recoil is cut at 59, the gun jumps
-    to frame 0 (rest) and is raised again over 1–12. That is a 26-frame cycle.
-  - The rest pose is frame 0. Lowering uses UNAIM.
-  - Holstering uses UNDRAW, with the mesh swap and SFX 6 at frame 101 (the
-    Saturn value; PC uses 100).
-  - From rest, the first shot comes after 13 frames.
-- **Ours:** `openlara/lara.h:3564-3641`.
-  - The rest pose is the last frame of DRAW.
-  - Firing always cycles in 26 frames (reloadTimer 26, `lara.h:213`).
-  - Lowering plays AIM backwards, and holstering plays DRAW backwards with
-    `SND_HOLSTER` (7) (`lara.h:3455`).
-  - The draw starts at frame 14 instead of 13, so the first shot comes a frame
-    early.
-- **Effect:** against a locked enemy our shotgun fires about 27% faster (0.87 s
-  against 1.1 s). Firing at nothing shows a longer pump with no lower and raise,
-  and the holster sound is wrong.
-- **Fix:** port the three frame machines verbatim, with absolute frame numbers.
 
 ### 57. The shotgun's own animation drives Lara's torso
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: GUN-6*
@@ -2649,6 +2613,44 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 55. The shotgun runs OpenLara's own animation scheme
+*Closed 2026-11-17: ported from retail, 78da850.*
+
+*Severity: gameplay / visible · Confidence: confirmed (timing and sound) · Fix:
+medium · Audit: GUN-4, GUN-24*
+
+- **Retail:** AnimateShotgun (`0601ea54`), UndrawShotgun (`0601e76c`),
+  DrawShotgun (`0601e6f4`); TR1X `lara1gun.c`.
+  - The frames are absolute:
+
+    | Frames | Phase |
+    |---|---|
+    | 0–12 | AIM |
+    | 13–46 | DRAW |
+    | 47–79 | RECOIL |
+    | 80–113 | UNDRAW |
+    | 114–126 | UNAIM |
+
+  - Locked on a target: fire, run 48 to 79, back to 47. That is a 33-frame
+    cycle.
+  - Not locked (Action held, no target): the recoil is cut at 59, the gun jumps
+    to frame 0 (rest) and is raised again over 1–12. That is a 26-frame cycle.
+  - The rest pose is frame 0. Lowering uses UNAIM.
+  - Holstering uses UNDRAW, with the mesh swap and SFX 6 at frame 101 (the
+    Saturn value; PC uses 100).
+  - From rest, the first shot comes after 13 frames.
+- **Ours:** `openlara/lara.h:3564-3641`.
+  - The rest pose is the last frame of DRAW.
+  - Firing always cycles in 26 frames (reloadTimer 26, `lara.h:213`).
+  - Lowering plays AIM backwards, and holstering plays DRAW backwards with
+    `SND_HOLSTER` (7) (`lara.h:3455`).
+  - The draw starts at frame 14 instead of 13, so the first shot comes a frame
+    early.
+- **Effect:** against a locked enemy our shotgun fires about 27% faster (0.87 s
+  against 1.1 s). Firing at nothing shows a longer pump with no lower and raise,
+  and the holster sound is wrong.
+- **Fix:** port the three frame machines verbatim, with absolute frame numbers.
 
 ### 111. The water crocodile's smartness is 0x2000; retail's is 0x400
 *Closed 2026-11-17: ported from retail, 437aa86.*
