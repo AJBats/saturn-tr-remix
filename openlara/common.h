@@ -3085,6 +3085,7 @@ void drawLevelInit();
 void drawLevelFree();
 void drawText(int32 x, int32 y, const char* text, TextAlign align);
 void drawModel(const ItemObj* item);
+void ammoString(char* buf, int32 value, int32 width, char gun);
 void drawSprite(const ItemObj* item);
 void drawRooms(Camera* camera);
 void drawCinematicRooms();

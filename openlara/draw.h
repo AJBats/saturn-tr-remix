@@ -80,6 +80,28 @@ X_INLINE int32 charRemap(char c)
     return char_map[c - 32];
 }
 
+// A count in the font's small digits, after "%5d" if width is 5, and a gun's
+// letter after it (A shotgun, B magnums, C Uzis) if gun isn't 0: retail's
+// MakeAmmoString (06015f34).
+void ammoString(char* buf, int32 value, int32 width, char gun)
+{
+    char num[16];
+    int2str(value, num);
+    char* p = buf;
+    for (int32 pad = width - int32(strlen(num)); pad > 0; pad--) {
+        *p++ = ' ';
+    }
+    for (const char* c = num; *c; c++) {
+        *p++ = char(*c - '0' + 1);
+    }
+    if (gun)
+    {
+        *p++ = ' ';
+        *p++ = char(gun - 'A' + 12);
+    }
+    *p = 0;
+}
+
 int32 getTextWidth(const char* text)
 {
     int32 w = 0;
@@ -295,6 +317,21 @@ void drawHUD(Lara* lara)
     {
         int32 v = (lara->health << 8) / LARA_MAX_HEALTH;
         renderBar(x, y, 100, v, BAR_HEALTH);
+    }
+
+    // the rounds of the gun drawn, but the pistols' (retail's DrawAmmoInfo, 06015f8c)
+    if (lara->extraL->weaponState == WEAPON_STATE_READY)
+    {
+        const ExtraInfoLara* e = lara->extraL;
+        char buf[16];
+        switch (e->weapon)
+        {
+            case WEAPON_SHOTGUN : ammoString(buf, e->ammo[WEAPON_SHOTGUN] / 6, 5, 'A'); break;
+            case WEAPON_MAGNUMS : ammoString(buf, e->ammo[WEAPON_MAGNUMS], 5, 'B'); break;
+            case WEAPON_UZIS    : ammoString(buf, e->ammo[WEAPON_UZIS], 5, 'C'); break;
+            default             : return;
+        }
+        drawText(256, 64, buf, TEXT_ALIGN_LEFT);
     }
 }
 

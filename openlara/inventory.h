@@ -535,10 +535,14 @@ struct Inventory
 
                 if (gLevelID != LVL_TR1_GYM)
                 {
+                    // a gun's boxes take its place, as she can't have both
                     ADD_SLOT(SLOT_PISTOLS);
                     ADD_SLOT(SLOT_SHOTGUN);
+                    ADD_SLOT(SLOT_AMMO_SHOTGUN);
                     ADD_SLOT(SLOT_MAGNUMS);
+                    ADD_SLOT(SLOT_AMMO_MAGNUMS);
                     ADD_SLOT(SLOT_UZIS);
+                    ADD_SLOT(SLOT_AMMO_UZIS);
                     ADD_SLOT(SLOT_MEDIKIT_BIG);
                     ADD_SLOT(SLOT_MEDIKIT_SMALL);
                 }
@@ -1459,20 +1463,31 @@ struct Inventory
 
         renderModelUnder(&item);
 
-        if ((state == INV_STATE_READY) && current && (counts[slot] > 1))
+        if ((state == INV_STATE_READY) && current)
         {
+            // what it holds, in small digits (retail's RingNotActive,
+            // 06018f8c): a gun its rounds (the shotgun's in shots), a gun's
+            // boxes twice their count, anything else its count if more than one
             char buf[32];
-            int2str(counts[slot], buf);
-
-            // convert ASCII to small digits (TR glyph)
-            char* ptr = buf;
-            while (*ptr)
+            buf[0] = 0;
+            const ExtraInfoLara* e = lara->extraL;
+            switch (slot)
             {
-                *ptr -= 47;
-                ptr++;
+                case SLOT_SHOTGUN       : ammoString(buf, e->ammo[WEAPON_SHOTGUN] / 6, 5, 'A'); break;
+                case SLOT_MAGNUMS       : ammoString(buf, e->ammo[WEAPON_MAGNUMS], 5, 'B'); break;
+                case SLOT_UZIS          : ammoString(buf, e->ammo[WEAPON_UZIS], 5, 'C'); break;
+                case SLOT_AMMO_SHOTGUN  :
+                case SLOT_AMMO_MAGNUMS  :
+                case SLOT_AMMO_UZIS     : ammoString(buf, counts[slot] * 2, 0, 0); break;
+                case SLOT_PISTOLS       : break;
+                default                 :
+                    if (counts[slot] > 1) {
+                        ammoString(buf, counts[slot], 0, 0);
+                    }
             }
-
-            drawText(FRAME_WIDTH / 2 + 32, FRAME_HEIGHT - 32, buf, TEXT_ALIGN_LEFT);
+            if (buf[0]) {
+                drawText(64, FRAME_HEIGHT - 48, buf, TEXT_ALIGN_CENTER);
+            }
 
             if (slot == SLOT_MEDIKIT_SMALL || slot == SLOT_MEDIKIT_BIG)
             {
