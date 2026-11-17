@@ -104,8 +104,8 @@ order; the few of its bugs a player runs into are listed at the end.
 | 37 | 42. Slide direction bugs | small (closed) |
 | 38 | 35. Surface swimming and climbing out are looser | small to medium |
 | 39 | 32. Underwater turning is slower and ramps up | small (closed) |
-| 40 | 122. Closed doors don't block in flipped rooms | medium |
-| 41 | 114. Boulders never reset | small |
+| 40 | 122. Closed doors don't block in flipped rooms | medium (closed) |
+| 41 | 114. Boulders never reset | small (closed) |
 | 42 | 115. Centaur statues wake on proximity, don't shatter | small, medium |
 | 43 | 80, 78, 79. Crocodiles and rats: land and water forms, depth, pool bottom | medium |
 | 44 | 88. The torso boss: no grab kill, wrong steering | medium |
@@ -1121,18 +1121,6 @@ AI-40*
 
 ## Level logic, traps and objects
 
-### 114. Boulders never reset
-*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: LVL-6*
-
-- **Retail:** the rolling ball (`0602f33c`; TR1X `traps/rolling_ball.c`).
-  - A stopped boulder stays in the active list. When its trigger goes inactive
-    (antipad), it returns to its start position and resets its animation, ready
-    to roll again.
-  - A boulder death sets the camera to follow-centre at 170°, elevation -25°.
-- **Ours:** `openlara/object.h:1553-1563` deactivates it for good.
-- **Effect:** the antipad-reset boulders don't reset: Natla's Mines 33 and 35,
-  Atlantis 127.
-
 ### 115. Centaur statues wake on proximity instead of their trigger, and don't shatter
 *Severity: gameplay / visible · Confidence: confirmed · Fix: small (wake),
 medium (shatter) · Audit: LVL-7, AI-27*
@@ -1205,19 +1193,6 @@ GFX-15*
   the door" check; that is a TR1X addition.
 - **Ours:** `openlara/object.h:279-282` is a TODO.
 - **Effect:** Lara can clip into door panels as they open and close.
-
-### 122. Closed doors don't block in flipped rooms
-*Severity: gameplay · Confidence: likely · Fix: medium · Audit: LVL-13*
-
-- **Retail:** DoorControl (`06025e94`) also closes the matching sectors in the
-  flipped rooms, at init and in every door update (it writes 4 sectors).
-- **Ours:** `openlara/object.h:292` is a TODO, and a door that has never been
-  triggered never updates.
-- **Effect:** doors in flip rooms don't block when the room is flipped:
-  - Lost Valley 41; Qualopec 21, 32, 37; Folly 64
-  - Cistern 45, 60, 62, 101, 103; Tihocan 19, 25
-  - Khamoon 73–75, 89, 90; Sanctuary 14, 15
-  - Natla's Mines 43; 9 doors in Atlantis; Great Pyramid 116
 
 ### 123. Doors don't block enemy pathfinding through portal sectors
 *Severity: subtle (AI) · Confidence: confirmed · Fix: small · Audit: LVL-13*
@@ -3077,6 +3052,35 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 114. Boulders never reset
+*Closed 2026-11-17: 37383f1. Stopped boulders reset when their trigger lets go.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: small · Audit: LVL-6*
+
+- **Retail:** the rolling ball (`0602f33c`; TR1X `traps/rolling_ball.c`).
+  - A stopped boulder stays in the active list. When its trigger goes inactive
+    (antipad), it returns to its start position and resets its animation, ready
+    to roll again.
+  - A boulder death sets the camera to follow-centre at 170°, elevation -25°.
+- **Ours:** `openlara/object.h:1553-1563` deactivates it for good.
+- **Effect:** the antipad-reset boulders don't reset: Natla's Mines 33 and 35,
+  Atlantis 127.
+
+### 122. Closed doors don't block in flipped rooms
+*Closed 2026-11-17: 37383f1. Doors write their flipped room's sectors too; pool 3328 for Atlantis.*
+
+*Severity: gameplay · Confidence: likely · Fix: medium · Audit: LVL-13*
+
+- **Retail:** DoorControl (`06025e94`) also closes the matching sectors in the
+  flipped rooms, at init and in every door update (it writes 4 sectors).
+- **Ours:** `openlara/object.h:292` is a TODO, and a door that has never been
+  triggered never updates.
+- **Effect:** doors in flip rooms don't block when the room is flipped:
+  - Lost Valley 41; Qualopec 21, 32, 37; Folly 64
+  - Cistern 45, 60, 62, 101, 103; Tihocan 19, 25
+  - Khamoon 73–75, 89, 90; Sanctuary 14, 15
+  - Natla's Mines 43; 9 doors in Atlantis; Great Pyramid 116
 
 ### 42. Slide direction bugs
 *Closed 2026-11-17: 8a4f6cf. Ported from retail (see the commit).*
