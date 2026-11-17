@@ -13,6 +13,8 @@
 EWRAM_DATA LevelID gNextLevel = LVL_MAX;
 EWRAM_DATA uint32 gLevelStarts;     // levels, saves and cutscenes started: the clock restarts after each
 static bool gSavePromptDue;     // the level's end asks "Save Game?" before the next loads
+static bool gStatsDue;          // and before that shows the finished level's statistics
+EWRAM_DATA LevelStats gLevelStats;
 
 // A level Lara plays: not the title, nor a cutscene.
 static bool isPlayLevel(LevelID id)
@@ -27,6 +29,19 @@ void nextLevel(LevelID next)
     // CreateStartInfo, past the cutscene between), which is reached now; her
     // position saved before is behind her (retail clears start[21]). Coming
     // into a level from the one before, or its cutscene, "Save Game?" first.
+    // the finished play level's statistics, shown on the way to the next
+    // play level past any cutscene between (retail's level-complete
+    // sequencer, 060163d8), or after the Pyramid before the ending
+    if (next > gLevelID && isPlayLevel(gLevelID) && gLevelID != LVL_TR1_GYM)
+    {
+        gLevelStats.time = gSaveGame.time;
+        gLevelStats.kills = gSaveGame.kills;
+        gLevelStats.pickups = gSaveGame.pickups;
+        gLevelStats.secrets = gSaveGame.secrets;
+        gLevelStats.level = uint8(gLevelID);
+        gStatsDue = true;
+    }
+
     if (next > gLevelID && next <= LVL_TR1_10C)
     {
         if (isPlayLevel(gLevelID) && gLevelID != LVL_TR1_GYM && players[0])
@@ -60,6 +75,7 @@ void nextLevel(LevelID next)
 void gameStartLevel(LevelID id)
 {
     gSavePromptDue = false;
+    gStatsDue = false;
     gNextLevel = id;
 }
 
@@ -372,6 +388,7 @@ void gameUpdateItems(int32 frames)
         updateItems();
         updateEffect();
     }
+    gSaveGame.time += frames;   // the level's time taken (retail's ControlPhase counts each tick)
     updateLevel(frames);
     soundLoopsEnd();
 }
@@ -421,6 +438,14 @@ void gameUpdate(int32 frames, bool items = true)
 
     if ((inventory.page != INV_PAGE_TITLE) && (inventory.state == INV_STATE_NONE) && (gNextLevel == LVL_MAX) && items) {
         gameUpdateItems(frames);
+    }
+
+    if ((gNextLevel != LVL_MAX) && (inventory.state == INV_STATE_NONE) && gStatsDue &&
+        (isPlayLevel(gNextLevel) || gNextLevel == LVL_TR1_TITLE))
+    {
+        gStatsDue = false;
+        inventory.openStats(menuLara(), gLevelStats);
+        return;
     }
 
     if ((gNextLevel != LVL_MAX) && (inventory.state == INV_STATE_NONE) && gSavePromptDue)

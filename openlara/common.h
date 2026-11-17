@@ -2694,6 +2694,16 @@ enum TrackID
     TRACK_TR1_CUT_4     = 22
 };
 
+// What a finished play level's statistics screen shows (retail's 06016558)
+struct LevelStats
+{
+    uint32 time;        // ticks
+    uint16 kills;
+    uint8  pickups;
+    uint8  secrets;     // a bit each
+    uint8  level;       // its LevelID
+};
+
 struct LevelInfo
 {
     const void*  data;

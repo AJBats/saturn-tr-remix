@@ -39,7 +39,8 @@ enum InvPage {
     INV_PAGE_MAIN,
     INV_PAGE_KEYS,
     INV_PAGE_OPTIONS,
-    INV_PAGE_SAVE
+    INV_PAGE_SAVE,
+    INV_PAGE_STATS
 };
 
 enum InvSlot {
@@ -206,6 +207,9 @@ struct Inventory
     // the passport's Load Game list: the saved game's progress and level
     Progress fileProgress;
     uint8 fileLevel;
+
+    // the level statistics screen (INV_PAGE_STATS)
+    LevelStats stats;
 
     // the "Save Game?" prompt (INV_PAGE_SAVE)
     int32 savePrompt;           // SAVE_ASK, SAVE_RETRY, SAVE_DONE
@@ -647,6 +651,99 @@ struct Inventory
         update(1);
     }
 
+    // A finished level's statistics (retail's 06016558) on the options
+    // picture: its name, kills, pickups, secrets of its total, and the time
+    // taken; 4 frames, then select goes on.
+    void openStats(ItemObj* lara, const LevelStats &levelStats)
+    {
+        this->lara = lara;
+        stats = levelStats;
+        background = osLoadScreen(LVL_TR1_TITLE);
+        page = INV_PAGE_STATS;
+        state = INV_STATE_READY;
+        nextState = INV_STATE_NONE;
+        timer = 4;
+    }
+
+    void onStats(int32 frames)
+    {
+        if (timer > 0)
+        {
+            timer -= frames;
+            return;
+        }
+
+        if (lara->isKeyHit(IN_ACTION))
+        {
+            closeBackground();
+            page = INV_PAGE_MAIN;
+            state = INV_STATE_NONE;
+        }
+    }
+
+    static char* append(char* p, const char* s)
+    {
+        while (*s) {
+            *p++ = *s++;
+        }
+        *p = 0;
+        return p;
+    }
+
+    static char* appendInt(char* p, int32 value)
+    {
+        char num[16];
+        int2str(value, num);
+        return append(p, num);
+    }
+
+    void drawStats()
+    {
+        char buf[64];
+        char* p;
+
+        // bottom up, 30 apart, centred
+        drawText(0, FRAME_HEIGHT - 150, STR[gLevelInfo[stats.level].title], TEXT_ALIGN_CENTER);
+
+        p = append(buf, "KILLS ");
+        appendInt(p, stats.kills);
+        drawText(0, FRAME_HEIGHT - 120, buf, TEXT_ALIGN_CENTER);
+
+        p = append(buf, "PICKUPS ");
+        appendInt(p, stats.pickups);
+        drawText(0, FRAME_HEIGHT - 90, buf, TEXT_ALIGN_CENTER);
+
+        int32 secrets = 0;
+        for (int32 i = 0; i < 8; i++) {
+            secrets += (stats.secrets >> i) & 1;
+        }
+        p = append(buf, "SECRETS ");
+        p = appendInt(p, secrets);
+        p = append(p, " of ");
+        appendInt(p, gLevelInfo[stats.level].secrets);
+        drawText(0, FRAME_HEIGHT - 60, buf, TEXT_ALIGN_CENTER);
+
+        // m:ss, or h:mm:ss past an hour
+        int32 s = stats.time / 30;
+        int32 h = s / 3600;
+        int32 m = (s / 60) % 60;
+        s %= 60;
+        p = append(buf, "TIME TAKEN ");
+        if (h)
+        {
+            p = appendInt(p, h);
+            p = append(p, ":");
+            p = appendInt(p, m / 10);
+            p = appendInt(p, m % 10);
+        } else {
+            p = appendInt(p, m);
+        }
+        p = append(p, ":");
+        p = appendInt(p, s / 10);
+        appendInt(p, s % 10);
+        drawText(0, FRAME_HEIGHT - 30, buf, TEXT_ALIGN_CENTER);
+    }
+
     enum { SAVE_ASK, SAVE_RETRY, SAVE_DONE };
 
     // The "Save Game?" prompt (retail's 0603c1bc and 0602cb54), over the
@@ -657,7 +754,7 @@ struct Inventory
     void openSave(ItemObj* lara, ItemObj* crystal, bool progressOnly)
     {
         this->lara = lara;
-        background = copyBackground();
+        background = progressOnly ? osLoadScreen(LVL_TR1_TITLE) : copyBackground();
         page = INV_PAGE_SAVE;
         state = INV_STATE_READY;
         nextState = INV_STATE_NONE;
@@ -1272,6 +1369,12 @@ struct Inventory
             return;
         }
 
+        if (page == INV_PAGE_STATS)
+        {
+            onStats(frames);
+            return;
+        }
+
         if (state != INV_STATE_SHOW)
         {
             rotItem += rotItemInc * frames;
@@ -1702,6 +1805,12 @@ struct Inventory
         if (page == INV_PAGE_SAVE)
         {
             drawSave();
+            return;
+        }
+
+        if (page == INV_PAGE_STATS)
+        {
+            drawStats();
             return;
         }
 
