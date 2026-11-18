@@ -512,21 +512,6 @@ checked) · Fix: small · Audit: GUN-16*
   stepping and snaps back at STOP (`enemy.h:1759-1768`, `1807-1825`).
 - **Decision:** reproduce the sidestep bug?
 
-### 100. Qualopec mummies behave like full creatures
-*Severity: visible · Confidence: confirmed · Fix: small to medium · Audit:
-AI-29*
-
-- **Retail:** InitialiseMummy (`06031b68`) and MummyControl (`06031ba8`).
-  - No random yaw.
-  - It uses no AI slot.
-  - Its head always tracks Lara, clamped to ±90°.
-  - Hits on it bleed (HitTarget `0601fff4`).
-- **Ours:** `Mummy` is a full Enemy (`openlara/enemy.h:2196-2218`).
-  - It gets a random yaw.
-  - It takes one of the 8 AI slots, so it can be evicted and vanish.
-  - It turns its head only when Lara is in front and its mood isn't SLEEP.
-  - It shows no blood (`enemy.h:745`).
-
 ## Level logic, traps and objects
 
 ### 118. Waterfall mist is missing
@@ -1941,6 +1926,23 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 100. Qualopec mummies behave like full creatures
+*Closed 2026-11-18 (see git log): no AI slot, no random turn, head tracks Lara, solid without stagger.*
+
+*Severity: visible · Confidence: confirmed · Fix: small to medium · Audit:
+AI-29*
+
+- **Retail:** InitialiseMummy (`06031b68`) and MummyControl (`06031ba8`).
+  - No random yaw.
+  - It uses no AI slot.
+  - Its head always tracks Lara, clamped to ±90°.
+  - Hits on it bleed (HitTarget `0601fff4`).
+- **Ours:** `Mummy` is a full Enemy (`openlara/enemy.h:2196-2218`).
+  - It gets a random yaw.
+  - It takes one of the 8 AI slots, so it can be evicted and vanish.
+  - It turns its head only when Lara is in front and its mood isn't SLEEP.
+  - It shows no blood (`enemy.h:745`).
 
 ### 101. Bored creatures never look at Lara
 *Closed 2026-11-18: already retail's since 5a3516f (the head follows Lara ahead whatever the mood; the wolf's sleep holds it still, as WolfControl).*
