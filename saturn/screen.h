@@ -13,6 +13,11 @@ void screenInit();
 void screenPlaneLevel(bool on);
 int32_t screenFramesFade();
 
+// The next level's first frames fade up from black; the frame shown fades
+// to black (the level's end), returning when it's black: retail's 30 vblanks.
+void screenFadeIn();
+void screenFadeOut();
+
 // The options' Gamma (-127..127): added to every colour offset but black.
 void screenGamma(int32_t gamma);
 // The title's picture dimmed (the Controls page) or back.

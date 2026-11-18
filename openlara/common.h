@@ -3215,6 +3215,7 @@ void osDrawDebug(); // the platform's debug menu and lines, and the fps counter,
 #endif
 void osSetGamma(int32 gamma);   // the screen's colour offsets on gGamma
 void osDimTitle(bool dim);      // the title's picture dimmed under the Controls page
+void osFadeOut();               // the frame shown to black, returning when it is
 bool osCheckSave();
 bool osSaveGame();
 bool osLoadGame();

@@ -74,6 +74,11 @@ void osSetGamma(int32 gamma)
     screenGamma(gamma);
 }
 
+void osFadeOut()
+{
+    screenFadeOut();
+}
+
 void osDimTitle(bool dim)
 {
     screenDimPicture(dim);
@@ -390,6 +395,7 @@ const void* osLoadLevel(LevelID id)
 
     planeReady();
     screenPlaneLevel(planeLevel());
+    screenFadeIn();
     screenRelease(false);
     crashHold(false);
     return LEVEL_ADDR;

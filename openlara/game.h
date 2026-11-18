@@ -494,6 +494,7 @@ void gameUpdate(int32 frames, bool items = true)
         (isPlayLevel(gNextLevel) || gNextLevel == LVL_TR1_TITLE))
     {
         gStatsDue = false;
+        osFadeOut();    // retail's stats screen fades to black first (06016558)
         inventory.openStats(menuLara(), gLevelStats);
         return;
     }

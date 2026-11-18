@@ -130,6 +130,7 @@ void osRoomFacesFlipped() {}
 // settings and the saved game: none in backup RAM, as a fresh Saturn
 void osSetGamma(int32) {}
 void osDimTitle(bool) {}
+void osFadeOut() {}
 bool osCheckSave() { return false; }
 bool osSaveGame() { return true; }
 bool osLoadGame() { return false; }

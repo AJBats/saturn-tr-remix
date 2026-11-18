@@ -109,6 +109,20 @@ static void showLayers()
 {
     VDP2_PRINA = gPicture ? PICTURE_PRIORITY : OVERLAY_PRIORITY;
     VDP2_BGON = ((gPicture || gOverlay) ? BGON_N0ON : 0) | (gPlaneShown ? BGON_R0ON | BGON_R0TPON : 0);
+
+    // the offsets the layers take: A the bitmap, B the frames; on a plane
+    // level A the plane, B the bitmap and, while no picture shows, the frames
+    // (over a picture the ring fades by its shades, render.cpp shadesFade)
+    if (gPlaneLevel)
+    {
+        VDP2_CLOFSL = gPicture ? CLOF_N0 : CLOF_N0 | CLOF_SP;
+        VDP2_CLOFEN = gPicture ? CLOF_N0 | CLOF_R0 : CLOF_N0 | CLOF_R0 | CLOF_SP;
+    }
+    else
+    {
+        VDP2_CLOFSL = CLOF_SP;
+        VDP2_CLOFEN = CLOF_N0 | CLOF_SP;
+    }
 }
 
 static void showFrames()
@@ -116,13 +130,39 @@ static void showFrames()
     VDP2_PRISA = VDP2_PRISB = VDP2_PRISC = VDP2_PRISD = SPRITE_PRIORITY;
 }
 
+static bool gFadeInDue;         // the next frames shown are a level's first
+
 static void showFramesOnly()
 {
     gPicture = false;
     gPlaneShown = gPlaneLevel;
     showLayers();
     showFrames();
-    fadesClear();
+    if (gFadeInDue)
+    {
+        // up from black over 30 vblanks (retail's level render init, 060373fc)
+        gFadeInDue = false;
+        fade(FADE_PICTURE, -255, 0);
+        fade(FADE_FRAMES, -255, 0);
+        fade(FADE_PICTURE, 0, 30);
+        fade(FADE_FRAMES, 0, 30);
+    }
+    else
+    {
+        fadesClear();
+    }
+}
+
+void screenFadeIn()
+{
+    gFadeInDue = true;
+}
+
+void screenFadeOut()
+{
+    fade(FADE_PICTURE, -255, 30);
+    fade(FADE_FRAMES, -255, 30);
+    while (gFadeLeft[FADE_PICTURE] || gFadeLeft[FADE_FRAMES]);
 }
 
 static void hideFrames()
@@ -144,8 +184,7 @@ void screenFramesHidden(bool hidden)
 void screenPlaneLevel(bool on)
 {
     gPlaneLevel = on;
-    VDP2_CLOFSL = on ? CLOF_N0 : CLOF_SP;
-    VDP2_CLOFEN = on ? CLOF_N0 | CLOF_R0 : CLOF_N0 | CLOF_SP;
+    showLayers();
     fadeWrite();
 }
 
@@ -212,8 +251,7 @@ void screenInit()
     VDP2_ZMXDN0 = VDP2_ZMYDN0 = 0;
 
     fadesClear();
-    VDP2_CLOFSL = CLOF_SP;
-    VDP2_CLOFEN = CLOF_N0 | CLOF_SP;
+    showLayers();
     onVblank(fadeVblank);
 }
 
