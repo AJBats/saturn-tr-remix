@@ -18,9 +18,9 @@
 // its texture set, then what the game asks for (osLowAlloc), under the save
 // library's work area (common.h).
 #define LEVEL_ADDR  ((uint8*)0x00200000)
-#define LEVEL_MAX   (BACKUP_WORK_ADDR - uint32(LEVEL_ADDR))
+#define LEVEL_MAX   (LOW_LEVEL_TOP - uint32(LEVEL_ADDR))
 
-static uint8* gLowFree;     // the low work RAM the level leaves, from here to BACKUP_WORK_ADDR
+static uint8* gLowFree;     // the low work RAM the level leaves, from here to LOW_LEVEL_TOP
 
 void* osLowAlloc(uint32 bytes)
 {
@@ -37,7 +37,7 @@ void* osLowAlloc(uint32 bytes)
 
 uint32 osLowLeft()
 {
-    return BACKUP_WORK_ADDR - uint32(gLowFree);
+    return LOW_LEVEL_TOP - uint32(gLowFree);
 }
 
 // The size of DATA/<name><ext>, or 0 if the disc has none.
@@ -92,7 +92,9 @@ bool osSaveGame()
     strncpy(comment, (const char*)gLevelInfo[gLevelID].data, sizeof(comment));
     comment[sizeof(comment) - 1] = 0;
 
-    return backupWrite(SAVE_FILE, comment, &gSaveFile, offsetof(SaveFile, data) + gSaveGame.dataSize);
+    // the file: the game's header and progress, then its items, there already (gSaveData)
+    memcpy((void*)SAVE_AREA_ADDR, &gSaveFile, sizeof(SaveFile));
+    return backupWrite(SAVE_FILE, comment, (const void*)SAVE_AREA_ADDR, sizeof(SaveFile) + gSaveGame.dataSize);
 }
 
 bool osLoadGame()
@@ -104,10 +106,14 @@ bool osLoadGame()
     return true;
 }
 
-// The saved game read into gSaveFile, nothing more (the passport's list).
+// The saved game read: its header and progress into gSaveFile, its items
+// left in low work RAM (gSaveData) for the load.
 bool osReadSave()
 {
-    return backupRead(SAVE_FILE, &gSaveFile, sizeof(gSaveFile));
+    if (!backupRead(SAVE_FILE, (void*)SAVE_AREA_ADDR, SAVEGAME_SIZE))
+        return false;
+    memcpy(&gSaveFile, (const void*)SAVE_AREA_ADDR, sizeof(SaveFile));
+    return true;
 }
 
 void osJoyVibrate(int32 index, int32 L, int32 R)

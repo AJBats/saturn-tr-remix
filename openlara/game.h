@@ -137,10 +137,7 @@ bool gameSave()
 bool gameLoad()
 {
     if (!osLoadGame())
-    {
-        if (gSaveGame.dataSize == 0)
-            return false;
-    }
+        return false;
 
     SaveGame tmp = gSaveGame;
     gLevelID = (LevelID)gSaveGame.level;
@@ -157,7 +154,7 @@ bool gameLoad()
     inventory.setSlots(gSaveGame.invSlots);
     inventory.replaceGuns();
 
-        ItemObj::sFirstActive = NULL;
+    ItemObj::sFirstActive = NULL;
     ItemObj::sFirstFree = items + level.itemsCount;
     ItemObj::sFreeCount = MAX_ITEMS - level.itemsCount;
 
@@ -171,8 +168,6 @@ bool gameLoad()
             item->activate();
         }
     }
-
-    
 
     gRandSeedLogic = gSaveGame.randSeedLogic;
     gRandSeedDraw = gSaveGame.randSeedDraw;

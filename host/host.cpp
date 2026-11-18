@@ -67,7 +67,7 @@ char* itoa(int value, char* str, int base)
 // (enemy.h enemiesExtra), so the game's addresses are the Saturn's.
 #define LOW_RAM     0x00200000
 #define LEVEL_ADDR  ((uint8*)LOW_RAM)
-#define LEVEL_MAX   (BACKUP_WORK_ADDR - uint32(LOW_RAM))
+#define LEVEL_MAX   (LOW_LEVEL_TOP - uint32(LOW_RAM))
 
 static uint8* gLowFree;     // as saturn/os.cpp's: what the level leaves of low work RAM
 
@@ -85,7 +85,7 @@ void* osLowAlloc(uint32 bytes)
 
 uint32 osLowLeft()
 {
-    return BACKUP_WORK_ADDR - uint32(gLowFree);
+    return LOW_LEVEL_TOP - uint32(gLowFree);
 }
 
 static const char* gDataDir = ".";

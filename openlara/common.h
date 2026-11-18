@@ -1754,9 +1754,13 @@ struct ExtraInfoEnemy
 
 // Low work RAM from the top down: the trace's header, the creatures' AI
 // slots, the save library's work area (saturn/backup.cpp, only while it's
-// used), then what the level's pack and texture set leave (osLowAlloc).
+// used), the saved game's file (SAVE_AREA_ADDR: written as the game saves,
+// read as it loads, kept through the level's load between), then what the
+// level's pack and texture set leave (osLowAlloc), up to LOW_LEVEL_TOP.
 #define BACKUP_WORK_BYTES   (24 * 1024)
 #define BACKUP_WORK_ADDR    (LOW_RAM_TOP - ENEMIES_EXTRA_BYTES - BACKUP_WORK_BYTES)
+#define SAVE_AREA_ADDR      (BACKUP_WORK_ADDR - SAVEGAME_SIZE)
+#define LOW_LEVEL_TOP       SAVE_AREA_ADDR
 
 struct ItemObj
 {
@@ -1891,7 +1895,7 @@ struct ItemObj
 #define FLIP_FLAG_ONCE      32
 #define FLIP_FLAG_MASK      31
 
-#define SAVEGAME_SIZE   (8 * 1024)  // 8k EWRAM
+#define SAVEGAME_SIZE   (8 * 1024)  // the file's largest, in low work RAM (SAVE_AREA_ADDR)
 
 struct SaveGame
 {
@@ -2758,16 +2762,17 @@ struct Progress
 };
 
 // The file in backup RAM: the level played's header (cleared at each
-// level's start), the progress, then the item data.
+// level's start), the progress, then the item data. The first two are the
+// game's as it plays (gSaveFile); the file is put together, items and all,
+// in low work RAM (SAVE_AREA_ADDR) only as it is saved or loaded.
 struct SaveFile
 {
     SaveGame game;
     Progress progress;
-    uint8    data[SAVEGAME_SIZE - sizeof(SaveGame) - sizeof(Progress)];
 };
 
 #define gSaveGame   gSaveFile.game
-#define gSaveData   gSaveFile.data
+#define gSaveData   ((uint8*)(SAVE_AREA_ADDR + sizeof(SaveFile)))  // SAVEGAME_SIZE - sizeof(SaveFile) of it
 #define gProgress   gSaveFile.progress
 
 extern const LevelInfo gLevelInfo[LVL_MAX];
