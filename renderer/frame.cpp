@@ -759,6 +759,7 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         stageBegin(STAGE_POSE);
         poseShare(0, gPoseSlave);
         poseStatics();
+        poseGiven();
         stageEnd(STAGE_POSE);
     }
     stageBegin(STAGE_FEED);

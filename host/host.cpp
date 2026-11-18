@@ -174,6 +174,7 @@ static Room* gNoRooms[1];
 Room** renderWalk(Room* cameraRoom) { return gNoRooms; }
 void renderModel(const ItemObj* item) {}
 void renderModelUnder(const ItemObj* item) {}
+void renderMesh(int32 mesh, int32 ambient) {}
 void renderShadowCall(const ItemObj* item, int32 floor) {}
 void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index) {}
 void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index) {}

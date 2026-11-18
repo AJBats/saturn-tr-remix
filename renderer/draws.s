@@ -74,6 +74,9 @@
     .equ    D_FLASH_COUNT,  220
     .equ    D_FLASH_MAX,    224
     .equ    D_MODEL_DRAWN,  228     ! each model's joints drawn (bit j)
+    .equ    D_GIVEN,        236     ! PoseMesh: draw, matrix given; 4 bytes
+    .equ    D_GIVEN_COUNT,  240
+    .equ    D_GIVEN_MAX,    244
 
     .equ    CALL_BYTES,     32      ! CallRecord
     .equ    C_INDEX,        2
@@ -86,6 +89,7 @@
     .equ    CALL_SPRITE,    5
     .equ    CALL_RECT,      6
     .equ    CALL_GLYPH,     7
+    .equ    CALL_MESH,      8
     .equ    IT_POS,         8       ! ItemRecord: the item (GameItem), its room and index
     .equ    IT_ANGLE,       20
     .equ    IT_ANIM,        32
@@ -1116,6 +1120,44 @@
     rts
     nop
 
+! renderMesh: the call at r14 (its mesh in level.meshes, the matrix given
+! by its index): its draw, placed by pose.cpp poseGiven; none for a mesh
+! not in the store (a joint held still) or past the list's room
+.Lgiven:
+    mov.l   @(C_ARGS,r14), r0
+    add     r0, r0
+    mov     r0, r5
+    mov.l   @(D_MESH_INDEX,gbr), r0
+    mov.w   @(r0,r5), r5
+    extu.w  r5, r5
+    mov     #-1, r0
+    extu.w  r0, r0
+    cmp/eq  r0, r5
+    bt      9f
+    mov.l   @(D_GIVEN_COUNT,gbr), r0
+    mov     r0, r1
+    mov.l   @(D_GIVEN_MAX,gbr), r0
+    cmp/hs  r0, r1
+    bf      1f
+9:  rts
+    nop
+1:  sts.l   pr, @-r15
+    mov     r1, r0
+    add     #1, r0
+    mov.l   r0, @(D_GIVEN_COUNT,gbr)
+    shll2   r1
+    mov.l   @(D_GIVEN,gbr), r0
+    add     r0, r1                  ! its PoseMesh
+    mov.l   @(D_DRAW_COUNT,gbr), r0
+    mov.w   r0, @r1
+    mov.w   @(C_INDEX,r14), r0
+    mov.w   r0, @(2,r1)
+    bsr     .Lmesh
+    mov.l   @(C_FLAGS,r14), r6
+    lds.l   @r15+, pr
+    rts
+    nop
+
 ! renderSprite: the call at r14 (its place, shade, sprite)
 .Lsprite:
     sts.l   pr, @-r15
@@ -1472,6 +1514,7 @@ _drawsAsm:
     mov.l   r0, @(D_HINTED_COUNT,gbr)
     mov.l   r0, @(D_HINT_OPEN,gbr)
     mov.l   r0, @(D_FLASH_COUNT,gbr)
+    mov.l   r0, @(D_GIVEN_COUNT,gbr)
     mov     #-1, r0
     mov.l   r0, @(D_SHOWN,gbr)
     tst     r13, r13
@@ -1517,8 +1560,14 @@ _drawsAsm:
     bra     .Lnext
     nop
 6:  cmp/eq  #CALL_GLYPH, r0
-    bf      .Lnext
+    bf      7f
     bsr     .Lglyph
+    nop
+    bra     .Lnext
+    nop
+7:  cmp/eq  #CALL_MESH, r0
+    bf      .Lnext
+    bsr     .Lgiven
     nop
 .Lnext:
     mov.l   @(D_HINT_OPEN,gbr), r0

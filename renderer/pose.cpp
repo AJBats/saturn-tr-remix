@@ -45,6 +45,8 @@ static const PoseShadow* gShadows;
 static uint32_t gShadowCount;
 static const PoseFlash* gFlashes;
 static uint32_t gFlashCount;
+static const PoseMesh* gGivenMeshes;
+static uint32_t gGivenMeshCount;
 static const PoseLit* gGivenLights;
 
 int32_t poseDrawn(const PoseItem &item)
@@ -113,6 +115,8 @@ void poseSet(const PoseItem* items, uint32_t count, const PoseLight* rooms, cons
     gShadowCount = shadowCount;
     gFlashes = nullptr;
     gFlashCount = 0;
+    gGivenMeshes = nullptr;
+    gGivenMeshCount = 0;
     PoseContext* const contexts[2] = { &gCtx, &gSlaveCtx };
     for (PoseContext* ctx : contexts)
     {
@@ -128,6 +132,8 @@ void poseUse(const DrawList &list)
             nullptr);
     gFlashes = list.flashes;
     gFlashCount = list.flashCount;
+    gGivenMeshes = list.meshes;
+    gGivenMeshCount = list.meshCount;
 }
 
 // common.cpp's arithmetic: mul16 multiplies the low halves (MULS.W), sar is
@@ -304,6 +310,24 @@ void poseDrop(uint32_t first, uint32_t count)
 void poseStatics()
 {
     poseStaticsAsm(gStatics, gStaticCount, &gCtx);
+}
+
+void poseGiven()
+{
+    for (uint32_t i = 0; i < gGivenMeshCount; i++)
+    {
+        const PoseMesh &mesh = gGivenMeshes[i];
+        DrawXform &out = gOut[mesh.draw];
+        const PoseLit &lit = gGivenLights[mesh.given];
+        for (int32_t k = 0; k < 12; k++) {
+            out.m[k] = gCtx.matrices[mesh.given].m[k];
+        }
+        out.ambient = lit.ambient;
+        out.range = lit.range;
+        for (int32_t k = 0; k < 3; k++) {
+            out.light[k] = lit.view[k];
+        }
+    }
 }
 
 void poseShadows()

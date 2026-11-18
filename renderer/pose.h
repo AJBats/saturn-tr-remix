@@ -98,6 +98,10 @@ void poseFlash(DrawXform &out, const DrawXform &hand, const PoseFlash &flash);
 // its frames as places), or others with their frames in frames; and the
 // draws' transforms pose writes, by draw.
 void poseUse(const DrawList &list);
+
+// The draw list's meshes drawn under a matrix given (render.cpp renderMesh):
+// each its matrix and light as the game gave them (poseMatrices).
+void poseGiven();
 void poseSet(const PoseItem* items, uint32_t count, const PoseLight* rooms, const PoseStatic* statics,
              uint32_t staticCount, const PoseShadow* shadows, uint32_t shadowCount, const uint8_t* frames);
 DrawXform* poseXforms();

@@ -1793,7 +1793,7 @@ ItemObj* ItemObj::create(Room* room)
         // INIT_ITEM( NATLA_BULLET          , ??? );
         INIT_ITEM( MUTANT_BULLET         , Missile );
         INIT_ITEM( CENTAUR_BULLET        , Missile );
-        // INIT_ITEM( UNUSED_15             , ??? );
+        INIT_ITEM( BODY_PART             , BodyPart );
         // INIT_ITEM( UNUSED_16             , ??? );
                 INIT_ITEM( LAVA_PARTICLE         , LavaParticle );
         INIT_ITEM( LAVA_EMITTER          , LavaEmitter );

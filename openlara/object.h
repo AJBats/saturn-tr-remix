@@ -295,6 +295,179 @@ struct Missile : ItemObj
 };
 
 
+// A piece of a creature that burst (retail's O_BODY_PART: ControlBodyPart
+// 0603202c, made by ExplodingDeath 06031c64): one of its meshes flying off
+// along its heading, tumbling, falling, bouncing off a ceiling. One that
+// carries damage bursts at the floor or on Lara, hurting her by it; one that
+// doesn't is gone at the floor. headOffset is its mesh (level.meshes), timer
+// its damage, hSpeed and vSpeed its speeds.
+struct BodyPart : ItemObj
+{
+    BodyPart(Room* room) : ItemObj(room)
+    {
+        flags &= ~ITEM_FLAG_COLLISION;
+        activate();
+    }
+
+    void burst(Room* at)
+    {
+        vec3i p = pos;
+        soundPlay(SND_EXPLOSION, &p);
+        remove();
+        ItemObj* fx = ItemObj::add(ITEM_EXPLOSION, at, p, 0);
+        if (fx)
+        {
+            fx->timer = 2;
+            fx->flags |= ITEM_FLAG_ANIMATED;
+        }
+    }
+
+    virtual void update()
+    {
+        angle.x += 0x38E;   // 5 degrees a tick
+        angle.z += 0x71C;   // 10
+        int32 s, c;
+        sincos(angle.y, s, c);
+        pos.z += hSpeed * c >> FIXED_SHIFT;
+        pos.x += hSpeed * s >> FIXED_SHIFT;
+        vSpeed += GRAVITY;
+        pos.y += vSpeed;
+
+        Room* nextRoom = room->getRoom(pos.x, pos.y, pos.z);
+        const Sector* sector = nextRoom->getSector(pos.x, pos.z);
+        int32 ceiling = sector->getCeiling(pos.x, pos.y, pos.z);
+        if (pos.y < ceiling)
+        {
+            vSpeed = -vSpeed;
+            pos.y = ceiling;
+        }
+
+        if (pos.y >= sector->getFloor(pos.x, pos.y, pos.z))
+        {
+            if (timer) {
+                burst(room);
+            } else {
+                remove();
+            }
+            return;
+        }
+
+        // within twice its damage of her (none: never)
+        Lara* lara = getLara(pos);
+        if (timer && itemNearLara(lara, pos, timer * 2))
+        {
+            lara->hit(timer, pos, 0);
+            if (lara->health > 0) {
+                lara->animHit(pos.x - lara->pos.x, pos.z - lara->pos.z, 5);
+            }
+            burst(nextRoom);
+            return;
+        }
+
+        if (nextRoom != room)
+        {
+            room->remove(this);
+            nextRoom->add(this);
+        }
+    }
+
+    // its mesh turned by its angles where it is, lit flat by its room's
+    // lights and the fog (retail's DrawEffect lights it by whatever drew
+    // last): halfway between its room's brightest light at it and the
+    // ambient, as an item's light averages (pose.s poseLightAsm)
+    virtual void draw()
+    {
+        const RoomInfo* info = room->info;
+        int32 ambient = info->ambient << 5;
+        if (info->lightsCount)
+        {
+            const int32 base = 8191 - ambient;
+            int32 brightest = 0;
+            for (int32 i = 0; i < info->lightsCount; i++)
+            {
+                const Light &l = room->data.lights[i];
+                int32 dx = pos.x - ((info->x << 8) + l.pos.x);
+                int32 dy = pos.y - l.pos.y;
+                int32 dz = pos.z - ((info->z << 8) + l.pos.z);
+                int32 dist = (dx * dx + dy * dy + dz * dz) >> 12;
+                int32 att = X_SQR(l.radius << 8) >> 12;
+                brightest = X_MAX(brightest, (l.intensity << 5) * att / (dist + att) + base);
+            }
+            ambient = 8191 - ((brightest + base) >> 1);
+        }
+
+        // under the scene's view as the renderer takes it (render.cpp view)
+        matrixPush();
+        Matrix &m = matrixGet();
+        m.e00 = gViewRotation[0]; m.e01 = gViewRotation[1]; m.e02 = gViewRotation[2]; m.e03 = 0;
+        m.e10 = gViewRotation[3]; m.e11 = gViewRotation[4]; m.e12 = gViewRotation[5]; m.e13 = 0;
+        m.e20 = gViewRotation[6]; m.e21 = gViewRotation[7]; m.e22 = gViewRotation[8]; m.e23 = 0;
+        matrixTranslateAbs(pos.x, pos.y, pos.z);
+        matrixRotateYXZ(angle.x, angle.y, angle.z);
+        int32 depth = m.e23 >> FIXED_SHIFT;
+        if (depth > FOG_MIN) {
+            ambient = X_MIN(ambient + depth - FOG_MIN, 8191);
+        }
+        renderMesh(headOffset, ambient);
+        matrixPop();
+    }
+};
+
+// Retail's ExplodingDeath (06031c64): each of the item's meshes in meshBits it
+// still shows flies off as a BodyPart from where its pose puts it, on a
+// random heading, faster for the torso (Adam), carrying damage. True once it
+// shows none of its meshes. (Retail turns the head and neck by the
+// creature's extra angles first; the parts here start from the pose without
+// them.)
+bool explodingDeath(ItemObj* item, uint32 meshBits, int32 damage)
+{
+    const Model &model = level.models[item->type];
+    const AnimFrame* frame = item->getFrame();
+    const uint32* angles = (const uint32*)(frame->angles + 1);
+    const ModelNode* node = level.nodes + model.nodeIndex;
+    const int32 shift = (item->type == ITEM_ADAM) ? 7 : 8;
+
+    Matrix* oldMatrixPtr = gMatrixPtr;
+    matrixPush();
+    matrixSetIdentity();
+    matrixRotateYXZ(item->angle.x, item->angle.y, item->angle.z);
+    matrixFrame(&frame->pos, angles);
+
+    for (int32 i = 0; i < model.count; i++)
+    {
+        if (i)
+        {
+            if (node->flags & 1) matrixPop();
+            if (node->flags & 2) matrixPush();
+            matrixFrame(&node->pos, ++angles);
+            node++;
+        }
+
+        const uint32 bit = 1u << i;
+        if (!(meshBits & item->visibleMask & bit))
+            continue;
+        item->visibleMask &= ~bit;
+
+        const Matrix &m = matrixGet();
+        vec3i p = item->pos;
+        p.x += m.e03 >> (FIXED_SHIFT - MATRIX_FIXED_SHIFT);
+        p.y += m.e13 >> (FIXED_SHIFT - MATRIX_FIXED_SHIFT);
+        p.z += m.e23 >> (FIXED_SHIFT - MATRIX_FIXED_SHIFT);
+
+        ItemObj* part = ItemObj::add(ITEM_BODY_PART, item->room, p, (rand_logic() - 0x4000) * 2);
+        if (!part)
+            continue;
+        part->hSpeed = int16(rand_logic() >> shift);
+        part->vSpeed = int16(-rand_logic() >> shift);
+        part->timer = int16(damage);
+        part->headOffset = uint16(model.start + i);
+    }
+
+    gMatrixPtr = oldMatrixPtr;
+    return !(item->visibleMask & (0x7FFFFFFFu >> (31 - model.count)));
+}
+
+
 struct Bubble : ItemObj
 {
     Bubble(Room* room) : ItemObj(room)
@@ -2425,8 +2598,8 @@ void wake(ItemObj* item)
 // A centaur statue in Tomb of Tihocan, as retail's InitialiseStatue and
 // StatueControl (06032454, 0603255c): solid, holding a hidden centaur turned
 // as it is; once its trigger has woken it, Lara within 3.5 sectors (and a
-// sector up or down) frees the centaur, at once and forced into the AI, with
-// SFX 104. (The statue's shatter waits for issue 213.)
+// sector up or down) bursts and frees the centaur, at once and forced into
+// the AI, with SFX 104.
 struct CentaurStatue : Object
 {
     CentaurStatue(Room* room) : Object(room)
@@ -2453,6 +2626,7 @@ struct CentaurStatue : Object
         if (d.y > -1024 && d.y < 1024 && abs(d.x) < 3584 && abs(d.z) < 3584 &&
             X_SQR(d.x) + X_SQR(d.z) < X_SQR(3584))
         {
+            explodingDeath(this, 0xFFFFFFFF, 0);
             flags &= ~(ITEM_FLAG_STATUS | ITEM_FLAG_COLLISION);
             flags |= ITEM_FLAG_STATUS_INVISIBLE;
             deactivate();
@@ -2497,6 +2671,11 @@ struct MutantEgg : Object
         visibleMask = 0xFF0001FF;
     }
 
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        collideDefault(lara, cinfo);
+    }
+
     virtual void update()
     {
         if (goalState != STATE_EXPLODE)
@@ -2514,6 +2693,7 @@ struct MutantEgg : Object
                 goalState = STATE_EXPLODE;
                 visibleMask = 0xFFFFFF;
                 flags &= ~ITEM_FLAG_COLLISION;
+                explodingDeath(this, 0xFFFE00, 0);     // the shell, the base kept
                 if (headOffset) {
                     wake(items + headOffset - 1);
                 }

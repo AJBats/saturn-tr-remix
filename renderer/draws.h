@@ -20,6 +20,7 @@ namespace render {
 #define MAX_DRAW_SHADOWS    32
 #define MAX_DRAW_FACES      256
 #define MAX_DRAW_FLASHES    4
+#define MAX_DRAW_MESHES     48      // render.cpp MAX_GIVEN
 
 struct DrawsContext
 {
@@ -72,6 +73,9 @@ struct DrawsContext
     uint32_t flashMax;          // +224
     const uint32_t* modelDrawn; // +228 each model's joints drawn (drawsJointsDrawn)
     int32_t meshFar;            // +232 a sphere wholly past it isn't drawn: VIEW_MAX_F
+    PoseMesh* given;            // +236 the meshes drawn under a matrix given
+    uint32_t givenCount;        // +240
+    uint32_t givenMax;          // +244
 };
 
 extern "C" void drawsAsm(DrawsContext* ctx);

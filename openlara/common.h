@@ -1413,7 +1413,7 @@ struct Lara;
     E( SPARKLES              ) \
     E( MUZZLE_FLASH          ) \
     E( UNUSED_14             ) \
-    E( UNUSED_15             ) \
+    E( BODY_PART             ) \
     E( VIEW_TARGET           ) \
     E( WATERFALL             ) \
     E( NATLA_BULLET          ) \
@@ -3091,6 +3091,7 @@ void clear();
 Room** renderWalk(Room* cameraRoom);
 void renderModel(const ItemObj* item);
 void renderModelUnder(const ItemObj* item);    // the inventory's: under the matrix on top, lit by gLight*
+void renderMesh(int32 mesh, int32 ambient);     // a level mesh under the matrix on top, lit flat
 void renderShadowCall(const ItemObj* item, int32 floor);
 void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index);
 void renderRoomsFlipped();  // after flipMap, at levelCommit
@@ -3141,6 +3142,7 @@ bool trace(const Location &from, Location &to, bool accurate);
 
 Lara* getLara(const vec3i &pos);
 void lavaBurn(ItemObj* lara);
+bool explodingDeath(ItemObj* item, uint32 meshBits, int32 damage);
 
 bool useSwitch(ItemObj* item, int32 timer);
 bool useKey(ItemObj* item, ItemObj* lara);

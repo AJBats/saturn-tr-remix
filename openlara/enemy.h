@@ -901,6 +901,7 @@ struct Enemy : ItemObj
 
         if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INACTIVE)
         {
+            deathEnd();
             if (type != ITEM_REX) {     // the dead T-rex stays solid (retail's DinoControl)
                 flags &= ~ITEM_FLAG_COLLISION;
             }
@@ -916,6 +917,9 @@ struct Enemy : ItemObj
     {
         return goalState;
     }
+
+    // its death played out (its animation's KILL), before it's let go
+    virtual void deathEnd() {}
 
     virtual void initExtra()
     {
@@ -3230,22 +3234,6 @@ struct Mutant : Gunman
         }
     }
 
-    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
-    {
-        Enemy::hit(damage, point, soundId);
-
-        if (health <= 0)
-        {
-            soundPlay(SND_MUTANT_DEATH, &pos);
-            fxBlood(pos, angle.y, 0);
-            health = NOT_ENEMY;
-            flags &= ~ITEM_FLAG_STATUS;
-            flags |= ITEM_FLAG_STATUS_INVISIBLE;
-            disable();
-            deactivate();
-        }
-    }
-
     // its path on the ground, or in the air at 32 a tick
     void ground()
     {
@@ -3273,8 +3261,23 @@ struct Mutant : Gunman
             flags |= ITEM_FLAG_STATUS_ACTIVE;
         }
 
-        if (!extraE || health <= 0)
+        if (!extraE)
             return;
+
+        // dead, it bursts (FlyerControl: ExplodingDeath, 100 a part)
+        if (health <= 0)
+        {
+            if (explodingDeath(this, 0xFFFFFFFF, 100))
+            {
+                soundPlay(SND_MUTANT_DEATH, &pos);
+                health = NOT_ENEMY;
+                flags &= ~ITEM_FLAG_STATUS;
+                flags |= ITEM_FLAG_STATUS_INVISIBLE;
+                disable();
+                deactivate();
+            }
+            return;
+        }
 
         ground();
         updateTargetInfo();
@@ -3496,18 +3499,19 @@ struct Centaur : Gunman
         deathAnim(ANIM_DEATH);
     }
 
+    // it bursts (CentaurControl), 100 a part
+    virtual void deathEnd()
+    {
+        soundPlay(SND_MUTANT_DEATH, &pos);
+        explodingDeath(this, 0xFFFFFFFF, 100);
+        flags &= ~ITEM_FLAG_STATUS;
+        flags |= ITEM_FLAG_STATUS_INVISIBLE;
+    }
+
     virtual int32 updateState()
     {
         if (health <= 0)
-        {
-            if (animIsEnd(0))
-            {
-                soundPlay(SND_MUTANT_DEATH, &pos);
-                flags &= ~ITEM_FLAG_STATUS;
-                flags |= ITEM_FLAG_STATUS_INVISIBLE;
-            }
             return goalState;
-        }
 
         extraE->maxTurn = ENEMY_TURN_4;
 
@@ -3917,22 +3921,24 @@ struct Adam : Enemy
         }
     }
 
+    // it bursts, 250 a part, and sets off the trigger under it
+    // (AbortionControl)
+    virtual void deathEnd()
+    {
+        soundPlay(SND_MUTANT_DEATH, &pos);
+        explodingDeath(this, 0xFFFFFFFF, 250);
+        room->getSector(pos.x, pos.z)->getFloor(pos.x, pos.y, pos.z);
+        checkTrigger(gLastFloorData, NULL);
+        flags &= ~ITEM_FLAG_STATUS;
+        flags |= ITEM_FLAG_STATUS_INVISIBLE;
+    }
+
     virtual int32 updateState()
     {
         extraE->maxTurn = 0;
 
         if (health <= 0)
-        {
-            if (animIsEnd(0) && (flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE)
-            {
-                soundPlay(SND_MUTANT_DEATH, &pos);
-                room->getSector(pos.x, pos.z)->getFloor(pos.x, pos.y, pos.z);
-                checkTrigger(gLastFloorData, NULL);
-                flags &= ~ITEM_FLAG_STATUS;
-                flags |= ITEM_FLAG_STATUS_INVISIBLE;
-            }
             return goalState;
-        }
 
         Lara* lara = (Lara*)tinfo.target;
 

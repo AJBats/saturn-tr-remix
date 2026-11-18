@@ -54,7 +54,7 @@ static uint32 gCallCount;
 static render::ItemRecord gItems[MAX_DRAW_ITEMS];
 static uint32 gItemCount;
 static bool gWalked;            // the rooms are walked this frame
-#define MAX_GIVEN       16          // the inventory's items a frame
+#define MAX_GIVEN       48          // the inventory's items, or the meshes renderMesh draws, a frame
 static int32_t gGiven[MAX_GIVEN][12];   // the matrices models are drawn under
 static render::PoseLit gGivenLights[MAX_GIVEN];     // and the light each is lit by
 static uint32 gGivenCount;
@@ -145,6 +145,22 @@ void renderModelUnder(const ItemObj* item)
     l.pad = 0;
     c->args[0] = -1;
     c->args[1] = ++gGivenCount;
+}
+
+// One of the level's meshes under the matrix on top, lit flat by ambient
+// (a body part's, object.h BodyPart).
+void renderMesh(int32 mesh, int32 ambient)
+{
+    if (gGivenCount == MAX_GIVEN)
+        return;
+    render::CallRecord* c = call(render::CALL_MESH, gGivenCount);
+    if (!c)
+        return;
+    memcpy(gGiven[gGivenCount], &matrixGet(), sizeof(gGiven[0]));
+    render::PoseLit &l = gGivenLights[gGivenCount++];
+    memset(&l, 0, sizeof(l));
+    l.ambient = ambient;
+    c->args[0] = mesh;
 }
 
 void renderShadowCall(const ItemObj* item, int32 floor)
