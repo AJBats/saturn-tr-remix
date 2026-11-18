@@ -22,7 +22,7 @@ void Camera::initCinematic()
             break;
         case LVL_TR1_CUT_3:
             gCinematicCamera.targetAngle.y = ANGLE_90;
-            //level.flip();
+            flipMap();      // retail's cutscene start (0600d574), its case 0x12
             break;
         case LVL_TR1_CUT_4:
             gCinematicCamera.targetAngle.y = ANGLE_90;

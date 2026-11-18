@@ -4026,13 +4026,6 @@ struct Lara : ItemObj
         Arm armR;
         Arm armL;
 
-        uint8 cameraRoom;
-        uint8 cameraLastIndex;
-
-        int16 cameraViewX;
-        int16 cameraViewY;
-        int16 cameraViewZ;
-
         int16 ammo[WEAPON_NONE];
 
         uint16 meshes[JOINT_MAX];
@@ -4057,12 +4050,6 @@ struct Lara : ItemObj
         sg->armL.animIndex  = extraL->armL.animIndex;
         sg->armL.frameIndex = extraL->armL.frameIndex;
 
-        const Room* camRoom = extraL->camera.view.room;
-        sg->cameraRoom = camRoom - rooms;
-        sg->cameraLastIndex = extraL->camera.lastIndex;
-        sg->cameraViewX = extraL->camera.view.pos.x - (camRoom->info->x << 8);
-        sg->cameraViewY = extraL->camera.view.pos.y - (camRoom->info->yTop);
-        sg->cameraViewZ = extraL->camera.view.pos.z - (camRoom->info->z << 8);
 
         memcpy(sg->ammo, extraL->ammo, sizeof(sg->ammo));
 
@@ -4091,14 +4078,10 @@ struct Lara : ItemObj
         extraL->armL.animIndex  = sg->armL.animIndex;
         extraL->armL.frameIndex = sg->armL.frameIndex;
 
+        // the camera afresh, above her and pulling back, as every retail
+        // session's (GameLoop 0601636c, InitialiseCamera 0600bfe0); a save
+        // holds none
         extraL->camera.init(this);
-
-        Room* camRoom = rooms + sg->cameraRoom;
-        extraL->camera.view.room = camRoom;
-        extraL->camera.lastIndex = sg->cameraLastIndex;
-        extraL->camera.view.pos.x = sg->cameraViewX + (camRoom->info->x << 8);
-        extraL->camera.view.pos.y = sg->cameraViewY + (camRoom->info->yTop);
-        extraL->camera.view.pos.z = sg->cameraViewZ + (camRoom->info->z << 8);
 
         memcpy(extraL->ammo, sg->ammo, sizeof(sg->ammo));
 
