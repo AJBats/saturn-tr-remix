@@ -463,34 +463,6 @@ struct Lara : ItemObj
     }
 
 // state control
-    bool s_checkFront(int16 angleDelta, int32 radius) 
-    {
-        CollisionInfo tmpInfo = cinfo;
-        int16 tmpAngle = extraL->moveAngle;
-
-        c_angle(angleDelta);
-        cinfo.radius      = radius;
-        cinfo.type        = CT_NONE;
-        cinfo.gapPos      = -WALL;
-        cinfo.gapNeg      = -LARA_STEP_HEIGHT;
-        cinfo.stopOnSlant = true;
-        cinfo.gapCeiling  = 0;
-
-        if ((angleDelta == ANGLE_180) && (input & IN_WALK)) {
-            cinfo.gapPos = LARA_STEP_HEIGHT;
-            cinfo.stopOnLava = true;
-        }
-
-        collideRoom(LARA_HEIGHT, 0);
-
-        bool collide = (cinfo.type == CT_FRONT) || (cinfo.type == CT_FRONT_CEILING);
-
-        cinfo = tmpInfo;
-        extraL->moveAngle = tmpAngle;
-
-        return !collide;
-    }
-
     void s_ignoreEnemy()
     {
         cinfo.enemyPush = false;
@@ -526,12 +498,8 @@ struct Lara : ItemObj
 
     void s_checkWalk(int32 stopState)
     {
-        if ((input & IN_UP) && s_checkFront(ANGLE_0, LARA_RADIUS + 4)) {
-            if (input & IN_WALK) {
-                goalState = STATE_WALK;
-            } else {
-                goalState = STATE_RUN;
-            }
+        if (input & IN_UP) {
+            goalState = (input & IN_WALK) ? STATE_WALK : STATE_RUN;
         } else {
             goalState = stopState;
         }
@@ -656,12 +624,14 @@ struct Lara : ItemObj
 
         goalState = STATE_STOP;
 
-        if (s_checkLook(ANGLE(2), ANGLE(50), ANGLE(-42), ANGLE(22), false))
+        if (s_checkLook(364, 8008, -7644, 4004, false))
             return;
 
-        if ((input & IN_STEP_LEFT) && s_checkFront(-ANGLE_90, LARA_RADIUS + 16)) {
+        // no test of what's ahead: the walk, run and step collisions meet it
+        // (retail's LaraAsStop, 0601b2e4)
+        if (input & IN_STEP_LEFT) {
             goalState = STATE_STEP_LEFT;
-        } else if ((input & IN_STEP_RIGHT) && s_checkFront(ANGLE_90, LARA_RADIUS + 16)) {
+        } else if (input & IN_STEP_RIGHT) {
             goalState = STATE_STEP_RIGHT;
         }
 
@@ -673,13 +643,13 @@ struct Lara : ItemObj
 
         if (input & IN_JUMP) {
             goalState = STATE_COMPRESS;
-        } else if ((input & IN_UP) && s_checkFront(ANGLE_0, LARA_RADIUS + 4)) {
+        } else if (input & IN_UP) {
             if (input & IN_WALK) {
                 s_STATE_WALK();
             } else {
                 s_STATE_RUN();
             }
-        } else if ((input & IN_DOWN) && s_checkFront(ANGLE_180, LARA_RADIUS + 4)) {
+        } else if (input & IN_DOWN) {
             if (input & IN_WALK) {
                 s_STATE_BACK();
             } else {
@@ -739,7 +709,8 @@ struct Lara : ItemObj
 
         turnSpeed += LARA_TURN_ACCEL;
 
-        if ((turnSpeed > LARA_TURN_SLOW || extraL->weaponState == WEAPON_STATE_READY) && !(input & IN_WALK))
+        // guns out, the fast turn even walking (retail's LaraAsTurnR, 0601b5e8)
+        if (extraL->weaponState == WEAPON_STATE_READY || (turnSpeed > LARA_TURN_SLOW && !(input & IN_WALK)))
         {
             goalState = STATE_TURN_FAST;
         }
@@ -758,7 +729,7 @@ struct Lara : ItemObj
 
         turnSpeed -= LARA_TURN_ACCEL;
 
-        if ((turnSpeed < -LARA_TURN_SLOW || extraL->weaponState == WEAPON_STATE_READY) && !(input & IN_WALK))
+        if (extraL->weaponState == WEAPON_STATE_READY || (turnSpeed < -LARA_TURN_SLOW && !(input & IN_WALK)))
         {
             goalState = STATE_TURN_FAST;
         }
@@ -1037,7 +1008,7 @@ struct Lara : ItemObj
         if (s_checkDeath(STATE_DEATH_UW))
             return;
 
-        if (s_checkLook(ANGLE(3), ANGLE(50), ANGLE(-40), ANGLE(40), true))
+        if (s_checkLook(546, 9100, -7280, 7280, true))
             return;
 
         if (input & IN_LEFT) {
@@ -1396,10 +1367,12 @@ struct Lara : ItemObj
 
     bool c_checkWall()
     {
+        // retail's LaraDeflectEdge (0601da6c): a wall ahead stops her (the
+        // state too); one at a side turns her off it
         if (cinfo.type == CT_FRONT || cinfo.type == CT_FRONT_CEILING)
         {
             c_applyOffset();
-            goalState = STATE_STOP;
+            state = goalState = STATE_STOP;
             hSpeed = 0;
             flags &= ~ITEM_FLAG_GRAVITY;
             return true;
@@ -1408,11 +1381,9 @@ struct Lara : ItemObj
         if (cinfo.type == CT_LEFT) {
             c_applyOffset();
             angle.y += ANGLE(5);
-            angle.z = angleDec(angle.z, ANGLE(2));
         } else if (cinfo.type == CT_RIGHT) {
             c_applyOffset();
             angle.y -= ANGLE(5);
-            angle.z = angleDec(angle.z, ANGLE(2));
         }
 
         return false;
@@ -1429,7 +1400,7 @@ struct Lara : ItemObj
                 vSpeed = 0;
             }
         } else if (cinfo.type == CT_CEILING) {
-            if (angle.x >= ANGLE(-45)) {
+            if (angle.x > -8191) {
                 angle.x -= ANGLE(2);
             }
         } else if (cinfo.type == CT_FRONT_CEILING) {
@@ -1439,8 +1410,7 @@ struct Lara : ItemObj
         } else if (cinfo.type == CT_RIGHT) {
             angle.y -= ANGLE(5);
         } else if (cinfo.type == CT_FLOOR_CEILING) {
-            pos = cinfo.pos;
-            vSpeed = 0;
+            vSpeed = 0;     // only stopped, where she is (LaraSwimCollision 0602201c)
             return true;
         }
 
@@ -1680,7 +1650,10 @@ struct Lara : ItemObj
         if (alignAngle(angle.y, ANGLE(35)))
             return false;
 
-        if (state == STATE_REACH)
+        // from a reach the grab as the reach's box measured it (retail's
+        // LaraTestHangJump, 0601dfe8); from an up-jump by the hang's
+        const bool reach = (state == STATE_REACH);
+        if (reach)
         {
             if (c_checkSwing()) {
                 animSet(ANIM_HANG_SWING, true);
@@ -1692,7 +1665,7 @@ struct Lara : ItemObj
         }
 
         setWeaponState(WEAPON_STATE_BUSY);
-        cinfo.offset.y = cinfo.f.floor - getBoundingBox(true).minY;
+        cinfo.offset.y = reach ? h : cinfo.f.floor - getBoundingBox(true).minY;
 
         c_applyOffset();
 
@@ -1805,7 +1778,8 @@ struct Lara : ItemObj
         if (vSpeed <= 0 || cinfo.m.floor > 0)
             return;
 
-        if (c_checkLanding()) {
+        // a swan dive just lands: no fall damage, no triggers (LaraColSwanDive 0601d418)
+        if (state != STATE_SWAN_DIVE && c_checkLanding()) {
             goalState = STATE_DEATH;
         } else if (state == STATE_JUMP && (input & IN_UP) && !(input & IN_WALK)) {
             goalState = STATE_RUN;
@@ -2231,17 +2205,10 @@ struct Lara : ItemObj
 
         c_angle(ANGLE_0);
 
-        if (input == (IN_UP | IN_ACTION)) // to check front climb up from STOP state
-        {
-            int32 s, c;
-            sincos(cinfo.angle, s, c);
-            pos.x += (s * 4) >> FIXED_SHIFT;
-            pos.z += (c * 4) >> FIXED_SHIFT;
-        }
-
+        // retail's LaraColStop (0601c4fc): a ceiling, a fall, a slide, no vault
         c_default();
 
-        if (c_checkClimbUp())
+        if (c_checkCeiling())
             return;
 
         if (c_checkFall(100))
@@ -2335,7 +2302,7 @@ struct Lara : ItemObj
 
         if ((input & IN_UP) && goalState == STATE_HANG)
         {
-            if (abs(cinfo.f.floor) >= 850)
+            if (cinfo.f.floor < -849 || cinfo.f.floor > -651)   // the ledge 651..849 up (LaraColHang 0601ca00)
                 return;
 
             if (c_checkSpace() || cinfo.staticHit)
@@ -3920,15 +3887,19 @@ struct Lara : ItemObj
 
         if (health > 0)
         {
+            // retail's LaraControl (06020144): full at once on land, 10 a
+            // tick at the surface, 5 health a tick once it's out under water
             if (waterState == WATER_STATE_UNDER)
             {
-                if (oxygen > 0) {
-                    oxygen--;
-                } else {
+                if (--oxygen < 0)
+                {
+                    oxygen = -1;
                     hit(5, pos, 0);
                 }
-            } else {
+            } else if (waterState == WATER_STATE_SURFACE) {
                 oxygen = X_MIN(oxygen + 10, LARA_MAX_OXYGEN);
+            } else {
+                oxygen = LARA_MAX_OXYGEN;
             }
         }
 
@@ -4047,6 +4018,11 @@ struct Lara : ItemObj
         uint8 goalWeapon;
         uint8 waterState;
 
+        int16 moveAngle;    // as retail's save holds all of LARA_INFO
+        int16 turnSpeed;
+        int16 swimTimer;
+        int16 pad;          // the record a whole number of longwords, as the items' after it need
+
         struct Arm {
             uint16 animIndex;
             uint16 frameIndex;
@@ -4073,6 +4049,9 @@ struct Lara : ItemObj
         sg->weapon = extraL->weapon;
         sg->goalWeapon = extraL->goalWeapon;
         sg->waterState = waterState;
+        sg->moveAngle = extraL->moveAngle;
+        sg->turnSpeed = turnSpeed;
+        sg->swimTimer = extraL->swimTimer;
 
         sg->armR.animIndex  = extraL->armR.animIndex;
         sg->armR.frameIndex = extraL->armR.frameIndex;
@@ -4101,6 +4080,9 @@ struct Lara : ItemObj
         extraL->weapon = sg->weapon;
         extraL->goalWeapon = sg->goalWeapon;
         waterState = sg->waterState;
+        extraL->moveAngle = sg->moveAngle;
+        turnSpeed = sg->turnSpeed;
+        extraL->swimTimer = sg->swimTimer;
 
         extraL->armR.animIndex  = sg->armR.animIndex;
         extraL->armR.frameIndex = sg->armR.frameIndex;
