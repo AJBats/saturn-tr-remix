@@ -468,6 +468,31 @@ bool explodingDeath(ItemObj* item, uint32 meshBits, int32 damage)
 }
 
 
+// A creature's gun flash (retail's O_GUN_FLASH: made by GunShot 060286e4,
+// ControlGunShot): the muzzle flash's mesh at the gun for 3 ticks, rolled
+// afresh each tick, lit at its full light (intensity 128: retail's shade
+// 4096).
+struct GunFlash : ItemObj
+{
+    GunFlash(Room* room) : ItemObj(room)
+    {
+        flags &= ~ITEM_FLAG_COLLISION;
+        timer = 3;
+        activate();
+    }
+
+    virtual void update()
+    {
+        if (!--timer)
+        {
+            remove();
+            return;
+        }
+        angle.z = int16(rand_logic());
+    }
+};
+
+
 struct Bubble : ItemObj
 {
     Bubble(Room* room) : ItemObj(room)

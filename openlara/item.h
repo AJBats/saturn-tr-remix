@@ -1803,9 +1803,9 @@ ItemObj* ItemObj::create(Room* room)
         INIT_ITEM( MUTANT_EGG_SMALL      , MutantEgg );
         INIT_ITEM( RICOCHET              , SpriteEffect );
         INIT_ITEM( SPARKLES              , SpriteEffect );
-        // INIT_ITEM( MUZZLE_FLASH          , ??? );
         // INIT_ITEM( UNUSED_13             , ??? );
         // INIT_ITEM( UNUSED_14             , ??? );
+        INIT_ITEM( MUZZLE_FLASH          , GunFlash );
         INIT_ITEM( VIEW_TARGET           , ViewTarget );
         INIT_ITEM( WATERFALL             , Waterfall );
         // INIT_ITEM( NATLA_BULLET          , ??? );

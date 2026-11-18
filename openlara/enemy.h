@@ -2530,24 +2530,39 @@ struct Gunman : Enemy
         return trace(from, to, false);
     }
 
-        // TR1's ShotLara (060289b8): the nearer, the likelier a hit, by the
-    // squared distance; a miss ricochets by her
+    // TR1's ShotLara (060289b8): the nearer, the likelier a hit, by the
+    // squared distance, none past the range. A hit (GunHit 06028778) bleeds
+    // her at a random joint, going on with her, with the bullet-hit sound; a
+    // miss (GunMiss 06028890) ricochets off her floor within 256 of her.
+    // Either way the gun flashes (GunShot 060286e4), turned with the head.
     bool shoot(int32 damage, const vec3i &muzzle, int32 joint, int32 dist2)
     {
-        const int32 range = DIST_SHOOT * DIST_SHOOT;
-        if (!tinfo.target || dist2 > range)
+        ItemObj* target = tinfo.target;
+        if (!target)
             return false;
 
-        bool hit = rand_logic() < (range - dist2) / (range / 0x7FFF) - 0x2000;
+        const int32 range = DIST_SHOOT * DIST_SHOOT;
+        bool hit = dist2 <= range && rand_logic() < (range - dist2) / (range / 0x7FFF) - 0x2000;
 
-        if (hit) {
-            bite(damage, muzzle, joint);
-        } else {
-            vec3i p = tinfo.target->pos;
-            p.x += (rand_logic() - 0x4000) >> 6;
-            p.y -= 512 + (rand_logic() >> 5);
-            p.z += (rand_logic() - 0x4000) >> 6;
-            fxRicochet(tinfo.target->room, p, true);
+        if (hit)
+        {
+            // retail picks of 25 joints; Lara has 15
+            int32 j = X_MIN((rand_logic() * 25) / 0x7FFF, level.models[target->type].count - 1);
+            target->fxBlood(target->pos + target->getJoint(j, _vec3i(0, 0, 0)), target->angle.y, target->hSpeed);
+            soundPlay(SND_BULLET_HIT, &target->pos);
+            target->hit(damage, target->pos, 0);
+        }
+        else
+        {
+            vec3i p;
+            p.x = target->pos.x + (rand_draw() - 0x4000) * 512 / 0x7FFF;
+            p.y = target->roomFloor;
+            p.z = target->pos.z + (rand_draw() - 0x4000) * 512 / 0x7FFF;
+            fxRicochet(target->room, p, true);
+        }
+
+        if (level.models[ITEM_MUZZLE_FLASH].count > 0) {
+            ItemObj::add(ITEM_MUZZLE_FLASH, room, pos + getJoint(joint, muzzle), angle.y + tinfo.rotHead);
         }
         return hit;
     }
