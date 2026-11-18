@@ -277,6 +277,8 @@ SND-C8*
 ### 155. Backup RAM handling differs
 *Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-18*
 
+- **Tested 2026-11-18 (Mednafen, f4e2f05 + later):** a crystal in the Caves (room 20): "Save Game?" YES, "Save Complete!", the file TOMBRAIDER_ / SAVE_FILE, 2,200 bytes in internal memory; walking off and loading Current Position from the passport puts Lara back at the crystal. Across a power cycle (a new Mednafen, the same backup RAM file), with her health poked to 500 before saving: the load brings back 500 and the crystal's spot. The "GBA" text came from builds before 7ddfb8a (issue 153): on a failed save they showed STR_GBA_SAVE_WARNING ("No SRAM or FRAM / Saves will be lost after GBA reboot!"); those strings are now unused. A save fails when internal memory is unformatted or full, which retail checks at boot and we don't yet (left: those checks and messages, the cartridge choice, the checksum and verify).
+
 - **Retail:** backup init at boot (`0603b76c`), and the write (`0604605c`).
   - It checks System and Cartridge memory. If both exist, it asks: "MEMORY BACKUP
     / Which type of memory do you want to use? SYSTEM / CARTRIDGE".
@@ -413,6 +415,9 @@ MATH-4*
 *Reopened 2026-11-18: the 7/8 sphere (past every corner) was tried and taken back. At the Cistern spot it let one more item through, 22 more draws a frame and its shadow, for a picture identical to the pixel (Mednafen), and with the other changes of the day the Saturn's master work there went 18.9 -> 22.9 ms. The fix to price is retail's own test: the box's 8 corners projected (S_GetObjectBounds), tighter than any sphere.*
 
 *Severity: subtle · Confidence: suspected · Fix: small · Audit: GFX-14*
+
+- **What showed up with the 7/8 sphere (2026-11-18):** at the Cistern spot, the extra item was a land rat (item 98, room 99, 4.7k units to Lara's side), wholly outside the frame: posed and its shadow cast for nothing on screen. So nothing popped in there; the bigger sphere only let in a model whose box is out of view, which retail's corner test culls.
+- **Whole-game study (scratchpad cullstudy.py, every model placed in every level, every keyframe, posed vertices and box corners against the sphere; creatures at any yaw, everything else at its placed quarter turn):** how far a box corner reaches past the 3/4 sphere, the region retail draws and we can cull. Creatures: winged mutant 321 units, land crocodile 358, T-rex 345, gorilla 280, cowboy 270, Natla 289, centaur 223, raptor 219, Larson 201, skater 189, mummy 174, Kold 135, wolf 120, bat 99, bear 81, Pierre 59, lions 45, rats 44. Things that never turn: pushable blocks 119, falling floors 120, eggs 96-143, centaur statue 82, boulder 91; doors, switches, key and puzzle holes 0. At the frame's edge that is reach x 190.7 / distance pixels: 321 units is 15 px at 4 blocks, 7 px at 8, 4 px at 16. Pickups are sprites, tested against the whole frame (217), so no pickup is ever hidden by this. Nothing can be hidden in the middle of the view; the loss is a sliver at the frame's or a portal's edge, a frame or so early as the view turns.
 
 - **Retail:** S_GetObjectBounds (`0x06037d04`) projects all 8 corners of the
   bounding box.
@@ -1096,6 +1101,8 @@ word. Of the same kind and already open: 264, 265, 266.
 | **186** | Retail's exploding deaths are silent (sound 172 is missing). Copy that, or keep 171? |
 | **162** | Attract demos need deterministic logic (issue 202) and the DEMODATA format. Build them? |
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
+| **204** | Retail's GetFrames lerps the ledge's sleeping wolves every frame: Saturn pose +0.87 ms on the master there (2.60 -> 3.47). Keep retail's pose? |
+| **169** | Retail doesn't read the 3D pad in analog mode (id 0x16): with only that on port 1 the game sees no pad. Read it too (its first two bytes are the buttons), or keep retail's? |
 
 ## Closed
 
@@ -1207,6 +1214,8 @@ Fix: small · Audit: GFX-12*
 
 *Severity: subtle · Confidence: likely · Fix: small · Audit: MATH-12*
 
+- **Cost (2026-11-18, root-caused):** the ledge's two sleeping wolves. Their pose sits 1 frame into their sleep animation's last step, which past the end is cut to 3 frames, so retail's rule lerps them every frame (1/3 toward the next keyframe in the data) where the old branch drew keyframe A. 52 joints lerped a frame: Mednafen poseAsm 1.34 -> 2.19 ms a list (+24k cycles, +15k instructions); Saturn ledge pose 2.60 -> 3.47 ms on the master, and the slave's jobs 3.57 -> 4.26 (it takes over joins the busier master leaves). Awake wolves in their lerping animations cost the same as before. The user's call (decisions table). 1c5cf52 draws frame B with no lerp when an animation is held at its very end, as retail's exact lerp lands there (the pose drew 3/4 of the way for a cut rate of 4).
+
 - **Retail:** GetFrames (`06014dc4`) always interpolates toward the next keyframe,
   and only adjusts the rate.
 - **Ours:** also sets `indexB = indexA` when `indexB·rate >= frameEnd`
@@ -1287,6 +1296,8 @@ Fix: small · Audit: GFX-12*
 
 *Severity: subtle · Confidence: confirmed (exhaustive over all 65536 angles) ·
 Fix: small · Audit: MATH-5*
+
+- **Accuracy study (2026-11-18, host logic build, Vilcabamba, 1,800 ticks of the same pad input, old sines against retail's):** Lara's paths match to the unit for 215 ticks, then differ by 1 unit (78165 against 78164) and stay 1 apart till tick 450; by tick 600 a collision went the other way and they are 1,548 units apart, in different rooms by tick 750. Played by hand nobody could see 1 unit; it matters wherever pad input is replayed: the attract demos (162), the playtest bot's routes, and anything meant to play out as retail's does. Cost: sincos is 2 lookups with a branch each, 25 instructions against 13 (GCC -Os); a handful of hundreds a tick, well under 0.1 ms (the slave's whole update at the ledge went 1.46 -> 1.53 ms on the Saturn over every logic change of the day). The old one is faster; retail's is right.
 
 - **Retail:** phd_sin (`0603e0b0`) and phd_cos (`0603e0a8`), with helpers
   `0603e104`/`0603e134` and the table at `0x060659C0`, identical to TR1X's. The
