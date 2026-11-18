@@ -425,16 +425,6 @@ MATH-4*
 
 ## Scene look: lighting and effects
 
-### 209. Shadows disappear when their owner is off-screen
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: GFX-5*
-
-- **Retail:** DrawAnimatingItem draws the shadow (the call near decomp.c:14064)
-  before S_GetObjectBounds; DrawLara does the same (near 14247).
-- **Ours:** `drawModel` returns at `sphereIsVisible` (`openlara/draw.h:704`)
-  before reaching the shadow at line 737.
-- **Effect:** a shadow vanishes while its owner (Lara above the frame, an enemy
-  just off-screen) is out of view, even though the floor under it is in view.
-
 ## Rendering: the new renderer's open work
 
 Not differences from retail: open work on the renderer being rebuilt in the
@@ -1111,6 +1101,18 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 209. Shadows disappear when their owner is off-screen
+*Closed 2026-11-18 (see git log): an out-of-sight model is posed bare when its shadow's call follows. Not yet seen in a view where it shows.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: GFX-5*
+
+- **Retail:** DrawAnimatingItem draws the shadow (the call near decomp.c:14064)
+  before S_GetObjectBounds; DrawLara does the same (near 14247).
+- **Ours:** `drawModel` returns at `sphereIsVisible` (`openlara/draw.h:704`)
+  before reaching the shadow at line 737.
+- **Effect:** a shadow vanishes while its owner (Lara above the frame, an enemy
+  just off-screen) is out of view, even though the floor under it is in view.
 
 ### 312. A big pale-blue triangle across an Atlantis corridor
 *Closed 2026-11-18: not a bug. The triangle is Atlantis' save crystal (item 142, type 83), which stands on the very spot the test put Lara (45568, -14592, 62976): VDP1's command at 0x0d620 is an untextured gouraud polygon, colour 0xE734 (pale blue), corners (240,205) (148,237) (183,104), the crystal's facet seen up close in the corridor.*
