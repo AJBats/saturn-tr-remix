@@ -166,36 +166,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Camera
 
-### 25. The inventory's background scene is drawn without the camera shift
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: CAM-20*
-
-- **Retail:** the scene behind the inventory is the last game frame.
-- **Ours:** `saturn/render.cpp:2589` calls `matrixSetView(view.pos)` without the
-  shift or shake.
-- **Effect:** opening the inventory with the camera pushed against a floor or
-  ceiling shows a slightly different view.
-
-### 27. LOS edge cases
-*Severity: subtle · Confidence: confirmed · Fix: part of issue 11 · Audit:
-CAM-22*
-
-- **Retail** (LOS `06010ca8`):
-  - xLOS and zLOS return -1 or 0.
-  - LOS still runs ClipTarget when the second pass returns -1, and re-gets the
-    target room.
-- **Ours:** `openlara/room.h:808-838` bails out early, and the fallback
-  directions use the non-sloped trace.
-
-### 28. RefreshCamera returns at the first non-matching camera command
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: CAM-24*
-
-- **Retail:** RefreshCamera (`06010270`) keeps looping through the trigger's
-  commands after a TO_CAMERA that doesn't match.
-- **Ours:** `openlara/room.h:854-866` returns at once.
-- **Effect:** only on triggers with several camera commands.
-
----
-
 ### 262. The near plane is 64 where retail's is 80
 *Kind: visible · Size: small · Fix: decide with the near-face work*
 
@@ -1628,6 +1598,42 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 28. RefreshCamera returns at the first non-matching camera command
+*Closed 2026-11-18 (see git log): all the trigger's camera commands run, the verdict at the end.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: CAM-24*
+
+- **Retail:** RefreshCamera (`06010270`) keeps looping through the trigger's
+  commands after a TO_CAMERA that doesn't match.
+- **Ours:** `openlara/room.h:854-866` returns at once.
+- **Effect:** only on triggers with several camera commands.
+
+---
+
+### 27. LOS edge cases
+*Closed 2026-11-18 (see git log): LOS's 1/0/-1, ClipTarget after a -1, the room found again, every trace sloped.*
+
+*Severity: subtle · Confidence: confirmed · Fix: part of issue 11 · Audit:
+CAM-22*
+
+- **Retail** (LOS `06010ca8`):
+  - xLOS and zLOS return -1 or 0.
+  - LOS still runs ClipTarget when the second pass returns -1, and re-gets the
+    target room.
+- **Ours:** `openlara/room.h:808-838` bails out early, and the fallback
+  directions use the non-sloped trace.
+
+### 25. The inventory's background scene is drawn without the camera shift
+*Closed 2026-11-18 (see git log): the backdrop's view takes the camera's shift.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: CAM-20*
+
+- **Retail:** the scene behind the inventory is the last game frame.
+- **Ours:** `saturn/render.cpp:2589` calls `matrixSetView(view.pos)` without the
+  shift or shake.
+- **Effect:** opening the inventory with the camera pushed against a floor or
+  ceiling shows a slightly different view.
 
 ### 20. In-game cinematic timing and hand-back
 *Closed 2026-11-18 (see git log): frame pre-stepped and held at the last; FX_LARA_NORMAL hands the chase camera back; the target follows the frame.*
