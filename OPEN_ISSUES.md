@@ -984,14 +984,6 @@ INV-3*
   FMV to the ring. No Press START, no demos, and B does nothing.
 - **Needs:** demos need deterministic logic (issue 202).
 
-### 164. The PRISON FMV and CUT4 play in the wrong order
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-27*
-
-- **Retail:** the level-complete sequencer (`060163d8`, case 14). After Atlantis:
-  PRISON, then CUT4, then the Atlantis stats, then the Great Pyramid.
-- **Ours:** `saturn/os.cpp:115-150` and the order in `common.cpp`. Atlantis, then
-  CUT4, then PRISON, then the Great Pyramid.
-
 ### 165. The ending sequence differs
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-28*
 
@@ -2217,6 +2209,16 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 164. The PRISON FMV and CUT4 play in the wrong order
+*Closed 2026-11-17: 7d97d09. Seen in Mednafen: Atlantis's end, then PRISON plays as CUT4 loads.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-27*
+
+- **Retail:** the level-complete sequencer (`060163d8`, case 14). After Atlantis:
+  PRISON, then CUT4, then the Atlantis stats, then the Great Pyramid.
+- **Ours:** `saturn/os.cpp:115-150` and the order in `common.cpp`. Atlantis, then
+  CUT4, then PRISON, then the Great Pyramid.
 
 ### 166. Every FMV can be skipped, and there are no fades
 *Closed 2026-11-17: 7da881b (END unskippable since 7d97d09). Fades in on pictures, out at videos', pictures' and levels' ends, 30 vblanks each.*
