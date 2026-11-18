@@ -2,8 +2,10 @@
 // only, no SMPC status), from an interrupt in every vblank: the SMPC collects
 // the data at the end of vblank, so each read takes the result of the request
 // the one before made. As retail's pad scan (06043720): the first digital pad
-// or 3D pad (in its analog mode) on port 1, through a multitap if one is
-// there; port 2's digital pad is the debug pad.
+// (id 0x02; the 3D pad in its digital mode is one) or id 0x15 device (analog,
+// 5 data bytes, the buttons first: the Mission Stick, by its id) on port 1,
+// through a multitap if one is there; port 2's digital pad is the debug pad.
+// The 3D pad in its analog mode (id 0x16) isn't one retail reads.
 
 #include "input.h"
 #include "hw.h"
@@ -15,7 +17,7 @@
 #define SR_NPE      0x20    // more peripheral data remains
 
 #define ID_DIGITAL  0x02    // standard pad, 2 data bytes
-#define ID_ANALOG   0x15    // 3D pad's analog mode, 5 data bytes: the buttons first
+#define ID_ANALOG   0x15    // an analog device of 5 data bytes, the buttons first
 #define ID_NONE     0xFF    // a multitap's empty port, no data
 
 // INTBACK must be issued inside vblank, at least 300us after it starts (about
