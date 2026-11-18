@@ -365,16 +365,6 @@ Audit: SND-8*
   and whether its reads slow the 68000's. Using it for vertices (Jollyroger's 2026 demo) was ruled
   out for us: every vertex would cross the slow bus to sound RAM and back.
 
-### 186. Exploding deaths play a sound in ours; retail is silent
-*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-13*
-
-- **Retail:** the Torso, the centaur and the mutant (`06024b34`, `06030cf8`,
-  `06030ffc`) call SFX **172**, not TR1X's 171.
-  - 172 isn't in LEVEL8C, 10B or 10C, so retail is silent there.
-  - In LEVEL7B, 172 is the placeholder click.
-- **Ours:** `openlara/enemy.h:2868`, `3043` and `3321` play 171.
-- **Decision:** keep retail's silence, or keep 171?
-
 ## Numeric primitives and timing
 
 ### 198. Animation interpolation lerps relative matrices, not two full stacks
@@ -1068,10 +1058,21 @@ word. Of the same kind and already open: 264, 265, 266.
 | **139** | Retail's gym counter starts at 150 and is never reset. Reproduce it? |
 | **179** | Retail's stereo pan wraps oddly just left of centre. Reproduce it? |
 | **183** | Retail restarts ambient loops every frame (a stutter), and plays loops an octave down (8-bit keyed on 16-bit data). Reproduce them? |
-| **186** | Retail's exploding deaths are silent (sound 172 is missing). Copy that, or keep 171? |
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 186. Exploding deaths play a sound in ours; retail is silent
+*Closed 2026-11-18: ours keeps sound 171 at the burst, the user's call (retail's silence is a missing sample). TRX plays its death sound there too (SFX_ATLANTEAN_DEATH, torso.c and centaur.c).*
+
+*Severity: audible · Confidence: confirmed · Fix: small · Audit: SND-13*
+
+- **Retail:** the Torso, the centaur and the mutant (`06024b34`, `06030cf8`,
+  `06030ffc`) call SFX **172**, not TR1X's 171.
+  - 172 isn't in LEVEL8C, 10B or 10C, so retail is silent there.
+  - In LEVEL7B, 172 is the placeholder click.
+- **Ours:** `openlara/enemy.h:2868`, `3043` and `3321` play 171.
+- **Decision:** keep retail's silence, or keep 171?
 
 ### 218. The object cull sphere is smaller than the bounding box's corners
 *Closed 2026-11-18: the 3/4 sphere stays, the user's call. The whole-game study below found nothing a player would notice (slivers at the frame's edge, never a pickup), and players of the engineering sample never remarked on draw distance. Reopen on a playtest report of something popping in.*
