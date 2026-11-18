@@ -1911,8 +1911,6 @@ struct SaveGame
     uint8  pickups;
     uint32 time;
     uint32 distance;
-    uint32 randSeedLogic;
-    uint32 randSeedDraw;
     uint16 mediUsed;
     uint16 ammoUsed;
     uint16 kills;

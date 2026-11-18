@@ -117,8 +117,6 @@ bool gameSave()
     gProgress.position = 1;
     gSaveGame.level = gLevelID;
     gSaveGame.track = gCurTrack;
-    gSaveGame.randSeedLogic = gRandSeedLogic;
-    gSaveGame.randSeedDraw = gRandSeedDraw;
 
     memset(gSaveGame.invSlots, 0, sizeof(gSaveGame.invSlots));
     memcpy(gSaveGame.invSlots, inventory.counts, sizeof(inventory.counts));
@@ -168,9 +166,6 @@ bool gameLoad()
             item->activate();
         }
     }
-
-    gRandSeedLogic = gSaveGame.randSeedLogic;
-    gRandSeedDraw = gSaveGame.randSeedDraw;
 
     return true;
 }
@@ -344,8 +339,6 @@ void gameLoadLevel(const void* data)
 void startLevel(LevelID id)
 {
     gLevelTrack = -1;
-    gRandSeedLogic = osGetSystemTimeMS() * 3;
-    gRandSeedDraw = osGetSystemTimeMS() * 7;
 
     sndStop();
     sndFreeSamples();

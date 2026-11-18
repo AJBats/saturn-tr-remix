@@ -466,15 +466,11 @@
     mov     r0, r5
     mov.w   @(A_END,r2), r0         ! frameEnd again (r6 the divide's)
     extu.w  r0, r6
-5:  ! r1 indexA, r5 delta, r6 frameEnd, r7 rate, r4 the anim's first frame
+5:  ! r1 indexA, r5 delta, r6 frameEnd, r7 rate, r4 the anim's first frame;
+    ! always toward the next keyframe (retail's GetFrames, 06014dc4)
     mov     r1, r2
     add     #1, r2                  ! indexB
-    mul.l   r7, r2
-    sts     macl, r0
-    cmp/ge  r6, r0
-    bf      6f
-    mov     r1, r2                  ! indexB = indexA
-6:  mov.l   @(D_FRAME_SIZE,gbr), r0
+    mov.l   @(D_FRAME_SIZE,gbr), r0
     mul.l   r0, r1
     sts     macl, r3
     add     r4, r3                  ! frameA
@@ -482,9 +478,7 @@
     sts     macl, r0
     add     r4, r0                  ! frameB
     mov.l   r0, @(D_FRAME_B,gbr)
-    cmp/eq  r0, r3
     mov     r3, r0
-    bt/s    7f                      ! frameA == frameB: no lerp
     mov.l   r0, @(D_FRAME_A,gbr)
     tst     r5, r5
     bt      7f

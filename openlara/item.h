@@ -225,9 +225,6 @@ int32 ItemObj::getFrames(const AnimFrame* &frameA, const AnimFrame* &frameB, int
 
     int32 frame = frameIndex - anim->frameBegin;
 
-//    int32 d = FixedInvU(animFrameRate);
-//    int32 indexA = frame * d >> 16;
-
     int32 indexA, indexB;
     int32 frameDelta;
 
@@ -252,17 +249,14 @@ int32 ItemObj::getFrames(const AnimFrame* &frameA, const AnimFrame* &frameB, int
         frameDelta = frame - (indexA * animFrameRate);
     }
 
+    // always toward the next keyframe, the rate cut short past the end
+    // (retail's GetFrames, 06014dc4)
     indexB = indexA + 1;
-
-    if (indexB * animFrameRate >= anim->frameEnd)
-    {
-        indexB = indexA;
-    }
 
     frameA = (AnimFrame*)(level.animFrames + (anim->frameOffset >> 1) + indexA * frameSize);
     frameB = (AnimFrame*)(level.animFrames + (anim->frameOffset >> 1) + indexB * frameSize);
 
-    if (!frameDelta || frameA == frameB)
+    if (!frameDelta)
         return 0;
 
     indexB *= animFrameRate;

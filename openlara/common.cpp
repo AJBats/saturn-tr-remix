@@ -98,8 +98,10 @@ const LevelInfo gLevelInfo[LVL_MAX] = {
     uint32 gCounters[CNT_MAX];
 #endif
 
-int32 gRandSeedLogic;
-int32 gRandSeedDraw;
+// both seeded once at power-on, carried across levels and not saved
+// (retail's Random_GetControl 060168f8, Random_GetDraw 06016940)
+int32 gRandSeedLogic = int32(0xD371F947);
+int32 gRandSeedDraw = int32(0xD371F947);
 
 #define X_RAND(seed) (((seed = 0x3039 + seed * 0x41C64E6D) >> 10) & 0x7FFF);
 
@@ -1072,10 +1074,22 @@ uint32 phd_sqrt(uint32 x)
     return y;
 }
 
+// retail's phd_GetVectorAngles (0603c9ec): the yaw, then the vector shifted
+// down until each part fits 16 bits, the pitch from it signed against y
 void anglesFromVector(int32 x, int32 y, int32 z, int16 &angleX, int16 &angleY)
 {
     angleY = phd_atan(z, x);
-    angleX = phd_atan(phd_sqrt(x * x + z * z), -y);
+    while (int16(x) != x || int16(y) != y || int16(z) != z)
+    {
+        x >>= 2;
+        y >>= 2;
+        z >>= 2;
+    }
+    int16 pitch = phd_atan(phd_sqrt(x * x + z * z), y);
+    if ((y > 0 && pitch > 0) || (y < 0 && pitch < 0)) {
+        pitch = -pitch;
+    }
+    angleX = pitch;
 }
 
 bool boxIntersect(const AABBi &a, const AABBi &b)

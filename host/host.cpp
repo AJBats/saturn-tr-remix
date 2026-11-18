@@ -119,7 +119,7 @@ const void* osLoadLevel(LevelID id)
 }
 
 const void* osLoadScreen(LevelID id) { return NULL; }
-int32 osGetSystemTimeMS() { return 0; }     // as the Saturn's (saturn/os.cpp): every level's seeds 0
+int32 osGetSystemTimeMS() { return 0; }     // as the Saturn's (saturn/os.cpp)
 void osGameComplete() {}
 void osDrawDebug() {}
 void osJoyVibrate(int32 index, int32 L, int32 R) {}
