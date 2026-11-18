@@ -274,41 +274,6 @@ SND-C8*
 
 ## Inventory, HUD, saves and game flow
 
-### 148. Menu button roles differ
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-11*
-
-- **Retail:** Input_Update (`060374b4`) and Display_Inventory (`06017420`).
-  - A and C both select; B goes back.
-  - On the open ring only START closes it. B does nothing in game, and at the
-    title it returns to the Press START screen.
-  - START is ignored inside an item.
-- **Ours:** `openlara/inventory.h:1161-1164`, `1000-1004`.
-  - B also closes the ring, and C does nothing.
-  - START inside an item backs out.
-  - B at the title does nothing.
-
-### 149. The key ring pre-selects the matching key at a keyhole
-*Severity: subtle · Confidence: likely · Fix: small · Audit: INV-12*
-
-- **Retail:** opens the ring on index 0 (Inv_RingInit with the current item
-  reset).
-- **Ours:** `openlara/inventory.h:551-556` jumps to the matching slot.
-
-### 151. Ring motion details
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-14*
-
-- **Retail:**
-  - The current item stops spinning while L or R is held.
-  - An item that was previously current unwinds at 0x200/0x100 per vblank, even
-    after the ring stops.
-  - Deselecting an item plays SFX 112.
-  - The passport and the "Exit to Title" page close forward, to the last frame.
-- **Ours:**
-  - The item always spins.
-  - The unwind finishes within the 12-tick spin.
-  - No deselect sound (`openlara/inventory.h:1194`).
-  - Items always close by reversing to frame 0.
-
 ### 155. Backup RAM handling differs
 *Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-18*
 
@@ -1386,6 +1351,47 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 151. Ring motion details
+*Closed 2026-11-18 (see git log): as retail's; B at the title still does nothing, as there's no Press START screen to go back to (issue 162).*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-14*
+
+- **Retail:**
+  - The current item stops spinning while L or R is held.
+  - An item that was previously current unwinds at 0x200/0x100 per vblank, even
+    after the ring stops.
+  - Deselecting an item plays SFX 112.
+  - The passport and the "Exit to Title" page close forward, to the last frame.
+- **Ours:**
+  - The item always spins.
+  - The unwind finishes within the 12-tick spin.
+  - No deselect sound (`openlara/inventory.h:1194`).
+  - Items always close by reversing to frame 0.
+
+### 149. The key ring pre-selects the matching key at a keyhole
+*Closed 2026-11-18 (see git log): as retail's; B at the title still does nothing, as there's no Press START screen to go back to (issue 162).*
+
+*Severity: subtle · Confidence: likely · Fix: small · Audit: INV-12*
+
+- **Retail:** opens the ring on index 0 (Inv_RingInit with the current item
+  reset).
+- **Ours:** `openlara/inventory.h:551-556` jumps to the matching slot.
+
+### 148. Menu button roles differ
+*Closed 2026-11-18 (see git log): as retail's; B at the title still does nothing, as there's no Press START screen to go back to (issue 162).*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-11*
+
+- **Retail:** Input_Update (`060374b4`) and Display_Inventory (`06017420`).
+  - A and C both select; B goes back.
+  - On the open ring only START closes it. B does nothing in game, and at the
+    title it returns to the Press START screen.
+  - START is ignored inside an item.
+- **Ours:** `openlara/inventory.h:1161-1164`, `1000-1004`.
+  - B also closes the ring, and C does nothing.
+  - START inside an item backs out.
+  - B at the title does nothing.
 
 ### 138. Small trap differences
 *Closed 2026-11-18 (see git log): the first five as retail's; the flame's SFX 150 stays with issue 183's looped-sound decision.*
