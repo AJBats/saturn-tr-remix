@@ -1023,26 +1023,6 @@ INV-9*
   - Two files: TOMBR_SAVE (its comment is the level's file name) and TOMBR_CFG.
   - `osSaveSettings` rewrites backup RAM on every option toggle.
 
-### 158. Health and air bars: position, size and colours
-*Severity: visible · Confidence: confirmed (the gouraud decode is likely) · Fix:
-small · Audit: INV-21*
-
-- **Retail:** DrawHealthBar (`06015e50`), DrawAirBar (`06015ed8`), bar drawing
-  (`0603b524`, `0603b610`), on its 352×224 screen.
-  - Top left: the health frame is 104×9 at (32, 28), with the air bar at
-    (32, 16) always above it.
-  - Fill rows start at x = 34, with width pct − 1 (0..99).
-  - A black box with a (5, 5, 5) outline.
-  - The fill is base RGB(15, 15, 15) plus gouraud tables:
-    - effective health rows (14,10,3) (19,15,6) (14,10,3) (11,7,1) (8,4,0);
-    - air rows (6,13,14) (11,17,18) (6,13,14) (2,10,12) (0,8,10).
-  - No low-health flashing.
-- **Ours:** `openlara/draw.h:979-995`, `saturn/render.cpp:2544-2568`.
-  - Top right, at (W − 108, 4). Health drops to y = 14 when the air bar shows.
-  - 100 + 2 by 5 + 2.
-  - The health rows are about 4 levels darker per channel; the air bar uses a
-    different, bluer ramp.
-
 ### 160. No pickup notification
 *Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-23*
 
@@ -2333,6 +2313,28 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 158. Health and air bars: position, size and colours
+*Closed 2026-11-17: 73f579d. Retail's boxes, positions and colours.*
+
+*Severity: visible · Confidence: confirmed (the gouraud decode is likely) · Fix:
+small · Audit: INV-21*
+
+- **Retail:** DrawHealthBar (`06015e50`), DrawAirBar (`06015ed8`), bar drawing
+  (`0603b524`, `0603b610`), on its 352×224 screen.
+  - Top left: the health frame is 104×9 at (32, 28), with the air bar at
+    (32, 16) always above it.
+  - Fill rows start at x = 34, with width pct − 1 (0..99).
+  - A black box with a (5, 5, 5) outline.
+  - The fill is base RGB(15, 15, 15) plus gouraud tables:
+    - effective health rows (14,10,3) (19,15,6) (14,10,3) (11,7,1) (8,4,0);
+    - air rows (6,13,14) (11,17,18) (6,13,14) (2,10,12) (0,8,10).
+  - No low-health flashing.
+- **Ours:** `openlara/draw.h:979-995`, `saturn/render.cpp:2544-2568`.
+  - Top right, at (W − 108, 4). Health drops to y = 14 when the air bar shows.
+  - 100 + 2 by 5 + 2.
+  - The health rows are about 4 levels darker per channel; the air bar uses a
+    different, bluer ramp.
 
 ### 145. The options ring holds the wrong items
 *Closed 2026-11-17: 6d3514d. Game and Gamma in game, Controls and the Gym at the title; Gamma steps the colour offset; Controls picks retail's three methods, shown as retail prints them; the settings file is gone. The slider's look is our bar in retail's frame.*
