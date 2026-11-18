@@ -2212,7 +2212,8 @@ struct MovingObject : Object // TR1's moving bar
 
 
 // A rolling block: two sectors tall where it rests, it rolls a sector along
-// when triggered (TR1's moving block; OpenLara's MovingBlock).
+// when triggered (retail's RollingBlockControl, 060248c0: no trigger test
+// where it stops, and nothing to collide with but the floor it raises).
 struct MovingBlock : Object
 {
     enum {
@@ -2251,17 +2252,10 @@ struct MovingBlock : Object
         {
             flags &= ~ITEM_FLAG_STATUS;
             flags |= ITEM_FLAG_STATUS_ACTIVE;
+            alterFloor(this, -2048);
             pos.x = (pos.x & ~1023) + 512;
             pos.z = (pos.z & ~1023) + 512;
-            alterFloor(this, -2048);
-            room->getSector(pos.x, pos.z)->getFloor(pos.x, pos.y, pos.z);
-            checkTrigger(gLastFloorData, NULL);
         }
-    }
-
-    virtual void collide(Lara* lara, CollisionInfo* cinfo)
-    {
-        collideDefault(lara, cinfo);
     }
 };
 
@@ -2924,7 +2918,8 @@ struct MutantEgg : Object
 
 
 // Natla's mines: the cabin crane drops in three stages, then the cabin is
-// gone and its flip map shows where it fell.
+// gone and its flip map shows where it fell (retail's CabinControl,
+// 060264f8: flip map 3 switched on, not once; solid, ObjectCollision).
 struct Cabin : Object
 {
     enum {
@@ -2947,12 +2942,12 @@ struct Cabin : Object
                 case STATE_DROP_1 : goalState = STATE_DROP_2; break;
                 case STATE_DROP_2 : goalState = STATE_DROP_3; break;
             }
-            flags &= ~ITEM_FLAG_MASK;
+            flags &= ~(ITEM_FLAG_MASK | ITEM_FLAG_ONCE | ITEM_FLAG_REVERSE);
         }
 
         if (state == STATE_FINISH)
         {
-            gSaveGame.flipmaps[3] = FLIP_FLAG_MASK | FLIP_FLAG_ONCE;
+            gSaveGame.flipmaps[3] = FLIP_FLAG_MASK;
             flipMap();
             flags &= ~ITEM_FLAG_STATUS;
             flags |= ITEM_FLAG_STATUS_INVISIBLE;
@@ -2961,6 +2956,11 @@ struct Cabin : Object
         }
 
         animProcess();
+    }
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        collideDefault(lara, cinfo);
     }
 };
 

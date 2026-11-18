@@ -269,20 +269,20 @@ void updateFading(int32 frames)
 }
 
 // Swaps every room that has an alternate with it: geometry, sectors and
-// portals change, the items stay. Resting blocks raise the floor they stand on,
-// so they lift it from the old version and put it on the new.
+// portals change, the items stay. Blocks raise the floor they stand on, so
+// they lift it from the old version and put it on the new: the first three
+// pushable blocks a sector, the rolling block two (retail's
+// RemoveRoomFlipItems and AddRoomFlipItems, 06011380 06011404, whatever
+// their state; not the fourth block).
 static void flipBlocks(Room* room, int32 offset)
 {
     for (ItemObj* item = room->firstItem; item; item = item->nextItem)
     {
-        if (item->type < ITEM_BLOCK_1 || item->type > ITEM_BLOCK_4)
-            continue;
-
-        uint32 status = item->flags & ITEM_FLAG_STATUS;
-        if (status == ITEM_FLAG_STATUS_INVISIBLE || status == ITEM_FLAG_STATUS_ACTIVE)
-            continue;
-
-        alterFloor(item, offset);
+        if (item->type >= ITEM_BLOCK_1 && item->type <= ITEM_BLOCK_3) {
+            alterFloor(item, offset);
+        } else if (item->type == ITEM_MOVING_BLOCK) {
+            alterFloor(item, offset * 2);
+        }
     }
 }
 
