@@ -163,7 +163,7 @@ static void playVideos(LevelID id)
     {
         gGameComplete = false;
         fmvPlay("END", false);
-        fmvPicture("CRED224", 320, 900);
+        fmvPicture("CRED224", 352, 900);     // 352 wide (BINDATA/CRED224.BIN, 157696 bytes)
         fmvPlay("CORELOGO", false);
         fmvPlay("CAFE");
         return;
