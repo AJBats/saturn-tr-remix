@@ -2333,6 +2333,9 @@ struct HammerHandle : Object
     {
         ItemObj* head = ItemObj::add(ITEM_HAMMER_BLOCK, room, pos, angle.y);
         headOffset = head ? uint16(head - items) + 1 : 0;
+        if (head) {
+            head->intensity = intensity;    // the handle's shade, as retail's InitialiseThorsHandle (06022bb0)
+        }
     }
 
     ItemObj* getHead() const
@@ -2743,7 +2746,8 @@ struct FlameEmitter : Object // headOffset: the flame's item index + 1
 
 
 // Statues and eggs hold a creature that bursts out when Lara comes near;
-// headOffset holds its item index + 1.
+// headOffset holds its item index + 1. Lit by the room's lights, as retail's
+// shade -1 (InitialisePod 060321e8, InitialiseStatue 06032454) has it.
 ItemObj* spawnHidden(ItemObj* holder, ItemType type)
 {
     if (!level.models[type].count)
@@ -2753,6 +2757,7 @@ ItemObj* spawnHidden(ItemObj* holder, ItemType type)
     if (!item)
         return NULL;
 
+    item->intensity = 0;
     item->flags &= ~ITEM_FLAG_STATUS;
     item->flags |= ITEM_FLAG_STATUS_INVISIBLE;
     return item;
