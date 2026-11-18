@@ -499,49 +499,6 @@ checked) · Fix: small · Audit: GUN-16*
 
 ## Level logic, traps and objects
 
-### 124. Qualopec and Sanctuary scion pickup: the cinematic is rotated 90°
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-14,
-CAM*
-
-- **Retail:** PickUpScionCollision (`0602ac10`, object 143) uses Lara's position
-  and yaw as the cinematic position. Only the Atlantis holder scion
-  (PickUpScion4Collision `0602ad7c`, object 146) subtracts 90°.
-- **Ours:** `openlara/object.h:602` subtracts 90° for both.
-
-### 125. Atlantis scion holder: Lara stands too far back, the scion vanishes, and the holder isn't solid
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-14*
-
-- **Retail:** PickUpScion4Collision (`0602ad7c`).
-  - Lara is placed at z -407 (data at `0x06062c8c`).
-  - There is no pickup frame: the scion stays in the holder and isn't counted
-    as a pickup.
-  - The scion holder (object 147) is solid and animates once triggered.
-- **Ours:**
-  - `openlara/object.h:594` uses -612.
-  - `object.h:574-584` removes the scion at frame 44 of the 91-frame grab, adds
-    it to the inventory and counts a pickup.
-  - The holder has no class (`item.h:1644`), so Lara walks through it, in
-    Atlantis and the Pyramid.
-
-### 126. Midas hand differences
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-15,
-CAM-16/17*
-
-- **Retail:** MidasCollision (`0602ae90`; TR1X `objects/midas_touch.c`).
-  - Turning a lead bar into gold plays the animation with **no** cinematic
-    camera.
-  - The gold-death cinematic copies Lara's whole position, yaw included.
-  - Choosing a wrong item makes no sound.
-  - The Midas hand item is drawn as invisible (DrawDummyItem `060130f0`).
-- **Ours:**
-  - `openlara/object.h:843` starts a cinematic on lead-bar use. It runs the full
-    500-frame LEVEL6 camera file, though Lara's animation is only 138 frames.
-  - `object.h:808` passes angle 0 for the death cinematic, which is wrong unless
-    Lara faces north.
-  - `object.h:847` plays "no".
-  - `MidasHand` has no draw override, so Palace Midas shows its placeholder model
-    (mesh offset 0, 24 faces, the same mesh the camera target uses).
-
 ### 131. Underwater switches reach too far and can be pulled again mid-animation
 *Severity: subtle · Confidence: confirmed · Fix: trivial · Audit: LVL-21*
 
@@ -1752,6 +1709,55 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 126. Midas hand differences
+*Closed 2026-11-18 (see git log): death cinematic at Lara's yaw, none for the lead bar, no sound for another item, the hand unseen.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-15,
+CAM-16/17*
+
+- **Retail:** MidasCollision (`0602ae90`; TR1X `objects/midas_touch.c`).
+  - Turning a lead bar into gold plays the animation with **no** cinematic
+    camera.
+  - The gold-death cinematic copies Lara's whole position, yaw included.
+  - Choosing a wrong item makes no sound.
+  - The Midas hand item is drawn as invisible (DrawDummyItem `060130f0`).
+- **Ours:**
+  - `openlara/object.h:843` starts a cinematic on lead-bar use. It runs the full
+    500-frame LEVEL6 camera file, though Lara's animation is only 138 frames.
+  - `object.h:808` passes angle 0 for the death cinematic, which is wrong unless
+    Lara faces north.
+  - `object.h:847` plays "no".
+  - `MidasHand` has no draw override, so Palace Midas shows its placeholder model
+    (mesh offset 0, 24 faces, the same mesh the camera target uses).
+
+### 125. Atlantis scion holder: Lara stands too far back, the scion vanishes, and the holder isn't solid
+*Closed 2026-11-18 (see git log): Lara at -407, the scion stays and isn't counted, the holder solid and animated.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-14*
+
+- **Retail:** PickUpScion4Collision (`0602ad7c`).
+  - Lara is placed at z -407 (data at `0x06062c8c`).
+  - There is no pickup frame: the scion stays in the holder and isn't counted
+    as a pickup.
+  - The scion holder (object 147) is solid and animates once triggered.
+- **Ours:**
+  - `openlara/object.h:594` uses -612.
+  - `object.h:574-584` removes the scion at frame 44 of the 91-frame grab, adds
+    it to the inventory and counts a pickup.
+  - The holder has no class (`item.h:1644`), so Lara walks through it, in
+    Atlantis and the Pyramid.
+
+### 124. Qualopec and Sanctuary scion pickup: the cinematic is rotated 90°
+*Closed 2026-11-18 (see git log): Qualopec's and the Sanctuary's scion cinematic at Lara's yaw.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-14,
+CAM*
+
+- **Retail:** PickUpScionCollision (`0602ac10`, object 143) uses Lara's position
+  and yaw as the cinematic position. Only the Atlantis holder scion
+  (PickUpScion4Collision `0602ad7c`, object 146) subtracts 90°.
+- **Ours:** `openlara/object.h:602` subtracts 90° for both.
 
 ### 207. Room sprites stay drawn right up to the camera; retail drops them within 640 units
 *Closed 2026-11-18 (see git log): a room's sprite within 640 of the camera isn't drawn.*
