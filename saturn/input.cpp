@@ -28,7 +28,10 @@ static bool gPending;
 static uint32_t gIssued;    // smpcCommands() when the pending request was made
 static volatile uint16_t gButtons;
 static volatile uint16_t gDebugButtons;
-static volatile bool gPresent;
+static volatile bool gPresent = true;   // till a read says otherwise: none has come back at boot
+#ifdef HW_LOG
+static volatile uint32_t gRaw;          // the last read's first four bytes, for the boot log
+#endif
 
 // A port's peripherals from OREG(at): the buttons of the first pad of one of
 // the ids accepted (none: false); the next port's data after them in next.
@@ -71,6 +74,9 @@ static void padRead()
         {
             uint16_t buttons = 0, debug = 0;
             int32_t next;
+#ifdef HW_LOG
+            gRaw = (SMPC_OREG(0) << 24) | (SMPC_OREG(1) << 16) | (SMPC_OREG(2) << 8) | SMPC_OREG(3);
+#endif
             gPresent = padPort(0, true, buttons, next);
             padPort(next, false, debug, next);     // port 2's data follows port 1's
             gButtons = buttons;
@@ -107,6 +113,13 @@ bool padPresent()
 {
     return gPresent;
 }
+
+#ifdef HW_LOG
+uint32_t padRaw()
+{
+    return gRaw;
+}
+#endif
 
 uint16_t padDebug()
 {

@@ -25,8 +25,13 @@ void padInit();
 // The buttons held (PAD_* bits) as of the last completed read.
 uint16_t padButtons();
 
-// A pad was there at the last completed read.
+// A pad was there at the last completed read (and before the first).
 bool padPresent();
+
+#ifdef HW_LOG
+// The last completed read's port status, peripheral id and two data bytes.
+uint32_t padRaw();
+#endif
 
 // The debug pad's buttons as of the same read (0 when none is connected).
 uint16_t padDebug();

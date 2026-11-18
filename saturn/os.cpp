@@ -7,6 +7,7 @@
 #include "detail.h"
 #include "fmv.h"
 #include "hw.h"
+#include "input.h"
 #include "plane.h"
 #include "render.h"
 #include "screen.h"
@@ -334,6 +335,9 @@ const void* osLoadLevel(LevelID id)
     crashHold(true);
     traceStop();    // the loading picture stages over the trace
     crashLog("LEVEL", id);
+#ifdef HW_LOG
+    crashLog("PAD", padRaw());
+#endif
     if (gLoadedLevel != LVL_MAX) {
         screenFadeOut();    // what showed to black first (retail's 0603a19c)
     }
