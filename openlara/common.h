@@ -3092,6 +3092,7 @@ Room** renderWalk(Room* cameraRoom);
 void renderModel(const ItemObj* item);
 void renderModelUnder(const ItemObj* item);    // the inventory's: under the matrix on top, lit by gLight*
 void renderMesh(int32 mesh, int32 ambient);     // a level mesh under the matrix on top, lit flat
+void renderMeshSwap(int32 a, int32 b);          // two level meshes trade places for drawing
 void renderBolt(int32 x1, int32 y1, int32 z1, int32 x2, int32 y2, int32 z2, int32 width);  // view space
 void renderShadowCall(const ItemObj* item, int32 floor);
 void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index);

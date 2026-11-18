@@ -518,18 +518,19 @@ void ItemObj::animCmd(bool fx, const Anim* anim)
                             extraL->weaponState = WEAPON_STATE_FREE;
                             break;
                         }
-                    /*
-                        case FX_DRAW_RIGHTGUN  : drawGun(true); break;
-                        case FX_DRAW_LEFTGUN   : drawGun(false); break;
-                        case FX_SHOT_RIGHTGUN  : game->addMuzzleFlash(this, LARA_RGUN_JOINT, LARA_RGUN_OFFSET, 1 + camera->cameraIndex); break;
-                        case FX_SHOT_LEFTGUN   : game->addMuzzleFlash(this, LARA_LGUN_JOINT, LARA_LGUN_OFFSET, 1 + camera->cameraIndex); break;
-                        case FX_MESH_SWAP_1    : 
-                        case FX_MESH_SWAP_2    : 
-                        case FX_MESH_SWAP_3    : Character::cmdEffect(fx);
-                        case 26 : break; // TODO TR2 reset_hair
-                        case 32 : break; // TODO TR3 footprint
-                        default : LOG("unknown effect command %d (anim %d)\n", fx, animation.index); ASSERT(false);
-                    */
+
+                        // its right thigh and hand trade meshes with the
+                        // pistols' model, back again the next time (retail's
+                        // LaraDrawRightGun, 06015da4: CUT4's Lara draws hers)
+                        case FX_DRAW_RIGHTGUN :
+                        {
+                            const int32 own = level.models[type].start;
+                            const int32 guns = level.models[ITEM_LARA_PISTOLS].start;
+                            renderMeshSwap(own + JOINT_LEG_R1, guns + JOINT_LEG_R1);
+                            renderMeshSwap(own + JOINT_ARM_R3, guns + JOINT_ARM_R3);
+                            break;
+                        }
+
                         default : ;
                     }
                 }

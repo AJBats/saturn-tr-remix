@@ -163,6 +163,17 @@ void renderMesh(int32 mesh, int32 ambient)
     c->args[0] = mesh;
 }
 
+// The level's meshes a and b (level.meshes) trade places for drawing, as
+// retail's LaraDrawRightGun swaps them in its mesh table; again, back.
+static uint16* gMeshIndex;      // each level mesh's in the store, as draws.s takes them
+
+void renderMeshSwap(int32 a, int32 b)
+{
+    uint16 t = gMeshIndex[a];
+    gMeshIndex[a] = gMeshIndex[b];
+    gMeshIndex[b] = t;
+}
+
 void renderShadowCall(const ItemObj* item, int32 floor)
 {
     // its model's call is the last
@@ -765,6 +776,7 @@ void renderLevelInit()
     d.frames = (const uint8_t*)level.animFrames;
     d.models = (const render::GameModel*)level.models;
     d.meshIndex = (const uint16_t*)(storeBytes + store->index);
+    gMeshIndex = (uint16*)d.meshIndex;
     d.modelNodes = (const uint32_t*)gModelNodes;
     d.modelDrawn = (const uint32_t*)gModelDrawn;
     d.nodes = (const uint8_t*)level.nodes;
