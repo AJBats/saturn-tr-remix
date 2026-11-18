@@ -499,10 +499,13 @@ void ItemObj::animCmd(bool fx, const Anim* anim)
                             break;
                         }
 
+                        // retail's LaraNormal (06015a7c): standing, and the chase
+                        // camera back, which ends an in-level cinematic
                         case FX_LARA_NORMAL :
                         {
                             ASSERT(type == ITEM_LARA);
                             animSet(11, true); // Lara::ANIM_STAND
+                            extraL->camera.mode = CAMERA_MODE_FOLLOW;
                             break;
                         }
 

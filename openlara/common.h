@@ -1496,7 +1496,7 @@ struct Camera {
     void initCinematic();
     void updateCinematic();
     void doCutscene(const vec3i &pos, int16 angleY);
-    bool updateCutscene();
+    void updateCutscene();
 
     void init(ItemObj* lara);
     void lookAt(int32 offset);

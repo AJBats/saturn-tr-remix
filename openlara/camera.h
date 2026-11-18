@@ -87,21 +87,17 @@ void Camera::doCutscene(const vec3i &pos, int16 angleY)
     timer = 0;
 }
 
-// False once the frames have run out while Lara lives: she gets her camera back.
-bool Camera::updateCutscene()
+// Retail's InGameCinematicCamera (0600daa4): the next frame (the first never
+// shown), held at the last; it ends only when Lara's animation hands her the
+// chase camera back (FX_LARA_NORMAL). The target, which the sounds are heard
+// from, goes where the frame looks.
+void Camera::updateCutscene()
 {
-    if (timer >= level.cameraFramesCount)
-    {
-        if (laraItem->health > 0)
-        {
-            mode = CAMERA_MODE_FOLLOW;
-            timer = 0;
-            return false;
-        }
+    if (++timer >= level.cameraFramesCount) {
         timer = level.cameraFramesCount - 1;
     }
 
-    const CameraFrame &frame = level.cameraFrames[timer++];
+    const CameraFrame &frame = level.cameraFrames[timer];
 
     int32 s, c;
     sincos(cutAngle, s, c);
@@ -117,6 +113,7 @@ bool Camera::updateCutscene()
     vec3i dir = at - eye;
     anglesFromVector(dir.x, dir.y, dir.z, angle.x, angle.y);
 
+    target.pos = at;
     view.pos = eye;
     Room* nextRoom = view.room->getRoom(eye.x, eye.y, eye.z);
     if (nextRoom) {
@@ -124,7 +121,6 @@ bool Camera::updateCutscene()
     }
 
     cameraViewFov(eye, angle.x, angle.y, frame.fov);
-    return true;
 }
 
 void Camera::init(ItemObj* lara)
@@ -815,8 +811,11 @@ void Camera::update()
         soundStop(SND_UNDERWATER);
     }
 
-    if (mode == CAMERA_MODE_CUTSCENE && updateCutscene())
+    if (mode == CAMERA_MODE_CUTSCENE)
+    {
+        updateCutscene();
         return;
+    }
 
     updateRetail();
 }
