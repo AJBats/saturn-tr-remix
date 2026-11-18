@@ -555,7 +555,9 @@
     shar    r0
     shar    r7
     shar    r7
-    add     r0, r7                  ! (sr >> 1) + (sr >> 2)
+    add     r7, r0
+    shar    r7
+    add     r0, r7                  ! (sr >> 1) + (sr >> 2) + (sr >> 3): past the box's corners, sqrt(3) / 2 of sr at most
     mov.w   @(IT_ANGLE+2,r10), r0
     mov     #32, r1
     shll8   r1                      ! ANGLE_45
@@ -1273,7 +1275,11 @@
     mov     #112, r0
     add     r0, r5
     add     r0, r7
-    ! off the viewport, or empty
+    ! off its room's viewport, an item's or effect's off the frame (retail's
+    ! S_DrawSprite tests the screen alone), or empty
+    mov.b   @(C_ROOM,r14), r0
+    tst     r0, r0
+    bt      4f
     mov.l   @(D_VIEWPORT+8,gbr), r0
     cmp/ge  r0, r4
     bt      .Lsprited
@@ -1286,7 +1292,19 @@
     mov.l   @(D_VIEWPORT+4,gbr), r0
     cmp/gt  r7, r0
     bt      .Lsprited
-    cmp/eq  r4, r6
+    bra     5f
+    nop
+4:  mov.w   .Lsprite_w, r0
+    cmp/ge  r0, r4
+    bt      .Lsprited
+    cmp/pz  r6
+    bf      .Lsprited
+    mov.w   .Lsprite_h, r0
+    cmp/ge  r0, r5
+    bt      .Lsprited
+    cmp/pz  r7
+    bf      .Lsprited
+5:  cmp/eq  r4, r6
     bt      .Lsprited
     cmp/eq  r5, r7
     bt      .Lsprited
@@ -1320,8 +1338,12 @@
     mov     r6, r10
     mov.l   r7, @-r15               ! b
     mov.l   r1, @-r15               ! the shade
-    ! drawn in front of the geometry it stands on: max(0, z - 128) >> 4
+    ! a room's drawn in front of the geometry it stands on, max(0, z - 128)
+    ! >> 4; an item's or effect's at its own depth
     mov     r2, r6
+    mov.b   @(C_ROOM,r14), r0
+    tst     r0, r0
+    bt      3f
     mov     #-128, r0
     add     r0, r6
     cmp/pz  r6
@@ -1362,6 +1384,8 @@
 .Ldiv_last2: .word  1280
 .Lsprite_exact: .word  2048         ! VIEW_EXACT
 .Lsprite_near:  .word  640
+.Lsprite_w:     .word  352          ! FRAME_WIDTH
+.Lsprite_h:     .word  224          ! FRAME_HEIGHT
     .align  2
 .LfocalScale: .long _gFocalScale
 

@@ -1414,9 +1414,10 @@ _poseLightAsm:
     mov.l   @(L_MAX,r14), r5
 .Lcap:
     mov.l   .L8191, r6
-    add     r5, r6
 
-    ! the fog: ambient + depth - FOG_MIN past FOG_MIN, up to the cap
+    ! the fog: ambient + depth - FOG_MIN past FOG_MIN, up to 8191, so the side
+    ! facing the light keeps 8191 - range at full fog (retail's
+    ! Output_CalculateLight, 060388ec)
 .Lfog:
     mov.l   @(L_FOG,r14), r0
     mov.l   .Lfogmin, r1

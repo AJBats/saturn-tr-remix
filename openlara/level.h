@@ -490,16 +490,6 @@ static void updateEffect()
             break;
         }
 
-        case FX_TR1_FLICKER:    // OpenLara's (PC TR1's; not in the Saturn's table)
-        {
-            // the lights go out and come back: the rooms flip back and forth
-            done = (t == 123);
-            if (t == 90 || t == 93 || t == 105 || t == 108 || done) {
-                flipMap();
-            }
-            break;
-        }
-
         default:
             done = true;
     }
