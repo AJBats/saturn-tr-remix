@@ -728,10 +728,10 @@ struct Enemy : ItemObj
             return;
         }
 
-        updateRoom();
-
         if (extraE->nav.zoneType == ZONE_FLY)
         {
+            updateRoom();
+
             // retail's CreatureAnimation: up or down toward the waypoint at its
             // climb speed, back off a floor it's under or a ceiling its top is
             // over, and its pitch eases to its climb a degree a tick
@@ -778,15 +778,20 @@ struct Enemy : ItemObj
         }
         else
         {
-            // follows the floor, rising at most a quarter step a frame
-            if (pos.y > roomFloor) {
-                pos.y = roomFloor;
-            } else if (roomFloor - pos.y > 64) {
+            // follows the floor, rising at once and falling at most a quarter
+            // step a tick, to the height that was under it last tick: retail's
+            // CreatureAnimation takes the item's floor as the tick before left
+            // it, then finds the one under it now, for the next tick
+            int32 floor = roomFloor;
+            if (pos.y > floor) {
+                pos.y = floor;
+            } else if (floor - pos.y > 64) {
                 pos.y += 64;
             } else {
-                pos.y = roomFloor;
+                pos.y = floor;
             }
             angle.x = 0;
+            updateRoom();
         }
     }
 
