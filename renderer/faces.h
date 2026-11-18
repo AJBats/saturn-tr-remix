@@ -259,6 +259,7 @@ struct RoomSplit
     int32_t top, bottom;
 #endif
     const uint16_t* divTable;
+    const int16_t* divScaled;   // vertices.h gDivScaled
 };
 
 struct RoomRun;

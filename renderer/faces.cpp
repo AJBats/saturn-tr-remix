@@ -953,10 +953,15 @@ NEAR_CODE static void nearProject(const FaceRoom &room, const RoomSplit &split, 
     }
     else
     {
-        dd = split.divTable[dz >= 1281 ? 1280 : dz];
+        dd = split.divScaled[dz >= 1281 ? 1280 : dz];   // d << 4, as the rooms' vertices take it
     }
     const int32_t limit = 2047 << 12;
     int32_t px = x * dd, py = y * dd;
+    if (z >= VIEW_EXACT)
+    {
+        px >>= 4;
+        py >>= 4;
+    }
     int32_t sx = asr16<12>(px < -limit ? -limit : px > limit ? limit : px) + (FRAME_WIDTH >> 1);
     int32_t sy = asr16<12>(py < -limit ? -limit : py > limit ? limit : py) + (FRAME_HEIGHT >> 1);
     nearHold(room, sx, sy, clip);

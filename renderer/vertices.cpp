@@ -136,8 +136,8 @@ static RoomRotated gRoomRotated[MAX_ROOM_VERTICES] __attribute__((aligned(16)));
 static int32_t gRotatedAt[MAX_ROOMS];
 static uint8_t gRoomSafe[MAX_ROOMS];        // RoomSafe
 static uint8_t gRoomReach[MAX_LEVEL_ROOMS][3];  // the largest x y z byte among a level room's vertices
-static uint16_t* gDivNear;                  // 0x100000 / z by z, up to VIEW_EXACT
-static int16_t* gDivScaled;                 // divTable << 4, from the first entry that fits
+uint16_t* gDivNear;
+int16_t* gDivScaled;
 static int16_t* gDivFar;                    // RoomProject's farTable
 static int32_t gRoomsPredicted;     // the plan's prediction of their projection and faces
 static int32_t gRoomsFaces;         // their quads and triangles
@@ -335,12 +335,26 @@ const char* verticesInit(const VerticesLevel &level)
     int16_t* farTable = (int16_t*)level.alloc((VERTICES_FAR_LAST + 1 - VERTICES_FAR_FIRST) * sizeof(int16_t));
     if (!gDivNear || !scaled || !farTable)
         return "no room for the divide tables";
-    for (int32_t z = 0; z <= VIEW_EXACT; z++) {
+    // exact by z up close; past that by z >> 4, 2^24 over the middle of each step rounded, so that a
+    // vertex is out by at most half a step (0.4% at z 2048), and not by the fraction divTable's whole
+    // numbers drop (2% at the far plane).
+    // The lab projects as the game it captured did: divTable by z >> 4.
+    for (int32_t z = 0; z <= VIEW_EXACT; z++)
+    {
+#ifdef RENDER_LAB
+        gDivNear[z] = z < VIEW_MIN_F >> FIXED_SHIFT ? 0 : divTable[z >> 4];
+#else
         gDivNear[z] = z < VIEW_MIN_F >> FIXED_SHIFT ? 0 : 0x100000 / z;
+#endif
     }
     gDivScaled = scaled - DIV_SCALED_FROM;
-    for (int32_t i = DIV_SCALED_FROM; i < DIV_ENTRIES; i++) {
+    for (int32_t i = DIV_SCALED_FROM; i < DIV_ENTRIES; i++)
+    {
+#ifdef RENDER_LAB
         gDivScaled[i] = divTable[i] << 4;
+#else
+        gDivScaled[i] = ((1 << 24) + 8 * i + 4) / (16 * i + 8);
+#endif
     }
     gDivFar = farTable - VERTICES_FAR_FIRST;
     for (int32_t i = VERTICES_FAR_FIRST; i <= VERTICES_FAR_LAST; i++) {
@@ -529,9 +543,21 @@ static void meshExact(MeshProject* mp, int32_t index, Vertex* v)
         x = x * VIEW_DIST / far;
         y = y * VIEW_DIST / far;
     }
-    int32_t d = mp->divTable[uint32_t(z) >> (FIXED_SHIFT + 4)];
-    int32_t sx = int16_t(uint32_t(clamp(x * d, -P_MAX, P_MAX)) >> 12) + (FRAME_WIDTH >> 1);
-    int32_t sy = int16_t(uint32_t(clamp(y * d, -P_MAX, P_MAX)) >> 12) + (FRAME_HEIGHT >> 1);
+    // as meshproject.s: exact nearer than z 1024, else d << 4 by z >> 4, the product >> 4 first
+    int32_t px, py;
+    const uint32_t zw = uint32_t(z) >> FIXED_SHIFT;
+    if (zw < DIV_SCALED_FROM << 4)
+    {
+        px = x * mp->nearTable[zw];
+        py = y * mp->nearTable[zw];
+    }
+    else
+    {
+        px = (x * mp->divScaled[zw >> 4]) >> 4;
+        py = (y * mp->divScaled[zw >> 4]) >> 4;
+    }
+    int32_t sx = int16_t(uint32_t(clamp(px, -P_MAX, P_MAX)) >> 12) + (FRAME_WIDTH >> 1);
+    int32_t sy = int16_t(uint32_t(clamp(py, -P_MAX, P_MAX)) >> 12) + (FRAME_HEIGHT >> 1);
     if (uint32_t(sx) > FRAME_WIDTH || uint32_t(sy) > FRAME_HEIGHT)
     {
         clip += CLIP_FRAME;
@@ -880,7 +906,7 @@ void verticesMeshesFeed(int32_t from, int32_t to)
     for (int32_t i = from; i < to; i++) {
         *jobLast(gJobs[i]) = DSP_UNWRITTEN;
     }
-    gPiecesProject.divTable = divTable;
+    gPiecesProject.nearTable = gDivNear;
     gPiecesProject.exact = meshExact;
     gPiecesProject.divScaled = gDivScaled;
     gPiecesProject.farScaled = gFarScaled;

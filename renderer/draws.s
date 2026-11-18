@@ -77,6 +77,8 @@
     .equ    D_GIVEN,        236     ! PoseMesh: draw, matrix given; 4 bytes
     .equ    D_GIVEN_COUNT,  240
     .equ    D_GIVEN_MAX,    244
+    .equ    D_DIV_NEAR,     248     ! 0x100000 / z by z, up to VIEW_EXACT
+    .equ    D_DIV_SCALED,   252     ! 0x1000000 / z by z >> 4
 
     .equ    CALL_BYTES,     32      ! CallRecord
     .equ    C_INDEX,        2
@@ -1226,22 +1228,31 @@
     shlr16  r0
     exts.w  r0, r0
     add     r0, r7                  ! b
-    ! PERSPECTIVE on both: d = divTable[z >> 4], each * d >> 12
+    ! PERSPECTIVE on both: each * d >> 12, d by z nearer than VIEW_EXACT;
+    ! from there each * (d << 4 by z >> 4) >> 16, as the vertices are
+    mov.w   .Lsprite_exact, r0
+    cmp/ge  r0, r2
+    bt      1f
+    mov.l   @(D_DIV_NEAR,gbr), r0
     mov     r2, r1
-    shar    r1
-    shar    r1
-    shar    r1
-    shar    r1
-    mov.w   .Ldiv_last2, r0
-    cmp/gt  r0, r1
-    bf      1f
-    mov     r0, r1
-1:  shll    r1
-    mov.l   @(D_DIV,gbr), r0
+    shll    r1
     mov.w   @(r0,r1), r1
     extu.w  r1, r1                  ! d
+    bra     3f
     mov.l   @(D_K20,gbr), r0
-    mov     r0, r3
+1:  mov     r2, r1
+    shlr2   r1
+    shlr2   r1
+    mov.w   .Ldiv_last2, r0
+    cmp/gt  r0, r1
+    bf      2f
+    mov     r0, r1
+2:  shll    r1
+    mov.l   @(D_DIV_SCALED,gbr), r0
+    mov.w   @(r0,r1), r1            ! d << 4
+    mov     #1, r0
+    shll16  r0                      ! 2^16: >> 16
+3:  mov     r0, r3
     .irp    v, r4, r5, r6, r7
     mul.l   r1, \v
     sts     macl, \v
@@ -1337,6 +1348,7 @@
 
     .align  1
 .Ldiv_last2: .word  1280
+.Lsprite_exact: .word  2048         ! VIEW_EXACT
     .align  2
 .LfocalScale: .long _gFocalScale
 

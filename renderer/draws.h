@@ -76,6 +76,8 @@ struct DrawsContext
     PoseMesh* given;            // +236 the meshes drawn under a matrix given
     uint32_t givenCount;        // +240
     uint32_t givenMax;          // +244
+    const uint16_t* divNear;    // +248 sprites' d nearer than VIEW_EXACT (vertices.h gDivNear)
+    const int16_t* divScaled;   // +252 ... and from there (gDivScaled)
 };
 
 extern "C" void drawsAsm(DrawsContext* ctx);
@@ -119,6 +121,9 @@ void drawsHints(const uint32_t masks[2]);
 // The far plane past which items aren't drawn, in world units (frame.h
 // frameFar).
 void drawsFar(int32_t far);
+
+// The projection's tables for sprites, the level's (vertices.h gDivNear, gDivScaled).
+void drawsDivide(const uint16_t* divNear, const int16_t* divScaled);
 
 // The frame's calls after the walk (a model's and a shadow's index its
 // item's, in items) into the draw list, after the walk's fills (their

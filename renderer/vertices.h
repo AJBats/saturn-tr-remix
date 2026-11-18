@@ -27,7 +27,7 @@ struct RoomProject
 {
     const RoomVertex* points;   // +0  the room's, for their shades
     int32_t x0, y0, x1, y1;     // +4  its portal window
-    const int16_t* divScaled;   // +20 divTable << 4 where that fits, from z 1024 (VERTICES_DIV_SCALED_FROM)
+    const int16_t* divScaled;   // +20 0x1000000 / z by z >> 4 where that fits, from z 1024
     int32_t zMin, zMax;         // +24 near and far planes << 8
     const int8_t* wibble;       // +32 ripple offsets (32, twice over), or none
     int32_t phase;              // +36 the ripple's
@@ -83,13 +83,13 @@ enum MeshShading { MESH_SHADED, MESH_SHADES, MESH_NORMALS };
 // in place.
 struct MeshProject
 {
-    const uint16_t* divTable;   // +0
+    const uint16_t* nearTable;  // +0 0x100000 / z by z, nearer than z 1024
     int32_t inside;             // +4 every vertex lands inside the frame and between the planes
     void (*exact)(MeshProject* mp, int32_t index, Vertex* v);  // +8 a vertex z >> 14 can't place
                                 // against the near plane, worked out from the mesh
     const struct MeshJob* job;  // +12 for exact
     int32_t farScaled;          // +16 verticesFarScaled's
-    const int16_t* divScaled;   // +20 divTable << 4 from z 1024
+    const int16_t* divScaled;   // +20 0x1000000 / z by z >> 4 from z 1024
 };
 
 // A vertex past the far plane takes its depth there (and the plane's clip
@@ -105,6 +105,11 @@ void verticesRoomReach(uint32_t room, const RoomVertex* points, int32_t count);
 // The rooms' far plane, in world units (frame.h frameFar); the meshes keep
 // the game's.
 void verticesFar(int32_t far);
+
+// The projection's tables, this level's: 0x100000 / z by z up to VIEW_EXACT, and 0x1000000 / z by
+// z >> 4 from z 1024 (indexed by z >> 4 itself).
+extern uint16_t* gDivNear;
+extern int16_t* gDivScaled;
 
 extern "C" void meshProjectAsm(Vertex* v, int32_t count, MeshProject* mp);
 extern "C" void meshShadesAsm(Vertex* v, int32_t count, const uint8_t* shades, int32_t ambient);

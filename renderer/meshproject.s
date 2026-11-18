@@ -13,15 +13,15 @@
 !   each vertex's shade (ambient + its own << 5) >> 8, within 0 .. 31
 !
 ! MeshProject (vertices.h):
-!   +0  const uint16* divTable
+!   +0  const uint16* nearTable 0x100000 / z by z, nearer than z 1024: exact
 !   +4  int32 inside            every vertex lands inside the frame and
 !                               between the planes: no clamps or clip flags
 !   +8  void (*exact)(MeshProject* mp, int32 index, Vertex* v)
 !   +16 int32 farScaled         a vertex past the far plane scaled to it
 !                               (vertices.h verticesFarScaled)
-!   +20 const int16* divScaled  divTable << 4 from z 1024: a coordinate * this has
-!                               the pixel in its high word, the frame's edge added
-!                               there, and XTRCT packs the two
+!   +20 const int16* divScaled  0x1000000 / z by z >> 4 from z 1024: a coordinate
+!                               * this has the pixel in its high word, the frame's
+!                               edge added there, and XTRCT packs the two
 !
 ! Vertex (render.h): int16 x, y; int16 z; uint8 g, clip.
 
@@ -50,15 +50,16 @@ _meshProjectAsm:
     mov.l   r14, @-r15
     sts.l   pr, @-r15
     mov.l   r5, @-r15           ! the count, for a vertex's index
-    mov.l   @r6, r8             ! divTable
-    mov.l   @(20, r6), r9       ! ... << 4
+    mov.l   @r6, r8             ! nearTable
+    mov.l   @(20, r6), r9       ! divScaled
     mov.l   .Lcentre, r7
     mov.l   @(4, r6), r0
     tst     r0, r0
     bt      .Lreload
     mov.l   .LedgeX, r10
     mov.l   .LedgeY, r11
-    mov     #64, r2
+    mov     #4, r2
+    shll8   r2                  ! z 1024
 
     ! inside the frame: x, y projected, the rest as the DSP left it
     .align  2
@@ -66,10 +67,10 @@ _meshProjectAsm:
     mov.l   @(4, r4), r0        ! z >> 14 << 16 | shade << 8
     mov.l   @r4, r1
     shlr16  r0
-    shlr2   r0
-    shlr2   r0
     cmp/hs  r2, r0
     bf      .LinsideNear
+    shlr2   r0
+    shlr2   r0
     add     r0, r0
     mov.w   @(r0, r9), r0       ! d << 4
     muls.w  r0, r1              ! y
@@ -88,7 +89,7 @@ _meshProjectAsm:
     bra     .Ldone
     nop
 
-    ! up close d << 4 won't fit
+    ! up close d << 4 won't fit: d by z
 .LinsideNear:
     add     r0, r0
     mov.w   @(r0, r8), r0       ! d
@@ -248,23 +249,44 @@ _meshProjectAsm:
     mov.w   .LviewDist, r1
     mov     r1, r10
     mov     #CLIP_PLANE, r14
-2:
-    ! d = divTable[z >> PROJ_SHIFT]
+2:  exts.w  r12, r13            ! y
+    shlr16  r12
+    exts.w  r12, r12            ! x
+
+    ! coordinate * d: d by z nearer than z 1024, else (d << 4 by z >> 4) and the product >> 4
+    mov.w   .LnearLast, r1
+    cmp/hi  r1, r10
+    bt      .LgeneralFar
+    mov     r10, r0
+    add     r0, r0
+    mov.w   @(r0, r8), r0
+    muls.w  r0, r12
+    sts     macl, r12
+    muls.w  r0, r13
+    bra     .LgeneralD
+    sts     macl, r13
+.LgeneralFar:
     mov     r10, r0
     shlr2   r0
     shlr2   r0
     add     r0, r0
-    mov.w   @(r0, r8), r0
-    exts.w  r12, r13            ! y
-    shlr16  r12
-    exts.w  r12, r12            ! x
-
-    ! screen x, y = (coordinate * d) >> 12, clamped, + centre
+    mov.w   @(r0, r9), r0
     muls.w  r0, r12
     sts     macl, r12
     muls.w  r0, r13
-    mov.l   .LpMax, r1
+    shar    r12
+    shar    r12
+    shar    r12
+    shar    r12
     sts     macl, r13
+    shar    r13
+    shar    r13
+    shar    r13
+    shar    r13
+
+    ! screen x, y = that >> 12, clamped, + centre
+.LgeneralD:
+    mov.l   .LpMax, r1
     neg     r1, r2
     cmp/gt  r1, r12
     bf      3f
@@ -432,3 +454,4 @@ _meshShadesAsm:
 .LframeHeight:  .short  224         ! FRAME_HEIGHT
 .LcoordMax:     .short  1023        ! VDP1_COORD_MAX
 .LviewDist:     .short  20480       ! VIEW_MAX_F >> FIXED_SHIFT
+.LnearLast:     .short  1023        ! the near table's last z here

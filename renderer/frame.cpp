@@ -75,6 +75,8 @@ void frameInit(const FrameLevel &level)
     gSplit.vertices = level.vertices;
 #endif
     gSplit.divTable = divTable;
+    gSplit.divScaled = gDivScaled;
+    drawsDivide(gDivNear, gDivScaled);
     gMeshFirst = 1;
     frameLists();
 }
