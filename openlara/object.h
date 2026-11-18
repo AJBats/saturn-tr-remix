@@ -905,7 +905,7 @@ struct Crystal : Object
         collideDefault(lara, cinfo);
 
         if (!(lara->input & IN_ACTION) || (lara->extraL->weaponState != WEAPON_STATE_FREE) ||
-            (lara->flags & ITEM_FLAG_GRAVITY) || (lara->state != Lara::STATE_STOP))
+            (lara->flags & ITEM_FLAG_GRAVITY) || (lara->state != Lara::STATE_STOP) || !osBackupOn())
             return;
 
         angle.x = angle.z = 0;

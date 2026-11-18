@@ -60,6 +60,10 @@ void smpcCommand(uint8_t command);
 // had its results overwritten (input.cpp).
 uint32_t smpcCommands();
 
+// The clock: year (2 BCD bytes), day of the week << 4 | month, day, hour,
+// minute, second (BCD), as the SMPC's status gives them.
+void smpcClock(uint8_t out[7]);
+
 // Calls fn from an interrupt at that line of every field (SCU timer 0).
 void onLine(uint32_t line, void (*fn)());
 

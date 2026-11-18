@@ -94,9 +94,34 @@ bool osCheckSave()
 
 bool osSaveGame()
 {
-    // the file: the game's header and progress, then its items, there already (gSaveData)
+    // the file: the game's header and progress, then its items, there
+    // already (gSaveData), the rest to SAVE_FILE_BYTES zeros
+    uint32 used = sizeof(SaveFile) + gSaveGame.dataSize;
+    if (used > SAVE_FILE_BYTES)
+        return false;
     memcpy((void*)SAVE_AREA_ADDR, &gSaveFile, sizeof(SaveFile));
-    return backupWrite(SAVE_FILE, SAVE_COMMENT, (const void*)SAVE_AREA_ADDR, sizeof(SaveFile) + gSaveGame.dataSize);
+    memset((uint8*)SAVE_AREA_ADDR + used, 0, SAVE_FILE_BYTES - used);
+    return backupWrite(SAVE_FILE, SAVE_COMMENT, (const void*)SAVE_AREA_ADDR, SAVE_FILE_BYTES);
+}
+
+BackupState osBackupState(int32 device, uint32* blocks)
+{
+    uint32_t n = 0;
+    BackupState state = backupState(device, SAVE_FILE, SAVE_FILE_BYTES, &n);
+    if (blocks) {
+        *blocks = n;
+    }
+    return state;
+}
+
+void osBackupUse(int32 device)
+{
+    backupUse(device);
+}
+
+bool osBackupOn()
+{
+    return backupOn();
 }
 
 bool osLoadGame()

@@ -526,6 +526,24 @@ static uint32_t smpcStatus()
     return (SMPC_OREG(9) << 8) | SMPC_OREG(10);
 }
 
+// The clock, from the status INTBACK: OREG1 to OREG7 (year in 2 BCD bytes,
+// the day of the week << 4 | the month, day, hour, minute, second; BCD).
+// Held off from the pads' reads as smpcCommand is.
+void smpcClock(uint8_t out[7])
+{
+    uint32_t sr;
+    asm volatile("stc sr, %0" : "=r"(sr));
+    if ((sr & 0xF0) < LINE_LEVEL) {
+        asm volatile("ldc %0, sr" : : "r"((sr & ~0xF0) | LINE_LEVEL));
+    }
+    gSmpcCommands++;
+    smpcStatus();
+    for (int32_t i = 0; i < 7; i++) {
+        out[i] = SMPC_OREG(1 + i);
+    }
+    asm volatile("ldc %0, sr" : : "r"(sr));
+}
+
 #ifdef HW_LOG
 static uint32_t rtcSecond()
 {

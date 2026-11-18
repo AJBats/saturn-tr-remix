@@ -40,7 +40,8 @@ enum InvPage {
     INV_PAGE_KEYS,
     INV_PAGE_OPTIONS,
     INV_PAGE_SAVE,
-    INV_PAGE_STATS
+    INV_PAGE_STATS,
+    INV_PAGE_BACKUP
 };
 
 enum InvSlot {
@@ -216,6 +217,11 @@ struct Inventory
     int32 savePrompt;           // SAVE_ASK, SAVE_RETRY, SAVE_DONE
     bool saveProgressOnly;      // a level's end's: the progress, no position
     ItemObj* saveCrystal;       // the crystal it's for, used up by a save
+
+    // the backup memory's pages at boot (INV_PAGE_BACKUP)
+    int32 backupPage;           // BACKUP_PAGE_*
+    uint32 backupBlocks;        // the blocks a file takes in the memory the low page is about
+    bool backupChecked;         // once, before the title's first ring
 
     int32 frameIndex;
     int32 frameTarget;
@@ -652,6 +658,13 @@ struct Inventory
         this->lara = lara;
         skipOn = false;
 
+        if (page == INV_PAGE_TITLE && !backupChecked)
+        {
+            backupChecked = true;
+            if (openBackup())
+                return;
+        }
+
         if (page != INV_PAGE_TITLE)
         {
             soundLoopsStop();
@@ -890,6 +903,148 @@ struct Inventory
                 int32 w = getTextWidth(str) + 8;
                 renderBorder(FRAME_WIDTH / 2 + x - w / 2, y + 20 - 14, w, 18, 15, 15, 1);
             }
+        }
+    }
+
+    // Backup memory at boot, before the title's first ring, as retail's check
+    // (0603b76c, 0603bdb8), over the title's picture dimmed: memory not
+    // formatted stops there with how to clear it; with a cartridge in, the
+    // memory to use is asked, SYSTEM first; a memory with no file and too
+    // little room for one asks whether to start anyway, YES first (YES: no
+    // saving; NO: how to make room, and it stops there).
+    enum {
+        BACKUP_PAGE_NOT_READY_SYSTEM,
+        BACKUP_PAGE_NOT_READY_CART,
+        BACKUP_PAGE_WHICH,
+        BACKUP_PAGE_LOW,
+        BACKUP_PAGE_RESTART
+    };
+
+    // false when there's nothing to show: the system memory is used
+    bool openBackup()
+    {
+        uint32 sysBlocks, cartBlocks;
+        BackupState sys = osBackupState(BACKUP_SYSTEM, &sysBlocks);
+        BackupState cart = osBackupState(BACKUP_CARTRIDGE, &cartBlocks);
+        if (sys == BACKUP_UNFORMATTED) {
+            backupPage = BACKUP_PAGE_NOT_READY_SYSTEM;
+        } else if (cart == BACKUP_UNFORMATTED) {
+            backupPage = BACKUP_PAGE_NOT_READY_CART;
+        } else if (cart != BACKUP_ABSENT) {
+            backupPage = BACKUP_PAGE_WHICH;
+        } else if (sys == BACKUP_FULL) {
+            backupPage = BACKUP_PAGE_LOW;
+            backupBlocks = sysBlocks;
+        } else {
+            osBackupUse(BACKUP_SYSTEM);
+            return false;
+        }
+        background = osLoadScreen(LVL_TR1_TITLE);
+        osDimTitle(true);
+        page = INV_PAGE_BACKUP;
+        state = INV_STATE_READY;
+        nextState = INV_STATE_NONE;
+        timer = 0;
+        optionIndex = 0;
+        return true;
+    }
+
+    void onBackup()
+    {
+        if (backupPage != BACKUP_PAGE_WHICH && backupPage != BACKUP_PAGE_LOW)
+            return;     // stopped: the player resets
+
+        bool across = backupPage == BACKUP_PAGE_LOW;    // YES and NO side by side, SYSTEM over CARTRIDGE
+        if (lara->isKeyHit(across ? IN_LEFT : IN_UP)) {
+            optionIndex = 0;
+        }
+        if (lara->isKeyHit(across ? IN_RIGHT : IN_DOWN)) {
+            optionIndex = 1;
+        }
+        if (!lara->isKeyHit(IN_ACTION))
+            return;
+
+        if (backupPage == BACKUP_PAGE_WHICH)
+        {
+            int32 device = optionIndex ? BACKUP_CARTRIDGE : BACKUP_SYSTEM;
+            if (osBackupState(device, &backupBlocks) == BACKUP_FULL)
+            {
+                backupPage = BACKUP_PAGE_LOW;
+                optionIndex = 0;
+                return;
+            }
+            osBackupUse(device);
+        }
+        else if (optionIndex == 0)
+        {
+            osBackupUse(-1);
+        }
+        else
+        {
+            backupPage = BACKUP_PAGE_RESTART;
+            return;
+        }
+
+        osDimTitle(false);
+        closeBackground();
+        open(lara, INV_PAGE_TITLE);
+    }
+
+    void drawLines(int32 first, int32 last, int32 y, int32 step)
+    {
+        for (int32 i = first; i <= last; i++, y += step) {
+            drawText(0, y, STR[i], TEXT_ALIGN_CENTER);
+        }
+    }
+
+    void drawChoice(int32 x, int32 y, StringID id, bool chosen)
+    {
+        const char* str = STR[id];
+        drawText(x, y, str, TEXT_ALIGN_CENTER);
+        if (chosen)
+        {
+            int32 w = getTextWidth(str) + 8;
+            renderBorder(FRAME_WIDTH / 2 + x - w / 2, y - 14, w, 18, 15, 15, 1);
+        }
+    }
+
+    // each line where retail prints it (y from the top)
+    void drawBackup()
+    {
+        switch (backupPage)
+        {
+            case BACKUP_PAGE_NOT_READY_SYSTEM:
+            case BACKUP_PAGE_NOT_READY_CART:
+                drawText(0, 20, STR[backupPage == BACKUP_PAGE_NOT_READY_CART ? STR_BACKUP_NOT_READY_CART : STR_BACKUP_NOT_READY_SYSTEM], TEXT_ALIGN_CENTER);
+                drawLines(STR_BACKUP_CLEAR_1, STR_BACKUP_SELECT_2, 40, 20);
+                break;
+            case BACKUP_PAGE_WHICH:
+                drawText(0, 40, STR[STR_BACKUP_TITLE], TEXT_ALIGN_CENTER);
+                drawLines(STR_BACKUP_WHICH_1, STR_BACKUP_WHICH_2, 100, 16);
+                drawChoice(0, 140, STR_BACKUP_SYSTEM, optionIndex == 0);
+                drawChoice(0, 160, STR_BACKUP_CARTRIDGE, optionIndex == 1);
+                break;
+            case BACKUP_PAGE_LOW:
+            {
+                drawLines(STR_BACKUP_LOW_1, STR_BACKUP_LOW_2, 20, 17);
+                drawLines(STR_BACKUP_LOW_3, STR_BACKUP_LOW_6, 60, 17);
+                // the blocks a file takes (retail's is always 55)
+                char buf[48];
+                char* p = append(buf, STR[STR_BACKUP_LOW_7]);
+                p = appendInt(p, int32(backupBlocks));
+                append(p, STR[STR_BACKUP_LOW_8]);
+                drawText(0, 134, buf, TEXT_ALIGN_CENTER);
+                drawText(0, 151, STR[STR_BACKUP_LOW_9], TEXT_ALIGN_CENTER);
+                drawText(0, 180, STR[STR_BACKUP_LOW_10], TEXT_ALIGN_CENTER);
+                drawChoice(-24, 197, STR_YES, optionIndex == 0);
+                drawChoice(24, 197, STR_NO, optionIndex == 1);
+                break;
+            }
+            case BACKUP_PAGE_RESTART:
+                drawLines(STR_BACKUP_RESTART_1, STR_BACKUP_RESTART_4, 20, 17);
+                drawLines(STR_BACKUP_RESTART_5, STR_BACKUP_RESTART_9, 100, 17);
+                drawLines(STR_BACKUP_SELECT_1, STR_BACKUP_SELECT_2, 199, 17);
+                break;
         }
     }
 
@@ -1401,6 +1556,12 @@ struct Inventory
             return;
         }
 
+        if (page == INV_PAGE_BACKUP)
+        {
+            onBackup();
+            return;
+        }
+
         if (page == INV_PAGE_STATS)
         {
             onStats(frames);
@@ -1870,6 +2031,12 @@ struct Inventory
         if (page == INV_PAGE_SAVE)
         {
             drawSave();
+            return;
+        }
+
+        if (page == INV_PAGE_BACKUP)
+        {
+            drawBackup();
             return;
         }
 

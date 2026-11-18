@@ -495,8 +495,11 @@ void gameUpdate(int32 frames, bool items = true)
     if ((gNextLevel != LVL_MAX) && (inventory.state == INV_STATE_NONE) && gSavePromptDue)
     {
         gSavePromptDue = false;
-        inventory.openSave(menuLara(), NULL, true);
-        return;
+        if (osBackupOn())
+        {
+            inventory.openSave(menuLara(), NULL, true);
+            return;
+        }
     }
 
     if ((gNextLevel != LVL_MAX) && (inventory.state == INV_STATE_NONE))

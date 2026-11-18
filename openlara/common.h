@@ -1899,7 +1899,11 @@ struct ItemObj
 #define FLIP_FLAG_ONCE      32
 #define FLIP_FLAG_MASK      31
 
-#define SAVEGAME_SIZE   (8 * 1024)  // the file's largest, in low work RAM (SAVE_AREA_ADDR)
+#define SAVEGAME_SIZE   (8 * 1024)  // the save buffer, in low work RAM (SAVE_AREA_ADDR)
+// The file is always this long, as retail's is always 0xD7C, so that the
+// space checked at boot is what any save takes, and a save writes over the
+// last in place: Atlantis' (LEVEL10B, 192 items) is the largest, 5,120.
+#define SAVE_FILE_BYTES 5120
 
 struct SaveGame
 {
@@ -2373,9 +2377,6 @@ enum StringID {
     , STR_ALPHA_END_4
     , STR_ALPHA_END_5
     , STR_ALPHA_END_6
-    , STR_GBA_SAVE_WARNING_1
-    , STR_GBA_SAVE_WARNING_2
-    , STR_GBA_SAVE_WARNING_3
 // common
     , STR_LOADING
     , STR_LEVEL_STATS
@@ -2432,6 +2433,42 @@ enum StringID {
     , STR_SAVE_FAILED
     , STR_TRY_AGAIN
     , STR_NO_SAVE_GAMES
+// backup memory at boot (retail's 0603b76c)
+    , STR_BACKUP_NOT_READY_SYSTEM
+    , STR_BACKUP_NOT_READY_CART
+    , STR_BACKUP_CLEAR_1
+    , STR_BACKUP_CLEAR_2
+    , STR_BACKUP_CLEAR_3
+    , STR_BACKUP_CLEAR_4
+    , STR_BACKUP_CLEAR_5
+    , STR_BACKUP_CLEAR_6
+    , STR_BACKUP_CLEAR_7
+    , STR_BACKUP_SELECT_1
+    , STR_BACKUP_SELECT_2
+    , STR_BACKUP_LOW_1
+    , STR_BACKUP_LOW_2
+    , STR_BACKUP_LOW_3
+    , STR_BACKUP_LOW_4
+    , STR_BACKUP_LOW_5
+    , STR_BACKUP_LOW_6
+    , STR_BACKUP_LOW_7
+    , STR_BACKUP_LOW_8
+    , STR_BACKUP_LOW_9
+    , STR_BACKUP_LOW_10
+    , STR_BACKUP_RESTART_1
+    , STR_BACKUP_RESTART_2
+    , STR_BACKUP_RESTART_3
+    , STR_BACKUP_RESTART_4
+    , STR_BACKUP_RESTART_5
+    , STR_BACKUP_RESTART_6
+    , STR_BACKUP_RESTART_7
+    , STR_BACKUP_RESTART_8
+    , STR_BACKUP_RESTART_9
+    , STR_BACKUP_TITLE
+    , STR_BACKUP_WHICH_1
+    , STR_BACKUP_WHICH_2
+    , STR_BACKUP_SYSTEM
+    , STR_BACKUP_CARTRIDGE
 // inventory option
     , STR_GAME
     , STR_MAP
@@ -3233,6 +3270,20 @@ bool osCheckSave();
 bool osSaveGame();
 bool osLoadGame();
 bool osReadSave();
+
+// Backup memory at boot, as retail's check (0603b76c) finds it: each device's
+// state for a file of SAVE_FILE_BYTES and the blocks one takes there (blocks
+// may be NULL), the device chosen (-1: saving off).
+enum BackupState {
+    BACKUP_ABSENT,
+    BACKUP_UNFORMATTED,
+    BACKUP_FULL,        // no file there and too few free blocks for one
+    BACKUP_READY
+};
+enum { BACKUP_SYSTEM, BACKUP_CARTRIDGE };
+BackupState osBackupState(int32 device, uint32* blocks);
+void osBackupUse(int32 device);
+bool osBackupOn();
 void osJoyVibrate(int32 index, int32 L, int32 R);
 void osSetPalette(const uint16* palette);
 const void* osLoadScreen(LevelID id);

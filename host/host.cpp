@@ -135,6 +135,9 @@ bool osCheckSave() { return false; }
 bool osSaveGame() { return true; }
 bool osLoadGame() { return false; }
 bool osReadSave() { return false; }
+BackupState osBackupState(int32, uint32*) { return BACKUP_READY; }
+void osBackupUse(int32) {}
+bool osBackupOn() { return true; }
 
 // sound: none; SOUNDS=1 prints what the game plays and stops, by tick
 static int32 gHostTick;
