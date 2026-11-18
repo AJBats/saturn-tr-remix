@@ -511,7 +511,7 @@ struct Enemy : ItemObj
             return;
         
         vec3i fxPos = pos + getJoint(joint, offset);
-        fxBlood(fxPos, 0, 0);
+        fxBlood(fxPos, angle.y, hSpeed);    // moving with it (retail's CreatureEffect, 0600bf8c)
         
         tinfo.target->hit(damage, offset, 0);
     }

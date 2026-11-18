@@ -800,7 +800,8 @@ _poseAsm:
     .endm
 
 .Llara:
-    ! her torso's angles, then the shotgun's turn of its own
+    ! her torso's angles alone: the shotgun's animation turns only her arms
+    ! (retail's DrawLara, 06013438)
     mov     r10, r7
     add     #I_TORSO, r7
     mov.w   @r7, r0
@@ -812,45 +813,7 @@ _poseAsm:
     mov     #0, r12
     mov     r10, r8
     add     #I_ARMS, r8
-    mov.l   @(A_FRAME,r8), r0
-    cmp/eq  #NO_FRAME, r0
-    bt      1f
-    mov     r10, r1
-    add     #I_WEAPON, r1
-    mov.b   @r1, r1
-    mov     #WEAPON_SHOTGUN, r2
-    cmp/eq  r2, r1
-    bf      1f
-    mov.l   @(C_FRAMES,gbr), r0
-    mov.l   @(A_FRAME,r8), r5
-    add     r0, r5
-    mov.l   @(F_ANGLES+JOINT_TORSO*4,r5), r5
-    DECODE  2
-    shll2   r4                  ! the angles: offsets << 2
-    shll2   r5
-    shll2   r6
-    mov.l   .Ltorsox, r1
-    mov.l   @(C_TORSO+4,gbr), r0
-    add     r5, r0
-    sub     r1, r0
-    mov.l   r0, @(C_TORSO+4,gbr)
-    mov.l   .Ltorsoy, r1
-    mov.l   @(C_TORSO,gbr), r0
-    add     r4, r0
-    sub     r1, r0
-    mov.l   r0, @(C_TORSO,gbr)
-    mov.l   .Ltorsoz, r1
-    mov.l   @(C_TORSO+8,gbr), r0
-    add     r6, r0
-    sub     r1, r0
-    mov.l   r0, @(C_TORSO+8,gbr)
-    bra     1f
-    nop
-    POOL    2
-.Ltorsox:   .long   1216        ! DEF_TORSO_ANGLE_X
-.Ltorsoy:   .long   -832
-.Ltorsoz:   .long   -192
-1:  ARMSET  JOINT_ARM_R1
+    ARMSET  JOINT_ARM_R1
     add     #1, r12
     add     #ARM, r8
     ARMSET  JOINT_ARM_L1

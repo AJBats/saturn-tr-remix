@@ -3001,6 +3001,14 @@ struct Lara : ItemObj
     // Retail's FireWeapon (0601fd2c): a round a shot, a round a pellet for the
     // shotgun's 6; the pistols never run out. Out of rounds, the click, and
     // her pistols asked for.
+    // a random turn within half the spread each way, toward 0 (retail's
+    // ((rand - 0x4000) * spread) >> 16 as it rounds)
+    static int32 scatter(int32 spread)
+    {
+        int32 v = int32(rand_logic() - 0x4000) * spread;
+        return (v < 0 ? v + 0xFFFF : v) >> 16;
+    }
+
     bool weaponFire(const ExtraInfoLara::Arm* arm)
     {
         int16 &ammo = extraL->ammo[extraL->weapon];
@@ -3017,10 +3025,22 @@ struct Lara : ItemObj
         from.pos.z = pos.z;
         from.room = room;
 
-        int32 count = (extraL->weapon == WEAPON_SHOTGUN) ? 6 : 1;
+        const bool shotgun = (extraL->weapon == WEAPON_SHOTGUN);
+        int32 count = shotgun ? 6 : 1;
 
         for (int32 i = 0; i < count; i++)
         {
+            // retail's FireShotgun (0601eb8c) scatters each pellet by its
+            // spread, yaw first, then FireWeapon (0601fd2c) rolls the gun's
+            // accuracy (the shotgun's 0), pitch first, if a round is left
+            int32 aimX = arm->angle.x;
+            int32 aimY = angle.y + arm->angle.y;
+            if (shotgun)
+            {
+                aimY += scatter(params.spread);
+                aimX += scatter(params.spread);
+            }
+
             if (ammo <= 0)
             {
                 ammo = 0;
@@ -3033,12 +3053,9 @@ struct Lara : ItemObj
             ammo--;
             fired = true;
 
-            int32 aimX = int32(rand_logic() - 0x4000) * params.spread >> 16;
-            int32 aimY = int32(rand_logic() - 0x4000) * params.spread >> 16;
-
-            aimX += arm->angle.x;
-            aimY += arm->angle.y;
-            aimY += angle.y;
+            const int32 accuracy = shotgun ? 0 : params.spread;
+            aimX += scatter(accuracy);
+            aimY += scatter(accuracy);
 
             matrixSetView(from.pos, aimX, aimY);
 
@@ -3115,8 +3132,8 @@ struct Lara : ItemObj
         if (weaponState == WEAPON_STATE_DRAW)
         {
             const WeaponParams &params = weaponParams[extraL->weapon];
-            int32 anim = (extraL->weapon == WEAPON_SHOTGUN) ? ANIM_SHOTGUN_AIM : ANIM_PISTOLS_PICK;
-            R.animIndex = L.animIndex = level.models[params.animType].animIndex + anim;
+            // the first frame of either's aim, retail's 0: the draw counts on from it
+            R.animIndex = L.animIndex = level.models[params.animType].animIndex;
             R.frameIndex = L.frameIndex = 0;
         }
 
@@ -3154,93 +3171,100 @@ struct Lara : ItemObj
         }
     }
 
+    // A pistol arm's frame as retail counts it, through its four animations:
+    // aim 0-4, pick 5-12, draw 13-23, recoil 24-32.
+    static int32 pistolFrame(const ExtraInfoLara::Arm &arm)
+    {
+        return level.anims[arm.animIndex].frameBegin + arm.frameIndex;
+    }
+
+    void setPistolFrame(ExtraInfoLara::Arm &arm, int32 f)
+    {
+        int32 anim = level.models[weaponParams[extraL->weapon].animType].animIndex + ANIM_PISTOLS_FIRE;
+        while (level.anims[anim].frameBegin > f) {
+            anim--;
+        }
+        arm.animIndex = anim;
+        arm.frameIndex = f - level.anims[anim].frameBegin;
+    }
+
+    // retail's DrawPistols (0601ec7c): frames 5 to 22, the meshes and SFX 6
+    // at 13, ready at 23 (the arms at rest, frame 0)
     void weaponDrawPistols()
     {
-        const WeaponParams &params = weaponParams[extraL->weapon];
+        int32 f = pistolFrame(extraL->armR) + 1;
 
-        ExtraInfoLara::Arm* arm = &extraL->armR;
-
-        const Anim* animPtr = level.anims + arm->animIndex;
-        int32 animLength = animPtr->frameEnd - animPtr->frameBegin;
-        int32 frame = arm->frameIndex + 1;
-        int32 anim = arm->animIndex - level.models[params.animType].animIndex;
-
-        if (frame > animLength)
+        if (f < 5 || f > 23)
         {
-            anim++;
-
-            if (anim == ANIM_PISTOLS_DRAW) {
-                meshSwapPistols(JOINT_MASK_ARM_R3 | JOINT_MASK_ARM_L3, JOINT_MASK_LEG_R1 | JOINT_MASK_LEG_L1);
-                soundPlay(SND_DRAW, &pos);
-            } else if (anim == ANIM_PISTOLS_FIRE) {
-                anim = ANIM_PISTOLS_AIM;
-                setWeaponState(WEAPON_STATE_READY);
-            }
-
-            frame = 0;
+            f = 5;
+        }
+        else if (f == 13)
+        {
+            meshSwapPistols(JOINT_MASK_ARM_R3 | JOINT_MASK_ARM_L3, JOINT_MASK_LEG_R1 | JOINT_MASK_LEG_L1);
+            soundPlay(SND_DRAW, &pos);
+        }
+        else if (f == 23)
+        {
+            f = 0;
+            setWeaponState(WEAPON_STATE_READY);
         }
 
         extraL->armR.angle = extraL->armL.angle = _vec3s(0, 0, 0);
-        extraL->armR.animIndex = extraL->armL.animIndex = anim + level.models[params.animType].animIndex;
-        extraL->armR.frameIndex = extraL->armL.frameIndex = frame;
+        setPistolFrame(extraL->armR, f);
+        setPistolFrame(extraL->armL, f);
     }
 
+    // retail's UndrawPistols (0601ecf4), each arm on its own: from the recoil
+    // to 4, the aim lowered through 4 to 0, then 23 down to 5, its meshes and
+    // SFX 7 at 12; free when both rest at 5
     void weaponHolsterPistols()
     {
-        const WeaponParams &params = weaponParams[extraL->weapon];
+        int32 frames[LARA_ARM_MAX];
 
         for (int32 i = 0; i < LARA_ARM_MAX; i++)
         {
             ExtraInfoLara::Arm* arm = &extraL->armR + i;
+            int32 f = pistolFrame(*arm);
 
-            if (!arm->animIndex)
-                continue;
-
-            int32 frame = arm->frameIndex;
-            int32 anim = arm->animIndex - level.models[params.animType].animIndex;
-
-            if (frame)
+            if (f >= 24)
             {
-                if (anim == ANIM_PISTOLS_AIM) {
-                    arm->angle.x -= arm->angle.x / frame; // @DIV
-                    arm->angle.y -= arm->angle.y / frame; // @DIV
-                }
-
-                if (anim == ANIM_PISTOLS_FIRE) {
-                    frame = 0;
-                } else {
-                    frame--;
-                }
-            } else {
-                if (anim == ANIM_PISTOLS_AIM) {
-                    anim = ANIM_PISTOLS_DRAW;
-                } else if (anim == ANIM_PISTOLS_PICK) {
-                    arm->animIndex = 0;
-                    continue;
-                } else if (anim == ANIM_PISTOLS_DRAW) {
-                    anim = ANIM_PISTOLS_PICK;
+                f = 4;
+            }
+            else if (f >= 1 && f <= 4)
+            {
+                arm->angle.x -= arm->angle.x / f; // @DIV
+                arm->angle.y -= arm->angle.y / f; // @DIV
+                f--;
+            }
+            else if (f == 0)
+            {
+                arm->angle = _vec3s(0, 0, 0);
+                f = 23;
+            }
+            else if (f >= 6)
+            {
+                if (--f == 12)
+                {
                     if (i == LARA_ARM_R) {
                         meshSwapPistols(JOINT_MASK_LEG_R1, JOINT_MASK_ARM_R3);
                     } else {
                         meshSwapPistols(JOINT_MASK_LEG_L1, JOINT_MASK_ARM_L3);
                     }
                     soundPlay(SND_HOLSTER, &pos);
-                } else if (anim == ANIM_PISTOLS_FIRE) {
-                    anim = ANIM_PISTOLS_AIM;
                 }
-
-                arm->animIndex = anim + level.models[params.animType].animIndex;
-                frame = level.anims[arm->animIndex].frameEnd - level.anims[arm->animIndex].frameBegin;
             }
 
-            arm->frameIndex = frame;
+            setPistolFrame(*arm, f);
+            frames[i] = f;
         }
 
         // the head and torso go with the arms (retail's UndrawPistols, 0601ecf4)
         extraL->head.angle.x = extraL->torso.angle.x = (extraL->armR.angle.x + extraL->armL.angle.x) / 4;
         extraL->head.angle.y = extraL->torso.angle.y = (extraL->armR.angle.y + extraL->armL.angle.y) / 4;
 
-        if (!extraL->armR.animIndex && !extraL->armL.animIndex) {
+        if (frames[LARA_ARM_R] == 5 && frames[LARA_ARM_L] == 5)
+        {
+            extraL->armR.animIndex = extraL->armL.animIndex = 0;
             setWeaponState(WEAPON_STATE_FREE);
         }
     }
@@ -3759,6 +3783,7 @@ struct Lara : ItemObj
 
         if (health <= 0)
         {
+            extraL->weaponState = WEAPON_STATE_FREE;    // dead, armless (LaraGun)
             extraL->armR.animIndex = extraL->armL.animIndex = 0;
             extraL->armR.useBasis = extraL->armL.useBasis = false;
             return;
@@ -3802,13 +3827,11 @@ struct Lara : ItemObj
         }
     }
 
+    // only the request: the gun out only if it differs from the one she
+    // has (retail's UseItem 06020820, LaraGun 0601f3f4)
     void changeWeapon(Weapon weapon)
     {
         extraL->goalWeapon = weapon;
-        if ((extraL->weaponState == WEAPON_STATE_FREE) && (extraL->goalWeapon == extraL->weapon))
-        {
-            extraL->weapon = WEAPON_NONE;
-        }
     }
 
     bool useItem(InvSlot slot)
