@@ -99,7 +99,9 @@ class Mednafen:
     """A Mednafen of our own, driven through its automation files in
     build/NAME_ipc, its settings in build/NAME_home."""
 
-    def __init__(self, cue, name='capture'):
+    def __init__(self, cue, name='capture', sound=None):
+        # sound: a WAV file the game's sound is recorded to, from boot on, at
+        # full level (the speakers get none)
         exe = None
         for rel in ('mednafen_debug.exe', 'src/mednafen.exe', 'mednafen_gcc494.exe'):
             path = os.path.join(ROOT, 'tools/mednafen', rel)
@@ -133,7 +135,8 @@ class Mednafen:
         env = dict(os.environ, MEDNAFEN_HOME=home)
         stderr_path = os.path.join(ROOT, f'build/{name}_stderr.txt')
         with open(stderr_path, 'w') as stderr:
-            self.proc = subprocess.Popen([exe, '--sound', '0', '-cd.image_memcache', '1', '--automation', self.ipc, cue],
+            audio = ['--sound', '1', '--sound.volume', '0', '--soundrecord', sound] if sound else ['--sound', '0']
+            self.proc = subprocess.Popen([exe] + audio + ['-cd.image_memcache', '1', '--automation', self.ipc, cue],
                                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                          stderr=stderr, env=env)
         deadline = time.time() + 60
