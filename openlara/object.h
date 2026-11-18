@@ -30,8 +30,8 @@ const int16 LIMIT_SWITCH[] = {
 };
 
 const int16 LIMIT_SWITCH_UW[] = {
-    -1024, 1024, -1024, 1024, -1024, 1024,
-    ANGLE(80), ANGLE(80), ANGLE(80)
+    -1024, 1024, -1024, 1024, -1024, 512,
+    14560, 14560, 14560
 };
 
 const int16 LIMIT_BLOCK[] = {
@@ -1000,13 +1000,14 @@ struct SwitchWater : Switch
 
     virtual void collide(Lara* lara, CollisionInfo* cinfo)
     {
-        if (lara->extraL->weaponState != WEAPON_STATE_FREE)
-            return;
-
         if (!(lara->input & IN_ACTION))
             return;
 
         if (lara->state != Lara::STATE_UW_TREAD)
+            return;
+
+        // not while it moves (retail's SwitchCollision2, 0602b1fc)
+        if (flags & ITEM_FLAG_STATUS)
             return;
 
         if (!checkLimit(lara, LIMIT_SWITCH_UW))
@@ -1022,9 +1023,7 @@ struct SwitchWater : Switch
         activate();
         flags &= ~ITEM_FLAG_STATUS;
         flags |= ITEM_FLAG_STATUS_ACTIVE;
-
-        //TODO TR2+
-        //lara->weaponState = WEAPON_STATE_BUSY;
+        lara->extraL->weaponState = WEAPON_STATE_BUSY;
     }
 };
 
@@ -1237,42 +1236,61 @@ struct Hole : Object // parent class for KeyHole and PuzzleHole
         flags &= ~ITEM_FLAG_STATUS;
     }
 
+    // "No" once for each place Lara stands in (retail keeps one place for all
+    // the holes); a wrong item chosen always says it.
+    static void sayNo(Lara* lara, bool always)
+    {
+        static vec3i saidAt;
+        if (!always && lara->pos == saidAt)
+            return;
+        saidAt = lara->pos;
+        soundPlay(SND_NO, &lara->pos);
+    }
+
+    // retail's KeyHoleCollision and PuzzleHoleCollision (0602b30c, 0602b53c):
+    // standing (any animation), hands free, on the ground, in place; a used
+    // hole or nothing to use says no
     void apply(int32 offset, Lara* lara, Lara::State stateUse)
     {
-        if (lara->extraL->weaponState != WEAPON_STATE_FREE)
-            return;
-
-        if (flags & ITEM_FLAG_STATUS)
-            return;
-
-        if (lara->state != Lara::STATE_STOP || lara->animIndex != Lara::ANIM_STAND_NORMAL)
+        if (lara->state != Lara::STATE_STOP)
             return;
 
         if (!(lara->input & IN_ACTION) && (inventory.useSlot == SLOT_MAX))
             return;
 
+        if (lara->extraL->weaponState != WEAPON_STATE_FREE || (lara->flags & ITEM_FLAG_GRAVITY))
+            return;
+
         if (!checkLimit(lara, LIMIT_HOLE))
             return;
+
+        if (flags & ITEM_FLAG_STATUS)
+        {
+            sayNo(lara, false);
+            return;
+        }
 
         if (inventory.useSlot == SLOT_MAX)
         {
             if (inventory.numKeys > 0) {
                 inventory.open(lara, INV_PAGE_USE, type);
-                return;
+            } else {
+                sayNo(lara, false);
             }
-        } else {
-            if (inventory.applyItem(this))
-            {
-                lara->moveTo(_vec3i(0, 0, offset), this, false);
-                lara->animSkip(stateUse, Lara::STATE_STOP);
-                lara->extraL->weaponState = WEAPON_STATE_BUSY;
-                flags &= ~ITEM_FLAG_STATUS;
-                flags |= ITEM_FLAG_STATUS_ACTIVE;
-                return;
-            }
-            inventory.useSlot = SLOT_MAX;
+            return;
         }
-        soundPlay(SND_NO, &lara->pos);
+
+        if (inventory.applyItem(this))
+        {
+            lara->moveTo(_vec3i(0, 0, offset), this, false);
+            lara->animSkip(stateUse, Lara::STATE_STOP);
+            lara->extraL->weaponState = WEAPON_STATE_BUSY;
+            flags &= ~ITEM_FLAG_STATUS;
+            flags |= ITEM_FLAG_STATUS_ACTIVE;
+            return;
+        }
+        inventory.useSlot = SLOT_MAX;
+        sayNo(lara, true);
     }
 };
 
@@ -1655,27 +1673,43 @@ struct Block : Object
         return true;
     }
 
-    bool checkPush()
+    // a static mesh within radius and height of x, z at the block's height
+    // (retail's CollideStaticObjects, 0600e318, as TestBlockPush and
+    // TestBlockPull 06024498 06024600 ask it)
+    bool hitsStatic(int32 x, int32 z, int32 radius, int32 height, int32 quadrant)
+    {
+        CollisionInfo ci;
+        ci.radius = radius;
+        ci.quadrant = quadrant;
+        ci.type = CT_NONE;
+        ci.pos = _vec3i(x, pos.y, z);
+        return room->getRoom(x, pos.y, z)->collideStatic(ci, ci.pos, height);
+    }
+
+    bool checkPush(int32 quadrant)
     {
         if (!checkBlocking())
             return false;
 
         vec3i offset = getBlockOffset(angle.y, -1024);
 
-        return checkObstacles(pos.x + offset.x, pos.z + offset.z, 1024);
+        return checkObstacles(pos.x + offset.x, pos.z + offset.z, 1024) &&
+               !hitsStatic(pos.x + offset.x, pos.z + offset.z, 500, 1000, quadrant);
     }
 
-    bool checkPull(ItemObj* lara)
+    bool checkPull(ItemObj* lara, int32 quadrant)
     {
         if (!checkBlocking())
             return false;
 
         vec3i offset = getBlockOffset(angle.y, 1024);
 
-        if (!checkObstacles(pos.x + offset.x, pos.z + offset.z, 1024))
+        if (!checkObstacles(pos.x + offset.x, pos.z + offset.z, 1024) ||
+            hitsStatic(pos.x + offset.x, pos.z + offset.z, 500, 1000, quadrant))
             return false;
 
-        return checkObstacles(lara->pos.x + offset.x, lara->pos.z + offset.z, LARA_HEIGHT);
+        return checkObstacles(lara->pos.x + offset.x, lara->pos.z + offset.z, LARA_HEIGHT) &&
+               !hitsStatic(lara->pos.x + offset.x, lara->pos.z + offset.z, 100, LARA_HEIGHT, (quadrant + 2) & 3);
     }
 
     virtual void collide(Lara* lara, CollisionInfo* cinfo)
@@ -1701,7 +1735,7 @@ struct Block : Object
 
             if (lara->input & IN_UP)
             {
-                if (!checkPush())
+                if (!checkPush(quadrant))
                     return;
 
                 lara->goalState = Lara::STATE_BLOCK_PUSH;
@@ -1709,7 +1743,7 @@ struct Block : Object
             }
             else
             {
-                if (!checkPull(lara))
+                if (!checkPull(lara, quadrant))
                     return;
 
                 lara->goalState = Lara::STATE_BLOCK_PULL;
