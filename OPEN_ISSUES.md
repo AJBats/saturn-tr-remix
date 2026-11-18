@@ -289,6 +289,7 @@ SND-C8*
   - Internal memory only, with no boot checks and no messages.
   - Two files: TOMBR_SAVE (its comment is the level's file name) and TOMBR_CFG.
   - `osSaveSettings` rewrites backup RAM on every option toggle.
+- **2026-11-18:** the settings file went with issue 145 (Gamma and the control method aren't saved, as retail's), and the game keeps one file, TOMBR_GAME. Left: the boot checks and messages, the System/Cartridge choice, retail's name, comment and size, and the checksum with its verify.
 
 ### 162. No "Press START" title screen, no attract demos, no return to it
 *Severity: visible · Confidence: confirmed · Fix: medium (screen), large (demos)
