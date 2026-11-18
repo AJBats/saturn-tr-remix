@@ -155,7 +155,7 @@ numbers and timing 197-200, 202-204; scene 209, 211, 216-218.
 
 ### Alongside: bugs a player runs into that aren't retail differences
 
-309 faces missing after a load (reported in play); 287 the T-rex's music on
+309 faces missing after a load (reported in play); 312 a triangle across an Atlantis corridor; 287 the T-rex's music on
 the Saturn; 310 the Cistern's spout; 292 Khamoon room 14 at 15 fps; 293 and
 255 the Cistern's slow spots; 280 the flooded Cistern from above; 296
 shimmers shrink; 286 low detail for a frame after the inventory.
@@ -1860,6 +1860,17 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Priced 2026-11-14, a trial on branch `column-order` (worktree ../trs_column, f749e7b, built with `COLUMN_ORDER=1`, off by default): room faces keyed from corners A and C's columns in `facesroom.s` BUCKET (per-run tables for faces whose front is to -x or -z, the face's bucket handed to C and to near pieces); meshes by their draw's column with depth steps inside it (`facesmesh.s` DEPTH, the column found in C from the draw's matrix); sprites by a rank from their depth; hints off. `tools/frameprof.py`, 4 lists each, ms a list of the functions touched, master / slave: ledge +0.40 / +0.34, cistern -0.18 / +0.76 (the join moved to the slave), valley-ledge +0.43 / +0.67, cistern-water +0.24 / +0.46. Of that: room faces +0.33 to +0.59 (13 more instructions a face), mesh faces +0.21 to +0.32 (10 more), the draw's column in C +0.19 to +0.41, room setup +0.07 to +0.15; the join 0.3 to 0.4 cheaper over both CPUs (fewer buckets in use). The same commands drawn at every spot.
 - Pictures at ledge, cistern, valley-ledge, cistern-water, caves-planks and cistern-warp match today's but for which face wins a shared edge; at cistern-warp the wall no longer covers the floor at the lower left.
 - Not in the trial: statics cut at the sector lines; sprites' and shimmers' own columns; height per column rather than per room; wall triangles facing -x or -z (a column off); Lara's own faces near the camera sorted in steps of 40 to 60 units (16 today). Not run on the Saturn.
+
+### 312. A big pale-blue triangle across an Atlantis corridor
+*Kind: visible · Size: unknown · Fix: not looked into*
+
+- Seen 2026-11-18 in Mednafen while testing issue 212: `tools/hwtest.sh at` with
+  AT_LEVEL=LEVEL10B AT_ID=LVL_TR1_10B AT_START=73:1:5 AT_YAW=0xC000 (Lara at 45568, -14592,
+  62976, facing -x down the corridor towards the doppelganger's arena). From about frame 1720 a
+  large textured pale-blue triangle stands between Lara and the far wall, from her back down to the
+  lower right of the frame, and stays as she draws her guns.
+- Not the doppelganger: it shows with her drawing switched off. Perhaps a near face (263) or a
+  room face of the next room; not traced.
 
 ## Production code: clean-up
 
