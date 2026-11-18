@@ -85,8 +85,8 @@ order; the few of its bugs a player runs into are listed at the end.
 | 18 | 24, 75. Twelve creature types run the timid mood (24 first: the flag they share) | small (closed) |
 | 19 | 74. Every triggered creature's collision radius becomes 0 | small (closed) |
 | 20 | 85. Natla's fight: no flight, rockets, sounds or music | large (closed) |
-| 21 | 86. Mutants: no burst (flight done c2af101) | medium, with 213 |
-| 22 | 87. Centaurs don't burst (with 213) | medium |
+| 21 | 86. Mutants: no burst (flight done c2af101) | medium, with 213 (closed) |
+| 22 | 87. Centaurs don't burst (with 213) | medium (closed) |
 | 23 | 29. Button layout and control model | medium (closed) |
 | 24 | 30. Look works in every state and freezes Lara | small (closed) |
 | 25 | 133. A key chosen away from a keyhole auto-inserts later | small (closed) |
@@ -106,7 +106,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 39 | 32. Underwater turning is slower and ramps up | small (closed) |
 | 40 | 122. Closed doors don't block in flipped rooms | medium (closed) |
 | 41 | 114. Boulders never reset | small (closed) |
-| 42 | 115. Centaur statues don't shatter (wake done 345a620) | medium, with 213 |
+| 42 | 115. Centaur statues don't shatter (wake done 345a620) | medium, with 213 (closed) |
 | 43 | 80, 78, 79. Crocodiles and rats: land and water forms, depth, pool bottom | medium (closed) |
 | 44 | 88. The torso boss: no grab kill, wrong steering | medium (closed) |
 | 45 | 89. The T-rex walks without stopping | small (closed) |
@@ -563,30 +563,6 @@ SND-21*
 
 ## Creatures and AI
 
-### 86. Mutants: the winged one doesn't fly, shots are instant, they don't burst
-*Severity: gameplay · Confidence: confirmed · Fix: large · Audit: AI-14*
-
-- **Retail:** FlyerControl (`06030ffc`; TR1X `ai/mutant.c`).
-  - The winged mutant flies when it can't reach or shoot Lara, or when fleeing.
-  - Shard and rocket are travelling projectiles (issue 84).
-  - On death, ExplodingDeath(-1, 100) (`06031c64`) throws body parts that hurt
-    Lara.
-  - The shooter's smartness is 0x2000.
-- **Ours:** `openlara/enemy.h` Mutant.
-  - Flight, the shooter's smartness and the aims follow FlyerControl since
-    c2af101. Shards and rockets fly since issue 84 (f484e2d).
-  - Left: on death it shows blood and the body vanishes (`Mutant::hit`).
-- **Needs:** 213.
-
-### 87. Centaurs don't burst
-*Severity: gameplay · Confidence: confirmed · Fix: large (shared with 84, 213) ·
-Audit: AI-15*
-
-- **Retail:** CentaurControl (`06030cf8`; TR1X `ai/centaur.c`) fires RocketGun,
-  a travelling projectile, and dies with ExplodingDeath(-1, 100).
-- **Ours:** the rocket flies since issue 84 (f484e2d). On death the centaur
-  just turns invisible (issue 213).
-
 ### 99. The gorilla can't climb onto blocks, and its sidestep turns differ
 *Severity: visible · Confidence: confirmed · Fix: medium · Audit: AI-28*
 
@@ -627,34 +603,6 @@ AI-29*
   turn their heads toward Lara.
 
 ## Level logic, traps and objects
-
-### 115. Centaur statues wake on proximity instead of their trigger, and don't shatter
-*Severity: gameplay / visible · Confidence: confirmed · Fix: small (wake),
-medium (shatter) · Audit: LVL-7, AI-27*
-
-- **Retail:** statue init and control (`06032454`, `0603255c`; TR1X
-  `ai/statue.c`).
-  - The init does not add the statue to the active list, so it only works once
-    triggered. In Tomb of Tihocan, statue 73 waits for switch 79 and statue 74
-    for pads in room 109.
-  - Until it wakes, it is solid and pushes Lara.
-  - When it wakes, it shatters into pieces (ExplodingDeath `06031c64`) with SFX
-    104. The centaur takes the statue's exact yaw and is enabled with force.
-- **Ours:** the trigger, the collision and the yaw follow retail since
-  345a620. Left: the statue just vanishes, no shards.
-- **Needs:** 213 for the shards.
-
-### 116. Mutant eggs throw no shell shards, and Lara walks through them
-*Severity: visible · Confidence: confirmed · Fix: medium (needs 213) · Audit:
-LVL-8, AI-27*
-
-- **Retail:** the pod (`060321e8`, `0603231c`; TR1X `ai/pod.c`) calls
-  ExplodingDeath with mask 0xFFFE00, throwing shell meshes 9–23 and keeping
-  0x1FF. The eggs are solid.
-- **Ours:** `openlara/object.h:2028-2079` sets `visibleMask = 0xFFFFFF`
-  (`object.h:2069`), so all 24 meshes stay drawn after hatching. There is no
-  collision.
-- **Effect:** hatched eggs keep their shell; Lara walks through eggs.
 
 ### 117. Lightning: nothing drawn, wrong strike radius, half the thunder, no flinch
 *Partly fixed 2026-11-17 (b634d11): radius, thunder twice, the flinch and the emitter's mesh are retail's. Left: the bolt (8 jagged steps, 2 branches) needs a line primitive in the renderer.*
@@ -1380,28 +1328,6 @@ Fix: small · Audit: MATH-5*
   no flash, no shadow.
 - **Fix:** draw her with the `drawLaraNodes` path, using her own meshes.
 
-### 213. Exploding deaths are missing; bodies just vanish
-*Severity: visible · Confidence: confirmed · Fix: large · Audit: GFX-9*
-
-- **Retail:** ExplodingDeath (`06031c64`; TR1X `effects/body_part.c`) creates
-  O_BODY_PART effects (0xA8, near decomp.c:37194 and 37266).
-  - The model's meshes break off as flying, bouncing parts. Parts that carry
-    damage become explosion sprites when they hit the floor or Lara.
-  - It is used for mutants (`mutant.c:76`), centaurs (`centaur.c:138`) and the
-    torso (`abortion.c:219`).
-  - Centaur statues burst entirely (`statue.c:67`).
-  - Pods throw shell meshes 9–23 and keep 0x1FF (`pod.c:107`).
-- **Ours:**
-  - Mutants turn invisible with one blood sprite
-    (`openlara/enemy.h:2869-2872`).
-  - The centaur and Adam turn invisible at the end of the animation
-    (`enemy.h:3043-3045`, `3319-3325`).
-  - The statue turns invisible instantly (`object.h:2017-2023`).
-  - The pod keeps all 24 meshes drawn (issue 116).
-- **Effect:** across Atlantis, Tihocan, Sanctuary and the Great Pyramid, bodies
-  blink out instead of bursting.
-- **Used by:** 86, 87, 88, 115, 116.
-
 ### 214. Midas twinkles are missing
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-10,
 LARA-23*
@@ -2118,6 +2044,90 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 116. Mutant eggs throw no shell shards, and Lara walks through them
+*Closed 2026-11-18 (see git log): eggs throw shell meshes 9-23 and are solid until they hatch.*
+
+*Severity: visible · Confidence: confirmed · Fix: medium (needs 213) · Audit:
+LVL-8, AI-27*
+
+- **Retail:** the pod (`060321e8`, `0603231c`; TR1X `ai/pod.c`) calls
+  ExplodingDeath with mask 0xFFFE00, throwing shell meshes 9–23 and keeping
+  0x1FF. The eggs are solid.
+- **Ours:** `openlara/object.h:2028-2079` sets `visibleMask = 0xFFFFFF`
+  (`object.h:2069`), so all 24 meshes stay drawn after hatching. There is no
+  collision.
+- **Effect:** hatched eggs keep their shell; Lara walks through eggs.
+
+### 115. Centaur statues wake on proximity instead of their trigger, and don't shatter
+*Closed 2026-11-18 (see git log): the statue bursts as it frees the centaur.*
+
+*Severity: gameplay / visible · Confidence: confirmed · Fix: small (wake),
+medium (shatter) · Audit: LVL-7, AI-27*
+
+- **Retail:** statue init and control (`06032454`, `0603255c`; TR1X
+  `ai/statue.c`).
+  - The init does not add the statue to the active list, so it only works once
+    triggered. In Tomb of Tihocan, statue 73 waits for switch 79 and statue 74
+    for pads in room 109.
+  - Until it wakes, it is solid and pushes Lara.
+  - When it wakes, it shatters into pieces (ExplodingDeath `06031c64`) with SFX
+    104. The centaur takes the statue's exact yaw and is enabled with force.
+- **Ours:** the trigger, the collision and the yaw follow retail since
+  345a620. Left: the statue just vanishes, no shards.
+- **Needs:** 213 for the shards.
+
+### 87. Centaurs don't burst
+*Closed 2026-11-18 (see git log): centaurs burst as their death ends.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: large (shared with 84, 213) ·
+Audit: AI-15*
+
+- **Retail:** CentaurControl (`06030cf8`; TR1X `ai/centaur.c`) fires RocketGun,
+  a travelling projectile, and dies with ExplodingDeath(-1, 100).
+- **Ours:** the rocket flies since issue 84 (f484e2d). On death the centaur
+  just turns invisible (issue 213).
+
+### 86. Mutants: the winged one doesn't fly, shots are instant, they don't burst
+*Closed 2026-11-18 (see git log): mutants burst into body parts, 100 a part.*
+
+*Severity: gameplay · Confidence: confirmed · Fix: large · Audit: AI-14*
+
+- **Retail:** FlyerControl (`06030ffc`; TR1X `ai/mutant.c`).
+  - The winged mutant flies when it can't reach or shoot Lara, or when fleeing.
+  - Shard and rocket are travelling projectiles (issue 84).
+  - On death, ExplodingDeath(-1, 100) (`06031c64`) throws body parts that hurt
+    Lara.
+  - The shooter's smartness is 0x2000.
+- **Ours:** `openlara/enemy.h` Mutant.
+  - Flight, the shooter's smartness and the aims follow FlyerControl since
+    c2af101. Shards and rockets fly since issue 84 (f484e2d).
+  - Left: on death it shows blood and the body vanishes (`Mutant::hit`).
+- **Needs:** 213.
+
+### 213. Exploding deaths are missing; bodies just vanish
+*Closed 2026-11-18 (see git log): ExplodingDeath and BodyPart ported; the renderer draws single meshes under a given matrix (CALL_MESH).*
+
+*Severity: visible · Confidence: confirmed · Fix: large · Audit: GFX-9*
+
+- **Retail:** ExplodingDeath (`06031c64`; TR1X `effects/body_part.c`) creates
+  O_BODY_PART effects (0xA8, near decomp.c:37194 and 37266).
+  - The model's meshes break off as flying, bouncing parts. Parts that carry
+    damage become explosion sprites when they hit the floor or Lara.
+  - It is used for mutants (`mutant.c:76`), centaurs (`centaur.c:138`) and the
+    torso (`abortion.c:219`).
+  - Centaur statues burst entirely (`statue.c:67`).
+  - Pods throw shell meshes 9–23 and keep 0x1FF (`pod.c:107`).
+- **Ours:**
+  - Mutants turn invisible with one blood sprite
+    (`openlara/enemy.h:2869-2872`).
+  - The centaur and Adam turn invisible at the end of the animation
+    (`enemy.h:3043-3045`, `3319-3325`).
+  - The statue turns invisible instantly (`object.h:2017-2023`).
+  - The pod keeps all 24 meshes drawn (issue 116).
+- **Effect:** across Atlantis, Tihocan, Sanctuary and the Great Pyramid, bodies
+  blink out instead of bursting.
+- **Used by:** 86, 87, 88, 115, 116.
 
 ### 18. Lava wedge death: no camera swing and no flames
 *Closed 2026-11-17 (see git log): the wedge takes the camera with CHASE_OBJECT; flames were already in; Great Pyramid room 19 checked.*
