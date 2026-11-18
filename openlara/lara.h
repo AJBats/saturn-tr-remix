@@ -3125,7 +3125,7 @@ struct Lara : ItemObj
             } else {
                 to.pos += dir;
 
-                trace(from, to, true);
+                trace(from, to);
                 fxRicochet(to.room, to.pos, true);
             }
         }
@@ -3684,7 +3684,7 @@ struct Lara : ItemObj
         angleAim.x -= angle.x;
         angleAim.y -= angle.y;
 
-        if (trace(from, to, false))
+        if (trace(from, to))
         {
             if (abs(angleAim.x) <= params.aimX && abs(angleAim.y) <= params.aimY) {
                 extraL->armR.aim = extraL->armL.aim = true;
@@ -3737,7 +3737,7 @@ struct Lara : ItemObj
             Location to;
             weaponGetAimPoint(item, to);
 
-            if (!trace(from, to, false))
+            if (!trace(from, to))
                 continue;
 
             vec3i dir = to.pos - from.pos;

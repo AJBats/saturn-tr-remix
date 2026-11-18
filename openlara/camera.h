@@ -329,7 +329,7 @@ static uint16 sectorBox(const Room* room, int32 sz, int32 sx)
 // kept within the target's box and those beside it the camera could stand in.
 void Camera::smartShift(Location &ideal, bool look)
 {
-    trace(target, ideal, true);
+    trace(target, ideal);
 
     void (*shift)(int32*, int32*, int32, int32, int32, int32, int32, int32, int32) = look ? clipCamera : shiftCamera;
 
@@ -488,7 +488,7 @@ void Camera::moveRetail(Location &ideal, int32 speed)
 
     if (view.pos.y >= height && ideal.pos.y >= height)
     {
-        trace(target, view, true);
+        trace(target, view);
         view.room = view.room->getRoom(view.pos.x, view.pos.y, view.pos.z);
         sector = view.room->getSector(view.pos.x, view.pos.z);
         height = sector->getFloor(view.pos.x, view.pos.y, view.pos.z) - GROUND_SHIFT;
@@ -683,7 +683,7 @@ void Camera::fixedRetail()
     ideal.pos = cam->pos;
     ideal.room = rooms + cam->roomIndex;
 
-    if (!trace(target, ideal, true)) {
+    if (!trace(target, ideal)) {
         shiftClamp(ideal, 256);
     }
 

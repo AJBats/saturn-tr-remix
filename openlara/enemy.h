@@ -2653,7 +2653,7 @@ struct Gunman : Enemy
         from.pos = _vec3i(pos.x, pos.y - 768, pos.z);
         to.room = tinfo.target->room;
         to.pos = _vec3i(tinfo.target->pos.x, tinfo.target->pos.y - 768, tinfo.target->pos.z);
-        return trace(from, to, false);
+        return trace(from, to);
     }
 
     // TR1's ShotLara (060289b8): the nearer, the likelier a hit, by the
@@ -2935,7 +2935,7 @@ struct Pierre : Larson
             to.room = room;
             to.pos = _vec3i(pos.x, pos.y - 1024, pos.z);
 
-            if (trace(from, to, false))
+            if (trace(from, to))
             {
                 turnSpeed = 1;
             }

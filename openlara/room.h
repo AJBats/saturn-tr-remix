@@ -481,32 +481,26 @@ void Room::remove(ItemObj* item)
 
 #define TRACE_SHIFT 10 // trace precision
 
-#define TRACE_CHECK(r, x, y, z) \
+// a step of the trace blocked by the floor or ceiling there: the target where
+// it stopped, and ret (retail's xLOS and zLOS give -1 at the sector it is in,
+// 0 at the next)
+#define TRACE_CHECK(r, x, y, z, ret) \
 { \
     const Sector* sector = r->getSector(x, z); \
-    if (accurate) { \
-        if (y > sector->getFloor(x, y, z) || y < sector->getCeiling(x, y, z)) \
-        { \
-            to.pos = p; \
-            to.room = room; \
-            return false; \
-        } \
-    } else { \
-        if (y > (sector->floor << 8) || y < (sector->ceiling << 8)) \
-        { \
-            to.pos = p; \
-            to.room = room; \
-            return false; \
-        } \
+    if (y > sector->getFloor(x, y, z) || y < sector->getCeiling(x, y, z)) \
+    { \
+        to.pos = p; \
+        to.room = room; \
+        return ret; \
     } \
 }
 
-bool traceX(const Location &from, Location &to, bool accurate)
+int32 traceX(const Location &from, Location &to)
 {
     vec3i d = to.pos - from.pos;
 
     if (!d.x)
-        return true;
+        return 1;
 
     d.y = (d.y << TRACE_SHIFT) / d.x;
     d.z = (d.z << TRACE_SHIFT) / d.x;
@@ -525,10 +519,10 @@ bool traceX(const Location &from, Location &to, bool accurate)
         while (p.x > to.pos.x)
         {
             room = room->getRoom(p.x, p.y, p.z);
-            TRACE_CHECK(room, p.x, p.y, p.z);
+            TRACE_CHECK(room, p.x, p.y, p.z, -1);
 
             Room* nextRoom = room->getRoom(p.x - 1, p.y, p.z);
-            TRACE_CHECK(nextRoom, p.x - 1, p.y, p.z);
+            TRACE_CHECK(nextRoom, p.x - 1, p.y, p.z, 0);
 
             room = nextRoom;
             p -= d;
@@ -544,10 +538,10 @@ bool traceX(const Location &from, Location &to, bool accurate)
         while (p.x < to.pos.x)
         {
             room = room->getRoom(p.x, p.y, p.z);
-            TRACE_CHECK(room, p.x, p.y, p.z);
+            TRACE_CHECK(room, p.x, p.y, p.z, -1);
 
             Room* nextRoom = room->getRoom(p.x + 1, p.y, p.z);
-            TRACE_CHECK(nextRoom, p.x + 1, p.y, p.z);
+            TRACE_CHECK(nextRoom, p.x + 1, p.y, p.z, 0);
 
             room = nextRoom;
             p += d;
@@ -556,15 +550,15 @@ bool traceX(const Location &from, Location &to, bool accurate)
 
     to.room = room;
 
-    return true;
+    return 1;
 }
 
-bool traceZ(const Location &from, Location &to, bool accurate)
+int32 traceZ(const Location &from, Location &to)
 {
     vec3i d = to.pos - from.pos;
 
     if (!d.z)
-        return true;
+        return 1;
 
     d.x = (d.x << TRACE_SHIFT) / d.z;
     d.y = (d.y << TRACE_SHIFT) / d.z;
@@ -583,10 +577,10 @@ bool traceZ(const Location &from, Location &to, bool accurate)
         while (p.z > to.pos.z)
         {
             room = room->getRoom(p.x, p.y, p.z);
-            TRACE_CHECK(room, p.x, p.y, p.z);
+            TRACE_CHECK(room, p.x, p.y, p.z, -1);
 
             Room* nextRoom = room->getRoom(p.x, p.y, p.z - 1);
-            TRACE_CHECK(nextRoom, p.x, p.y, p.z - 1);
+            TRACE_CHECK(nextRoom, p.x, p.y, p.z - 1, 0);
 
             room = nextRoom;
             p -= d;
@@ -602,10 +596,10 @@ bool traceZ(const Location &from, Location &to, bool accurate)
         while (p.z < to.pos.z)
         {
             room = room->getRoom(p.x, p.y, p.z);
-            TRACE_CHECK(room, p.x, p.y, p.z);
+            TRACE_CHECK(room, p.x, p.y, p.z, -1);
 
             Room* nextRoom = room->getRoom(p.x, p.y, p.z + 1);
-            TRACE_CHECK(nextRoom, p.x, p.y, p.z + 1);
+            TRACE_CHECK(nextRoom, p.x, p.y, p.z + 1, 0);
 
             room = nextRoom;
             p += d;
@@ -614,30 +608,34 @@ bool traceZ(const Location &from, Location &to, bool accurate)
 
     to.room = room;
 
-    return true;
+    return 1;
 }
 
 #undef TRACE_CHECK
 
-bool trace(const Location &from, Location &to, bool accurate)
+// Retail's LOS (06010ca8): along the nearer axis first, then the other; past
+// a wall there's no clearing, else the target clipped to the floor or ceiling
+// between (ClipTarget) in its room, and clear only if both ways were.
+bool trace(const Location &from, Location &to)
 {
     int32 dx = abs(to.pos.x - from.pos.x);
     int32 dz = abs(to.pos.z - from.pos.z);
-    int32 dy;
 
-    bool res;
-
+    int32 los1, los2;
     if (dz > dx) {
-        res = traceX(from, to, accurate);
-        if (!traceZ(from, to, accurate))
-            return false;
+        los1 = traceX(from, to);
+        los2 = traceZ(from, to);
     } else {
-        res = traceZ(from, to, accurate);
-        if (!traceX(from, to, accurate))
-            return false;
+        los1 = traceZ(from, to);
+        los2 = traceX(from, to);
     }
 
-    dy = to.pos.y - from.pos.y;
+    if (!los2)
+        return false;
+
+    to.room = to.room->getRoom(to.pos.x, to.pos.y, to.pos.z);
+
+    int32 dy = to.pos.y - from.pos.y;
 
     if (dy)
     {
@@ -663,12 +661,16 @@ bool trace(const Location &from, Location &to, bool accurate)
         }
     }
 
-    return res;
+    return los1 == 1 && los2 == 1;
 }
 
+// Retail's RefreshCamera (06010270): each of the trigger's camera commands in
+// turn, the last one's verdict on the target kept: none (0) when a camera
+// isn't the one shown or can't be, the fixed camera's (1), or no camera (2),
+// when a target already looked at and not the last is dropped.
 void checkCamera(const FloorData* fd, Camera* camera)
 {
-    bool lookAt = false;
+    int32 targetOk = 2;
 
     while (1)
     {
@@ -682,8 +684,8 @@ void checkCamera(const FloorData* fd, Camera* camera)
 
                 if (FD_ARGS(triggerCmd) != camera->lastIndex)
                 {
-                    camera->lookAtItem = NULL;
-                    return;
+                    targetOk = 0;
+                    break;
                 }
 
                 camera->index = FD_ARGS(triggerCmd);
@@ -691,12 +693,12 @@ void checkCamera(const FloorData* fd, Camera* camera)
                 if (camera->timer < 0 || camera->mode == CAMERA_MODE_LOOK || camera->mode == CAMERA_MODE_COMBAT)
                 {
                     camera->timer = -1;
-                    camera->lookAtItem = NULL;
-                    return;
+                    targetOk = 0;
+                    break;
                 }
 
                 camera->mode = CAMERA_MODE_FIXED;
-                lookAt = true;
+                targetOk = 1;
                 break;
             }
 
@@ -721,7 +723,8 @@ void checkCamera(const FloorData* fd, Camera* camera)
             break;
     };
 
-    if (!lookAt && camera->lookAtItem && camera->lookAtItem != camera->lastItem && (camera->lookAtItem->flags & ITEM_FLAG_LOOKED_AT)) {
+    if (camera->lookAtItem && (!targetOk || (targetOk == 2 && (camera->lookAtItem->flags & ITEM_FLAG_LOOKED_AT) &&
+                                             camera->lookAtItem != camera->lastItem))) {
         camera->lookAtItem = NULL;
     }
 }

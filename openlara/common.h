@@ -3139,7 +3139,7 @@ void drawHUD(Lara* lara);
 
 void checkTrigger(const FloorData* fd, ItemObj* lara);
 void readLevel(const uint8 *data);
-bool trace(const Location &from, Location &to, bool accurate);
+bool trace(const Location &from, Location &to);
 
 Lara* getLara(const vec3i &pos);
 void lavaBurn(ItemObj* lara);
