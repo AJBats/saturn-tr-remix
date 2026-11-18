@@ -2307,7 +2307,7 @@ word. Of the same kind and already open: 264, 265, 266.
 - `gSeen` (`renderer/rooms.cpp:46`): `ROOMS_LISTED` 128, 8.7 KB, where the game has been seen to reach 38.
   `gList` and `gListCopy` go by the same number. The lab wants more, so the game's limit goes behind `RENDER_LAB`.
 - `made` in `facesMeshHinted` (`renderer/faces.cpp:329`, `MAX_MADE_FACES` 512), 8 KB, where the largest mesh has
-  163 faces.
+  163 faces. Done 817e301: 192 in the game (past it a mesh's faces keep their buckets), 512 in the lab.
 - Both need a limit known to hold in every level: the packer can check the meshes' and the rooms' worst case
   is the walk's own, as in issue 254. What it frees goes to 244.
 
