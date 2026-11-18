@@ -166,20 +166,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Camera
 
-### 18. Lava wedge death: no camera swing and no flames
-*Severity: visible · Confidence: confirmed · Fix: small (camera) · Audit:
-CAM-12*
-
-- **Retail:** the lava wedge control (`06030bc8`; TR1X `traps/lava.c`). On
-  touching Lara it:
-  - sets camera.item = the wedge, flags CHASE_OBJECT, type FIXED, angle -180°,
-    distance 3072;
-  - then calls LavaBurn (`060308b0`).
-- **Ours:** `openlara/object.h:1703-1741` (TrapLava) just applies full damage.
-  CHASE_OBJECT isn't supported.
-- **Effect:** death by the lava wedge in Natla's Mines.
-- **Fix:** the camera set-up; the flames come with issue 120.
-
 ### 20. In-game cinematic timing and hand-back
 *Severity: subtle to visible · Confidence: likely (animation lengths not
 checked) · Fix: small · Audit: CAM-14*
@@ -2132,6 +2118,22 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 18. Lava wedge death: no camera swing and no flames
+*Closed 2026-11-17 (see git log): the wedge takes the camera with CHASE_OBJECT; flames were already in; Great Pyramid room 19 checked.*
+
+*Severity: visible · Confidence: confirmed · Fix: small (camera) · Audit:
+CAM-12*
+
+- **Retail:** the lava wedge control (`06030bc8`; TR1X `traps/lava.c`). On
+  touching Lara it:
+  - sets camera.item = the wedge, flags CHASE_OBJECT, type FIXED, angle -180°,
+    distance 3072;
+  - then calls LavaBurn (`060308b0`).
+- **Ours:** `openlara/object.h:1703-1741` (TrapLava) just applies full damage.
+  CHASE_OBJECT isn't supported.
+- **Effect:** death by the lava wedge in Natla's Mines.
+- **Fix:** the camera set-up; the flames come with issue 120.
 
 ### 16. Trigger look-ats are narrower, slower, and don't decay
 *Closed 2026-11-17 (see git log): retail's 50/85 degree reach and 4 degree turn; Caves view target checked, head settles at 32 degrees.*
