@@ -17,6 +17,107 @@ static bool gSavePromptDue;     // the level's end asks "Save Game?" before the 
 static bool gStatsDue;          // and before that shows the finished level's statistics
 EWRAM_DATA LevelStats gLevelStats;
 
+// Attract demos (retail's StartDemo 06011d48, ProcessDemoInput 06011f48, and
+// ControlPhase 0600f66c's demo checks). Left idle, Press START plays the next
+// level with a demo after the last level started (Vilcabamba, then Lost
+// Valley): Lara with that level's start but her pistols holstered, both
+// random seeds as at power-on, and DEMODATA's pad input, a word each tick in
+// place of the pad's. START, the input's end, or her death (10 s, or 2 s at
+// any input) goes back to the title, and the level's start is put back.
+EWRAM_DATA bool gDemo;
+EWRAM_DATA uint16 gDemoInput;
+static const int32* gDemoWords;
+static int32 gDemoAt;                   // the next word's
+static uint32 gDemoTicks;               // the master's, for the flashing line
+static LevelID gDemoLevel;
+static StartInfo gDemoKept;             // the level's start, put back after
+static LevelID gLastLevel = LVL_TR1_1;  // retail's 06060c28: 1 at boot, then the last level started
+
+#define DEMO_HEADER 7       // Lara's x, y, z, her angles x, y, z, her room
+#define DEMO_WORDS  9000    // retail reads no further
+
+void gameStartDemo()
+{
+    gDemoLevel = (gLastLevel == LVL_TR1_2) ? LVL_TR1_3A : LVL_TR1_2;
+    gDemoKept = gProgress.starts[gDemoLevel];
+    StartInfo &s = gProgress.starts[gDemoLevel];
+    s.ammo[WEAPON_PISTOLS] = 1000;
+    s.guns |= 1 << WEAPON_PISTOLS;
+    s.gun = WEAPON_PISTOLS;
+    s.ready = 0;
+    s.available = 1;
+    gDemo = true;
+    gDemoTicks = 0;
+    sndStopTrack();
+    gNextLevel = gDemoLevel;
+}
+
+void gameDemoEnd()
+{
+    if (gNextLevel == LVL_MAX) {
+        gNextLevel = LVL_TR1_TITLE;
+    }
+}
+
+// The level loaded: Lara where the demo starts her, its input from the
+// first word, the seeds as at power-on.
+static void demoBegin()
+{
+    gDemoWords = osLoadDemo(gLevelID);
+    gDemoAt = DEMO_HEADER;
+    Lara* lara = players[0];
+    if (!gDemoWords || !lara)
+    {
+        gameDemoEnd();
+        return;
+    }
+
+    const int32* h = gDemoWords;
+    lara->pos = _vec3i(h[0], h[1], h[2]);
+    lara->angle = _vec3s(int16(h[3]), int16(h[4]), int16(h[5]));
+    if (lara->room != rooms + h[6])
+    {
+        lara->room->remove(lara);
+        rooms[h[6]].add(lara);
+    }
+
+    gRandSeedLogic = gRandSeedDraw = int32(0xD371F947);
+}
+
+// Retail's input bits (S_UpdateInput, 060374b4) as ours; OPTION (0x100) ends
+// a demo at the pad, never in its data.
+static uint16 demoInput(int32 word)
+{
+    static const uint16 kBits[13] = {
+        IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT, IN_JUMP, IN_WEAPON, IN_ACTION, IN_WALK,
+        0, IN_LOOK, IN_STEP_LEFT, IN_STEP_RIGHT, IN_ROLL
+    };
+    uint16 in = 0;
+    for (int32 b = 0; b < 13; b++)
+    {
+        if (word & (1 << b)) {
+            in |= kBits[b];
+        }
+    }
+    return in;
+}
+
+// A tick's input; false when the demo is over.
+static bool demoTick()
+{
+    if (gNextLevel != LVL_MAX)
+        return false;
+    int32 word = (gDemoAt < DEMO_WORDS) ? gDemoWords[gDemoAt] : -1;
+    if ((keys & IK_SELECT) || word == -1)
+    {
+        gameDemoEnd();
+        return false;
+    }
+    gDemoAt++;
+    gDemoInput = demoInput(word);
+    return true;
+}
+
 // A level Lara plays: not the title, nor a cutscene.
 static bool isPlayLevel(LevelID id)
 {
@@ -269,7 +370,7 @@ void gameLoadLevel(const void* data)
         // init dummy Lara for updateInput()
         items->extraL = playersExtra;
         items->extraL->camera.mode = CAMERA_MODE_FOLLOW;
-        inventory.open(items, INV_PAGE_TITLE);
+        inventory.open(items, INV_PAGE_PRESS_START);
     } else {
         inventory.page = INV_PAGE_MAIN;
 
@@ -346,6 +447,22 @@ void startLevel(LevelID id)
     const void* data = osLoadLevel(id);
     gameLoadLevel(data);
 
+    if (id == LVL_TR1_TITLE)
+    {
+        if (gDemo)
+        {
+            gProgress.starts[gDemoLevel] = gDemoKept;
+            gDemo = false;
+        }
+    }
+    else
+    {
+        gLastLevel = id;
+        if (gDemo) {
+            demoBegin();
+        }
+    }
+
     sndInitSamples();
     sndPlayTrack(getAmbientTrack());
     if (isCutsceneLevel()) {
@@ -406,6 +523,8 @@ void gameUpdateItems(int32 frames)
 {
     for (int32 i = 0; i < frames; i++)
     {
+        if (gDemo && !demoTick())
+            break;
         updateItems();
         updateEffect();
         soundSources();
@@ -449,6 +568,7 @@ void gameUpdate(int32 frames, bool items = true)
     if (frames > MAX_UPDATE_FRAMES) {
         frames = MAX_UPDATE_FRAMES;
     }
+    gDemoTicks += frames;
 
     // the title's music loops; a level has none of its own, only what its
     // triggers play, once (retail plays no level-start track)
@@ -541,6 +661,16 @@ void gameRender()
                 if (players[i])
                 {
                     drawHUD(players[i]);
+                }
+
+                // retail's StartDemo: "DEMO PLAY" top left, and "Press START
+                // button" 16 from the bottom flashing every 20 vblanks
+                if (gDemo)
+                {
+                    drawText(16, 26, STR[STR_DEMO_PLAY], TEXT_ALIGN_LEFT);
+                    if (!((gDemoTicks / 10) & 1)) {
+                        drawText(0, FRAME_HEIGHT - 16, STR[STR_PRESS_START], TEXT_ALIGN_CENTER);
+                    }
                 }
             }
         } else {

@@ -2712,6 +2712,12 @@ struct Lara : ItemObj
     {
         extraL->lastInput = input;
 
+        if (gDemo && inventory.state == INV_STATE_NONE)
+        {
+            input = gDemoInput;     // the attract demo's (game.h)
+            return;
+        }
+
         input = 0;
 
     #ifdef OL_CONTROLS
@@ -3898,10 +3904,14 @@ struct Lara : ItemObj
             if (deathCount == 0) {
                 sndStopTrack();     // the music stops as she dies (retail's LaraControl, 06020144)
             }
-            if ((++deathCount > 300 || (deathCount > 60 && keys)) && (gBrightness == 0))
+            if ((++deathCount > 300 || (deathCount > 60 && (gDemo ? input : keys))) && (gBrightness == 0))
             {
                 deathCount = 0;
-                inventory.open(this, INV_PAGE_DEATH);
+                if (gDemo) {
+                    gameDemoEnd();
+                } else {
+                    inventory.open(this, INV_PAGE_DEATH);
+                }
             }
         }
 

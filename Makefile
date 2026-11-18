@@ -229,6 +229,9 @@ GAME_DISC += $(foreach l,$(PLANE_LEVELS),$(foreach e,PLC PLN,DATA/$(l).$(e)=buil
 # the title and loading pictures (saturn/screen.h)
 PICTURES := USATIT USAOPT GYM224 AZTEC224 GREEK224 EGYPT224 ATLAN224 EIDOS224 CRED224 ENDPG224
 GAME_DISC += $(foreach p,$(PICTURES),BINDATA/$(p).BIN=$(DISC)/files/BINDATA/$(p).BIN)
+# the attract demos' pad input (openlara/game.h)
+DEMOS := LEVEL2 LEVEL3A
+GAME_DISC += $(foreach d,$(DEMOS),DEMODATA/$(d).DEM=$(DISC)/files/DEMODATA/$(d).DEM)
 # the original's videos (saturn/fmv.h)
 VIDEOS := CORELOGO CAFE MANSION SNOW LIFT VISION CANYON PYRAMID PRISON END
 GAME_DISC += $(foreach v,$(VIDEOS),FMV/$(v).CPK=$(DISC)/files/FMV/$(v).CPK)

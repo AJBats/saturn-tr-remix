@@ -163,6 +163,34 @@ const void* osLoadScreen(LevelID id)
     return &gTitlePicture;
 }
 
+const void* osPressStart()
+{
+    traceStop();
+    screenShow("USATIT", 352);
+    traceResume();
+    screenRelease(true);
+    return &gTitlePicture;
+}
+
+// Into the save library's work area: nothing saves or loads in a demo, and
+// the library is copied in again at each use (saturn/backup.cpp). The words
+// are little-endian on the disc.
+const int32* osLoadDemo(LevelID id)
+{
+    char path[32] = "DEMODATA/";
+    strcat(path, (const char*)gLevelInfo[id].data);
+    strcat(path, ".DEM");
+
+    uint32* words = (uint32*)BACKUP_WORK_ADDR;
+    int32 size = cdLoadFile(path, words, BACKUP_WORK_BYTES);
+    if (size < int32(8 * sizeof(int32)))
+        return NULL;
+    for (int32 i = 0; i < size / 4; i++) {
+        words[i] = swap32(words[i]);
+    }
+    return (const int32*)words;
+}
+
 // The original's videos, each before its level (as its own debug menu pairs
 // them), and the ending's
 static const char* levelVideo(LevelID id)

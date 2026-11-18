@@ -119,6 +119,25 @@ const void* osLoadLevel(LevelID id)
 }
 
 const void* osLoadScreen(LevelID id) { return NULL; }
+const void* osPressStart() { return NULL; }
+
+// DEMO_DIR (default the disc's files) holds DEMODATA's
+const int32* osLoadDemo(LevelID id)
+{
+    static uint32 words[9000];
+    char path[512];
+    const char* dir = getenv("DEMO_DIR") ? getenv("DEMO_DIR") : "external_resources/disc/files/DEMODATA";
+    snprintf(path, sizeof(path), "%s/%s.DEM", dir, (const char*)gLevelInfo[id].data);
+    FILE* f = fopen(path, "rb");
+    if (!f)
+        return NULL;
+    size_t n = fread(words, 4, X_COUNT(words), f);
+    fclose(f);
+    for (size_t i = 0; i < n; i++) {
+        words[i] = swap32(words[i]);
+    }
+    return n >= 8 ? (const int32*)words : NULL;
+}
 int32 osGetSystemTimeMS() { return 0; }     // as the Saturn's (saturn/os.cpp)
 void osGameComplete() {}
 void osDrawDebug() {}
@@ -462,6 +481,9 @@ int main(int argc, char** argv)
     gHostCpuState.slave = false;
     gHostCpuState.matrixPtr = gHostCpuState.matrixStack;
 
+    if (getenv("DEMO")) {
+        gDemo = true;     // DEMO=1: the level's attract demo plays, its input in place of the holds
+    }
     gameInit();
     if (itemsDump) {
         printItems();

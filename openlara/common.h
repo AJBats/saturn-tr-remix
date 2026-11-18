@@ -2469,6 +2469,9 @@ enum StringID {
     , STR_BACKUP_WHICH_2
     , STR_BACKUP_SYSTEM
     , STR_BACKUP_CARTRIDGE
+// the title and the attract demos (retail's 060334d0, 06011d48)
+    , STR_PRESS_START
+    , STR_DEMO_PLAY
 // inventory option
     , STR_GAME
     , STR_MAP
@@ -2904,6 +2907,13 @@ X_INLINE uint32 swap32(uint32 x) {
 extern int32 gRandSeedLogic;
 extern int32 gRandSeedDraw;
 
+// An attract demo plays (game.h): Lara takes its input, as IN_* bits, a word
+// a tick in place of the pad's, till it ends (gameDemoEnd).
+extern bool gDemo;
+extern uint16 gDemoInput;
+void gameStartDemo();
+void gameDemoEnd();
+
 int32 rand_logic();
 int32 rand_draw();
 
@@ -3287,6 +3297,11 @@ bool osBackupOn();
 void osJoyVibrate(int32 index, int32 L, int32 R);
 void osSetPalette(const uint16* palette);
 const void* osLoadScreen(LevelID id);
+const void* osPressStart();     // the title's own picture (USATIT), under "Press START button"
+// A level's attract demo (DEMODATA/<level>.DEM) in work RAM that isn't the
+// level's, as words: Lara's x, y, z, her angles x, y, z and her room, then
+// the pad's input a tick (retail's bits) till -1; NULL if there's none.
+const int32* osLoadDemo(LevelID id);
 const void* osLoadLevel(LevelID id);
 #ifdef __SATURN__
 void osPlaceRooms(); // the rooms' vertices in high work RAM, where the DSP reads them

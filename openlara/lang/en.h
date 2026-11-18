@@ -92,6 +92,9 @@ const char* const STR_EN[STR_MAX] = { ""
     , "do you want to use?"
     , "SYSTEM"
     , "CARTRIDGE"
+// the title and the attract demos
+    , "Press START button"
+    , "DEMO PLAY"
 // inventory option
     , "Game"
     , "Map"

@@ -28,7 +28,8 @@ enum InvState {
     INV_STATE_SHOW,
     INV_STATE_PAGE_MAIN,
     INV_STATE_PAGE_KEYS,
-    INV_STATE_PAGE_OPTIONS
+    INV_STATE_PAGE_OPTIONS,
+    INV_STATE_PRESS_START       // the title's ring closed by B: back to Press START
 };
 
 enum InvPage {
@@ -41,7 +42,8 @@ enum InvPage {
     INV_PAGE_OPTIONS,
     INV_PAGE_SAVE,
     INV_PAGE_STATS,
-    INV_PAGE_BACKUP
+    INV_PAGE_BACKUP,
+    INV_PAGE_PRESS_START
 };
 
 enum InvSlot {
@@ -221,7 +223,8 @@ struct Inventory
     // the backup memory's pages at boot (INV_PAGE_BACKUP)
     int32 backupPage;           // BACKUP_PAGE_*
     uint32 backupBlocks;        // the blocks a file takes in the memory the low page is about
-    bool backupChecked;         // once, before the title's first ring
+    bool backupChecked;         // once, before the first Press START
+    int32 idleTicks;            // Press START's, toward an attract demo
 
     int32 frameIndex;
     int32 frameTarget;
@@ -658,11 +661,16 @@ struct Inventory
         this->lara = lara;
         skipOn = false;
 
-        if (page == INV_PAGE_TITLE && !backupChecked)
+        if (page == INV_PAGE_PRESS_START)
         {
-            backupChecked = true;
-            if (openBackup())
-                return;
+            if (!backupChecked)
+            {
+                backupChecked = true;
+                if (openBackup())
+                    return;
+            }
+            openPressStart();
+            return;
         }
 
         if (page != INV_PAGE_TITLE)
@@ -939,7 +947,7 @@ struct Inventory
             osBackupUse(BACKUP_SYSTEM);
             return false;
         }
-        background = osLoadScreen(LVL_TR1_TITLE);
+        background = osPressStart();
         osDimTitle(true);
         page = INV_PAGE_BACKUP;
         state = INV_STATE_READY;
@@ -987,7 +995,39 @@ struct Inventory
 
         osDimTitle(false);
         closeBackground();
-        open(lara, INV_PAGE_TITLE);
+        open(lara, INV_PAGE_PRESS_START);
+    }
+
+    // Press START (retail's 060334d0): the title's own picture, the title's
+    // track, "Press START button" 22 from the bottom. START opens the ring;
+    // left 600 vblanks, an attract demo starts.
+    void openPressStart()
+    {
+        background = osPressStart();
+        page = INV_PAGE_PRESS_START;
+        state = INV_STATE_READY;
+        nextState = INV_STATE_NONE;
+        timer = 0;
+        idleTicks = 0;
+        useSlot = SLOT_MAX;
+    }
+
+    void onPressStart(int32 frames)
+    {
+        if (lara->isKeyHit(IN_SELECT))
+        {
+            closeBackground();
+            open(lara, INV_PAGE_TITLE);
+            return;
+        }
+
+        idleTicks += frames;
+        if (idleTicks >= 300)
+        {
+            closeBackground();
+            state = INV_STATE_NONE;
+            gameStartDemo();
+        }
     }
 
     void drawLines(int32 first, int32 last, int32 y, int32 step)
@@ -1562,6 +1602,12 @@ struct Inventory
             return;
         }
 
+        if (page == INV_PAGE_PRESS_START)
+        {
+            onPressStart(frames);
+            return;
+        }
+
         if (page == INV_PAGE_STATS)
         {
             onStats(frames);
@@ -1667,6 +1713,14 @@ struct Inventory
                         soundPlay(SND_INV_HIDE, NULL);
                         useSlot = SLOT_MAX;
                         close();
+                    } else if ((page == INV_PAGE_TITLE) && lara->isKeyHit(IN_JUMP)) {
+                        // B at the title: the ring closes, back to Press
+                        // START (retail's Display_Inventory, 06017420)
+                        soundPlay(SND_INV_HIDE, NULL);
+                        setState(INV_STATE_CLOSING, INV_STATE_PRESS_START, 16);
+                        setHeight(-1536);
+                        setRadius(0);
+                        setRot(ANGLE_180, rot - ANGLE_180);
                     } else if (lara->input & IN_ACTION) {
                         soundPlay(INV_SLOTS[itemsList[itemIndex]].snd, NULL);
                         setState(INV_STATE_SELECT, INV_STATE_SHOW, 8);
@@ -1701,6 +1755,13 @@ struct Inventory
                     break;
                 }
 
+                break;
+            }
+
+            case INV_STATE_PRESS_START:
+            {
+                closeBackground();
+                open(lara, INV_PAGE_PRESS_START);
                 break;
             }
 
@@ -2037,6 +2098,12 @@ struct Inventory
         if (page == INV_PAGE_BACKUP)
         {
             drawBackup();
+            return;
+        }
+
+        if (page == INV_PAGE_PRESS_START)
+        {
+            drawText(0, FRAME_HEIGHT - 22, STR[STR_PRESS_START], TEXT_ALIGN_CENTER);
             return;
         }
 
