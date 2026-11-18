@@ -157,6 +157,10 @@ struct Inventory
     int16 pitch;
     int16 rot;
     int16 itemRot[SLOT_MAX];    // each ring item's own turn (retail's inv_item->y_rot)
+    uint16 skipInputs[8];       // watchSkip's: the last eight new inputs
+    int32 skipAt;               // ... where the next goes
+    uint32 skipLast;            // ... the inputs of the frame before
+    bool skipOn;                // ... the code has been keyed
     int32 selDist;
     int16 selRotPre;
     int16 selRotX;
@@ -598,9 +602,55 @@ struct Inventory
         rot = rotTarget - ANGLE_180;
     }
 
+    // Retail's level-skip code (06018bf8): the inventory's last eight new
+    // inputs, the game's as the control method maps them; step right, look,
+    // step right, look, step left three times, START (Z Y Z Y X X X START with
+    // method 1) plays SFX 116, and the passport's Exit to Title then finishes
+    // the level. Opening the inventory forgets it, so it's keyed in with the
+    // passport open (START closes the ring).
+    void watchSkip()
+    {
+        static const uint16 kCode[8] = {
+            IN_STEP_RIGHT, IN_LOOK, IN_STEP_RIGHT, IN_LOOK, IN_STEP_LEFT, IN_STEP_LEFT, IN_STEP_LEFT, IN_SELECT
+        };
+        static const uint16 kPadKeys[5] = { IK_UP, IK_DOWN, IK_LEFT, IK_RIGHT, IK_SELECT };
+        static const uint16 kPadInputs[5] = { IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT, IN_SELECT };
+
+        uint32 in = 0;
+        for (int32 i = 0; i < 8; i++)
+        {
+            if (keys & kControlKeys[i]) {
+                in |= kControlInputs[kControlMethods[gControlMethod][i]];
+            }
+        }
+        for (int32 i = 0; i < 5; i++)
+        {
+            if (keys & kPadKeys[i]) {
+                in |= kPadInputs[i];
+            }
+        }
+
+        if (in == skipLast)
+            return;
+        skipLast = in;
+        if (!in || skipOn)
+            return;
+
+        skipInputs[skipAt] = uint16(in);
+        skipAt = (skipAt + 1) & 7;
+        for (int32 i = 0; i < 8; i++)
+        {
+            if (skipInputs[(skipAt + i) & 7] != kCode[i])
+                return;
+        }
+        soundPlay(SND_HEALTH, NULL);
+        skipOn = true;
+    }
+
     void open(ItemObj* lara, InvPage page, int32 arg = 0)
     {
         this->lara = lara;
+        skipOn = false;
 
         if (page != INV_PAGE_TITLE)
         {
@@ -1169,7 +1219,9 @@ struct Inventory
         }
         else
         {
-            nextLevel(LVL_TR1_TITLE);
+            // the level finished instead with the skip code keyed (retail's
+            // StartGame, 06016214)
+            nextLevel(skipOn ? LevelID(gLevelID + 1) : LVL_TR1_TITLE);
         }
 
         frameTarget = animEnd();    // the book closed forward
@@ -1327,6 +1379,8 @@ struct Inventory
 
     void update(int32 frames)
     {
+        watchSkip();
+
         updateFading(frames);
 
         if (page == INV_PAGE_END)
