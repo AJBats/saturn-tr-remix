@@ -306,28 +306,6 @@ CAM-22*
 
 ## Lara: movement, collision, water, controls
 
-### 31. Looking while treading water uses the land settings
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: LARA-3*
-
-- **Retail:** LaraAsSurfTread (`06021514`) and LaraSurface (`0602111c`).
-  - The head turns 3° per tick (546), with yaw ±50° (it stops at about 9282)
-    and pitch ±42°.
-  - Torso yaw = head/2, torso pitch 0. The Saturn sets torso_y to head_y/2,
-    where PC has a head_x/2 bug.
-  - When not looking, the return to centre snaps once under 546.
-- **Ours:** the shared `updateLook` (`openlara/lara.h:2886-2917`) uses 2° per
-  tick, yaw ±44° and pitch -42..+22° (`common.h:2081-2084`), with torso equal to
-  head.
-- **Effect:** looking around while treading water.
-
-### 33. Underwater pitch is limited to ±85° instead of ±100°
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: LARA-5*
-
-- **Retail:** x_rot is clamped to ±18200 (100°) (`06021ab8`). The swim collision
-  (`0602201c`) flips its facing when the pitch passes ±90°.
-- **Ours:** `openlara/lara.h:3162` clamps to ±85°, and `c_swim` (`lara.h:2057`)
-  always faces forward.
-
 ### 36. Climb-out isn't tested while treading water
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-8*
 
@@ -336,14 +314,6 @@ CAM-22*
 - **Ours:** only the Surface-swim collision calls `c_checkWaterOut`
   (`openlara/lara.h:2544`).
 
-### 40. Walk+Up while hanging does a handstand retail Saturn never does
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: LARA-12*
-
-- **Retail:** LaraColHang (`0601ca00`) always sets the plain pull-up (state
-  0x13). The handstand state exists, but the Saturn code never selects it
-  (checked in the disassembly).
-- **Ours:** `openlara/lara.h:2352-2356` selects the handstand when Walk is held.
-
 ### 41. The pull-up height window is too wide
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-13*
 
@@ -351,16 +321,6 @@ CAM-22*
 - **Ours:** anything closer than 850 either way (`openlara/lara.h:2346`).
 - **Effect:** after shimmying onto a ledge more than 256 lower, ours still allows
   a pull-up from the wrong height.
-
-### 43. Walking backwards off a step plays the wrong step-down animation
-*Severity: subtle / visible · Confidence: confirmed · Fix: small · Audit:
-LARA-15*
-
-- **Retail:** ColBack (`0601cc38`) tests frames 964–993. The walk-back anims 40,
-  41, 61 and 62 never use those frames (538–613, 899–960), so retail always
-  plays anim 61.
-- **Ours:** `openlara/lara.h:2428-2432` plays anim 62 for frames 568 and up.
-- **Fix:** always 61.
 
 ### 44. A swan-dive landing takes fall damage
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-16*
@@ -1709,6 +1669,54 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 43. Walking backwards off a step plays the wrong step-down animation
+*Closed 2026-11-18 (see git log): always anim 61.*
+
+*Severity: subtle / visible · Confidence: confirmed · Fix: small · Audit:
+LARA-15*
+
+- **Retail:** ColBack (`0601cc38`) tests frames 964–993. The walk-back anims 40,
+  41, 61 and 62 never use those frames (538–613, 899–960), so retail always
+  plays anim 61.
+- **Ours:** `openlara/lara.h:2428-2432` plays anim 62 for frames 568 and up.
+- **Fix:** always 61.
+
+### 40. Walk+Up while hanging does a handstand retail Saturn never does
+*Closed 2026-11-18 (see git log): always the plain pull-up.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: LARA-12*
+
+- **Retail:** LaraColHang (`0601ca00`) always sets the plain pull-up (state
+  0x13). The handstand state exists, but the Saturn code never selects it
+  (checked in the disassembly).
+- **Ours:** `openlara/lara.h:2352-2356` selects the handstand when Walk is held.
+
+### 33. Underwater pitch is limited to ±85° instead of ±100°
+*Closed 2026-11-18 (see git log): pitch clamped at 18200, the swim collision facing back past 90 degrees.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: LARA-5*
+
+- **Retail:** x_rot is clamped to ±18200 (100°) (`06021ab8`). The swim collision
+  (`0602201c`) flips its facing when the pitch passes ±90°.
+- **Ours:** `openlara/lara.h:3162` clamps to ±85°, and `c_swim` (`lara.h:2057`)
+  always faces forward.
+
+### 31. Looking while treading water uses the land settings
+*Closed 2026-11-18 (see git log): the look-back's torso yaw is half the head's yaw; the rest was done with issue 30.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: LARA-3*
+
+- **Retail:** LaraAsSurfTread (`06021514`) and LaraSurface (`0602111c`).
+  - The head turns 3° per tick (546), with yaw ±50° (it stops at about 9282)
+    and pitch ±42°.
+  - Torso yaw = head/2, torso pitch 0. The Saturn sets torso_y to head_y/2,
+    where PC has a head_x/2 bug.
+  - When not looking, the return to centre snaps once under 546.
+- **Ours:** the shared `updateLook` (`openlara/lara.h:2886-2917`) uses 2° per
+  tick, yaw ±44° and pitch -42..+22° (`common.h:2081-2084`), with torso equal to
+  head.
+- **Effect:** looking around while treading water.
 
 ### 126. Midas hand differences
 *Closed 2026-11-18 (see git log): death cinematic at Lara's yaw, none for the lead bar, no sound for another item, the hand unseen.*
