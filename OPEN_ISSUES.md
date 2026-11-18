@@ -200,28 +200,6 @@ CAM-12*
 - **Effect:** death by the lava wedge in Natla's Mines.
 - **Fix:** the camera set-up; the flames come with issue 120.
 
-### 19. Cutscenes ignore their per-frame field of view
-*Severity: visible · Confidence: confirmed · Fix: small, once issue 8 has a
-lever · Audit: CAM-13*
-
-- **Retail:** CalculateCinematicCamera (`0600d850`) and InGameCinematicCamera
-  (`0600daa4`) call phd_AlterFOV(frame.fov) every frame, and apply the roll
-  through phd_LookAt (`0603c97c`).
-- **Ours:** `openlara/camera.h:43-77` and `93-130` never read fov.
-- **Effect:** the retail CIN data's FOV ranges are:
-
-  | Cutscene | FOV |
-  |---|---|
-  | CUT1 | 35–80° |
-  | CUT2 | 47–55° |
-  | CUT3 | 47.5° |
-  | CUT4 | 47.5–70° |
-  | Midas (LEVEL6) | 47.5° |
-  | Scion pickups | 80.3° |
-
-  Our cutscenes are framed much wider and lose their zooms.
-- **Fix:** apply fov (and roll) per frame.
-
 ### 20. In-game cinematic timing and hand-back
 *Severity: subtle to visible · Confidence: likely (animation lengths not
 checked) · Fix: small · Audit: CAM-14*
@@ -2174,6 +2152,30 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 19. Cutscenes ignore their per-frame field of view
+*Closed 2026-11-17: 64f8b60. Each frame's fov; the roll (0.25 degrees) left out.*
+
+*Severity: visible · Confidence: confirmed · Fix: small, once issue 8 has a
+lever · Audit: CAM-13*
+
+- **Retail:** CalculateCinematicCamera (`0600d850`) and InGameCinematicCamera
+  (`0600daa4`) call phd_AlterFOV(frame.fov) every frame, and apply the roll
+  through phd_LookAt (`0603c97c`).
+- **Ours:** `openlara/camera.h:43-77` and `93-130` never read fov.
+- **Effect:** the retail CIN data's FOV ranges are:
+
+  | Cutscene | FOV |
+  |---|---|
+  | CUT1 | 35–80° |
+  | CUT2 | 47–55° |
+  | CUT3 | 47.5° |
+  | CUT4 | 47.5–70° |
+  | Midas (LEVEL6) | 47.5° |
+  | Scion pickups | 80.3° |
+
+  Our cutscenes are framed much wider and lose their zooms.
+- **Fix:** apply fov (and roll) per frame.
 
 ### 165. The ending sequence differs
 *Closed 2026-11-17: 7d97d09, 99f7f6a (the credits' width). Seen in Mednafen: END (no skipping), the credits 15 s, CORELOGO, CAFE, then the title.*
