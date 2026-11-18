@@ -2073,9 +2073,11 @@ struct Lara : ItemObj
         }
     }
 
+    // facing back once pitched past straight up or down (retail's
+    // LaraSwimCollision, 0602201c)
     void c_swim()
     {
-        c_angle(ANGLE_0);
+        c_angle(uint16(angle.x + ANGLE_90) <= 0x8000 ? ANGLE_0 : ANGLE_180);
 
         collideRoom(LARA_HEIGHT_UW, LARA_HEIGHT_UW / 2);
 
@@ -2339,11 +2341,7 @@ struct Lara : ItemObj
             if (c_checkSpace() || cinfo.staticHit)
                 return;
 
-            if (input & IN_WALK) {
-                goalState = STATE_HANDSTAND;
-            } else {
-                goalState = STATE_HANG_UP;
-            }
+            goalState = STATE_HANG_UP;  // never the handstand: retail's LaraColHang (0601ca00)
         }
     }
 
@@ -2413,13 +2411,10 @@ struct Lara : ItemObj
             animSet(ANIM_STAND, true);
         }
 
-        if (cinfo.m.floor > 128 && cinfo.m.floor < LARA_STEP_HEIGHT)
-        {
-            if (frameIndex < 568) {
-                animSet(ANIM_BACK_DESCEND_LEFT, false);
-            } else {
-                animSet(ANIM_BACK_DESCEND_RIGHT, false);
-            }
+        // retail's ColBack (0601cc38) takes the right foot's at frames 964-993, which
+        // no walk back reaches: always the left's
+        if (cinfo.m.floor > 128 && cinfo.m.floor < LARA_STEP_HEIGHT) {
+            animSet(ANIM_BACK_DESCEND_LEFT, false);
         }
 
         if (c_checkSlide())
@@ -2800,8 +2795,8 @@ struct Lara : ItemObj
     }
 
     // Not looking, the head comes back an eighth a tick, at once within snap
-    // (retail's LaraAboveWater 0601af90, LaraSurface), the torso with it.
-    // At the surface retail gives the torso's yaw half the head's pitch.
+    // (retail's LaraAboveWater 0601af90, LaraSurface 0602111c), the torso with
+    // it; at the surface the torso's yaw half the head's, its pitch 0.
     static int16 headBack(int16 a, int32 snap)
     {
         return (a > -snap && a < snap) ? 0 : int16(a - a / 8);
@@ -2822,7 +2817,7 @@ struct Lara : ItemObj
         else if (waterState == WATER_STATE_SURFACE)
         {
             H.y = headBack(H.y, ANGLE(3));
-            T.y = H.x / 2;
+            T.y = H.y / 2;
             H.x = headBack(H.x, ANGLE(3));
             T.x = 0;
         }
@@ -3023,7 +3018,7 @@ struct Lara : ItemObj
 
         angle.z = angleDec(angle.z, ANGLE(2));
 
-        angle.x = X_CLAMP(angle.x, ANGLE(-85), ANGLE(85));
+        angle.x = X_CLAMP(angle.x, -18200, 18200);     // 100 degrees, retail's LaraUnderWater (06021ab8)
         angle.z = X_CLAMP(angle.z, ANGLE(-22), ANGLE(22));
 
         int32 sx, cx;
