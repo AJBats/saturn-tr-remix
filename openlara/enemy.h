@@ -1051,6 +1051,42 @@ struct Doppelganger : Enemy
         pos.y += 50;
         aggression = 1;
     }
+
+    // Retail's DrawEvilLara (060210b8): drawn as Lara is (DrawLara), with
+    // Lara's arms, gun pose, flashes, head and torso turn and flinch, but her
+    // own meshes, and Lara's shadow. The renderer reads Lara's extra as far
+    // as her meshes (renderer/types.h GameLara): a copy of that, hers put in.
+    virtual void draw()
+    {
+        static uint32 shown[(offsetof(ExtraInfoLara, meshes) + sizeof(uint16) * JOINT_MAX + 3) / 4];
+        const Lara* lara = getLara(pos);
+        memcpy(shown, lara->extraL, offsetof(ExtraInfoLara, meshes));
+        ExtraInfoLara* e = (ExtraInfoLara*)shown;
+        for (int32 i = 0; i < JOINT_MAX; i++) {
+            e->meshes[i] = uint16(level.models[type].start + i);
+        }
+
+        const uint8 oldType = type;
+        uint8* const oldExtra = extra;
+        const uint16 oldAnim = animIndex;
+        const uint16 oldFrame = frameIndex;
+        const int8 quadrant = lara->extraL->hitQuadrant;
+        if (quadrant != -1)
+        {
+            static const uint8 kHit[4] = { Lara::ANIM_HIT_FRONT, Lara::ANIM_HIT_LEFT, Lara::ANIM_HIT_BACK, Lara::ANIM_HIT_RIGHT };
+            animIndex = kHit[quadrant];
+            frameIndex = level.anims[animIndex].frameBegin + lara->extraL->hitFrame;
+        }
+        type = ITEM_LARA;
+        extra = (uint8*)e;
+        flags |= ITEM_FLAG_SHADOW;
+        drawModel(this);
+        flags &= ~ITEM_FLAG_SHADOW;
+        type = oldType;
+        extra = oldExtra;
+        animIndex = oldAnim;
+        frameIndex = oldFrame;
+    }
 };
 
 
