@@ -936,21 +936,6 @@ INV-3*
     `extraAngles` won't work, because that node has no ROTY flag.
   - Make A do nothing, and B play forward to the end.
 
-### 143. The medipack health bar appears only when you hold more than one
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-4*
-
-- **Retail:** RingNotActive (`06018f8c`; TR1X `invfunc.c`).
-  - For medipacks, it always sets the health-bar timer to 40, and draws the HUD
-    health bar at its HUD spot (top left).
-  - The quantity text shows only when the count is above 1. It is drawn at
-    (64, −56), bottom-aligned and centred.
-  - The text stays up while the item is selecting or selected.
-- **Ours:** `openlara/inventory.h:1398-1418` puts both the count and a centred
-  bar, at ((FRAME_WIDTH − 104)/2, 24), inside `state == READY && counts > 1`.
-  The text is at (W/2 + 32, H − 32), left-aligned.
-- **Effect:** with one medipack no health bar shows, and the bar is in the wrong
-  place.
-
 ### 148. Menu button roles differ
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-11*
 
@@ -2266,6 +2251,23 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 143. The medipack health bar appears only when you hold more than one
+*Closed 2026-11-17: c083f4c. The bar at the HUD spot with any count, its timer 40, the count at (64, -56), up while chosen.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-4*
+
+- **Retail:** RingNotActive (`06018f8c`; TR1X `invfunc.c`).
+  - For medipacks, it always sets the health-bar timer to 40, and draws the HUD
+    health bar at its HUD spot (top left).
+  - The quantity text shows only when the count is above 1. It is drawn at
+    (64, −56), bottom-aligned and centred.
+  - The text stays up while the item is selecting or selected.
+- **Ours:** `openlara/inventory.h:1398-1418` puts both the count and a centred
+  bar, at ((FRAME_WIDTH − 104)/2, 24), inside `state == READY && counts > 1`.
+  The text is at (W/2 + 32, H − 32), left-aligned.
+- **Effect:** with one medipack no health bar shows, and the bar is in the wrong
+  place.
 
 ### 147. Obelisk of Khamoon's puzzle 3 is named "Eye of Horus"
 *Closed 2026-11-17: 66ee270. Seal of Anubis.*
