@@ -274,29 +274,13 @@ SND-C8*
 
 ## Inventory, HUD, saves and game flow
 
-### 162. No "Press START" title screen, no attract demos, no return to it
-*Severity: visible · Confidence: confirmed · Fix: medium (screen), large (demos)
-· Audit: INV-25*
+### 314. The attract demos part from retail's: creatures steer for other points
+*Severity: visible · Confidence: confirmed (recorded) · Fix: medium*
 
-- **Retail:** main (`06032d94`), Press START (`060334d0`), StartDemo
-  (`06011d48`), ProcessDemoInput (`06011f48`).
-  - After boot: USATIT with a static "Press START button" (bottom, y −22) and CD
-    track 2.
-  - After 600 idle vblanks (10 s) it plays an attract demo, alternating City of
-    Vilcabamba and Lost Valley (DEMODATA LEVEL2 and LEVEL3A).
-  - A demo uses fixed RNG seeds, Lara with pistols only, a flashing "Press START
-    button" and "DEMO PLAY" top left. START or the end of the data quits it.
-  - START goes to the title ring on USAOPT. B on the ring, and Exit to Title,
-    come back to this screen.
-- **Ours:** `saturn/main.cpp:70-78`, `os.cpp:106-111`. Straight from the CAFE
-  FMV to the ring. No Press START, no demos, and B does nothing.
-- **Needs:** demos need deterministic logic (issue 202).
-- **Decision (the user, 2026-11-18):** build them: the attract demos are an
-  important feature. Retail feeds the demo one input word a tick inside
-  ControlPhase's loop (ProcessDemoInput in place of the pad read), so a demo
-  plays the same at any frame rate; ours reads the pad once a drawn frame and
-  hands it to every tick of that frame, so the demo's input goes in the tick
-  loop.
+- **Found 2026-11-18** playing Vilcabamba's demo (162) on the host logic build (`DEMO=1`) against retail recorded in Mednafen from boot (scratchpad `retaildemo.py`, `demoitems.py`): Lara's path matches retail's to the unit for 306 ticks. At tick 306 retail's wolf 13 reaches her and its collision pushes her 12 units (ItemPushLara `0600edf8`, from CreatureCollision); ours is still 1,400 away, and from there she leaves the route (off by 970 at tick 600; retail goes on into room 15, ours stays in room 13).
+- **Why wolf 13 is elsewhere:** its heading parts from retail's at word 264: turning left at the most a tick, retail stops at yaw 828 (its target a few degrees right of straight on), ours turns on to 0. Wolf 14 parts at word 282 the same way (1053 against 1126), wolf 18 at 298 (retail turns 737 over two ticks, ours 1,820). The turn rule matches retail's CreatureTurn (`0600be48`), so the points they steer for differ: retail's creature target against our `Nav::getWaypoint` and its box search, or the mood that picks the target (CreatureMood `0600a0fc`).
+- **Also seen:** wolf 21's last hit leaves retail's at -1 health and ours at 0 (both pistols' shots in one tick, or our clamp); a ground creature's height lagged retail's by a tick on steps (fixed 65407ea).
+- **Next:** dump retail's creature block (target, LOT boxes) for wolf 13 at words 256-264 and step our nav against it.
 
 ## Audio
 
@@ -1061,6 +1045,32 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? Saturn only: TRX has nothing like it. |
 
 ## Closed
+
+### 162. No "Press START" title screen, no attract demos, no return to it
+*Closed 2026-11-18: e9bafec, Press START (B on the title's ring and Exit to Title come back to it) and the attract demos, Vilcabamba then Lost Valley, played from DEMODATA a word a tick; checked in Mednafen on the release disc left alone. The demo parts from retail's after 306 ticks: issue 314.*
+
+*Severity: visible · Confidence: confirmed · Fix: medium (screen), large (demos)
+· Audit: INV-25*
+
+- **Retail:** main (`06032d94`), Press START (`060334d0`), StartDemo
+  (`06011d48`), ProcessDemoInput (`06011f48`).
+  - After boot: USATIT with a static "Press START button" (bottom, y −22) and CD
+    track 2.
+  - After 600 idle vblanks (10 s) it plays an attract demo, alternating City of
+    Vilcabamba and Lost Valley (DEMODATA LEVEL2 and LEVEL3A).
+  - A demo uses fixed RNG seeds, Lara with pistols only, a flashing "Press START
+    button" and "DEMO PLAY" top left. START or the end of the data quits it.
+  - START goes to the title ring on USAOPT. B on the ring, and Exit to Title,
+    come back to this screen.
+- **Ours:** `saturn/main.cpp:70-78`, `os.cpp:106-111`. Straight from the CAFE
+  FMV to the ring. No Press START, no demos, and B does nothing.
+- **Needs:** demos need deterministic logic (issue 202).
+- **Decision (the user, 2026-11-18):** build them: the attract demos are an
+  important feature. Retail feeds the demo one input word a tick inside
+  ControlPhase's loop (ProcessDemoInput in place of the pad read), so a demo
+  plays the same at any frame rate; ours reads the pad once a drawn frame and
+  hands it to every tick of that frame, so the demo's input goes in the tick
+  loop.
 
 ### 186. Exploding deaths play a sound in ours; retail is silent
 *Closed 2026-11-18: ours keeps sound 171 at the burst, the user's call (retail's silence is a missing sample). TRX plays its death sound there too (SFX_ATLANTEAN_DEATH, torso.c and centaur.c).*
