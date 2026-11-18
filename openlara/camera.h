@@ -156,7 +156,7 @@ void Camera::init(ItemObj* lara)
     mode = CAMERA_MODE_FOLLOW;
 
     lastFixed = false;
-    center = false;
+    flags = 0;
 }
 
 bool checkWall(Room* room, int32 x, int32 y, int32 z)
@@ -749,7 +749,7 @@ void Camera::updateRetail()
         target.pos.x = item->pos.x;
         target.pos.z = item->pos.z;
 
-        if (center)
+        if (flags == CAM_CENTER)
         {
             int32 s, c;
             sincos(item->angle.y, s, c);
@@ -774,7 +774,7 @@ void Camera::updateRetail()
 
         target.room = target.room->getRoom(target.pos.x, target.pos.y, target.pos.z);
 
-        if (mode == CAMERA_MODE_FOLLOW) {
+        if (mode == CAMERA_MODE_FOLLOW || flags == CAM_CHASE_OBJECT) {
             chaseRetail(item);
         } else {
             fixedRetail();
@@ -793,7 +793,7 @@ void Camera::updateRetail()
         targetAngle.x = 0;
         targetAngle.y = 0;
         targetDist = CAM_DIST_FOLLOW;
-        center = false;
+        flags = 0;
     }
 
     vec3i pos = view.pos;

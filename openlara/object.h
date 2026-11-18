@@ -2056,12 +2056,20 @@ struct TrapLava : Object
             }
         }
 
+        // touching her, it burns her and the camera swings round behind
+        // it, three sectors back (retail's LavaWedgeControl, 06030bc8)
         if (hitMask)
         {
             Lara* lara = getLara(pos);
             if (lara->health > 0) {
                 lavaBurn(lara);
             }
+            Camera &camera = lara->extraL->camera;
+            camera.lookAtItem = this;
+            camera.flags = CAM_CHASE_OBJECT;
+            camera.mode = CAMERA_MODE_FIXED;
+            camera.targetAngle.y = ANGLE_180;
+            camera.targetDist = 3072;
         }
     }
 
@@ -2353,7 +2361,6 @@ void lavaBurn(ItemObj* lara)
     Room* bottom = lara->room->getRoom(lara->pos.x, 32000, lara->pos.z);
     if (lara->roomFloor != bottom->getSector(lara->pos.x, lara->pos.z)->getFloor(lara->pos.x, 32000, lara->pos.z))
         return;
-
 
     lara->hit(LARA_MAX_HEALTH, lara->pos, 0);
     for (int32 i = 0; i < 10; i++)

@@ -1107,7 +1107,7 @@ struct Lara : ItemObj
     {
         extraL->camera.targetAngle.x = ANGLE(-25);
         extraL->camera.targetAngle.y = ANGLE(35);
-        extraL->camera.center = true;
+        extraL->camera.flags = CAM_CENTER;
 
         s_ignoreEnemy();
     }
@@ -1116,7 +1116,7 @@ struct Lara : ItemObj
     {
         extraL->camera.targetAngle.x = ANGLE(-25);
         extraL->camera.targetAngle.y = ANGLE(35);
-        extraL->camera.center = true;
+        extraL->camera.flags = CAM_CENTER;
 
         s_ignoreEnemy();
     }
@@ -1192,7 +1192,7 @@ struct Lara : ItemObj
     {
         extraL->camera.targetAngle.x = ANGLE(-25);
         extraL->camera.targetAngle.y = ANGLE(170);
-        extraL->camera.center = true;
+        extraL->camera.flags = CAM_CENTER;
     }
 
     S_HANDLER( STATE_SURF_BACK )
@@ -1317,7 +1317,7 @@ struct Lara : ItemObj
     S_HANDLER( STATE_WATER_OUT )
     {
         s_ignoreEnemy();
-        extraL->camera.center = true;
+        extraL->camera.flags = CAM_CENTER;
     }
 
     S_HANDLER( STATE_CLIMB_START  ) {}

@@ -1461,6 +1461,10 @@ enum CameraMode {
     CAMERA_MODE_CUTSCENE
 };
 
+// Retail's camera flags (FOLLOW_CENTRE, CHASE_OBJECT): the chase aimed at
+// the middle of Lara's box; a fixed camera's item chased instead.
+enum { CAM_CENTER = 1, CAM_CHASE_OBJECT = 3 };
+
 struct Camera {
     Location view;
     Location target;
@@ -1482,7 +1486,7 @@ struct Camera {
     CameraMode mode;
 
     bool lastFixed;
-    bool center;
+    uint8 flags;    // CAM_CENTER or CAM_CHASE_OBJECT, for one tick (retail's camera.flags)
 
     int32 bounce; // retail's: below 0 the view shakes, easing by 5 a tick; above 0 it drops once
     int32 shift; // the view's height moved into the camera's sector (move)
