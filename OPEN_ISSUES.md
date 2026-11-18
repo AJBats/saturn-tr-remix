@@ -262,22 +262,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Level logic, traps and objects
 
-### 135. Rolling block extras
-*Severity: subtle (no current instance) · Confidence: confirmed · Fix: trivial
-· Audit: LVL-25*
-
-- **Ours:** adds a heavy trigger test (`openlara/object.h:1664-1665`) and a push
-  collision; retail's rolling block (`060248c0`) has neither.
-- **Ours:** `flipBlocks` (`level.h:271`) doesn't move rolling-block floors by
-  2048, as retail's flip routine does.
-
-### 136. The Mines cabin isn't solid and sets its flip as one-shot
-*Severity: subtle · Confidence: confirmed · Fix: trivial · Audit: LVL-26*
-
-- **Retail:** the cabin (`060264f8`) is solid, and sets flipmap 3 without the
-  once flag.
-- **Ours:** `openlara/object.h:2111` has no collision, and adds the once flag.
-
 ### 137. Slope rounding and static collision radius
 *Severity: subtle · Confidence: likely (TR1X GetHeight/GetCeiling; Saturn not
 checked) · Fix: small · Audit: LVL-27*
@@ -1424,6 +1408,26 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 136. The Mines cabin isn't solid and sets its flip as one-shot
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: confirmed · Fix: trivial · Audit: LVL-26*
+
+- **Retail:** the cabin (`060264f8`) is solid, and sets flipmap 3 without the
+  once flag.
+- **Ours:** `openlara/object.h:2111` has no collision, and adds the once flag.
+
+### 135. Rolling block extras
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle (no current instance) · Confidence: confirmed · Fix: trivial
+· Audit: LVL-25*
+
+- **Ours:** adds a heavy trigger test (`openlara/object.h:1664-1665`) and a push
+  collision; retail's rolling block (`060248c0`) has neither.
+- **Ours:** `flipBlocks` (`level.h:271`) doesn't move rolling-block floors by
+  2048, as retail's flip routine does.
 
 ### 134. Pushing and pulling blocks ignores static meshes
 *Closed 2026-11-18 (see git log): as retail's.*
