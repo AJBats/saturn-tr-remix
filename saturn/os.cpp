@@ -55,8 +55,10 @@ int32 osGetSystemTimeMS()
     return 0; // TODO FRT based timer
 }
 
-// The one saved game lives in backup RAM.
-#define SAVE_FILE       "TOMBR_GAME"
+// The one saved game lives in backup RAM, named as retail's (its write,
+// 0604605c): "TOMBRAIDER_", comment "SAVE_FILE".
+#define SAVE_FILE       "TOMBRAIDER_"
+#define SAVE_COMMENT    "SAVE_FILE"
 
 // The level last loaded, and whether the next load skips its video: a saved
 // game or a restart goes straight back in.
@@ -91,14 +93,9 @@ bool osCheckSave()
 
 bool osSaveGame()
 {
-    // the level's name shows in the BIOS memory manager
-    char comment[11];
-    strncpy(comment, (const char*)gLevelInfo[gLevelID].data, sizeof(comment));
-    comment[sizeof(comment) - 1] = 0;
-
     // the file: the game's header and progress, then its items, there already (gSaveData)
     memcpy((void*)SAVE_AREA_ADDR, &gSaveFile, sizeof(SaveFile));
-    return backupWrite(SAVE_FILE, comment, (const void*)SAVE_AREA_ADDR, sizeof(SaveFile) + gSaveGame.dataSize);
+    return backupWrite(SAVE_FILE, SAVE_COMMENT, (const void*)SAVE_AREA_ADDR, sizeof(SaveFile) + gSaveGame.dataSize);
 }
 
 bool osLoadGame()
