@@ -421,26 +421,6 @@ Audit: SND-C9*
 
 ## Numeric primitives and timing
 
-### 197. Other approximate divides where retail divides exactly
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: MATH-3*
-
-- **Retail:**
-  - GetBoundsAccurate (`06014e84`) computes a + (b − a)·frac/rate with the
-    hardware divide (`060457f6`).
-  - InterpolateMatrix (`06014a60`) divides exactly.
-  - Move3DPosTo3DPos (`0600f504`) computes x·16/dist.
-- **Ours:**
-
-  | Code | Approximation | Error |
-  |---|---|---|
-  | interpolated collision bounds (`openlara/item.h:199`) | `(b − a)·(frac·(65536/rate)) >> 16` | ±1 unit in 25–50% of cases, always ≤ retail |
-  | root offset lerp for drawing (`draw.h:343`, `559`) | same | same |
-  | `matrixLerp`, for rates other than 2 or 4 (`common.cpp:1234`) | an 8-bit weight | about 0.4% of the keyframe difference |
-  | alignment step (`item.h:536-544`) | 16·d / (sqrt >> 1) via FixedInvU; snaps at dist² ≤ 256, where retail snaps at isqrt ≤ 16 | steps up to 6–12% longer, so alignments to switches and pickups finish ±1 tick from retail |
-
-  `FixedInvS` is unused.
-- **Fix:** exact divides; it's a handful of calls per item per tick.
-
 ### 198. Animation interpolation lerps relative matrices, not two full stacks
 *Severity: subtle (drawing only) · Confidence: confirmed · Fix: medium · Audit:
 MATH-4*
@@ -459,48 +439,6 @@ MATH-4*
   isn't reproduced either.
 - **Fix:** add a second stack. It costs roughly the same, since we already rotate
   twice per node.
-
-### 199. Our sin/cos lookup rounds the angle the wrong way in mirrored quadrants
-*Severity: subtle · Confidence: confirmed (exhaustive over all 65536 angles) ·
-Fix: small · Audit: MATH-5*
-
-- **Retail:** phd_sin (`0603e0b0`) and phd_cos (`0603e0a8`), with helpers
-  `0603e104`/`0603e134` and the table at `0x060659C0`, identical to TR1X's. The
-  angle is folded into 0–90° before >> 4, which amounts to using ceil(a/16) in
-  the mirrored quadrants.
-- **Ours:** `gSinCosTable[a >> 4]` (`openlara/common.h:2771-2777`) always rounds
-  down. Values at multiples of 16 match exactly.
-- **Error:**
-  - For 92.6% of angles in every quadrant, one of the two values is one table
-    step off: sin in quadrants 1 and 3, cos in quadrants 0 and 2. That is at most
-    26/16384, about 0.082°.
-  - In per-tick movement the integer step differs on 2.7% of headings at speed
-    30, 4.6% at 50 and 9.2% at 100.
-  - So positions drift slowly and deterministically (Lara, enemies,
-    projectiles), and matrices differ slightly.
-- **Fix:** read sin and cos as two 16-bit lookups, with the quadrant-dependent
-  index ((a + 15) >> 4 in the mirrored quadrant). About 1–2 extra cycles.
-
-### 200. The catch-up cap is 10 ticks; retail's is 10 vblanks (5 ticks)
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: MATH-8*
-
-- **Retail:** ControlPhase (`0600f66c`).
-  - nframes is counted in vblanks and capped at 10. Each call adds
-    nframes·0x8000 to frame_count (`DAT_06060c10`), and one tick runs per
-    0x10000. So at most 5 ticks run per displayed frame, and below 6 fps the game
-    goes into slow motion.
-  - Input is read per tick (`060374b4`).
-  - Each tick runs items, effects, LaraControl (`06020144`), CalculateCamera
-    (`0600d128`) and Sound_UpdateEffects (`06014fbc`), increments the timer
-    (`DAT_06092484`), and counts the health bar down (`DAT_0606280c`).
-  - nframes comes from S_DumpScreen (`06037a8c`). After waiting for the flip
-    (`06005e1e`), it returns the 60 Hz count (`DAT_06063888`), which the
-    interrupt handler (`0603938c`) increments.
-- **Ours:** `delta = min(ticks, MAX_UPDATE_FRAMES)`, which is 10 ticks
-  (`saturn/main.cpp:119`, `openlara/common.h:469`, `game.h:290`).
-- **Effect:** none at 10 fps or above; at 20 fps both alternate 1 and 2 ticks.
-  Between 3 and 6 fps ours runs up to twice as many ticks per frame as retail.
-- **Fix:** cap at 5.
 
 ### 202. RNG seeds: every level start has the same seed, and saves restore it
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: MATH-10*
@@ -1298,6 +1236,74 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 200. The catch-up cap is 10 ticks; retail's is 10 vblanks (5 ticks)
+*Closed 2026-11-18 (see git log): MAX_UPDATE_FRAMES 5.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: MATH-8*
+
+- **Retail:** ControlPhase (`0600f66c`).
+  - nframes is counted in vblanks and capped at 10. Each call adds
+    nframes·0x8000 to frame_count (`DAT_06060c10`), and one tick runs per
+    0x10000. So at most 5 ticks run per displayed frame, and below 6 fps the game
+    goes into slow motion.
+  - Input is read per tick (`060374b4`).
+  - Each tick runs items, effects, LaraControl (`06020144`), CalculateCamera
+    (`0600d128`) and Sound_UpdateEffects (`06014fbc`), increments the timer
+    (`DAT_06092484`), and counts the health bar down (`DAT_0606280c`).
+  - nframes comes from S_DumpScreen (`06037a8c`). After waiting for the flip
+    (`06005e1e`), it returns the 60 Hz count (`DAT_06063888`), which the
+    interrupt handler (`0603938c`) increments.
+- **Ours:** `delta = min(ticks, MAX_UPDATE_FRAMES)`, which is 10 ticks
+  (`saturn/main.cpp:119`, `openlara/common.h:469`, `game.h:290`).
+- **Effect:** none at 10 fps or above; at 20 fps both alternate 1 and 2 ticks.
+  Between 3 and 6 fps ours runs up to twice as many ticks per frame as retail.
+- **Fix:** cap at 5.
+
+### 199. Our sin/cos lookup rounds the angle the wrong way in mirrored quadrants
+*Closed 2026-11-18 (see git log): the game's sin and cos equal retail's at all 65536 angles; the renderer keeps a >> 4.*
+
+*Severity: subtle · Confidence: confirmed (exhaustive over all 65536 angles) ·
+Fix: small · Audit: MATH-5*
+
+- **Retail:** phd_sin (`0603e0b0`) and phd_cos (`0603e0a8`), with helpers
+  `0603e104`/`0603e134` and the table at `0x060659C0`, identical to TR1X's. The
+  angle is folded into 0–90° before >> 4, which amounts to using ceil(a/16) in
+  the mirrored quadrants.
+- **Ours:** `gSinCosTable[a >> 4]` (`openlara/common.h:2771-2777`) always rounds
+  down. Values at multiples of 16 match exactly.
+- **Error:**
+  - For 92.6% of angles in every quadrant, one of the two values is one table
+    step off: sin in quadrants 1 and 3, cos in quadrants 0 and 2. That is at most
+    26/16384, about 0.082°.
+  - In per-tick movement the integer step differs on 2.7% of headings at speed
+    30, 4.6% at 50 and 9.2% at 100.
+  - So positions drift slowly and deterministically (Lara, enemies,
+    projectiles), and matrices differ slightly.
+- **Fix:** read sin and cos as two 16-bit lookups, with the quadrant-dependent
+  index ((a + 15) >> 4 in the mirrored quadrant). About 1–2 extra cycles.
+
+### 197. Other approximate divides where retail divides exactly
+*Closed 2026-11-18 (see git log): the game's bounds lerp and alignment step divide exactly. The drawing's root-offset lerp in pose.s stays on the table, with issue 198's drawing-only lerp work; matrixLerp is unused.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: MATH-3*
+
+- **Retail:**
+  - GetBoundsAccurate (`06014e84`) computes a + (b − a)·frac/rate with the
+    hardware divide (`060457f6`).
+  - InterpolateMatrix (`06014a60`) divides exactly.
+  - Move3DPosTo3DPos (`0600f504`) computes x·16/dist.
+- **Ours:**
+
+  | Code | Approximation | Error |
+  |---|---|---|
+  | interpolated collision bounds (`openlara/item.h:199`) | `(b − a)·(frac·(65536/rate)) >> 16` | ±1 unit in 25–50% of cases, always ≤ retail |
+  | root offset lerp for drawing (`draw.h:343`, `559`) | same | same |
+  | `matrixLerp`, for rates other than 2 or 4 (`common.cpp:1234`) | an 8-bit weight | about 0.4% of the keyframe difference |
+  | alignment step (`item.h:536-544`) | 16·d / (sqrt >> 1) via FixedInvU; snaps at dist² ≤ 256, where retail snaps at isqrt ≤ 16 | steps up to 6–12% longer, so alignments to switches and pickups finish ±1 tick from retail |
+
+  `FixedInvS` is unused.
+- **Fix:** exact divides; it's a handful of calls per item per tick.
 
 ### 173. The ring camera's distance and perspective differ
 *Closed 2026-11-18 (see git log): as retail's.*
