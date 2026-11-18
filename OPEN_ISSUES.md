@@ -527,15 +527,6 @@ AI-29*
   - It turns its head only when Lara is in front and its mood isn't SLEEP.
   - It shows no blood (`enemy.h:745`).
 
-### 101. Bored creatures never look at Lara
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-30*
-
-- **Retail:** every creature control does `if (info.ahead) head = info.angle`,
-  whatever the mood.
-- **Ours:** `openlara/enemy.h:179` requires `mood != MOOD_SLEEP`.
-- **Effect:** walking wolves, a posing Larson and other bored creatures don't
-  turn their heads toward Lara.
-
 ## Level logic, traps and objects
 
 ### 118. Waterfall mist is missing
@@ -1950,6 +1941,17 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 101. Bored creatures never look at Lara
+*Closed 2026-11-18: already retail's since 5a3516f (the head follows Lara ahead whatever the mood; the wolf's sleep holds it still, as WolfControl).*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: AI-30*
+
+- **Retail:** every creature control does `if (info.ahead) head = info.angle`,
+  whatever the mood.
+- **Ours:** `openlara/enemy.h:179` requires `mood != MOOD_SLEEP`.
+- **Effect:** walking wolves, a posing Larson and other bored creatures don't
+  turn their heads toward Lara.
 
 ### 212. The Atlantis doppelganger is drawn as a plain animated item
 *Closed 2026-11-18 (see git log): drawn through the Lara path with her meshes.*
