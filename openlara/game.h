@@ -181,15 +181,6 @@ void gameInit()
 
     gSaveGame.dataSize = 0;
 
-    gSettings.controls_vibration = 1;
-    gSettings.controls_swap = 0;
-    gSettings.audio_sfx = 1;
-    gSettings.audio_music = 1;
-    gSettings.video_gamma = 0;
-    gSettings.video_fps = 1;
-    gSettings.video_vsync = 0;
-    osLoadSettings();
-
     inventory.init();
 
 #if defined(START_LEVEL) || defined(TRS_HOST)

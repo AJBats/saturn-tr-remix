@@ -2726,18 +2726,7 @@ struct Lara : ItemObj
 
         input = 0;
 
-    #if defined(__3DO__)
-        if (keys & IK_A) input |= IN_JUMP;
-        if (keys & IK_B) input |= IN_ACTION;
-        if (keys & IK_C) input |= IN_WEAPON;
-
-        if ((keys & (IK_L | IK_R)) == (IK_L | IK_R)) {
-            input |= IN_UP | IN_DOWN;
-        } else {
-            if (keys & IK_L) input |= IN_LOOK;
-            if (keys & IK_R) input |= IN_WALK;
-        }
-    #elif (defined(__32X__) || defined(__SATURN__)) && defined(OL_CONTROLS)
+    #ifdef OL_CONTROLS
         // OpenLara's layout, which debug builds keep for the debug menu: A
         // Action, B jump, C draw, X walk (with left or right and no forward
         // or back a sidestep), Y roll, Z look; the shoulders are the overlay's
@@ -2755,78 +2744,22 @@ struct Lara : ItemObj
                 input |= IN_STEP_RIGHT;
             }
         }
-    #elif defined(__32X__) || defined(__SATURN__)
-        // retail's Control Method 1 (S_UpdateInput 060374b4, its table at
-        // 0x060637fc); in the menus A and C choose, B goes back
+    #else
+        // retail's control methods (S_UpdateInput 060374b4, its table at
+        // 0x060637fc: the Controls page picks one); in the menus A and C
+        // choose, B goes back
         if (inventory.state != INV_STATE_NONE)
         {
             if (keys & (IK_A | IK_C)) input |= IN_ACTION;
             if (keys & IK_B) input |= IN_JUMP;
         } else {
-            if (keys & IK_A) input |= IN_JUMP;
-            if (keys & IK_B) input |= IN_ACTION;
-            if (keys & IK_C) input |= IN_WEAPON;
-            if (keys & IK_X) input |= IN_STEP_LEFT;
-            if (keys & IK_Y) input |= IN_LOOK;
-            if (keys & IK_Z) input |= IN_STEP_RIGHT;
-            if (keys & IK_L) input |= IN_WALK;
-            if (keys & IK_R) input |= IN_ROLL;
-        }
-    #elif defined(__GBA__) || defined(__GBA_WIN__)
-        int32 ikA, ikB;
-
-        if (gSettings.controls_swap) {
-            ikA = IK_B;
-            ikB = IK_A;
-        } else {
-            ikA = IK_A;
-            ikB = IK_B;
-        }
-
-        if (keys & ikA)
-        {
-            if (keys & IK_L) {
-                if (extraL->weaponState != WEAPON_STATE_BUSY) {
-                    input |= IN_WEAPON;
-                } else {
-                    input |= IN_ACTION;
+            for (int32 i = 0; i < 8; i++)
+            {
+                if (keys & kControlKeys[i]) {
+                    input |= kControlInputs[kControlMethods[gControlMethod][i]];
                 }
-            } else {
-                input |= IN_ACTION;
             }
         }
-
-        if (keys & ikB)
-        {
-            if (keys & IK_L) {
-                input |= IN_UP | IN_DOWN;
-            } else {
-                input |= IN_JUMP;
-            }
-        }
-
-        if (keys & IK_R)
-        {
-            if (keys & IK_L) {
-                input |= IN_LOOK;
-            } else {
-                input |= IN_WALK;
-            }
-        }
-    #elif defined(__NDS__)
-        if (keys & IK_A) input |= IN_UP | IN_DOWN;
-        if (keys & IK_B) input |= IN_ACTION;
-        if (keys & IK_X) input |= IN_WEAPON;
-        if (keys & IK_Y) input |= IN_JUMP;
-        if (keys & IK_L) input |= IN_LOOK;
-        if (keys & IK_R) input |= IN_WALK;
-    #elif defined(__WIN32__)
-        if (keys & IK_A) input |= IN_ACTION;
-        if (keys & IK_B) input |= IN_UP | IN_DOWN;
-        if (keys & IK_Y) input |= IN_WEAPON;
-        if (keys & IK_X) input |= IN_JUMP;
-        if (keys & IK_L) input |= IN_LOOK;
-        if (keys & IK_R) input |= IN_WALK;
     #endif
 
         if (keys & IK_LEFT)    input |= IN_LEFT;

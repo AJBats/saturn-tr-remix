@@ -1919,19 +1919,6 @@ struct SaveGame
 };
 
 
-#define SETTINGS_SIZE   128
-
-struct Settings
-{
-    uint8 controls_vibration:1;
-    uint8 controls_swap:1;
-    uint8 audio_sfx:1;
-    uint8 audio_music:1;
-    uint8 video_gamma:5;
-    uint8 video_fps:1;
-    uint8 video_vsync:1;
-};
-
 #define FD_SET_END(x,end)   ((x) |= ((end) << 15))
 #define FD_END(x)           ((x) >> 15)
 #define FD_FLOOR_TYPE(x)    ((x) & 0x1F)
@@ -2801,7 +2788,8 @@ extern const uint32 gSinCosTable[4096];
 
 extern Sphere gSpheres[2][MAX_SPHERES];
 
-extern Settings gSettings;
+extern int32 gGamma;            // the options' Gamma, -127..127, the screen's colour offset (retail's 0x060627a0), not saved
+extern int32 gControlMethod;    // the Controls page's, 0..2 (retail's 0x060637f0), not saved
 extern SaveFile gSaveFile;
 
 extern int32 gCurTrack;
@@ -3222,8 +3210,8 @@ int32 osGetSystemTimeMS();
 void osGameComplete();
 void osDrawDebug(); // the platform's debug menu and lines, and the fps counter, over the game
 #endif
-bool osSaveSettings();
-bool osLoadSettings();
+void osSetGamma(int32 gamma);   // the screen's colour offsets on gGamma
+void osDimTitle(bool dim);      // the title's picture dimmed under the Controls page
 bool osCheckSave();
 bool osSaveGame();
 bool osLoadGame();

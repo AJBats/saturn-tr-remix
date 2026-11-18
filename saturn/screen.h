@@ -13,6 +13,11 @@ void screenInit();
 void screenPlaneLevel(bool on);
 int32_t screenFramesFade();
 
+// The options' Gamma (-127..127): added to every colour offset but black.
+void screenGamma(int32_t gamma);
+// The title's picture dimmed (the Controls page) or back.
+void screenDimPicture(bool dim);
+
 // Shows BINDATA/<name>.BIN, a 15-bit RGB picture width x 224, centred, in
 // place of the game's frame until screenRelease.
 void screenShow(const char* name, int32_t width);

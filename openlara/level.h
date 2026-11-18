@@ -265,7 +265,7 @@ void updateFading(int32 frames)
         }
     }
 
-    palSet(level.palette, gSettings.video_gamma << 4, gBrightness);
+    palSet(level.palette, 0, gBrightness);
 }
 
 // Swaps every room that has an alternate with it: geometry, sectors and

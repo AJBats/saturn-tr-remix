@@ -56,19 +56,22 @@ void drawLevelFree()
     renderLevelFree();
 }
 
+// The font's glyph widths and the characters' glyphs, retail's (0x06062d6c,
+// 0x06062ddc): its punctuation draws the pad's buttons, as the Controls page
+// shows them.
 const static uint8 char_width[110] = {
     14, 11, 11, 11, 11, 11, 11, 13, 8, 11, 12, 11, 13, 13, 12, 11, 12, 12, 11, 12, 13, 13, 13, 12, 12, 11, // A-Z
     9, 9, 9, 9, 9, 9, 9, 9, 5, 9, 9, 5, 12, 10, 9, 9, 9, 8, 9, 8, 9, 9, 11, 9, 9, 9, // a-z
     12, 8, 10, 10, 10, 10, 10, 9, 10, 10, // 0-9
-    5, 5, 5, 11, 9, 7, 8, 6, 0, 7, 7, 3, 8, 8, 13, 7, 9, 4, 12, 12, 
+    5, 5, 5, 11, 9, 10, 8, 6, 6, 7, 7, 3, 11, 8, 13, 16, 9, 4, 12, 12,
     7, 5, 7, 7, 7, 7, 7, 7, 7, 7, 16, 14, 14, 14, 16, 16, 16, 16, 16, 12, 14, 8, 8, 8, 8, 8, 8, 8
 };
 
 static const uint8 char_map[102] = {
-    0, 64, 66, 78, 77, 74, 78, 79, 69, 70, 92, 72, 63, 71, 62, 68, 52, 53, 54, 55, 56, 57, 58, 59, 
-    60, 61, 73, 73, 66, 74, 75, 65, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 
-    18, 19, 20, 21, 22, 23, 24, 25, 80, 76, 81, 97, 98, 77, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 
-    37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 100, 101, 102, 67, 0, 0, 0, 0, 0, 0, 0
+    0, 64, 66, 76, 77, 74, 78, 79, 108, 109, 92, 75, 63, 71, 62, 68, 52, 53, 54, 55, 56, 57, 58, 59,
+    60, 61, 73, 93, 94, 107, 95, 65, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+    18, 19, 20, 21, 22, 23, 24, 25, 80, 96, 81, 97, 98, 99, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+    37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 100, 101, 102, 106, 0, 0, 0, 0, 0, 0, 0
 };
 
 X_INLINE int32 charRemap(char c)
@@ -338,29 +341,9 @@ void drawHUD(Lara* lara)
 
 void drawFPS()
 {
-#if defined(__SATURN__)
 #ifdef HW_LOG
     osDrawDebug(); // the debug menu, lines and fps, over the frame on VDP2
 #endif
-    return;
-#endif
-
-#ifdef __GBA__
-    if (gLevelID == LVL_TR1_TITLE)
-    {
-        if (REG_WSCNT != (WS_ROM0_N2 | WS_ROM0_S1 | WS_PREFETCH))
-        {
-            drawText(0, 15, "! slow cartridge !", TEXT_ALIGN_CENTER);
-        }
-    }
-#endif
-
-    if (!gSettings.video_fps)
-        return;
-
-    char buf[32];
-    int2str(fps, buf);
-    drawText(2, 16, buf, TEXT_ALIGN_LEFT);
 }
 
 #ifdef PROFILING

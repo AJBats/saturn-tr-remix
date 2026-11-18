@@ -40,7 +40,7 @@ bool read_PKD(DataStream &f)
 #ifndef MODEHW
     // initialize global pointers
     gBrightness = -128;
-    palSet(level.palette, gSettings.video_gamma << 4, gBrightness);
+    palSet(level.palette, 0, gBrightness);
     memcpy(gLightmap, level.lightmap, sizeof(gLightmap));
 #endif
 

@@ -44,11 +44,21 @@ static volatile int32_t gFadeStep[2];
 static volatile int32_t gFadeTarget[2];
 static volatile uint32_t gFadeLeft[2];
 
+static int32_t gScreenGamma;    // the options' Gamma: every offset from it, black still black
+
+static uint16_t offset(int32_t value)
+{
+    if (value > -255) {
+        value = value + gScreenGamma < -255 ? -255 : value + gScreenGamma > 255 ? 255 : value + gScreenGamma;
+    }
+    return uint16_t(value) & 0x1FF;
+}
+
 static void fadeWrite()
 {
     int32_t picture = gFadeValue[FADE_PICTURE] >> 16;
-    uint16_t a = uint16_t(gPlaneLevel ? picture + PLANE_OFFSET : picture) & 0x1FF;
-    uint16_t b = uint16_t(gPlaneLevel ? picture : gFadeValue[FADE_FRAMES] >> 16) & 0x1FF;
+    uint16_t a = offset(gPlaneLevel ? picture + PLANE_OFFSET : picture);
+    uint16_t b = offset(gPlaneLevel ? picture : gFadeValue[FADE_FRAMES] >> 16);
     VDP2_COAR = VDP2_COAG = VDP2_COAB = a;
     VDP2_COBR = VDP2_COBG = VDP2_COBB = b;
 }
@@ -137,6 +147,19 @@ void screenPlaneLevel(bool on)
     VDP2_CLOFSL = on ? CLOF_N0 : CLOF_SP;
     VDP2_CLOFEN = on ? CLOF_N0 | CLOF_R0 : CLOF_N0 | CLOF_SP;
     fadeWrite();
+}
+
+void screenGamma(int32_t gamma)
+{
+    gScreenGamma = gamma;
+    fadeWrite();
+}
+
+// The Controls page's dim of the title's picture to -128, and back to the
+// gamma, each over 30 vblanks (retail's Option_Control, 0602733c, 060274b8).
+void screenDimPicture(bool dim)
+{
+    fade(FADE_PICTURE, dim ? -128 - gScreenGamma : 0, 30);
 }
 
 int32_t screenFramesFade()

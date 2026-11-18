@@ -8,7 +8,8 @@ EWRAM_DATA Sphere gSpheres[2][MAX_SPHERES]; // EWRAM 1k
 
 EWRAM_DATA TargetInfo tinfo;
 
-EWRAM_DATA Settings gSettings;
+EWRAM_DATA int32 gGamma;
+EWRAM_DATA int32 gControlMethod;
 EWRAM_DATA SaveFile gSaveFile;
 
 EWRAM_DATA int32 gCurTrack;

@@ -1212,11 +1212,8 @@ static void drawDebug()
         return;
     }
 
-    if (gSettings.video_fps)
-    {
-        int2str(fps, text);
-        overlayRow(0, text, OVERLAY_RIGHT);
-    }
+    int2str(fps, text);
+    overlayRow(0, text, OVERLAY_RIGHT);
 
     if (menuShown())
     {

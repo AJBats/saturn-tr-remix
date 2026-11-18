@@ -410,7 +410,7 @@ void sndFrame()
 
 void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
 {
-    if (!gSettings.audio_sfx || index < 0 || index >= level.soundOffsetsCount)
+    if (index < 0 || index >= level.soundOffsetsCount)
         return NULL;
 
     uint32 entry = entryOf(index);
@@ -507,9 +507,6 @@ static bool trackOnDisc(int32 track)
 
 void sndPlayTrack(int32 track)
 {
-    if (!gSettings.audio_music)
-        return;
-
     gCurTrack = track;
 
     if (!trackOnDisc(track))
@@ -563,7 +560,7 @@ void sndResume()
 
 bool sndWaitTrack()
 {
-    return trackOnDisc(gCurTrack) && gSettings.audio_music && cdWaitPlaying();
+    return trackOnDisc(gCurTrack) && cdWaitPlaying();
 }
 
 // Stops every voice and waits for the sound CPU to have (so the samples may

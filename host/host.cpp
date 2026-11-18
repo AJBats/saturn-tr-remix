@@ -128,8 +128,8 @@ void osPlaceRooms() {}
 void osRoomFacesFlipped() {}
 
 // settings and the saved game: none in backup RAM, as a fresh Saturn
-bool osSaveSettings() { return true; }
-bool osLoadSettings() { return false; }
+void osSetGamma(int32) {}
+void osDimTitle(bool) {}
 bool osCheckSave() { return false; }
 bool osSaveGame() { return true; }
 bool osLoadGame() { return false; }

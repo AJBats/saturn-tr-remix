@@ -50,9 +50,6 @@ void* soundPlay(int16 id, const vec3i* pos, int32 where)
     return NULL;
 #endif
 
-    if (!gSettings.audio_sfx)
-        return NULL;
-
     if (id < 0)
         return NULL;
 

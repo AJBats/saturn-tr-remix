@@ -55,8 +55,7 @@ int32 osGetSystemTimeMS()
     return 0; // TODO FRT based timer
 }
 
-// Settings and the one saved game live in backup RAM.
-#define SETTINGS_FILE   "TOMBR_CFG"
+// The one saved game lives in backup RAM.
 #define SAVE_FILE       "TOMBR_GAME"
 
 // The level last loaded, and whether the next load skips its video: a saved
@@ -70,14 +69,14 @@ void osGameComplete()
     gGameComplete = true;
 }
 
-bool osSaveSettings()
+void osSetGamma(int32 gamma)
 {
-    return backupWrite(SETTINGS_FILE, "Settings", &gSettings, sizeof(gSettings));
+    screenGamma(gamma);
 }
 
-bool osLoadSettings()
+void osDimTitle(bool dim)
 {
-    return backupRead(SETTINGS_FILE, &gSettings, sizeof(gSettings));
+    screenDimPicture(dim);
 }
 
 bool osCheckSave()

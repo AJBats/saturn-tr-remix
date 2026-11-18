@@ -69,33 +69,27 @@ enum InvSlot {
     SLOT_MEDIKIT_SMALL,
 // Options
     SLOT_PASSPORT,
-    SLOT_DETAIL,
-    SLOT_SOUND,
+    SLOT_GAMMA,
     SLOT_CONTROLS,
     SLOT_HOME,
     SLOT_MAX
+};
+
+// Retail's control methods (S_UpdateInput 060374b4, its table at 0x060637fc):
+// what A, B, C, X, Y, Z, L and R do in each, and the Controls page's names.
+enum ControlAction { CTRL_JUMP, CTRL_ACTION, CTRL_DRAW, CTRL_STEP_LEFT, CTRL_LOOK, CTRL_STEP_RIGHT, CTRL_WALK, CTRL_ROLL };
+static const uint16 kControlKeys[8] = { IK_A, IK_B, IK_C, IK_X, IK_Y, IK_Z, IK_L, IK_R };
+static const uint16 kControlInputs[8] = { IN_JUMP, IN_ACTION, IN_WEAPON, IN_STEP_LEFT, IN_LOOK, IN_STEP_RIGHT, IN_WALK, IN_ROLL };
+static const uint8 kControlMethods[3][8] = {
+    { CTRL_JUMP, CTRL_ACTION, CTRL_DRAW, CTRL_STEP_LEFT, CTRL_LOOK, CTRL_STEP_RIGHT, CTRL_WALK, CTRL_ROLL },
+    { CTRL_JUMP, CTRL_ACTION, CTRL_ROLL, CTRL_LOOK, CTRL_WALK, CTRL_DRAW, CTRL_STEP_LEFT, CTRL_STEP_RIGHT },
+    { CTRL_ROLL, CTRL_ACTION, CTRL_JUMP, CTRL_DRAW, CTRL_WALK, CTRL_LOOK, CTRL_STEP_LEFT, CTRL_STEP_RIGHT }
 };
 
 enum PassportPage {
     PASSPORT_PAGE_LOAD_GAME,
     PASSPORT_PAGE_RESTART,
     PASSPORT_PAGE_EXIT_TO_TITLE
-};
-
-enum OptionID
-{
-// controls
-    OPT_ID_RUMBLE = 0,
-    OPT_ID_SWAP = 1,
-// audio
-    OPT_ID_SFX = 0,
-    OPT_ID_MUSIC = 1,
-// video
-    OPT_ID_GAMMA = 0,
-    OPT_ID_FPS = 1,
-    OPT_ID_VSYNC = 2,
-// passport
-    OPT_ID_OK = 5
 };
 
 struct InvItem
@@ -132,9 +126,8 @@ const InvItem INV_SLOTS[SLOT_MAX] = {
     { ITEM_INV_MEDIKIT_BIG    , SND_INV_SHOW      ,   352   ,   ANGLE(20)   ,   ANGLE(44)   ,   ANGLE(22)  ,   STR_MEDI_BIG      },
     { ITEM_INV_MEDIKIT_SMALL  , SND_INV_SHOW      ,   216   ,   ANGLE(22)   ,   ANGLE(40)   ,   ANGLE(22)  ,   STR_MEDI_SMALL    },
     { ITEM_INV_PASSPORT       , SND_INV_SHOW      ,   384   ,   ANGLE(25)   ,   ANGLE(23)   ,   ANGLE(0)   ,   STR_GAME          },
-    { ITEM_INV_DETAIL         , SND_INV_SHOW      ,   424   ,   ANGLE(22)   ,   ANGLE(36)   ,   ANGLE(0)   ,   STR_DETAIL        },
-    { ITEM_INV_SOUND          , SND_INV_SHOW      ,   368   ,   ANGLE(26)   ,   ANGLE(12)   ,   ANGLE(0)   ,   STR_SOUND         },
-    { ITEM_INV_CONTROLS       , SND_INV_CONTROLS  ,   352   ,   ANGLE(30)   ,   ANGLE(67)   ,   ANGLE(0)   ,   STR_CONTROLS      },
+    { ITEM_INV_GAMMA          , SND_INV_SHOW      ,   440   ,   3904        ,   0           ,   ANGLE(0)   ,   STR_GAMMA         },  // retail's 0x06062240
+    { ITEM_INV_CONTROLS       , SND_INV_CONTROLS  ,   352   ,   5504        ,   -1536       ,   ANGLE(0)   ,   STR_CONTROLS      },  // retail's 0x06062200
     { ITEM_INV_HOME           , SND_INV_HOME      ,   384   ,   ANGLE(25)   ,   ANGLE(23)   ,   ANGLE(0)   ,   STR_HOME          },
 };
 
@@ -201,6 +194,9 @@ struct Inventory
     int32   optionsWidth;
     int32   optionsHeight;
 
+    int32 gammaWait;            // ticks till held left or right steps the gamma again
+    bool controlsShown;         // the Controls page, the title's picture dimmed under it
+
     PassportPage passportPage;
     bool hasSave;               // a saved game is in backup RAM, the passport's Load Game page there
 
@@ -259,8 +255,7 @@ struct Inventory
         numKeys = 0;
 
         add(ITEM_INV_PASSPORT);
-        add(ITEM_INV_DETAIL);
-        add(ITEM_INV_SOUND);
+        add(ITEM_INV_GAMMA);
         add(ITEM_INV_CONTROLS);
         add(ITEM_INV_HOME);
 
@@ -530,22 +525,18 @@ struct Inventory
 
         switch (page)
         {
+            // retail's Construct_Inventory (06018518), its list at
+            // 0x060623e4: Game and Gamma, at the title Controls and the Gym
+            // too (its Sound and Detail Levels are never shown)
             case INV_PAGE_DEATH:
-            {
-                ADD_SLOT(SLOT_PASSPORT);
-                ADD_SLOT(SLOT_DETAIL);
-                break;
-            }
-
             case INV_PAGE_TITLE:
             case INV_PAGE_OPTIONS:
             {
                 ADD_SLOT(SLOT_PASSPORT);
-                ADD_SLOT(SLOT_CONTROLS);
-                ADD_SLOT(SLOT_DETAIL);
-                ADD_SLOT(SLOT_SOUND);
+                ADD_SLOT(SLOT_GAMMA);
                 if (page == INV_PAGE_TITLE)
                 {
+                    ADD_SLOT(SLOT_CONTROLS);
                     ADD_SLOT(SLOT_HOME);
                 }
                 break;
@@ -1214,73 +1205,47 @@ struct Inventory
         optionIndex = (chosen >= 0) ? chosen : (optionsCount - 1);
     }
 
-    void onDetail()
+    // Retail's Option_Gamma (06027014): left and right step the screen's
+    // colour offset by 8 in -127..127, again every 10 vblanks held; A or C
+    // goes back.
+    void onGamma(int32 frames)
     {
-        Option &opt = options[optionIndex];
-        
-        if (optionIndex == OPT_ID_GAMMA)
+        gammaWait -= frames;
+        int32 step = (lara->input & IN_LEFT) ? -8 : ((lara->input & IN_RIGHT) ? 8 : 0);
+        if (step && gammaWait <= 0)
         {
-            int32 gamma = opt.value >> 4;
-
-            if (gSettings.video_gamma != gamma)
-            {
-                gSettings.video_gamma = gamma;
-                palSet(level.palette, gamma << 4, gBrightness);
-                osSaveSettings();
-            }
+            gGamma = X_CLAMP(gGamma + step, -127, 127);
+            gammaWait = 5;
+            osSetGamma(gGamma);
         }
-
-        if (optionIndex == OPT_ID_FPS)
+        if (lara->isKeyHit(IN_ACTION))
         {
-            if (gSettings.video_fps != opt.value)
-            {
-                gSettings.video_fps = opt.value;
-                osSaveSettings();
-            }
-        }
-
-        if (optionIndex == OPT_ID_VSYNC)
-        {
-            if (gSettings.video_vsync != opt.value)
-            {
-                gSettings.video_vsync = opt.value;
-                osSaveSettings();
-            }
+            frameTarget = 0;
+            nextState = INV_STATE_READY;
         }
     }
 
-    void onSound()
-    {
-        Option &opt = options[optionIndex];
-        
-        if ((optionIndex == OPT_ID_SFX) && (gSettings.audio_sfx != opt.value))
-        {
-            gSettings.audio_sfx = opt.value;
-            osSaveSettings();
-        }
-
-        if ((optionIndex == OPT_ID_MUSIC) && (gSettings.audio_music != opt.value))
-        {
-            gSettings.audio_music = opt.value;
-            osSaveSettings();
-        }
-    }
-
+    // Retail's Option_Control (0602733c, 060274b8): up and down pick the
+    // control method, A, B or C goes back; the title's picture dims under it.
     void onControls()
     {
-        Option &opt = options[optionIndex];
-
-        if ((optionIndex == OPT_ID_RUMBLE) && (gSettings.controls_vibration != opt.value))
+        if (!controlsShown)
         {
-            gSettings.controls_vibration = opt.value;
-            osJoyVibrate(0, 0xFF, 0xFF);
-            osSaveSettings();
+            controlsShown = true;
+            osDimTitle(true);
         }
-
-        if ((optionIndex == OPT_ID_SWAP) && (gSettings.controls_swap != opt.value))
+        if (lara->isKeyHit(IN_DOWN)) {
+            gControlMethod = (gControlMethod + 1) % 3;
+        }
+        if (lara->isKeyHit(IN_UP)) {
+            gControlMethod = (gControlMethod + 2) % 3;
+        }
+        if (lara->isKeyHit(IN_ACTION) || (lara->input & (IN_JUMP | IN_SELECT)))
         {
-            gSettings.controls_swap = opt.value;
-            osSaveSettings();
+            controlsShown = false;
+            osDimTitle(false);
+            frameTarget = 0;
+            nextState = INV_STATE_READY;
         }
     }
 
@@ -1303,7 +1268,7 @@ struct Inventory
         }
     }
 
-    bool onItem()
+    bool onItem(int32 frames)
     {
         onOption();
 
@@ -1342,11 +1307,8 @@ struct Inventory
             case SLOT_PASSPORT:
                 onPassport();
                 break;
-            case SLOT_DETAIL:
-                onDetail();
-                break;
-            case SLOT_SOUND:
-                onSound();
+            case SLOT_GAMMA:
+                onGamma(frames);
                 break;
             case SLOT_CONTROLS:
                 onControls();
@@ -1511,7 +1473,7 @@ struct Inventory
                 if (animate(frames))
                     break;
 
-                if (!onItem() && (frameIndex == frameTarget))
+                if (!onItem(frames) && (frameIndex == frameTarget))
                 {
                     soundPlay(SND_INV_HIDE, NULL);  // retail's RNG_DESELECT (Display_Inventory, 06017420)
                     setState(INV_STATE_DESELECT, nextState, 8);
@@ -1572,40 +1534,6 @@ struct Inventory
                 if (passportPage == PASSPORT_PAGE_LOAD_GAME) {
                     initLoadList();
                 }
-                break;
-            }
-            case SLOT_DETAIL:
-            {
-                OPTION_BAR(STR_OPT_DETAIL_GAMMA, gSettings.video_gamma << 4);
-                OPTION_SWITCH(STR_OPT_DETAIL_FPS, gSettings.video_fps);
-                OPTION_SWITCH(STR_OPT_DETAIL_VSYNC, gSettings.video_vsync);
-                break;
-            }
-            case SLOT_SOUND:
-            {
-                OPTION_SWITCH(STR_OPT_SOUND_SFX, gSettings.audio_sfx);
-                OPTION_SWITCH(STR_OPT_SOUND_MUSIC, gSettings.audio_music);
-                break;
-            }
-            case SLOT_CONTROLS:
-            {
-                OPTION_SWITCH(STR_OPT_CONTROLS_VIBRATION, gSettings.controls_vibration);
-                OPTION_SWITCH(STR_OPT_CONTROLS_SWAP, gSettings.controls_swap);
-            /*
-                OPTION_SPACE();
-                OPTION_CTRL(STR_CTRL_RUN, 0);
-                OPTION_CTRL(STR_CTRL_BACK, 0);
-                OPTION_CTRL(STR_CTRL_RIGHT, 0);
-                OPTION_CTRL(STR_CTRL_LEFT, 0);
-                OPTION_CTRL(STR_CTRL_WALK, 0);
-                OPTION_CTRL(STR_CTRL_JUMP, 0);
-                OPTION_CTRL(STR_CTRL_ACTION, 0);
-                OPTION_CTRL(STR_CTRL_WEAPON, 0);
-                OPTION_CTRL(STR_CTRL_LOOK, 0);
-                OPTION_CTRL(STR_CTRL_ROLL, 0);
-                OPTION_CTRL(STR_CTRL_INVENTORY, 0);
-                OPTION_CTRL(STR_CTRL_PAUSE, 0);
-            */
                 break;
             }
             default: ;
@@ -1784,6 +1712,48 @@ struct Inventory
 
         if (frameIndex == frameTarget) {
             drawOptions();
+            if (state == INV_STATE_SHOW && itemsList[itemIndex] == SLOT_GAMMA) {
+                drawGamma();
+            }
+            if (state == INV_STATE_SHOW && itemsList[itemIndex] == SLOT_CONTROLS) {
+                drawControls();
+            }
+        }
+    }
+
+    // Retail's slider over the Gamma item (its sprite list at 0x06061598): a
+    // frame 132 x 16, 66 left of the item's middle and 80 above, the bar in
+    // it 126 long at the gamma's 0..126.
+    void drawGamma()
+    {
+        renderBar(FRAME_WIDTH / 2 - 66, FRAME_HEIGHT / 2 - 80, 126, (gGamma / 2 + 63) * 256 / 126, BAR_OPTION);
+    }
+
+    // Retail's Controls page (Option_Control 060274b8): the method's number,
+    // the pad's buttons (the font's punctuation draws them) and what each
+    // does, where retail prints them (x from the left, or right-aligned from
+    // the right edge; y from the middle).
+    void drawControls()
+    {
+        static const char* const kNames[8] = { "Jump", "Action", "Draw Weapon", "Step Left", "Look", "Step Right", "Walk", "Roll" };
+        static const char* const kPad[5] = { "Run", "Back", "Left", "Right", "Inventory" };
+        // A, B, C, X, Y, Z on the right; L right-aligned on the left, R on the right; the d-pad and START on the left
+        static const char kGlyphs[] = ";<>\\^_`{=~()*";
+        static const int16 kGlyphX[13] = { 210, 210, 210, 210, 210, 210, -190, 190, -210, -210, -210, -210, -204 };
+        static const int8 kRows[13] = { 40, 55, 70, -20, -5, 10, -40, -40, -20, -5, 10, 25, 70 };
+        const int32 cy = FRAME_HEIGHT / 2;
+
+        char title[] = "Control Method 1";
+        title[15] = char('1' + gControlMethod);
+        drawText(0, 35, title, TEXT_ALIGN_CENTER);
+
+        for (int32 i = 0; i < 13; i++)
+        {
+            const char glyph[2] = { kGlyphs[i], 0 };
+            const int32 x = kGlyphX[i];
+            const char* name = i < 8 ? kNames[kControlMethods[gControlMethod][i]] : kPad[i - 8];
+            drawText(x, cy + kRows[i], glyph, x < 0 ? TEXT_ALIGN_RIGHT : TEXT_ALIGN_LEFT);
+            drawText(x < 0 ? (i == 12 ? -230 : x - 20) : x + 20, cy + kRows[i], name, x < 0 ? TEXT_ALIGN_RIGHT : TEXT_ALIGN_LEFT);
         }
     }
 
