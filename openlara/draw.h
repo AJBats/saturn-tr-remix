@@ -304,22 +304,16 @@ void drawCinematicRooms()
     setViewport(vp);
 }
 
+// Retail's bars, top left (DrawAirBar 06015ed8, DrawHealthBar 06015e50): the
+// air's at (32, 16) in water, the health's at (32, 28) below it.
 void drawHUD(Lara* lara)
 {
-    int32 x = (FRAME_WIDTH - (100 + 2 + 2)) - 4;
-    int32 y = 4;
-
-    if (lara->waterState == WATER_STATE_SURFACE || lara->waterState == WATER_STATE_UNDER)
-    {
-        int32 v = (lara->oxygen << 8) / LARA_MAX_OXYGEN;
-        renderBar(x, y, 100, v, BAR_OXYGEN);
-        y += 10;
+    if (lara->waterState == WATER_STATE_SURFACE || lara->waterState == WATER_STATE_UNDER) {
+        renderBar(32, 16, 100, X_CLAMP(lara->oxygen, 0, LARA_MAX_OXYGEN) / 18, BAR_OXYGEN);
     }
 
-    if (lara->extraL->healthTimer || lara->extraL->weaponState == WEAPON_STATE_READY)
-    {
-        int32 v = (lara->health << 8) / LARA_MAX_HEALTH;
-        renderBar(x, y, 100, v, BAR_HEALTH);
+    if (lara->extraL->healthTimer || lara->extraL->weaponState == WEAPON_STATE_READY) {
+        renderBar(32, 28, 100, X_CLAMP(lara->health, 0, LARA_MAX_HEALTH) / 10, BAR_HEALTH);
     }
 
     // the rounds of the gun drawn, but the pistols', and none in the bonus

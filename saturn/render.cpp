@@ -229,31 +229,33 @@ void renderBorder(int32 x, int32 y, int32 width, int32 height, int32 color1, int
     renderRect(x + width - 1, y, 1, height, FACE_TYPE_LINE_V, c2, z);
 }
 
-// Bar rows top to bottom; health as in the original game.
+// Bar rows top to bottom: health and air retail's (its base (15, 15, 15)
+// through the gouraud tables at 0x06063abc and 0x06063ad8).
 static const uint16 BAR_COLORS[BAR_MAX][BAR_HEIGHT] = {
-    { RGB(10,  6,  0), RGB(15, 11,  2), RGB(10,  6,  0), RGB( 7,  3,  0), RGB( 4,  0,  0) },
-    { RGB( 0,  8, 12), RGB( 4, 14, 18), RGB( 0,  8, 12), RGB( 0,  5,  9), RGB( 0,  2,  6) },
+    { RGB(14, 10,  3), RGB(19, 15,  6), RGB(14, 10,  3), RGB(11,  7,  1), RGB( 8,  4,  0) },
+    { RGB( 6, 13, 14), RGB(11, 17, 18), RGB( 6, 13, 14), RGB( 2, 10, 12), RGB( 0,  8, 10) },
     { RGB( 4, 12,  0), RGB( 9, 18,  2), RGB( 4, 12,  0), RGB( 2,  8,  0), RGB( 0,  4,  0) },
     { RGB(14, 14, 14), RGB(20, 20, 20), RGB(14, 14, 14), RGB(10, 10, 10), RGB( 6,  6,  6) },
 };
 
-void renderBar(int32 x, int32 y, int32 width, int32 value, BarType type)
+// Retail's bar (0603b524): a black box width + 4 by BAR_HEIGHT + 4 at (x, y)
+// with a (5, 5, 5) outline, its rows filled pixels long from x + 2.
+void renderBar(int32 x, int32 y, int32 width, int32 filled, BarType type)
 {
-    int32 w = value * width >> 8;
-
-    if (w > 0)
+    if (filled > 0)
     {
         for (int32 i = 0; i < BAR_HEIGHT; i++) {
-            renderRect(x + 1, y + 1 + i, w, 1, FACE_TYPE_LINE_H, BAR_COLORS[type][i], 0);
+            renderRect(x + 2, y + 2 + i, filled, 1, FACE_TYPE_LINE_H, BAR_COLORS[type][i], 0);
         }
     }
 
-    if (w < width)
+    if (filled < width)
     {
-        renderRect(x + 1 + w, y + 1, width - w, BAR_HEIGHT, FACE_TYPE_LINE_V, RGB(1, 1, 1), 0);
+        renderRect(x + 2 + filled, y + 2, width - filled, BAR_HEIGHT, FACE_TYPE_LINE_V, RGB(0, 0, 0), 0);
     }
 
-    renderBorder(x, y, width + 2, BAR_HEIGHT + 2, 2, 2, 0);
+    renderBorder(x + 1, y + 1, width + 2, BAR_HEIGHT + 2, 0, 0, 0);
+    renderBorder(x, y, width + 4, BAR_HEIGHT + 4, 5, 5, 0);
 }
 
 // --- the view -----------------------------------------------------------------

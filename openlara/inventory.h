@@ -1583,7 +1583,7 @@ struct Inventory
 
                 case OPT_BAR:
                 {
-                    renderBar(FRAME_WIDTH / 2, y + 6, 80, opt.value, BAR_OPTION);
+                    renderBar(FRAME_WIDTH / 2, y + 6, 80, opt.value * 80 >> 8, BAR_OPTION);
                     drawText(-FRAME_WIDTH / 2 - 8, y + 16, STR[opt.str], TEXT_ALIGN_RIGHT);
                     break;
                 }
@@ -1664,8 +1664,7 @@ struct Inventory
 
             if (slot == SLOT_MEDIKIT_SMALL || slot == SLOT_MEDIKIT_BIG)
             {
-                int32 v = (lara->health << 8) / LARA_MAX_HEALTH;
-                renderBar((FRAME_WIDTH - 104) / 2, 24, 100, v, BAR_HEALTH);
+                renderBar((FRAME_WIDTH - 104) / 2, 24, 100, X_CLAMP(lara->health, 0, LARA_MAX_HEALTH) / 10, BAR_HEALTH);
             }
         }
     }
@@ -1726,7 +1725,7 @@ struct Inventory
     // it 126 long at the gamma's 0..126.
     void drawGamma()
     {
-        renderBar(FRAME_WIDTH / 2 - 66, FRAME_HEIGHT / 2 - 80, 126, (gGamma / 2 + 63) * 256 / 126, BAR_OPTION);
+        renderBar(FRAME_WIDTH / 2 - 66, FRAME_HEIGHT / 2 - 80, 126, gGamma / 2 + 63, BAR_OPTION);
     }
 
     // Retail's Controls page (Option_Control 060274b8): the method's number,

@@ -3099,7 +3099,7 @@ void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index);
 void renderGlyph(int32 vx, int32 vy, int32 index);
 void renderFill(int32 x, int32 y, int32 width, int32 height, int32 shade, int32 z);
 void renderBorder(int32 x, int32 y, int32 width, int32 height, int32 color1, int32 color2, int32 z);
-void renderBar(int32 x, int32 y, int32 width, int32 value, BarType type);
+void renderBar(int32 x, int32 y, int32 width, int32 filled, BarType type);    // filled: pixels of width
 bool renderBackground(const void* background);  // false: the frame is the scene's alone
 void* copyBackground();
 void closeBackground();
