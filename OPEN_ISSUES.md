@@ -440,57 +440,6 @@ MATH-4*
 - **Fix:** add a second stack. It costs roughly the same, since we already rotate
   twice per node.
 
-### 202. RNG seeds: every level start has the same seed, and saves restore it
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: MATH-10*
-
-- **Retail:**
-  - Both streams use the same LCG: seed·0x41C64E6D + 0x3039, output
-    (seed >> 10) & 0x7FFF. Random_GetControl is `060168f8` (seed
-    `DAT_06060d34`) and Random_GetDraw is `06016940` (seed `DAT_06060d38`).
-  - Both seeds are 0xD371F947 at power-on, and are reseeded only by StartDemo
-    (`06011d48`).
-  - The RNG state carries across levels and isn't restored by loading a save.
-- **Ours:**
-  - Both seeds are set from `osGetSystemTimeMS()·3` and `·7` at every
-    `startLevel` (`openlara/game.h:248-249`). That function returns 0
-    (`saturn/os.cpp:23-26`), so both seeds are 0 at every level start.
-  - The seeds are saved and restored with saves (`game.h:38-39`, `95-96`).
-- **Effect:** every level start plays out with the same random decisions, and
-  reloading a save reproduces the same outcomes; retail's vary.
-- **Stream deviations found:**
-  - The enemy-miss ricochet uses the logic stream (`enemy.h:2261-2263`); retail
-    uses the draw stream.
-  - Camera shake uses no RNG at all (issue 17).
-  - `RAND_LOGIC` uses >> 15 where retail uses /0x7FFF at a few sites, which is
-    negligible.
-- **Fix:** seed 0xD371F947 once at boot, don't reseed per level, and don't save
-  the seeds. Demos (issue 162) need this.
-
-### 203. anglesFromVector lacks retail's overflow guard
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: MATH-11*
-
-- **Retail:** phd_GetVectorAngles (`0603c9ec`) shifts x, y and z right by 2
-  until each fits int16, then sign-corrects the pitch.
-- **Ours:** `phd_atan(phd_sqrt(x·x + z·z), −y)` (`openlara/common.cpp:1068-1072`).
-- **Error:**
-  - The pitch is 1 angle unit lower in 74% of random cases (0.0055°,
-    negligible).
-  - For horizontal lengths over 65535 the square wraps and the pitch is wrong.
-    For example, (50000, 1000, 50000) gives −393 instead of −143. That isn't
-    reachable in normal play.
-
-### 204. getFrames has an extra no-interpolation branch
-*Severity: subtle · Confidence: likely · Fix: small · Audit: MATH-12*
-
-- **Retail:** GetFrames (`06014dc4`) always interpolates toward the next keyframe,
-  and only adjusts the rate.
-- **Ours:** also sets `indexB = indexA` when `indexB·rate >= frameEnd`
-  (`openlara/item.h:157-160`), which turns interpolation off.
-- **Effect:** only animations whose frameBegin is at most the rate (an object's
-  first anims) lose interpolation on their last partial segment.
-
----
-
 ## Scene look: lighting and effects
 
 ### 209. Shadows disappear when their owner is off-screen
@@ -1236,6 +1185,63 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 204. getFrames has an extra no-interpolation branch
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: likely · Fix: small · Audit: MATH-12*
+
+- **Retail:** GetFrames (`06014dc4`) always interpolates toward the next keyframe,
+  and only adjusts the rate.
+- **Ours:** also sets `indexB = indexA` when `indexB·rate >= frameEnd`
+  (`openlara/item.h:157-160`), which turns interpolation off.
+- **Effect:** only animations whose frameBegin is at most the rate (an object's
+  first anims) lose interpolation on their last partial segment.
+
+---
+
+### 203. anglesFromVector lacks retail's overflow guard
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: MATH-11*
+
+- **Retail:** phd_GetVectorAngles (`0603c9ec`) shifts x, y and z right by 2
+  until each fits int16, then sign-corrects the pitch.
+- **Ours:** `phd_atan(phd_sqrt(x·x + z·z), −y)` (`openlara/common.cpp:1068-1072`).
+- **Error:**
+  - The pitch is 1 angle unit lower in 74% of random cases (0.0055°,
+    negligible).
+  - For horizontal lengths over 65535 the square wraps and the pitch is wrong.
+    For example, (50000, 1000, 50000) gives −393 instead of −143. That isn't
+    reachable in normal play.
+
+### 202. RNG seeds: every level start has the same seed, and saves restore it
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: MATH-10*
+
+- **Retail:**
+  - Both streams use the same LCG: seed·0x41C64E6D + 0x3039, output
+    (seed >> 10) & 0x7FFF. Random_GetControl is `060168f8` (seed
+    `DAT_06060d34`) and Random_GetDraw is `06016940` (seed `DAT_06060d38`).
+  - Both seeds are 0xD371F947 at power-on, and are reseeded only by StartDemo
+    (`06011d48`).
+  - The RNG state carries across levels and isn't restored by loading a save.
+- **Ours:**
+  - Both seeds are set from `osGetSystemTimeMS()·3` and `·7` at every
+    `startLevel` (`openlara/game.h:248-249`). That function returns 0
+    (`saturn/os.cpp:23-26`), so both seeds are 0 at every level start.
+  - The seeds are saved and restored with saves (`game.h:38-39`, `95-96`).
+- **Effect:** every level start plays out with the same random decisions, and
+  reloading a save reproduces the same outcomes; retail's vary.
+- **Stream deviations found:**
+  - The enemy-miss ricochet uses the logic stream (`enemy.h:2261-2263`); retail
+    uses the draw stream.
+  - Camera shake uses no RNG at all (issue 17).
+  - `RAND_LOGIC` uses >> 15 where retail uses /0x7FFF at a few sites, which is
+    negligible.
+- **Fix:** seed 0xD371F947 once at boot, don't reseed per level, and don't save
+  the seeds. Demos (issue 162) need this.
 
 ### 200. The catch-up cap is 10 ticks; retail's is 10 vblanks (5 ticks)
 *Closed 2026-11-18 (see git log): MAX_UPDATE_FRAMES 5.*
