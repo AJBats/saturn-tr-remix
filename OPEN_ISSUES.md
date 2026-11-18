@@ -262,28 +262,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Level logic, traps and objects
 
-### 137. Slope rounding and static collision radius
-*Severity: subtle · Confidence: likely (TR1X GetHeight/GetCeiling; Saturn not
-checked) · Fix: small · Audit: LVL-27*
-
-- **Slope rounding:** on one sign of each slant axis (positive for floors,
-  negative X and positive Z for ceilings), ours rounds the other way from
-  retail. Heights can differ by 1 unit per axis (`openlara/room.h:46-50`,
-  `82-83`).
-- **Statics:** static-mesh collision gathers nearby rooms with the exact radius
-  and height; retail adds 50 to each (`room.h:282`).
-
-### 138. Small trap differences
-*Severity: subtle · Confidence: confirmed · Fix: trivial each · Audit: LVL-28*
-
-- The swinging blade doesn't push Lara when inactive (`openlara/object.h:940`).
-- The teeth trap spawns 2 blood splats; retail spawns 6.
-- The dart ricochet lasts 4 frames; retail's lasts 6.
-- The Damocles swords recompute the floor every frame while falling; retail
-  uses the floor from init.
-- The Thor kill check has an extra height condition.
-- Flame emitter teardown doesn't stop SFX 150 (see issue 183).
-
 ### 139. The Gym ending waits 90 trigger hits; retail waits 150
 *Severity: subtle · Confidence: confirmed · Fix: trivial · Audit: LVL-29,
 SND-C8*
@@ -1408,6 +1386,32 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 138. Small trap differences
+*Closed 2026-11-18 (see git log): the first five as retail's; the flame's SFX 150 stays with issue 183's looped-sound decision.*
+
+*Severity: subtle · Confidence: confirmed · Fix: trivial each · Audit: LVL-28*
+
+- The swinging blade doesn't push Lara when inactive (`openlara/object.h:940`).
+- The teeth trap spawns 2 blood splats; retail spawns 6.
+- The dart ricochet lasts 4 frames; retail's lasts 6.
+- The Damocles swords recompute the floor every frame while falling; retail
+  uses the floor from init.
+- The Thor kill check has an extra height condition.
+- Flame emitter teardown doesn't stop SFX 150 (see issue 183).
+
+### 137. Slope rounding and static collision radius
+*Closed 2026-11-18 (see git log): retail's rounding, statics gathered with +50.*
+
+*Severity: subtle · Confidence: likely (TR1X GetHeight/GetCeiling; Saturn not
+checked) · Fix: small · Audit: LVL-27*
+
+- **Slope rounding:** on one sign of each slant axis (positive for floors,
+  negative X and positive Z for ceilings), ours rounds the other way from
+  retail. Heights can differ by 1 unit per axis (`openlara/room.h:46-50`,
+  `82-83`).
+- **Statics:** static-mesh collision gathers nearby rooms with the exact radius
+  and height; retail adds 50 to each (`room.h:282`).
 
 ### 136. The Mines cabin isn't solid and sets its flip as one-shot
 *Closed 2026-11-18 (see git log): as retail's.*
