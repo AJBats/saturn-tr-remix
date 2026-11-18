@@ -1850,7 +1850,7 @@ struct ItemObj
     void animSkip(int32 stateBefore, int32 stateAfter, bool advance = false);
     void animProcess(bool movement = true);
     bool animIsEnd(int32 offset) const;
-    void animHit(int32 dirX, int32 dirZ, int32 hitTimer);
+    void animHit(int32 dirX, int32 dirZ, int32 ticks);
     bool moveTo(const vec3i &point, ItemObj* item, bool lerp);
 
     void updateRoom(int32 offset = 0);

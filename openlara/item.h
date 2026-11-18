@@ -614,13 +614,31 @@ bool ItemObj::animIsEnd(int32 offset) const
     return frameIndex == level.anims[animIndex].frameEnd - offset;
 }
 
-void ItemObj::animHit(int32 dirX, int32 dirZ, int32 hitTimer)
+// a tick of Lara's hit pose, the slam sound as it starts
+void staggerTick(ItemObj* lara)
+{
+    if (!lara->extraL->hitFrame) {
+        soundPlay(SND_HIT, &lara->pos);
+    }
+    lara->extraL->hitFrame = X_MIN(lara->extraL->hitFrame + 1, 34);
+}
+
+// Lara staggered from (dirX, dirZ) off her: by what she's against, this tick
+// (ticks 0: retail's ItemPushLara, 0600edf8); by an effect, the next ticks
+// many (its spaz_effect_count), kept with the way in hitTimer's high bits.
+void ItemObj::animHit(int32 dirX, int32 dirZ, int32 ticks)
 {
     ASSERT(type == ITEM_LARA);
     ASSERT(extraL != NULL);
 
-    extraL->hitQuadrant = uint16(angle.y - phd_atan(dirZ, dirX) + ANGLE_180 + ANGLE_45) >> ANGLE_SHIFT_90;
-    extraL->hitTimer = hitTimer;
+    int32 quadrant = uint16(angle.y - phd_atan(dirZ, dirX) + ANGLE_180 + ANGLE_45) >> ANGLE_SHIFT_90;
+    if (ticks)
+    {
+        extraL->hitTimer = int8(ticks | (quadrant << 4));
+        return;
+    }
+    extraL->hitQuadrant = quadrant;
+    staggerTick(this);
 }
 
 bool ItemObj::moveTo(const vec3i &point, ItemObj* item, bool lerp)
@@ -1389,7 +1407,7 @@ void ItemObj::collidePush(Lara* lara, CollisionInfo* cinfo, bool enemyHit, bool 
         int32 cz = (minZ + maxZ) >> 1;
         dx -= X_ROTX(cx, cz, s, c);
         dz -= X_ROTY(cx, cz, s, c);
-        lara->animHit(dx, dz, 5);
+        lara->animHit(dx, dz, 0);
     }
 
     int32 tmpAngle = cinfo->angle;

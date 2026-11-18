@@ -336,10 +336,7 @@ struct Lara : ItemObj
     void updateObjectsCollision()
     {
         if (health <= 0)
-        {
-            extraL->hitQuadrant = -1;
             return;
-        }
 
         Room** adjRoom = room->getAdjRooms();
         while (*adjRoom)
@@ -369,33 +366,28 @@ struct Lara : ItemObj
         inventory.useSlot = SLOT_MAX;
     }
 
+    // Retail's LaraBaddieCollision (0600e9ac): no hit pose unless something
+    // staggers her this tick: what she's against (ItemPushLara), or an
+    // effect's hit a tick at a time (its spaz, 0600eb28); the pose starts
+    // over once a tick passes without one.
     void updateCollision()
     {
-        #ifndef __NDS__ // TODO
+        extraL->hitQuadrant = -1;
+        if (health > 0)
+        {
             updateObjectsCollision();
-        #endif
+            if (extraL->hitTimer & 7)
+            {
+                extraL->hitQuadrant = extraL->hitTimer >> 4;
+                staggerTick(this);
+                extraL->hitTimer--;
+            }
+            if (extraL->hitQuadrant == -1) {
+                extraL->hitFrame = 0;
+            }
+        }
 
         (this->*cHandlers[state])();
-
-        // control hit animation
-        if (extraL->hitTimer <= 0)
-            return;
-
-        if (!extraL->hitFrame) {
-            soundPlay(SND_HIT, &pos);
-        }
-
-        extraL->hitFrame++;
-        if (extraL->hitFrame > 34) {
-            extraL->hitFrame = 34;
-        }
-
-        extraL->hitTimer--;
-        if (extraL->hitTimer == 0)
-        {
-            extraL->hitQuadrant = -1;
-            extraL->hitFrame = 0;
-        }
     }
 
     void startScreaming()
@@ -3444,7 +3436,6 @@ struct Lara : ItemObj
                             frame = 0;
 
                             arm->flash.timer = params.flashTimer;
-                            arm->flash.angle = int16(rand_draw() << 1);
                             arm->flash.offset = params.flashOffset;
                             arm->flash.intensity = params.flashIntensity << 8;
                         }
@@ -4000,6 +3991,15 @@ struct Lara : ItemObj
                 default : ASSERT(false);
             }
             frameIndex = level.anims[animIndex].frameBegin + extraL->hitFrame;
+        }
+
+        // a flash turns afresh each frame it's drawn (retail's DrawGunFlash,
+        // 06013d5c)
+        if (extraL->armR.flash.timer) {
+            extraL->armR.flash.angle = int16(rand_draw() << 1);
+        }
+        if (extraL->armL.flash.timer) {
+            extraL->armL.flash.angle = int16(rand_draw() << 1);
         }
 
         drawModel(this);

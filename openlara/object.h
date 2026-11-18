@@ -2439,7 +2439,7 @@ struct Lightning : Object
         if (!turnSpeed)
             return;
         lara->extraL->hitQuadrant = X_MIN(1 + (rand_logic() * 4) / (ANGLE_180 - 1), 3);
-        lara->extraL->hitTimer = 2;
+        lara->extraL->hitFrame = X_MIN(lara->extraL->hitFrame + 1, 34);
     }
 
     virtual void update()
