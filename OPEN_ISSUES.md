@@ -2329,7 +2329,6 @@ word. Of the same kind and already open: 264, 265, 266.
 | **183** | Retail restarts ambient loops every frame (a stutter), and plays loops an octave down (8-bit keyed on 16-bit data). Reproduce them? |
 | **186** | Retail's exploding deaths are silent (sound 172 is missing). Copy that, or keep 171? |
 | **194** | Retail's CD music is mono because of a driver bug. Recommendation: keep stereo. |
-| **145** | Retail's sound sliders do nothing. Ours has on/off switches. Which to keep? |
 | **162** | Attract demos need deterministic logic (issue 202) and the DEMODATA format. Build them? |
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
