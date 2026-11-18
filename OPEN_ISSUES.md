@@ -1052,13 +1052,13 @@ word. Of the same kind and already open: 264, 265, 266.
 
 | Issue | Decision |
 |---|---|
-| **88** | Retail's torso charges without turning (a retail bug). Reproduced for now (5a3516f, its forward case in `Adam::updateState`); the user evaluates whether to keep it. |
-| **99** | Retail's gorilla sidestep turns wrongly (a retail bug). Reproduced for now (its left sidestep's turn stays; `Gorilla::updateState`); the user evaluates whether to keep it. |
-| **11** | Retail's CombatCamera uses a stale target_square. Reproduce it? |
-| **139** | Retail's gym counter starts at 150 and is never reset. Reproduce it? |
-| **179** | Retail's stereo pan wraps oddly just left of centre. Reproduce it? |
-| **183** | Retail restarts ambient loops every frame (a stutter), and plays loops an octave down (8-bit keyed on 16-bit data). Reproduce them? |
-| **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
+| **88** | Retail's torso charges without turning (a retail bug). Reproduced for now (5a3516f, its forward case in `Adam::updateState`); the user evaluates whether to keep it. TRX (2026-10-29) keeps it: its forward case still adds the turn to the goal state (`objects/creatures/torso.c`). |
+| **99** | Retail's gorilla sidestep turns wrongly (a retail bug). Reproduced for now (its left sidestep's turn stays; `Gorilla::updateState`); the user evaluates whether to keep it. TRX fixed it: its gorilla checks its own flag (`objects/creatures/ape.c`; TR1X 2.0 still had retail's check). |
+| **11** | Retail's CombatCamera uses a stale target_square. Reproduce it? TRX keeps it: its combat camera never sets target_square (`camera/box_camera.c` M_Combat); ours sets it (`camera.h` combatRetail). |
+| **139** | Retail's gym counter starts at 150 and is never reset. Reproduce it? Ours waits 90; PC TR1 and TRX wait 120 (4 s) and reset (`gym.c`). |
+| **179** | Retail's stereo pan wraps oddly just left of centre. Reproduce it? TRX pans smoothly from the camera's position and angle, full to one side at 90 degrees, no jump (`sound/common.c` M_GetPan). |
+| **183** | Retail restarts ambient loops every frame (a stutter), and plays loops an octave down (8-bit keyed on 16-bit data). Reproduce them? TRX does neither: loops play on, the loudest call sets them, a loop not called in a frame stops (as ours). |
+| **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? Saturn only: TRX has nothing like it. |
 
 ## Closed
 
