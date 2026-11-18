@@ -1005,19 +1005,6 @@ INV-3*
 - **Ours:** `saturn/os.cpp:132-139`. END, then CRED224 for 8 s, then ENDPG224
   for 8 s, then the ring.
 
-### 166. Every FMV can be skipped, and there are no fades
-*Severity: subtle · Confidence: confirmed · Fix: small to medium · Audit:
-INV-29*
-
-- **Retail:**
-  - The FMV player's third argument (`06043068`) marks CORELOGO and END as
-    unskippable; the others skip on START.
-  - EIDOS224 shows for 90 vblanks.
-  - Pictures fade in over 30 vblanks. Level, FMV and stats transitions fade to
-    black over 30 (`0603a19c`, `0603a480`).
-- **Ours:** everything can be skipped (`saturn/fmv.cpp:265-270`), EIDOS shows
-  for 180 vblanks, and `saturn/screen.cpp` cuts hard everywhere.
-
 ### 169. No pause on pad disconnect; only a pad in port 1
 *Severity: subtle · Confidence: likely · Fix: small · Audit: INV-32*
 
@@ -2230,6 +2217,21 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 166. Every FMV can be skipped, and there are no fades
+*Closed 2026-11-17: 7da881b (END unskippable since 7d97d09). Fades in on pictures, out at videos', pictures' and levels' ends, 30 vblanks each.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small to medium · Audit:
+INV-29*
+
+- **Retail:**
+  - The FMV player's third argument (`06043068`) marks CORELOGO and END as
+    unskippable; the others skip on START.
+  - EIDOS224 shows for 90 vblanks.
+  - Pictures fade in over 30 vblanks. Level, FMV and stats transitions fade to
+    black over 30 (`0603a19c`, `0603a480`).
+- **Ours:** everything can be skipped (`saturn/fmv.cpp:265-270`), EIDOS shows
+  for 180 vblanks, and `saturn/screen.cpp` cuts hard everywhere.
 
 ### 141. Several items are posed wrongly when selected
 *Closed 2026-11-17: 2918492. Retail's values for the compass, shotgun, lead bar, keys, puzzles and scion (controls with 145).*
