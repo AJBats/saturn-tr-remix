@@ -1,6 +1,7 @@
 """Self-tracing discs of a tree's HEAD at many spots, each read on the Saturn: a line a spot.
 python -I tools/hwtable.py WORKTREE TAG SPOT [SPOT ...]   (builds in WORKTREE; don't edit it meanwhile)
-A SPOT: a name of tools/hwtest.sh, NAME:LOOK_KEY:FRAMES, or at,LEVEL,ID,room@x:y:z,yaw.
+A SPOT: a name of tools/hwtest.sh, NAME:LOOK_KEY:FRAMES, or at,LEVEL,ID,room@x:y:z,yaw[,items woken]
+(items as AT_TRIGGER takes them, + between them; Lara's sector must have no floor data then).
 Appends to build/night/TAG_table.txt in the main checkout. Each spot's disc overwrites WORKTREE/build/disc:
 a row's ELF stays as build/TAG_LABEL.elf, and its disc can be rebuilt from the commit and the spot."""
 import json
@@ -21,11 +22,13 @@ subprocess.run([sys.executable, '-I', f'{S}/housekeep.py', '--if-due'])
 for item in spots:
     env_look = {}
     if item.startswith('at,'):
-        # at,LEVEL,ID,room@x:y:z,yaw
-        _, lv, ident, start, yaw = item.split(',')
+        # at,LEVEL,ID,room@x:y:z,yaw[,items woken]
+        _, lv, ident, start, yaw, *woken = item.split(',')
         env_look = {'AT_LEVEL': lv, 'AT_ID': ident, 'AT_START': start, 'AT_YAW': yaw}
+        if woken:
+            env_look['AT_TRIGGER'] = woken[0].replace('+', ',')
         spot, look = 'at', []
-        at_label = lv + '_r' + start.split('@')[0]
+        at_label = lv + '_r' + start.split('@')[0].replace(':', '_') + ('_w' + woken[0] if woken else '')
     else:
         spot, *look = item.split(':')
         at_label = ''
