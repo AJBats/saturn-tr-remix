@@ -151,11 +151,12 @@ int main()
 
     gLevelID = START_LEVEL;
 
-    // the original's opening: publisher, developer, then the story's start
+    // the original's opening: publisher, developer (not to be skipped),
+    // then the story's start (retail's 06043068 callers)
     if (gLevelID == LVL_TR1_TITLE)
     {
-        fmvPicture("EIDOS224", 320, 60 * 3);
-        fmvPlay("CORELOGO");
+        fmvPicture("EIDOS224", 320, 90);
+        fmvPlay("CORELOGO", false);
         fmvPlay("CAFE");
     }
 

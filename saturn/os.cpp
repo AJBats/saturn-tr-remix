@@ -164,7 +164,7 @@ static void playVideos(LevelID id)
         gGameComplete = false;
         fmvPlay("END", false);
         fmvPicture("CRED224", 320, 900);
-        fmvPlay("CORELOGO");
+        fmvPlay("CORELOGO", false);
         fmvPlay("CAFE");
         return;
     }
@@ -337,6 +337,9 @@ const void* osLoadLevel(LevelID id)
     crashHold(true);
     traceStop();    // the loading picture stages over the trace
     crashLog("LEVEL", id);
+    if (gLoadedLevel != LVL_MAX) {
+        screenFadeOut();    // what showed to black first (retail's 0603a19c)
+    }
     playVideos(id);
     screenShow(loadingPicture(id), id == LVL_TR1_TITLE ? 352 : 320);
 

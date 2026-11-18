@@ -290,8 +290,11 @@ void screenShow(const char* name, int32_t width)
         }
     }
 
+    // up from black over 30 vblanks, as retail's pictures
+    fade(FADE_PICTURE, -255, 0);
     gPicture = true;
     showLayers();
+    fade(FADE_PICTURE, 0, 30);
     crashLogShow();
 }
 

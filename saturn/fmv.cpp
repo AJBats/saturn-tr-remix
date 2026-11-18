@@ -642,6 +642,7 @@ void fmvPlay(const char* name, bool skippable)
 #ifdef HW_LOG
     checkEnd(bitmap, lba + firstSector);
 #endif
+    screenFadeOut();    // the last picture to black (retail's 0603a480)
 }
 
 void fmvPicture(const char* name, int width, int frames)
@@ -653,4 +654,5 @@ void fmvPicture(const char* name, int width, int frames)
     gPad = 0xFFFF;
     uint32_t start = gVblankCount;
     while (int32_t(gVblankCount - start) < frames && !skipPressed());
+    screenFadeOut();
 }

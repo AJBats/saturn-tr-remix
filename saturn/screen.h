@@ -17,6 +17,7 @@ int32_t screenFramesFade();
 // to black (the level's end), returning when it's black: retail's 30 vblanks.
 void screenFadeIn();
 void screenFadeOut();
+// (A picture screenShow shows fades up from black the same way.)
 
 // The options' Gamma (-127..127): added to every colour offset but black.
 void screenGamma(int32_t gamma);
