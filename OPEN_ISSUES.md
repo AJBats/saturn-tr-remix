@@ -166,26 +166,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Camera
 
-### 20. In-game cinematic timing and hand-back
-*Severity: subtle to visible · Confidence: likely (animation lengths not
-checked) · Fix: small · Audit: CAM-14*
-
-- **Retail:**
-  - InGameCinematicCamera pre-increments the frame, so frame 0 is never shown,
-    and clamps on the last frame.
-  - The cinematic ends only through the animation's FX_LARA_NORMAL. LaraNormal
-    (`06015a7c`) sets CHASE and restores FOV 80.
-  - It also updates camera.target, which is the sound listener.
-- **Ours:**
-  - `openlara/camera.h:106` uses `frames[timer++]`.
-  - `camera.h:95-101` ends when the frames run out.
-  - `item.h:396` FX_LARA_NORMAL doesn't touch the camera, and the target isn't
-    updated.
-- **Effect:** we run one tick behind. The hand-back happens at the wrong time
-  when the CIN length differs from the animation length; Sanctuary's CIN is only
-  66 frames.
-- **Fix:** match retail's frame order and end condition.
-
 ### 25. The inventory's background scene is drawn without the camera shift
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: CAM-20*
 
@@ -1648,6 +1628,28 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 20. In-game cinematic timing and hand-back
+*Closed 2026-11-18 (see git log): frame pre-stepped and held at the last; FX_LARA_NORMAL hands the chase camera back; the target follows the frame.*
+
+*Severity: subtle to visible · Confidence: likely (animation lengths not
+checked) · Fix: small · Audit: CAM-14*
+
+- **Retail:**
+  - InGameCinematicCamera pre-increments the frame, so frame 0 is never shown,
+    and clamps on the last frame.
+  - The cinematic ends only through the animation's FX_LARA_NORMAL. LaraNormal
+    (`06015a7c`) sets CHASE and restores FOV 80.
+  - It also updates camera.target, which is the sound listener.
+- **Ours:**
+  - `openlara/camera.h:106` uses `frames[timer++]`.
+  - `camera.h:95-101` ends when the frames run out.
+  - `item.h:396` FX_LARA_NORMAL doesn't touch the camera, and the target isn't
+    updated.
+- **Effect:** we run one tick behind. The hand-back happens at the wrong time
+  when the CIN length differs from the animation length; Sanctuary's CIN is only
+  66 frames.
+- **Fix:** match retail's frame order and end condition.
 
 ### 142. The compass needle never moves, and A closes the whole inventory
 *Closed 2026-11-18 (see git log): the needle as retail's DrawInventoryItem turns it; no Action; back runs on to frame 24.*
