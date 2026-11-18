@@ -56,7 +56,7 @@ void Camera::updateCinematic()
     py += view.pos.y;
     pz += view.pos.z;
 
-    matrixSetView(_vec3i(px, py, pz), angle.x, angle.y + targetAngle.y);
+    cameraViewFov(_vec3i(px, py, pz), angle.x, angle.y + targetAngle.y, frame.fov);
 
     Room* nextRoom = view.room->getRoom(px, py, pz);
     if (nextRoom) {
@@ -123,7 +123,7 @@ bool Camera::updateCutscene()
         view.room = nextRoom;
     }
 
-    matrixSetView(eye, angle.x, angle.y);
+    cameraViewFov(eye, angle.x, angle.y, frame.fov);
     return true;
 }
 
@@ -217,20 +217,37 @@ void Camera::lookAt(int32 offset)
 
 static int32 targetSquare;  // the chase's distance on the ground, squared
 
-void cameraView(const vec3i &pos, int32 angleX, int32 angleY)
+// The view, its x and y rows scaled (2^14) to a focal length of scale / 64 px
+static void viewScaled(const vec3i &pos, int32 angleX, int32 angleY, int32 scale)
 {
     matrixSetView(pos, angleX, angleY);
     Matrix &m = matrixGet();
-    m.e00 = m.e00 * FOV_SCALE >> 14;
-    m.e01 = m.e01 * FOV_SCALE >> 14;
-    m.e02 = m.e02 * FOV_SCALE >> 14;
-    m.e10 = m.e10 * FOV_SCALE >> 14;
-    m.e11 = m.e11 * FOV_SCALE >> 14;
-    m.e12 = m.e12 * FOV_SCALE >> 14;
-    gFocalScale = FOV_SCALE;
+    m.e00 = m.e00 * scale >> 14;
+    m.e01 = m.e01 * scale >> 14;
+    m.e02 = m.e02 * scale >> 14;
+    m.e10 = m.e10 * scale >> 14;
+    m.e11 = m.e11 * scale >> 14;
+    m.e12 = m.e12 * scale >> 14;
+    gFocalScale = scale;
     for (int32 i = 0; i < 6; i++) {
-        gViewRotation[i] = int16(gViewRotation[i] * FOV_SCALE >> 14);
+        gViewRotation[i] = int16(gViewRotation[i] * scale >> 14);
     }
+}
+
+void cameraView(const vec3i &pos, int32 angleX, int32 angleY)
+{
+    viewScaled(pos, angleX, angleY, FOV_SCALE);
+}
+
+// A cutscene frame's view with its own field of view (retail's
+// phd_AlterFOV, every frame of CalculateCinematicCamera 0600d850 and
+// InGameCinematicCamera 0600daa4): half the screen's width over tan(fov / 2).
+// Its roll, a quarter of a degree at most, is left out.
+void cameraViewFov(const vec3i &pos, int32 angleX, int32 angleY, int32 fov)
+{
+    int32 s, c;
+    sincos(fov >> 1, s, c);
+    viewScaled(pos, angleX, angleY, (FRAME_WIDTH / 2) * 64 * c / X_MAX(s, 1));
 }
 
 static bool badPosition(Room* room, int32 x, int32 y, int32 z)

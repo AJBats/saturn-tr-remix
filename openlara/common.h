@@ -1514,6 +1514,7 @@ struct Camera {
 // (renderer/draws.cpp).
 extern "C" int32 gFocalScale;
 void cameraView(const vec3i &pos, int32 angleX, int32 angleY);
+void cameraViewFov(const vec3i &pos, int32 angleX, int32 angleY, int32 fov);
 
 enum ZoneType
 {
