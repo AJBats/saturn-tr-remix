@@ -156,7 +156,7 @@ struct Inventory
     int32 radius;
     int16 pitch;
     int16 rot;
-    int16 rotItem;
+    int16 itemRot[SLOT_MAX];    // each ring item's own turn (retail's inv_item->y_rot)
     int32 selDist;
     int16 selRotPre;
     int16 selRotX;
@@ -176,7 +176,6 @@ struct Inventory
     int32 pitchInc;
     int32 rotTarget;
     int32 rotInc;
-    int32 rotItemInc;
     int32 selDistTarget;
     int32 selDistInc;
     int32 selRotPreTarget;
@@ -356,24 +355,6 @@ struct Inventory
         return SLOT_COMPASS;
     }
 
-    InvSlot remapHoleToSlot(ItemType type)
-    {
-        switch (type)
-        {
-            case ITEM_PUZZLEHOLE_1 : return SLOT_PUZZLE_1;
-            case ITEM_PUZZLEHOLE_2 : return SLOT_PUZZLE_2;
-            case ITEM_PUZZLEHOLE_3 : return SLOT_PUZZLE_3;
-            case ITEM_PUZZLEHOLE_4 : return SLOT_PUZZLE_4;
-            case ITEM_KEYHOLE_1    : return SLOT_KEY_ITEM_1;
-            case ITEM_KEYHOLE_2    : return SLOT_KEY_ITEM_2;
-            case ITEM_KEYHOLE_3    : return SLOT_KEY_ITEM_3;
-            case ITEM_KEYHOLE_4    : return SLOT_KEY_ITEM_4;
-            case ITEM_MIDAS_HAND   : return SLOT_LEADBAR;
-            default                : ;
-        }
-        return SLOT_MAX;
-    }
-
     void add(ItemType type, int32 count = 1)
     {
         InvSlot slot = remapToSlot(type);
@@ -457,8 +438,33 @@ struct Inventory
         this->state = state;
         this->nextState = nextState;
         this->timer = timer;
+    }
 
-        rotItemInc = -rotItem / timer;
+    // Retail's Display_Inventory (06017420), each vblank: the current item
+    // spins 0x100 (not while left or right is held, unless it's alone), turns
+    // to rest 0x400 at a time while it's chosen, and unwinds 0x200 at a time
+    // while the ring turns; the others unwind 0x100 at a time.
+    void spinItems(int32 vblanks)
+    {
+        const bool turning = (lara->input & (IN_LEFT | IN_RIGHT)) && itemsCount > 1;
+        for (; vblanks > 0; vblanks--)
+        {
+            for (int32 i = 0; i < itemsCount; i++)
+            {
+                int16 &r = itemRot[i];
+                if (i != itemIndex) {
+                    r = (r == 0) ? 0 : int16(r + (r < 0 ? 0x100 : -0x100));
+                } else if (state == INV_STATE_SPIN) {
+                    r = (r == 0) ? 0 : int16(r + (r < 0 ? 0x200 : -0x200));
+                } else if (state == INV_STATE_SELECT || state == INV_STATE_SHOW || state == INV_STATE_DESELECT) {
+                    if (r != 0) {
+                        r = int16((r + (uint16(-r - 1) < 0x7FFF ? 0x400 : -0x400)) & 0xFC00);
+                    }
+                } else if (!turning) {
+                    r += 0x100;
+                }
+            }
+        }
     }
 
     void setHeight(int32 target)
@@ -522,6 +528,7 @@ struct Inventory
         this->page = page;
 
         itemsCount = 0;
+        memset(itemRot, 0, sizeof(itemRot));
 
         #define ADD_SLOT(slot) if (counts[slot]) itemsList[itemsCount++] = slot;
 
@@ -591,16 +598,6 @@ struct Inventory
         rot = rotTarget - ANGLE_180;
     }
 
-    int32 getItemIndexForSlot(InvSlot slot)
-    {
-        for (int32 i = 0; i < itemsCount; i++)
-        {
-            if (itemsList[i] == slot)
-                return i;
-        }
-        return 0;
-    }
-
     void open(ItemObj* lara, InvPage page, int32 arg = 0)
     {
         this->lara = lara;
@@ -639,10 +636,12 @@ struct Inventory
         setRadius(INV_RING_RADIUS);
         setPage(page);
 
+        // the keys' ring opens on its first item, whatever the hole (retail's
+        // Inv_RingInit with the current item reset)
         if (page == INV_PAGE_USE)
         {
-            itemIndex = nextIndex = getItemIndexForSlot(remapHoleToSlot((ItemType)arg));
-            setRot(ANGLE_180, itemIndex * ANGLE_360 / itemsCount);
+            itemIndex = nextIndex = 0;
+            setRot(ANGLE_180, 0);
             rot = rotTarget - ANGLE_180;
         }
 
@@ -971,6 +970,14 @@ struct Inventory
         return anim.frameEnd - anim.frameBegin;
     }
 
+    // the current item's animation's real last frame (getAnimLength's is
+    // where the passport and the compass stop to be used)
+    int32 animEnd() const
+    {
+        const Anim &anim = level.anims[level.models[INV_SLOTS[itemsList[itemIndex]].type].animIndex];
+        return anim.frameEnd - anim.frameBegin;
+    }
+
     bool animate(int32 frames)
     {
         if (frameIndex == frameTarget)
@@ -1165,7 +1172,7 @@ struct Inventory
             nextLevel(LVL_TR1_TITLE);
         }
 
-        frameTarget = 0;
+        frameTarget = animEnd();    // the book closed forward
         nextState = INV_STATE_CLOSE;
     }
 
@@ -1233,7 +1240,7 @@ struct Inventory
         if (lara->isKeyHit(IN_UP)) {
             gControlMethod = (gControlMethod + 2) % 3;
         }
-        if (lara->isKeyHit(IN_ACTION) || (lara->input & (IN_JUMP | IN_SELECT)))
+        if (lara->isKeyHit(IN_ACTION) || (lara->input & IN_JUMP))
         {
             controlsShown = false;
             osDimTitle(false);
@@ -1267,12 +1274,13 @@ struct Inventory
 
         InvSlot slot = itemsList[itemIndex];
 
-        // back to the ring, the animation run back; the compass's run on to
-        // its end (retail's Option_Compass, 060272ec, which takes no Action)
-        if ((lara->input & (IN_JUMP | IN_SELECT)) && (page != INV_PAGE_DEATH || slot != SLOT_PASSPORT))
+        // back to the ring with SFX 112, the animation run back; the
+        // compass's and the passport's run on to their end (retail's
+        // Option_Compass 060272ec, which takes no Action, and Option_Passport)
+        if ((lara->input & IN_JUMP) && (page != INV_PAGE_DEATH || slot != SLOT_PASSPORT))
         {
-            const Anim &anim = level.anims[level.models[ITEM_INV_COMPASS].animIndex];
-            frameTarget = (slot == SLOT_COMPASS) ? anim.frameEnd - anim.frameBegin : 0;
+            soundPlay(SND_INV_HIDE, NULL);
+            frameTarget = (slot == SLOT_COMPASS || slot == SLOT_PASSPORT) ? animEnd() : 0;
             nextState = INV_STATE_READY;
         }
 
@@ -1339,10 +1347,7 @@ struct Inventory
             return;
         }
 
-        if (state != INV_STATE_SHOW)
-        {
-            rotItem += rotItemInc * frames;
-        }
+        spinItems(frames * 2);
 
         if (timer > 0)
         {
@@ -1375,8 +1380,6 @@ struct Inventory
                 radiusInc = 0;
                 pitchInc = 0;
                 rotInc = 0;
-                rotItem = 0;
-                rotItemInc = 512;
                 selDistInc = 0;
                 selRotPreInc = 0;
                 selRotXInc = 0;
@@ -1437,7 +1440,9 @@ struct Inventory
                             setRot(ANGLE_180, rot - ANGLE_180);
                             setPitch(-ANGLE_45);
                         }
-                    } else if ((lara->isKeyHit(IN_SELECT) || lara->isKeyHit(IN_JUMP)) && (page != INV_PAGE_TITLE) && (page != INV_PAGE_DEATH)) {
+                    } else if (lara->isKeyHit(IN_SELECT) && (page != INV_PAGE_TITLE) && (page != INV_PAGE_DEATH)) {
+                        // only START closes the ring; back does nothing here
+                        // (retail's Display_Inventory, 06017420)
                         soundPlay(SND_INV_HIDE, NULL);
                         useSlot = SLOT_MAX;
                         close();
@@ -1463,7 +1468,6 @@ struct Inventory
 
             case INV_STATE_SHOW:
             {
-                rotItem = 0;
 
                 if (animate(frames))
                     break;
@@ -1606,7 +1610,7 @@ struct Inventory
         }
     }
 
-    void drawSlot(InvSlot slot)
+    void drawSlot(InvSlot slot, int16 itemYaw)
     {
         int32 type = INV_SLOTS[slot].type;
 
@@ -1640,7 +1644,6 @@ struct Inventory
         {
             static int16 needle;
             static int32 speed;
-            const int16 itemYaw = current ? rotItem : 0;
             speed = speed * 19 / 20 + int16(-lara->angle.y - itemYaw - needle) / 50;
             needle += int16(speed);
 
@@ -1724,10 +1727,10 @@ struct Inventory
                 matrixRotateX(selRotPre);
                 matrixTranslateRel(0, 0, selDist);
                 matrixRotateYXZ(-selRotX, -selRotY, 0);
-                matrixRotateY(rotItem);
             }
 
-            drawSlot(itemsList[i]);
+            matrixRotateY(itemRot[i]);
+            drawSlot(itemsList[i], itemRot[i]);
 
             matrixPop();
         }
