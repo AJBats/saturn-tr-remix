@@ -25,6 +25,9 @@ void padInit();
 // The buttons held (PAD_* bits) as of the last completed read.
 uint16_t padButtons();
 
+// A pad was there at the last completed read.
+bool padPresent();
+
 // The debug pad's buttons as of the same read (0 when none is connected).
 uint16_t padDebug();
 

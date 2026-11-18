@@ -1,7 +1,9 @@
 // Saturn control pad on port 1, read through SMPC INTBACK (peripheral data
 // only, no SMPC status), from an interrupt in every vblank: the SMPC collects
 // the data at the end of vblank, so each read takes the result of the request
-// the one before made.
+// the one before made. As retail's pad scan (06043720): the first digital pad
+// or 3D pad (in its analog mode) on port 1, through a multitap if one is
+// there; port 2's digital pad is the debug pad.
 
 #include "input.h"
 #include "hw.h"
@@ -12,8 +14,9 @@
 #define IREG0_BREAK 0x40
 #define SR_NPE      0x20    // more peripheral data remains
 
-#define PORT_DIRECT 0xF1    // port status: one peripheral, no multitap
 #define ID_DIGITAL  0x02    // standard pad, 2 data bytes
+#define ID_ANALOG   0x15    // 3D pad's analog mode, 5 data bytes: the buttons first
+#define ID_NONE     0xFF    // a multitap's empty port, no data
 
 // INTBACK must be issued inside vblank, at least 300us after it starts (about
 // 10 lines).
@@ -23,6 +26,33 @@ static bool gPending;
 static uint32_t gIssued;    // smpcCommands() when the pending request was made
 static volatile uint16_t gButtons;
 static volatile uint16_t gDebugButtons;
+static volatile bool gPresent;
+
+// A port's peripherals from OREG(at): the buttons of the first pad of one of
+// the ids accepted (none: false); the next port's data after them in next.
+static bool padPort(int32_t at, bool analog, uint16_t &buttons, int32_t &next)
+{
+    bool found = false;
+    int32_t count = SMPC_OREG(at++) & 0x0F;     // the port's status: its peripherals
+    for (int32_t i = 0; i < count && at < 32; i++)
+    {
+        uint8_t id = SMPC_OREG(at++);
+        if (id == ID_NONE)
+            continue;
+        int32_t size = id & 0x0F;
+        if (size == 0x0F) {
+            size = SMPC_OREG(at++);
+        }
+        if (!found && (id == ID_DIGITAL || (analog && id == ID_ANALOG)) && at + 1 < 32)
+        {
+            buttons = ~((SMPC_OREG(at) << 8) | SMPC_OREG(at + 1)) & 0xFFF8;
+            found = true;
+        }
+        at += size;
+    }
+    next = at;
+    return found;
+}
 
 static void padRead()
 {
@@ -35,21 +65,14 @@ static void padRead()
         {
             // another command came after it: its results are gone
         }
-        else if (SMPC_OREG(0) == PORT_DIRECT && SMPC_OREG(1) == ID_DIGITAL)
-        {
-            gButtons = ~((SMPC_OREG(2) << 8) | SMPC_OREG(3)) & 0xFFF8;
-
-            // port 2's data follows port 1's
-            if (SMPC_OREG(4) == PORT_DIRECT && SMPC_OREG(5) == ID_DIGITAL) {
-                gDebugButtons = ~((SMPC_OREG(6) << 8) | SMPC_OREG(7)) & 0xFFF8;
-            } else {
-                gDebugButtons = 0;
-            }
-        }
         else
         {
-            gButtons = 0;
-            gDebugButtons = 0;
+            uint16_t buttons = 0, debug = 0;
+            int32_t next;
+            gPresent = padPort(0, true, buttons, next);
+            padPort(next, false, debug, next);     // port 2's data follows port 1's
+            gButtons = buttons;
+            gDebugButtons = debug;
         }
 
         if (SMPC_SR & SR_NPE)
@@ -76,6 +99,11 @@ void padInit()
 uint16_t padButtons()
 {
     return gButtons;
+}
+
+bool padPresent()
+{
+    return gPresent;
 }
 
 uint16_t padDebug()

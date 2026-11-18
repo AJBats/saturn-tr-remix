@@ -42,6 +42,12 @@ static void updateInput()
             keys |= map[i].key;
         }
     }
+
+    // no pad: START held, so that the game opens the ring once and waits
+    // there (retail's ControlPhase, 0600f66c)
+    if (!padPresent()) {
+        keys = IK_SELECT;
+    }
 }
 
 // Frames overlap on the two CPUs in play. Once frame N's draw list is made
