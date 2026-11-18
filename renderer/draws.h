@@ -78,6 +78,7 @@ struct DrawsContext
     uint32_t givenMax;          // +244
     const uint16_t* divNear;    // +248 sprites' d nearer than VIEW_EXACT (vertices.h gDivNear)
     const int16_t* divScaled;   // +252 ... and from there (gDivScaled)
+    uint32_t bare;              // +256 draws.s's own: the model out of sight, posed for its shadow alone
 };
 
 extern "C" void drawsAsm(DrawsContext* ctx);

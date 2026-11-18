@@ -79,6 +79,7 @@
     .equ    D_GIVEN_MAX,    244
     .equ    D_DIV_NEAR,     248     ! 0x100000 / z by z, up to VIEW_EXACT
     .equ    D_DIV_SCALED,   252     ! 0x1000000 / z by z >> 4
+    .equ    D_BARE,         256     ! the model out of sight, posed for its shadow alone
 
     .equ    CALL_BYTES,     32      ! CallRecord
     .equ    C_ROOM,         1       ! a room's sprite
@@ -614,8 +615,27 @@
     mov     r14, r7
     tst     r0, r0
     bf      .Lshown
+    ! out of sight, but not its shadow if its call is next: retail's
+    ! DrawAnimatingItem and DrawLara draw the shadow before the bounds test.
+    ! Posed bare then, its root alone and no mesh
 .Lhidden:
-    lds.l   @r15+, pr
+    mov     #1, r0
+    cmp/hi  r0, r13                 ! a call after this one
+    bf      9f
+    mov     r14, r1
+    add     #CALL_BYTES, r1
+    mov.b   @r1, r0
+    cmp/eq  #CALL_SHADOW, r0
+    bf      9f
+    mov.w   @(C_INDEX,r1), r0
+    mov     r0, r2
+    mov.w   @(C_INDEX,r14), r0
+    cmp/eq  r0, r2
+    bf      9f
+    mov     #1, r0
+    bra     .Lshown
+    mov.l   r0, @(D_BARE,gbr)
+9:  lds.l   @r15+, pr
     rts
     nop
     .align  2
@@ -842,6 +862,25 @@
     mov.l   @(4,r4), r0
     mov.l   r0, @(8,r2)
 
+    ! posed bare: not Lara's way, no node past the root, nothing shown
+    mov.l   @(D_BARE,gbr), r0
+    tst     r0, r0
+    bt      1f
+    mov     #0, r0
+    mov.l   r0, @(D_BARE,gbr)
+    mov.l   @(D_ITEM_COUNT,gbr), r0
+    add     #-1, r0
+    mov     #POSE_BYTES, r1
+    mulu.w  r0, r1
+    mov.l   @(D_POSES,gbr), r0
+    sts     macl, r1
+    add     r0, r1                  ! its PoseItem
+    mov     #0, r0
+    mov.b   r0, @r1                 ! lara
+    mov.b   r0, @(1,r1)             ! count
+    bra     .Lmodeled
+    mov.l   r0, @(24,r1)            ! visible mask
+1:
     ! a draw a mesh: Lara's from her joints' table, every one; another's,
     ! each its visible mask shows but those held still
     mov.l   @(C_FLAGS,r14), r6

@@ -18,7 +18,8 @@ static_assert(offsetof(DrawsContext, camera) == 60 && offsetof(DrawsContext, vie
               offsetof(DrawsContext, shown) == 208 && offsetof(DrawsContext, flashMax) == 224 &&
               offsetof(DrawsContext, modelDrawn) == 228 && offsetof(DrawsContext, meshFar) == 232 &&
               offsetof(DrawsContext, given) == 236 && offsetof(DrawsContext, givenMax) == 244 &&
-              offsetof(DrawsContext, divNear) == 248 && offsetof(DrawsContext, divScaled) == 252,
+              offsetof(DrawsContext, divNear) == 248 && offsetof(DrawsContext, divScaled) == 252 &&
+              offsetof(DrawsContext, bare) == 256,
               "draws.s's DrawsContext");
 static_assert(sizeof(DrawScene) == 24 && sizeof(PoseItem) == 104 && sizeof(PoseLight) == 12 &&
               sizeof(PoseStatic) == 20 && sizeof(PoseShadow) == 8 && sizeof(Face) == 16 && sizeof(Vertex) == 8 &&
