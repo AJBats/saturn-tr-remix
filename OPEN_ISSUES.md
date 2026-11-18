@@ -951,27 +951,6 @@ INV-3*
 - **Effect:** with one medipack no health bar shows, and the bar is in the wrong
   place.
 
-### 146. Ring and item labels differ
-*Severity: visible · Confidence: confirmed ("Gym" likely) · Fix: small · Audit:
-INV-9*
-
-- **Retail:**
-  - The options ring's title is "OPTION" (`s_OPTION_06060d48`).
-  - The photo item's label is "Gym" (string pointer `0x06060f1c`).
-  - The death ring's title is "GAME OVER".
-  - Retail spells it "Saphire Key".
-- **Ours:** "OPTIONS" (`openlara/lang/en.h:51`), "Lara's Home", "Graphics", and
-  no title on the death page (getTitleStr, `inventory.h:571-598`).
-
-### 147. Obelisk of Khamoon's puzzle 3 is named "Eye of Horus"
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-10*
-
-- **Retail:** the per-level table at `0x06060fd0` names the Obelisk's puzzle 3
-  "Seal of Anubis".
-- **Ours:** `openlara/inventory.h:633`,
-  `LVLCHECK(LVL_TR1_8B, PUZZLE_3, STR_PUZZLE_HORUS)`. This bug comes from
-  upstream OpenLara.
-
 ### 148. Menu button roles differ
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-11*
 
@@ -2287,6 +2266,31 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 147. Obelisk of Khamoon's puzzle 3 is named "Eye of Horus"
+*Closed 2026-11-17: 66ee270. Seal of Anubis.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-10*
+
+- **Retail:** the per-level table at `0x06060fd0` names the Obelisk's puzzle 3
+  "Seal of Anubis".
+- **Ours:** `openlara/inventory.h:633`,
+  `LVLCHECK(LVL_TR1_8B, PUZZLE_3, STR_PUZZLE_HORUS)`. This bug comes from
+  upstream OpenLara.
+
+### 146. Ring and item labels differ
+*Closed 2026-11-17: 66ee270. OPTION, Gym, GAME OVER over the passport, Saphire Key (Graphics went with 145).*
+
+*Severity: visible · Confidence: confirmed ("Gym" likely) · Fix: small · Audit:
+INV-9*
+
+- **Retail:**
+  - The options ring's title is "OPTION" (`s_OPTION_06060d48`).
+  - The photo item's label is "Gym" (string pointer `0x06060f1c`).
+  - The death ring's title is "GAME OVER".
+  - Retail spells it "Saphire Key".
+- **Ours:** "OPTIONS" (`openlara/lang/en.h:51`), "Lara's Home", "Graphics", and
+  no title on the death page (getTitleStr, `inventory.h:571-598`).
 
 ### 215. No fade from black after loading a level, and no fade at level end
 *Closed 2026-11-17: a58ea74. Fade in after each level's load, fade out before the stats, 30 vblanks each.*
