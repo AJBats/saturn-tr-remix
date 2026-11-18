@@ -807,14 +807,20 @@ def page_trace(pages, out_path, title):
         return name.lower().replace('_', ' ')
 
     selfs, window = collections.Counter(), sum(e - b for b, e, _, _ in windows)
+
+    def inside(b, e):
+        # a span's time within the frames read: the slave's last ahead runs
+        # on past them while the playback page holds the game
+        return sum(max(0, min(e, hi) - max(b, lo)) for lo, hi, _, _ in windows)
+
     pieces = collections.defaultdict(list)
     for tid, spans in lanes.items():
         nested = nest(spans)
         for b, e, depth, name in nested:
             wait = name in WAITS
             x(tid, b, e, label(name), 'wait' if wait else 'work', 'terrible' if wait else None)
-            inner = sum(s[1] - s[0] for s in nested if s[2] == depth + 1 and b <= s[0] and s[1] <= e)
-            selfs[label(name)] += (e - b) - inner
+            inner = sum(inside(s[0], s[1]) for s in nested if s[2] == depth + 1 and b <= s[0] and s[1] <= e)
+            selfs[label(name)] += inside(b, e) - inner
             if (b, name) not in opened:
                 pieces[label(name)].append(e - b)
         if tid in (1, 3):
