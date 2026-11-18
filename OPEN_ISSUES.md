@@ -1009,36 +1009,6 @@ Fix: small · Audit: MATH-5*
 
 ## Scene look: lighting and effects
 
-### 206. Item and effect sprites fade in the fog; retail's don't
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-2*
-
-- **Retail:**
-  - S_DrawSprite (`0x06038aac`) builds the sprite's gouraud as grey
-    31 − (shade >> 8), from the passed shade only, with no depth term.
-  - DrawSpriteItem (`0x060130ac`) passes item->shade; DrawEffect
-    (`0x06012f94`) passes 0x1000.
-  - Room sprites do fog, but only through their room vertex. TR1X's
-    Output_DrawSprite fogs; the Saturn wins.
-- **Ours:** `saturn/render.cpp:2445` adds z − FOG_MIN to every sprite.
-- **Effect:** pickups (medipacks, ammo, keys), blood, splashes, ricochets, bubbles
-  and flames beyond 12 sectors darken toward black by 20. Retail keeps them at
-  full shade. It shows in big rooms: Lost Valley, the Colosseum, Atlantis.
-- **Fix:** skip the fog for non-room sprites.
-
-### 207. Room sprites stay drawn right up to the camera; retail drops them within 640 units
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-3*
-
-- **Retail:** the room sprite routine (`0x0603feda`) returns when z ≤ near << 3,
-  i.e. 8 × 80 = 640 units (asm `0x0603fee8`–`0x0603fef4`). It also drops a sprite
-  whose anchor vertex is flagged far off-screen (clip & 0x0C), or near, far or
-  behind (& 0x7F in the face dispatch at `0x0603fb48`).
-- **Ours:** `openlara/draw.h:830` goes through `renderSprite`, which culls only
-  below 64 units (`saturn/render.cpp:2417`).
-- **Effect:** plant and foliage sprites in Caves (43 of them), Vilcabamba (81)
-  and Lost Valley (30) vanish on retail when the camera comes within about 0.6
-  sectors. Ours keep drawing them, huge, in front of the camera.
-- **Fix:** add z ≤ 640 to the room-sprite path.
-
 ### 209. Shadows disappear when their owner is off-screen
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: GFX-5*
 
@@ -1782,6 +1752,40 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 207. Room sprites stay drawn right up to the camera; retail drops them within 640 units
+*Closed 2026-11-18 (see git log): a room's sprite within 640 of the camera isn't drawn.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-3*
+
+- **Retail:** the room sprite routine (`0x0603feda`) returns when z ≤ near << 3,
+  i.e. 8 × 80 = 640 units (asm `0x0603fee8`–`0x0603fef4`). It also drops a sprite
+  whose anchor vertex is flagged far off-screen (clip & 0x0C), or near, far or
+  behind (& 0x7F in the face dispatch at `0x0603fb48`).
+- **Ours:** `openlara/draw.h:830` goes through `renderSprite`, which culls only
+  below 64 units (`saturn/render.cpp:2417`).
+- **Effect:** plant and foliage sprites in Caves (43 of them), Vilcabamba (81)
+  and Lost Valley (30) vanish on retail when the camera comes within about 0.6
+  sectors. Ours keep drawing them, huge, in front of the camera.
+- **Fix:** add z ≤ 640 to the room-sprite path.
+
+### 206. Item and effect sprites fade in the fog; retail's don't
+*Closed 2026-11-18 (see git log): only rooms' sprites fog; items' and effects' keep their shade.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-2*
+
+- **Retail:**
+  - S_DrawSprite (`0x06038aac`) builds the sprite's gouraud as grey
+    31 − (shade >> 8), from the passed shade only, with no depth term.
+  - DrawSpriteItem (`0x060130ac`) passes item->shade; DrawEffect
+    (`0x06012f94`) passes 0x1000.
+  - Room sprites do fog, but only through their room vertex. TR1X's
+    Output_DrawSprite fogs; the Saturn wins.
+- **Ours:** `saturn/render.cpp:2445` adds z − FOG_MIN to every sprite.
+- **Effect:** pickups (medipacks, ammo, keys), blood, splashes, ricochets, bubbles
+  and flames beyond 12 sectors darken toward black by 20. Retail keeps them at
+  full shade. It shows in big rooms: Lost Valley, the Colosseum, Atlantis.
+- **Fix:** skip the fog for non-room sprites.
 
 ### 208. Shadow sizes, and which objects cast them, differ from retail
 *Closed 2026-11-18 (see git log): a per-type table from retail's object setup (0602cf08) sizes each shadow and decides who casts one.*
