@@ -499,17 +499,6 @@ checked) · Fix: small · Audit: GUN-16*
 
 ## Level logic, traps and objects
 
-### 118. Waterfall mist is missing
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-10,
-GFX-15*
-
-- **Retail:** ControlWaterFall (`0601586c`; TR1X `effects/waterfall.c`). While
-  triggered and with Lara within 10 sectors, each waterfall spawns an O_SPLASH1
-  sprite every frame at a random point within ±1 sector.
-- **Ours:** `Waterfall` has no update (`openlara/object.h:231-236`).
-- **Effect:** Lost Valley's 12 waterfall emitters, and the one in Natla's Mines,
-  show no spray. The splash sprite effect already exists, so this is cheap.
-
 ### 124. Qualopec and Sanctuary scion pickup: the cinematic is rotated 90°
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-14,
 CAM*
@@ -552,14 +541,6 @@ CAM-16/17*
   - `object.h:847` plays "no".
   - `MidasHand` has no draw override, so Palace Midas shows its placeholder model
     (mesh offset 0, 24 faces, the same mesh the camera target uses).
-
-### 129. Anim effect 14 (draw right gun) is missing
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-18*
-
-- **Retail:** LaraDrawRightGun (`06015da4`) swaps the thigh and hand meshes with
-  the pistol model's. The CUT_1 Lara uses it in CUT4.
-- **Ours:** the case is commented out (`openlara/item.h:415-416`).
-- **Effect:** Lara has no gun in her hand in CUT4.
 
 ### 131. Underwater switches reach too far and can be pulled again mid-animation
 *Severity: subtle · Confidence: confirmed · Fix: trivial · Audit: LVL-21*
@@ -1183,20 +1164,6 @@ Fix: small · Audit: MATH-5*
 - **Effect:** enemies and Lara 15–20 sectors away go fully black in ours. On
   retail their lit side stays a dim grey.
 - **Fix:** clamp to 8191.
-
-### 214. Midas twinkles are missing
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-10,
-LARA-23*
-
-- **Retail:** ItemSparkle (`06015380`), called from AsUseMidas and AsDieMidas
-  (`0601be54`, `0601be78`; TR1X `lara.c:730`, `826`). It spawns O_TWINKLE sprites
-  on Lara's hands while she uses the Midas hand, and over each gilded mesh during
-  the gold death. Twinkle effects (0xA5) are created near decomp.c:15374/15462.
-- **Ours:** the STATE_USE_MIDAS and STATE_DEATH_MIDAS handlers
-  (`openlara/lara.h:1248-1281`) do the mesh swap but spawn no twinkles. SPARKLES
-  is set up but never spawned.
-- **Effect:** Palace Midas's lead-bar conversion and the gold death have no
-  sparkle.
 
 ### 216. The flickering-lights effect is off by 1–3 frames
 *Severity: subtle · Confidence: confirmed against TR1X (Saturn not checked) ·
@@ -1911,6 +1878,45 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 214. Midas twinkles are missing
+*Closed 2026-11-18 (see git log, 7a02d1e); the spray's Saturn cost is with the user (about 0.8 ms master, 0.5 slave a waterfall in reach).*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-10,
+LARA-23*
+
+- **Retail:** ItemSparkle (`06015380`), called from AsUseMidas and AsDieMidas
+  (`0601be54`, `0601be78`; TR1X `lara.c:730`, `826`). It spawns O_TWINKLE sprites
+  on Lara's hands while she uses the Midas hand, and over each gilded mesh during
+  the gold death. Twinkle effects (0xA5) are created near decomp.c:15374/15462.
+- **Ours:** the STATE_USE_MIDAS and STATE_DEATH_MIDAS handlers
+  (`openlara/lara.h:1248-1281`) do the mesh swap but spawn no twinkles. SPARKLES
+  is set up but never spawned.
+- **Effect:** Palace Midas's lead-bar conversion and the gold death have no
+  sparkle.
+
+### 118. Waterfall mist is missing
+*Closed 2026-11-18 (see git log, 7a02d1e); the spray's Saturn cost is with the user (about 0.8 ms master, 0.5 slave a waterfall in reach).*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-10,
+GFX-15*
+
+- **Retail:** ControlWaterFall (`0601586c`; TR1X `effects/waterfall.c`). While
+  triggered and with Lara within 10 sectors, each waterfall spawns an O_SPLASH1
+  sprite every frame at a random point within ±1 sector.
+- **Ours:** `Waterfall` has no update (`openlara/object.h:231-236`).
+- **Effect:** Lost Valley's 12 waterfall emitters, and the one in Natla's Mines,
+  show no spray. The splash sprite effect already exists, so this is cheap.
+
+### 129. Anim effect 14 (draw right gun) is missing
+*Closed 2026-11-18 (see git log): effect 14 swaps the thigh and hand meshes with the pistols'.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-18*
+
+- **Retail:** LaraDrawRightGun (`06015da4`) swaps the thigh and hand meshes with
+  the pistol model's. The CUT_1 Lara uses it in CUT4.
+- **Ours:** the case is commented out (`openlara/item.h:415-416`).
+- **Effect:** Lara has no gun in her hand in CUT4.
 
 ### 99. The gorilla can't climb onto blocks, and its sidestep turns differ
 *Closed 2026-11-18 (see git log): the vault, and retail's sidestep turns (bug reproduced for now, see the decisions table).*
