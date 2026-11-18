@@ -308,16 +308,6 @@ SND-C8*
   FMV to the ring. No Press START, no demos, and B does nothing.
 - **Needs:** demos need deterministic logic (issue 202).
 
-### 169. No pause on pad disconnect; only a pad in port 1
-*Severity: subtle · Confidence: likely · Fix: small · Audit: INV-32*
-
-- **Retail:**
-  - The pad scan (`06043720`) looks for a digital pad (type 0x02 or 0x15),
-    through a multitap if one is present.
-  - ControlPhase (`0600f66c`) opens the inventory when no pad is present.
-- **Ours:** `saturn/input.cpp` reads a digital pad in port 1 only, and does
-  nothing when it's missing.
-
 ### 170. Retail's level-skip code is missing
 *Severity: subtle · Confidence: likely (decoded) · Fix: small · Audit: INV-33*
 
@@ -1351,6 +1341,18 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 169. No pause on pad disconnect; only a pad in port 1
+*Closed 2026-11-18 (see git log): port 1's first digital or analog pad, through a multitap; no pad opens the ring. Not tried with a multitap or with the pad pulled, on the Saturn or in Mednafen.*
+
+*Severity: subtle · Confidence: likely · Fix: small · Audit: INV-32*
+
+- **Retail:**
+  - The pad scan (`06043720`) looks for a digital pad (type 0x02 or 0x15),
+    through a multitap if one is present.
+  - ControlPhase (`0600f66c`) opens the inventory when no pad is present.
+- **Ours:** `saturn/input.cpp` reads a digital pad in port 1 only, and does
+  nothing when it's missing.
 
 ### 151. Ring motion details
 *Closed 2026-11-18 (see git log): as retail's.*
