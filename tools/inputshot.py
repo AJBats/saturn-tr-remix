@@ -28,7 +28,7 @@ OUT = f'{ROOT}/build/{name}_shots_{os.getpid()}'
 os.makedirs(OUT, exist_ok=True)
 
 # ItemObj: pos +8, health +44, extraL +64; ExtraInfoLara: weaponState +2,
-# weapon +10, ammo[] +226 (int16 each)
+# weapon +10, head angles x, y +12, ammo[] +226 (int16 each)
 events = []
 for p in filter(None, presses.split(',')):
     if p.startswith('kill@'):
@@ -65,9 +65,9 @@ try:
             if lara:
                 lr = m.read(lara, 76)
                 e = m.read(struct.unpack('>I', lr[64:68])[0], 240)
-                info = 'lara %d %d %d health %d gun %d state %d rounds %d %d %d %d' % (
+                info = 'lara %d %d %d health %d gun %d state %d rounds %d %d %d %d head %d %d' % (
                     struct.unpack('>3i', lr[8:20]) + struct.unpack('>h', lr[44:46]) + (e[10], e[2]) +
-                    struct.unpack('>4h', e[226:234]))
+                    struct.unpack('>4h', e[226:234]) + struct.unpack('>2h', e[12:16]))
             m.send(f'screenshot {OUT}/{fr}.png', 'screenshot', 30)
             print(f'frame {fr} level {level} {info} -> {OUT}/{fr}.png', flush=True)
 finally:

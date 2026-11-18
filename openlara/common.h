@@ -2132,11 +2132,6 @@ enum SoundID
     SND_WINSTON_TRAY    = 347
 };
 
-#define LARA_LOOK_ANGLE_MAX     ANGLE(22)
-#define LARA_LOOK_ANGLE_MIN     ANGLE(-42)
-#define LARA_LOOK_ANGLE_Y       ANGLE(44)
-#define LARA_LOOK_TURN_SPEED    ANGLE(2)
-
 enum CollisionType
 {
     CT_NONE          = 0,

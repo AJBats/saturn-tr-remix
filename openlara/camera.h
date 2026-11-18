@@ -169,33 +169,30 @@ bool checkWall(Room* room, int32 x, int32 y, int32 z)
     return (floor == WALL || ceiling == WALL || ceiling >= floor || y > floor || y < ceiling);
 }
 
+// A trigger's target looked at (CalculateCamera 0600d128): half the way
+// round to it, within 50 degrees of her yaw and 85 of level, the head 4
+// degrees a tick (it still eases back an eighth a tick, lara.h
+// updateLookBack, so a far turn settles near 32). Out of reach she just
+// doesn't look; the target stays hers, to look at again turned back.
 void Camera::lookAt(int32 offset)
 {
     int32 dx = lookAtItem->pos.x - laraItem->pos.x;
     int32 dz = lookAtItem->pos.z - laraItem->pos.z;
 
     int16 ay = int16(phd_atan(dz, dx) - laraItem->angle.y) >> 1;
-
-    if (abs(ay) >= LARA_LOOK_ANGLE_Y)
-    {
-        lookAtItem = NULL;
+    if (ay < -0x238B || ay > 0x238B)
         return;
-    }
 
     const AABBs& box = lookAtItem->getBoundingBox(true);
 
     offset -= lookAtItem->pos.y + ((box.minY + box.maxY) >> 1);
 
     int16 ax = int16(phd_atan(phd_sqrt(X_SQR(dx) + X_SQR(dz)), offset)) >> 1;
-
-    if (ax < LARA_LOOK_ANGLE_MIN || ax > LARA_LOOK_ANGLE_MAX)
-    {
-        lookAtItem = NULL;
+    if (ax < -0x3C6D || ax > 0x3C6D)
         return;
-    }
 
-    laraItem->extraL->head.angle.x = angleLerp(laraItem->extraL->head.angle.x, ax, LARA_LOOK_TURN_SPEED);
-    laraItem->extraL->head.angle.y = angleLerp(laraItem->extraL->head.angle.y, ay, LARA_LOOK_TURN_SPEED);
+    laraItem->extraL->head.angle.x = angleLerp(laraItem->extraL->head.angle.x, ax, 0x2D8);
+    laraItem->extraL->head.angle.y = angleLerp(laraItem->extraL->head.angle.y, ay, 0x2D8);
 
     laraItem->extraL->torso.angle = laraItem->extraL->head.angle;
 
