@@ -103,21 +103,23 @@ struct InvItem
     StringID str;
 };
 
+// selDist, selRotPre, selRotX, selRotY: retail's item structs (0x06061b40 ..
+// 0x06062280, as TR1X invvars.c) where ours differed by more than a degree
 const InvItem INV_SLOTS[SLOT_MAX] = {
-    { ITEM_INV_LEADBAR        , SND_INV_SHOW      ,   256   ,   ANGLE(20)   ,   ANGLE(44)   ,   ANGLE(67)  ,   STR_LEAD_BAR      },
-    { ITEM_INV_KEY_ITEM_1     , SND_INV_SHOW      ,   296   ,   ANGLE(20)   ,   ANGLE(15)   ,   ANGLE(0)   ,   STR_KEY           },
-    { ITEM_INV_KEY_ITEM_2     , SND_INV_SHOW      ,   296   ,   ANGLE(20)   ,   ANGLE(15)   ,   ANGLE(0)   ,   STR_KEY           },
-    { ITEM_INV_KEY_ITEM_3     , SND_INV_SHOW      ,   296   ,   ANGLE(20)   ,   ANGLE(15)   ,   ANGLE(0)   ,   STR_KEY           },
-    { ITEM_INV_KEY_ITEM_4     , SND_INV_SHOW      ,   296   ,   ANGLE(20)   ,   ANGLE(15)   ,   ANGLE(0)   ,   STR_KEY           },
-    { ITEM_INV_PUZZLE_4       , SND_INV_SHOW      ,   296   ,   ANGLE(20)   ,   ANGLE(15)   ,   ANGLE(0)   ,   STR_PUZZLE        },
-    { ITEM_INV_PUZZLE_3       , SND_INV_SHOW      ,   296   ,   ANGLE(20)   ,   ANGLE(15)   ,   ANGLE(0)   ,   STR_PUZZLE        },
-    { ITEM_INV_PUZZLE_2       , SND_INV_SHOW      ,   296   ,   ANGLE(20)   ,   ANGLE(15)   ,   ANGLE(0)   ,   STR_PUZZLE        },
-    { ITEM_INV_PUZZLE_1       , SND_INV_SHOW      ,   296   ,   ANGLE(20)   ,   ANGLE(15)   ,   ANGLE(0)   ,   STR_PUZZLE        },
-    { ITEM_INV_SCION          , SND_INV_SHOW      ,   296   ,   ANGLE(20)   ,   ANGLE(15)   ,   ANGLE(45)  ,   STR_SCION         },
-    { ITEM_INV_COMPASS        , SND_INV_COMPASS   ,   512   ,   ANGLE(20)   ,   ANGLE(70)   ,   ANGLE(0)   ,   STR_COMPASS       },
+    { ITEM_INV_LEADBAR        , SND_INV_SHOW      ,   352   ,   3616        ,   8160        ,   4096       ,   STR_LEAD_BAR      },
+    { ITEM_INV_KEY_ITEM_1     , SND_INV_SHOW      ,   256   ,   7200        ,   4352        ,   0          ,   STR_KEY           },
+    { ITEM_INV_KEY_ITEM_2     , SND_INV_SHOW      ,   256   ,   7200        ,   4352        ,   0          ,   STR_KEY           },
+    { ITEM_INV_KEY_ITEM_3     , SND_INV_SHOW      ,   256   ,   7200        ,   4352        ,   0          ,   STR_KEY           },
+    { ITEM_INV_KEY_ITEM_4     , SND_INV_SHOW      ,   256   ,   7200        ,   4352        ,   0          ,   STR_KEY           },
+    { ITEM_INV_PUZZLE_4       , SND_INV_SHOW      ,   256   ,   7200        ,   4352        ,   0          ,   STR_PUZZLE        },
+    { ITEM_INV_PUZZLE_3       , SND_INV_SHOW      ,   256   ,   7200        ,   4352        ,   0          ,   STR_PUZZLE        },
+    { ITEM_INV_PUZZLE_2       , SND_INV_SHOW      ,   256   ,   7200        ,   4352        ,   0          ,   STR_PUZZLE        },
+    { ITEM_INV_PUZZLE_1       , SND_INV_SHOW      ,   256   ,   7200        ,   4352        ,   0          ,   STR_PUZZLE        },
+    { ITEM_INV_SCION          , SND_INV_SHOW      ,   256   ,   7200        ,   4352        ,   0          ,   STR_SCION         },
+    { ITEM_INV_COMPASS        , SND_INV_COMPASS   ,   456   ,   4352        ,   8192        ,   0          ,   STR_COMPASS       },
     { ITEM_INV_PISTOLS        , SND_INV_WEAPON    ,   296   ,   ANGLE(17)   ,   ANGLE(20)   ,   ANGLE(0)   ,   STR_PISTOLS       },
     { ITEM_INV_AMMO_PISTOLS   , SND_INV_SHOW      ,   296   ,   ANGLE(17)   ,   ANGLE(20)   ,   ANGLE(0)   ,   STR_AMMO_PISTOLS  },
-    { ITEM_INV_SHOTGUN        , SND_INV_WEAPON    ,   296   ,   ANGLE(17)   ,   ANGLE(20)   ,   ANGLE(0)   ,   STR_SHOTGUN       },
+    { ITEM_INV_SHOTGUN        , SND_INV_WEAPON    ,   296   ,   3200        ,   0           ,   8192       ,   STR_SHOTGUN       },
     { ITEM_INV_AMMO_SHOTGUN   , SND_INV_SHOW      ,   296   ,   ANGLE(17)   ,   ANGLE(20)   ,   ANGLE(0)   ,   STR_AMMO_SHOTGUN  },
     { ITEM_INV_MAGNUMS        , SND_INV_WEAPON    ,   296   ,   ANGLE(17)   ,   ANGLE(20)   ,   ANGLE(0)   ,   STR_MAGNUMS       },
     { ITEM_INV_AMMO_MAGNUMS   , SND_INV_SHOW      ,   296   ,   ANGLE(17)   ,   ANGLE(20)   ,   ANGLE(0)   ,   STR_AMMO_MAGNUMS  },
