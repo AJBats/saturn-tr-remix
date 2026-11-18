@@ -308,35 +308,6 @@ SND-C8*
   FMV to the ring. No Press START, no demos, and B does nothing.
 - **Needs:** demos need deterministic logic (issue 202).
 
-### 171. The medipack sound plays at the wrong moment and place
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-34,
-SND-B5*
-
-- **Retail:** Option_DoInventory (`06026880`) plays SFX 116 when the medipack is
-  selected in the ring, even at full health. It is positionless, always-on and
-  halved in volume (issue 177).
-- **Ours:** plays it only on an actual heal, at Lara's position
-  (`openlara/lara.h:3906`).
-
-### 172. Selecting Gamma in game exits the inventory
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-35*
-
-- **Retail:** Display_Inventory (`06017420`, case 8).
-  - In game, selecting Gamma exits the inventory.
-  - At the title, Controls and Gamma return to the ring.
-- **Ours:** there's no Gamma item; see issue 145.
-
-### 173. The ring camera's distance and perspective differ
-*Severity: subtle · Confidence: confirmed · Fix: small (with issue 8) · Audit:
-INV-36*
-
-- **Retail:** the ring camera is 598 from the ring, at FOV 80° (focal about
-  210 px on 352).
-- **Ours:** 768 at focal 256.
-- **Effect:** our ring is about 5% smaller, with flatter perspective.
-
----
-
 ## Audio
 
 ### 177. Retail's per-sample volume halving isn't reproduced
@@ -1327,6 +1298,41 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 173. The ring camera's distance and perspective differ
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small (with issue 8) · Audit:
+INV-36*
+
+- **Retail:** the ring camera is 598 from the ring, at FOV 80° (focal about
+  210 px on 352).
+- **Ours:** 768 at focal 256.
+- **Effect:** our ring is about 5% smaller, with flatter perspective.
+
+---
+
+### 172. Selecting Gamma in game exits the inventory
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-35*
+
+- **Retail:** Display_Inventory (`06017420`, case 8).
+  - In game, selecting Gamma exits the inventory.
+  - At the title, Controls and Gamma return to the ring.
+- **Ours:** there's no Gamma item; see issue 145.
+
+### 171. The medipack sound plays at the wrong moment and place
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-34,
+SND-B5*
+
+- **Retail:** Option_DoInventory (`06026880`) plays SFX 116 when the medipack is
+  selected in the ring, even at full health. It is positionless, always-on and
+  halved in volume (issue 177).
+- **Ours:** plays it only on an actual heal, at Lara's position
+  (`openlara/lara.h:3906`).
 
 ### 170. Retail's level-skip code is missing
 *Closed 2026-11-18 (see git log): the code, SFX 116, and Exit to Title finishing the level.*
