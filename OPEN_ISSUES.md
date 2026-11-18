@@ -1585,22 +1585,6 @@ LARA-23*
 - **Effect:** Palace Midas's lead-bar conversion and the gold death have no
   sparkle.
 
-### 215. No fade from black after loading a level, and no fade at level end
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-11*
-
-- **Retail:**
-  - The level render init (`0x060373fc`) fades colour offset A to the brightness
-    setting over 30 frames, via `0x060391a0` with a per-vblank step at
-    `0x06039264`.
-  - The level-end stats screen (`0x06016558`) first fades to −255 over 30
-    frames.
-- **Ours:** `gBrightness` is never set to anything but 0
-  (`openlara/level.h:238-262`), and VDP2_CLOFEN is cleared
-  (`saturn/system.cpp:264`).
-- **Effect:** every level cuts straight in at full brightness, and cuts out at
-  the end.
-- **Fix:** colour offset is already in VDP2.
-
 ### 216. The flickering-lights effect is off by 1–3 frames
 *Severity: subtle · Confidence: confirmed against TR1X (Saturn not checked) ·
 Fix: small · Audit: GFX-12*
@@ -2303,6 +2287,24 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 215. No fade from black after loading a level, and no fade at level end
+*Closed 2026-11-17: a58ea74. Fade in after each level's load, fade out before the stats, 30 vblanks each.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-11*
+
+- **Retail:**
+  - The level render init (`0x060373fc`) fades colour offset A to the brightness
+    setting over 30 frames, via `0x060391a0` with a per-vblank step at
+    `0x06039264`.
+  - The level-end stats screen (`0x06016558`) first fades to −255 over 30
+    frames.
+- **Ours:** `gBrightness` is never set to anything but 0
+  (`openlara/level.h:238-262`), and VDP2_CLOFEN is cleared
+  (`saturn/system.cpp:264`).
+- **Effect:** every level cuts straight in at full brightness, and cuts out at
+  the end.
+- **Fix:** colour offset is already in VDP2.
 
 ### 160. No pickup notification
 *Closed 2026-11-17: dbf9d77. Retail's three slots, scale, place and 75 ticks.*
