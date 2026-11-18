@@ -919,7 +919,7 @@ struct Inventory
 
         LVLCHECK(LVL_TR1_8B,    KEY_ITEM_1, STR_KEY_SAPPHIRE);
         LVLCHECK(LVL_TR1_8B,    PUZZLE_2,   STR_PUZZLE_SCARAB);
-        LVLCHECK(LVL_TR1_8B,    PUZZLE_3,   STR_PUZZLE_HORUS);
+        LVLCHECK(LVL_TR1_8B,    PUZZLE_3,   STR_PUZZLE_ANUBIS);     // retail's table at 0x06060fd0
         LVLCHECK(LVL_TR1_8B,    PUZZLE_4,   STR_PUZZLE_ANKH);
         LVLCHECK(LVL_TR1_8B,    PUZZLE_1,   STR_PUZZLE_HORUS);
 
@@ -1799,9 +1799,10 @@ struct Inventory
             state == INV_STATE_DESELECT ||
             state == INV_STATE_SHOW)
         {
-            if (state != INV_STATE_SHOW   &&
+            // GAME OVER stays up over the passport
+            if (page == INV_PAGE_DEATH || (state != INV_STATE_SHOW   &&
                 state != INV_STATE_SELECT &&
-                state != INV_STATE_DESELECT)
+                state != INV_STATE_DESELECT))
             {
                 drawText(0, 20, STR[getTitleStr()], TEXT_ALIGN_CENTER);
 
