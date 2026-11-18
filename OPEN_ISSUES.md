@@ -1223,24 +1223,6 @@ Fix: small · Audit: MATH-5*
   retail their lit side stays a dim grey.
 - **Fix:** clamp to 8191.
 
-### 212. The Atlantis doppelganger is drawn as a plain animated item
-*Severity: visible · Confidence: confirmed · Fix: medium · Audit: GFX-8*
-
-- **Retail:** DrawEvilLara (`0x060210b8`; TR1X `evil_lara.c`) swaps the 15 Lara
-  mesh pointers (`0x06094490`) for O_EVIL_LARA's and calls DrawLara
-  (`0x06013438`). So she copies Lara's:
-  - aiming arms and gun pose;
-  - muzzle flashes;
-  - head and torso turn;
-  - hit flinch;
-  - 160 shadow.
-- **Ours:** `Doppelganger` (`openlara/enemy.h:875-950`) goes through `drawModel`
-  and `drawNodesLerp`. Her arms just follow the body animation, and she has no
-  shadow.
-- **Effect:** when Lara draws and fires, her double keeps her arms down: no aim,
-  no flash, no shadow.
-- **Fix:** draw her with the `drawLaraNodes` path, using her own meshes.
-
 ### 214. Midas twinkles are missing
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-10,
 LARA-23*
@@ -1957,6 +1939,26 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 212. The Atlantis doppelganger is drawn as a plain animated item
+*Closed 2026-11-18 (see git log): drawn through the Lara path with her meshes.*
+
+*Severity: visible · Confidence: confirmed · Fix: medium · Audit: GFX-8*
+
+- **Retail:** DrawEvilLara (`0x060210b8`; TR1X `evil_lara.c`) swaps the 15 Lara
+  mesh pointers (`0x06094490`) for O_EVIL_LARA's and calls DrawLara
+  (`0x06013438`). So she copies Lara's:
+  - aiming arms and gun pose;
+  - muzzle flashes;
+  - head and torso turn;
+  - hit flinch;
+  - 160 shadow.
+- **Ours:** `Doppelganger` (`openlara/enemy.h:875-950`) goes through `drawModel`
+  and `drawNodesLerp`. Her arms just follow the body animation, and she has no
+  shadow.
+- **Effect:** when Lara draws and fires, her double keeps her arms down: no aim,
+  no flash, no shadow.
+- **Fix:** draw her with the `drawLaraNodes` path, using her own meshes.
 
 ### 65. Enemy gunmen: blood at their gun, no hit sound, no muzzle flash, misses in mid-air
 *Closed 2026-11-18 (see git log): GunShot, GunHit, GunMiss ported.*
