@@ -897,10 +897,14 @@ struct Enemy : ItemObj
         tilt(tinfo.tilt);
         extraE->rotHead = angleLerp(extraE->rotHead, tinfo.rotHead, ANGLE(5));
 
+        const vec3i before = pos;
+        const int32 stateBefore = state;
+
         animProcess();
 
         updateLocation();
 
+        moved(before, stateBefore);
 
         if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INACTIVE)
         {
@@ -923,6 +927,9 @@ struct Enemy : ItemObj
 
     // its death played out (its animation's KILL), before it's let go
     virtual void deathEnd() {}
+
+    // after its animation has moved it from where it was, in the state it was
+    virtual void moved(const vec3i &before, int32 stateBefore) {}
 
     virtual void initExtra()
     {
@@ -1957,7 +1964,13 @@ struct Gorilla : Enemy
         STATE_WARNING_2,
         STATE_RUN_LEFT,
         STATE_RUN_RIGHT,
-        STATE_JUMP
+        STATE_JUMP,
+        STATE_VAULT
+    };
+
+    enum {
+        ANIM_VAULT = 19,
+        VAULT_SHIFT = 75
     };
 
     Gorilla(Room* room) : Enemy(room, 22, 341, 250, AGGRESSION_LVL_MAX)
@@ -1975,7 +1988,59 @@ struct Gorilla : Enemy
         }
     }
 
+    // Retail's ApeControl (06029748) and ApeVault (06029570). Both undo a
+    // right sidestep's turn as soon as it's made; the left's undo tests the
+    // item's flags instead of the gorilla's (a retail bug, kept: issue 99),
+    // so a left sidestep's turn stays, and later ones don't turn.
     virtual int32 updateState()
+    {
+        int32 goal = think();
+        if (state != STATE_VAULT && (turnSpeed & FLAG_TURN_L))
+        {
+            angle.y -= ANGLE_90;
+            turnSpeed &= ~FLAG_TURN_L;
+        }
+        return goal;
+    }
+
+    // up onto a block: a rise of 384 or more in a tick, not vaulting
+    // already, takes the climb, set 75 in from the edge it crossed, facing
+    // over it
+    virtual void moved(const vec3i &before, int32 stateBefore)
+    {
+        if (stateBefore == STATE_VAULT || pos.y > before.y - 384)
+            return;
+
+        const int32 x0 = before.x >> 10, z0 = before.z >> 10;
+        const int32 x1 = pos.x >> 10, z1 = pos.z >> 10;
+        if (z0 == z1)
+        {
+            if (x0 == x1)
+                return;
+            if (x0 < x1) {
+                pos.x = (x1 << 10) - VAULT_SHIFT;
+                angle.y = ANGLE_90;
+            } else {
+                pos.x = (x0 << 10) + VAULT_SHIFT;
+                angle.y = -ANGLE_90;
+            }
+        }
+        else if (x0 == x1)
+        {
+            if (z0 < z1) {
+                pos.z = (z1 << 10) - VAULT_SHIFT;
+                angle.y = 0;
+            } else {
+                pos.z = (z0 << 10) + VAULT_SHIFT;
+                angle.y = ANGLE_180;
+            }
+        }
+
+        pos.y = before.y;
+        animSet(level.models[type].animIndex + ANIM_VAULT, true);
+    }
+
+    int32 think()
     {
         if (health <= 0)
             return goalState;
@@ -1992,11 +2057,6 @@ struct Gorilla : Enemy
                 {
                     angle.y -= ANGLE_90;
                     turnSpeed &= ~FLAG_TURN_L;
-                }
-                else if (turnSpeed & FLAG_TURN_R)
-                {
-                    angle.y += ANGLE_90;
-                    turnSpeed &= ~FLAG_TURN_R;
                 }
 
                 if (nextState)
