@@ -829,9 +829,9 @@ struct Enemy : ItemObj
         #endif
         }
 
-        if (type != ITEM_MUMMY) {
-            fxBlood(point, 0, 0);
-        }
+        // blood that goes on with it, the mummy's too (retail's HitTarget,
+        // 0601fff4)
+        fxBlood(point, angle.y, hSpeed);
 
         flags |= ITEM_FLAG_INJURED;
     }
@@ -2074,7 +2074,7 @@ struct Rat : Enemy
 
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
-        Enemy::hit(damage, point, SND_HIT_RAT);
+        Enemy::hit(damage, point, type == ITEM_RAT_LAND ? SND_HIT_RAT : 0);   // the land rat's alone (HitTarget)
 
         if (health <= 0) {
             bool water = (type == ITEM_RAT_WATER);
