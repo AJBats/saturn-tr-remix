@@ -451,31 +451,6 @@ not seen running) · Fix: small · Audit: GUN-9*
 - **Effect:** picking the pistols in the ring while they're holstered draws them.
   Retail closes the ring with them still holstered.
 
-### 61. The hit stagger lasts 5 frames past contact
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: GUN-10*
-
-- **Retail:**
-  - LaraBaddieCollision (`0600e9ac`) resets hit_direction to -1 every frame.
-  - ItemPushLara (`0600edf8`) increments hit_frame only while Lara is being
-    touched, and resets it to 0 when not.
-  - SFX 27 plays each time hit_frame is 0.
-- **Ours:** `openlara/item.h:1279` calls `animHit(..., 5)`, with the timer at
-  `lara.h:386-404`.
-- **Effect:** brief wolf contacts give longer stagger poses, and intermittent
-  contact plays fewer body-slam sounds.
-
-### 64. Blood from Lara's bullets is stationary, and the mummy doesn't bleed
-*Severity: visible (subtle) · Confidence: confirmed · Fix: small · Audit:
-GUN-13*
-
-- **Retail:** HitTarget (`0601fff4`) calls DoBloodSplat(hit position,
-  item->speed, item->y_rot) for every creature, so the blood drifts with the
-  target.
-- **Ours:** `openlara/enemy.h:745-747` calls `fxBlood(point, 0, 0)`, and skips
-  ITEM_MUMMY.
-- **Effect:** on running enemies the blood stays in place, and the mummy shows no
-  blood.
-
 ### 65. Enemy gunmen: blood at their gun, no hit sound, no muzzle flash, misses in mid-air
 *Severity: visible / audible · Confidence: confirmed (the ricochet height is
 likely) · Fix: medium · Audit: GUN-15, AI-27, GFX-9*
@@ -507,17 +482,6 @@ checked) · Fix: small · Audit: GUN-16*
   speed and y_rot to DoBloodSplat.
 - **Ours:** `openlara/enemy.h:449` uses speed 0 and angle 0.
 
-### 67. The gun flash's rotation is fixed for the whole flash
-*Severity: subtle (visible) · Confidence: confirmed · Fix: small · Audit:
-GUN-17, GFX-18*
-
-- **Retail:** DrawGunFlash (`06013d5c`) re-rolls the roll angle,
-  Random_GetDraw()·2, on every drawn frame.
-- **Ours:** `openlara/lara.h:3531` rolls once per shot, and the draw reuses it
-  (`draw.h:268`).
-- **Effect:** retail's pistol, magnum and Uzi flash flickers its orientation over
-  its 3 frames (2 for the Uzis); ours holds still.
-
 ### 68. Pistol draw and holster frames are off by one
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: GUN-18*
 
@@ -530,13 +494,6 @@ GUN-17, GFX-18*
   - The holster shows 23 down to 5, a frame longer.
   - From FIRE the holster takes two steps: frame 0, then AIM.
 - **Fix:** port with absolute frames.
-
-### 71. Water rats chirp when shot
-*Severity: audible · Confidence: confirmed · Fix: small · Audit: GUN-21,
-SND-21*
-
-- **Retail:** HitTarget (`0601fff4`) plays SFX 95 for O_RAT (16) only.
-- **Ours:** `Rat::hit` (`openlara/enemy.h:1877`) also covers ITEM_RAT_WATER.
 
 ### 72. Shotgun pellets draw random numbers in a different order
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: GUN-22*
@@ -2023,6 +1980,57 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 67. The gun flash's rotation is fixed for the whole flash
+*Closed 2026-11-18 (see git log): the flash re-rolls its turn each drawn frame.*
+
+*Severity: subtle (visible) · Confidence: confirmed · Fix: small · Audit:
+GUN-17, GFX-18*
+
+- **Retail:** DrawGunFlash (`06013d5c`) re-rolls the roll angle,
+  Random_GetDraw()·2, on every drawn frame.
+- **Ours:** `openlara/lara.h:3531` rolls once per shot, and the draw reuses it
+  (`draw.h:268`).
+- **Effect:** retail's pistol, magnum and Uzi flash flickers its orientation over
+  its 3 frames (2 for the Uzis); ours holds still.
+
+### 61. The hit stagger lasts 5 frames past contact
+*Closed 2026-11-18 (see git log): the hit pose is per tick, effects 5 ticks.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: GUN-10*
+
+- **Retail:**
+  - LaraBaddieCollision (`0600e9ac`) resets hit_direction to -1 every frame.
+  - ItemPushLara (`0600edf8`) increments hit_frame only while Lara is being
+    touched, and resets it to 0 when not.
+  - SFX 27 plays each time hit_frame is 0.
+- **Ours:** `openlara/item.h:1279` calls `animHit(..., 5)`, with the timer at
+  `lara.h:386-404`.
+- **Effect:** brief wolf contacts give longer stagger poses, and intermittent
+  contact plays fewer body-slam sounds.
+
+### 71. Water rats chirp when shot
+*Closed 2026-11-18 (see git log): retail's HitTarget blood and sounds.*
+
+*Severity: audible · Confidence: confirmed · Fix: small · Audit: GUN-21,
+SND-21*
+
+- **Retail:** HitTarget (`0601fff4`) plays SFX 95 for O_RAT (16) only.
+- **Ours:** `Rat::hit` (`openlara/enemy.h:1877`) also covers ITEM_RAT_WATER.
+
+### 64. Blood from Lara's bullets is stationary, and the mummy doesn't bleed
+*Closed 2026-11-18 (see git log): retail's HitTarget blood and sounds.*
+
+*Severity: visible (subtle) · Confidence: confirmed · Fix: small · Audit:
+GUN-13*
+
+- **Retail:** HitTarget (`0601fff4`) calls DoBloodSplat(hit position,
+  item->speed, item->y_rot) for every creature, so the blood drifts with the
+  target.
+- **Ours:** `openlara/enemy.h:745-747` calls `fxBlood(point, 0, 0)`, and skips
+  ITEM_MUMMY.
+- **Effect:** on running enemies the blood stays in place, and the mummy shows no
+  blood.
 
 ### 117. Lightning: nothing drawn, wrong strike radius, half the thunder, no flinch
 *Closed 2026-11-18 (see git log): the bolt is drawn (CALL_QUAD), and strikes where retail's does.*
