@@ -44,8 +44,9 @@ static void updateInput()
     }
 
     // no pad: START held, so that the game opens the ring once and waits
-    // there (retail's ControlPhase, 0600f66c); not on the test discs, which
-    // the hardware rig plays with no pad
+    // there (retail's ControlPhase, 0600f66c); not on the test discs: the
+    // hardware rig's pad is a 3D pad in its analog mode, which retail doesn't
+    // read, and its runs must play unaided
 #ifndef HW_LOG
     if (!padPresent()) {
         keys = IK_SELECT;

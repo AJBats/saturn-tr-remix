@@ -5,7 +5,9 @@
 // (id 0x02; the 3D pad in its digital mode is one) or id 0x15 device (analog,
 // 5 data bytes, the buttons first: the Mission Stick, by its id) on port 1,
 // through a multitap if one is there; port 2's digital pad is the debug pad.
-// The 3D pad in its analog mode (id 0x16) isn't one retail reads.
+// The 3D pad in its analog mode (id 0x16) isn't one retail reads: its peripheral
+// library files it under its own id (the generic handler, 06005956) and the
+// scan passes over it, so with only that on port 1 retail sees no pad.
 
 #include "input.h"
 #include "hw.h"

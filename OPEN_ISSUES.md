@@ -1379,7 +1379,7 @@ SND-B5*
 - **Ours:** none.
 
 ### 169. No pause on pad disconnect; only a pad in port 1
-*Closed 2026-11-18 (see git log): port 1's first digital pad (id 0x02) or id 0x15 device (the Mission Stick, by its id; not the 3D pad's analog mode, 0x16, which retail doesn't read either), through a multitap; no pad opens the ring, but not on the HW_LOG test discs. Not tried with a multitap, a Mission Stick or a pulled pad, on the Saturn or in Mednafen.*
+*Closed 2026-11-18 (see git log): port 1's first digital pad (id 0x02) or id 0x15 device (the Mission Stick, by its id), through a multitap; no pad opens the ring, but not on the HW_LOG test discs. The 3D pad in its analog mode (0x16) is no pad to retail: its peripheral library files it under 0x16 (generic handler 06005956) and the scan passes it by. The rig's pad is one (boot log PAD F116FFFF), which is why a rig run with the pause in measured the ring. Not tried with a multitap, a Mission Stick or a pulled pad.*
 
 *Severity: subtle · Confidence: likely · Fix: small · Audit: INV-32*
 
