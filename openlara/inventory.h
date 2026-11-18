@@ -11,7 +11,7 @@ extern const void* TITLE_SCR;
 
 #define INV_CAMERA_HEIGHT   -1536
 #define INV_CAMERA_Y        96
-#define INV_CAMERA_Z        768
+#define INV_CAMERA_Z        598     // retail's ring camera, at FOV 80 (focal 209.75 on 352)
 #define INV_RING_RADIUS     688
 #define INV_TILT            ANGLE(-45)
 
@@ -1270,10 +1270,12 @@ struct Inventory
             gammaWait = 5;
             osSetGamma(gGamma);
         }
+        // chosen: back to the ring at the title, out of the inventory in
+        // game (retail's Display_Inventory, 06017420, its case 8)
         if (lara->isKeyHit(IN_ACTION))
         {
             frameTarget = 0;
-            nextState = INV_STATE_READY;
+            nextState = (page == INV_PAGE_TITLE) ? INV_STATE_READY : INV_STATE_CLOSE;
         }
     }
 
@@ -1352,8 +1354,12 @@ struct Inventory
             case SLOT_SHOTGUN:
             case SLOT_MAGNUMS:
             case SLOT_UZIS:
+                nextState = INV_STATE_CLOSE;
+                useSlot = slot;
+                break;
             case SLOT_MEDIKIT_BIG:
             case SLOT_MEDIKIT_SMALL:
+                soundPlay(SND_HEALTH, NULL);    // chosen, at full health too (Option_DoInventory 06026880)
                 nextState = INV_STATE_CLOSE;
                 useSlot = slot;
                 break;
@@ -1757,17 +1763,19 @@ struct Inventory
 
         vec3i pos = _vec3i(0, height, radius + INV_CAMERA_Z);
 
-        matrixSetView(pos, angleX + pitch, angleY);
-        matrixTranslateAbs(0, 0, 0);
-
         // the ring's light, as the original's (Inv_RingLight): falling along
         // (-1536, 256, 1024), so towards it (1536, -256, -1024) as a unit
-        // << 14, turned into the view; its range the divider 0x6000's
+        // << 14, turned into the view (its rows unscaled); its range the
+        // divider 0x6000's
+        matrixSetView(pos, angleX + pitch, angleY);
         const int16* r = gViewRotation;
         gLightView.x = (r[0] * 13504 - r[1] * 2251 - r[2] * 9002) >> FIXED_SHIFT;
         gLightView.y = (r[3] * 13504 - r[4] * 2251 - r[5] * 9002) >> FIXED_SHIFT;
         gLightView.z = (r[6] * 13504 - r[7] * 2251 - r[8] * 9002) >> FIXED_SHIFT;
         gLightRange = 2731;
+
+        cameraView(pos, angleX + pitch, angleY);
+        matrixTranslateAbs(0, 0, 0);
 
         for (int32 i = itemsCount - 1; i >= 0; i--)
         {

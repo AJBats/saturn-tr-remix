@@ -3860,7 +3860,6 @@ struct Lara : ItemObj
                     }
                     inventory.remove(slot, 1);
                     extraL->healthTimer = 40;
-                    soundPlay(SND_HEALTH, &pos);
                 }
                 break;
             default: return false;
