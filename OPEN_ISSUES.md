@@ -452,52 +452,6 @@ MATH-4*
 - **Effect:** a shadow vanishes while its owner (Lara above the frame, an enemy
   just off-screen) is out of view, even though the floor under it is in view.
 
-### 211. Distant objects fade fully to black; retail keeps the lit side faintly visible
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: GFX-7*
-
-- **Retail:** Output_CalculateLight (`060388ec`) clamps the light adder to 0x1FFF
-  after adding fog (asm `0x06038a12`–`0x06038a22`). The per-vertex shade is then
-  clamped to 0..0x1FFF, so at full fog the lit side stays at 0x1FFF − range.
-- **Ours:** `openlara/draw.h:133` caps at 8191 + gLightRange, with the comment
-  "the fog darkens the side facing the light to black too". That describes a
-  deviation from retail.
-- **Effect:** enemies and Lara 15–20 sectors away go fully black in ours. On
-  retail their lit side stays a dim grey.
-- **Fix:** clamp to 8191.
-
-### 216. The flickering-lights effect is off by 1–3 frames
-*Severity: subtle · Confidence: confirmed against TR1X (Saturn not checked) ·
-Fix: small · Audit: GFX-12*
-
-- **Retail:** TR1X `effects/flicker.c` flips the room at timer values 90, 92, 105
-  and 107, and again once the timer passes 125.
-- **Ours:** `openlara/level.h:380` uses {90, 93, 105, 108, 123}.
-- **Effect:** the second and fourth darks last 3 frames instead of 2, and the
-  lights come back on 3 frames early.
-
-### 217. Item sprites are culled to the room's portal window and depth-biased
-*Severity: subtle · Confidence: likely · Fix: small · Audit: GFX-13*
-
-- **Retail:** S_DrawSprite tests a sprite only against the full 352×224 screen
-  (`DAT_06063c4c` and 50), not the room bounds, and sorts it at its own z.
-  Verified for the culling; the sort units weren't decoded.
-- **Ours:** `saturn/render.cpp:2439` culls against `viewport`, which is the
-  room's clip, and line 2462 sorts at z − 128.
-- **Effect:** rarely, an effect whose room is stale gets culled, or blood shows in
-  front of the face it should sit behind.
-
-### 218. The object cull sphere is smaller than the bounding box's corners
-*Severity: subtle · Confidence: suspected · Fix: small · Audit: GFX-14*
-
-- **Retail:** S_GetObjectBounds (`0x06037d04`) projects all 8 corners of the
-  bounding box.
-- **Ours:** `drawModel`'s cull sphere is 0.75 × the largest extent
-  (`openlara/draw.h:678`). For a cube-like box that is less than the true corner
-  distance (0.87 × the side).
-- **Effect:** an item's corners may pop out early at the screen and portal edges.
-
----
-
 ## Rendering: the new renderer's open work
 
 Not differences from retail: open work on the renderer being rebuilt in the
@@ -1185,6 +1139,60 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 218. The object cull sphere is smaller than the bounding box's corners
+*Closed 2026-11-18 (see git log): a sphere past the box's corners (7/8 of its largest extent), not retail's eight projected corners.*
+
+*Severity: subtle · Confidence: suspected · Fix: small · Audit: GFX-14*
+
+- **Retail:** S_GetObjectBounds (`0x06037d04`) projects all 8 corners of the
+  bounding box.
+- **Ours:** `drawModel`'s cull sphere is 0.75 × the largest extent
+  (`openlara/draw.h:678`). For a cube-like box that is less than the true corner
+  distance (0.87 × the side).
+- **Effect:** an item's corners may pop out early at the screen and portal edges.
+
+---
+
+### 217. Item sprites are culled to the room's portal window and depth-biased
+*Closed 2026-11-18 (see git log): item sprites against the frame at their own depth.*
+
+*Severity: subtle · Confidence: likely · Fix: small · Audit: GFX-13*
+
+- **Retail:** S_DrawSprite tests a sprite only against the full 352×224 screen
+  (`DAT_06063c4c` and 50), not the room bounds, and sorts it at its own z.
+  Verified for the culling; the sort units weren't decoded.
+- **Ours:** `saturn/render.cpp:2439` culls against `viewport`, which is the
+  room's clip, and line 2462 sorts at z − 128.
+- **Effect:** rarely, an effect whose room is stale gets culled, or blood shows in
+  front of the face it should sit behind.
+
+### 216. The flickering-lights effect is off by 1–3 frames
+*Closed 2026-11-18 (see git log): the Saturn has no flicker effect (its table ends at 15, no level uses 16): removed.*
+
+*Severity: subtle · Confidence: confirmed against TR1X (Saturn not checked) ·
+Fix: small · Audit: GFX-12*
+
+- **Retail:** TR1X `effects/flicker.c` flips the room at timer values 90, 92, 105
+  and 107, and again once the timer passes 125.
+- **Ours:** `openlara/level.h:380` uses {90, 93, 105, 108, 123}.
+- **Effect:** the second and fourth darks last 3 frames instead of 2, and the
+  lights come back on 3 frames early.
+
+### 211. Distant objects fade fully to black; retail keeps the lit side faintly visible
+*Closed 2026-11-18 (see git log): the fogged light clamped at 8191.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: GFX-7*
+
+- **Retail:** Output_CalculateLight (`060388ec`) clamps the light adder to 0x1FFF
+  after adding fog (asm `0x06038a12`–`0x06038a22`). The per-vertex shade is then
+  clamped to 0..0x1FFF, so at full fog the lit side stays at 0x1FFF − range.
+- **Ours:** `openlara/draw.h:133` caps at 8191 + gLightRange, with the comment
+  "the fog darkens the side facing the light to black too". That describes a
+  deviation from retail.
+- **Effect:** enemies and Lara 15–20 sectors away go fully black in ours. On
+  retail their lit side stays a dim grey.
+- **Fix:** clamp to 8191.
 
 ### 204. getFrames has an extra no-interpolation branch
 *Closed 2026-11-18 (see git log): as retail's.*
