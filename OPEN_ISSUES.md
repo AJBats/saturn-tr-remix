@@ -1026,17 +1026,6 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Pictures at ledge, cistern, valley-ledge, cistern-water, caves-planks and cistern-warp match today's but for which face wins a shared edge; at cistern-warp the wall no longer covers the floor at the lower left.
 - Not in the trial: statics cut at the sector lines; sprites' and shimmers' own columns; height per column rather than per room; wall triangles facing -x or -z (a column off); Lara's own faces near the camera sorted in steps of 40 to 60 units (16 today). Not run on the Saturn.
 
-### 312. A big pale-blue triangle across an Atlantis corridor
-*Kind: visible · Size: unknown · Fix: not looked into*
-
-- Seen 2026-11-18 in Mednafen while testing issue 212: `tools/hwtest.sh at` with
-  AT_LEVEL=LEVEL10B AT_ID=LVL_TR1_10B AT_START=73:1:5 AT_YAW=0xC000 (Lara at 45568, -14592,
-  62976, facing -x down the corridor towards the doppelganger's arena). From about frame 1720 a
-  large textured pale-blue triangle stands between Lara and the far wall, from her back down to the
-  lower right of the frame, and stays as she draws her guns.
-- Not the doppelganger: it shows with her drawing switched off. Perhaps a near face (263) or a
-  room face of the next room; not traced.
-
 ### 313. A sprite effect costs about 2,000 master cycles a frame
 *Kind: speed - Size: about 0.07 ms master and 0.04 ms slave a splash, Saturn - Fix: not looked into*
 
@@ -1122,6 +1111,19 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 312. A big pale-blue triangle across an Atlantis corridor
+*Closed 2026-11-18: not a bug. The triangle is Atlantis' save crystal (item 142, type 83), which stands on the very spot the test put Lara (45568, -14592, 62976): VDP1's command at 0x0d620 is an untextured gouraud polygon, colour 0xE734 (pale blue), corners (240,205) (148,237) (183,104), the crystal's facet seen up close in the corridor.*
+
+*Kind: visible · Size: unknown · Fix: not looked into*
+
+- Seen 2026-11-18 in Mednafen while testing issue 212: `tools/hwtest.sh at` with
+  AT_LEVEL=LEVEL10B AT_ID=LVL_TR1_10B AT_START=73:1:5 AT_YAW=0xC000 (Lara at 45568, -14592,
+  62976, facing -x down the corridor towards the doppelganger's arena). From about frame 1720 a
+  large textured pale-blue triangle stands between Lara and the far wall, from her back down to the
+  lower right of the frame, and stays as she draws her guns.
+- Not the doppelganger: it shows with her drawing switched off. Perhaps a near face (263) or a
+  room face of the next room; not traced.
 
 ### 177. Retail's per-sample volume halving isn't reproduced
 *Closed 2026-11-18 (see git log): unplaced plays of the halved sounds at half level.*
