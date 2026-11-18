@@ -1,7 +1,8 @@
 ! Stage 3 the new way (faces.h): a face the game makes whole, straight to
 ! its VDP1 command, as faces.cpp facesOther makes it: a sprite's, a
 ! rectangle's or line's (renderRect; a fill past the draw distance), a
-! void's.
+! void's; a quad's (renderBolt: its four corners in its two vertices'
+! room, its colour in the face's second longword).
 !
 ! void facesOtherAsm(const Face* face, const Vertex* half, int32 depth, CommandList* list)
 !
@@ -19,6 +20,7 @@
     .equ    FACE_TYPE_SPRITE, 6
     .equ    FACE_TYPE_FILL_S, 7
     .equ    FACE_TYPE_LINE_V, 9
+    .equ    FACE_TYPE_QUAD, 12
     .equ    W0_SPRITE,      0x1001      ! CMD_SCALED_SPRITE | CMD_JUMP, >> 0
     .equ    PMOD_SPRITE,    0x8C        ! PMOD_ECD_OFF | PMOD_LUT16 | PMOD_GOURAUD
     .equ    PMOD_RECT,      0xC0        ! PMOD_NO_ECD_SPD
@@ -73,6 +75,8 @@ _facesOtherAsm:
     and     #15, r0             ! the type
     cmp/eq  #FACE_TYPE_SPRITE, r0
     bt      .Lsprite
+    cmp/eq  #FACE_TYPE_QUAD, r0
+    bt      .Lquad
     mov     #FACE_TYPE_FILL_S, r8
     cmp/hs  r8, r0
     bf      .Lvoid
@@ -119,6 +123,26 @@ _facesOtherAsm:
     mov.l   r0, @(20, r1)       ! w5: x1, y1
     or      r10, r2
     mov.l   r2, @(24, r1)       ! w6: x0, y1
+    mov.l   .LpolygonW0, r8
+    bra     .Llink
+    nop
+
+    ! a polygon of one colour on the four corners given
+.Lquad:
+    mov.l   @(4, r4), r0        ! its colour
+    mov     #PMOD_RECT - 256, r2
+    extu.b  r2, r2
+    shll16  r2
+    or      r2, r0
+    mov.l   r0, @(4, r1)        ! w1
+    mov.l   @r3, r0
+    mov.l   r0, @(12, r1)       ! w3 .. w6: A B C D
+    mov.l   @(4, r3), r0
+    mov.l   r0, @(16, r1)
+    mov.l   @(8, r3), r0
+    mov.l   r0, @(20, r1)
+    mov.l   @(12, r3), r0
+    mov.l   r0, @(24, r1)
     mov.l   .LpolygonW0, r8
     bra     .Llink
     nop

@@ -235,6 +235,41 @@ static void renderRect(int32 x, int32 y, int32 width, int32 height, uint32 type,
     }
 }
 
+// A segment of a lightning bolt between two places in the view (the view's
+// rows' units), width wide in the world: a band of blue, a line of white
+// along its middle, at the farther end's depth (retail's 06039c9c). Nothing
+// for an end outside the view's depths or a band off the frame.
+void renderBolt(int32 x1, int32 y1, int32 z1, int32 x2, int32 y2, int32 z2, int32 width)
+{
+    if (z1 < 64 || z2 < 64 || z1 >= VIEW_MAX_F >> FIXED_SHIFT || z2 >= VIEW_MAX_F >> FIXED_SHIFT)
+        return;
+    const int32 sx1 = FRAME_WIDTH / 2 + (x1 << 8) / z1, sy1 = FRAME_HEIGHT / 2 + (y1 << 8) / z1;
+    const int32 sx2 = FRAME_WIDTH / 2 + (x2 << 8) / z2, sy2 = FRAME_HEIGHT / 2 + (y2 << 8) / z2;
+    const int32 w1 = (width * gFocalScale >> 6) / z1, w2 = (width * gFocalScale >> 6) / z2;
+    if (X_MAX(sx1 + w1, sx2 + w2) < 0 || X_MIN(sx1, sx2) >= FRAME_WIDTH ||
+        X_MAX(sy1, sy2) < 0 || X_MIN(sy1, sy2) >= FRAME_HEIGHT ||
+        X_MAX(abs(sx1), abs(sx2)) + X_MAX(w1, w2) > 1000 || X_MAX(abs(sy1), abs(sy2)) > 1000)
+        return;
+    const int32 bucket = X_MIN(X_MAX(0, X_MAX(z1, z2) - 128) >> OT_SHIFT, OT_SIZE - 1);
+    #define CORNER(x, y)    int32(uint32(x) << 16 | uint16(y))
+    if (render::CallRecord* c = call(render::CALL_QUAD, RGB(0, 0, 31)))
+    {
+        c->args[0] = CORNER(sx1, sy1);
+        c->args[1] = CORNER(sx1 + w1, sy1);
+        c->args[2] = CORNER(sx2 + w2, sy2);
+        c->args[3] = CORNER(sx2, sy2);
+        c->args[5] = bucket;
+    }
+    // the line, a quad with no width
+    if (render::CallRecord* c = call(render::CALL_QUAD, RGB(31, 31, 31)))
+    {
+        c->args[0] = c->args[3] = CORNER(sx1 + w1 / 2, sy1);
+        c->args[1] = c->args[2] = CORNER(sx2 + w2 / 2, sy2);
+        c->args[5] = bucket;
+    }
+    #undef CORNER
+}
+
 // Darkens the frame under the rectangle (VDP1 halves it; shade is ignored).
 void renderFill(int32 x, int32 y, int32 width, int32 height, int32 shade, int32 z)
 {

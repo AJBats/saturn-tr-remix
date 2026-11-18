@@ -364,20 +364,21 @@ struct PoseCamera
     int16_t pad;
 };
 
-enum CallKind { CALL_VIEWPORT = 1, CALL_MODEL, CALL_STATIC, CALL_SHADOW, CALL_SPRITE, CALL_RECT, CALL_GLYPH, CALL_MESH };
+enum CallKind { CALL_VIEWPORT = 1, CALL_MODEL, CALL_STATIC, CALL_SHADOW, CALL_SPRITE, CALL_RECT, CALL_GLYPH, CALL_MESH, CALL_QUAD };
 
 struct CallRecord
 {
     uint8_t kind, pad;
     uint16_t index;         // a model's or shadow's ItemRecord, a static's room, a sprite's, a rectangle's type,
-                            // a glyph's sprite, a mesh's matrix (FrameCalls.matrices)
+                            // a glyph's sprite, a mesh's matrix (FrameCalls.matrices), a quad's colour
     uint32_t flags;         // the faces' at the call (FACE_WATER)
     int32_t args[6];        // a viewport's x0 y0 x1 y1; a model's item's index in the level; a static's
                             // RoomMesh (xy, zf), place from the camera and index in its room; a
                             // model's matrix + 1 after (FrameCalls.matrices: drawn under it, as
                             // drawNodesLerp is, no sphere tested; 0 none); a shadow's floor; a sprite's x y z and shade; a rectangle's x y width
                             // height, colour and bucket; a glyph's left top right bottom on the frame; a
-                            // mesh's index in level.meshes
+                            // mesh's index in level.meshes; a quad's corners (x << 16 | y each) and
+                            // bucket (args[5])
 };
 
 #define AFRM_BASE   0x10000

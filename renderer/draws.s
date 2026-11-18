@@ -90,6 +90,7 @@
     .equ    CALL_RECT,      6
     .equ    CALL_GLYPH,     7
     .equ    CALL_MESH,      8
+    .equ    CALL_QUAD,      9
     .equ    IT_POS,         8       ! ItemRecord: the item (GameItem), its room and index
     .equ    IT_ANGLE,       20
     .equ    IT_ANIM,        32
@@ -1364,6 +1365,40 @@
     rts
     nop
 
+! renderBolt: the call at r14 (four corners on the frame, x << 16 | y each;
+! its colour, its bucket): a copy's face, FACE_TYPE_QUAD, its four corners
+! in its two vertices' room, its colour in the face's second longword
+.Lquad:
+    sts.l   pr, @-r15
+    mov     #12, r5
+    shll8   r5
+    shll2   r5
+    shll2   r5
+    shll2   r5                      ! FACE_TYPE_QUAD << FACE_TYPE_SHIFT
+    bsr     .Lcopy
+    mov.l   @(C_ARGS+20,r14), r6
+    mov.l   @(C_ARGS,r14), r0
+    mov.l   r0, @r7
+    mov.l   @(C_ARGS+4,r14), r0
+    mov.l   r0, @(4,r7)
+    mov.l   @(C_ARGS+8,r14), r0
+    mov.l   r0, @(8,r7)
+    mov.l   @(C_ARGS+12,r14), r0
+    mov.l   r0, @(12,r7)
+    mov.l   @(D_FACE_COUNT,gbr), r0
+    add     #-1, r0
+    shll2   r0
+    shll2   r0
+    mov     r0, r1
+    mov.l   @(D_FACES,gbr), r0
+    add     r0, r1                  ! its face, the last made
+    mov.w   @(C_INDEX,r14), r0
+    extu.w  r0, r0
+    mov.l   r0, @(4,r1)
+    lds.l   @r15+, pr
+    rts
+    nop
+
 ! renderGlyph: the call at r14 (left top right bottom on the frame; its
 ! sprite), in the nearest bucket, its colours as they are (gouraud 16)
 .Lglyph:
@@ -1566,8 +1601,14 @@ _drawsAsm:
     bra     .Lnext
     nop
 7:  cmp/eq  #CALL_MESH, r0
-    bf      .Lnext
+    bf      8f
     bsr     .Lgiven
+    nop
+    bra     .Lnext
+    nop
+8:  cmp/eq  #CALL_QUAD, r0
+    bf      .Lnext
+    bsr     .Lquad
     nop
 .Lnext:
     mov.l   @(D_HINT_OPEN,gbr), r0

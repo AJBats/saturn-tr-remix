@@ -2387,6 +2387,41 @@ struct HammerHandle : Object
 // draw): headOffset counts down, aggression is the bolt on, turnSpeed that it
 // struck Lara. A many-mesh emitter shows only its first mesh and strikes
 // within 2560, a one-mesh one within 1024. The bolt itself isn't drawn yet.
+// The bolt of a lightning emitter (retail's LIGHTNING, its control
+// 06022888 and DrawLightning 06022358): where it strikes, its two branches'
+// steps it starts from and their ends, and the jags its steps wander by,
+// in the view's units. A level has one emitter at most.
+struct LightningBolt
+{
+    enum { STEPS = 8, SHOOTS = 2 };
+
+    vec3i target;
+    vec3i end[SHOOTS];
+    int16 wibble[STEPS][3];
+    int16 shoot[SHOOTS][3];     // retail's: one jag for all of a branch's steps
+    uint8 start[SHOOTS];
+};
+
+EWRAM_DATA LightningBolt gBolt;
+
+// a place in the world in the view's units, from the camera
+static vec3i viewOf(const vec3i &p)
+{
+    const int32 dx = p.x - gCameraViewPos.x, dy = p.y - gCameraViewPos.y, dz = p.z - gCameraViewPos.z;
+    const int16* m = gViewRotation;
+    return _vec3i((m[0] * dx + m[1] * dy + m[2] * dz) >> FIXED_SHIFT,
+                  (m[3] * dx + m[4] * dy + m[5] * dz) >> FIXED_SHIFT,
+                  (m[6] * dx + m[7] * dy + m[8] * dz) >> FIXED_SHIFT);
+}
+
+// the jag a step wanders by in a frame: up to 32 each way (LIGHTNING_RND)
+static void wander(int16* w)
+{
+    for (int32 k = 0; k < 3; k++) {
+        w[k] += int16((rand_draw() - 0x4000) >> 9);
+    }
+}
+
 struct Lightning : Object
 {
     Lightning(Room* room) : Object(room)
@@ -2439,11 +2474,34 @@ struct Lightning : Object
             aggression = 1;
             headOffset = 20;
 
+            // it strikes Lara near it, else the floor under a one-mesh
+            // emitter, else one of its other meshes; its branches from
+            // random steps to a sector about where it strikes
             Lara* lara = getLara(pos);
-            if (itemNearLara(lara, pos, (level.models[type].count > 1) ? 2560 : 1024))
+            const bool single = level.models[type].count == 1;
+            if (itemNearLara(lara, pos, single ? 1024 : 2560))
             {
+                gBolt.target = lara->pos;
                 lara->hit(400, pos, 0);
                 turnSpeed = 1;
+            }
+            else if (single)
+            {
+                Room* r = room->getRoom(pos.x, pos.y, pos.z);
+                gBolt.target = _vec3i(pos.x, r->getSector(pos.x, pos.z)->getFloor(pos.x, pos.y, pos.z), pos.z);
+            }
+            else
+            {
+                gBolt.target = pos + getJoint(X_MIN(1 + (rand_logic() * 5) / 0x7FFF, level.models[type].count - 1), _vec3i(0, 0, 0));
+            }
+            memset(gBolt.wibble, 0, sizeof(gBolt.wibble));
+            memset(gBolt.shoot, 0, sizeof(gBolt.shoot));
+            for (int32 i = 0; i < LightningBolt::SHOOTS; i++)
+            {
+                gBolt.start[i] = uint8(rand_logic() * (LightningBolt::STEPS - 1) / 0x7FFF);
+                gBolt.end[i].x = gBolt.target.x + rand_logic() * 1024 / 0x7FFF;
+                gBolt.end[i].y = gBolt.target.y;
+                gBolt.end[i].z = gBolt.target.z + rand_logic() * 1024 / 0x7FFF;
             }
 
             if (!gSaveGame.flipped) {
@@ -2452,6 +2510,70 @@ struct Lightning : Object
         }
 
         soundPlay(SND_LIGHTNING, &pos);     // thunder as it starts and as it ends
+    }
+
+    // its mesh, and while it strikes, the bolt: 8 jagged steps from the
+    // mesh to where it strikes, 50 wide, and two branches 20 wide
+    virtual void draw()
+    {
+        ItemObj::draw();
+        if (!aggression)
+            return;
+
+        enum { STEPS = LightningBolt::STEPS };
+        const AnimFrame* frame = getFrame();
+        matrixPush();
+        matrixSetIdentity();
+        matrixRotateYXZ(angle.x, angle.y, angle.z);
+        matrixTranslateRel(frame->pos.x, frame->pos.y, frame->pos.z);
+        const Matrix &m = matrixGet();
+        vec3i from = pos + _vec3i(m.e03 >> (FIXED_SHIFT - MATRIX_FIXED_SHIFT),
+                                  m.e13 >> (FIXED_SHIFT - MATRIX_FIXED_SHIFT),
+                                  m.e23 >> (FIXED_SHIFT - MATRIX_FIXED_SHIFT));
+        matrixPop();
+
+        vec3i a = viewOf(from);
+        vec3i b = viewOf(gBolt.target);
+        vec3i d = _vec3i((b.x - a.x) / STEPS, (b.y - a.y) / STEPS, (b.z - a.z) / STEPS);
+        vec3i steps[STEPS];
+        for (int32 i = 0; i < STEPS; i++)
+        {
+            int16* w = gBolt.wibble[i];
+            wander(w);
+            if (i == STEPS - 1) {
+                w[1] = 0;
+            }
+            vec3i e = _vec3i(a.x + d.x + w[0], a.y + d.y + w[1], a.z + d.z + w[2]);
+            renderBolt(a.x, a.y + (i ? gBolt.wibble[i - 1][1] : 0), a.z, e.x, e.y, e.z, 50);
+            a.x = e.x;
+            a.y += d.y;
+            a.z = e.z;
+            steps[i] = e;
+        }
+
+        for (int32 i = 0; i < LightningBolt::SHOOTS; i++)
+        {
+            const int32 j = gBolt.start[i];
+            a = steps[j];
+            b = viewOf(gBolt.end[i]);
+            const int32 n = STEPS - j;
+            d = _vec3i((b.x - a.x) / n, (b.y - a.y) / n, (b.z - a.z) / n);
+            int16* w = gBolt.shoot[i];
+            for (int32 k = 0; k < n; k++)
+            {
+                wander(w);
+                if (k == n - 1) {
+                    w[1] = 0;
+                }
+                // retail lifts a step by the step before's jag, which for a
+                // branch is its one jag after the first step and none after
+                vec3i e = _vec3i(a.x + d.x + w[0], a.y + d.y + w[1], a.z + d.z + w[2]);
+                renderBolt(a.x, a.y + (k == 1 ? w[1] : 0), a.z, e.x, e.y, e.z, 20);
+                a.x = e.x;
+                a.y += d.y;
+                a.z = e.z;
+            }
+        }
     }
 };
 
