@@ -1039,38 +1039,6 @@ Fix: small · Audit: MATH-5*
   sectors. Ours keep drawing them, huge, in front of the camera.
 - **Fix:** add z ≤ 640 to the room-sprite path.
 
-### 208. Shadow sizes, and which objects cast them, differ from retail
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-4*
-
-- **Retail:** shadow_size is OBJECT_INFO +0x2e (object table at `0x06089be0`,
-  stride 0x34), set around decomp.c:33618–34028:
-
-  | Size | Objects |
-  |---|---|
-  | 160 | Lara, evil Lara |
-  | 128 | wolf, bear, bat, rat, water rat, lion, lioness, puma, gorilla, raptor, Larson, Pierre, skater, cowboy, Kold, Natla, pendulum, darts |
-  | 85 | crocodile, alligator, winged mutant, centaur, the torso (Adam) |
-  | 64 | T-rex |
-  | 256 | Damocles sword |
-  | none | mummy, skateboard, cutscene actors O_PLAYER_1–4 |
-
-- **Ours:** `openlara/draw.h:737` uses `drawShadow(item, 160)` for every item
-  flagged with a shadow (`enemy.h:26`, `object.h:382`, `935`, `976`,
-  `lara.h:2741`).
-  - Every enemy gets 160, and so do cutscene actors (`object.h:382`) and
-    mummies.
-  - TrapSword (the Damocles sword) has no shadow.
-  - The doppelganger has her shadow removed (`enemy.h:882`).
-  - The skateboard is drawn through `Gunman::draw` (`enemy.h:2577-2596`), so the
-    skater casts a second shadow.
-- **Effect:**
-  - Enemy shadows are 25% too big; crocodiles, centaurs and mutants nearly 2×;
-    the T-rex 2.5×.
-  - Shadows appear in cutscenes and under mummies.
-  - The Folly's 19 swords show no 256-size shadow. In retail that shadow tells
-    the player where a sword will fall.
-- **Fix:** a per-type shadow-size table that also drives the flag.
-
 ### 209. Shadows disappear when their owner is off-screen
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: GFX-5*
 
@@ -1814,6 +1782,40 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 208. Shadow sizes, and which objects cast them, differ from retail
+*Closed 2026-11-18 (see git log): a per-type table from retail's object setup (0602cf08) sizes each shadow and decides who casts one.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-4*
+
+- **Retail:** shadow_size is OBJECT_INFO +0x2e (object table at `0x06089be0`,
+  stride 0x34), set around decomp.c:33618–34028:
+
+  | Size | Objects |
+  |---|---|
+  | 160 | Lara, evil Lara |
+  | 128 | wolf, bear, bat, rat, water rat, lion, lioness, puma, gorilla, raptor, Larson, Pierre, skater, cowboy, Kold, Natla, pendulum, darts |
+  | 85 | crocodile, alligator, winged mutant, centaur, the torso (Adam) |
+  | 64 | T-rex |
+  | 256 | Damocles sword |
+  | none | mummy, skateboard, cutscene actors O_PLAYER_1–4 |
+
+- **Ours:** `openlara/draw.h:737` uses `drawShadow(item, 160)` for every item
+  flagged with a shadow (`enemy.h:26`, `object.h:382`, `935`, `976`,
+  `lara.h:2741`).
+  - Every enemy gets 160, and so do cutscene actors (`object.h:382`) and
+    mummies.
+  - TrapSword (the Damocles sword) has no shadow.
+  - The doppelganger has her shadow removed (`enemy.h:882`).
+  - The skateboard is drawn through `Gunman::draw` (`enemy.h:2577-2596`), so the
+    skater casts a second shadow.
+- **Effect:**
+  - Enemy shadows are 25% too big; crocodiles, centaurs and mutants nearly 2×;
+    the T-rex 2.5×.
+  - Shadows appear in cutscenes and under mummies.
+  - The Folly's 19 swords show no 256-size shadow. In retail that shadow tells
+    the player where a sword will fall.
+- **Fix:** a per-type shadow-size table that also drives the flag.
 
 ### 210. Hatched creatures and Thor's hammer head are lit flat
 *Closed 2026-11-18 (see git log): pod and statue creatures take intensity 0 (dynamic light), the hammer head its handle's.*
