@@ -894,27 +894,6 @@ SND-C8*
 
 ## Inventory, HUD, saves and game flow
 
-### 141. Several items are posed wrongly when selected
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-2*
-
-- **Retail:** the item structs at `0x06061b40`–`0x06062280` are identical to
-  TR1X `invvars.c`. The values below are in our INV_SLOTS terms:
-  selRotPre = pt_xrot_sel, selRotX = −x_rot_sel, selRotY = −y_rot_sel,
-  selDist = ztrans_sel.
-
-  | Item | Retail (pre, x, y, dist) | Ours |
-  |---|---|---|
-  | Compass | 4352, 8192, 0, 456 | 3641, 12743, 0, 512 |
-  | Shotgun | 3200, 0, 8192, 296 | 3094, 3641, 0, 296 |
-  | Lead bar | 3616, 8160, 4096, 352 | Y 67°, dist 256 |
-  | Keys / puzzles / scion | 7200, 4352, 0, 256 | 3641, 2731, 0, 296 (scion Y 45°) |
-  | Controls | 5504, -1536, 0, 352 | X 67° |
-
-- **Matching:** the pistols, magnums, Uzis, medipacks, passport, detail, sound
-  and home items match to within a degree.
-- **Ours:** `openlara/inventory.h:110-137`.
-- **Fix:** copy retail's values.
-
 ### 142. The compass needle never moves, and A closes the whole inventory
 *Severity: visible · Confidence: confirmed · Fix: small to medium · Audit:
 INV-3*
@@ -2251,6 +2230,29 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 141. Several items are posed wrongly when selected
+*Closed 2026-11-17: 2918492. Retail's values for the compass, shotgun, lead bar, keys, puzzles and scion (controls with 145).*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-2*
+
+- **Retail:** the item structs at `0x06061b40`–`0x06062280` are identical to
+  TR1X `invvars.c`. The values below are in our INV_SLOTS terms:
+  selRotPre = pt_xrot_sel, selRotX = −x_rot_sel, selRotY = −y_rot_sel,
+  selDist = ztrans_sel.
+
+  | Item | Retail (pre, x, y, dist) | Ours |
+  |---|---|---|
+  | Compass | 4352, 8192, 0, 456 | 3641, 12743, 0, 512 |
+  | Shotgun | 3200, 0, 8192, 296 | 3094, 3641, 0, 296 |
+  | Lead bar | 3616, 8160, 4096, 352 | Y 67°, dist 256 |
+  | Keys / puzzles / scion | 7200, 4352, 0, 256 | 3641, 2731, 0, 296 (scion Y 45°) |
+  | Controls | 5504, -1536, 0, 352 | X 67° |
+
+- **Matching:** the pistols, magnums, Uzis, medipacks, passport, detail, sound
+  and home items match to within a degree.
+- **Ours:** `openlara/inventory.h:110-137`.
+- **Fix:** copy retail's values.
 
 ### 143. The medipack health bar appears only when you hold more than one
 *Closed 2026-11-17: c083f4c. The bar at the HUD spot with any count, its timer 40, the count at (64, -56), up while chosen.*
