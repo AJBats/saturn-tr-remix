@@ -5,9 +5,10 @@
 // (id 0x02; the 3D pad in its digital mode is one) or id 0x15 device (analog,
 // 5 data bytes, the buttons first: the Mission Stick, by its id) on port 1,
 // through a multitap if one is there; port 2's digital pad is the debug pad.
-// The 3D pad in its analog mode (id 0x16) isn't one retail reads: its peripheral
-// library files it under its own id (the generic handler, 06005956) and the
-// scan passes over it, so with only that on port 1 retail sees no pad.
+// Also, where retail sees no pad, the 3D pad in its analog mode (id 0x16, 6
+// data bytes): its first two are a digital pad's, the pad itself setting the
+// directions and the L and R bits past a threshold on its triggers (SMPC
+// User's Manual, the multi controller), so it plays as in its digital mode.
 
 #include "input.h"
 #include "hw.h"
@@ -20,6 +21,7 @@
 
 #define ID_DIGITAL  0x02    // standard pad, 2 data bytes
 #define ID_ANALOG   0x15    // an analog device of 5 data bytes, the buttons first
+#define ID_3D       0x16    // the 3D pad in its analog mode, the buttons first
 #define ID_NONE     0xFF    // a multitap's empty port, no data
 
 // INTBACK must be issued inside vblank, at least 300us after it starts (about
@@ -50,7 +52,7 @@ static bool padPort(int32_t at, bool analog, uint16_t &buttons, int32_t &next)
         if (size == 0x0F) {
             size = SMPC_OREG(at++);
         }
-        if (!found && (id == ID_DIGITAL || (analog && id == ID_ANALOG)) && at + 1 < 32)
+        if (!found && (id == ID_DIGITAL || (analog && (id == ID_ANALOG || id == ID_3D))) && at + 1 < 32)
         {
             buttons = ~((SMPC_OREG(at) << 8) | SMPC_OREG(at + 1)) & 0xFFF8;
             found = true;
