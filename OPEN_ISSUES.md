@@ -497,21 +497,6 @@ checked) · Fix: small · Audit: GUN-16*
 
 ## Creatures and AI
 
-### 99. The gorilla can't climb onto blocks, and its sidestep turns differ
-*Severity: visible · Confidence: confirmed · Fix: medium · Audit: AI-28*
-
-- **Retail:**
-  - ApeVault (`06029570`) plays a climb animation (anim 19), and snaps the
-    gorilla onto the ledge edge, 75 units in, whenever it rises 384 or more in a
-    frame.
-  - The sidestep's 90° turn correction runs every frame inside ApeVault. A TR1
-    bug checks `item->flags & 4` instead of the creature flag (bug present on
-    Saturn, `060296b8`). The net effect: the right sidestep never visibly
-    rotates, and the left one rotates once and stays rotated.
-- **Ours:** no vault (`openlara/enemy.h:1701`). The sidestep rotates while
-  stepping and snaps back at STOP (`enemy.h:1759-1768`, `1807-1825`).
-- **Decision:** reproduce the sidestep bug?
-
 ## Level logic, traps and objects
 
 ### 118. Waterfall mist is missing
@@ -1915,7 +1900,7 @@ word. Of the same kind and already open: 264, 265, 266.
 | Issue | Decision |
 |---|---|
 | **88** | Retail's torso charges without turning (a retail bug). Reproduced for now (5a3516f, its forward case in `Adam::updateState`); the user evaluates whether to keep it. |
-| **99** | Retail's gorilla sidestep turns wrongly (a retail bug). Reproduce it? |
+| **99** | Retail's gorilla sidestep turns wrongly (a retail bug). Reproduced for now (its left sidestep's turn stays; `Gorilla::updateState`); the user evaluates whether to keep it. |
 | **11** | Retail's CombatCamera uses a stale target_square. Reproduce it? |
 | **139** | Retail's gym counter starts at 150 and is never reset. Reproduce it? |
 | **179** | Retail's stereo pan wraps oddly just left of centre. Reproduce it? |
@@ -1926,6 +1911,23 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 99. The gorilla can't climb onto blocks, and its sidestep turns differ
+*Closed 2026-11-18 (see git log): the vault, and retail's sidestep turns (bug reproduced for now, see the decisions table).*
+
+*Severity: visible · Confidence: confirmed · Fix: medium · Audit: AI-28*
+
+- **Retail:**
+  - ApeVault (`06029570`) plays a climb animation (anim 19), and snaps the
+    gorilla onto the ledge edge, 75 units in, whenever it rises 384 or more in a
+    frame.
+  - The sidestep's 90° turn correction runs every frame inside ApeVault. A TR1
+    bug checks `item->flags & 4` instead of the creature flag (bug present on
+    Saturn, `060296b8`). The net effect: the right sidestep never visibly
+    rotates, and the left one rotates once and stays rotated.
+- **Ours:** no vault (`openlara/enemy.h:1701`). The sidestep rotates while
+  stepping and snaps back at STOP (`enemy.h:1759-1768`, `1807-1825`).
+- **Decision:** reproduce the sidestep bug?
 
 ### 100. Qualopec mummies behave like full creatures
 *Closed 2026-11-18 (see git log): no AI slot, no random turn, head tracks Lara, solid without stagger.*
