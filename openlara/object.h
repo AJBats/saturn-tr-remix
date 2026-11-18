@@ -408,7 +408,7 @@ struct BodyPart : ItemObj
         if (depth > FOG_MIN) {
             ambient = X_MIN(ambient + depth - FOG_MIN, 8191);
         }
-        renderMesh(headOffset, ambient);
+        renderMesh(headOffset, ambient, 0);
         matrixPop();
     }
 };

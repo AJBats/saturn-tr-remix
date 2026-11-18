@@ -1110,15 +1110,6 @@ struct Inventory
         }
     }
 
-    void onCompass()
-    {
-        if (lara->input & IN_ACTION)
-        {
-            frameTarget = 0;
-            nextState = INV_STATE_CLOSE;
-        }
-    }
-
     // The passport (retail's Option_Passport, 06026a90): Load Game (only
     // with a saved game), then Start Game at the title or Restart Level, then
     // Exit to Title (not at the title). There is no saving here: that's the
@@ -1274,13 +1265,16 @@ struct Inventory
     {
         onOption();
 
-        if ((lara->input & (IN_JUMP | IN_SELECT)) && (page != INV_PAGE_DEATH || itemsList[itemIndex] != SLOT_PASSPORT))
+        InvSlot slot = itemsList[itemIndex];
+
+        // back to the ring, the animation run back; the compass's run on to
+        // its end (retail's Option_Compass, 060272ec, which takes no Action)
+        if ((lara->input & (IN_JUMP | IN_SELECT)) && (page != INV_PAGE_DEATH || slot != SLOT_PASSPORT))
         {
-            frameTarget = 0;
+            const Anim &anim = level.anims[level.models[ITEM_INV_COMPASS].animIndex];
+            frameTarget = (slot == SLOT_COMPASS) ? anim.frameEnd - anim.frameBegin : 0;
             nextState = INV_STATE_READY;
         }
-
-        InvSlot slot = itemsList[itemIndex];
 
         switch (slot)
         {
@@ -1304,7 +1298,6 @@ struct Inventory
                 useSlot = slot;
                 break;
             case SLOT_COMPASS:
-                onCompass();
                 break;
             case SLOT_PASSPORT:
                 onPassport();
@@ -1636,7 +1629,31 @@ struct Inventory
         item.animIndex   = level.models[type].animIndex;
         item.frameIndex  = level.anims[item.animIndex].frameBegin + (selected ? frameIndex : 0);
 
+        if (type == ITEM_INV_COMPASS) {
+            item.visibleMask &= ~2u;    // the needle, drawn after
+        }
         renderModelUnder(&item);
+
+        // the compass's needle (its node 1) swings to north each frame drawn,
+        // as retail's DrawInventoryItem (0601880c) turns it
+        if (type == ITEM_INV_COMPASS)
+        {
+            static int16 needle;
+            static int32 speed;
+            const int16 itemYaw = current ? rotItem : 0;
+            speed = speed * 19 / 20 + int16(-lara->angle.y - itemYaw - needle) / 50;
+            needle += int16(speed);
+
+            const AnimFrame* frame = item.getFrame();
+            const uint32* angles = (const uint32*)(frame->angles + 1);
+            const ModelNode* node = level.nodes + level.models[type].nodeIndex;
+            matrixPush();
+            matrixFrame(&frame->pos, angles);
+            matrixFrame(&node->pos, angles + 1);
+            matrixRotateY(needle);
+            renderMesh(level.models[type].start + 1, gLightAmbient, gLightRange);
+            matrixPop();
+        }
 
         if (current && (state == INV_STATE_READY || state == INV_STATE_SELECT || state == INV_STATE_SHOW))
         {

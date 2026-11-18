@@ -147,9 +147,10 @@ void renderModelUnder(const ItemObj* item)
     c->args[1] = ++gGivenCount;
 }
 
-// One of the level's meshes under the matrix on top, lit flat by ambient
-// (a body part's, object.h BodyPart).
-void renderMesh(int32 mesh, int32 ambient)
+// One of the level's meshes under the matrix on top, lit by ambient and
+// range along gLightView (a body part's flat, object.h BodyPart; the
+// compass needle as the ring's light, inventory.h drawSlot).
+void renderMesh(int32 mesh, int32 ambient, int32 range)
 {
     if (gGivenCount == MAX_GIVEN)
         return;
@@ -158,8 +159,12 @@ void renderMesh(int32 mesh, int32 ambient)
         return;
     memcpy(gGiven[gGivenCount], &matrixGet(), sizeof(gGiven[0]));
     render::PoseLit &l = gGivenLights[gGivenCount++];
-    memset(&l, 0, sizeof(l));
     l.ambient = ambient;
+    l.range = range;
+    l.view[0] = int16(gLightView.x);
+    l.view[1] = int16(gLightView.y);
+    l.view[2] = int16(gLightView.z);
+    l.pad = 0;
     c->args[0] = mesh;
 }
 
