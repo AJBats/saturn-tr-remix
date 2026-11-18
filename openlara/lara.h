@@ -1248,9 +1248,33 @@ struct Lara : ItemObj
         vSpeed = X_MIN(vSpeed + LARA_SURF_ACCEL, LARA_SURF_SPEED_MAX);    
     }
 
+    // Retail's ItemSparkle (06015380): a twinkle a tick on each of her meshes
+    // in mask, somewhere within its sphere, from the draw random numbers.
+    void sparkle(uint32 mask)
+    {
+        Sphere spheres[JOINT_MAX];
+        int32 count = getSpheres(spheres, true);
+        for (int32 i = 0; i < count; i++)
+        {
+            if (!(mask & (1 << i)))
+                continue;
+            const Sphere &s = spheres[i];
+            vec3i p;
+            p.x = s.center.x + s.radius * (rand_draw() - 0x4000) / 0x4000;
+            p.y = s.center.y + s.radius * (rand_draw() - 0x4000) / 0x4000;
+            p.z = s.center.z + s.radius * (rand_draw() - 0x4000) / 0x4000;
+            if (ItemObj* twinkle = ItemObj::add(ITEM_SPARKLES, room, p, 0))
+            {
+                twinkle->timer = 1;
+                twinkle->flags |= ITEM_FLAG_ANIMATED;
+            }
+        }
+    }
+
     S_HANDLER( STATE_USE_MIDAS )
     {
         s_ignoreEnemy();
+        sparkle((1 << JOINT_ARM_R3) | (1 << JOINT_ARM_L3));     // her hands (LaraAsUseMidas)
     }
 
     S_HANDLER( STATE_DEATH_MIDAS )
@@ -1282,6 +1306,17 @@ struct Lara : ItemObj
                 meshSwap(ITEM_LARA_SPEC, gold[i].mask);
             }
         }
+
+        // twinkles over what's gold so far (LaraAsDieMidas, its mesh_effects)
+        uint32 golden = 0;
+        const int32 spec = level.models[ITEM_LARA_SPEC].start;
+        for (int32 i = 0; i < JOINT_MAX; i++)
+        {
+            if (extraL->meshes[i] == spec + i) {
+                golden |= 1 << i;
+            }
+        }
+        sparkle(golden);
     }
 
     S_HANDLER( STATE_SWAN_DIVE )

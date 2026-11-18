@@ -603,9 +603,33 @@ struct Scion3 : Object
 };
 
 
+// A waterfall's spray (retail's ControlWaterFall, 0601586c): switched on
+// (its trigger's code bits all set) and Lara within 10 sectors each way, a
+// splash a tick at its height, within a sector of it from the draw random
+// numbers; unseen itself.
 struct Waterfall : Object
 {
     Waterfall(Room* room) : Object(room) {}
+
+    virtual void update()
+    {
+        if ((flags & ITEM_FLAG_MASK) != ITEM_FLAG_MASK)
+            return;
+
+        const Lara* lara = getLara(pos);
+        const vec3i d = pos - lara->pos;
+        if (abs(d.x) > 10240 || abs(d.y) > 10240 || abs(d.z) > 10240)
+            return;
+
+        vec3i p = pos;
+        p.x += ((rand_draw() - 0x4000) << 10) / 0x7FFF;
+        p.z += ((rand_draw() - 0x4000) << 10) / 0x7FFF;
+        if (ItemObj* splash = ItemObj::add(ITEM_SPLASH, room, p, 0))
+        {
+            splash->timer = 1;
+            splash->flags |= ITEM_FLAG_ANIMATED;
+        }
+    }
 
     virtual void draw() {}
 };
