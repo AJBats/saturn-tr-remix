@@ -258,75 +258,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Weapons and combat
 
-### 57. The shotgun's own animation drives Lara's torso
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: GUN-6*
-
-- **Retail:** DrawLara (`06013438`) takes the torso from Lara's body frame plus
-  torso_y/x only. The gun animation's torso key is ignored.
-- **Ours:** `openlara/draw.h:413-421` and `538-546` add the shotgun animation's
-  torso joint minus DEF_TORSO_ANGLE.
-- **Effect:** Lara's upper body rocks during the shotgun's draw, recoil and
-  reload; in retail only the arms move.
-- **Fix:** delete the block.
-
-### 60. Selecting the current, holstered weapon in the ring draws it
-*Severity: gameplay (minor) · Confidence: likely (the decomp is unambiguous;
-not seen running) · Fix: small · Audit: GUN-9*
-
-- **Retail:**
-  - The Saturn's UseItem (`06020820`) only sets request_gun_type.
-  - LaraGun (`0601f3f4`) draws only when the request differs from gun_type, or
-    when the draw button is pressed.
-  - TR1X differs here (its UseItem resets gun_type); the Saturn wins.
-- **Ours:** `openlara/lara.h:3871` changeWeapon sets weapon = NONE, which forces
-  a draw.
-- **Effect:** picking the pistols in the ring while they're holstered draws them.
-  Retail closes the ring with them still holstered.
-
-### 66. Creature bite blood doesn't move with the creature
-*Severity: subtle · Confidence: confirmed (PC code; the Saturn bite was not
-checked) · Fix: small · Audit: GUN-16*
-
-- **Retail:** CreatureEffect (`0600bf8c`; TR1X `box.c`) passes the creature's
-  speed and y_rot to DoBloodSplat.
-- **Ours:** `openlara/enemy.h:449` uses speed 0 and angle 0.
-
-### 68. Pistol draw and holster frames are off by one
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: GUN-18*
-
-- **Retail:**
-  - DrawPistols (`0601ec7c`) shows frames 5–22 and is ready at 23.
-  - UndrawPistols (`0601ecf4`) shows 23 down to 6 and is armless at 5. From
-    recoil it goes straight to frame 4.
-- **Ours:** `openlara/lara.h:3310-3395`.
-  - The draw shows 6–23, so the guns reach the hands a frame early.
-  - The holster shows 23 down to 5, a frame longer.
-  - From FIRE the holster takes two steps: frame 0, then AIM.
-- **Fix:** port with absolute frames.
-
-### 72. Shotgun pellets draw random numbers in a different order
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: GUN-22*
-
-- **Retail:** FireShotgun (`0601eb8c`) draws the y scatter, then the x scatter.
-  FireWeapon then draws two more accuracy rolls (×0). That is 4 control-RNG
-  calls per pellet.
-- **Ours:**
-  - `openlara/lara.h:3201-3202` draws 2 per pellet, x first.
-  - The ± spread uses `>> 16` (floor) where retail truncates toward zero.
-- **Effect:** nothing visible. The shared control-random sequence, which the AI
-  also uses, drifts.
-
-### 73. A dead Lara keeps her weapon READY
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: GUN-23*
-
-- **Retail:** LaraGun (`0601f3f4`) forces ARMLESS when hp is 0 or below.
-- **Ours:** `openlara/lara.h:3830-3835` returns early and leaves weaponState as
-  it was.
-- **Effect:** checks for READY (combat triggers, the health bar, the flash) still
-  see a dead Lara with her guns ready. Almost never visible.
-
----
-
 ## Creatures and AI
 
 ## Level logic, traps and objects
@@ -1520,6 +1451,87 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 73. A dead Lara keeps her weapon READY
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: GUN-23*
+
+- **Retail:** LaraGun (`0601f3f4`) forces ARMLESS when hp is 0 or below.
+- **Ours:** `openlara/lara.h:3830-3835` returns early and leaves weaponState as
+  it was.
+- **Effect:** checks for READY (combat triggers, the health bar, the flash) still
+  see a dead Lara with her guns ready. Almost never visible.
+
+---
+
+### 72. Shotgun pellets draw random numbers in a different order
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: GUN-22*
+
+- **Retail:** FireShotgun (`0601eb8c`) draws the y scatter, then the x scatter.
+  FireWeapon then draws two more accuracy rolls (×0). That is 4 control-RNG
+  calls per pellet.
+- **Ours:**
+  - `openlara/lara.h:3201-3202` draws 2 per pellet, x first.
+  - The ± spread uses `>> 16` (floor) where retail truncates toward zero.
+- **Effect:** nothing visible. The shared control-random sequence, which the AI
+  also uses, drifts.
+
+### 68. Pistol draw and holster frames are off by one
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: GUN-18*
+
+- **Retail:**
+  - DrawPistols (`0601ec7c`) shows frames 5–22 and is ready at 23.
+  - UndrawPistols (`0601ecf4`) shows 23 down to 6 and is armless at 5. From
+    recoil it goes straight to frame 4.
+- **Ours:** `openlara/lara.h:3310-3395`.
+  - The draw shows 6–23, so the guns reach the hands a frame early.
+  - The holster shows 23 down to 5, a frame longer.
+  - From FIRE the holster takes two steps: frame 0, then AIM.
+- **Fix:** port with absolute frames.
+
+### 66. Creature bite blood doesn't move with the creature
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: confirmed (PC code; the Saturn bite was not
+checked) · Fix: small · Audit: GUN-16*
+
+- **Retail:** CreatureEffect (`0600bf8c`; TR1X `box.c`) passes the creature's
+  speed and y_rot to DoBloodSplat.
+- **Ours:** `openlara/enemy.h:449` uses speed 0 and angle 0.
+
+### 60. Selecting the current, holstered weapon in the ring draws it
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: gameplay (minor) · Confidence: likely (the decomp is unambiguous;
+not seen running) · Fix: small · Audit: GUN-9*
+
+- **Retail:**
+  - The Saturn's UseItem (`06020820`) only sets request_gun_type.
+  - LaraGun (`0601f3f4`) draws only when the request differs from gun_type, or
+    when the draw button is pressed.
+  - TR1X differs here (its UseItem resets gun_type); the Saturn wins.
+- **Ours:** `openlara/lara.h:3871` changeWeapon sets weapon = NONE, which forces
+  a draw.
+- **Effect:** picking the pistols in the ring while they're holstered draws them.
+  Retail closes the ring with them still holstered.
+
+### 57. The shotgun's own animation drives Lara's torso
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: GUN-6*
+
+- **Retail:** DrawLara (`06013438`) takes the torso from Lara's body frame plus
+  torso_y/x only. The gun animation's torso key is ignored.
+- **Ours:** `openlara/draw.h:413-421` and `538-546` add the shotgun animation's
+  torso joint minus DEF_TORSO_ANGLE.
+- **Effect:** Lara's upper body rocks during the shotgun's draw, recoil and
+  reload; in retail only the arms move.
+- **Fix:** delete the block.
 
 ### 50. Lara's save block omits moveAngle, turnSpeed and swimTimer
 *Closed 2026-11-18 (see git log): move angle, turn speed, swim timer saved.*
