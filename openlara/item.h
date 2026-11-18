@@ -92,6 +92,14 @@ void* soundPlay(int16 id, const vec3i* pos, int32 where)
         volume -= rand_draw() >> 2;
     }
 
+    // retail halves these at key-on (its table at 0x06063218); its frame
+    // update gives a placed sound its full level back, so only an unplaced
+    // one stays halved: the ring's turn, the controls, the medipack, the
+    // earthquake's rumble
+    if (!pos && (id == 0 || id == 2 || id == 22 || id == 37 || id == 108 || id == 110 || id == 116 || id == 147)) {
+        volume >>= 1;
+    }
+
     // any level above none plays, the quietest at retail's lowest level
     // (its 06046d60): 1..64, 64 full
     if (volume <= 0)
