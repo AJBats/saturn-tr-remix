@@ -308,20 +308,6 @@ SND-C8*
   FMV to the ring. No Press START, no demos, and B does nothing.
 - **Needs:** demos need deterministic logic (issue 202).
 
-### 170. Retail's level-skip code is missing
-*Severity: subtle · Confidence: likely (decoded) · Fix: small · Audit: INV-33*
-
-- **Retail:** the inventory input routine (`06018bf8`) watches the inventory's
-  last 8 inputs.
-  - The sequence is STEPR, LOOK, STEPR, LOOK, STEPL, STEPL, STEPL, OPTION. With
-    Method 1 that is Z Y Z Y X X X START.
-  - It then plays SFX 116.
-  - Choosing the passport's "Exit to Title" then completes the level instead
-    (StartGame `06016214` checks `DAT_060627bc`).
-  - The flag clears whenever the inventory opens, so the code must be entered
-    with the passport open.
-- **Ours:** none.
-
 ### 171. The medipack sound plays at the wrong moment and place
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-34,
 SND-B5*
@@ -1341,6 +1327,22 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 170. Retail's level-skip code is missing
+*Closed 2026-11-18 (see git log): the code, SFX 116, and Exit to Title finishing the level.*
+
+*Severity: subtle · Confidence: likely (decoded) · Fix: small · Audit: INV-33*
+
+- **Retail:** the inventory input routine (`06018bf8`) watches the inventory's
+  last 8 inputs.
+  - The sequence is STEPR, LOOK, STEPR, LOOK, STEPL, STEPL, STEPL, OPTION. With
+    Method 1 that is Z Y Z Y X X X START.
+  - It then plays SFX 116.
+  - Choosing the passport's "Exit to Title" then completes the level instead
+    (StartGame `06016214` checks `DAT_060627bc`).
+  - The flag clears whenever the inventory opens, so the code must be entered
+    with the passport open.
+- **Ours:** none.
 
 ### 169. No pause on pad disconnect; only a pad in port 1
 *Closed 2026-11-18 (see git log): port 1's first digital or analog pad, through a multitap; no pad opens the ring. Not tried with a multitap or with the pad pulled, on the Saturn or in Mednafen.*
