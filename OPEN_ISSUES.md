@@ -98,7 +98,7 @@ order; the few of its bugs a player runs into are listed at the end.
 | 31 | 54. Target dropped at death; retargets while Action held | small (closed) |
 | 32 | 120. Lara never catches fire | medium (closed) |
 | 33 | 119. Lava emitters throw nothing | medium (closed) |
-| 34 | 117. Lightning: nothing drawn, wrong radius, no flinch | medium |
+| 34 | 117. Lightning: nothing drawn, wrong radius, no flinch | medium (closed) |
 | 35 | 37. Currents don't pull at the surface | small (closed) |
 | 36 | 38, 39. Lava edge doesn't stop a walk; lava floors kill off the lava | small (closed) |
 | 37 | 42. Slide direction bugs | small (closed) |
@@ -603,27 +603,6 @@ AI-29*
   turn their heads toward Lara.
 
 ## Level logic, traps and objects
-
-### 117. Lightning: nothing drawn, wrong strike radius, half the thunder, no flinch
-*Partly fixed 2026-11-17 (b634d11): radius, thunder twice, the flinch and the emitter's mesh are retail's. Left: the bolt (8 jagged steps, 2 branches) needs a line primitive in the renderer.*
-*Severity: visible / gameplay · Confidence: confirmed · Fix: medium · Audit:
-LVL-9, GFX-13*
-
-- **Retail:** the lightning emitter (`0602281c`, `06022888`), DrawLightning
-  (`06022358`); TR1X `traps/lightning_emitter.c`.
-  - It draws the emitter's first mesh (LEVEL4's has 49 faces). When the bolt is
-    on, it adds a jagged 8-step bolt with 2 branches.
-  - The strike radius is 2560 only for multi-mesh emitters. The Folly's emitter
-    has 6 meshes; the Pyramid's has 1, so its radius is 1024.
-  - Thunder (SFX 98) plays on both the strike-on and strike-off frames.
-  - A hit makes Lara flinch (the hit-direction animation), with 400 damage.
-- **Ours:**
-  - `openlara/object.h:1903` always uses 2560.
-  - Line 1912 plays thunder only on the strike.
-  - `Lightning::draw() {}` (line 1916) draws nothing, so the Folly emitter's own
-    mesh is missing too.
-- **Effect:** the Folly's Thor room and the Great Pyramid flash the room flip with
-  no bolt and no emitter model.
 
 ### 118. Waterfall mist is missing
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-10,
@@ -2044,6 +2023,29 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 117. Lightning: nothing drawn, wrong strike radius, half the thunder, no flinch
+*Closed 2026-11-18 (see git log): the bolt is drawn (CALL_QUAD), and strikes where retail's does.*
+
+*Partly fixed 2026-11-17 (b634d11): radius, thunder twice, the flinch and the emitter's mesh are retail's. Left: the bolt (8 jagged steps, 2 branches) needs a line primitive in the renderer.*
+*Severity: visible / gameplay · Confidence: confirmed · Fix: medium · Audit:
+LVL-9, GFX-13*
+
+- **Retail:** the lightning emitter (`0602281c`, `06022888`), DrawLightning
+  (`06022358`); TR1X `traps/lightning_emitter.c`.
+  - It draws the emitter's first mesh (LEVEL4's has 49 faces). When the bolt is
+    on, it adds a jagged 8-step bolt with 2 branches.
+  - The strike radius is 2560 only for multi-mesh emitters. The Folly's emitter
+    has 6 meshes; the Pyramid's has 1, so its radius is 1024.
+  - Thunder (SFX 98) plays on both the strike-on and strike-off frames.
+  - A hit makes Lara flinch (the hit-direction animation), with 400 damage.
+- **Ours:**
+  - `openlara/object.h:1903` always uses 2560.
+  - Line 1912 plays thunder only on the strike.
+  - `Lightning::draw() {}` (line 1916) draws nothing, so the Folly emitter's own
+    mesh is missing too.
+- **Effect:** the Folly's Thor room and the Great Pyramid flash the room flip with
+  no bolt and no emitter model.
 
 ### 116. Mutant eggs throw no shell shards, and Lara walks through them
 *Closed 2026-11-18 (see git log): eggs throw shell meshes 9-23 and are solid until they hatch.*
