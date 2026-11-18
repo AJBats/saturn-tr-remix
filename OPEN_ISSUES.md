@@ -386,23 +386,6 @@ Audit: SND-8*
 - **Ours:** `openlara/enemy.h:2868`, `3043` and `3321` play 171.
 - **Decision:** keep retail's silence, or keep 171?
 
-### 194. Retail CD music is mono (left channel only); ours is stereo
-*Severity: audible · Confidence: confirmed (code) · Fix: small, if wanted ·
-Audit: SND-C9*
-
-- **Retail:** the CD send level (`06046d2c`).
-  - Slot 16's send register is written as 0xB0 (EFSDL 5, centred).
-  - The right-channel write goes to `0x25B00226`, slot 17's LEA register, by
-    mistake. SCSP init (`06046192`) zeroes slot 17, so the right channel is never
-    mixed.
-  - Also, retail's voice search uses slots 0–31, so a 17th sound effect landing
-    on slot 16 zeroes its send level and mutes the music until the next CD play.
-- **Ours:** `saturn/sound.cpp:101-102` mixes left and right separately.
-- **Decision:** this is a retail driver bug. The recommendation is to keep our
-  stereo.
-
----
-
 ## Numeric primitives and timing
 
 ### 198. Animation interpolation lerps relative matrices, not two full stacks
@@ -1111,11 +1094,29 @@ word. Of the same kind and already open: 264, 265, 266.
 | **179** | Retail's stereo pan wraps oddly just left of centre. Reproduce it? |
 | **183** | Retail restarts ambient loops every frame (a stutter), and plays loops an octave down (8-bit keyed on 16-bit data). Reproduce them? |
 | **186** | Retail's exploding deaths are silent (sound 172 is missing). Copy that, or keep 171? |
-| **194** | Retail's CD music is mono because of a driver bug. Recommendation: keep stereo. |
 | **162** | Attract demos need deterministic logic (issue 202) and the DEMODATA format. Build them? |
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 194. Retail CD music is mono (left channel only); ours is stereo
+*Closed 2026-11-18: the user's call, keep stereo; retail's mono music (a driver bug) isn't reproduced.*
+
+*Severity: audible · Confidence: confirmed (code) · Fix: small, if wanted ·
+Audit: SND-C9*
+
+- **Retail:** the CD send level (`06046d2c`).
+  - Slot 16's send register is written as 0xB0 (EFSDL 5, centred).
+  - The right-channel write goes to `0x25B00226`, slot 17's LEA register, by
+    mistake. SCSP init (`06046192`) zeroes slot 17, so the right channel is never
+    mixed.
+  - Also, retail's voice search uses slots 0–31, so a 17th sound effect landing
+    on slot 16 zeroes its send level and mutes the music until the next CD play.
+- **Ours:** `saturn/sound.cpp:101-102` mixes left and right separately.
+- **Decision:** this is a retail driver bug. The recommendation is to keep our
+  stereo.
+
+---
 
 ### 209. Shadows disappear when their owner is off-screen
 *Closed 2026-11-18 (see git log): an out-of-sight model is posed bare when its shadow's call follows. Not yet seen in a view where it shows.*
