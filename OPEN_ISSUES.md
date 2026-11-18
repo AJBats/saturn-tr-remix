@@ -166,26 +166,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Camera
 
-### 16. Trigger look-ats are narrower, slower, and don't decay
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: CAM-10*
-
-- **Retail:**
-  - CalculateCamera's look-at accepts targets within ±50° of yaw and ±85° of
-    tilt, and turns the head 4° per tick (HEAD_TURN; constants 0x238B, 0x3C6D,
-    0x2D8).
-  - LaraAboveWater (`0601af90`) still decays the head by 1/8 every tick, so the
-    tracking settles around 32°.
-- **Ours:**
-  - `openlara/camera.h:461-480` uses ±44° yaw, -42..+22° pitch, 2° per tick.
-  - `lara.h:2913` skips the decay while `lastItem` is set.
-- **Effect:**
-  - Targets above Lara are never looked at.
-  - The turn is half speed and goes all the way to the target.
-  - Retail data has six of these: the Caves view target, the Vilcabamba block,
-    St Francis' magnums, the Cistern door, the Mines cabin and the Atlantis
-    doppelganger.
-- **Fix:** retail's limits, speed and decay.
-
 ### 18. Lava wedge death: no camera swing and no flames
 *Severity: visible · Confidence: confirmed · Fix: small (camera) · Audit:
 CAM-12*
@@ -2152,6 +2132,28 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 16. Trigger look-ats are narrower, slower, and don't decay
+*Closed 2026-11-17 (see git log): retail's 50/85 degree reach and 4 degree turn; Caves view target checked, head settles at 32 degrees.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: CAM-10*
+
+- **Retail:**
+  - CalculateCamera's look-at accepts targets within ±50° of yaw and ±85° of
+    tilt, and turns the head 4° per tick (HEAD_TURN; constants 0x238B, 0x3C6D,
+    0x2D8).
+  - LaraAboveWater (`0601af90`) still decays the head by 1/8 every tick, so the
+    tracking settles around 32°.
+- **Ours:**
+  - `openlara/camera.h:461-480` uses ±44° yaw, -42..+22° pitch, 2° per tick.
+  - `lara.h:2913` skips the decay while `lastItem` is set.
+- **Effect:**
+  - Targets above Lara are never looked at.
+  - The turn is half speed and goes all the way to the target.
+  - Retail data has six of these: the Caves view target, the Vilcabamba block,
+    St Francis' magnums, the Cistern door, the Mines cabin and the Atlantis
+    doppelganger.
+- **Fix:** retail's limits, speed and decay.
 
 ### 19. Cutscenes ignore their per-frame field of view
 *Closed 2026-11-17: 64f8b60. Each frame's fov; the roll (0.25 degrees) left out.*
