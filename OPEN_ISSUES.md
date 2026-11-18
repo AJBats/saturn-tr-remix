@@ -256,84 +256,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Lara: movement, collision, water, controls
 
-### 36. Climb-out isn't tested while treading water
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-8*
-
-- **Retail:** LaraSurfaceCollision tests climb-out in every surface state, gated
-  by y_rot == move_angle. That is true in both Surface-swim and Surface-tread.
-- **Ours:** only the Surface-swim collision calls `c_checkWaterOut`
-  (`openlara/lara.h:2544`).
-
-### 41. The pull-up height window is too wide
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-13*
-
-- **Retail:** the ledge must be between 650 and 850 above Lara (`0601ca00`).
-- **Ours:** anything closer than 850 either way (`openlara/lara.h:2346`).
-- **Effect:** after shimmying onto a ledge more than 256 lower, ours still allows
-  a pull-up from the wrong height.
-
-### 44. A swan-dive landing takes fall damage
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-16*
-
-- **Retail:** LaraColSwanDive (`0601d418`) just lands (goal Stop), with no
-  damage and no trigger test.
-- **Ours:** the swan-dive collision goes through `c_fall`, then
-  `c_checkLanding` (`openlara/lara.h:1505-1531`), which applies normal fall
-  damage.
-
-### 45. The grab height from a reaching jump uses the wrong bounding box
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-17*
-
-- **Retail:** LaraTestHangJump (`0601dfe8`) measures the grab with the reach
-  animation's bounds, before the anim change. The up-jump grab
-  (`0601e270`) does use the new hang anim.
-- **Ours:** `c_checkHang` (`openlara/lara.h:1669`) uses the new anim's box for
-  both.
-- **Effect:** a one-frame height pop.
-
-### 46. Vaulting from standing depends on a hack
-*Severity: gameplay (minor) · Confidence: likely · Fix: small to medium ·
-Audit: LARA-18*
-
-- **Retail:**
-  - LaraColStop (`0601c4fc`) has no vault test.
-  - From standing, Up goes to Run and Walk+Up goes to Walk.
-  - The walk and run collisions vault (`0601c1cc`, `0601c374`, TestLaraVault
-    `0601ddd0`).
-- **Ours:**
-  - Stop's collision vaults only when the input is exactly Up+Action, and pushes
-    her 4 units forward (`openlara/lara.h:2242-2252`).
-  - The forward-clearance check (`s_checkFront`) in the Stop handler blocks
-    starting to walk or run toward the block.
-- **Effect:** from standing, Walk+Up+Action against a block does nothing, and so
-  does Up+Action while turning.
-- **Fix:** drop the clearance check and the nudge, and vault from walk/run as
-  retail does.
-
-### 47. Small movement differences
-*Severity: subtle · Confidence: confirmed · Fix: small each · Audit: LARA-19*
-
-- Stop's collision has no ceiling-hit check (`openlara/lara.h:2235`); retail
-  ColStop (`0601c4fc`) has one.
-- Walking into a wall leaves the state as Walk during stop anims 2 and 3, so Lara
-  can still turn (`lara.h:2143`, `animSet(..., false)`). Retail sets Stop.
-- Brushing a wall sideways cuts Lara's lean by 2° (`lara.h:1374`, `1378`);
-  retail doesn't.
-- The underwater floor-ceiling clamp restores the old position
-  (`lara.h:1404-1407`); retail only stops her.
-- With guns drawn and Walk held, retail still fast-turns; ours doesn't
-  (`lara.h:752`).
-- Air refills by 10 per frame on land (`lara.h:3954`); retail sets it full
-  instantly. Not visible.
-
-### 50. Lara's save block omits moveAngle, turnSpeed and swimTimer
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-22*
-
-- **Ours:** Lara's state block in the save leaves out moveAngle, turnSpeed and
-  swimTimer.
-- **Effect:** after a load, Lara's movement can differ for a frame or two, for
-  example mid-swim.
-
 ## Weapons and combat
 
 ### 57. The shotgun's own animation drives Lara's torso
@@ -1598,6 +1520,98 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 50. Lara's save block omits moveAngle, turnSpeed and swimTimer
+*Closed 2026-11-18 (see git log): move angle, turn speed, swim timer saved.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-22*
+
+- **Ours:** Lara's state block in the save leaves out moveAngle, turnSpeed and
+  swimTimer.
+- **Effect:** after a load, Lara's movement can differ for a frame or two, for
+  example mid-swim.
+
+### 47. Small movement differences
+*Closed 2026-11-18 (see git log): all six as retail's.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small each · Audit: LARA-19*
+
+- Stop's collision has no ceiling-hit check (`openlara/lara.h:2235`); retail
+  ColStop (`0601c4fc`) has one.
+- Walking into a wall leaves the state as Walk during stop anims 2 and 3, so Lara
+  can still turn (`lara.h:2143`, `animSet(..., false)`). Retail sets Stop.
+- Brushing a wall sideways cuts Lara's lean by 2° (`lara.h:1374`, `1378`);
+  retail doesn't.
+- The underwater floor-ceiling clamp restores the old position
+  (`lara.h:1404-1407`); retail only stops her.
+- With guns drawn and Walk held, retail still fast-turns; ours doesn't
+  (`lara.h:752`).
+- Air refills by 10 per frame on land (`lara.h:3954`); retail sets it full
+  instantly. Not visible.
+
+### 46. Vaulting from standing depends on a hack
+*Closed 2026-11-18 (see git log): no vault or nudge standing; no front tests; walk and run vault.*
+
+*Severity: gameplay (minor) · Confidence: likely · Fix: small to medium ·
+Audit: LARA-18*
+
+- **Retail:**
+  - LaraColStop (`0601c4fc`) has no vault test.
+  - From standing, Up goes to Run and Walk+Up goes to Walk.
+  - The walk and run collisions vault (`0601c1cc`, `0601c374`, TestLaraVault
+    `0601ddd0`).
+- **Ours:**
+  - Stop's collision vaults only when the input is exactly Up+Action, and pushes
+    her 4 units forward (`openlara/lara.h:2242-2252`).
+  - The forward-clearance check (`s_checkFront`) in the Stop handler blocks
+    starting to walk or run toward the block.
+- **Effect:** from standing, Walk+Up+Action against a block does nothing, and so
+  does Up+Action while turning.
+- **Fix:** drop the clearance check and the nudge, and vault from walk/run as
+  retail does.
+
+### 45. The grab height from a reaching jump uses the wrong bounding box
+*Closed 2026-11-18 (see git log): a reach's grab measured with the reach's box.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-17*
+
+- **Retail:** LaraTestHangJump (`0601dfe8`) measures the grab with the reach
+  animation's bounds, before the anim change. The up-jump grab
+  (`0601e270`) does use the new hang anim.
+- **Ours:** `c_checkHang` (`openlara/lara.h:1669`) uses the new anim's box for
+  both.
+- **Effect:** a one-frame height pop.
+
+### 44. A swan-dive landing takes fall damage
+*Closed 2026-11-18 (see git log): the swan dive lands without damage or triggers.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-16*
+
+- **Retail:** LaraColSwanDive (`0601d418`) just lands (goal Stop), with no
+  damage and no trigger test.
+- **Ours:** the swan-dive collision goes through `c_fall`, then
+  `c_checkLanding` (`openlara/lara.h:1505-1531`), which applies normal fall
+  damage.
+
+### 41. The pull-up height window is too wide
+*Closed 2026-11-18 (see git log): the pull-up window 651..849.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-13*
+
+- **Retail:** the ledge must be between 650 and 850 above Lara (`0601ca00`).
+- **Ours:** anything closer than 850 either way (`openlara/lara.h:2346`).
+- **Effect:** after shimmying onto a ledge more than 256 lower, ours still allows
+  a pull-up from the wrong height.
+
+### 36. Climb-out isn't tested while treading water
+*Closed 2026-11-18: already so, treading water calls c_checkWaterOut (found while burning down tier 4).*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: LARA-8*
+
+- **Retail:** LaraSurfaceCollision tests climb-out in every surface state, gated
+  by y_rot == move_angle. That is true in both Surface-swim and Surface-tread.
+- **Ours:** only the Surface-swim collision calls `c_checkWaterOut`
+  (`openlara/lara.h:2544`).
 
 ### 28. RefreshCamera returns at the first non-matching camera command
 *Closed 2026-11-18 (see git log): all the trigger's camera commands run, the verdict at the end.*
