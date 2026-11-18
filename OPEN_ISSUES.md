@@ -951,33 +951,6 @@ INV-3*
 - **Effect:** with one medipack no health bar shows, and the bar is in the wrong
   place.
 
-### 145. The options ring holds the wrong items
-*Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-8,
-SND-C10*
-
-- **Retail:** Construct_Inventory (`06018518`), with the list at `0x060623e4`
-  (Game, Gamma, Controls, Gym, Sound).
-  - **In game** (count 2): Game (the passport) and Gamma.
-  - **At the title** (count 4): Game, Gamma, Controls and Gym. Sound and Detail
-    Levels are never shown.
-  - **Gamma** (Option_Gamma `06027014`): Left/Right steps a global VDP2 colour
-    offset (`DAT_060627a0`) by ±8 in −127..127. It auto-repeats every 10
-    vblanks, with a slider drawn on the item.
-  - **Controls** (Option_Control `0602733c`/`060274b8`, labels `060276fc`):
-    Up/Down cycles "Control Method 1/2/3" over a pad diagram of button glyphs
-    and labels, with the background dimmed to −128. See issue 29.
-  - Retail's sound option (`060271c4`, unused) has two sliders that nothing
-    reads.
-- **Ours:** `openlara/inventory.h:452-465`, `1262-1278`.
-  - In game and on death the ring holds Passport, Controls, Detail ("Graphics")
-    and Sound; the title adds Lara's Home.
-  - Graphics holds Gamma bar, Show FPS and VSync. Sound holds SFX on/off and
-    Music on/off. Controls holds Rumble and Swap A B.
-  - On Saturn, Gamma, VSync, Rumble and Swap do nothing. osSetPalette and
-    osJoyVibrate are empty stubs (`saturn/os.cpp:95-101`), and controls_swap is
-    used only in the GBA input path.
-- **Effect:** a different options ring, with dead and debug options.
-
 ### 146. Ring and item labels differ
 *Severity: visible · Confidence: confirmed ("Gym" likely) · Fix: small · Audit:
 INV-9*
@@ -2361,6 +2334,35 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 145. The options ring holds the wrong items
+*Closed 2026-11-17: 6d3514d. Game and Gamma in game, Controls and the Gym at the title; Gamma steps the colour offset; Controls picks retail's three methods, shown as retail prints them; the settings file is gone. The slider's look is our bar in retail's frame.*
+
+*Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-8,
+SND-C10*
+
+- **Retail:** Construct_Inventory (`06018518`), with the list at `0x060623e4`
+  (Game, Gamma, Controls, Gym, Sound).
+  - **In game** (count 2): Game (the passport) and Gamma.
+  - **At the title** (count 4): Game, Gamma, Controls and Gym. Sound and Detail
+    Levels are never shown.
+  - **Gamma** (Option_Gamma `06027014`): Left/Right steps a global VDP2 colour
+    offset (`DAT_060627a0`) by ±8 in −127..127. It auto-repeats every 10
+    vblanks, with a slider drawn on the item.
+  - **Controls** (Option_Control `0602733c`/`060274b8`, labels `060276fc`):
+    Up/Down cycles "Control Method 1/2/3" over a pad diagram of button glyphs
+    and labels, with the background dimmed to −128. See issue 29.
+  - Retail's sound option (`060271c4`, unused) has two sliders that nothing
+    reads.
+- **Ours:** `openlara/inventory.h:452-465`, `1262-1278`.
+  - In game and on death the ring holds Passport, Controls, Detail ("Graphics")
+    and Sound; the title adds Lara's Home.
+  - Graphics holds Gamma bar, Show FPS and VSync. Sound holds SFX on/off and
+    Music on/off. Controls holds Rumble and Swap A B.
+  - On Saturn, Gamma, VSync, Rumble and Swap do nothing. osSetPalette and
+    osJoyVibrate are empty stubs (`saturn/os.cpp:95-101`), and controls_swap is
+    used only in the GBA input path.
+- **Effect:** a different options ring, with dead and debug options.
 
 ### 161. The FPS counter is on by default
 *Closed 2026-11-17: the game as shipped has no FPS counter (debug.cpp and the overlay are HW_LOG builds' only, f4c813f); HW_LOG builds keep theirs. The ring's Show FPS now does nothing: issue 145 takes it out with the other options retail lacks.*
