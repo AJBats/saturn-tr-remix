@@ -1353,7 +1353,7 @@ word. Of the same kind and already open: 264, 265, 266.
 ## Closed
 
 ### 151. Ring motion details
-*Closed 2026-11-18 (see git log): as retail's; B at the title still does nothing, as there's no Press START screen to go back to (issue 162).*
+*Closed 2026-11-18 (see git log): as retail's.*
 
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-14*
 
@@ -1370,7 +1370,7 @@ word. Of the same kind and already open: 264, 265, 266.
   - Items always close by reversing to frame 0.
 
 ### 149. The key ring pre-selects the matching key at a keyhole
-*Closed 2026-11-18 (see git log): as retail's; B at the title still does nothing, as there's no Press START screen to go back to (issue 162).*
+*Closed 2026-11-18 (see git log): as retail's.*
 
 *Severity: subtle · Confidence: likely · Fix: small · Audit: INV-12*
 
