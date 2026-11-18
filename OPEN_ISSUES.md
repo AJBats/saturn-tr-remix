@@ -310,23 +310,6 @@ SND-C8*
 
 ## Audio
 
-### 177. Retail's per-sample volume halving isn't reproduced
-*Severity: subtle to audible · Confidence: confirmed · Fix: small · Audit:
-SND-3*
-
-- **Retail:**
-  - `DAT_06063218` halves the volume (vol >> 1 before mapping, about −11 dB) for
-    SFX 0 variants 0–3, 2, 22, 37, 108, 110, 116 and 147.
-  - The halving is applied only at key-on. The per-frame update (`0603c720`)
-    re-applies the full volume to positioned sounds.
-  - So the halving lasts the whole sound only for sounds with no position: ring
-    rotate 108, controls select 110, the medipack 116, and the earthquake rumble
-    147.
-- **Ours:** not in `sfx.py` or `sound.cpp`.
-- **Effect:** the inventory rotate, controls select and medipack sounds are about
-  11 dB louder than retail.
-- **Fix:** a table in `sfx.py`, and an attenuation bit in the offsets.
-
 ### 179. No stereo pan
 *Severity: audible · Confidence: confirmed (code; which side is left needs a
 listen) · Fix: small to medium · Audit: SND-5*
@@ -1139,6 +1122,25 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 177. Retail's per-sample volume halving isn't reproduced
+*Closed 2026-11-18 (see git log): unplaced plays of the halved sounds at half level.*
+
+*Severity: subtle to audible · Confidence: confirmed · Fix: small · Audit:
+SND-3*
+
+- **Retail:**
+  - `DAT_06063218` halves the volume (vol >> 1 before mapping, about −11 dB) for
+    SFX 0 variants 0–3, 2, 22, 37, 108, 110, 116 and 147.
+  - The halving is applied only at key-on. The per-frame update (`0603c720`)
+    re-applies the full volume to positioned sounds.
+  - So the halving lasts the whole sound only for sounds with no position: ring
+    rotate 108, controls select 110, the medipack 116, and the earthquake rumble
+    147.
+- **Ours:** not in `sfx.py` or `sound.cpp`.
+- **Effect:** the inventory rotate, controls select and medipack sounds are about
+  11 dB louder than retail.
+- **Fix:** a table in `sfx.py`, and an attenuation bit in the offsets.
 
 ### 218. The object cull sphere is smaller than the bounding box's corners
 *Closed 2026-11-18 (see git log): a sphere past the box's corners (7/8 of its largest extent), not retail's eight projected corners.*
