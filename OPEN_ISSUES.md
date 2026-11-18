@@ -875,62 +875,6 @@ Audit: SND-C9*
 
 ## Numeric primitives and timing
 
-### 196. The projection divide table: vertex jitter, and it saves nothing on the CPUs (reported)
-*Severity: visible · Confidence: confirmed (error measured; cycle counts from
-the asm) · Fix: medium · Audit: MATH-2*
-
-- **Retail:** three hardware divides per vertex (`0604127c` meshes, `06041a80`
-  rooms).
-  1. zv/persp is started, then overlapped with the x dot product (about 14
-     instructions). Reading the quotient stalls about 23 cycles.
-  2. x/zp overlaps the y dot product, stalling about 22 cycles.
-  3. y/zp is read 2 instructions after it starts, stalling about 36 cycles.
-
-  That is about 80 stall cycles out of about 170 per vertex. The results are
-  effectively exact: zp keeps 14 fraction bits, and division truncates toward
-  zero.
-- **Ours:** `d = divTable[z >> 4]`, i.e. 65536/i truncated to 16 bits
-  (DIV_TABLE_SIZE 1281, `openlara/common.h:170`, `573-581`), then
-  `(x·d) >> 12`. The lookup costs about 6 cycles. Used in:
-  - `projectView`, and `saturn/render.cpp:320`, `1523`
-  - `xform.s`, `meshxform.s`
-  - `project.dsp`; `rooms.cpp:531` builds its table
-- **Error** against an exact integer reference, at the same focal length, for a
-  vertex 176 px off centre:
-
-  | z (world units) | Max error | Mean error |
-  |---|---|---|
-  | 80–128 | 34–35 px | about 14 px |
-  | 128–256 | 21 px | 7.5–8.3 px |
-  | 256–512 | 11 px | 3.6–4.5 px |
-  | 512–1024 | 6 px | 1.8–2.7 px |
-  | 1024–2048 | 3–4 px | 0.9–1.8 px |
-  | 2048–8192 | 2–3 px | 0.4–1.3 px |
-  | 8192–20480 | 3–4 px | 0.6–1.4 px |
-
-  - Near the camera the error comes from z >> 4 quantisation. Far away it comes
-    from the truncated d, which is only 51–128 at those depths (steps of up to
-    2%).
-  - Left of and above centre get an extra 1 px bias (floor against truncate).
-  - Vertices jump by these steps as z crosses multiples of 16, so walls and
-    floors right next to the camera wobble by 10–35 px.
-- **Cost:**
-  - Against retail's 3-divide scheme, the table saves about 75 cycles per vertex
-    (about 2.6 µs at 28.6 MHz).
-  - Against a **single** exact reciprocal per vertex, it saves nothing. Start
-    DVSR/DVDNT right after z, as retail does, and read it after the roughly 30
-    instructions of x/y work. That costs about 3–10 cycles per vertex, roughly
-    0.2–0.6 ms per frame at 2000 vertices. It needs a 32-bit multiply
-    (`dmuls.l`) for z below about 256.
-  - The DSP has no divider, so `project.dsp` needs a table regardless.
-- **Fix:**
-  - CPU: one overlapped reciprocal divide per vertex.
-  - DSP: a finer table indexed by z >> 2, with 32-bit 2^28/i entries. It is
-    fetched by DMA either way, so the cost per vertex is the same. At 20 KB it is
-    too big for the CPU cache, which is why the CPUs should use the divider.
-  - The crunch lab measured "exact divide" at corner p99 1.93 → 1.31 px and −3%
-    flicker at the ledge.
-
 ### 197. Other approximate divides where retail divides exactly
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: MATH-3*
 
@@ -1885,6 +1829,64 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 196. The projection divide table: vertex jitter, and it saves nothing on the CPUs (reported)
+*Closed 2026-11-18 (see git log): meshes nearer than z 1024 and sprites nearer than 2048 project by 0x100000 / z exactly; past that every vertex by 0x1000000 / z per 16 of z, rounded at the step's middle. Worst error 176 px off centre now 1 px, but 2 px for mesh vertices between z 1024 and 2048. Still on divTable: card meshes' and shimmers' sizes and the mesh sphere cull.*
+
+*Severity: visible · Confidence: confirmed (error measured; cycle counts from
+the asm) · Fix: medium · Audit: MATH-2*
+
+- **Retail:** three hardware divides per vertex (`0604127c` meshes, `06041a80`
+  rooms).
+  1. zv/persp is started, then overlapped with the x dot product (about 14
+     instructions). Reading the quotient stalls about 23 cycles.
+  2. x/zp overlaps the y dot product, stalling about 22 cycles.
+  3. y/zp is read 2 instructions after it starts, stalling about 36 cycles.
+
+  That is about 80 stall cycles out of about 170 per vertex. The results are
+  effectively exact: zp keeps 14 fraction bits, and division truncates toward
+  zero.
+- **Ours:** `d = divTable[z >> 4]`, i.e. 65536/i truncated to 16 bits
+  (DIV_TABLE_SIZE 1281, `openlara/common.h:170`, `573-581`), then
+  `(x·d) >> 12`. The lookup costs about 6 cycles. Used in:
+  - `projectView`, and `saturn/render.cpp:320`, `1523`
+  - `xform.s`, `meshxform.s`
+  - `project.dsp`; `rooms.cpp:531` builds its table
+- **Error** against an exact integer reference, at the same focal length, for a
+  vertex 176 px off centre:
+
+  | z (world units) | Max error | Mean error |
+  |---|---|---|
+  | 80–128 | 34–35 px | about 14 px |
+  | 128–256 | 21 px | 7.5–8.3 px |
+  | 256–512 | 11 px | 3.6–4.5 px |
+  | 512–1024 | 6 px | 1.8–2.7 px |
+  | 1024–2048 | 3–4 px | 0.9–1.8 px |
+  | 2048–8192 | 2–3 px | 0.4–1.3 px |
+  | 8192–20480 | 3–4 px | 0.6–1.4 px |
+
+  - Near the camera the error comes from z >> 4 quantisation. Far away it comes
+    from the truncated d, which is only 51–128 at those depths (steps of up to
+    2%).
+  - Left of and above centre get an extra 1 px bias (floor against truncate).
+  - Vertices jump by these steps as z crosses multiples of 16, so walls and
+    floors right next to the camera wobble by 10–35 px.
+- **Cost:**
+  - Against retail's 3-divide scheme, the table saves about 75 cycles per vertex
+    (about 2.6 µs at 28.6 MHz).
+  - Against a **single** exact reciprocal per vertex, it saves nothing. Start
+    DVSR/DVDNT right after z, as retail does, and read it after the roughly 30
+    instructions of x/y work. That costs about 3–10 cycles per vertex, roughly
+    0.2–0.6 ms per frame at 2000 vertices. It needs a 32-bit multiply
+    (`dmuls.l`) for z below about 256.
+  - The DSP has no divider, so `project.dsp` needs a table regardless.
+- **Fix:**
+  - CPU: one overlapped reciprocal divide per vertex.
+  - DSP: a finer table indexed by z >> 2, with 32-bit 2^28/i entries. It is
+    fetched by DMA either way, so the cost per vertex is the same. At 20 KB it is
+    too big for the CPU cache, which is why the CPUs should use the divider.
+  - The crunch lab measured "exact divide" at corner p99 1.93 → 1.31 px and −3%
+    flicker at the ledge.
 
 ### 214. Midas twinkles are missing
 *Closed 2026-11-18 (see git log, 7a02d1e): twinkles on her hands while she uses the Midas hand, and over each mesh gone gold in the gold death.*
