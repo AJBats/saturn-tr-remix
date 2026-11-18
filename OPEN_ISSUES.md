@@ -1023,16 +1023,6 @@ INV-9*
   - Two files: TOMBR_SAVE (its comment is the level's file name) and TOMBR_CFG.
   - `osSaveSettings` rewrites backup RAM on every option toggle.
 
-### 160. No pickup notification
-*Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-23*
-
-- **Retail:** AddDisplayPickup (`060161d0`) and DrawPickups (`060160f8`).
-  - The picked-up item's sprite appears bottom right, at (W − W/10, H − W/10),
-    at sprite scale 0x3000, for 75 game frames.
-  - Up to 3 at once, each stepping left by (W/10)·4/3.
-  - It's a 2D sprite, not a spinning model.
-- **Ours:** nothing (`openlara/object.h:579-664` only adds to the counts).
-
 ### 162. No "Press START" title screen, no attract demos, no return to it
 *Severity: visible · Confidence: confirmed · Fix: medium (screen), large (demos)
 · Audit: INV-25*
@@ -2313,6 +2303,18 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 160. No pickup notification
+*Closed 2026-11-17: dbf9d77. Retail's three slots, scale, place and 75 ticks.*
+
+*Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-23*
+
+- **Retail:** AddDisplayPickup (`060161d0`) and DrawPickups (`060160f8`).
+  - The picked-up item's sprite appears bottom right, at (W − W/10, H − W/10),
+    at sprite scale 0x3000, for 75 game frames.
+  - Up to 3 at once, each stepping left by (W/10)·4/3.
+  - It's a 2D sprite, not a spinning model.
+- **Ours:** nothing (`openlara/object.h:579-664` only adds to the counts).
 
 ### 158. Health and air bars: position, size and colours
 *Closed 2026-11-17: 73f579d. Retail's boxes, positions and colours.*
