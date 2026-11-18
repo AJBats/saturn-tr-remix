@@ -74,7 +74,7 @@ static render::CallRecord* call(uint8 kind, uint32 index)
         return nullptr;
     render::CallRecord &c = gCalls[gCallCount++];
     c.kind = kind;
-    c.pad = 0;
+    c.room = 0;
     c.index = index;
     c.flags = gMeshFaceFlags;
     memset(c.args, 0, sizeof(c.args));
@@ -199,10 +199,11 @@ void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room
     }
 }
 
-void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index)
+void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index, bool room)
 {
     if (render::CallRecord* c = call(render::CALL_SPRITE, index))
     {
+        c->room = room;
         c->args[0] = vx;
         c->args[1] = vy;
         c->args[2] = vz;

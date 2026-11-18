@@ -3097,7 +3097,7 @@ void renderShadowCall(const ItemObj* item, int32 floor, int32 size);
 void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index);
 void renderRoomsFlipped();  // after flipMap, at levelCommit
 void renderTexturesShifted();   // after animTexturesShift
-void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index);
+void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index, bool room);
 void renderGlyph(int32 vx, int32 vy, int32 index);
 void renderScreenSprite(int32 vx, int32 vy, int32 scale, int32 index);
 void pickupShow(int32 type);    // a picked-up item's sprite, bottom right a while (draw.h)

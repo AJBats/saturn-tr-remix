@@ -81,6 +81,7 @@
     .equ    D_DIV_SCALED,   252     ! 0x1000000 / z by z >> 4
 
     .equ    CALL_BYTES,     32      ! CallRecord
+    .equ    C_ROOM,         1       ! a room's sprite
     .equ    C_INDEX,        2
     .equ    C_FLAGS,        4
     .equ    C_ARGS,         8
@@ -1193,6 +1194,16 @@
     SAR     r1, r0
     SAR     r7, r0
     SAR     r2, r0
+    ! a room's sprite none within 640, as retail's (0603feda: z <= near << 3)
+    mov.b   @(C_ROOM,r14), r0
+    tst     r0, r0
+    bt      3f
+    mov.w   .Lsprite_near, r0
+    cmp/gt  r0, r2
+    bt      3f
+    bra     .Lsprited
+    nop
+3:
     ! its corners about it (the sprite's l t r b, by the view's scale)
     mov.w   @(C_INDEX,r14), r0
     extu.w  r0, r0
@@ -1285,8 +1296,12 @@
     bt      .Lsprited
     cmp/eq  r5, r7
     bt      .Lsprited
-    ! the shade, fogged past FOG_MIN
+    ! the shade, a room's fogged past FOG_MIN; an item's or effect's as
+    ! given (retail's S_DrawSprite, 06038aac: no depth in it)
     mov.l   @(C_ARGS+12,r14), r1
+    mov.b   @(C_ROOM,r14), r0
+    tst     r0, r0
+    bt      2f
     mov     #3, r0
     shll8   r0
     shll2   r0
@@ -1352,6 +1367,7 @@
     .align  1
 .Ldiv_last2: .word  1280
 .Lsprite_exact: .word  2048         ! VIEW_EXACT
+.Lsprite_near:  .word  640
     .align  2
 .LfocalScale: .long _gFocalScale
 

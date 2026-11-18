@@ -184,7 +184,7 @@ void drawShadow(const ItemObj* item, int32 size)
 
 void drawSprite(const ItemObj* item)
 {
-    renderSprite(item->pos.x, item->pos.y, item->pos.z, item->intensity << 5, level.models[item->type].start + item->frameIndex);
+    renderSprite(item->pos.x, item->pos.y, item->pos.z, item->intensity << 5, level.models[item->type].start + item->frameIndex, false);
 }
 
 // The renderer tests the model's sphere, poses and lights it, and draws its
@@ -214,7 +214,7 @@ void drawRoomObjects(Room* room)
     for (int32 i = 0; i < info->spritesCount; i++)
     {
         const RoomSprite* sprite = data.sprites + i;
-        renderSprite(sprite->pos.x + rx, sprite->pos.y, sprite->pos.z + rz, sprite->g << 5, sprite->index);
+        renderSprite(sprite->pos.x + rx, sprite->pos.y, sprite->pos.z + rz, sprite->g << 5, sprite->index, true);
     }
 
     rx -= gCameraViewPos.x;

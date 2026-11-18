@@ -369,7 +369,8 @@ enum CallKind { CALL_VIEWPORT = 1, CALL_MODEL, CALL_STATIC, CALL_SHADOW, CALL_SP
 
 struct CallRecord
 {
-    uint8_t kind, pad;
+    uint8_t kind;
+    uint8_t room;           // a sprite: a room's (fogged, and none within 640 of the camera)
     uint16_t index;         // a model's or shadow's ItemRecord, a static's room, a sprite's, a rectangle's type,
                             // a glyph's sprite, a mesh's matrix (FrameCalls.matrices), a quad's colour
     uint32_t flags;         // the faces' at the call (FACE_WATER)
