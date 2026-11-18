@@ -451,29 +451,6 @@ not seen running) · Fix: small · Audit: GUN-9*
 - **Effect:** picking the pistols in the ring while they're holstered draws them.
   Retail closes the ring with them still holstered.
 
-### 65. Enemy gunmen: blood at their gun, no hit sound, no muzzle flash, misses in mid-air
-*Severity: visible / audible · Confidence: confirmed (the ricochet height is
-likely) · Fix: medium · Audit: GUN-15, AI-27, GFX-9*
-
-- **Retail:** GunShot (`060286e4`), GunHit (`06028778`), GunMiss
-  (`06028890`); TR1X `people.c`.
-  - Every shot spawns an O_GUN_FLASH mesh effect: 3 frames, shade 0x1000,
-    random roll.
-  - A hit puts blood on a random joint of Lara and plays SFX 50 at Lara.
-  - A miss puts the ricochet at Lara's floor height, within ±256 in x and z,
-    using the **draw** RNG.
-- **Ours:** `Gunman::shoot` (`openlara/enemy.h:2249-2267`).
-  - A hit calls `bite()`, which puts the blood at the shooter's own muzzle joint
-    (`enemy.h:448-449`).
-  - A miss puts the ricochet 512–1535 units above Lara's feet
-    (`enemy.h:2262`), using the logic RNG.
-  - There is no flash; MUZZLE_FLASH is never instanced.
-  - SFX 50 is never played.
-- **Effect:** Larson, Pierre, the cowboy, Kold, the skater and Natla fire without
-  a flash. A hit shows a red puff at their gun with no sound, and a miss shows
-  sparks in the air instead of on the floor.
-- **Fix:** port GunShot, GunHit and GunMiss.
-
 ### 66. Creature bite blood doesn't move with the creature
 *Severity: subtle · Confidence: confirmed (PC code; the Saturn bite was not
 checked) · Fix: small · Audit: GUN-16*
@@ -1980,6 +1957,31 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 65. Enemy gunmen: blood at their gun, no hit sound, no muzzle flash, misses in mid-air
+*Closed 2026-11-18 (see git log): GunShot, GunHit, GunMiss ported.*
+
+*Severity: visible / audible · Confidence: confirmed (the ricochet height is
+likely) · Fix: medium · Audit: GUN-15, AI-27, GFX-9*
+
+- **Retail:** GunShot (`060286e4`), GunHit (`06028778`), GunMiss
+  (`06028890`); TR1X `people.c`.
+  - Every shot spawns an O_GUN_FLASH mesh effect: 3 frames, shade 0x1000,
+    random roll.
+  - A hit puts blood on a random joint of Lara and plays SFX 50 at Lara.
+  - A miss puts the ricochet at Lara's floor height, within ±256 in x and z,
+    using the **draw** RNG.
+- **Ours:** `Gunman::shoot` (`openlara/enemy.h:2249-2267`).
+  - A hit calls `bite()`, which puts the blood at the shooter's own muzzle joint
+    (`enemy.h:448-449`).
+  - A miss puts the ricochet 512–1535 units above Lara's feet
+    (`enemy.h:2262`), using the logic RNG.
+  - There is no flash; MUZZLE_FLASH is never instanced.
+  - SFX 50 is never played.
+- **Effect:** Larson, Pierre, the cowboy, Kold, the skater and Natla fire without
+  a flash. A hit shows a red puff at their gun with no sound, and a miss shows
+  sparks in the air instead of on the floor.
+- **Fix:** port GunShot, GunHit and GunMiss.
 
 ### 67. The gun flash's rotation is fixed for the whole flash
 *Closed 2026-11-18 (see git log): the flash re-rolls its turn each drawn frame.*
