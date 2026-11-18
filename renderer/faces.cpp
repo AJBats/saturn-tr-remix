@@ -313,8 +313,13 @@ static void unlinkCommand(CommandList &list, uint32_t link, int32_t depth)
 // then moved by the buckets, or the faces the hints name, in their order,
 // taken back out of their buckets and held. facesMeshAsm makes a command for
 // each face its tests keep, in order: each command's face, its polygon and
-// bucket, from those tests here.
+// bucket, from those tests here. The game's largest mesh has 163 faces; past
+// the limit a mesh's faces keep their own buckets.
+#ifdef RENDER_LAB
 #define MAX_MADE_FACES  512
+#else
+#define MAX_MADE_FACES  192
+#endif
 void facesMeshHinted(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList &list,
                      const HintFaces &hints, HeldCommand* held, int32_t &count, int32_t room)
 {
