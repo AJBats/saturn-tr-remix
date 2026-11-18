@@ -32,7 +32,7 @@ void renderWalkAhead(Room* cameraRoom);
 // room's origin from the camera.
 void renderModel(const ItemObj* item);
 void renderModelUnder(const ItemObj* item);
-void renderShadowCall(const ItemObj* item, int32 floor);
+void renderShadowCall(const ItemObj* item, int32 floor, int32 size);
 void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index);
 
 // Memory to borrow while nothing is drawn (videos between levels): the

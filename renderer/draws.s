@@ -960,8 +960,8 @@
     rts
     nop
 
-! drawShadow, the floor given: the call at r14, after its item's model's,
-! if that was shown
+! drawShadow, the floor and size given: the call at r14, after its item's
+! model's, if that was shown
 .Lshadow:
     mov.w   @(C_INDEX,r14), r0
     extu.w  r0, r1
@@ -991,7 +991,10 @@
     mov.l   @(D_ITEM_COUNT,gbr), r0
     add     #-1, r0
     mov.w   r0, @(2,r2)
-    mov.l   r1, @(4,r2)
+    mov     r1, r0
+    mov.w   r0, @(4,r2)
+    mov.l   @(C_ARGS+4,r14), r0     ! the size
+    mov.w   r0, @(6,r2)
     mov     #DRAW_SHADOW, r4
     mov     #0, r5
     mov.l   @(C_FLAGS,r14), r6

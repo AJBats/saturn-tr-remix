@@ -25,8 +25,6 @@ struct Enemy : ItemObj
 {
     Enemy(Room* room, int32 _health, int32 _radius, int32 _headOffset, int32 _aggression) : ItemObj(room)
     {
-        flags |= ITEM_FLAG_SHADOW;
-
     #ifndef STATIC_ITEMS
         // retail's InitialiseCreature; the mummy has its own, without
         if (type != ITEM_MUMMY) {
@@ -992,7 +990,6 @@ struct Doppelganger : Enemy
     {
         headOffset = 0;
         aggression = 0;
-        flags &= ~ITEM_FLAG_SHADOW;
     }
 
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
@@ -1089,9 +1086,7 @@ struct Doppelganger : Enemy
         }
         type = ITEM_LARA;
         extra = (uint8*)e;
-        flags |= ITEM_FLAG_SHADOW;
         drawModel(this);
-        flags &= ~ITEM_FLAG_SHADOW;
         type = oldType;
         extra = oldExtra;
         animIndex = oldAnim;

@@ -1516,7 +1516,7 @@ _poseLightAsm:
 ! the item's light from ctx->lit, the box's centre and half sizes.
 !
 ! PoseStatic (scene.h): +0 draw, +2 quadrant, +4 intensity, +8 x y z; 20.
-! PoseShadow: +0 draw, +2 item, +4 floor; 8.
+! PoseShadow: +0 draw, +2 item, +4 floor, +6 size; 8.
 
     .equ    C_ITEMS,        192     ! the items, for the shadows
     .equ    S_DRAW,         0
@@ -1527,6 +1527,7 @@ _poseLightAsm:
     .equ    H_DRAW,         0
     .equ    H_ITEM,         2
     .equ    H_FLOOR,        4
+    .equ    H_SIZE,         6
     .equ    SHADOW,         8
     .equ    X_SHADOW,       62
 
@@ -1767,7 +1768,7 @@ _poseShadowsAsm:
     mov.l   @(I_DELTA,r9), r1
     tst     r1, r1
     EXTENT  8
-    ! the centre and the half sizes: (max + min) >> 1, (max - min) 160 >> 10,
+    ! the centre and the half sizes: (max + min) >> 1, (max - min) size >> 10,
     ! kept on the stack (whole longwords: an interrupt pushes there)
     add     #-8, r15
     mov.l   .Lh2p22, r1
@@ -1779,8 +1780,8 @@ _poseShadowsAsm:
     add     r2, r0
     shar    r0
     mov.w   r0, @(4,r15)            ! z
-    mov     #-96, r6
-    extu.b  r6, r6                  ! 160
+    mov.w   @(H_SIZE,r10), r0
+    extu.w  r0, r6                  ! the size
     sub     r11, r7
     mul.l   r6, r7
     sts     macl, r7
@@ -1801,7 +1802,8 @@ _poseShadowsAsm:
     mov.l   @(I_POS,r9), r2
     mov.l   @(C_CAMERA,gbr), r0
     sub     r0, r2
-    mov.l   @(H_FLOOR,r10), r3
+    mov.w   @(H_FLOOR,r10), r0
+    mov     r0, r3
     mov.l   @(C_CAMERA+4,gbr), r0
     sub     r0, r3
     mov.l   @(I_POS+8,r9), r4

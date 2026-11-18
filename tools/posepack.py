@@ -65,9 +65,10 @@ POSE_ARM = struct.Struct('>Ii3hBx')
 # (count, first in LGHT); LGHT: Light (int16 x y z, radius, intensity)
 POSE_LIGHT = struct.Struct('>2h3BxI')
 # PoseStatic (lab/scene.h): its draw, quarter turn, intensity (STATIC_MESH_INTENSITY), place in the
-# world; PoseShadow: its draw, its item (POSE's), the floor under it
+# world; PoseShadow: its draw, its item (POSE's), the floor under it, its size
+# (the captures' shadows were all 160)
 POSE_STATIC = struct.Struct('>HBxi3i')
-POSE_SHADOW = struct.Struct('>HHi')
+POSE_SHADOW = struct.Struct('>HHhH')
 NONE = 0xFFFFFFFF
 
 
@@ -205,7 +206,7 @@ def pack(mem, sym, recs, first_draws, header, statics, shadows, maps=None):
                 break
         else:
             raise SystemExit(f'shadow at draw {draw}: no floor gives its matrix')
-        shadow_data += POSE_SHADOW.pack(draw, item, guess + cam[1])
+        shadow_data += POSE_SHADOW.pack(draw, item, guess + cam[1], 160)
     if maps is not None:
         maps['nodes'] = dict(node_at)
         maps['lights'] = {(room - sym('_rooms')) // L['rooms']: at for room, at in light_at.items()}

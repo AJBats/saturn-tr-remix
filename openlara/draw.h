@@ -161,12 +161,25 @@ void drawText(int32 x, int32 y, const char* text, TextAlign align)
     }
 }
 
-// The item's shadow (the renderer's: its size 160), on the floor under it.
-void drawShadow(const ItemObj* item)
+// Retail's shadow sizes by type (its object table's +0x2e, set up in
+// 0602cf08), less 1; 0: none. The mutants copy the winged one's; the mummy,
+// the skateboard, the cutscenes' actors and everything past the sword have none.
+static const uint8 kShadowSize[ITEM_TRAP_SWORD + 1] = {
+    159, 0, 0, 0, 0, 0, 159,                // Lara; the doppelganger
+    127, 127, 127, 84, 84,                  // wolf, bear, bat; crocodiles
+    127, 127, 127, 127, 127, 127,           // lions, puma, gorilla, rats
+    63, 127, 84, 84, 84, 84,                // T-rex, raptor, mutants, centaur
+    0, 0, 0, 127, 127, 0, 127, 127, 127, 127,   // mummy; Larson, Pierre, skater, cowboy, Kold, Natla
+    84, 0, 127, 0, 0, 127, 0, 0, 0,         // Adam; the pendulum; darts
+    255                                     // the Damocles sword
+};
+
+// The item's shadow, on the floor under it.
+void drawShadow(const ItemObj* item, int32 size)
 {
     const Sector* sector = item->room->getSector(item->pos.x, item->pos.z);
     int32 floor = sector->getFloor(item->pos.x, item->pos.y, item->pos.z);
-    renderShadowCall(item, floor);
+    renderShadowCall(item, floor, size);
 }
 
 void drawSprite(const ItemObj* item)
@@ -179,8 +192,8 @@ void drawSprite(const ItemObj* item)
 void drawModel(const ItemObj* item)
 {
     renderModel(item);
-    if (item->flags & ITEM_FLAG_SHADOW) {
-        drawShadow(item);
+    if (item->type <= ITEM_TRAP_SWORD && kShadowSize[item->type]) {
+        drawShadow(item, kShadowSize[item->type] + 1);
     }
 }
 

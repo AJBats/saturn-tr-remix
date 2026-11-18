@@ -174,13 +174,15 @@ void renderMeshSwap(int32 a, int32 b)
     gMeshIndex[b] = t;
 }
 
-void renderShadowCall(const ItemObj* item, int32 floor)
+void renderShadowCall(const ItemObj* item, int32 floor, int32 size)
 {
     // its model's call is the last
     if (!gItemCount || gItems[gItemCount - 1].index != item - items)
         return;
-    if (render::CallRecord* c = call(render::CALL_SHADOW, gItemCount - 1)) {
+    if (render::CallRecord* c = call(render::CALL_SHADOW, gItemCount - 1))
+    {
         c->args[0] = floor;
+        c->args[1] = size;
     }
 }
 

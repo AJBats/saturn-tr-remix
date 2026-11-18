@@ -871,8 +871,6 @@ struct CinematicObject : Object
             gCinematicCamera.view.room = room;
         }
 
-        flags |= ITEM_FLAG_SHADOW;
-
         activate();
     }
 
@@ -1461,10 +1459,7 @@ struct TrapSwingBlade : Object
         STATE_END
     };
 
-    TrapSwingBlade(Room* room) : Object(room)
-    {
-        flags |= ITEM_FLAG_SHADOW;
-    }
+    TrapSwingBlade(Room* room) : Object(room) {}
 
     virtual void collide(Lara* lara, CollisionInfo* cinfo)
     {
@@ -1502,10 +1497,7 @@ struct TrapSwingBlade : Object
 
 struct Dart : Object
 {
-    Dart(Room* room) : Object(room)
-    {
-        flags |= ITEM_FLAG_SHADOW;
-    }
+    Dart(Room* room) : Object(room) {}
 
     virtual void collide(Lara* lara, CollisionInfo* cinfo)
     {

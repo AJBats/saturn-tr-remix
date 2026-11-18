@@ -2740,7 +2740,6 @@ struct Lara : ItemObj
 
         health = LARA_MAX_HEALTH;
         oxygen = LARA_MAX_OXYGEN;
-        flags |= ITEM_FLAG_SHADOW;
 
         extraL->camera.init(this);
         extraL->healthTimer = 100;

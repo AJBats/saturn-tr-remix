@@ -291,7 +291,8 @@ struct PoseShadow
 {
     uint16_t draw;          // DRAW's
     uint16_t item;          // POSE's
-    int32_t floor;          // the floor's height under the item
+    int16_t floor;          // the floor's height under the item
+    uint16_t size;          // the shadow's, its half sizes the box's times size >> 10
 };
 
 struct RoomLevel

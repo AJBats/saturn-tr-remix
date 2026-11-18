@@ -177,7 +177,7 @@ void renderModelUnder(const ItemObj* item) {}
 void renderMesh(int32 mesh, int32 ambient) {}
 void renderMeshSwap(int32 a, int32 b) {}
 void renderBolt(int32 x1, int32 y1, int32 z1, int32 x2, int32 y2, int32 z2, int32 width) {}
-void renderShadowCall(const ItemObj* item, int32 floor) {}
+void renderShadowCall(const ItemObj* item, int32 floor, int32 size) {}
 void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index) {}
 void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index) {}
 void renderGlyph(int32 vx, int32 vy, int32 index) {}

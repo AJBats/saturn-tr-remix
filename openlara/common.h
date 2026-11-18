@@ -1229,7 +1229,6 @@ struct FixedCamera {
 #define ITEM_FLAG_ONCE              (1 << 8)
 #define ITEM_FLAG_MASK              (ITEM_FLAGS_MASK_ALL << ITEM_FLAGS_MASK_SHIFT)
 #define ITEM_FLAG_REVERSE           (1 << 14)
-#define ITEM_FLAG_SHADOW            (1 << 15)
 
 struct ItemObjInfo {
     uint8 type;
@@ -3094,7 +3093,7 @@ void renderModelUnder(const ItemObj* item);    // the inventory's: under the mat
 void renderMesh(int32 mesh, int32 ambient);     // a level mesh under the matrix on top, lit flat
 void renderMeshSwap(int32 a, int32 b);          // two level meshes trade places for drawing
 void renderBolt(int32 x1, int32 y1, int32 z1, int32 x2, int32 y2, int32 z2, int32 width);  // view space
-void renderShadowCall(const ItemObj* item, int32 floor);
+void renderShadowCall(const ItemObj* item, int32 floor, int32 size);
 void renderStatic(const RoomMesh* mesh, int32 rx, int32 ry, int32 rz, int32 room, int32 index);
 void renderRoomsFlipped();  // after flipMap, at levelCommit
 void renderTexturesShifted();   // after animTexturesShift
