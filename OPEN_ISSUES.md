@@ -1800,6 +1800,13 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Not the doppelganger: it shows with her drawing switched off. Perhaps a near face (263) or a
   room face of the next room; not traced.
 
+### 313. A sprite effect costs about 2,000 master cycles a frame
+*Kind: speed - Size: about 0.07 ms master and 0.04 ms slave a splash, Saturn - Fix: not looked into*
+
+- Measured 2026-11-18 with issue 118's spray (Saturn, Lost Valley room 56, 7 frames each, waterfall 50 off and on, about 11 splashes alive): master draw list +0.43 ms, draws +0.15, objects +0.13, item +0.13; slave update +0.40. Nothing in VDP1's share or the flush grew.
+- The spray has no path of its own: each splash is an `ITEM_SPLASH` `SpriteEffect` drawn by `ItemObj::draw` -> `drawSprite` -> `renderSprite`, the path every ricochet, blood spurt, bubble, smoke puff, twinkle and water-entry splash takes. A cheaper path pays for all of them.
+- Not traced. One difference worth checking: retail keeps these in its own effects list (TR1X `Effect_Create`), while OpenLara makes each a full item (room links, a virtual update, the item lists the draw walks).
+
 ## Production code: clean-up
 
 Not differences from retail, and not open work on the picture: what a shipping build still
@@ -1880,7 +1887,7 @@ word. Of the same kind and already open: 264, 265, 266.
 ## Closed
 
 ### 214. Midas twinkles are missing
-*Closed 2026-11-18 (see git log, 7a02d1e); the spray's Saturn cost is with the user (about 0.8 ms master, 0.5 slave a waterfall in reach).*
+*Closed 2026-11-18 (see git log, 7a02d1e): twinkles on her hands while she uses the Midas hand, and over each mesh gone gold in the gold death.*
 
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-10,
 LARA-23*
@@ -1896,7 +1903,7 @@ LARA-23*
   sparkle.
 
 ### 118. Waterfall mist is missing
-*Closed 2026-11-18 (see git log, 7a02d1e); the spray's Saturn cost is with the user (about 0.8 ms master, 0.5 slave a waterfall in reach).*
+*Closed 2026-11-18 (see git log, 7a02d1e). Saturn cost, Lost Valley room 56 with waterfall 50 on, 7 frames: master 11.7 -> 12.5 ms, slave 8.0 -> 8.5 ms a frame (about 11 splashes alive); kept as it is, the user's call 2026-11-18: a new effect costing a reasonable amount of work. The per-splash price is issue 313.*
 
 *Severity: visible · Confidence: confirmed · Fix: small · Audit: LVL-10,
 GFX-15*
