@@ -242,28 +242,6 @@ checked) · Fix: small · Audit: CAM-14*
   66 frames.
 - **Fix:** match retail's frame order and end condition.
 
-### 21. CUT3 doesn't flip the map
-*Severity: visible · Confidence: likely · Fix: small · Audit: CAM-15*
-
-- **Retail:** the cutscene start routine (`0600d574`), case 0x12, calls FlipMap
-  (`060112a8`).
-- **Ours:** `openlara/camera.h:32` has `//level.flip()` commented out.
-- **Effect:** CUT3 shows the unflipped rooms. What the flip changes on screen was
-  not checked.
-- **Fix:** restore the call.
-
-### 22. Loading a save restores the old camera instead of re-initialising it
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: CAM-16*
-
-- **Retail:** GameLoop (`0601636c`) calls InitialiseCamera (`0600bfe0`) for
-  every session. The camera starts 1024 above Lara and 100 behind her, then
-  pulls out at 1/12. Saves contain no camera position.
-- **Ours:** `openlara/lara.h:4101-4106` and `4133-4140` save and restore
-  `view.pos`, the room and `lastIndex`.
-- **Effect:** on every load, retail's pull-back from above Lara's head is
-  missing.
-- **Fix:** initialise the camera on load; stop saving it.
-
 ### 25. The inventory's background scene is drawn without the camera shift
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: CAM-20*
 
@@ -983,19 +961,6 @@ INV-3*
 - **Ours:** `saturn/main.cpp:70-78`, `os.cpp:106-111`. Straight from the CAFE
   FMV to the ring. No Press START, no demos, and B does nothing.
 - **Needs:** demos need deterministic logic (issue 202).
-
-### 165. The ending sequence differs
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-28*
-
-- **Retail:** `060163d8` case 15, and the ending (`06016bac`).
-  1. The Great Pyramid's stats, and the save prompt.
-  2. END, which can't be skipped.
-  3. CRED224 for 900 vblanks (15 s).
-  4. CORELOGO, then CAFE, then Press START.
-
-  ENDPG224 is never shown.
-- **Ours:** `saturn/os.cpp:132-139`. END, then CRED224 for 8 s, then ENDPG224
-  for 8 s, then the ring.
 
 ### 169. No pause on pad disconnect; only a pad in port 1
 *Severity: subtle · Confidence: likely · Fix: small · Audit: INV-32*
@@ -2209,6 +2174,47 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 165. The ending sequence differs
+*Closed 2026-11-17: 7d97d09, 99f7f6a (the credits' width). Seen in Mednafen: END (no skipping), the credits 15 s, CORELOGO, CAFE, then the title.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: INV-28*
+
+- **Retail:** `060163d8` case 15, and the ending (`06016bac`).
+  1. The Great Pyramid's stats, and the save prompt.
+  2. END, which can't be skipped.
+  3. CRED224 for 900 vblanks (15 s).
+  4. CORELOGO, then CAFE, then Press START.
+
+  ENDPG224 is never shown.
+- **Ours:** `saturn/os.cpp:132-139`. END, then CRED224 for 8 s, then ENDPG224
+  for 8 s, then the ring.
+
+### 22. Loading a save restores the old camera instead of re-initialising it
+*Closed 2026-11-17: 1323749. No camera in saves; the load initialises it.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: CAM-16*
+
+- **Retail:** GameLoop (`0601636c`) calls InitialiseCamera (`0600bfe0`) for
+  every session. The camera starts 1024 above Lara and 100 behind her, then
+  pulls out at 1/12. Saves contain no camera position.
+- **Ours:** `openlara/lara.h:4101-4106` and `4133-4140` save and restore
+  `view.pos`, the room and `lastIndex`.
+- **Effect:** on every load, retail's pull-back from above Lara's head is
+  missing.
+- **Fix:** initialise the camera on load; stop saving it.
+
+### 21. CUT3 doesn't flip the map
+*Closed 2026-11-17: 1323749. flipMap at CUT3's start.*
+
+*Severity: visible · Confidence: likely · Fix: small · Audit: CAM-15*
+
+- **Retail:** the cutscene start routine (`0600d574`), case 0x12, calls FlipMap
+  (`060112a8`).
+- **Ours:** `openlara/camera.h:32` has `//level.flip()` commented out.
+- **Effect:** CUT3 shows the unflipped rooms. What the flip changes on screen was
+  not checked.
+- **Fix:** restore the call.
 
 ### 164. The PRISON FMV and CUT4 play in the wrong order
 *Closed 2026-11-17: 7d97d09. Seen in Mednafen: Atlantis's end, then PRISON plays as CUT4 loads.*
