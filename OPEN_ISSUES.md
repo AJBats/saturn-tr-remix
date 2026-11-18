@@ -536,27 +536,6 @@ SND-C8*
 
 ## Inventory, HUD, saves and game flow
 
-### 142. The compass needle never moves, and A closes the whole inventory
-*Severity: visible · Confidence: confirmed · Fix: small to medium · Audit:
-INV-3*
-
-- **Retail:**
-  - DrawInventoryItem (`0601880c`; TR1X `inventry.c`), on compass mesh 1, every
-    drawn frame:
-    `speed = speed·19/20 + (int16)(−lara.y_rot − item.y_rot − needle)/50;
-    needle += speed;`, then RotY(needle).
-  - Option_Compass (`060272ec`) ignores A. B plays the compass animation forward
-    to frames_total − 1 (frame 24) and returns it to the ring.
-- **Ours:**
-  - The compass draws only its animation frame
-    (`openlara/inventory.h:1371-1396`).
-  - `onCompass` (`inventory.h:822-829`) closes the inventory on held A,
-    reversing the animation to frame 0.
-- **Fix:**
-  - Add a needle hook for ITEM_INV_COMPASS node 1 in drawNodesLerp.
-    `extraAngles` won't work, because that node has no ROTY flag.
-  - Make A do nothing, and B play forward to the end.
-
 ### 148. Menu button roles differ
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: INV-11*
 
@@ -1669,6 +1648,29 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 142. The compass needle never moves, and A closes the whole inventory
+*Closed 2026-11-18 (see git log): the needle as retail's DrawInventoryItem turns it; no Action; back runs on to frame 24.*
+
+*Severity: visible · Confidence: confirmed · Fix: small to medium · Audit:
+INV-3*
+
+- **Retail:**
+  - DrawInventoryItem (`0601880c`; TR1X `inventry.c`), on compass mesh 1, every
+    drawn frame:
+    `speed = speed·19/20 + (int16)(−lara.y_rot − item.y_rot − needle)/50;
+    needle += speed;`, then RotY(needle).
+  - Option_Compass (`060272ec`) ignores A. B plays the compass animation forward
+    to frames_total − 1 (frame 24) and returns it to the ring.
+- **Ours:**
+  - The compass draws only its animation frame
+    (`openlara/inventory.h:1371-1396`).
+  - `onCompass` (`inventory.h:822-829`) closes the inventory on held A,
+    reversing the animation to frame 0.
+- **Fix:**
+  - Add a needle hook for ITEM_INV_COMPASS node 1 in drawNodesLerp.
+    `extraAngles` won't work, because that node has no ROTY flag.
+  - Make A do nothing, and B play forward to the end.
 
 ### 43. Walking backwards off a step plays the wrong step-down animation
 *Closed 2026-11-18 (see git log): always anim 61.*
