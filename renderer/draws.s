@@ -556,9 +556,7 @@
     shar    r0
     shar    r7
     shar    r7
-    add     r7, r0
-    shar    r7
-    add     r0, r7                  ! (sr >> 1) + (sr >> 2) + (sr >> 3): past the box's corners, sqrt(3) / 2 of sr at most
+    add     r0, r7                  ! (sr >> 1) + (sr >> 2)
     mov.w   @(IT_ANGLE+2,r10), r0
     mov     #32, r1
     shll8   r1                      ! ANGLE_45
@@ -597,7 +595,7 @@
     mov.l   @(D_CAMERA+8,gbr), r0
     bsr     .Lsphere
     sub     r0, r6
-    bf      .Lhidden
+    bf      .Lculled
     ! a model of more than one node, not Lara's: seen through the portals
     ! the walk saw its room by too (rooms.h roomsItemSeen)
     mov.b   @(1,r9), r0
@@ -615,29 +613,47 @@
     mov     r14, r7
     tst     r0, r0
     bf      .Lshown
-    ! out of sight, but not its shadow if its call is next: retail's
-    ! DrawAnimatingItem and DrawLara draw the shadow before the bounds test.
-    ! Posed bare then, its root alone and no mesh
 .Lhidden:
+    lds.l   @r15+, pr
+    rts
+    nop
+
+    ! out of the view, but not its shadow if its call is next and the floor
+    ! under it is in view: retail's DrawAnimatingItem and DrawLara draw the
+    ! shadow before the bounds test. Posed bare then, its root alone and no
+    ! mesh
+.Lculled:
     mov     #1, r0
     cmp/hi  r0, r13                 ! a call after this one
-    bf      9f
+    bf      .Lhidden
     mov     r14, r1
     add     #CALL_BYTES, r1
     mov.b   @r1, r0
     cmp/eq  #CALL_SHADOW, r0
-    bf      9f
+    bf      .Lhidden
     mov.w   @(C_INDEX,r1), r0
     mov     r0, r2
     mov.w   @(C_INDEX,r14), r0
     cmp/eq  r0, r2
-    bf      9f
+    bf      .Lhidden
+    mov.l   @(IT_POS,r10), r4
+    mov.l   @(D_CAMERA,gbr), r0
+    sub     r0, r4
+    mov.l   @(C_ARGS,r1), r5        ! the floor under it
+    mov.l   @(D_CAMERA+4,gbr), r0
+    sub     r0, r5
+    mov.l   @(IT_POS+8,r10), r6
+    mov.l   @(D_CAMERA+8,gbr), r0
+    sub     r0, r6
+    mov.w   .LshadowReach, r7       ! past any shadow's half size
+    bsr     .Lsphere
+    nop
+    bf      .Lhidden
     mov     #1, r0
     bra     .Lshown
     mov.l   r0, @(D_BARE,gbr)
-9:  lds.l   @r15+, pr
-    rts
-    nop
+    .align  1
+.LshadowReach: .word 768
     .align  2
 .LitemSeen: .long   _roomsItemSeen
 

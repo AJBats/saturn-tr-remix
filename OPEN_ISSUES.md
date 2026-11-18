@@ -426,6 +426,20 @@ MATH-4*
 
 ## Scene look: lighting and effects
 
+### 218. The object cull sphere is smaller than the bounding box's corners
+*Reopened 2026-11-18: the 7/8 sphere (past every corner) was tried and taken back. At the Cistern spot it let one more item through, 22 more draws a frame and its shadow, for a picture identical to the pixel (Mednafen), and with the other changes of the day the Saturn's master work there went 18.9 -> 22.9 ms. The fix to price is retail's own test: the box's 8 corners projected (S_GetObjectBounds), tighter than any sphere.*
+
+*Severity: subtle · Confidence: suspected · Fix: small · Audit: GFX-14*
+
+- **Retail:** S_GetObjectBounds (`0x06037d04`) projects all 8 corners of the
+  bounding box.
+- **Ours:** `drawModel`'s cull sphere is 0.75 × the largest extent
+  (`openlara/draw.h:678`). For a cube-like box that is less than the true corner
+  distance (0.87 × the side).
+- **Effect:** an item's corners may pop out early at the screen and portal edges.
+
+---
+
 ## Rendering: the new renderer's open work
 
 Not differences from retail: open work on the renderer being rebuilt in the
@@ -1146,20 +1160,6 @@ SND-3*
 - **Effect:** the inventory rotate, controls select and medipack sounds are about
   11 dB louder than retail.
 - **Fix:** a table in `sfx.py`, and an attenuation bit in the offsets.
-
-### 218. The object cull sphere is smaller than the bounding box's corners
-*Closed 2026-11-18 (see git log): a sphere past the box's corners (7/8 of its largest extent), not retail's eight projected corners.*
-
-*Severity: subtle · Confidence: suspected · Fix: small · Audit: GFX-14*
-
-- **Retail:** S_GetObjectBounds (`0x06037d04`) projects all 8 corners of the
-  bounding box.
-- **Ours:** `drawModel`'s cull sphere is 0.75 × the largest extent
-  (`openlara/draw.h:678`). For a cube-like box that is less than the true corner
-  distance (0.87 × the side).
-- **Effect:** an item's corners may pop out early at the screen and portal edges.
-
----
 
 ### 217. Item sprites are culled to the room's portal window and depth-biased
 *Closed 2026-11-18 (see git log): item sprites against the frame at their own depth.*
