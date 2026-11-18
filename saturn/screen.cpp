@@ -81,15 +81,16 @@ static void fadeVblank()
     }
 }
 
-// The layer's offset from where it stands to target, over that many vblanks
-// (0: at once). From the vblank-out interrupt too.
-static void fade(uint32_t layer, int32_t target, uint32_t vblanks)
+// The layer's offset to target over that many vblanks (0: at once), by step
+// a vblank. Interrupt code calls this one, with the step worked out: it must
+// not divide, as the divider is the main line's (divide.s).
+static void fadeBy(uint32_t layer, int32_t target, uint32_t vblanks, int32_t step)
 {
     gFadeLeft[layer] = 0;
     gFadeTarget[layer] = target;
     if (vblanks)
     {
-        gFadeStep[layer] = ((target << 16) - gFadeValue[layer]) / int32_t(vblanks);
+        gFadeStep[layer] = step;
         gFadeLeft[layer] = vblanks;
     }
     else
@@ -97,6 +98,13 @@ static void fade(uint32_t layer, int32_t target, uint32_t vblanks)
         gFadeValue[layer] = target << 16;
         fadeWrite();
     }
+}
+
+// The layer's offset from where it stands to target, over that many vblanks
+// (0: at once).
+static void fade(uint32_t layer, int32_t target, uint32_t vblanks)
+{
+    fadeBy(layer, target, vblanks, vblanks ? ((target << 16) - gFadeValue[layer]) / int32_t(vblanks) : 0);
 }
 
 static void fadesClear()
@@ -299,10 +307,11 @@ void screenShow(const char* name, int32_t width)
 }
 
 // The frames back over the picture, fading in.
+// From the vblank-out interrupt: the frames stand at PICTURE_DIM since screenCapture.
 static void showCapturedFrames()
 {
     showFrames();
-    fade(FADE_FRAMES, 0, 5);
+    fadeBy(FADE_FRAMES, 0, 5, -PICTURE_DIM * 65536 / 5);
 }
 
 void screenCapture(void* scratch, uint32_t scratchSize)
