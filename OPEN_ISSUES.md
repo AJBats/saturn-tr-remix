@@ -262,33 +262,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Level logic, traps and objects
 
-### 131. Underwater switches reach too far and can be pulled again mid-animation
-*Severity: subtle · Confidence: confirmed · Fix: trivial · Audit: LVL-21*
-
-- **Retail:** SwitchCollision2 (`0602b1fc`) has a z reach of -1024 to +512
-  (data at `0x06062cec`), and the switch must not already be active.
-- **Ours:** `openlara/object.h:32-35` allows z up to +1024, and
-  `object.h:493-520` has no status check.
-
-### 132. Keyhole and puzzle hole feedback differs
-*Severity: subtle · Confidence: confirmed · Fix: small · Audit: LVL-22*
-
-- **Retail:** KeyHoleCollision (`0602b30c`) and PuzzleHoleCollision
-  (`0602b53c`) play "no" (SFX 2) once per Lara position when the hole is already
-  used or she has no item. They require only the stand state.
-- **Ours:**
-  - Silent for a used hole (`openlara/object.h:715`).
-  - Repeats "no" for as long as Action is held (`object.h:745`).
-  - Also requires the plain-stand animation (`object.h:718`).
-
-### 134. Pushing and pulling blocks ignores static meshes
-*Severity: subtle · Confidence: likely (TR1X TestBlockPush/TestBlockPull;
-Saturn not checked) · Fix: small · Audit: LVL-24*
-
-- **Retail:** rejects a push or pull blocked by a static mesh. It tests radius
-  500 and height 1000 at the destination, and Lara's own radius at her position.
-- **Ours:** `openlara/object.h:1092-1133` has no static test.
-
 ### 135. Rolling block extras
 *Severity: subtle (no current instance) · Confidence: confirmed · Fix: trivial
 · Audit: LVL-25*
@@ -1451,6 +1424,39 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 134. Pushing and pulling blocks ignores static meshes
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: likely (TR1X TestBlockPush/TestBlockPull;
+Saturn not checked) · Fix: small · Audit: LVL-24*
+
+- **Retail:** rejects a push or pull blocked by a static mesh. It tests radius
+  500 and height 1000 at the destination, and Lara's own radius at her position.
+- **Ours:** `openlara/object.h:1092-1133` has no static test.
+
+### 132. Keyhole and puzzle hole feedback differs
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: confirmed · Fix: small · Audit: LVL-22*
+
+- **Retail:** KeyHoleCollision (`0602b30c`) and PuzzleHoleCollision
+  (`0602b53c`) play "no" (SFX 2) once per Lara position when the hole is already
+  used or she has no item. They require only the stand state.
+- **Ours:**
+  - Silent for a used hole (`openlara/object.h:715`).
+  - Repeats "no" for as long as Action is held (`object.h:745`).
+  - Also requires the plain-stand animation (`object.h:718`).
+
+### 131. Underwater switches reach too far and can be pulled again mid-animation
+*Closed 2026-11-18 (see git log): as retail's.*
+
+*Severity: subtle · Confidence: confirmed · Fix: trivial · Audit: LVL-21*
+
+- **Retail:** SwitchCollision2 (`0602b1fc`) has a z reach of -1024 to +512
+  (data at `0x06062cec`), and the switch must not already be active.
+- **Ours:** `openlara/object.h:32-35` allows z up to +1024, and
+  `object.h:493-520` has no status check.
 
 ### 73. A dead Lara keeps her weapon READY
 *Closed 2026-11-18 (see git log): as retail's.*
