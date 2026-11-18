@@ -291,6 +291,12 @@ SND-C8*
 - **Ours:** `saturn/main.cpp:70-78`, `os.cpp:106-111`. Straight from the CAFE
   FMV to the ring. No Press START, no demos, and B does nothing.
 - **Needs:** demos need deterministic logic (issue 202).
+- **Decision (the user, 2026-11-18):** build them: the attract demos are an
+  important feature. Retail feeds the demo one input word a tick inside
+  ControlPhase's loop (ProcessDemoInput in place of the pad read), so a demo
+  plays the same at any frame rate; ours reads the pad once a drawn frame and
+  hands it to every tick of that frame, so the demo's input goes in the tick
+  loop.
 
 ## Audio
 
@@ -391,23 +397,6 @@ MATH-4*
   twice per node.
 
 ## Scene look: lighting and effects
-
-### 218. The object cull sphere is smaller than the bounding box's corners
-*Reopened 2026-11-18: the 7/8 sphere (past every corner) was tried and taken back. At the Cistern spot it let one more item through, 22 more draws a frame and its shadow, for a picture identical to the pixel (Mednafen), and with the other changes of the day the Saturn's master work there went 18.9 -> 22.9 ms. The fix to price is retail's own test: the box's 8 corners projected (S_GetObjectBounds), tighter than any sphere.*
-
-*Severity: subtle · Confidence: suspected · Fix: small · Audit: GFX-14*
-
-- **What showed up with the 7/8 sphere (2026-11-18):** at the Cistern spot, the extra item was a land rat (item 98, room 99, 4.7k units to Lara's side), wholly outside the frame: posed and its shadow cast for nothing on screen. So nothing popped in there; the bigger sphere only let in a model whose box is out of view, which retail's corner test culls.
-- **Whole-game study (scratchpad cullstudy.py, every model placed in every level, every keyframe, posed vertices and box corners against the sphere; creatures at any yaw, everything else at its placed quarter turn):** how far a box corner reaches past the 3/4 sphere, the region retail draws and we can cull. Creatures: winged mutant 321 units, land crocodile 358, T-rex 345, gorilla 280, cowboy 270, Natla 289, centaur 223, raptor 219, Larson 201, skater 189, mummy 174, Kold 135, wolf 120, bat 99, bear 81, Pierre 59, lions 45, rats 44. Things that never turn: pushable blocks 119, falling floors 120, eggs 96-143, centaur statue 82, boulder 91; doors, switches, key and puzzle holes 0. At the frame's edge that is reach x 190.7 / distance pixels: 321 units is 15 px at 4 blocks, 7 px at 8, 4 px at 16. Pickups are sprites, tested against the whole frame (217), so no pickup is ever hidden by this. Nothing can be hidden in the middle of the view; the loss is a sliver at the frame's or a portal's edge, a frame or so early as the view turns.
-
-- **Retail:** S_GetObjectBounds (`0x06037d04`) projects all 8 corners of the
-  bounding box.
-- **Ours:** `drawModel`'s cull sphere is 0.75 × the largest extent
-  (`openlara/draw.h:678`). For a cube-like box that is less than the true corner
-  distance (0.87 × the side).
-- **Effect:** an item's corners may pop out early at the screen and portal edges.
-
----
 
 ## Rendering: the new renderer's open work
 
@@ -1080,12 +1069,28 @@ word. Of the same kind and already open: 264, 265, 266.
 | **179** | Retail's stereo pan wraps oddly just left of centre. Reproduce it? |
 | **183** | Retail restarts ambient loops every frame (a stutter), and plays loops an octave down (8-bit keyed on 16-bit data). Reproduce them? |
 | **186** | Retail's exploding deaths are silent (sound 172 is missing). Copy that, or keep 171? |
-| **162** | Attract demos need deterministic logic (issue 202) and the DEMODATA format. Build them? |
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
-| **204** | Retail's GetFrames lerps the ledge's sleeping wolves every frame: Saturn pose +0.87 ms on the master there (2.60 -> 3.47). Keep retail's pose? |
-| **169** | Retail doesn't read the 3D pad in analog mode (id 0x16): with only that on port 1 the game sees no pad. Read it too (its first two bytes are the buttons), or keep retail's? |
 
 ## Closed
+
+### 218. The object cull sphere is smaller than the bounding box's corners
+*Closed 2026-11-18: the 3/4 sphere stays, the user's call. The whole-game study below found nothing a player would notice (slivers at the frame's edge, never a pickup), and players of the engineering sample never remarked on draw distance. Reopen on a playtest report of something popping in.*
+
+*Reopened 2026-11-18: the 7/8 sphere (past every corner) was tried and taken back. At the Cistern spot it let one more item through, 22 more draws a frame and its shadow, for a picture identical to the pixel (Mednafen), and with the other changes of the day the Saturn's master work there went 18.9 -> 22.9 ms. The fix to price is retail's own test: the box's 8 corners projected (S_GetObjectBounds), tighter than any sphere.*
+
+*Severity: subtle · Confidence: suspected · Fix: small · Audit: GFX-14*
+
+- **What showed up with the 7/8 sphere (2026-11-18):** at the Cistern spot, the extra item was a land rat (item 98, room 99, 4.7k units to Lara's side), wholly outside the frame: posed and its shadow cast for nothing on screen. So nothing popped in there; the bigger sphere only let in a model whose box is out of view, which retail's corner test culls.
+- **Whole-game study (scratchpad cullstudy.py, every model placed in every level, every keyframe, posed vertices and box corners against the sphere; creatures at any yaw, everything else at its placed quarter turn):** how far a box corner reaches past the 3/4 sphere, the region retail draws and we can cull. Creatures: winged mutant 321 units, land crocodile 358, T-rex 345, gorilla 280, cowboy 270, Natla 289, centaur 223, raptor 219, Larson 201, skater 189, mummy 174, Kold 135, wolf 120, bat 99, bear 81, Pierre 59, lions 45, rats 44. Things that never turn: pushable blocks 119, falling floors 120, eggs 96-143, centaur statue 82, boulder 91; doors, switches, key and puzzle holes 0. At the frame's edge that is reach x 190.7 / distance pixels: 321 units is 15 px at 4 blocks, 7 px at 8, 4 px at 16. Pickups are sprites, tested against the whole frame (217), so no pickup is ever hidden by this. Nothing can be hidden in the middle of the view; the loss is a sliver at the frame's or a portal's edge, a frame or so early as the view turns.
+
+- **Retail:** S_GetObjectBounds (`0x06037d04`) projects all 8 corners of the
+  bounding box.
+- **Ours:** `drawModel`'s cull sphere is 0.75 × the largest extent
+  (`openlara/draw.h:678`). For a cube-like box that is less than the true corner
+  distance (0.87 × the side).
+- **Effect:** an item's corners may pop out early at the screen and portal edges.
+
+---
 
 ### 155. Backup RAM handling differs
 *3ccc2ed. Retail's boot check (not formatted, cartridge choice, too little room with YES/NO), a dated and verified file of a fixed 5,120 bytes, no prompts with saving off; tested in Mednafen on every page and both memories. Retail's checksum byte isn't copied: retail never checks it.*
@@ -1212,7 +1217,7 @@ Fix: small · Audit: GFX-12*
 - **Fix:** clamp to 8191.
 
 ### 204. getFrames has an extra no-interpolation branch
-*Closed 2026-11-18 (see git log): as retail's.*
+*Closed 2026-11-18 (see git log): as retail's. Kept at its cost at the ledge, the user's call (2026-11-18).*
 
 *Severity: subtle · Confidence: likely · Fix: small · Audit: MATH-12*
 
@@ -1392,7 +1397,7 @@ SND-B5*
 - **Ours:** none.
 
 ### 169. No pause on pad disconnect; only a pad in port 1
-*Closed 2026-11-18 (see git log): port 1's first digital pad (id 0x02) or id 0x15 device (the Mission Stick, by its id), through a multitap; no pad opens the ring, but not on the HW_LOG test discs. The 3D pad in its analog mode (0x16) is no pad to retail: its peripheral library files it under 0x16 (generic handler 06005956) and the scan passes it by. The rig's pad is one (boot log PAD F116FFFF), which is why a rig run with the pause in measured the ring. Not tried with a multitap, a Mission Stick or a pulled pad.*
+*Closed 2026-11-18 (see git log): port 1's first digital pad (id 0x02) or id 0x15 device (the Mission Stick, by its id), through a multitap; no pad opens the ring, but not on the HW_LOG test discs. The 3D pad in its analog mode (0x16) is no pad to retail: its peripheral library files it under 0x16 (generic handler 06005956) and the scan passes it by. The rig's pad is one (boot log PAD F116FFFF), which is why a rig run with the pause in measured the ring. Not tried with a multitap, a Mission Stick or a pulled pad. Since feab64a, the user's call (2026-11-18): the 3D pad in its analog mode is read too, by its first two bytes (the pad sets the directions, and L and R past a threshold on its triggers: SMPC User's Manual), and the test discs keep the no-pad pause. Mednafen, port 1 a 3D pad on analog: raw F116FFFF as the rig's, present, UP held moves Lara. The Saturn check waits on the rig: on 2026-11-18 the console drew no power (its button out).*
 
 *Severity: subtle · Confidence: likely · Fix: small · Audit: INV-32*
 
