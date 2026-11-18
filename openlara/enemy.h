@@ -28,7 +28,10 @@ struct Enemy : ItemObj
         flags |= ITEM_FLAG_SHADOW;
 
     #ifndef STATIC_ITEMS
-        angle.y += (rand_logic() - 0x4000) >> 1;
+        // retail's InitialiseCreature; the mummy has its own, without
+        if (type != ITEM_MUMMY) {
+            angle.y += (rand_logic() - 0x4000) >> 1;
+        }
     #endif
 
         ASSERT(_radius < 512);
@@ -1058,9 +1061,9 @@ struct Doppelganger : Enemy
     // as her meshes (renderer/types.h GameLara): a copy of that, hers put in.
     virtual void draw()
     {
-        static uint32 shown[(offsetof(ExtraInfoLara, meshes) + sizeof(uint16) * JOINT_MAX + 3) / 4];
+        static uint32 shown[(__builtin_offsetof(ExtraInfoLara, meshes) + sizeof(uint16) * JOINT_MAX + 3) / 4];
         const Lara* lara = getLara(pos);
-        memcpy(shown, lara->extraL, offsetof(ExtraInfoLara, meshes));
+        memcpy(shown, lara->extraL, __builtin_offsetof(ExtraInfoLara, meshes));
         ExtraInfoLara* e = (ExtraInfoLara*)shown;
         for (int32 i = 0; i < JOINT_MAX; i++) {
             e->meshes[i] = uint16(level.models[type].start + i);
@@ -2514,6 +2517,11 @@ struct Raptor : Enemy
 
 // The mummy in Khamoon stands until shot or touched, then topples (TR1's
 // MummyControl).
+// Qualopec's mummies (retail's InitialiseMummy 06031b68, MummyControl
+// 06031ba8): no AI, so none of the eight slots, and no random turn.
+// Standing, its head follows Lara within 90 degrees, 5 a tick; shot dead or
+// touched, it falls. Solid without a stagger (ObjectCollision). turnSpeed is
+// its head's turn, and extra points at it, the one angle the renderer takes.
 struct Mummy : Enemy
 {
     enum {
@@ -2525,16 +2533,43 @@ struct Mummy : Enemy
     Mummy(Room* room) : Enemy(room, 18, 10, 0, AGGRESSION_LVL_MAX)
     {
         visibleMask = 0xFFFF87FF;
+        turnSpeed = 0;
+        extra = (uint8*)&turnSpeed;
     }
 
-    virtual int32 updateState()
+    virtual void activate()
     {
-        extraE->maxTurn = 0;
+        ItemObj::activate();
+    }
 
-        if (state == STATE_STOP && (health <= 0 || hitMask))
-            return STATE_DEATH;
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        if (updateHitMask(lara, cinfo) && cinfo->enemyPush) {
+            collidePush(lara, cinfo, false);
+        }
+    }
 
-        return goalState;
+    virtual void update()
+    {
+        int16 head = 0;
+        if (state == STATE_STOP)
+        {
+            const Lara* lara = getLara(pos);
+            head = X_CLAMP(int16(phd_atan(lara->pos.z - pos.z, lara->pos.x - pos.x) - angle.y), -ANGLE_90, ANGLE_90);
+            if (health <= 0 || hitMask) {
+                goalState = STATE_DEATH;
+            }
+        }
+        turnSpeed = angleLerp(turnSpeed, head, ANGLE(5));
+        hitMask = 0;
+
+        animProcess();
+
+        if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INACTIVE)
+        {
+            deactivate();
+            health = NOT_ENEMY;
+        }
     }
 };
 
