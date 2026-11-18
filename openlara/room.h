@@ -47,8 +47,9 @@ int32 Sector::getFloor(int32 x, int32 y, int32 z) const
             int32 sz = FD_SLANT_Z(gLastFloorSlant);
             int32 dx = x & 1023;
             int32 dz = z & 1023;
-            floor -= sx * (sx < 0 ? dx : (dx - 1023)) >> 2;
-            floor -= sz * (sz < 0 ? dz : (dz - 1023)) >> 2;
+            // each product shifted as retail's GetHeight (0600fff0) rounds it
+            if (sx < 0) floor -= (sx * dx) >> 2; else floor += (sx * (1023 - dx)) >> 2;
+            if (sz < 0) floor -= (sz * dz) >> 2; else floor += (sz * (1023 - dz)) >> 2;
         }
 
         lowerSector->getTriggerFloorCeiling(x, y, z, &floor, NULL);
@@ -80,8 +81,9 @@ int32 Sector::getCeiling(int32 x, int32 y, int32 z) const
             int32 sz = FD_SLANT_Z(*fd);
             int32 dx = x & 1023;
             int32 dz = z & 1023;
-            ceiling -= sx * (sx < 0 ? (dx - 1023) : dx) >> 2;
-            ceiling += sz * (sz < 0 ? dz : (dz - 1023)) >> 2;
+            // each product shifted as retail's GetCeiling (060109d4) rounds it
+            if (sx < 0) ceiling += (sx * (1023 - dx)) >> 2; else ceiling -= (sx * dx) >> 2;
+            if (sz < 0) ceiling += (sz * dz) >> 2; else ceiling -= (sz * (1023 - dz)) >> 2;
         }
     }
 
@@ -291,7 +293,7 @@ bool Room::collideStatic(CollisionInfo &cinfo, const vec3i &p, int32 height)
     objBox.minY = -height;
     objBox.maxY = 0;
 
-    Room** nearRoom = getNearRooms(p, cinfo.radius, height);
+    Room** nearRoom = getNearRooms(p, cinfo.radius + 50, height + 50);  // as retail's CollideStaticObjects (0600e318)
 
     while (*nearRoom)
     {

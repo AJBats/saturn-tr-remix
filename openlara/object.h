@@ -1495,10 +1495,16 @@ struct TrapSwingBlade : Object
 
     TrapSwingBlade(Room* room) : Object(room) {}
 
+    // retail's TrapCollision (0600ed5c): solid while it isn't swinging
     virtual void collide(Lara* lara, CollisionInfo* cinfo)
     {
         if ((flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_ACTIVE)
+        {
+            if ((flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE) {
+                collideDefault(lara, cinfo);
+            }
             return;
+        }
 
         if (state != STATE_SWING)
             return;
@@ -1555,7 +1561,13 @@ struct Dart : Object
 
         remove();
 
-        fxRicochet(room, pos, false);
+        // a ricochet of 6 ticks, its frame from the logic's numbers (retail's
+        // DartsControl, 060304b4)
+        if (ItemObj* ricochet = ItemObj::add(ITEM_RICOCHET, room, pos, 0))
+        {
+            ricochet->timer = 6;
+            ricochet->frameIndex = (rand_logic() * 3) >> 15;
+        }
     }
 };
 
@@ -1937,8 +1949,10 @@ struct TrapSlam : Object
                 Lara* lara = getLara(pos);
                 lara->hit(400, pos, 0);
 
-                for (int32 i = 0; i < 2; i++) {
-                    fxBlood(pos + getJoint(i, _vec3i(-23 + i * 94, 0, -1718)), angle.y, 0);
+                // six bites, each jaw's at three heights (retail's 0602fe90,
+                // its table at 0x06062e40)
+                for (int32 i = 0; i < 6; i++) {
+                    fxBlood(pos + getJoint(i & 1, _vec3i((i & 1) ? 71 : -23, (i >> 1) == 1 ? 10 : (i >> 1) == 2 ? -10 : 0, -1718)), angle.y, hSpeed);
                 }
             }
         }
@@ -1971,6 +1985,8 @@ struct TrapSword : Object
 
     virtual void update()
     {
+        // falling onto the floor it had at the level's start, its room kept
+        // (retail's DamoclesSwordControl, 0603007c)
         if (flags & ITEM_FLAG_GRAVITY)
         {
             angle.y += turnSpeed;
@@ -1978,8 +1994,6 @@ struct TrapSword : Object
             pos.y += vSpeed;
             pos.x += int16(headOffset);
             pos.z += int16(aggression);
-
-            updateRoom();
 
             if (pos.y > roomFloor)
             {
@@ -1999,8 +2013,8 @@ struct TrapSword : Object
 
             if (abs(d.x) <= 1536 && abs(d.z) <= 1536 && d.y > 0 && d.y < 3072)
             {
-                headOffset = d.x >> 5;
-                aggression = d.z >> 5;
+                headOffset = d.x / 32;
+                aggression = d.z / 32;
                 flags |= ITEM_FLAG_GRAVITY;
             }
         }
@@ -2407,11 +2421,11 @@ struct HammerHandle : Object
             {
                 Lara* lara = getLara(pos);
                 vec3i h = headPos();
-                if (frameIndex - level.anims[animIndex].frameBegin > 30 && lara->health > 0 &&
-                    abs(lara->pos.x - h.x) < 520 && abs(lara->pos.z - h.z) < 520 &&
-                    lara->pos.y - LARA_HEIGHT <= pos.y)
+                // under the head, at any height (retail's ThorsHandleControl, 06022c3c)
+                if (frameIndex - level.anims[animIndex].frameBegin > 30 && lara->health >= 0 &&
+                    abs(lara->pos.x - h.x) < 520 && abs(lara->pos.z - h.z) < 520)
                 {
-                    lara->pos.y = roomFloor;
+                    lara->pos.y = pos.y;
                     killLara(lara, Lara::ANIM_DEATH_BOULDER, Lara::STATE_SPECIAL);
                 }
                 break;
