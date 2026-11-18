@@ -1077,23 +1077,24 @@ struct Pickup : Object
     }
 
     // The scions take Lara's special animation, under the level's cinematic
-    // camera (TR1's PickUpScionCollision).
+    // camera at her place: Qualopec's and the Sanctuary's at her yaw, taken at
+    // its frame 44 (retail's PickUpScionCollision, 0602ac10); the one in
+    // Atlantis' holder at her yaw less 90 degrees, and it stays where it is
+    // (PickUpScion4Collision, 0602ad7c). Each turns to Lara first.
     void collideScion(Lara* lara)
     {
         bool holder = (type == ITEM_SCION_PICKUP_HOLDER);
 
         angle.x = 0;
         angle.z = 0;
-        if (!holder) {
-            angle.y = lara->angle.y;
-        }
+        angle.y = lara->angle.y;
 
         if (!checkLimit(lara, holder ? LIMIT_SCION_HOLDER : LIMIT_SCION))
             return;
 
         if (lara->state == Lara::STATE_PICKUP)
         {
-            if (lara->frameIndex != level.anims[lara->animIndex].frameBegin + 44)
+            if (holder || lara->frameIndex != level.anims[lara->animIndex].frameBegin + 44)
                 return;
 
             pickupShow(type);
@@ -1112,7 +1113,7 @@ struct Pickup : Object
                 return;
 
             if (holder) {
-                lara->moveTo(_vec3i(0, 280, -(LARA_RADIUS + 512)), this, false);
+                lara->moveTo(_vec3i(0, 280, -407), this, false);
             } else {
                 lara->moveTo(_vec3i(0, 640, -310), this, false);
             }
@@ -1120,7 +1121,7 @@ struct Pickup : Object
             lara->animSet(level.models[ITEM_LARA_SPEC].animIndex, false);
             lara->state = lara->goalState = Lara::STATE_PICKUP;
             lara->extraL->weaponState = WEAPON_STATE_BUSY;
-            lara->extraL->camera.doCutscene(lara->pos, lara->angle.y - ANGLE_90);
+            lara->extraL->camera.doCutscene(lara->pos, lara->angle.y - (holder ? ANGLE_90 : 0));
         }
     }
 
@@ -1316,11 +1317,29 @@ struct PuzzleHole : Hole
 };
 
 
+// The scion's holder in Atlantis and the Great Pyramid (object 147): animated
+// once triggered (AnimatingControl, 06026618) and solid (ObjectCollision,
+// 0600ec4c).
+struct ScionHolder : Object
+{
+    ScionHolder(Room* room) : Object(room) {}
+
+    virtual void collide(Lara* lara, CollisionInfo* cinfo)
+    {
+        collideDefault(lara, cinfo);
+    }
+};
+
+
 // King Midas' hand turns lead bars to gold, and Lara too if she steps onto
-// it (TR1's MidasCollision).
+// it (retail's MidasCollision, 0602ae90): the gold death under the level's
+// cinematic camera at her place and yaw, the lead bar without one; another
+// item chosen does nothing. Unseen itself (DrawDummyItem, 060130f0).
 struct MidasHand : Object
 {
     MidasHand(Room* room) : Object(room) {}
+
+    virtual void draw() {}
 
     virtual void collide(Lara* lara, CollisionInfo* cinfo)
     {
@@ -1334,7 +1353,7 @@ struct MidasHand : Object
             lara->health = -1;
             lara->oxygen = -1;
             lara->extraL->weaponState = WEAPON_STATE_BUSY;
-            lara->extraL->camera.doCutscene(lara->pos, 0);
+            lara->extraL->camera.doCutscene(lara->pos, lara->angle.y);
             return;
         }
 
@@ -1369,11 +1388,8 @@ struct MidasHand : Object
                 lara->animSet(level.models[ITEM_LARA_SPEC].animIndex, false);
                 lara->state = lara->goalState = Lara::STATE_USE_MIDAS;
                 lara->extraL->weaponState = WEAPON_STATE_BUSY;
-                lara->extraL->camera.doCutscene(lara->pos, lara->angle.y);
-                return;
             }
         }
-        soundPlay(SND_NO, &lara->pos);
     }
 };
 

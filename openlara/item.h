@@ -1785,7 +1785,7 @@ ItemObj* ItemObj::create(Room* room)
         INIT_ITEM( SCION_PICKUP_DROP     , Pickup );
         INIT_ITEM( SCION_TARGET          , Scion3 );
         INIT_ITEM( SCION_PICKUP_HOLDER   , Pickup );
-        // INIT_ITEM( SCION_HOLDER          , ??? );
+        INIT_ITEM( SCION_HOLDER          , ScionHolder );
         // INIT_ITEM( UNUSED_6              , ??? );
         // INIT_ITEM( UNUSED_7              , ??? );
         // INIT_ITEM( INV_SCION             , ??? );
