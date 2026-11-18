@@ -3097,6 +3097,9 @@ void renderRoomsFlipped();  // after flipMap, at levelCommit
 void renderTexturesShifted();   // after animTexturesShift
 void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index);
 void renderGlyph(int32 vx, int32 vy, int32 index);
+void renderScreenSprite(int32 vx, int32 vy, int32 scale, int32 index);
+void pickupShow(int32 type);    // a picked-up item's sprite, bottom right a while (draw.h)
+void pickupsClear();
 void renderFill(int32 x, int32 y, int32 width, int32 height, int32 shade, int32 z);
 void renderBorder(int32 x, int32 y, int32 width, int32 height, int32 color1, int32 color2, int32 z);
 void renderBar(int32 x, int32 y, int32 width, int32 filled, BarType type);    // filled: pixels of width

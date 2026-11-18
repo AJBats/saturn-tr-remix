@@ -304,6 +304,59 @@ void drawCinematicRooms()
     setViewport(vp);
 }
 
+// Retail's pickups shown (AddDisplayPickup 060161d0, DrawPickups 060160f8):
+// up to three sprites bottom right, 75 ticks each, the first a tenth of the
+// width in from the corner, the next each a third more to the left.
+struct PickupShown
+{
+    int16 timer;
+    int16 sprite;
+};
+
+EWRAM_DATA PickupShown gPickups[3];
+
+void pickupShow(int32 type)
+{
+    for (int32 i = 0; i < 3; i++)
+    {
+        if (gPickups[i].timer <= 0)
+        {
+            gPickups[i].timer = 75;
+            gPickups[i].sprite = level.models[type].start;
+            return;
+        }
+    }
+}
+
+void pickupsClear()
+{
+    memset(gPickups, 0, sizeof(gPickups));
+}
+
+static void drawPickups()
+{
+    // the ticks since the last frame, from the level's clock; none drawn
+    // after a gap (retail's: 1 to 59)
+    static uint32 last;
+    uint32 elapsed = gSaveGame.time - last;
+    last = gSaveGame.time;
+    if (elapsed - 1 >= 59)
+        return;
+
+    const int32 step = FRAME_WIDTH / 10;
+    int32 x = FRAME_WIDTH - step;
+    for (int32 i = 0; i < 3; i++, x -= step * 4 / 3)
+    {
+        PickupShown &p = gPickups[i];
+        p.timer -= int16(elapsed);
+        if (p.timer > 0) {
+            renderScreenSprite(x, FRAME_HEIGHT - step, 0x3000, p.sprite);
+        } else {
+            p.timer = 0;
+        }
+    }
+}
+
 // Retail's bars, top left (DrawAirBar 06015ed8, DrawHealthBar 06015e50): the
 // air's at (32, 16) in water, the health's at (32, 28) below it.
 void drawHUD(Lara* lara)
@@ -315,6 +368,8 @@ void drawHUD(Lara* lara)
     if (lara->extraL->healthTimer || lara->extraL->weaponState == WEAPON_STATE_READY) {
         renderBar(32, 28, 100, X_CLAMP(lara->health, 0, LARA_MAX_HEALTH) / 10, BAR_HEALTH);
     }
+
+    drawPickups();
 
     // the rounds of the gun drawn, but the pistols', and none in the bonus
     // game (retail's DrawAmmoInfo, 06015f8c)

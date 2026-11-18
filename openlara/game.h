@@ -229,6 +229,7 @@ void gameLoadLevel(const void* data)
     gCurTrack = -1;
 
     readLevel((uint8*)data);
+    pickupsClear();
 
     // from the low work RAM the level leaves: the creatures' and Lara's path
     // searches (hers follows water currents), a cell a box each, then all the

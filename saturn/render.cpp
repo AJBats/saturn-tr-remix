@@ -183,11 +183,18 @@ void renderSprite(int32 vx, int32 vy, int32 vz, int32 vg, int32 index)
 
 void renderGlyph(int32 vx, int32 vy, int32 index)
 {
+    renderScreenSprite(vx, vy, 0x10000, index);
+}
+
+// A sprite on the screen at (vx, vy), its size scale / 65536 of its own
+// (retail's S_DrawScreenSprite, 0603b3c8).
+void renderScreenSprite(int32 vx, int32 vy, int32 scale, int32 index)
+{
     const Sprite* sprite = level.sprites + index;
-    int32 l = vx + sprite->l;
-    int32 r = vx + sprite->r;
-    int32 t = vy + sprite->t;
-    int32 b = vy + sprite->b;
+    int32 l = vx + (sprite->l * scale >> 16);
+    int32 r = vx + (sprite->r * scale >> 16);
+    int32 t = vy + (sprite->t * scale >> 16);
+    int32 b = vy + (sprite->b * scale >> 16);
     if (l == r || t == b || r < 0 || b < 0 || l >= FRAME_WIDTH || t >= FRAME_HEIGHT)
         return;
     if (render::CallRecord* c = call(render::CALL_GLYPH, index))

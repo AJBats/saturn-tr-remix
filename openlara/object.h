@@ -876,6 +876,7 @@ struct Pickup : Object
             if (lara->frameIndex != level.anims[lara->animIndex].frameBegin + 44)
                 return;
 
+            pickupShow(type);
             inventory.add((ItemType)type);
             gSaveGame.pickups++;
             room->remove(this);
@@ -926,6 +927,7 @@ struct Pickup : Object
                 if (!lara->animIsEnd(23))
                     return;
 
+                pickupShow(type);
                 inventory.add((ItemType)type);
                 gSaveGame.pickups++;
                 room->remove(this);
@@ -960,6 +962,7 @@ struct Pickup : Object
                 if (!lara->animIsEnd(14))
                     return;
 
+                pickupShow(type);
                 inventory.add((ItemType)type);
                 gSaveGame.pickups++;
                 room->remove(this);
