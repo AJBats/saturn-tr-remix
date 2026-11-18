@@ -466,7 +466,7 @@ extern uint8* vramPtr;
     #define MAX_VERTICES (5*1024) // for frame
 #endif
 
-#define MAX_UPDATE_FRAMES   10
+#define MAX_UPDATE_FRAMES   5       // ticks a frame at most: retail caps 10 vblanks (ControlPhase 0600f66c)
 #define MAX_PLAYERS         1 // TODO 2 players for non-potato platforms
 #define MAX_SPHERES         32
 #define MAX_MATRICES        8
@@ -2875,13 +2875,25 @@ int32 rand_draw();
 #define RAND_LOGIC(r) (rand_logic() * (r) >> 15)
 #define RAND_DRAW(r)  (rand_draw() * (r) >> 15)
 
-#define sincos(x,s,c) {\
-    uint32 sc = gSinCosTable[uint32(x << 16) >> 20];\
-    s = int32(sc) >> 16;\
-    c = int32(sc) << 16 >> 16;\
+// Retail's phd_sin and phd_cos (0603e0b0, 0603e0a8): the angle folded into
+// 0..90 degrees before >> 4, which reads the step above in the quadrants
+// that fold mirrored (sin in the second and fourth, cos in the first and
+// third). The renderer's own turns keep a >> 4 (drawing only, 0.08 degrees).
+X_INLINE int32 sinRetail(int32 x)
+{
+    uint32 a = uint16(x);
+    return int32(gSinCosTable[(a & 0x4000) ? ((a + 15) >> 4) & 4095 : a >> 4]) >> 16;
 }
 
-#define sin(x) (int32(gSinCosTable[uint32(x << 16) >> 20]) >> 16)
+X_INLINE int32 cosRetail(int32 x)
+{
+    uint32 a = uint16(x);
+    return int32(gSinCosTable[(a & 0x4000) ? a >> 4 : ((a + 15) >> 4) & 4095]) << 16 >> 16;
+}
+
+#define sincos(x,s,c) { s = sinRetail(x); c = cosRetail(x); }
+
+#define sin(x) sinRetail(x)
 
 int32 phd_atan(int32 x, int32 y);
 uint32 phd_sqrt(uint32 x);

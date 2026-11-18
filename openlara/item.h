@@ -296,9 +296,8 @@ const AABBs& ItemObj::getBoundingBox(bool lerp) const
     if (!frameDelta)
         return frameA->box;
 
-    int32 d = GET_FRAME_T(frameDelta, frameRate);
-
-    #define COMP_LERP(COMP) tmpBox.COMP = frameA->box.COMP + ((frameB->box.COMP - frameA->box.COMP) * d >> 16);
+    // divided exactly, as retail's GetBoundsAccurate (06014e84)
+    #define COMP_LERP(COMP) tmpBox.COMP = frameA->box.COMP + (frameB->box.COMP - frameA->box.COMP) * frameDelta / frameRate;
 
     COMP_LERP(minX);
     COMP_LERP(maxX);
@@ -657,19 +656,17 @@ bool ItemObj::moveTo(const vec3i &point, ItemObj* item, bool lerp)
         return true;
     }
 
+    // 16 units a tick toward it, divided exactly, there once within 16
+    // (retail's Move3DPosTo3DPos, 0600f504)
     vec3i posDelta = p - pos;
 
-    int32 dist = X_SQR(posDelta.x) + X_SQR(posDelta.y) + X_SQR(posDelta.z);
+    int32 dist = phd_sqrt(X_SQR(posDelta.x) + X_SQR(posDelta.y) + X_SQR(posDelta.z));
 
-    if (dist > ANIM_MOVE_LERP_POS * ANIM_MOVE_LERP_POS)
+    if (dist > ANIM_MOVE_LERP_POS)
     {
-        dist = phd_sqrt(dist) >> 1;
-        ASSERT(dist < DIV_TABLE_SIZE);
-        dist = FixedInvU(dist);
-
-        pos.x += posDelta.x * dist >> (16 + 1 - ANIM_MOVE_LERP_POS_SHIFT);
-        pos.y += posDelta.y * dist >> (16 + 1 - ANIM_MOVE_LERP_POS_SHIFT);
-        pos.z += posDelta.z * dist >> (16 + 1 - ANIM_MOVE_LERP_POS_SHIFT);
+        pos.x += posDelta.x * ANIM_MOVE_LERP_POS / dist;
+        pos.y += posDelta.y * ANIM_MOVE_LERP_POS / dist;
+        pos.z += posDelta.z * ANIM_MOVE_LERP_POS / dist;
     }
     else
     {
