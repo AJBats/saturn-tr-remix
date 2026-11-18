@@ -1636,11 +1636,12 @@ struct Inventory
 
         renderModelUnder(&item);
 
-        if ((state == INV_STATE_READY) && current)
+        if (current && (state == INV_STATE_READY || state == INV_STATE_SELECT || state == INV_STATE_SHOW))
         {
             // what it holds, in small digits (retail's RingNotActive,
-            // 06018f8c): a gun its rounds (the shotgun's in shots), a gun's
-            // boxes twice their count, anything else its count if more than one
+            // 06018f8c), up while it's chosen too: a gun its rounds (the
+            // shotgun's in shots), a gun's boxes twice their count, anything
+            // else its count if more than one
             char buf[32];
             buf[0] = 0;
             const ExtraInfoLara* e = lara->extraL;
@@ -1659,12 +1660,15 @@ struct Inventory
                     }
             }
             if (buf[0]) {
-                drawText(64, FRAME_HEIGHT - 48, buf, TEXT_ALIGN_CENTER);
+                drawText(64, FRAME_HEIGHT - 56, buf, TEXT_ALIGN_CENTER);
             }
 
+            // a medipack: the health bar where the HUD has it, and kept up
+            // 40 ticks after
             if (slot == SLOT_MEDIKIT_SMALL || slot == SLOT_MEDIKIT_BIG)
             {
-                renderBar((FRAME_WIDTH - 104) / 2, 24, 100, X_CLAMP(lara->health, 0, LARA_MAX_HEALTH) / 10, BAR_HEALTH);
+                lara->extraL->healthTimer = 40;
+                renderBar(32, 28, 100, X_CLAMP(lara->health, 0, LARA_MAX_HEALTH) / 10, BAR_HEALTH);
             }
         }
     }
