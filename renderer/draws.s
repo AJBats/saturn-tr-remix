@@ -488,8 +488,16 @@
     cmp/gt  r6, r2
     bf      8f
     sub     r6, r2
-    bra     8f
-    sub     r2, r7
+    sub     r2, r7                  ! the rate cut short past the end
+    ! the delta as long as that (an animation held at its end): retail's lerp
+    ! (06014a60) lands on frame B, unless it halves for a rate of 2
+    cmp/eq  r5, r7
+    bf      8f
+    mov     r7, r0
+    cmp/eq  #2, r0
+    bt      8f
+    mov.l   @(D_FRAME_B,gbr), r0
+    mov.l   r0, @(D_FRAME_A,gbr)
 7:  mov     #0, r5
 8:  mov     r5, r0
     mov.l   r0, @(D_DELTA,gbr)
