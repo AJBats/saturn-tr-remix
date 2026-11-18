@@ -274,25 +274,6 @@ SND-C8*
 
 ## Inventory, HUD, saves and game flow
 
-### 155. Backup RAM handling differs
-*Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-18*
-
-- **Tested 2026-11-18 (Mednafen, f4e2f05 + later):** a crystal in the Caves (room 20): "Save Game?" YES, "Save Complete!", the file TOMBRAIDER_ / SAVE_FILE, 2,200 bytes in internal memory; walking off and loading Current Position from the passport puts Lara back at the crystal. Across a power cycle (a new Mednafen, the same backup RAM file), with her health poked to 500 before saving: the load brings back 500 and the crystal's spot. The "GBA" text came from builds before 7ddfb8a (issue 153): on a failed save they showed STR_GBA_SAVE_WARNING ("No SRAM or FRAM / Saves will be lost after GBA reboot!"); those strings are now unused. A save fails when internal memory is unformatted or full, which retail checks at boot and we don't yet (left: those checks and messages, the cartridge choice, the checksum and verify).
-
-- **Retail:** backup init at boot (`0603b76c`), and the write (`0604605c`).
-  - It checks System and Cartridge memory. If both exist, it asks: "MEMORY BACKUP
-    / Which type of memory do you want to use? SYSTEM / CARTRIDGE".
-  - It shows "not ready" messages, and "insufficient memory … An additional 55
-    blocks … Do you still wish to start the game? YES/NO". YES disables saving.
-  - It keeps one file: name "TOMBRAIDER_", comment "SAVE_FILE", 0xD7C bytes,
-    with a checksum (`0602cce8`) and a verify.
-  - Gamma and the control method are not saved.
-- **Ours:** `saturn/backup.cpp:53-66`, `saturn/os.cpp:30-77`.
-  - Internal memory only, with no boot checks and no messages.
-  - Two files: TOMBR_SAVE (its comment is the level's file name) and TOMBR_CFG.
-  - `osSaveSettings` rewrites backup RAM on every option toggle.
-- **2026-11-18:** the settings file went with issue 145 (Gamma and the control method aren't saved, as retail's), and the game keeps one file, named as retail's (TOMBRAIDER_, comment SAVE_FILE). Left: the boot checks and messages, the System/Cartridge choice, retail's fixed size (0xD7C), and the checksum with its verify.
-
 ### 162. No "Press START" title screen, no attract demos, no return to it
 *Severity: visible · Confidence: confirmed · Fix: medium (screen), large (demos)
 · Audit: INV-25*
@@ -1105,6 +1086,27 @@ word. Of the same kind and already open: 264, 265, 266.
 | **169** | Retail doesn't read the 3D pad in analog mode (id 0x16): with only that on port 1 the game sees no pad. Read it too (its first two bytes are the buttons), or keep retail's? |
 
 ## Closed
+
+### 155. Backup RAM handling differs
+*3ccc2ed. Retail's boot check (not formatted, cartridge choice, too little room with YES/NO), a dated and verified file of a fixed 5,120 bytes, no prompts with saving off; tested in Mednafen on every page and both memories. Retail's checksum byte isn't copied: retail never checks it.*
+
+*Severity: visible · Confidence: confirmed · Fix: medium · Audit: INV-18*
+
+- **Tested 2026-11-18 (Mednafen, f4e2f05 + later):** a crystal in the Caves (room 20): "Save Game?" YES, "Save Complete!", the file TOMBRAIDER_ / SAVE_FILE, 2,200 bytes in internal memory; walking off and loading Current Position from the passport puts Lara back at the crystal. Across a power cycle (a new Mednafen, the same backup RAM file), with her health poked to 500 before saving: the load brings back 500 and the crystal's spot. The "GBA" text came from builds before 7ddfb8a (issue 153): on a failed save they showed STR_GBA_SAVE_WARNING ("No SRAM or FRAM / Saves will be lost after GBA reboot!"); those strings are now unused. A save fails when internal memory is unformatted or full, which retail checks at boot and we don't yet (left: those checks and messages, the cartridge choice, the checksum and verify).
+
+- **Retail:** backup init at boot (`0603b76c`), and the write (`0604605c`).
+  - It checks System and Cartridge memory. If both exist, it asks: "MEMORY BACKUP
+    / Which type of memory do you want to use? SYSTEM / CARTRIDGE".
+  - It shows "not ready" messages, and "insufficient memory … An additional 55
+    blocks … Do you still wish to start the game? YES/NO". YES disables saving.
+  - It keeps one file: name "TOMBRAIDER_", comment "SAVE_FILE", 0xD7C bytes,
+    with a checksum (`0602cce8`) and a verify.
+  - Gamma and the control method are not saved.
+- **Ours:** `saturn/backup.cpp:53-66`, `saturn/os.cpp:30-77`.
+  - Internal memory only, with no boot checks and no messages.
+  - Two files: TOMBR_SAVE (its comment is the level's file name) and TOMBR_CFG.
+  - `osSaveSettings` rewrites backup RAM on every option toggle.
+- **2026-11-18:** the settings file went with issue 145 (Gamma and the control method aren't saved, as retail's), and the game keeps one file, named as retail's (TOMBRAIDER_, comment SAVE_FILE). Left: the boot checks and messages, the System/Cartridge choice, retail's fixed size (0xD7C), and the checksum with its verify.
 
 ### 194. Retail CD music is mono (left channel only); ours is stereo
 *Closed 2026-11-18: the user's call, keep stereo; retail's mono music (a driver bug) isn't reproduced.*
