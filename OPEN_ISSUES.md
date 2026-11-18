@@ -1081,21 +1081,6 @@ Fix: small · Audit: MATH-5*
 - **Effect:** a shadow vanishes while its owner (Lara above the frame, an enemy
   just off-screen) is out of view, even though the floor under it is in view.
 
-### 210. Hatched creatures and Thor's hammer head are lit flat
-*Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-6*
-
-- **Retail:** pod and statue creatures get shade −1 (+0x2a = 0xFFFF, near
-  decomp.c:37401 and 37493). The hammer head copies the handle's shade (near
-  decomp.c:26116); in LEVEL4 the handle's shade is −1. TR1X: `pod.c:68`,
-  `statue.c:41`, `thors_hammer.c:36`.
-- **Ours:** `spawnHidden` and `HammerHandle` use `ItemObj::add`
-  (`openlara/object.h:1980`, `1775`), which sets intensity = 128
-  (`item.h:577`). That gives static 4096: flat, with no directional shading.
-- **Effect:** mutants and Adam from the Atlantis pods, and centaurs from the
-  Tihocan statues and pods, are an even mid-grey that ignores the room's lights.
-  So is the hammer head in the Folly's Thor room.
-- **Fix:** set intensity = 0 for these spawns.
-
 ### 211. Distant objects fade fully to black; retail keeps the lit side faintly visible
 *Severity: subtle · Confidence: confirmed · Fix: small · Audit: GFX-7*
 
@@ -1829,6 +1814,23 @@ word. Of the same kind and already open: 264, 265, 266.
 | **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? |
 
 ## Closed
+
+### 210. Hatched creatures and Thor's hammer head are lit flat
+*Closed 2026-11-18 (see git log): pod and statue creatures take intensity 0 (dynamic light), the hammer head its handle's.*
+
+*Severity: visible · Confidence: confirmed · Fix: small · Audit: GFX-6*
+
+- **Retail:** pod and statue creatures get shade −1 (+0x2a = 0xFFFF, near
+  decomp.c:37401 and 37493). The hammer head copies the handle's shade (near
+  decomp.c:26116); in LEVEL4 the handle's shade is −1. TR1X: `pod.c:68`,
+  `statue.c:41`, `thors_hammer.c:36`.
+- **Ours:** `spawnHidden` and `HammerHandle` use `ItemObj::add`
+  (`openlara/object.h:1980`, `1775`), which sets intensity = 128
+  (`item.h:577`). That gives static 4096: flat, with no directional shading.
+- **Effect:** mutants and Adam from the Atlantis pods, and centaurs from the
+  Tihocan statues and pods, are an even mid-grey that ignores the room's lights.
+  So is the hammer head in the Folly's Thor room.
+- **Fix:** set intensity = 0 for these spawns.
 
 ### 196. The projection divide table: vertex jitter, and it saves nothing on the CPUs (reported)
 *Closed 2026-11-18 (see git log): meshes nearer than z 1024 and sprites nearer than 2048 project by 0x100000 / z exactly; past that every vertex by 0x1000000 / z per 16 of z, rounded at the step's middle. Worst error 176 px off centre now 1 px, but 2 px for mesh vertices between z 1024 and 2048. Still on divTable: card meshes' and shimmers' sizes and the mesh sphere cull.*
