@@ -776,12 +776,6 @@ over 14.6, at most 188 · Fix: medium, parked*
 
 - CPU writes to bank B would disturb the plane, so the trace goes to the bitmap's last 32 lines, 32 KB (`saturn/os.cpp`), and the profile's blocks take a third of that. Without them about 15 frames.
 
-### 286. Coming back from the inventory, room textures show their lower detail for a frame or two
-*Kind: look · Size: about 2,500 pixels a frame of the top of the frame, two frames, at the valley's room 51 · Fix: to be costed*
-
-- Reported in play as trees flickering on unpausing, at room 51, 41188, 3584, 36270. Mednafen, the same pause with and without floors on VDP2, pixels changed from frame to frame in the top of the frame: with 569, 2,789, 2,493, then 22; without 774, 3,349, 2,575, then 761: VDP2 isn't the cause.
-- The inventory takes the texture cache's first slots for the item textures (`detailSuspend`, `saturn/detail.cpp`). Back in the game the faces whose textures those were draw lower detail till theirs are uploaded again. To read on the Saturn, where it may differ: a disc with no plane at the same spot.
-
 ### 292. City of Khamoon, room 14: VDP1 63 ms, two near pieces 20 ms of it
 *Kind: speed - Size: Saturn 15.0 fps at the spot, CPUs fine (master 23.2 ms of work), the master waiting 37 ms on VDP1 - Fix: to be looked at*
 
@@ -946,6 +940,14 @@ word. Of the same kind and already open: 264, 265, 266.
 None open. Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each): 88 keep the torso's no-turn walk; 99 fix the gorilla's sidestep as TRX; 11 keep the combat camera's stale distance; 139 the Saturn's 150 hits; 179 pan smoothly as TRX; 183 neither the loop restart nor the octave-down loops; 253 keep the shimmers.
 
 ## Closed
+
+### 286. Coming back from the inventory, room textures show their lower detail for a frame or two
+*Closed 2026-11-19: 7e38918. Not lower detail: the first scene frame after the inventory planned its objects' part of the command list by the inventory frame's few draws, and cut about 90 commands (the trees and plants at room 51 gone for a frame). Only a scene frame sets that count now; Mednafen, room 51 (clipdisc at 51@41188:3584:36270): the first frame back 611 commands, was 517, as the frames after. Saturn not seen.*
+
+*Kind: look · Size: about 2,500 pixels a frame of the top of the frame, two frames, at the valley's room 51 · Fix: to be costed*
+
+- Reported in play as trees flickering on unpausing, at room 51, 41188, 3584, 36270. Mednafen, the same pause with and without floors on VDP2, pixels changed from frame to frame in the top of the frame: with 569, 2,789, 2,493, then 22; without 774, 3,349, 2,575, then 761: VDP2 isn't the cause.
+- The inventory takes the texture cache's first slots for the item textures (`detailSuspend`, `saturn/detail.cpp`). Back in the game the faces whose textures those were draw lower detail till theirs are uploaded again. To read on the Saturn, where it may differ: a disc with no plane at the same spot.
 
 ### 287. The T-rex's music isn't heard on the Saturn
 *Closed 2026-11-19: heard on the Saturn at main (4eb7939 plus test spots): Lara on the Caves' track 16 trigger (room 33, its wolf moved away; `AT_START=33:1:4 AT_PLACE=53@27:7680:8960:83456`), the Saturn's capture matches track 16 itself (loudness every 50 ms against the disc's track, 0.999) and Mednafen's run (0.985) for its 28 s. At the T-rex's own trigger (valley-music) a test build reading the CD block on the bench page shows track 16 playing, its position moving, until he kills Lara about 6 s later and the music stops, as retail's; his footsteps drown the track's quiet start there, which may be what was heard as silence. Root cause of the November report not pinned: the CD code has changed since. The bench row is shelved in a stash. Reopen if play says otherwise.*
