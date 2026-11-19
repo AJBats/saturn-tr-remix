@@ -277,8 +277,9 @@ bool gTestNewGame;
 
 #if defined(TICK_REPLAY) || defined(TRS_HOST)
 // A tick replay's check (make REPLAY, host/host.cpp REPLAY): the game after a
-// tick, Lara and a sum over the active items, alike on the host and the
-// Saturn while the two run alike (tools/replaycheck.py sets them side by side).
+// tick, Lara and a sum over the active items (but the effects that only look),
+// alike on the host and the Saturn while the two run alike
+// (tools/replaycheck.py sets them side by side).
 struct ReplayRec
 {
     uint32 tick;
@@ -305,8 +306,19 @@ void replayRecord(ReplayRec &r, uint32 tick)
         r.frame = lara->frameIndex;
         r.health = lara->health;
     }
+    // (the effects that only look: they take the drawing's random numbers,
+    // which the Saturn's renderer draws from too and the host never does)
     uint32 sum = 0;
-    for (const ItemObj* item = ItemObj::sFirstActive; item; item = item->nextActive) {
+    for (const ItemObj* item = ItemObj::sFirstActive; item; item = item->nextActive)
+    {
+        switch (item->type)
+        {
+            case ITEM_EXPLOSION: case ITEM_SPLASH: case ITEM_BUBBLE: case ITEM_BLOOD: case ITEM_SMOKE:
+            case ITEM_RICOCHET: case ITEM_SPARKLES: case ITEM_MUZZLE_FLASH:
+                continue;
+            default:
+                break;
+        }
         sum = sum * 31 + uint32(item->pos.x) + uint32(item->pos.y) * 7 + uint32(item->pos.z) * 13 +
               uint32(item->animIndex) * 17 + item->frameIndex + uint32(item->health) * 19;
     }
