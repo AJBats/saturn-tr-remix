@@ -61,3 +61,31 @@ goto 14 18944 55808
 # back up to the bridges, the running jump across the gap (past the save
 # crystal), the medipack behind the columns
 pickup 34
+
+# down the stairs (two wolves at the bottom): the medipack in the alcove under them
+pickup 47
+# secret 3: up the steps, a running jump to the ledge with the greenery
+pickup 59
+expect secrets 3
+
+# the switch by the timed doors, and through them before they shut
+switch 42
+wait 30
+goto 34 33280 87552
+# up the dart steps: the wolf in the room above
+goto 35 33280 73216
+fight
+# the break-away tiles in the middle of the room: down to the long room below
+goto 35 36352 74752
+wait 60
+expect room 32
+# the level exit: across the gap, the large medipack (its wolf), the switch for
+# the exit doors
+pickup 54
+switch 52
+expect pickups 7
+expect secrets 3
+expect kills 14
+# out of the switch room, down to the exit, through the doors: the level ends
+wait 60
+endlevel 11 42496 83456

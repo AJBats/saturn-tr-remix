@@ -15,6 +15,10 @@
 //   pickup ITEM                   walked to it and picked it up
 //   switch ITEM                   stood at it and pulled it
 //   draw                          guns out
+//   endlevel ROOM X Z             to the level's end there, through its
+//                                 statistics and "Save Game?" to the next level
+//   use small|big                 a medipack from the ring (also used by
+//                                 themselves when she's low)
 //   fight                         guns drawn, every creature awake shot dead
 //   expect room ROOM | secrets N | pickups N | kills N | alive
 //                                 the run fails unless it is so
@@ -123,7 +127,9 @@ template <class F> int32 trial(F f, uint32* keys, int32* ticks)
     out->score = -1;
     out->ticks = 0;
     waitpid(pid, &status, 0);
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+    {
+        fprintf(stderr, "bot: a trial's child ended badly (status %x) at tick %d\n", status, gTick);
         return -1;
     }
     if (keys) {
@@ -214,6 +220,8 @@ static bool goStraight(int32 x, int32 z, int32 radius, bool walk, int32 maxTicks
     {
         if (wary && nearestFoe(3072))
             return false;
+        if (gNextLevel != LVL_MAX)
+            return true;    // the level's end took over
         int32 dist = distTo(x, z);
         if (dist <= radius)
             return true;
@@ -377,8 +385,34 @@ static int32 cellFind(int32 sx, int32 sz, int32 floor, bool add, Room* room)
 
 enum Move { MOVE_WALK, MOVE_DROP, MOVE_HANG_DROP, MOVE_CLIMB, MOVE_JUMP, MOVE_NONE };
 
-// How Lara gets from a's sector to its neighbour at b's: b filled in.
+// A slope too steep to stand on (more than two clicks a sector, as Lara
+// slides): its floor three quarters of a sector across, either way.
+static bool steepAt(Room* room, int32 x, int32 y, int32 z)
+{
+    Spot e = spotAt(room, x + 384, y, z), w = spotAt(room, x - 384, y, z);
+    Spot n = spotAt(room, x, y, z + 384), s = spotAt(room, x, y, z - 384);
+    if (e.floor == WALL || w.floor == WALL || n.floor == WALL || s.floor == WALL)
+        return false;
+    return abs(e.floor - w.floor) > 512 || abs(n.floor - s.floor) > 512;
+}
+
+// How Lara gets from a's sector to its neighbour at b's: b filled in. Onto a
+// steep slope is a drop (she slides down it), never up one.
+static Move moveBetweenFlat(const Cell &a, int32 dx, int32 dz, Spot &b);
+
 static Move moveBetween(const Cell &a, int32 dx, int32 dz, Spot &b)
+{
+    Move m = moveBetweenFlat(a, dx, dz, b);
+    if (m == MOVE_WALK || m == MOVE_CLIMB)
+    {
+        int32 nx = (a.sx << 10) + 512 + dx * 1024, nz = (a.sz << 10) + 512 + dz * 1024;
+        if (steepAt(b.room, nx, b.floor - 640, nz))
+            return (m == MOVE_WALK && b.floor >= a.floor - 64) ? MOVE_DROP : MOVE_NONE;
+    }
+    return m;
+}
+
+static Move moveBetweenFlat(const Cell &a, int32 dx, int32 dz, Spot &b)
 {
     int32 cx = (a.sx << 10) + 512, cz = (a.sz << 10) + 512;
     int32 nx = cx + dx * 1024, nz = cz + dz * 1024;
@@ -478,7 +512,8 @@ static const int32 kDirX[4] = { 1, -1, 0, 0 };
 static const int32 kDirZ[4] = { 0, 0, 1, -1 };
 
 // A jump from a's sector across `gap` sectors of pit (open above her) onto
-// the sector beyond, no more than a click higher and three lower: b filled in.
+// the sector beyond, up to five clicks higher (grabbed and pulled up onto) or
+// lower: b filled in.
 static bool jumpBetween(const Cell &a, int32 dx, int32 dz, int32 gap, Spot &b)
 {
     int32 cx = (a.sx << 10) + 512, cz = (a.sz << 10) + 512;
@@ -496,7 +531,7 @@ static bool jumpBetween(const Cell &a, int32 dx, int32 dz, int32 gap, Spot &b)
         room = mid.room;
     }
     b = spotAt(room, cx + dx * 1024 * (gap + 1), y, cz + dz * 1024 * (gap + 1));
-    if (b.floor == WALL || b.floor < a.floor - 256 || b.floor > a.floor + 768 || b.floor - b.ceiling < LARA_HEIGHT)
+    if (b.floor == WALL || b.floor < a.floor - 1280 || b.floor > a.floor + 1280 || b.floor - b.ceiling < LARA_HEIGHT)
         return false;
     return true;
 }
@@ -707,13 +742,27 @@ static bool jumpTry(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor, i
     int16 heading = int16(phd_atan(dz, dx));
     int32 ex = cellX(a) + dx * 440, ez = cellZ(a) + dz * 440;
     int32 sx = ex - dx * back, sz = ez - dz * back;
-    if (!goStraight(sx, sz, 48, true) || !settle() || !turnTo(heading, ANGLE(1)))
+    static bool tell = getenv("BOT_JUMPS") != NULL;
+    // to the run-up's start by way of the sector's middle, square to the gap
+    if (!goStraight(cellX(a), cellZ(a), 64, true) || !settle() || !goStraight(sx, sz, 48, true) || !settle() ||
+        !turnTo(heading, ANGLE(1)))
+    {
+        if (tell) {
+            fprintf(stderr, "  no take-off at %d,%d: Lara at %d,%d yaw %d state %d\n", sx, sz, lara()->pos.x, lara()->pos.z,
+                    uint16(lara()->angle.y), lara()->state);
+        }
         return false;
-    int32 tx = (a.sx + dx * (gap + 1)) << 10, tz = (a.sz + dz * (gap + 1)) << 10;
+    }
+    // landed: on the far side's floor, past the gap and no more than two
+    // sectors further, within a sector of the line jumped along
+    int32 near = (dx ? a.sx : a.sz) + (gap + 1) * (dx + dz);
+    int32 across = dx ? a.sz : a.sx;
     for (int32 i = 0; i < 160; i++)
     {
         const Lara* l = lara();
-        bool there = (l->pos.x >> 10) == (tx >> 10) && (l->pos.z >> 10) == (tz >> 10) && abs(l->pos.y - floor) < 128;
+        int32 along = (dx ? l->pos.x : l->pos.z) >> 10, side = (dx ? l->pos.z : l->pos.x) >> 10;
+        int32 past = (along - near) * (dx + dz);
+        bool there = past >= 0 && past <= 2 && abs(side - across) <= 1 && abs(l->pos.y - floor) < 128;
         if (there && standing())
             return true;
         if (l->health <= 0)
@@ -746,6 +795,11 @@ static bool jumpAcross(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor
                 int32 ticks = 0;
                 int32 score = trial([&]() { return jumpTry(a, dx, dz, gap, floor, back, run, grab != 0) ? lara()->health : -1; },
                                     keys, &ticks);
+                static bool tell = getenv("BOT_JUMPS") != NULL;
+                if (tell) {
+                    fprintf(stderr, "jump from %d,%d by %d,%d gap %d: back %d run %d grab %d -> %d\n", cellX(a), cellZ(a), dx, dz, gap,
+                            back, run, grab, score);
+                }
                 // the most health, then the fewest ticks
                 if (score > bestScore || (score == bestScore && score >= 0 && ticks < bestTicks))
                 {
@@ -790,6 +844,57 @@ static bool hangDrop(const Cell &a, int32 dx, int32 dz, int32 floor)
     return false;
 }
 
+// An item of the ring used, as a player does it: START opens the ring, left
+// turns it till the item is in front, Action takes it and uses it.
+static bool ringUse(InvSlot slot)
+{
+    if (!inventory.counts[slot] || lara()->health <= 0)
+        return false;
+    int32 had = inventory.counts[slot];
+    for (int32 i = 0; i < 30 && inventory.state == INV_STATE_NONE; i++) {
+        step(i == 0 ? IK_SELECT : 0);
+    }
+    for (int32 i = 0; i < 90 && inventory.state != INV_STATE_READY; i++) {
+        step(0);
+    }
+    for (int32 t = 0; t < inventory.itemsCount + 1 && inventory.itemsList[inventory.itemIndex] != slot; t++)
+    {
+        step(IK_LEFT);
+        for (int32 i = 0; i < 30 && inventory.state != INV_STATE_READY; i++) {
+            step(0);
+        }
+    }
+    if (inventory.itemsList[inventory.itemIndex] != slot)
+    {
+        for (int32 i = 0; i < 60 && inventory.state != INV_STATE_NONE; i++) {
+            step((i & 1) ? 0 : IK_SELECT);
+        }
+        fail("the item isn't on the ring's page");
+        return false;
+    }
+    for (int32 i = 0; i < 200 && inventory.state != INV_STATE_NONE; i++) {
+        step((i & 1) ? 0 : IK_A);
+    }
+    settle(60);
+    return inventory.counts[slot] < had;
+}
+
+// A medipack used when she's low: a small one under 500, a large one under
+// 250 or when no small one is left.
+static void heal()
+{
+    int32 h = lara()->health;
+    if (h <= 0)
+        return;
+    if (h < 250 && inventory.counts[SLOT_MEDIKIT_BIG]) {
+        ringUse(SLOT_MEDIKIT_BIG);
+    } else if (h < 500 && inventory.counts[SLOT_MEDIKIT_SMALL]) {
+        ringUse(SLOT_MEDIKIT_SMALL);
+    } else if (h < 500 && inventory.counts[SLOT_MEDIKIT_BIG]) {
+        ringUse(SLOT_MEDIKIT_BIG);
+    }
+}
+
 static bool fightBest();
 static ItemObj* nearestFoe(int32 range);
 
@@ -802,8 +907,9 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
 static bool goTo(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius = 96)
 {
     gBlockedCount = 0;
-    for (int32 tries = 0; tries < 8; tries++)
+    for (int32 tries = 0; tries < 24; tries++)
     {
+        heal();
         bool again = false;
         if (goToOnce(roomIndex, x, z, walk, radius, again))
             return true;
@@ -846,6 +952,11 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
                 again = true;
                 return false;
             }
+            if ((lara()->pos.x >> 10) != b.sx || (lara()->pos.z >> 10) != b.sz)
+            {
+                again = true;   // landed further on: the rest planned from there
+                return false;
+            }
             i++;
             continue;
         }
@@ -875,14 +986,22 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
         }
         if (m == MOVE_DROP)
         {
-            // run off it, straight across the side
-            if (!goStraight(cellX(a), cellZ(a), 256, walk) ||
-                !goStraight(cellX(b), cellZ(b), 256, false) || !settle(120)) {
-                fail("the drop went wrong");
+            // run off it, straight across the side; then plan again from
+            // where she comes to rest (a slope slides her on)
+            if (!goStraight(cellX(a), cellZ(a), 256, walk) || !settle() ||
+                !turnTo(int16(phd_atan(dz, dx)), ANGLE(4))) {
+                fail("couldn't stand at the drop");
                 return false;
             }
-            i++;
-            continue;
+            for (int32 t = 0; t < 90 && (lara()->pos.x >> 10) == a.sx && (lara()->pos.z >> 10) == a.sz; t++) {
+                step(IK_UP);
+            }
+            if (!settle(150) && lara()->health > 0) {
+                fail("didn't come to rest after the drop");
+                return false;
+            }
+            again = true;
+            return false;
         }
         // the furthest sector ahead along walks that is clear in a straight line
         int32 j = i + 1;
@@ -1041,7 +1160,7 @@ static const FightStyle kFightStyles[] = {
     { ANGLE(25), 0, 20 }, { ANGLE(8), 640, 20 }, { ANGLE(12), 384, 8 }, { ANGLE(6), 448, 40 },
 };
 
-static bool fight(const FightStyle &st, int32 range = 8192, int32 maxTicks = 30 * 90)
+static bool fight(const FightStyle &st, int32 range = 4096, int32 maxTicks = 30 * 90)
 {
     ExtraInfoLara* e = lara()->extraL;
     int32 quiet = 0, unaimed = 0;
@@ -1063,6 +1182,11 @@ static bool fight(const FightStyle &st, int32 range = 8192, int32 maxTicks = 30 
         if (e->weaponState == WEAPON_STATE_FREE) {
             step(IK_C);     // draw
             step(0);
+            continue;
+        }
+        if (lara()->health < 250 && standing() && (inventory.counts[SLOT_MEDIKIT_SMALL] || inventory.counts[SLOT_MEDIKIT_BIG]))
+        {
+            heal();
             continue;
         }
         ItemObj* target = e->armR.target;
@@ -1248,6 +1372,9 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
         if (n <= 0 || !strcmp(cmd, "start"))
             continue;
         int32 t0 = gTick;
+        if (strcmp(cmd, "keys") && strcmp(cmd, "wait") && strcmp(cmd, "expect")) {
+            heal();
+        }
         if (!strcmp(cmd, "goto") && n >= 4) {
             ok = goTo(atoi(a), atoi(b), atoi(c), n >= 5 && !strcmp(d, "walk"));
         } else if (!strcmp(cmd, "face") && n >= 2) {
@@ -1285,6 +1412,33 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
                 printf("    dir %d,%d: move %d to floor %d ceiling %d room %d; climb %s %d\n", kDirX[dir], kDirZ[dir], m, low.floor,
                        low.ceiling, low.room ? int32(low.room - rooms) : -1, climb ? "yes" : "no", climb ? hi.floor : 0);
             }
+        } else if (!strcmp(cmd, "jumptest") && n >= 4) {
+            // jumptest DX:DZ:GAP:FLOOR BACK RUN GRAB: one jump try, here, for real
+            int32 jdx, jdz, gap, floor;
+            sscanf(a, "%d:%d:%d:%d", &jdx, &jdz, &gap, &floor);
+            Cell cl;
+            cl.sx = int16(lara()->pos.x >> 10);
+            cl.sz = int16(lara()->pos.z >> 10);
+            cl.floor = lara()->pos.y;
+            cl.room = lara()->room;
+            ok = jumpTry(cl, jdx, jdz, gap, floor, atoi(b), atoi(c), n >= 5 && atoi(d));
+        } else if (!strcmp(cmd, "endlevel") && n >= 4) {
+            // endlevel ROOM X Z: to the end trigger there, then Action through
+            // the statistics and the "Save Game?" prompt till the next level is up
+            LevelID was = gLevelID;
+            goTo(atoi(a), atoi(b), atoi(c), false);
+            for (int32 i = 0; i < 30 * 120 && (gLevelID == was || !players[0]); i++) {
+                step((i % 8) == 0 ? IK_A : 0);
+            }
+            ok = gLevelID != was;
+            if (ok) {
+                printf("  level %d up after %d ticks\n", gLevelID, gTick);
+            } else {
+                fail("the level didn't end");
+            }
+        } else if (!strcmp(cmd, "use") && n >= 2) {
+            // use small|big: a medipack from the ring
+            ok = ringUse(!strcmp(a, "big") ? SLOT_MEDIKIT_BIG : SLOT_MEDIKIT_SMALL);
         } else if (!strcmp(cmd, "draw")) {
             ok = draw();
         } else if (!strcmp(cmd, "fight")) {
