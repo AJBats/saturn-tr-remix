@@ -88,14 +88,14 @@ def main():
     missed = [t for t in range(last + 1) if t not in saturn]
     if missed:
         print(f'not seen on Mednafen: {len(missed)} ticks, first {missed[:10]}')
-    for t in seen:
-        if saturn[t] != host[t]:
-            diffs = [f'{n} host {h} saturn {s}' for n, h, s in zip(FIELDS, host[t], saturn[t]) if h != s]
-            print(f'PART at tick {t}: ' + ', '.join(diffs))
-            prev = max((p for p in seen if p < t), default=None)
-            if prev is not None:
-                print(f'  last alike: tick {prev}')
-            return 1
+    parted = [t for t in seen if saturn[t] != host[t]]
+    for t in parted[:5]:
+        diffs = [f'{n} host {h} saturn {s}' for n, h, s in zip(FIELDS, host[t], saturn[t]) if h != s]
+        print(f'PART at tick {t}: ' + ', '.join(diffs))
+    if parted:
+        later = [t for t in seen if t > parted[0]]
+        print(f'{len(parted)} of {len(seen)} ticks differ; {len(later) - len(parted) + 1} after the first are alike')
+        return 1
     print(f'ALIKE: every tick seen matches the host\'s ({seen[0]}..{seen[-1]})' if seen else 'nothing to compare')
     return 0
 

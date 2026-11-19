@@ -38,3 +38,23 @@ expect secrets 2
 
 # down to the door with the switch
 switch 10
+
+# through the door (its bat), up to the bridges room, its wolves
+wait 90
+goto 15 22016 46592
+fight
+
+# the bear: woken at the edge of the gap, shot from above
+goto 21 11264 63300
+face 0
+draw
+fight
+# the bear pit: its medipack
+pickup 29
+
+# the pad opens the timed door to the bridges room: on it facing the door, through
+goto 17 15872 59904
+face 90
+wait 15
+goto 16 20992 59904
+goto 14 18944 55808

@@ -41,6 +41,7 @@ struct TrialOut
     uint32 keys[BOT_TRIAL_TICKS];
 };
 static TrialOut* gTrialOut[4];
+static uint32 gJumpBest[BOT_TRIAL_TICKS];
 
 static Lara* lara()
 {
@@ -248,6 +249,7 @@ static bool goStraight(int32 x, int32 z, int32 radius, bool walk, int32 maxTicks
 // Action). A straight run between two points is taken where every point
 // along it, and either side of it by her width, is a walk from the last.
 #define BOT_MAX_DROP    2048
+#define BOT_MAX_HANG_DROP 3584     // hung from the edge first: her height and reach off the fall
 #define BOT_MAX_CLIMB   1920
 #define BOT_CELLS       16384
 
@@ -275,6 +277,7 @@ struct Cell
     int32 floor;
     Room* room;
     int32 cost, from;
+    int8 move;      // how it was reached from `from` (Move)
     bool done;
 };
 
@@ -301,19 +304,20 @@ static int32 cellFind(int32 sx, int32 sz, int32 floor, bool add, Room* room)
     c.room = room;
     c.cost = 0x7FFFFFFF;
     c.from = -1;
+    c.move = -1;
     c.done = false;
     gCellHash[h] = gCellsCount;
     return gCellsCount++;
 }
 
-enum Move { MOVE_WALK, MOVE_DROP, MOVE_CLIMB, MOVE_NONE };
+enum Move { MOVE_WALK, MOVE_DROP, MOVE_HANG_DROP, MOVE_CLIMB, MOVE_JUMP, MOVE_NONE };
 
 // How Lara gets from a's sector to its neighbour at b's: b filled in.
 static Move moveBetween(const Cell &a, int32 dx, int32 dz, Spot &b)
 {
     int32 cx = (a.sx << 10) + 512, cz = (a.sz << 10) + 512;
     int32 nx = cx + dx * 1024, nz = cz + dz * 1024;
-    int32 y = a.floor - 256;
+    int32 y = a.floor - 640;     // above a bridge up to 2.5 clicks higher, so its floor is seen
     // the side between them first: a wall there or a step not seen at the centres
     Spot side = spotAt(a.room, cx + dx * 448, y, cz + dz * 448);
     if (side.floor == WALL)
@@ -339,7 +343,39 @@ static Move moveBetween(const Cell &a, int32 dx, int32 dz, Spot &b)
     }
     if (down > 256 && down <= BOT_MAX_DROP && edge.floor >= side.floor - 256)
         return MOVE_DROP;
+    if (down > BOT_MAX_DROP && down <= BOT_MAX_HANG_DROP && abs(side.floor - a.floor) <= 64 && edge.floor >= side.floor - 256)
+        return MOVE_HANG_DROP;
     return MOVE_NONE;
+}
+
+// A climb onto a floor above the neighbour's, seen from above (a bridge, a
+// ledge over open floor): the highest floor there within reach, level across
+// its edge, with room to stand on; b filled in.
+static bool climbBetween(const Cell &a, int32 dx, int32 dz, const Spot &low, Spot &b)
+{
+    int32 cx = (a.sx << 10) + 512, cz = (a.sz << 10) + 512;
+    int32 y = a.floor - 640;     // above a bridge up to 2.5 clicks higher, so its floor is seen
+    Spot side = spotAt(a.room, cx + dx * 448, y, cz + dz * 448);
+    if (side.floor == WALL || abs(side.floor - a.floor) > 64)
+        return false;
+    int32 high = a.floor - BOT_MAX_CLIMB - 64;
+    Spot over = spotAt(a.room, cx + dx * 448, high, cz + dz * 448);
+    if (abs(over.floor - a.floor) > 64)
+        return false;   // something over her at the edge (under a bridge): no wall to climb
+    Spot hs = spotAt(a.room, cx + dx * 576, high, cz + dz * 576);
+    if (hs.floor == WALL)
+        return false;
+    b = spotAt(hs.room, cx + dx * 1024, high, cz + dz * 1024);
+    if (b.floor == WALL || b.floor > a.floor - 384 || b.floor < a.floor - BOT_MAX_CLIMB)
+        return false;
+    if (low.floor != WALL && b.floor >= low.floor - 256)
+        return false;   // the same floor the low look sees: moveBetween's
+    if (abs(hs.floor - b.floor) > 256 || b.floor - b.ceiling < LARA_HEIGHT)
+        return false;
+    int32 ex = cx + dx * 544, ez = cz + dz * 544;
+    Spot l = spotAt(hs.room, ex + dz * 160, high, ez + dx * 160);
+    Spot r = spotAt(hs.room, ex - dz * 160, high, ez - dx * 160);
+    return l.floor != WALL && r.floor != WALL && abs(l.floor - r.floor) < LARA_HANG_SLANT;
 }
 
 // moves that failed when tried, left out of the next plan
@@ -375,6 +411,30 @@ static void block(const Cell &a, int32 dx, int32 dz)
 
 static const int32 kDirX[4] = { 1, -1, 0, 0 };
 static const int32 kDirZ[4] = { 0, 0, 1, -1 };
+
+// A jump from a's sector across `gap` sectors of pit (open above her) onto
+// the sector beyond, no more than a click higher and three lower: b filled in.
+static bool jumpBetween(const Cell &a, int32 dx, int32 dz, int32 gap, Spot &b)
+{
+    int32 cx = (a.sx << 10) + 512, cz = (a.sz << 10) + 512;
+    int32 y = a.floor - 640;     // above a bridge up to 2.5 clicks higher, so its floor is seen
+    Room* room = a.room;
+    Spot side = spotAt(room, cx + dx * 448, y, cz + dz * 448);
+    if (side.floor == WALL || abs(side.floor - a.floor) > 256)
+        return false;
+    room = side.room;
+    for (int32 g = 1; g <= gap; g++)
+    {
+        Spot mid = spotAt(room, cx + dx * 1024 * g, y, cz + dz * 1024 * g);
+        if (mid.floor == WALL || mid.floor <= a.floor + 512 || mid.ceiling > a.floor - 1280)
+            return false;
+        room = mid.room;
+    }
+    b = spotAt(room, cx + dx * 1024 * (gap + 1), y, cz + dz * 1024 * (gap + 1));
+    if (b.floor == WALL || b.floor < a.floor - 256 || b.floor > a.floor + 768 || b.floor - b.ceiling < LARA_HEIGHT)
+        return false;
+    return true;
+}
 
 // The sectors from Lara's to the one holding x, z in a room, the cheapest way
 // (walks by their length, drops and climbs dearer); none: 0.
@@ -413,30 +473,71 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
         }
         for (int32 d = 0; d < 4; d++)
         {
-            Spot b;
-            Move m = moveBetween(gCells[c], kDirX[d], kDirZ[d], b);
-            if (m == MOVE_NONE || (m != MOVE_WALK && isBlocked(gCells[c], kDirX[d], kDirZ[d])))
-                continue;
-            int32 n = cellFind(gCells[c].sx + kDirX[d], gCells[c].sz + kDirZ[d], b.floor, true, b.room);
-            if (n < 0 || gCells[n].done)
-                continue;
-            int32 cost = gCells[c].cost + 1024;
-            if (m == MOVE_DROP) {
-                cost += 2048 + (b.floor - gCells[c].floor);
-            } else if (m == MOVE_CLIMB) {
-                cost += 2048 + (gCells[c].floor - b.floor) * 2;
-            }
-            if (cost < gCells[n].cost) {
-                gCells[n].cost = cost;
-                gCells[n].from = c;
+            for (int32 look = 0; look < 2; look++)
+            {
+                Spot low, b;
+                Move m = moveBetween(gCells[c], kDirX[d], kDirZ[d], low);
+                b = low;
+                if (look == 1)
+                {
+                    if (!climbBetween(gCells[c], kDirX[d], kDirZ[d], low, b))
+                        continue;
+                    m = MOVE_CLIMB;
+                }
+                if (m == MOVE_NONE || (m != MOVE_WALK && isBlocked(gCells[c], kDirX[d], kDirZ[d])))
+                    continue;
+                int32 n = cellFind(gCells[c].sx + kDirX[d], gCells[c].sz + kDirZ[d], b.floor, true, b.room);
+                if (n < 0 || gCells[n].done)
+                    continue;
+                int32 cost = gCells[c].cost + 1024;
+                if (m == MOVE_DROP) {
+                    cost += 2048 + (b.floor - gCells[c].floor);
+                } else if (m == MOVE_HANG_DROP) {
+                    cost += 4096 + (b.floor - gCells[c].floor);
+                } else if (m == MOVE_CLIMB) {
+                    cost += 2048 + (gCells[c].floor - b.floor) * 2;
+                }
+                if (cost < gCells[n].cost) {
+                    gCells[n].cost = cost;
+                    gCells[n].from = c;
+                    gCells[n].move = int8(m);
+                }
             }
         }
+        for (int32 d = 0; d < 4; d++)
+        {
+            for (int32 gap = 1; gap <= 2; gap++)
+            {
+                Spot b;
+                if (!jumpBetween(gCells[c], kDirX[d], kDirZ[d], gap, b) || isBlocked(gCells[c], kDirX[d] * (gap + 1), kDirZ[d] * (gap + 1)))
+                    continue;
+                int32 n = cellFind(gCells[c].sx + kDirX[d] * (gap + 1), gCells[c].sz + kDirZ[d] * (gap + 1), b.floor, true, b.room);
+                if (n < 0 || gCells[n].done)
+                    continue;
+                int32 cost = gCells[c].cost + 4096 + gap * 1024;
+                if (cost < gCells[n].cost) {
+                    gCells[n].cost = cost;
+                    gCells[n].from = c;
+                    gCells[n].move = MOVE_JUMP;
+                }
+            }
+        }
+    }
+    static bool plan = getenv("BOT_PLAN") != NULL;
+    if (plan) {
+        printf("  plan: %d cells looked at, %s\n", gCellsCount, found < 0 ? "no way" : "a way");
     }
     if (found < 0)
         return 0;
     int32 len = 0;
     for (int32 c = found; c >= 0; c = gCells[c].from) {
         len++;
+    }
+    if (plan) {
+        for (int32 c = found; c >= 0; c = gCells[c].from) {
+            printf("    %d,%d floor %d room %d move %d\n", gCells[c].sx << 10, gCells[c].sz << 10, gCells[c].floor,
+                   int32(gCells[c].room - rooms), gCells[c].move);
+        }
     }
     if (len > maxLen)
         return 0;
@@ -494,16 +595,122 @@ static bool climbAt(int16 heading, int32 x, int32 z, int32 floor)
         fail("couldn't stand at the climb");
         return false;
     }
-    for (int32 i = 0; i < 150; i++)
+    static uint32 keys[BOT_TRIAL_TICKS];
+    for (int32 way = 0; way < 2; way++)
     {
-        const Lara* l = lara();
-        if (standing() && abs(l->pos.y - floor) < 128 && i > 10)
+        int32 ticks = 0;
+        int32 score = trial([&]() -> int32 {
+            for (int32 i = 0; i < 150; i++)
+            {
+                const Lara* l = lara();
+                if (standing() && abs(l->pos.y - floor) < 128 && i > 10)
+                    return l->health;
+                if (l->health <= 0)
+                    return -1;
+                uint32 k = IK_UP | IK_B;
+                if (way == 1) {
+                    // straight up with Action, then forward to pull up once hanging
+                    k = (l->state == Lara::STATE_HANG || l->state == Lara::STATE_HANG_UP) ? (IK_UP | IK_B) : (IK_A | IK_B);
+                }
+                step(k);
+            }
+            return -1;
+        }, keys, &ticks);
+        if (score >= 0)
+        {
+            play(keys, ticks);
             return true;
-        if (l->health <= 0)
-            break;
-        step(IK_UP | IK_B);
+        }
     }
     fail("couldn't climb up");
+    return false;
+}
+
+// One way of jumping from a's sector over the gap: from `back` units short of
+// its edge, running (UP+A held from there) or standing, grabbing or not;
+// true once she stands on the far sector.
+static bool jumpTry(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor, int32 back, bool grab)
+{
+    int16 heading = int16(phd_atan(dz, dx));
+    int32 ex = cellX(a) + dx * 440, ez = cellZ(a) + dz * 440;
+    int32 sx = ex - dx * back, sz = ez - dz * back;
+    if (!goStraight(sx, sz, 48, true) || !settle() || !turnTo(heading, ANGLE(1)))
+        return false;
+    int32 tx = (a.sx + dx * (gap + 1)) << 10, tz = (a.sz + dz * (gap + 1)) << 10;
+    uint32 k = IK_UP | IK_A | (grab ? IK_B : 0);
+    for (int32 i = 0; i < 120; i++)
+    {
+        const Lara* l = lara();
+        bool there = (l->pos.x >> 10) == (tx >> 10) && (l->pos.z >> 10) == (tz >> 10) && abs(l->pos.y - floor) < 128;
+        if (there && standing())
+            return true;
+        if (l->health <= 0)
+            return false;
+        // in the air: the keys stay; hanging: pull up; landed: let go to stand
+        if (l->state == Lara::STATE_HANG) {
+            k = IK_UP | IK_B;
+        } else if (there) {
+            k = 0;
+        }
+        step(k);
+    }
+    return false;
+}
+
+static bool jumpAcross(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor)
+{
+    static const int32 kBack[] = { 0, 160, 320, 480, 640, 800 };
+    static uint32 keys[BOT_TRIAL_TICKS];
+    int32 bestScore = -1, bestTicks = 0;
+    for (int32 grab = 0; grab < 2; grab++)
+    {
+        for (int32 v = 0; v < int32(X_COUNT(kBack)); v++)
+        {
+            int32 back = kBack[v];
+            int32 ticks = 0;
+            int32 score = trial([&]() { return jumpTry(a, dx, dz, gap, floor, back, grab != 0) ? lara()->health : -1; },
+                                keys, &ticks);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestTicks = ticks;
+                memcpy(gJumpBest, keys, ticks * sizeof(uint32));
+            }
+        }
+        if (bestScore >= 0)
+            break;      // a jump without grabbing is best: grabbing only if none lands
+    }
+    if (bestScore < 0)
+        return false;
+    printf("  jump: %d sectors, health %d\n", gap, bestScore);
+    play(gJumpBest, bestTicks);
+    return true;
+}
+
+// Down a drop too deep to fall: stood at the edge with her back to it, a
+// step back with Action held hangs her from it, then let go.
+static bool hangDrop(const Cell &a, int32 dx, int32 dz, int32 floor)
+{
+    int16 heading = int16(phd_atan(-dz, -dx));     // facing away from the drop
+    int32 sx = cellX(a) + dx * 380, sz = cellZ(a) + dz * 380;
+    if (!goStraight(sx, sz, 48, true) || !settle() || !turnTo(heading, ANGLE(3))) {
+        fail("couldn't stand at the edge to hang");
+        return false;
+    }
+    for (int32 i = 0; i < 60 && lara()->state != Lara::STATE_HANG; i++) {
+        step(IK_DOWN | IK_B);
+    }
+    if (lara()->state != Lara::STATE_HANG) {
+        fail("didn't hang from the edge");
+        return false;
+    }
+    for (int32 i = 0; i < 90; i++)
+    {
+        if (standing() && abs(lara()->pos.y - floor) < 128)
+            return true;
+        step(0);
+    }
+    fail("the drop from hanging went wrong");
     return false;
 }
 
@@ -552,12 +759,35 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
     {
         const Cell &a = gCells[path[i]], &b = gCells[path[i + 1]];
         int32 dx = b.sx - a.sx, dz = b.sz - a.sz;
-        Spot sp;
-        Move m = moveBetween(a, dx, dz, sp);
+        if (abs(dx) + abs(dz) > 1)
+        {
+            int32 gap = abs(dx) + abs(dz) - 1;
+            int32 ux = (dx > 0) - (dx < 0), uz = (dz > 0) - (dz < 0);
+            if (!jumpAcross(a, ux, uz, gap, b.floor))
+            {
+                block(a, dx, dz);
+                again = true;
+                return false;
+            }
+            i++;
+            continue;
+        }
+        Move m = Move(b.move);
         if (m == MOVE_CLIMB)
         {
             int16 heading = int16(phd_atan(dz, dx));
             if (!climbAt(heading, cellX(a) + dx * 512, cellZ(a) + dz * 512, b.floor))
+            {
+                block(a, dx, dz);
+                again = true;
+                return false;
+            }
+            i++;
+            continue;
+        }
+        if (m == MOVE_HANG_DROP)
+        {
+            if (!hangDrop(a, dx, dz, b.floor))
             {
                 block(a, dx, dz);
                 again = true;
@@ -581,9 +811,8 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
         int32 j = i + 1;
         for (int32 k = i + 2; k < len; k++)
         {
-            const Cell &p = gCells[path[k - 1]], &q = gCells[path[k]];
-            Spot t;
-            if (moveBetween(p, q.sx - p.sx, q.sz - p.sz, t) != MOVE_WALK)
+            const Cell &q = gCells[path[k]];
+            if (q.move != MOVE_WALK)
                 break;
             int32 tx = (k == len - 1) ? x : cellX(q), tz = (k == len - 1) ? z : cellZ(q);
             if (!clearWalk(tx, tz))
@@ -765,7 +994,8 @@ static bool fight(const FightStyle &st, int32 range = 8192, int32 maxTicks = 30 
         }
         // on top of her (a bat at her head, too steep to aim at): a jump back
         // puts it in front
-        if (distTo(foe->pos.x, foe->pos.z) < st.tooClose && standing() && clearBehind(768))
+        if (distTo(foe->pos.x, foe->pos.z) < st.tooClose && abs(foe->pos.y - lara()->pos.y) < 1024 && standing() &&
+            clearBehind(1536))
         {
             for (int32 j = 0; j < 12; j++) {
                 step(IK_DOWN | IK_A | IK_B);
@@ -961,6 +1191,23 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
             ok = pickup(atoi(a));
         } else if (!strcmp(cmd, "switch") && n >= 2) {
             ok = pullSwitch(atoi(a));
+        } else if (!strcmp(cmd, "explain") && n >= 5) {
+            // explain ROOM X Y Z: the moves the planner sees from that sector (Y above its floor)
+            Spot sp = spotAt(rooms + atoi(a), atoi(b), atoi(c), atoi(d));
+            Cell cl;
+            cl.sx = int16(atoi(b) >> 10);
+            cl.sz = int16(atoi(d) >> 10);
+            cl.floor = sp.floor;
+            cl.room = sp.room;
+            printf("  explain %d,%d floor %d room %d:\n", cl.sx << 10, cl.sz << 10, cl.floor, int32(cl.room - rooms));
+            for (int32 dir = 0; dir < 4; dir++)
+            {
+                Spot low, hi;
+                Move m = moveBetween(cl, kDirX[dir], kDirZ[dir], low);
+                bool climb = climbBetween(cl, kDirX[dir], kDirZ[dir], low, hi);
+                printf("    dir %d,%d: move %d to floor %d ceiling %d room %d; climb %s %d\n", kDirX[dir], kDirZ[dir], m, low.floor,
+                       low.ceiling, low.room ? int32(low.room - rooms) : -1, climb ? "yes" : "no", climb ? hi.floor : 0);
+            }
         } else if (!strcmp(cmd, "draw")) {
             ok = draw();
         } else if (!strcmp(cmd, "fight")) {
