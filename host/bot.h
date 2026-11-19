@@ -1137,7 +1137,7 @@ static bool climbOutAt(int16 heading, int32 x, int32 z, int32 surface)
         fail("didn't come up at the edge");
         return false;
     }
-    for (int32 i = 0; i < 150; i++)
+    for (int32 i = 0; i < 360; i++)   // (the climb out's animation takes a while)
     {
         Lara* l = lara();
         if (l->waterState == WATER_STATE_ABOVE && standing())
@@ -1151,6 +1151,47 @@ static bool climbOutAt(int16 heading, int32 x, int32 z, int32 surface)
     }
     fail("couldn't climb out of the water");
     return false;
+}
+
+// One way of swimming from stretch a to stretch b beside it:
+//   0: at the depth she's at where both have room, up or down within a first
+//   1: at the middle of the height both share, by a's middle
+//   2: at that middle, straight for b's middle
+//   3: high in what both share, by a's middle
+// (the surface, if both have air over them and meet there and she's at it)
+static bool swimTry(const Cell &a, const Cell &b, int32 way)
+{
+    int32 lo = X_MAX(a.top, b.top), hi = X_MIN(a.floor, b.floor);
+    bool surface = a.air && b.air && lara()->waterState == WATER_STATE_SURFACE && abs(a.top - b.top) < 64;
+    int32 mid = X_MIN(X_MAX((lo + hi) / 2, lo + 250), hi - 200);
+    int32 y = surface ? b.top : (way == 0) ? X_MIN(X_MAX(lara()->pos.y, lo + 250), hi - 200) : (way == 3) ? X_MIN(lo + 250, hi - 200) : mid;
+    int32 hx = cellX(a) - lara()->pos.x, hz = cellZ(a) - lara()->pos.z;
+    bool byMiddle = way != 2 && (hx * hx + hz * hz > 500 * 500 || (!surface && abs(lara()->pos.y - y) > 300));
+    if (byMiddle && !swimTo(cellX(a), surface ? a.top : y, cellZ(a), 300))
+        return false;
+    return swimTo(cellX(b), y, cellZ(b), 350);
+}
+
+// A stretch swum: each way tried, the quickest that gets there played.
+static bool swimStep(const Cell &a, const Cell &b)
+{
+    static uint32 keys[BOT_TRIAL_TICKS];
+    static uint32 best[BOT_TRIAL_TICKS];
+    int32 bestTicks = -1;
+    for (int32 way = 0; way < 4; way++)
+    {
+        int32 ticks = 0;
+        int32 score = trial([&]() -> int32 { return swimTry(a, b, way) ? lara()->health : -1; }, keys, &ticks);
+        if (score >= 0 && (bestTicks < 0 || ticks < bestTicks))
+        {
+            bestTicks = ticks;
+            memcpy(best, keys, ticks * sizeof(uint32));
+        }
+    }
+    if (bestTicks < 0)
+        return false;
+    play(best, bestTicks);
+    return true;
 }
 
 static bool fightBest();
@@ -1268,22 +1309,10 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
         }
         if (m == MOVE_SWIM)
         {
-            // to the next stretch's middle, at a depth both stretches share
-            // (the surface if both have air over them and meet there)
-            // middle to middle (no corner of a pillar cut), at the depth she's
-            // at where both stretches have room for her, else the nearest that has
-            int32 lo = X_MAX(a.top, b.top), hi = X_MIN(a.floor, b.floor);
-            bool surface = a.air && b.air && lara()->waterState == WATER_STATE_SURFACE && abs(a.top - b.top) < 64;
-            int32 y = surface ? b.top : X_MIN(X_MAX(lara()->pos.y, lo + 250), hi - 200);
-            // first up or down within this stretch, then across
-            int32 hx = cellX(a) - lara()->pos.x, hz = cellZ(a) - lara()->pos.z;
-            bool deeper = !surface && abs(lara()->pos.y - y) > 300;
-            if ((hx * hx + hz * hz > 500 * 500 || deeper) && !swimTo(cellX(a), surface ? a.top : y, cellZ(a), 300)) {
-                fail("couldn't swim to the stretch's middle");
-                return false;
-            }
-            if (!swimTo(cellX(b), y, cellZ(b), 350)) {
-                fail("couldn't swim on");
+            if (!swimStep(a, b))
+            {
+                block(a, dx, dz);
+                again = true;
                 return false;
             }
             i++;

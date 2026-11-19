@@ -1,5 +1,5 @@
 # Vilcabamba at 100%, in progress (Stella: 13 pickups with the silver key and
-# gold idol, 3 secrets, 29 kills). The underwater part is not reliable yet.
+# gold idol, 3 secrets, 29 kills). In progress: to secret 2 so far.
 start LEVEL2 newgame
 # the entrance doors open as the level starts
 wait 90

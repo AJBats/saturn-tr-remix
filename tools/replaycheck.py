@@ -44,8 +44,9 @@ def host_records(replay, ticks):
     return recs
 
 
-def saturn_records(build, last):
-    """Each tick's record as Mednafen keeps it: the ring read every 30 vertical
+def saturn_records(build, last, first):
+    """Each tick's record as Mednafen keeps it, from the read that shows the
+    first tick's (the host's `first`): the ring read every 30 vertical
     blanks, so each tick is seen in several reads (a tick takes two or more,
     the ring holds 64), read twice each time. A tick's record is one read the
     same at least twice; reads now and then come back garbled (a read twice
@@ -60,6 +61,12 @@ def saturn_records(build, last):
             m.send(f'run_to_frame {frame}', 'done run_to_frame', 600)
             data = m.read(ring, REC.size * RING)
             again = m.read(ring, REC.size * RING)
+            # nothing counted till the level runs: while the disc boots, the
+            # ring's memory holds leftovers that can pass for records
+            if not seen and REC.unpack_from(data, 0)[1:] != first:
+                if frame > 20000:
+                    break   # never started as the host did
+                continue
             got = len(seen)
             for i in range(RING):
                 if data[i * REC.size:(i + 1) * REC.size] != again[i * REC.size:(i + 1) * REC.size]:
@@ -99,7 +106,7 @@ def main():
     if not host:
         sys.exit('host: no records')
     last = max(host)
-    saturn, frames, torn, unsure = saturn_records(os.path.abspath(a.build), last)
+    saturn, frames, torn, unsure = saturn_records(os.path.abspath(a.build), last, host[min(host)])
     seen = sorted(t for t in saturn if t in host)
     print(f'host {len(host)} ticks; Mednafen {len(saturn)} ticks seen in {frames} vertical blanks, {len(seen)} of them the host\'s')
     print(f'reads of a record that differed read twice over: {torn}; ticks left out as unsure (no record read the same twice): {unsure}')
