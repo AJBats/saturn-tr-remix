@@ -228,7 +228,7 @@ void frameMesh(uint32_t i, const FaceSet* set, const Vertex* vertices, uint32_t 
 bool frameMeshHinted(uint32_t i, const FaceSet* set, const Vertex* vertices, uint32_t mode);
 
 // The list's ends: the clear in slot 0, the end after the draws' last.
-void frameEnds();
+void frameEnds(bool scene = true);  // scene: a frame of the scene's, whose draws the next one plans by
 
 // The draw distance for the rooms and the items, in world units: the game's
 // is 20 sectors (VIEW_DIST). The fog stays the game's; the meshes keep their

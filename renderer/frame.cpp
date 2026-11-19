@@ -861,7 +861,7 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         stageEnd(STAGE_SHIMMERS);
     }
 #endif
-    frameEnds();
+    frameEnds(posed && calls->started);
     gMeshList.shade = gLevel.shade[0];
     shared->drawsDone = 1;
     stageEnd(STAGE_DRAWS);
@@ -1022,10 +1022,15 @@ FrameVoids frameVoids()
     return v;
 }
 
-void frameEnds()
+void frameEnds(bool scene)
 {
     gFrameEnd = facesSlot(gMeshList.link);
-    gMeshesUsed = gFrameEnd + 1 - gMeshFirst;
+    // what the next scene frame keeps for its draws, from a frame of the
+    // scene's: the inventory's few would leave the first frame after it
+    // too little room, its objects cut off (issue 286)
+    if (scene) {
+        gMeshesUsed = gFrameEnd + 1 - gMeshFirst;
+    }
     gFrameCmds[0] = gClear;
     gFrameCmds[gFrameEnd].w[0] = CMD_END << 16;
 }
