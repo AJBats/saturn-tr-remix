@@ -360,16 +360,15 @@ struct Enemy : ItemObj
         boxIndex &= 0x7FFF;
         const Box* box = level.boxes + boxIndex;
 
-        int32 bMinX = (box->minX << 10) + 512;
-        int32 bMaxX = (box->maxX << 10) - 512;
-        int32 bMinZ = (box->minZ << 10) + 512;
-        int32 bMaxZ = (box->maxZ << 10) - 512;
-    
-        // retail's TargetBox (in CreatureMood, 0600a0fc): z picked before x,
-        // a flyer's height 384 above the floor, a walker's on it
+        // retail's TargetBox (06009e3c): z picked before x, 512 in from the
+        // box's sides (its far sides at the last unit inside, as retail's
+        // boxes store them), a flyer's height 384 above the floor, a
+        // walker's on it
+        int32 left = box->minZ << 10, right = (box->maxZ << 10) - 1;
+        int32 top = box->minX << 10, bottom = (box->maxX << 10) - 1;
         extraE->nav.nextBox = boxIndex;
-        extraE->nav.pos.z = bMinZ + RAND_LOGIC(bMaxZ - bMinZ);
-        extraE->nav.pos.x = bMinX + RAND_LOGIC(bMaxX - bMinX);
+        extraE->nav.pos.z = left + 512 + RAND_LOGIC(right - left - 1024);
+        extraE->nav.pos.x = top + 512 + RAND_LOGIC(bottom - top - 1024);
         extraE->nav.pos.y = box->floor;
         if (extraE->nav.zoneType == ZONE_FLY)
             extraE->nav.pos.y -= 384;
@@ -438,14 +437,19 @@ struct Enemy : ItemObj
         return tinfo.zoneIndex == tinfo.zoneIndexTarget;
     }
 
-    X_INLINE int32 getRandomBox()
+    // retail's random box (CreatureMood, 0600a0fc): the zone's count times a
+    // random number, divided by 0x7FFF where the PC shifts down 15, so the
+    // top random number reads one past the zone's list; retail takes the
+    // box left there from an earlier list, here none (no box passes)
+    int32 getRandomBox()
     {
-        return extraE->nav.cells[RAND_LOGIC(extraE->nav.cellsCount)].boxIndex;
+        int32 i = rand_logic() * int32(extraE->nav.cellsCount) / 0x7FFF;
+        return (i < int32(extraE->nav.cellsCount)) ? extraE->nav.cells[i].boxIndex : NO_BOX;
     }
 
     bool checkZone(int16 boxIndex)
     {
-        if (getZones()[boxIndex] != tinfo.zoneIndex)
+        if (uint16(boxIndex) >= level.boxesCount || getZones()[boxIndex] != tinfo.zoneIndex)
             return false;
 
         const Box &b = level.boxes[boxIndex];
@@ -457,12 +461,24 @@ struct Enemy : ItemObj
                (pos.z <= (b.minZ << 10)) || (pos.z >= ((b.maxZ << 10) - 1));
     }
 
+    // a box's middle as retail's StalkBox (06009ee4) and EscapeBox find it,
+    // from its far sides at the last unit inside: a unit short of halfway
+    static int32 boxMidX(const Box &b)
+    {
+        return ((b.minX << 10) + (b.maxX << 10) - 1) >> 1;
+    }
+
+    static int32 boxMidZ(const Box &b)
+    {
+        return ((b.minZ << 10) + (b.maxZ << 10) - 1) >> 1;
+    }
+
     bool checkStalk(int16 boxIndex)
     {
         const Box &b = level.boxes[boxIndex];
 
-        int32 dx = (((b.minX + b.maxX) << 10) >> 1) - tinfo.target->pos.x;
-        int32 dz = (((b.minZ + b.maxZ) << 10) >> 1) - tinfo.target->pos.z;
+        int32 dx = boxMidX(b) - tinfo.target->pos.x;
+        int32 dz = boxMidZ(b) - tinfo.target->pos.z;
 
         if (X_MAX(abs(dx), abs(dz)) > 3072)
             return false;
@@ -488,16 +504,17 @@ struct Enemy : ItemObj
     {
         const Box &b = level.boxes[boxIndex];
 
-        int32 dx = (((b.minX + b.maxX) << 10) >> 1) - tinfo.target->pos.x;
-        int32 dz = (((b.minZ + b.maxZ) << 10) >> 1) - tinfo.target->pos.z;
+        int32 dx = boxMidX(b) - tinfo.target->pos.x;
+        int32 dz = boxMidZ(b) - tinfo.target->pos.z;
 
         if (X_MAX(abs(dx), abs(dz)) < 5120)
             return false;
 
-        int32 px = pos.x - tinfo.target->pos.x;
-        int32 pz = pos.z - tinfo.target->pos.z;
-
-        return !(((dx ^ px) & 0x80000000) && ((dz ^ pz) & 0x80000000));
+        // not across Lara from me on both axes, a side being "past her" or
+        // not (retail's EscapeBox, in CreatureMood 0600a0fc)
+        bool crossX = (dx > 0) != (pos.x > tinfo.target->pos.x);
+        bool crossZ = (dz > 0) != (pos.z > tinfo.target->pos.z);
+        return !(crossX && crossZ);
     }
 
     const uint16* getZones()
@@ -1141,17 +1158,20 @@ struct Wolf : Enemy
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
         Enemy::hit(damage, point, SND_HIT_WOLF);
-
-        if (health <= 0) {
-            animSet(level.models[type].animIndex + ANIM_DEATH + rand_logic() / 11000, true);
-        }
     }
 
-    // retail's WolfControl (06032664); GROWL is its crouch
+    // retail's WolfControl (06032664); GROWL is its crouch. Its fall, picked
+    // here as retail's control does, not as it's hit: a random number
+    // drawn in its turn of the tick
     virtual int32 updateState()
     {
         if (health <= 0)
+        {
+            if (state != STATE_DEATH) {
+                animSet(level.models[type].animIndex + ANIM_DEATH + rand_logic() / 11000, true);
+            }
             return goalState;
+        }
 
         switch (state)
         {
@@ -1642,16 +1662,6 @@ struct Crocodile : Enemy
         return s;
     }
 
-    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
-    {
-        Enemy::hit(damage, point, soundId);
-
-        if (health <= 0) {
-            bool water = (type == ITEM_CROCODILE_WATER);
-            animSet(level.models[type].animIndex + (water ? ANIM_DEATH_WATER : ANIM_DEATH_LAND), true);
-        }
-    }
-
     virtual void update()
     {
         if (type == ITEM_CROCODILE_WATER && health <= 0)
@@ -1731,7 +1741,15 @@ struct Crocodile : Enemy
 
         int32 goal = goalState;
 
-        if (health > 0)
+        if (health <= 0)
+        {
+            // its fall, from its control as retail's CrocControl
+            if (state != STATE_DEATH) {
+                animSet(level.models[type].animIndex + ANIM_DEATH_LAND, true);
+                goal = goalState;
+            }
+        }
+        else
         {
             extraE->maxTurn = ANGLE(3);
 
@@ -1844,18 +1862,19 @@ struct Lion : Enemy
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
         Enemy::hit(damage, point, (type == ITEM_PUMA) ? 0 : SND_HIT_LION);
-
-        if (health <= 0) {
-            int32 anim = (type == ITEM_PUMA) ? ANIM_DEATH_PUMA : ANIM_DEATH_LION;
-            animSet(level.models[type].animIndex + anim + RAND_LOGIC(2), true);
-        }
     }
 
-    // TR1's LionControl
+    // TR1's LionControl, its fall picked here as retail's
     virtual int32 updateState()
     {
         if (health <= 0)
+        {
+            if (state != STATE_DEATH) {
+                int32 anim = (type == ITEM_PUMA) ? ANIM_DEATH_PUMA : ANIM_DEATH_LION;
+                animSet(level.models[type].animIndex + anim + RAND_LOGIC(2), true);
+            }
             return goalState;
+        }
 
         switch (state)
         {
@@ -1982,10 +2001,6 @@ struct Gorilla : Enemy
     {
         Enemy::hit(damage, point, soundId);
         turnSpeed |= FLAG_ATTACK;
-
-        if (health <= 0) {
-            animSet(level.models[type].animIndex + ANIM_DEATH + RAND_LOGIC(2), true);
-        }
     }
 
     // a sidestep's quarter turn is undone in the same tick it's made
@@ -2054,7 +2069,12 @@ struct Gorilla : Enemy
     int32 think()
     {
         if (health <= 0)
+        {
+            if (state != STATE_DEATH) {     // its fall, picked here as retail's
+                animSet(level.models[type].animIndex + ANIM_DEATH + RAND_LOGIC(2), true);
+            }
             return goalState;
+        }
 
         if (tinfo.dist < DIST_PANIC) {
             turnSpeed |= FLAG_ATTACK;
@@ -2181,11 +2201,6 @@ struct Rat : Enemy
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
         Enemy::hit(damage, point, type == ITEM_RAT_LAND ? SND_HIT_RAT : 0);   // the land rat's alone (HitTarget)
-
-        if (health <= 0) {
-            bool water = (type == ITEM_RAT_WATER);
-            animSet(level.models[type].animIndex + (water ? ANIM_DEATH_WATER : ANIM_DEATH_LAND), true);
-        }
     }
 
     // the water rat's height before the move, and the water's (retail's
@@ -2273,7 +2288,15 @@ struct Rat : Enemy
 
         int32 goal = goalState;
 
-        if (health > 0)
+        if (health <= 0)
+        {
+            // its fall, from its control as retail's RatControl
+            if (state != STATE_DEATH) {
+                animSet(level.models[type].animIndex + ANIM_DEATH_LAND, true);
+                goal = goalState;
+            }
+        }
+        else
         {
             extraE->maxTurn = ANGLE(6);
 
@@ -2496,17 +2519,19 @@ struct Raptor : Enemy
     virtual void hit(int32 damage, const vec3i& point, int32 soundId)
     {
         Enemy::hit(damage, point, 0);
-
-        if (health <= 0) {
-            animSet(level.models[type].animIndex + ANIM_DEATH_1 + rand_logic() / 16200, true);  // a third, rarely
-        }
     }
 
-    // retail's RaptorControl (06011f94); BITE is its third attack
+    // retail's RaptorControl (06011f94); BITE is its third attack. Its fall
+    // is picked here as retail's, a third one rarely.
     virtual int32 updateState()
     {
         if (health <= 0)
+        {
+            if (state != STATE_DEATH) {
+                animSet(level.models[type].animIndex + ANIM_DEATH_1 + rand_logic() / 16200, true);
+            }
             return goalState;
+        }
 
         switch (state)
         {
@@ -2728,11 +2753,15 @@ struct Gunman : Enemy
         return fx;
     }
 
-    void deathAnim(int32 anim)
+    // dead, its fall as the control first finds it so, not as it's hit
+    // (retail's controls); true then, for what it carried
+    bool fall(int32 anim)
     {
-        if (health <= 0) {
-            animSet(level.models[type].animIndex + anim, true);
-        }
+        int32 index = level.models[type].animIndex + anim;
+        if (state == level.anims[index].state)
+            return false;
+        animSet(index, true);
+        return true;
     }
 
     // some leave what they carried where they fall (TR1's SpawnItem)
@@ -2771,11 +2800,6 @@ struct Larson : Gunman
 
     Larson(Room* room) : Gunman(room, 50, 102) {}
 
-    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
-    {
-        Enemy::hit(damage, point, soundId);
-        deathAnim(ANIM_DEATH);
-    }
 
     // TR1's LarsonControl; Pierre's is the same with two guns and a nerve
     // that breaks (see Pierre)
@@ -2871,7 +2895,10 @@ struct Larson : Gunman
     virtual int32 updateState()
     {
         if (health <= 0)
+        {
+            fall(ANIM_DEATH);
             return goalState;
+        }
         return updatePerson(DAMAGE, false);
     }
 };
@@ -2971,18 +2998,19 @@ struct Pierre : Larson
             health = HEALTH_RUN;
             turnSpeed++;
         }
-        deathAnim(ANIM_DEATH);
-        if (health <= 0) {      // retail's PierreControl: his magnums, the scion piece, a key
-            drop(ITEM_MAGNUMS);
-            drop(ITEM_SCION_PICKUP_DROP);
-            drop(ITEM_KEY_ITEM_1);
-        }
     }
 
     virtual int32 updateState()
     {
         if (health <= 0)
+        {
+            if (fall(ANIM_DEATH)) {     // retail's PierreControl: his magnums, the scion piece, a key
+                drop(ITEM_MAGNUMS);
+                drop(ITEM_SCION_PICKUP_DROP);
+                drop(ITEM_KEY_ITEM_1);
+            }
             return goalState;
+        }
 
         if (turnSpeed) {
             mood = MOOD_ESCAPE;
@@ -3023,16 +3051,17 @@ struct Skater : Gunman
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
         Enemy::hit(damage, point, SND_HIT_SKATER);
-        deathAnim(ANIM_DEATH);
-        if (health <= 0) {
-            drop(ITEM_UZIS);
-        }
     }
 
     virtual int32 updateState()
     {
         if (health <= 0)
+        {
+            if (fall(ANIM_DEATH)) {
+                drop(ITEM_UZIS);
+            }
             return goalState;
+        }
 
         // his music once he's hurt (retail's 06029ac0)
         if (health < 120 && gLevelTrack != 56) {
@@ -3141,16 +3170,17 @@ struct Cowboy : Gunman
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
         Enemy::hit(damage, point, soundId);
-        deathAnim(ANIM_DEATH);
-        if (health <= 0) {
-            drop(ITEM_MAGNUMS);
-        }
     }
 
     virtual int32 updateState()
     {
         if (health <= 0)
+        {
+            if (fall(ANIM_DEATH)) {
+                drop(ITEM_MAGNUMS);
+            }
             return goalState;
+        }
 
         switch (state)
         {
@@ -3251,16 +3281,17 @@ struct MrT : Gunman
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
         Enemy::hit(damage, point, soundId);
-        deathAnim(ANIM_DEATH);
-        if (health <= 0) {
-            drop(ITEM_SHOTGUN);
-        }
     }
 
     virtual int32 updateState()
     {
         if (health <= 0)
+        {
+            if (fall(ANIM_DEATH)) {
+                drop(ITEM_SHOTGUN);
+            }
             return goalState;
+        }
 
         switch (state)
         {
@@ -3646,11 +3677,6 @@ struct Centaur : Gunman
         headOffset = 400;
     }
 
-    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
-    {
-        Enemy::hit(damage, point, soundId);
-        deathAnim(ANIM_DEATH);
-    }
 
     // it bursts (CentaurControl), 100 a part
     virtual void deathEnd()
@@ -3664,7 +3690,10 @@ struct Centaur : Gunman
     virtual int32 updateState()
     {
         if (health <= 0)
+        {
+            fall(ANIM_DEATH);
             return goalState;
+        }
 
         extraE->maxTurn = ENEMY_TURN_4;
 
@@ -4068,10 +4097,6 @@ struct Adam : Enemy
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
         Enemy::hit(damage, point, SND_HIT_ADAM);
-
-        if (health <= 0) {
-            animSet(level.models[type].animIndex + ANIM_DEATH, true);
-        }
     }
 
     // it bursts, 250 a part, and sets off the trigger under it
@@ -4091,7 +4116,12 @@ struct Adam : Enemy
         extraE->maxTurn = 0;
 
         if (health <= 0)
+        {
+            if (state != STATE_DEATH) {     // its fall, picked here as AbortionControl's
+                animSet(level.models[type].animIndex + ANIM_DEATH, true);
+            }
             return goalState;
+        }
 
         Lara* lara = (Lara*)tinfo.target;
 
