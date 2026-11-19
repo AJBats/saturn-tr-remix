@@ -514,6 +514,15 @@ static bool waterAt(Room* from, int32 x, int32 y, int32 z, WaterCol &w)
     }
     w.top = sc->ceiling << 8;
     w.air = sc->roomAbove != NO_ROOM;
+    // a shut trapdoor over it (its own sector and the one ahead) is a lid, not air
+    for (int32 i = 0; w.air && i < level.itemsCount; i++)
+    {
+        const ItemObj* item = items + i;
+        if ((item->type == ITEM_TRAP_DOOR_1 || item->type == ITEM_TRAP_DOOR_2) && item->room &&
+            item->state == 0 && item->getTrapDoorFloor(x, z) != WALL && abs(item->pos.y - w.top) < 512) {
+            w.air = false;
+        }
+    }
     return w.bottom - w.top >= 400;
 }
 
@@ -625,8 +634,8 @@ static bool waterMoves(int32 c, int32 gsx, int32 gsz)
             continue;
         }
         // on through the water: the neighbour's stretch looked for at heights down this one
-        bool found = false;
-        for (int32 y = a.top + 200; y < a.floor - 100 && !found; y += 256)
+        // (every stretch down the neighbour's column: a tunnel can run under a hall)
+        for (int32 y = a.top + 200; y < a.floor - 100; y += 256)
         {
             Spot side = spotAt(a.room, cx + dx * 448, y, cz + dz * 448);
             if (side.floor == WALL)
@@ -635,9 +644,9 @@ static bool waterMoves(int32 c, int32 gsx, int32 gsz)
             if (!waterAt(side.room, nx, y, nz, w))
                 continue;
             int32 lo = X_MAX(w.top, a.top), hi = X_MIN(w.bottom, a.floor);
-            if (hi - lo < 512)
+            y = X_MAX(y, w.bottom - 256);   // on below this stretch
+            if (hi - lo < 300)     // room to swim through: a sloping tunnel overlaps by less than its height
                 continue;
-            found = true;
             int32 n = cellFind(nsx, nsz, w.bottom, true, w.room, true);
             if (n >= 0) {
                 gCells[n].top = w.top;
@@ -665,6 +674,7 @@ static bool waterMoves(int32 c, int32 gsx, int32 gsz)
 // A goal in the water: its height (NO_GOAL_Y: a goal on a floor).
 #define NO_GOAL_Y (-0x7FFFFFFF)
 static int32 gGoalY = NO_GOAL_Y;
+static bool gGoalAir;   // the goal: the nearest water with air over it
 
 static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 maxLen)
 {
@@ -697,7 +707,7 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
             const Cell &cl = gCells[i];
             if (cl.done || cl.cost == 0x7FFFFFFF)
                 continue;
-            int32 f = cl.cost + (abs(cl.sx - gsx) + abs(cl.sz - gsz)) * 1024;
+            int32 f = cl.cost + (gGoalAir ? 0 : (abs(cl.sx - gsx) + abs(cl.sz - gsz)) * 1024);
             if (f < best) {
                 best = f;
                 c = i;
@@ -708,7 +718,7 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
         gCells[c].done = true;
         bool atGoal = waterGoal ? (gCells[c].water && abs(gCells[c].floor - gw.bottom) < 128)
                                 : (abs(gCells[c].floor - goal.floor) < 384 && !gCells[c].water);
-        if (gCells[c].sx == gsx && gCells[c].sz == gsz && atGoal) {
+        if (gGoalAir ? (gCells[c].water && gCells[c].air) : (gCells[c].sx == gsx && gCells[c].sz == gsz && atGoal)) {
             found = c;
             break;
         }
@@ -1082,7 +1092,10 @@ static bool swimTo(int32 x, int32 y, int32 z, int32 radius, int32 maxTicks = 30 
         {
             int16 pitch = int16(phd_atan(dh, -dy));     // up is positive, as angle.x
             int16 dpitch = int16(pitch - l->angle.x);
-            if (dyaw > ANGLE(3)) {
+            bool overhead = dh < 384 && abs(dy) > 600;     // straight up or down: no heading to turn to
+            if (overhead) {
+                dyaw = 0;
+            } else if (dyaw > ANGLE(3)) {
                 k |= IK_RIGHT;
             } else if (dyaw < -ANGLE(3)) {
                 k |= IK_LEFT;
@@ -1093,7 +1106,8 @@ static bool swimTo(int32 x, int32 y, int32 z, int32 radius, int32 maxTicks = 30 
                 k |= IK_UP;     // nose down
             }
             // strokes while far or slow; near it a glide, so she doesn't overshoot
-            if (abs(dyaw) < ANGLE(60) && (dist > 900 || l->vSpeed < 48)) {
+            bool aimed = overhead ? (abs(dpitch) < ANGLE(30)) : (abs(dyaw) < ANGLE(60));
+            if (aimed && (dist > 900 || l->vSpeed < 48)) {
                 k |= IK_A;
             }
         }
@@ -1225,14 +1239,50 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
             again = true;
             return false;
         }
+        if (m == MOVE_SWIM && !gGoalAir && lara()->waterState == WATER_STATE_UNDER)
+        {
+            // the next air along the way; none (a goal under water): the way
+            // there (the next step checks again, and a lever often opens air)
+            int32 ahead = len - 1 - i;
+            for (int32 k = i + 1; k < len; k++)
+            {
+                const Cell &q = gCells[path[k]];
+                if (!q.water || q.air) {
+                    ahead = k - i;
+                    break;
+                }
+            }
+            // (with her air all but full there's nothing better to do than go)
+            if (lara()->oxygen < ahead * 30 * 13 / 10 + 200 && lara()->oxygen < LARA_MAX_OXYGEN - 150)
+            {
+                gGoalAir = true;
+                bool breathed = goTo(0, 0, 0, false);
+                gGoalAir = false;
+                if (!breathed) {
+                    fail("couldn't get to air");
+                    return false;
+                }
+                again = true;
+                return false;
+            }
+        }
         if (m == MOVE_SWIM)
         {
             // to the next stretch's middle, at a depth both stretches share
             // (the surface if both have air over them and meet there)
+            // middle to middle (no corner of a pillar cut), at the depth she's
+            // at where both stretches have room for her, else the nearest that has
             int32 lo = X_MAX(a.top, b.top), hi = X_MIN(a.floor, b.floor);
-            int32 y = (a.air && b.air && lara()->waterState == WATER_STATE_SURFACE && abs(a.top - b.top) < 64)
-                      ? b.top : X_MIN(X_MAX((lo + hi) / 2, lo + 300), hi - 200);
-            if (!swimTo(cellX(b), y, cellZ(b), 400)) {
+            bool surface = a.air && b.air && lara()->waterState == WATER_STATE_SURFACE && abs(a.top - b.top) < 64;
+            int32 y = surface ? b.top : X_MIN(X_MAX(lara()->pos.y, lo + 250), hi - 200);
+            // first up or down within this stretch, then across
+            int32 hx = cellX(a) - lara()->pos.x, hz = cellZ(a) - lara()->pos.z;
+            bool deeper = !surface && abs(lara()->pos.y - y) > 300;
+            if ((hx * hx + hz * hz > 500 * 500 || deeper) && !swimTo(cellX(a), surface ? a.top : y, cellZ(a), 300)) {
+                fail("couldn't swim to the stretch's middle");
+                return false;
+            }
+            if (!swimTo(cellX(b), y, cellZ(b), 350)) {
                 fail("couldn't swim on");
                 return false;
             }
@@ -1312,6 +1362,21 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
         }
         // on to the sector she's in, if past it
         i = j;
+    }
+    if (gGoalAir)
+    {
+        const Cell &e = gCells[path[len - 1]];
+        if (lara()->waterState == WATER_STATE_UNDER && !swimTo(cellX(e), e.top + 150, cellZ(e), 300)) {
+            fail("couldn't swim up for air");
+            return false;
+        }
+        for (int32 i = 0; i < 120 && lara()->waterState == WATER_STATE_UNDER; i++) {
+            step(IK_DOWN | IK_A);   // nose up, swimming
+        }
+        for (int32 i = 0; i < 240 && lara()->waterState == WATER_STATE_SURFACE && lara()->oxygen < LARA_MAX_OXYGEN - 50; i++) {
+            step(0);
+        }
+        return lara()->waterState != WATER_STATE_UNDER;
     }
     if (gGoalY != NO_GOAL_Y)
     {
@@ -1445,7 +1510,11 @@ static bool pullLever(int32 index)
         }
         step(k);
     }
-    for (int32 i = 0; i < 60 && lara()->state != Lara::STATE_UW_TREAD; i++) {
+    // the pull's animation played out (she treads water again)
+    for (int32 i = 0; i < 30; i++) {
+        step(0);
+    }
+    for (int32 i = 0; i < 180 && lara()->state != Lara::STATE_UW_TREAD; i++) {
         step(0);
     }
     if (item->state == state && item->goalState == state) {
@@ -1754,6 +1823,29 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
                 bool climb = climbBetween(cl, kDirX[dir], kDirZ[dir], low, hi);
                 printf("    dir %d,%d: move %d to floor %d ceiling %d room %d; climb %s %d\n", kDirX[dir], kDirZ[dir], m, low.floor,
                        low.ceiling, low.room ? int32(low.room - rooms) : -1, climb ? "yes" : "no", climb ? hi.floor : 0);
+            }
+        } else if (!strcmp(cmd, "explainwater") && n >= 5) {
+            // explainwater ROOM X Y Z: the water moves from that sector's stretch of water
+            WaterCol w;
+            if (!waterAt(rooms + atoi(a), atoi(b), atoi(c), atoi(d), w)) {
+                printf("  no water there\n");
+            } else {
+                gCellsCount = 0;
+                for (int32 i = 0; i < BOT_CELLS * 2; i++) {
+                    gCellHash[i] = -1;
+                }
+                int32 c0 = cellFind(atoi(b) >> 10, atoi(d) >> 10, w.bottom, true, w.room, true);
+                gCells[c0].top = w.top;
+                gCells[c0].air = w.air;
+                gCells[c0].cost = 0;
+                waterMoves(c0, -1, -1);
+                printf("  water at %d,%d room %d top %d bottom %d air %d:\n", atoi(b) >> 10 << 10, atoi(d) >> 10 << 10,
+                       int32(w.room - rooms), w.top, w.bottom, w.air);
+                for (int32 i = 1; i < gCellsCount; i++) {
+                    printf("    to %d,%d %s floor %d top %d room %d move %d\n", gCells[i].sx << 10, gCells[i].sz << 10,
+                           gCells[i].water ? "water" : "land", gCells[i].floor, gCells[i].top, int32(gCells[i].room - rooms),
+                           gCells[i].move);
+                }
             }
         } else if (!strcmp(cmd, "jumptest") && n >= 4) {
             // jumptest DX:DZ:GAP:FLOOR BACK RUN GRAB: one jump try, here, for real

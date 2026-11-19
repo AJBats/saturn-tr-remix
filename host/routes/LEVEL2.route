@@ -1,0 +1,22 @@
+# Vilcabamba at 100%, in progress (Stella: 13 pickups with the silver key and
+# gold idol, 3 secrets, 29 kills). The underwater part is not reliable yet.
+start LEVEL2 newgame
+# the entrance doors open as the level starts
+wait 90
+# four wolves in the cave beyond the entrance
+draw
+fight
+# round the perimeter: the medipack in the greenery (a wolf, bats on the way)
+pickup 7
+# the stable: its bear, the medipack in the hayloft
+pickup 33
+# under water: the lever by the trapdoor; up through it into secret 1
+lever 31
+pickup 29
+expect secrets 1
+# back in: the far lever opens a door by the second pool, secret 2 behind it
+lever 30
+wait 60
+pickup 88
+pickup 87
+expect secrets 2
