@@ -15,6 +15,7 @@
 //   pickup ITEM                   walked to it and picked it up
 //   switch ITEM                   stood at it and pulled it
 //   lever ITEM                    an underwater lever, swum to and pulled
+//   usehole ITEM                  its key or puzzle item put in, from the ring
 //   push|pull ITEM DEGREES TIMES  a movable block moved that way, a sector a time
 //   swimto ROOM X Y Z             to a spot in the water
 //   draw                          guns out
@@ -1029,8 +1030,11 @@ static bool ringUse(InvSlot slot)
         fail("the item isn't on the ring's page");
         return false;
     }
+    // Action once on the item; then nothing till the ring has shut, or a
+    // press on the way out reaches her as a jump
+    step(IK_A);
     for (int32 i = 0; i < 200 && inventory.state != INV_STATE_NONE; i++) {
-        step((i & 1) ? 0 : IK_A);
+        step(0);
     }
     settle(60);
     return inventory.counts[slot] < had;
@@ -1386,11 +1390,13 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
         }
         int32 tx = (j == len - 1) ? x : cellX(gCells[path[j]]), tz = (j == len - 1) ? z : cellZ(gCells[path[j]]);
         if (!goStraight(tx, tz, (j == len - 1) ? X_MAX(radius, 256) : 256, walk, 30 * 120, true)) {
-            if (nearestFoe(3072)) {
-                again = true;
-                return false;
+            // a creature to fight, or stuck (against one, or a corner): plan
+            // again from here (goTo's tries run out if it keeps happening)
+            if (!nearestFoe(3072)) {
+                fail("stuck on the way, planning again");
+                settle(30);
             }
-            fail("stuck on the way");
+            again = true;
             return false;
         }
         // on to the sector she's in, if past it
@@ -1592,6 +1598,69 @@ static bool moveBlock(int32 index, int16 heading, int32 times, bool pull)
             fail("the block didn't move");
             return false;
         }
+    }
+    return true;
+}
+
+// A key or puzzle item put in its hole: stood in front of it as at a
+// switch, Action opens the ring on what can be used there, left turns it to
+// the item that fits, Action uses it.
+static bool useHole(int32 index)
+{
+    ItemObj* hole = items + index;
+    InvSlot slot;
+    if (hole->type >= ITEM_KEYHOLE_1 && hole->type <= ITEM_KEYHOLE_4) {
+        slot = InvSlot(SLOT_KEY_ITEM_1 + (hole->type - ITEM_KEYHOLE_1));
+    } else if (hole->type >= ITEM_PUZZLEHOLE_1 && hole->type <= ITEM_PUZZLEHOLE_4) {
+        slot = InvSlot(SLOT_PUZZLE_1 - (hole->type - ITEM_PUZZLEHOLE_1));
+    } else {
+        fail("not a keyhole or a puzzle hole");
+        return false;
+    }
+    if (!inventory.counts[slot]) {
+        fail("nothing to put in it");
+        return false;
+    }
+    int32 had = inventory.counts[slot];
+    int16 yaw = hole->angle.y;
+    int32 x = hole->pos.x + (sinRetail(yaw) * 400 >> FIXED_SHIFT);
+    int32 z = hole->pos.z + (cosRetail(yaw) * 400 >> FIXED_SHIFT);
+    if (!goTo(int32(hole->room - rooms), x, z, false, 64) || !turnTo(yaw, ANGLE(3))) {
+        fail("couldn't stand at the hole");
+        return false;
+    }
+    for (int32 i = 0; i < 30 && inventory.state == INV_STATE_NONE; i++) {
+        step(IK_B);
+    }
+    for (int32 i = 0; i < 90 && inventory.state != INV_STATE_READY; i++) {
+        step(0);
+    }
+    for (int32 t = 0; t < inventory.itemsCount + 1 && inventory.itemsList[inventory.itemIndex] != slot; t++)
+    {
+        step(IK_LEFT);
+        for (int32 i = 0; i < 30 && inventory.state != INV_STATE_READY; i++) {
+            step(0);
+        }
+    }
+    if (inventory.itemsList[inventory.itemIndex] != slot) {
+        fail("the item isn't on the ring");
+        return false;
+    }
+    // Action once on the item; then nothing till the ring has shut, or a
+    // press on the way out reaches her as a jump
+    step(IK_A);
+    for (int32 i = 0; i < 200 && inventory.state != INV_STATE_NONE; i++) {
+        step(0);
+    }
+    // in: the item gone from the ring (the hole's own status is cleared again
+    // when what it opens is triggered)
+    for (int32 i = 0; i < 200 && inventory.counts[slot] == had; i++) {
+        step(0);
+    }
+    settle(150);
+    if (inventory.counts[slot] == had) {
+        fail("the item didn't go in");
+        return false;
     }
     return true;
 }
@@ -2052,6 +2121,8 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
         } else if ((!strcmp(cmd, "push") || !strcmp(cmd, "pull")) && n >= 4) {
             // push|pull ITEM DEGREES TIMES: a block moved that way, a sector a time
             ok = moveBlock(atoi(a), int16(atoi(b) * 0x10000 / 360), atoi(c), !strcmp(cmd, "pull"));
+        } else if (!strcmp(cmd, "usehole") && n >= 2) {
+            ok = useHole(atoi(a));
         } else if (!strcmp(cmd, "lever") && n >= 2) {
             ok = pullLever(atoi(a));
         } else if (!strcmp(cmd, "use") && n >= 2) {

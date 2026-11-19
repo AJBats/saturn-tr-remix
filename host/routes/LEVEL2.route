@@ -1,5 +1,6 @@
 # Vilcabamba at 100%, in progress (Stella: 13 pickups with the silver key and
-# gold idol, 3 secrets, 29 kills). In progress: to the platform by the window.
+# gold idol, 3 secrets, 29 kills). In progress: to the five wolves by the
+# red-roofed building.
 start LEVEL2 newgame
 # the entrance doors open as the level starts
 wait 90
@@ -43,3 +44,9 @@ pickup 20
 pickup 19
 # up by the block onto the L-shaped platform (two bats), the large medipack by the window
 pickup 4
+# out of the window, down to the hallway; the silver key in the locked door by
+# the pool; past its darts, five wolves round the red-roofed building
+usehole 9
+wait 60
+goto 36 37376 28160
+fight
