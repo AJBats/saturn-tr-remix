@@ -378,6 +378,10 @@ static void printLara(int32 tick)
     if (getenv("TINFO")) {
         printf("     seed %08x\n", gRandSeedLogic);
     }
+    if (getenv("MOTION")) {     // MOTION=1: her speeds, pitch, roll and move angle
+        printf("     motion hspeed %d vspeed %d pitch %d roll %d move %d flags %04x\n", lara->hSpeed, lara->vSpeed,
+               lara->angle.x, lara->angle.z, uint16(lara->extraL->moveAngle), lara->flags);
+    }
     if (getenv("INV"))      // INV=1: the level, the ring's counts and her rounds
     {
         printf("     level %d inv state %d page %d ring", gLevelID, inventory.state, inventory.page);
