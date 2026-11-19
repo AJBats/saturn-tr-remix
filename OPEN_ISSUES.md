@@ -958,7 +958,7 @@ None open. Decided 2026-11-18 (the user, all as suggested, with what TRX does be
 - Test build on branch `water` (../trs_water, disc `build/disc_w_valley-music`): the bench page's bottom row reads the CD block's own status, track and position (Mednafen, playing: `cd 03 trk 10 idx 01 fad 026459`, track in hex), and the menu row `CD play` plays 16 or 5 from the master, as ours, as the original or stopping first.
 
 ### 179. No stereo pan
-*Closed 2026-11-19: 76575ee, panned as TRX (the user's call): from the camera, the far side down 2.5, 6 or 8.5 dB by the sine of the turn, updated every frame with the slots (182). Seen in Mednafen writing DIPAN 00, 10, 11 in the Vilcabamba demo; which side is which still wants a listen on the Saturn.*
+*Closed 2026-11-19: 76575ee, panned as TRX (the user's call): from the camera, the far side down 2.5, 6 or 8.5 dB by the sine of the turn, updated every frame with the slots (182). Seen in Mednafen writing DIPAN 00, 10, 11 in the Vilcabamba demo; on the Saturn (2026-11-19, valley-music recorded through the capture) the right channel runs up to twice the left while the T-rex is on the right of the picture, so the sides are right.*
 
 *Severity: audible · Confidence: confirmed (code; which side is left needs a
 listen) · Fix: small to medium · Audit: SND-5*
