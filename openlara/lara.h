@@ -801,16 +801,22 @@ struct Lara : ItemObj
         // empty
     }
 
+    // retail's LaraAsCompress: the jump's direction is set here, so the
+    // jump's first tick already moves that way
     S_HANDLER( STATE_COMPRESS )
     {
         if ((input & IN_UP) && s_getFront(ANGLE_0)) {
             goalState = STATE_JUMP;
+            extraL->moveAngle = angle.y;
         } else if ((input & IN_LEFT) && s_getFront(-ANGLE_90)) {
             goalState = STATE_JUMP_LEFT;
+            extraL->moveAngle = angle.y - ANGLE_90;
         } else if ((input & IN_RIGHT) && s_getFront(ANGLE_90)) {
             goalState = STATE_JUMP_RIGHT;
+            extraL->moveAngle = angle.y + ANGLE_90;
         } else if ((input & IN_DOWN) && s_getFront(ANGLE_180)) {
             goalState = STATE_JUMP_BACK;
+            extraL->moveAngle = angle.y - ANGLE_180;
         }
         s_checkFall();
     }
