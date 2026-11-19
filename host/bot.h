@@ -1461,6 +1461,13 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
         }
     }
     fclose(f);
+    // the last level finished's statistics, as its screen shows them
+    int32 secrets = 0;
+    for (int32 b = 0; b < 8; b++) {
+        secrets += (gLevelStats.secrets >> b) & 1;
+    }
+    printf("last level finished: kills %d, pickups %d, secrets %d, %d s\n", gLevelStats.kills, gLevelStats.pickups, secrets,
+           gLevelStats.time / 30);
     writeReplay(outPath, levelName, newGame);
     printf("%s: %d ticks (%d s of play), replay %s\n", ok ? "ROUTE DONE" : "ROUTE FAILED", gTick, gTick / 30, outPath);
     return ok ? 0 : 1;
