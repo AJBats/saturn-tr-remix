@@ -519,6 +519,13 @@ int main(int argc, char** argv)
             const Anim &anim = level.anims[model.animIndex];
             printf(" (frames %d-%d rate %d)", anim.frameBegin, anim.frameEnd, anim.frameRate);
         }
+        for (int32 i = 1; i < model.count; i++)     // the nodes turned by the item's own angles
+        {
+            int32 f = level.nodes[model.nodeIndex + i - 1].flags;
+            if (f & 0x1C) {
+                printf(" node %d rot%s%s%s", i, (f & 8) ? "Y" : "", (f & 4) ? "X" : "", (f & 16) ? "Z" : "");
+            }
+        }
         printf("\n");
     }
     for (const char* m = getenv("ANIMS"); m && *m; m = strchr(m, ',') ? strchr(m, ',') + 1 : "")
