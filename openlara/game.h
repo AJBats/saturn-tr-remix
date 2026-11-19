@@ -271,6 +271,50 @@ bool gameLoad()
     return true;
 }
 
+#if defined(START_LEVEL) || defined(TRS_HOST) || defined(TICK_REPLAY)
+bool gTestNewGame;
+#endif
+
+#if defined(TICK_REPLAY) || defined(TRS_HOST)
+// A tick replay's check (make REPLAY, host/host.cpp REPLAY): the game after a
+// tick, Lara and a sum over the active items, alike on the host and the
+// Saturn while the two run alike (tools/replaycheck.py sets them side by side).
+struct ReplayRec
+{
+    uint32 tick;
+    uint16 level, room;
+    int32 x, y, z;
+    uint16 yaw, anim, frame;
+    int16 health;
+    uint32 seed, items;
+};
+
+void replayRecord(ReplayRec &r, uint32 tick)
+{
+    memset(&r, 0, sizeof(r));
+    r.tick = tick;
+    r.level = uint16(gLevelID);
+    if (const ItemObj* lara = players[0])
+    {
+        r.room = uint16(lara->room - rooms);
+        r.x = lara->pos.x;
+        r.y = lara->pos.y;
+        r.z = lara->pos.z;
+        r.yaw = uint16(lara->angle.y);
+        r.anim = lara->animIndex;
+        r.frame = lara->frameIndex;
+        r.health = lara->health;
+    }
+    uint32 sum = 0;
+    for (const ItemObj* item = ItemObj::sFirstActive; item; item = item->nextActive) {
+        sum = sum * 31 + uint32(item->pos.x) + uint32(item->pos.y) * 7 + uint32(item->pos.z) * 13 +
+              uint32(item->animIndex) * 17 + item->frameIndex + uint32(item->health) * 19;
+    }
+    r.items = sum;
+    r.seed = uint32(gRandSeedLogic);
+}
+#endif
+
 void gameInit()
 {
     drawInit();
@@ -279,10 +323,16 @@ void gameInit()
 
     inventory.init();
 
-#if defined(START_LEVEL) || defined(TRS_HOST)
-    // a level started straight from boot (make START_LEVEL) is a test's
-    if (gLevelID != LVL_TR1_TITLE) {
-        startInfoTestingKit(gLevelID);
+#if defined(START_LEVEL) || defined(TRS_HOST) || defined(TICK_REPLAY)
+    // a level started straight from boot (make START_LEVEL) is a test's:
+    // every gun, or as a new game starts it (gTestNewGame)
+    if (gLevelID != LVL_TR1_TITLE)
+    {
+        if (gTestNewGame) {
+            startInfoNewGame();
+        } else {
+            startInfoTestingKit(gLevelID);
+        }
     }
 #endif
 

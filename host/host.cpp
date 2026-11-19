@@ -7,6 +7,10 @@
 //   logic DATA_DIR LEVEL TICKS [KEYS@FIRST-LAST ...] [ACTION@TICK ...]
 //         [--items] [--items-end] [--list-end]
 //
+// REPLAY=FILE in the environment takes the level and the pad from a tick
+// replay (tools/replay.py), TICKS 0 its length; REC=1 prints the game after
+// every tick as a replay build keeps it (tools/replaycheck.py).
+//
 // KEYS: UP, DOWN, LEFT, RIGHT, A, B, C, X, Y, Z, L, R, START joined by '+',
 // held from tick FIRST to LAST. ACTION: hit:ITEM:DAMAGE, flag:ITEM:HEX or
 // wake:ITEM (actsAt). Lara's state is printed every 30 ticks (EVERY in the
@@ -420,8 +424,67 @@ static void listItems()
     }
 }
 
+// REPLAY=FILE: the pad a tick at a time from FILE (tools/replay.py has its
+// form), its start line the level and how it starts, in place of the holds.
+struct ReplayRun
+{
+    int32 first;
+    uint32 keys;
+};
+static ReplayRun gReplay[65536];
+static int32 gReplayRuns = -1;      // none read
+static int32 gReplayEnd;            // the tick after its last
+static char gReplayLevel[32];
+
+static void readReplay(const char* path)
+{
+    FILE* f = fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, "can't open %s\n", path);
+        exit(1);
+    }
+    char line[256], a[64], b[64];
+    gReplayRuns = 0;
+    while (fgets(line, sizeof(line), f))
+    {
+        if (char* hash = strchr(line, '#')) {
+            *hash = 0;
+        }
+        if (sscanf(line, " start %31s %63s", gReplayLevel, a) == 2)
+        {
+            gTestNewGame = !strcmp(a, "newgame");
+            continue;
+        }
+        if (sscanf(line, "%63s %63s", a, b) != 2)
+            continue;
+        if (gReplayRuns == X_COUNT(gReplay)) {
+            fprintf(stderr, "%s: more than %d runs\n", path, int32(X_COUNT(gReplay)));
+            exit(1);
+        }
+        gReplay[gReplayRuns].first = gReplayEnd;
+        gReplay[gReplayRuns].keys = strcmp(b, "-") ? parseKeys(b) : 0;
+        gReplayRuns++;
+        gReplayEnd += atoi(a);
+    }
+    fclose(f);
+    if (!gReplayLevel[0]) {
+        fprintf(stderr, "%s: no start line\n", path);
+        exit(1);
+    }
+}
+
 static uint32 keysAt(int32 tick)
 {
+    if (gReplayRuns >= 0)
+    {
+        static int32 at;
+        if (tick >= gReplayEnd)
+            return 0;
+        while (at + 1 < gReplayRuns && tick >= gReplay[at + 1].first) {
+            at++;
+        }
+        return gReplay[at].keys;
+    }
     uint32 k = 0;
     for (int32 i = 0; i < gHoldCount; i++)
     {
@@ -551,16 +614,25 @@ int main(int argc, char** argv)
         }
     }
 
+    const char* levelName = argv[2];
+    if (getenv("REPLAY"))
+    {
+        readReplay(getenv("REPLAY"));
+        levelName = gReplayLevel;
+        if (ticks <= 0) {
+            ticks = gReplayEnd;     // TICKS 0: the replay's own length
+        }
+    }
     gLevelID = LVL_MAX;
     for (int32 i = 0; i < LVL_MAX; i++)
     {
         const char* name = (const char*)gLevelInfo[i].data;
-        if (name && !strcmp(name, argv[2])) {
+        if (name && !strcmp(name, levelName)) {
             gLevelID = LevelID(i);
         }
     }
     if (gLevelID == LVL_MAX) {
-        fprintf(stderr, "no level %s\n", argv[2]);
+        fprintf(stderr, "no level %s\n", levelName);
         return 1;
     }
 
@@ -632,6 +704,14 @@ int main(int argc, char** argv)
         gameUpdate(1, !done);
         levelCommit();
         handed = gameInPlay();
+
+        if (getenv("REC"))      // REC=1: the game after the tick, as a replay build keeps it (tools/replaycheck.py)
+        {
+            ReplayRec r;
+            replayRecord(r, tick);
+            printf("rec %d level %d room %d pos %d %d %d yaw %d anim %d frame %d health %d seed %08x items %08x\n",
+                   r.tick, r.level, r.room, r.x, r.y, r.z, r.yaw, r.anim, r.frame, r.health, r.seed, r.items);
+        }
 
         if (getenv("BOUNCE") && players[0] && players[0]->extraL->camera.bounce) {
             printf("tick %4d: camera bounce %d\n", tick, players[0]->extraL->camera.bounce);

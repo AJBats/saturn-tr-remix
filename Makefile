@@ -99,6 +99,9 @@ endif
 ifdef FMV_SKIP_AT
 CFLAGS  += -DFMV_SKIP_AT=$(FMV_SKIP_AT)    # testing: every video skipped so many vertical blanks in, as if START were pressed
 endif
+ifdef REPLAY
+CFLAGS  += -DTICK_REPLAY    # testing: the pad from REPLAY (tools/replay.py), a tick a frame, as the host runs
+endif
 ifdef SOUND_BENCH
 CFLAGS  += -DSOUND_BENCH    # testing, with HW_LOG: the sound CPU's decoding speed at boot (sound.cpp)
 endif
@@ -207,6 +210,15 @@ $(BUILD)/gen/depth_hints.h: saturn/depth_hints.txt tools/depth_hints.py
 $(BUILD)/gen/occluders.h: saturn/occluders.txt tools/occluders.py
 	@mkdir -p $(@D)
 	$(PY) tools/occluders.py $< $@
+
+# make REPLAY=FILE: the tick replay compiled into main.cpp (tools/replay.py)
+ifdef REPLAY
+$(BUILD)/gen/replay.h: $(REPLAY) tools/replay.py
+	@mkdir -p $(@D)
+	$(PY) tools/replay.py $< $@
+
+$(BUILD)/obj/saturn/main.cpp.o: $(BUILD)/gen/replay.h
+endif
 
 %/0MAIN.BIN: %/0MAIN.elf
 	$(OBJCOPY) -O binary $< $@

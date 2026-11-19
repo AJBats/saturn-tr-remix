@@ -21,6 +21,46 @@
 
 int32 fps;
 
+#ifdef TICK_REPLAY
+// make REPLAY=FILE (tools/replay.py): the pad's keys from FILE, a tick at a
+// time, and one tick a frame however long a frame takes, so the game runs as
+// the host's (host/host.cpp) and a run made there plays the same here.
+#include "replay.h"     // REPLAY_LEVEL, REPLAY_NEW_GAME, kReplay[]: ticks, keys ... 0
+
+struct ReplayCursor
+{
+    uint32 at;          // the pair holding tick first..
+    uint32 first;
+};
+static ReplayCursor gReplayMaster, gReplaySlave;
+static uint32 gReplayTick;      // the master's: the tick this frame updates
+static uint32 gReplayNext;      // the tick of the slave's update a frame ahead
+ReplayRec gReplayRing[64];      // the game after each tick, at gReplayRing[tick & 63]
+
+// A tick's keys; each CPU asks for ticks in order.
+static uint32 replayKeys(ReplayCursor &c, uint32 tick)
+{
+    while (kReplay[c.at] && tick >= c.first + kReplay[c.at])
+    {
+        c.first += kReplay[c.at];
+        c.at += 2;
+    }
+    return kReplay[c.at] ? kReplay[c.at + 1] : 0;
+}
+
+static LevelID replayLevel()
+{
+    for (int32 i = 0; i < LVL_MAX; i++)
+    {
+        const char* name = (const char*)gLevelInfo[i].data;
+        if (name && !strcmp(name, REPLAY_LEVEL))
+            return LevelID(i);
+    }
+    return LVL_TR1_1;
+}
+#endif
+
+#ifndef TICK_REPLAY
 // The pad as the game's keys: the master's at the frame's top, the slave's
 // before the next frame's update.
 static void updateInput()
@@ -49,6 +89,7 @@ static void updateInput()
         keys = IK_SELECT;
     }
 }
+#endif
 
 // Frames overlap on the two CPUs in play. Once frame N's draw list is made
 // (what N draws of the game is recorded by then), the slave runs frame N+1's
@@ -67,6 +108,10 @@ static void nextFrame()
 {
     cachePurge();       // the game as the master left it
     traceBegin(TRACE_SLAVE, TR_SLAVE_UPDATE);
+#ifdef TICK_REPLAY
+    keys = replayKeys(gReplaySlave, gReplayNext);
+    int32 delta = 1;
+#else
     updateInput();
 #ifdef HW_LOG
     keys = debugGameKeys(keys);
@@ -74,6 +119,7 @@ static void nextFrame()
     uint32 tick = gVblankCount >> 1;
     int32 delta = X_MAX(X_MIN(int32(tick - gNextTick), MAX_UPDATE_FRAMES), 1);
     gNextTick = tick;
+#endif
     gameUpdateItems(delta);
     sndFrame();
     traceEnd(TRACE_SLAVE, TR_SLAVE_UPDATE);
@@ -125,6 +171,10 @@ static void frameUpdate(int32 delta, uint32 tick)
         sndFrame();
     }
     levelCommit();
+#ifdef TICK_REPLAY
+    replayRecord(gReplayRing[gReplayTick & 63], gReplayTick);
+    gReplayNext = gReplayTick + 1;
+#endif
     gNextHanded = gameInPlay();
     if (gNextHanded && !done) {
         gNextTick = tick;
@@ -156,6 +206,10 @@ int main()
     padInit();
 
     gLevelID = START_LEVEL;
+#ifdef TICK_REPLAY
+    gLevelID = replayLevel();
+    gTestNewGame = REPLAY_NEW_GAME;
+#endif
 
     // the original's opening: publisher, developer (not to be skipped),
     // then the story's start (retail's 06043068 callers)
@@ -194,14 +248,22 @@ int main()
             renderPoll();
         }
 
+#ifdef TICK_REPLAY
+        int32 delta = 1;
+#else
         int32 delta = X_MIN(int32(tick - lastTick), MAX_UPDATE_FRAMES);
+#endif
         lastTick = tick;
 
         uint32 t0 = timerTicks();
         traceEndAt(TRACE_MASTER, t0, TR_TICK_WAIT);
         traceBeginAt(TRACE_MASTER, t0, TR_UPDATE);
         uint32 waited = nextFrameWait();
+#ifdef TICK_REPLAY
+        keys = replayKeys(gReplayMaster, gReplayTick);
+#else
         updateInput();
+#endif
 #ifdef HW_LOG
         debugUpdate();
         if (debugHeld())
@@ -216,6 +278,9 @@ int main()
         if (gLevelStarts != starts) {
             lastTick = (gVblankCount - tickDelay) >> 1;    // see frameUpdate
         }
+#ifdef TICK_REPLAY
+        gReplayTick++;
+#endif
 #ifdef HW_LOG
         if (const ItemObj* lara = (const ItemObj*)(const void*)players[0]) {
             tracePlace(uint32(lara->room - rooms), lara->pos.x, lara->pos.y, lara->pos.z, uint16(lara->angle.y));

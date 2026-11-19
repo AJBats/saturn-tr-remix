@@ -486,8 +486,9 @@ extern uint8* vramPtr;
 #define MAX_RAND_TABLE      32
 // Debug (HW_LOG) builds keep OpenLara's pad layout, so the debug menu works
 // as it always has; release builds have retail's Control Method 1. make
-// RETAIL_CONTROLS=1 gives a debug build retail's too.
-#if defined(HW_LOG) && !defined(RETAIL_CONTROLS)
+// RETAIL_CONTROLS=1 gives a debug build retail's too, as a tick replay
+// (make REPLAY) has, the host's layout.
+#if defined(HW_LOG) && !defined(RETAIL_CONTROLS) && !defined(TICK_REPLAY)
     #define OL_CONTROLS
 #endif
 

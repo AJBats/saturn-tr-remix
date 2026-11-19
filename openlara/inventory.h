@@ -2217,7 +2217,7 @@ void startInfoNewGame()
     gProgress.starts[LVL_TR1_1].available = 1;
 }
 
-#if defined(START_LEVEL) || defined(TRS_HOST)
+#if defined(START_LEVEL) || defined(TRS_HOST) || defined(TICK_REPLAY)
 // A level started straight from boot (make START_LEVEL), for testing: every
 // gun with plenty of ammo and medipacks, as the GBA demo gave, then what
 // that level does to them.
