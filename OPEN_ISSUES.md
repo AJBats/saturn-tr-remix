@@ -262,16 +262,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Level logic, traps and objects
 
-### 139. The Gym ending waits 90 trigger hits; retail waits 150
-*Severity: subtle · Confidence: confirmed · Fix: trivial · Audit: LVL-29,
-SND-C8*
-
-- **Retail:** TriggerCDTrack (`06011488`) uses a static counter starting at 150
-  (`DAT_06060c14`), never reset.
-- **Ours:** `openlara/lara.h:4192-4194` uses `gymTimer > 90`.
-
----
-
 ## Inventory, HUD, saves and game flow
 
 ### 314. The attract demos part from retail's: creatures steer for other points
@@ -306,7 +296,7 @@ listen) · Fix: small to medium · Audit: SND-5*
   facing.
 - **Fix:** pass the angle to `sndPlaySample`, write DIPAN, and update it per frame
   (needs issue 182).
-- **Decision:** reproduce the wrap quirk?
+- **Decided 2026-11-18:** pan smoothly as TRX does (`sound/common.c` M_GetPan: from the camera, full to one side at 90 degrees), not retail's jump just left of centre.
 
 ### 182. The sound-slot model doesn't match retail
 *Severity: subtle to audible · Confidence: confirmed · Fix: medium to large ·
@@ -1034,17 +1024,21 @@ word. Of the same kind and already open: 264, 265, 266.
 
 ## Decisions needed before fixing
 
-| Issue | Decision |
-|---|---|
-| **88** | Retail's torso charges without turning (a retail bug). Reproduced for now (5a3516f, its forward case in `Adam::updateState`); the user evaluates whether to keep it. TRX (2026-10-29) keeps it: its forward case still adds the turn to the goal state (`objects/creatures/torso.c`). |
-| **99** | Retail's gorilla sidestep turns wrongly (a retail bug). Reproduced for now (its left sidestep's turn stays; `Gorilla::updateState`); the user evaluates whether to keep it. TRX fixed it: its gorilla checks its own flag (`objects/creatures/ape.c`; TR1X 2.0 still had retail's check). |
-| **11** | Retail's CombatCamera uses a stale target_square. Reproduce it? TRX keeps it: its combat camera never sets target_square (`camera/box_camera.c` M_Combat); ours sets it (`camera.h` combatRetail). |
-| **139** | Retail's gym counter starts at 150 and is never reset. Reproduce it? Ours waits 90; PC TR1 and TRX wait 120 (4 s) and reset (`gym.c`). |
-| **179** | Retail's stereo pan wraps oddly just left of centre. Reproduce it? TRX pans smoothly from the camera's position and angle, full to one side at 90 degrees, no jump (`sound/common.c` M_GetPan). |
-| **183** | Retail restarts ambient loops every frame (a stutter), and plays loops an octave down (8-bit keyed on 16-bit data). Reproduce them? TRX does neither: loops play on, the loudest call sets them, a loop not called in a frame stops (as ours). |
-| **253** | Water's flecks are left out near the camera, where retail draws them. Keep it? Saturn only: TRX has nothing like it. |
+None open. Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each): 88 keep the torso's no-turn walk; 99 fix the gorilla's sidestep as TRX; 11 keep the combat camera's stale distance; 139 the Saturn's 150 hits; 179 pan smoothly as TRX; 183 neither the loop restart nor the octave-down loops; 253 keep the shimmers.
 
 ## Closed
+
+### 139. The Gym ending waits 90 trigger hits; retail waits 150
+*Closed 2026-11-18: the Saturn's 150 trigger hits (5 s), counted from 0 each visit as TRX's (retail never resets its count, so a second visit would end at once); the user's call.*
+
+*Severity: subtle · Confidence: confirmed · Fix: trivial · Audit: LVL-29,
+SND-C8*
+
+- **Retail:** TriggerCDTrack (`06011488`) uses a static counter starting at 150
+  (`DAT_06060c14`), never reset.
+- **Ours:** `openlara/lara.h:4192-4194` uses `gymTimer > 90`.
+
+---
 
 ### 162. No "Press START" title screen, no attract demos, no return to it
 *Closed 2026-11-18: e9bafec, Press START (B on the title's ring and Exit to Title come back to it) and the attract demos, Vilcabamba then Lost Valley, played from DEMODATA a word a tick; checked in Mednafen on the release disc left alone. The demo parts from retail's after 306 ticks: issue 314.*
@@ -2073,7 +2067,7 @@ GFX-15*
 - **Effect:** Lara has no gun in her hand in CUT4.
 
 ### 99. The gorilla can't climb onto blocks, and its sidestep turns differ
-*Closed 2026-11-18 (see git log): the vault, and retail's sidestep turns (bug reproduced for now, see the decisions table).*
+*Closed 2026-11-18 (see git log): the vault, and the sidestep turns: retail's test of the item's flags fixed as TRX does (the user's call), so both sidesteps turn back in the tick they turn.*
 
 *Severity: visible · Confidence: confirmed · Fix: medium · Audit: AI-28*
 
@@ -2087,7 +2081,7 @@ GFX-15*
     rotates, and the left one rotates once and stays rotated.
 - **Ours:** no vault (`openlara/enemy.h:1701`). The sidestep rotates while
   stepping and snaps back at STOP (`enemy.h:1759-1768`, `1807-1825`).
-- **Decision:** reproduce the sidestep bug?
+- **Decided 2026-11-18:** fix it as TRX does (`objects/creatures/ape.c` tests the gorilla's own flag).
 
 ### 100. Qualopec mummies behave like full creatures
 *Closed 2026-11-18 (see git log): no AI slot, no random turn, head tracks Lara, solid without stagger.*
@@ -4723,7 +4717,7 @@ CAM-4, CAM-18*
 - **Fix:**
   - Port SmartShift, ShiftCamera, ClipCamera, BadPosition and ShiftClamp; our
     levels have the boxes.
-  - Retail quirk to keep or not: CombatCamera uses a stale target_square.
+  - CombatCamera uses a stale target_square: kept, as TRX does (decided 2026-11-18; `camera.h` combatRetail no longer sets it).
   - The LOS details are issue 27.
 
 ### 12. The look camera is at half distance and has no pivot shift

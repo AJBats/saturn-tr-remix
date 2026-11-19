@@ -616,7 +616,8 @@ void Camera::combatRetail(ItemObj* item)
     Location ideal;
     ideal.pos.y = target.pos.y + (targetDist * s >> FIXED_SHIFT);
 
-    targetSquare = X_SQR(distance);
+    // targetSquare stays the last chase camera's, as retail's and TRX's
+    // (issue 11): the shift along a wall keeps that distance
 
     sincos(targetAngle.y, s, c);
     ideal.pos.x = target.pos.x - (distance * s >> FIXED_SHIFT);

@@ -4176,10 +4176,10 @@ int32 doTutorial(ItemObj* lara, int32 track)
             }
             break;
 
-        case 50 : // end of GYM
+        case 50 : // end of GYM: retail Saturn's 150 trigger hits (5 s), from 0 each visit as TRX's
             if (gSaveGame.tracks[track] & TRACK_FLAG_ONCE) {
                 lara->gymTimer++;
-                if (lara->gymTimer > 90)
+                if (lara->gymTimer >= 150)
                 {
                     nextLevel(LVL_TR1_TITLE);
                 }

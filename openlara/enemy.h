@@ -1988,18 +1988,29 @@ struct Gorilla : Enemy
         }
     }
 
-    // Retail's ApeControl (06029748) and ApeVault (06029570). Both undo a
-    // right sidestep's turn as soon as it's made; the left's undo tests the
-    // item's flags instead of the gorilla's (a retail bug, kept: issue 99),
-    // so a left sidestep's turn stays, and later ones don't turn.
-    virtual int32 updateState()
+    // a sidestep's quarter turn is undone in the same tick it's made
+    void undoSidestepTurn()
     {
-        int32 goal = think();
-        if (state != STATE_VAULT && (turnSpeed & FLAG_TURN_L))
+        if (turnSpeed & FLAG_TURN_L)
         {
             angle.y -= ANGLE_90;
             turnSpeed &= ~FLAG_TURN_L;
         }
+        else if (turnSpeed & FLAG_TURN_R)
+        {
+            angle.y += ANGLE_90;
+            turnSpeed &= ~FLAG_TURN_R;
+        }
+    }
+
+    // Retail's ApeControl (06029748) and ApeVault (06029570), with TRX's fix
+    // to the turn back after a left sidestep: retail tests the item's flags
+    // there instead of the gorilla's, so its turn stays (issue 99)
+    virtual int32 updateState()
+    {
+        int32 goal = think();
+        if (state != STATE_VAULT)
+            undoSidestepTurn();
         return goal;
     }
 
@@ -2053,11 +2064,7 @@ struct Gorilla : Enemy
         {
             case STATE_STOP:
             {
-                if (turnSpeed & FLAG_TURN_L)
-                {
-                    angle.y -= ANGLE_90;
-                    turnSpeed &= ~FLAG_TURN_L;
-                }
+                undoSidestepTurn();
 
                 if (nextState)
                     return nextState;
