@@ -15,6 +15,7 @@
 //   pickup ITEM                   walked to it and picked it up
 //   switch ITEM                   stood at it and pulled it
 //   lever ITEM                    an underwater lever, swum to and pulled
+//   push|pull ITEM DEGREES TIMES  a movable block moved that way, a sector a time
 //   swimto ROOM X Y Z             to a spot in the water
 //   draw                          guns out
 //   endlevel ROOM X Z             to the level's end there, through its
@@ -22,6 +23,9 @@
 //   use small|big                 a medipack from the ring (also used by
 //                                 themselves when she's low)
 //   fight                         guns drawn, every creature awake shot dead
+//   attempt ROOM X Z [TRIES]      the lines to `end` (keys, wait, face, goto)
+//   ...                           tried with their keys' ticks varied, till
+//   end                           she stands on that sector (a move by hand)
 //   expect room ROOM | secrets N | pickups N | kills N | alive
 //                                 the run fails unless it is so
 
@@ -1553,6 +1557,45 @@ static bool pullLever(int32 index)
     return true;
 }
 
+// A movable block moved a sector at a time `times` times toward heading (a
+// quarter turn): pushed, Lara behind it facing that way, or pulled, Lara in
+// front facing back; Action held till she takes hold, then forward or back.
+static bool moveBlock(int32 index, int16 heading, int32 times, bool pull)
+{
+    ItemObj* block = items + index;
+    for (int32 t = 0; t < times; t++)
+    {
+        int32 dx = sinRetail(heading) >> (FIXED_SHIFT - 10), dz = cosRetail(heading) >> (FIXED_SHIFT - 10);  // 1024 a sector
+        int32 side = pull ? 1 : -1;
+        int32 sx = block->pos.x + side * dx * 600 / 1024, sz = block->pos.z + side * dz * 600 / 1024;
+        int16 face = pull ? int16(heading + ANGLE_180) : heading;
+        int32 bx = block->pos.x, bz = block->pos.z;
+        if (!goTo(int32(block->room - rooms), sx, sz, false, 48) || !turnTo(face, ANGLE(1))) {
+            fail("couldn't stand at the block");
+            return false;
+        }
+        for (int32 i = 0; i < 40 && lara()->state != Lara::STATE_BLOCK_READY; i++) {
+            step(IK_B);
+        }
+        if (lara()->state != Lara::STATE_BLOCK_READY) {
+            fail("couldn't take hold of the block");
+            return false;
+        }
+        for (int32 i = 0; i < 200 && block->pos.x == bx && block->pos.z == bz; i++) {
+            step(IK_B | (pull ? IK_DOWN : IK_UP));
+        }
+        for (int32 i = 0; i < 200 && (block->flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_ACTIVE; i++) {
+            step(IK_B);     // the move played out
+        }
+        settle(60);
+        if (abs(block->pos.x - bx) + abs(block->pos.z - bz) < 1000) {
+            fail("the block didn't move");
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool isCreature(const ItemObj* item)
 {
     return item->type >= ITEM_WOLF && item->type <= ITEM_ADAM && item->type != ITEM_SKATEBOARD;
@@ -1744,6 +1787,81 @@ static bool expect(const char* what, int32 value)
     return ok;
 }
 
+// An attempt block (attempt ROOM X Z [TRIES] ... end): a few steps by hand
+// (keys, wait, face, goto) tried in trials, each `keys` line's ticks moved by
+// up to three either way in all but the first try; the try that leaves her
+// standing on the sector at X, Z in ROOM with the most health, then the
+// fewest ticks, is played.
+#define BOT_BLOCK_LINES 32
+static char gBlock[BOT_BLOCK_LINES][256];
+static int32 gBlockCount;
+
+static bool blockTry(int32 roomIndex, int32 x, int32 z, int32 floor, int32 variant)
+{
+    int32 keysLine = 0;
+    for (int32 i = 0; i < gBlockCount; i++)
+    {
+        char cmd[32], a[64], b[64], c[64];
+        int32 n = sscanf(gBlock[i], "%31s %63s %63s %63s", cmd, a, b, c);
+        if (n <= 0)
+            continue;
+        if (!strcmp(cmd, "keys") && n >= 3)
+        {
+            int32 ticks = atoi(b);
+            if (variant > 0) {
+                ticks += int32((uint32(variant) * 7919u + uint32(keysLine) * 104729u) % 7u) - 3;
+            }
+            keysLine++;
+            uint32 k = parseBotKeys(a);
+            for (int32 t = 0; t < ticks; t++) {
+                step(k);
+            }
+        } else if (!strcmp(cmd, "wait") && n >= 2) {
+            for (int32 t = atoi(a); t > 0; t--) {
+                step(0);
+            }
+        } else if (!strcmp(cmd, "face") && n >= 2) {
+            if (!turnTo(int16(atoi(a) * 0x10000 / 360)))
+                return false;
+        } else if (!strcmp(cmd, "goto") && n >= 4) {
+            if (!goTo(atoi(a), atoi(b), atoi(c), false))
+                return false;
+        } else {
+            return false;
+        }
+    }
+    settle(150);
+    const Lara* l = lara();
+    return standing() && (l->pos.x >> 10) == (x >> 10) && (l->pos.z >> 10) == (z >> 10) && abs(l->pos.y - floor) < 128 &&
+           l->health > 0;
+}
+
+static bool attempt(int32 roomIndex, int32 x, int32 z, int32 tries)
+{
+    Room* r = rooms + roomIndex;
+    int32 floor = spotAt(r, x, (r->info->yTop + r->info->yBottom) / 2, z).floor;
+    static uint32 keys[BOT_TRIAL_TICKS];
+    static uint32 best[BOT_TRIAL_TICKS];
+    int32 bestScore = -1, bestTicks = 0;
+    for (int32 v = 0; v < tries; v++)
+    {
+        int32 ticks = 0;
+        int32 score = trial([&]() -> int32 { return blockTry(roomIndex, x, z, floor, v) ? lara()->health : -1; }, keys, &ticks);
+        if (score > bestScore || (score == bestScore && score >= 0 && ticks < bestTicks))
+        {
+            bestScore = score;
+            bestTicks = ticks;
+            memcpy(best, keys, ticks * sizeof(uint32));
+        }
+    }
+    if (bestScore < 0) {
+        fail("no try of the attempt got there");
+        return false;
+    }
+    play(best, bestTicks);
+    return true;
+}
+
 static void writeReplay(const char* path, const char* levelName, bool newGame)
 {
     static const struct { const char* name; uint32 key; } names[] = {
@@ -1852,6 +1970,14 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
                 bool climb = climbBetween(cl, kDirX[dir], kDirZ[dir], low, hi);
                 printf("    dir %d,%d: move %d to floor %d ceiling %d room %d; climb %s %d\n", kDirX[dir], kDirZ[dir], m, low.floor,
                        low.ceiling, low.room ? int32(low.room - rooms) : -1, climb ? "yes" : "no", climb ? hi.floor : 0);
+                for (int32 gap = 1; gap <= 2; gap++)
+                {
+                    Spot jb;
+                    bool j = jumpBetween(cl, kDirX[dir], kDirZ[dir], gap, jb);
+                    int32 jx = (cl.sx + kDirX[dir] * (gap + 1)) << 10, jz = (cl.sz + kDirZ[dir] * (gap + 1)) << 10;
+                    printf("      jump %d: %s floor %d%s\n", gap, j ? "yes" : "no", j ? jb.floor : 0,
+                           (j && blocked(jx + 512, jb.floor, jz + 512)) ? " (in the way of something)" : "");
+                }
             }
         } else if (!strcmp(cmd, "explainwater") && n >= 5) {
             // explainwater ROOM X Y Z: the water moves from that sector's stretch of water
@@ -1886,6 +2012,24 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
             cl.floor = lara()->pos.y;
             cl.room = lara()->room;
             ok = jumpTry(cl, jdx, jdz, gap, floor, atoi(b), atoi(c), n >= 5 && atoi(d));
+        } else if (!strcmp(cmd, "attempt") && n >= 4) {
+            // the block's lines, to its end
+            gBlockCount = 0;
+            char bl[256];
+            while (fgets(bl, sizeof(bl), f))
+            {
+                gLine++;
+                if (char* hash = strchr(bl, '#')) {
+                    *hash = 0;
+                }
+                char w[32];
+                if (sscanf(bl, "%31s", w) == 1 && !strcmp(w, "end"))
+                    break;
+                if (gBlockCount < BOT_BLOCK_LINES) {
+                    snprintf(gBlock[gBlockCount++], sizeof(gBlock[0]), "%s", bl);
+                }
+            }
+            ok = attempt(atoi(a), atoi(b), atoi(c), n >= 5 ? atoi(d) : 24);
         } else if (!strcmp(cmd, "endlevel") && n >= 4) {
             // endlevel ROOM X Z: to the end trigger there, then Action through
             // the statistics and the "Save Game?" prompt till the next level is up
@@ -1905,6 +2049,9 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
             gGoalY = atoi(c);
             ok = goTo(atoi(a), atoi(b), atoi(d), false, 200);
             gGoalY = NO_GOAL_Y;
+        } else if ((!strcmp(cmd, "push") || !strcmp(cmd, "pull")) && n >= 4) {
+            // push|pull ITEM DEGREES TIMES: a block moved that way, a sector a time
+            ok = moveBlock(atoi(a), int16(atoi(b) * 0x10000 / 360), atoi(c), !strcmp(cmd, "pull"));
         } else if (!strcmp(cmd, "lever") && n >= 2) {
             ok = pullLever(atoi(a));
         } else if (!strcmp(cmd, "use") && n >= 2) {

@@ -1,5 +1,5 @@
 # Vilcabamba at 100%, in progress (Stella: 13 pickups with the silver key and
-# gold idol, 3 secrets, 29 kills). In progress: to secret 2 so far.
+# gold idol, 3 secrets, 29 kills). In progress: to the platform by the window.
 start LEVEL2 newgame
 # the entrance doors open as the level starts
 wait 90
@@ -20,3 +20,26 @@ wait 60
 pickup 88
 pickup 87
 expect secrets 2
+
+# the skull room: the switch by the carved stone door; up the stairs, a running
+# jump, across the break-away tiles to the large medipack in the alcove
+switch 16
+wait 60
+# a running jump to the ledge (as the planner finds it); then on across the
+# break-away tiles before they fall, and a running jump over the pit to the
+# alcove's platform
+goto 23 59904 35328
+attempt 17 59904 30208 60
+face 180
+keys UP 24
+keys UP+A 30
+wait 10
+end
+pickup 39
+# down: the movable block pushed south into the next room (a bat), the silver
+# key and the gold idol in the alcoves of the low platform
+push 0 180 5
+pickup 20
+pickup 19
+# up by the block onto the L-shaped platform (two bats), the large medipack by the window
+pickup 4
