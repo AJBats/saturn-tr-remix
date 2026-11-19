@@ -745,6 +745,39 @@ int main(int argc, char** argv)
         printf("\n");
     }
 
+    // PROBE=ROOM:X0:Z0:X1:Z1:STEP: the floor (and ceiling) at points across
+    // that area, slopes and all, as Lara's collision reads them
+    if (const char* p = getenv("PROBE"))
+    {
+        int32 r, x0, z0, x1, z1, st;
+        if (sscanf(p, "%d:%d:%d:%d:%d:%d", &r, &x0, &z0, &x1, &z1, &st) == 6 && st > 0)
+        {
+            Room* room = rooms + r;
+            int32 y = (room->info->yTop + room->info->yBottom) / 2;
+            printf("floor/ceiling in room %d (y's of room %d's middle):\n        ", r, r);
+            for (int32 x = x0; x <= x1; x += st) {
+                printf(" %11d", x);
+            }
+            printf("\n");
+            for (int32 z = z1; z >= z0; z -= st)
+            {
+                printf("%7d:", z);
+                for (int32 x = x0; x <= x1; x += st)
+                {
+                    Room* rr = room->getRoom(x, y, z);
+                    const Sector* s = rr->getSector(x, z);
+                    int32 f = s->getFloor(x, y, z), c = s->getCeiling(x, y, z);
+                    if (f == WALL) {
+                        printf("        wall");
+                    } else {
+                        printf(" %5d/%-5d", f, c);
+                    }
+                }
+                printf("\n");
+            }
+        }
+    }
+
     if (getenv("BOT"))
     {
         char out[512];

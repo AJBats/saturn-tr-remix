@@ -15,3 +15,26 @@ wait 60
 expect room 36
 pickup 58
 expect secrets 1
+
+# the bat cave, up the rocks of room 4, guns out at its mouth (one bat may
+# fly off to come back later)
+goto 2 78336 40448
+face 0
+draw
+keys UP+L 40
+fight
+goto 2 78336 44544
+fight
+# secret 2: the cave on the left, the snowdrift under the opening, its high west end
+goto 3 67840 49800
+face 0
+keys UP+B 60
+wait 60
+expect room 28
+draw
+fight
+pickup 48
+expect secrets 2
+
+# down to the door with the switch
+switch 10
