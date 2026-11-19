@@ -2855,6 +2855,7 @@ struct CpuState
 
 #ifdef TRS_HOST
 void hostTargetInfo(const ItemObj* enemy);  // host/host.cpp: TINFO=ITEM prints its target info each tick
+void hostRandLogic(void* caller);           // host/host.cpp: RNG=1 prints each logic random number's caller
 extern CpuState gHostCpuState;      // host/host.cpp: the one CPU's
 inline CpuState* cpuState()
 {

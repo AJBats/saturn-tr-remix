@@ -34,6 +34,21 @@ void hostTargetInfo(const ItemObj* enemy)
            watched, tinfo.dist, tinfo.angle, tinfo.front, tinfo.behind, tinfo.canAttack, tinfo.zoneIndex, tinfo.zoneIndexTarget,
            tinfo.boxIndex, tinfo.boxIndexTarget, ((const Enemy*)enemy)->mood, enemy->state, enemy->goalState, enemy->nextState,
            enemy->hitMask);
+    const Nav &nav = enemy->extraE->nav;
+    printf("     nav %d: waypoint %d %d %d target %d %d %d end %d next %d head %d tail %d weight %d maxturn %d seed %08x\n",
+           watched, tinfo.waypoint.x, tinfo.waypoint.y, tinfo.waypoint.z, nav.pos.x, nav.pos.y, nav.pos.z,
+           int16(nav.endBox), int16(nav.nextBox), int16(nav.headBox), int16(nav.tailBox), nav.weight,
+           enemy->extraE->maxTurn, gRandSeedLogic);
+}
+
+// RNG=1: each logic random number, its caller (addr2line -e build/host/logic)
+// and the seed it leaves
+void hostRandLogic(void* caller)
+{
+    static bool on = getenv("RNG") != NULL;
+    if (on) {
+        printf("     rng %p from seed %08x (enemy at %d %d %d)\n", caller, gRandSeedLogic, tinfo.pos.x, tinfo.pos.y, tinfo.pos.z);
+    }
 }
 
 // WATCHDOG=SECONDS: a run still going then prints where it is (addresses for
@@ -360,6 +375,9 @@ static void printLara(int32 tick)
     printf("tick %4d: room %3d pos %6d %6d %6d angle %6d anim %3d frame %4d state %2d goal %2d health %4d water %d\n",
            tick, int32(lara->room - rooms), lara->pos.x, lara->pos.y, lara->pos.z, uint16(lara->angle.y),
            lara->animIndex, lara->frameIndex, lara->state, lara->goalState, lara->health, lara->waterState);
+    if (getenv("TINFO")) {
+        printf("     seed %08x\n", gRandSeedLogic);
+    }
     if (getenv("INV"))      // INV=1: the level, the ring's counts and her rounds
     {
         printf("     level %d inv state %d page %d ring", gLevelID, inventory.state, inventory.page);

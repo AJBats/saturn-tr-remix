@@ -107,6 +107,9 @@ int32 gRandSeedDraw = int32(0xD371F947);
 
 int32 rand_logic()
 {
+#ifdef TRS_HOST
+    hostRandLogic(__builtin_return_address(0));
+#endif
     return X_RAND(gRandSeedLogic);
 }
 
