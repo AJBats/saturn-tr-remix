@@ -9,7 +9,8 @@
 //
 // REPLAY=FILE in the environment takes the level and the pad from a tick
 // replay (tools/replay.py), TICKS 0 its length; REC=1 prints the game after
-// every tick as a replay build keeps it (tools/replaycheck.py).
+// every tick as a replay build keeps it (tools/replaycheck.py). BOT=ROUTE
+// plays a route (host/bot.h) and writes its run as a replay to BOT_OUT.
 //
 // KEYS: UP, DOWN, LEFT, RIGHT, A, B, C, X, Y, Z, L, R, START joined by '+',
 // held from tick FIRST to LAST. ACTION: hit:ITEM:DAMAGE, flag:ITEM:HEX or
@@ -436,7 +437,7 @@ static int32 gReplayRuns = -1;      // none read
 static int32 gReplayEnd;            // the tick after its last
 static char gReplayLevel[32];
 
-static void readReplay(const char* path)
+static void readReplay(const char* path, bool startOnly = false)
 {
     FILE* f = fopen(path, "r");
     if (!f) {
@@ -455,7 +456,7 @@ static void readReplay(const char* path)
             gTestNewGame = !strcmp(a, "newgame");
             continue;
         }
-        if (sscanf(line, "%63s %63s", a, b) != 2)
+        if (startOnly || sscanf(line, "%63s %63s", a, b) != 2)
             continue;
         if (gReplayRuns == X_COUNT(gReplay)) {
             fprintf(stderr, "%s: more than %d runs\n", path, int32(X_COUNT(gReplay)));
@@ -494,6 +495,30 @@ static uint32 keysAt(int32 tick)
     }
     return k;
 }
+
+// One tick with these keys, as saturn/main.cpp runs a frame: the first
+// frame's update whole; after it, while in play, the items' update a frame
+// ahead (the slave's), then the rest at the frame's top.
+static bool gHanded;
+
+static void hostTick(int32 tick, uint32 k)
+{
+    gHostTick = tick;
+    keys = k;
+    actsAt(tick);
+    bool done = false;
+    if (gHanded)
+    {
+        gameUpdateItems(1);
+        done = true;
+    }
+    levelCommit();
+    gameUpdate(1, !done);
+    levelCommit();
+    gHanded = gameInPlay();
+}
+
+#include "bot.h"
 
 static void printLara(int32 tick)
 {
@@ -615,7 +640,13 @@ int main(int argc, char** argv)
     }
 
     const char* levelName = argv[2];
-    if (getenv("REPLAY"))
+    if (getenv("BOT"))
+    {
+        readReplay(getenv("BOT"), true);   // BOT=ROUTE: its start line (host/bot.h)
+        gReplayRuns = -1;
+        levelName = gReplayLevel;
+    }
+    else if (getenv("REPLAY"))
     {
         readReplay(getenv("REPLAY"));
         levelName = gReplayLevel;
@@ -684,26 +715,50 @@ int main(int argc, char** argv)
         printf("\n");
     }
 
-    // As saturn/main.cpp runs it, a tick a frame: the first frame's update
-    // whole; after it, while in play, the items' update a frame ahead (the
-    // slave's), then the rest at the frame's top.
+    // MAP=ROOM,ROOM...: those rooms' sectors, rows of z, each its floor in
+    // clicks below the room's top (W a wall) and box, for writing routes
+    for (const char* m = getenv("MAP"); m && *m; m = strchr(m, ',') ? strchr(m, ',') + 1 : "")
+    {
+        const Room &room = rooms[atoi(m)];
+        const RoomInfo* info = room.info;
+        printf("room %d: x %d z %d, %d x %d sectors, top %d bottom %d%s\n", atoi(m), info->x << 8, info->z << 8,
+               info->xSectors, info->zSectors, info->yTop, info->yBottom, ROOM_FLAG_WATER(info->flags) ? " water" : "");
+        for (int32 sz = info->zSectors - 1; sz >= 0; sz--)
+        {
+            printf("  z %6d:", (info->z << 8) + sz * 1024 + 512);
+            for (int32 sx = 0; sx < info->xSectors; sx++)
+            {
+                const Sector &s = room.sectors[sx * info->zSectors + sz];
+                if (s.floor == NO_FLOOR) {
+                    printf("     W    ");
+                } else {
+                    printf(" %3d%c/%-4d", s.floor, s.roomBelow != NO_ROOM ? 'v' : (s.roomAbove != NO_ROOM ? '^' : ' '),
+                           (s.boxIndex & NAV_INDEX) == NAV_INDEX ? -1 : s.boxIndex);
+                }
+            }
+            printf("\n");
+        }
+        printf("  x:      ");
+        for (int32 sx = 0; sx < info->xSectors; sx++) {
+            printf(" %6d   ", (info->x << 8) + sx * 1024 + 512);
+        }
+        printf("\n");
+    }
+
+    if (getenv("BOT"))
+    {
+        char out[512];
+        snprintf(out, sizeof(out), "%s", getenv("BOT_OUT") ? getenv("BOT_OUT") : "build/bot/run.rpl");
+        clock_t t0 = clock();
+        int32 r = bot::run(getenv("BOT"), out, levelName, gTestNewGame);
+        fprintf(stderr, "bot: %d ticks in %.1f s\n", bot::gTick, double(clock() - t0) / CLOCKS_PER_SEC);
+        return r;
+    }
+
     clock_t t0 = clock();
-    bool handed = false;
     for (int32 tick = 0; tick < ticks; tick++)
     {
-        gHostTick = tick;
-        keys = keysAt(tick);
-        actsAt(tick);
-        bool done = false;
-        if (handed)
-        {
-            gameUpdateItems(1);
-            done = true;
-        }
-        levelCommit();
-        gameUpdate(1, !done);
-        levelCommit();
-        handed = gameInPlay();
+        hostTick(tick, keysAt(tick));
 
         if (getenv("REC"))      // REC=1: the game after the tick, as a replay build keeps it (tools/replaycheck.py)
         {

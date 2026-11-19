@@ -1,0 +1,17 @@
+# The Caves at 100% (Stella's classic walkthrough, tombraiders.net/stella):
+# 7 pickups, 3 secrets, 14 kills. Rooms and items as the level numbers them
+# (host MAP=ROOM prints a room's sectors).
+start LEVEL1 newgame
+
+# the dart corridor, round the corner to the rectangular cave
+goto 5 89600 36450
+# secret 1: back to the angled block, backflip onto it, bounce off and grab
+# the opening above, pull up
+face 0
+keys DOWN+A 12
+keys A+B 45
+keys UP+B 30
+wait 60
+expect room 36
+pickup 58
+expect secrets 1

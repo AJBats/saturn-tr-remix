@@ -5,9 +5,10 @@ they ran alike.
     python -I tools/replaycheck.py REPLAY BUILD [--ticks N]
 
 REPLAY is the replay file (tools/replay.py), BUILD the folder `make disc
-BUILD=BUILD REPLAY=REPLAY` built. The host (build/host/logic, host/build.sh)
-prints its records with REC=1; the replay build keeps the last 64 in
-gReplayRing (saturn/main.cpp), which is read every 40 vertical blanks.
+BUILD=BUILD REPLAY=REPLAY` built (--make builds it first). The host
+(build/host/logic, host/build.sh) prints its records with REC=1; the replay
+build keeps the last 64 in gReplayRing (saturn/main.cpp), read every 40
+vertical blanks.
 """
 import argparse
 import os
@@ -68,7 +69,15 @@ def main():
     ap.add_argument('replay')
     ap.add_argument('build')
     ap.add_argument('--ticks', type=int, default=0, help='this many ticks only (0: the whole replay)')
+    ap.add_argument('--make', action='store_true', help='build the replay disc in BUILD first')
     a = ap.parse_args()
+    if a.make:
+        def rel(p):
+            return os.path.relpath(os.path.abspath(p), ROOT).replace(os.sep, '/')
+        made = subprocess.run(['make', 'disc', f'BUILD={rel(a.build)}', f'REPLAY={rel(a.replay)}', '-j8'], cwd=ROOT,
+                              capture_output=True, text=True)
+        if made.returncode:
+            sys.exit(f'make: {made.stdout[-2000:]}{made.stderr[-2000:]}')
     host = host_records(os.path.abspath(a.replay), a.ticks)
     if not host:
         sys.exit('host: no records')
