@@ -266,71 +266,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Audio
 
-### 179. No stereo pan
-*Severity: audible · Confidence: confirmed (code; which side is left needs a
-listen) · Fix: small to medium · Audit: SND-5*
-
-- **Retail:** Sound_Effect (`060236e0`), UpdateSlotParams (`06023da0`), TL + pan
-  (`06046b28`).
-  - pan = phd_atan(src.z − lara.z, src.x − lara.x) − (lara.y_rot + torso_y_rot
-    + head_y_rot).
-  - Pan is forced to 0 when the distance is 0, the position is NULL, or the
-    sound info has flag 0x1000.
-  - The driver writes DIPAN = (pan >> 11) & 0x1F. `06045a0e` is >> 8, then
-    `&0xF8 << 5` in `06046b28`.
-  - So 0 to +180° goes 0x00 → 0x0F (centre to full side). Just past 0 on the
-    negative side jumps to 0x1F (full other side), returning to 0x10 (centre) at
-    −180°. This is a retail quirk.
-  - Pan is updated every frame for positioned sounds.
-- **Ours:** `sndPlaySample` (`saturn/sound.cpp`) always posts pan 0 (centre),
-  which `saturn/sound.68k` writes with send level 7.
-- **Effect:** everything is centred in ours; retail pans relative to Lara's
-  facing.
-- **Fix:** pass the angle to `sndPlaySample`, write DIPAN, and update it per frame
-  (needs issue 182).
-- **Decided 2026-11-18:** pan smoothly as TRX does (`sound/common.c` M_GetPan: from the camera, full to one side at 90 degrees), not retail's jump just left of centre.
-
-### 182. The sound-slot model doesn't match retail
-*Severity: subtle to audible · Confidence: confirmed · Fix: medium to large ·
-Audit: SND-8*
-
-- **Retail:** Sound_GetSlot (`06023af4`), the slot loop (`06023c7c`),
-  UpdateSlotParams (`06023da0`).
-  - 24 slots of 20 bytes (`DAT_06078cc8`). The first 8 are reserved, one per
-    looped (mode 2) sound (`DAT_060723b8`).
-  - A slot is keyed by (sound id, position pointer).
-  - Modes:
-    - WAIT (0): if the same id and position is still playing, do nothing.
-    - RESTART (1): restart it.
-    - Mode 3: never plays.
-  - Every frame, volume and pan are recomputed from the stored position pointer
-    for positioned sounds still playing, and finished slots are freed.
-  - Up to 32 hardware voices.
-- **Ours:** `sndPlaySample` (`saturn/sound.cpp`), the sound CPU's voices
-  (`saturn/sound.68k`).
-  - Keyed by sample index only. Two emitters of the same sound share one voice:
-    for WAIT and LOOP the second call only rewrites the volume, and for REPLAY it
-    cuts the first.
-  - Two variants of one WAIT sound can overlap.
-  - Volume is never updated after key-on (only when the sound is played again),
-    and there is no pan.
-  - 8 voices. A new sound is dropped when they're all busy, or when decoding it
-    would take the sound CPU past its budget (`DECODE_BUDGET`) and every voice
-    decoding is as loud or louder; otherwise the quietest decoding voice gives
-    way. Retail's 24 slots never decode anything.
-- **Effect:** two wolves, darts or gunmen collapse into one sound. Moving sources
-  (boulders, running creatures) don't fade or pan as they move.
-- **Fix:** port the slot table into `soundPlay` and `sound.cpp`.
-- **More voices, a possible lever (2026-11-11):** the 8-voice limit comes partly from the sound
-  CPU's decode budget. The sound chip's own DSP (in the SCSP, not the SCU DSP that does our scene
-  work) is unused in ours. It could take the PlayStation ADPCM decoding off the 68000: the same
-  sound, with the 68000 free for more voices. Celeriyacon's sound driver decodes ADPCM on it.
-  Unproven: the PlayStation format changes its filter every 28 samples and the DSP has no
-  branches; the DSP runs one fixed step per 44.1 kHz sample while our voices play at many pitches;
-  its work area takes sound RAM from the pre-decoded copies (16 KB at least, from memory, to check);
-  and whether its reads slow the 68000's. Using it for vertices (Jollyroger's 2026 demo) was ruled
-  out for us: every vertex would cross the slow bus to sound RAM and back.
-
 ## Numeric primitives and timing
 
 ### 198. Animation interpolation lerps relative matrices, not two full stacks
@@ -1019,6 +954,75 @@ word. Of the same kind and already open: 264, 265, 266.
 None open. Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each): 88 keep the torso's no-turn walk; 99 fix the gorilla's sidestep as TRX; 11 keep the combat camera's stale distance; 139 the Saturn's 150 hits; 179 pan smoothly as TRX; 183 neither the loop restart nor the octave-down loops; 253 keep the shimmers.
 
 ## Closed
+
+### 179. No stereo pan
+*Closed 2026-11-19: 76575ee, panned as TRX (the user's call): from the camera, the far side down 2.5, 6 or 8.5 dB by the sine of the turn, updated every frame with the slots (182). Seen in Mednafen writing DIPAN 00, 10, 11 in the Vilcabamba demo; which side is which still wants a listen on the Saturn.*
+
+*Severity: audible · Confidence: confirmed (code; which side is left needs a
+listen) · Fix: small to medium · Audit: SND-5*
+
+- **Retail:** Sound_Effect (`060236e0`), UpdateSlotParams (`06023da0`), TL + pan
+  (`06046b28`).
+  - pan = phd_atan(src.z − lara.z, src.x − lara.x) − (lara.y_rot + torso_y_rot
+    + head_y_rot).
+  - Pan is forced to 0 when the distance is 0, the position is NULL, or the
+    sound info has flag 0x1000.
+  - The driver writes DIPAN = (pan >> 11) & 0x1F. `06045a0e` is >> 8, then
+    `&0xF8 << 5` in `06046b28`.
+  - So 0 to +180° goes 0x00 → 0x0F (centre to full side). Just past 0 on the
+    negative side jumps to 0x1F (full other side), returning to 0x10 (centre) at
+    −180°. This is a retail quirk.
+  - Pan is updated every frame for positioned sounds.
+- **Ours:** `sndPlaySample` (`saturn/sound.cpp`) always posts pan 0 (centre),
+  which `saturn/sound.68k` writes with send level 7.
+- **Effect:** everything is centred in ours; retail pans relative to Lara's
+  facing.
+- **Fix:** pass the angle to `sndPlaySample`, write DIPAN, and update it per frame
+  (needs issue 182).
+- **Decided 2026-11-18:** pan smoothly as TRX does (`sound/common.c` M_GetPan: from the camera, full to one side at 90 degrees), not retail's jump just left of centre.
+
+### 182. The sound-slot model doesn't match retail
+*Closed 2026-11-19: 76575ee. 16 slots keyed by id and place (retail's 24 less its 8 loops); WAIT holds, RESTART starts over, mode 3 never plays; each frame a placed sound's level and pan follow it, one out of hearing stops, an ended one frees its slot; the driver gives each play its own voice. Still 8 voices and the decode budget (the "more voices" lever below stands).*
+
+*Severity: subtle to audible · Confidence: confirmed · Fix: medium to large ·
+Audit: SND-8*
+
+- **Retail:** Sound_GetSlot (`06023af4`), the slot loop (`06023c7c`),
+  UpdateSlotParams (`06023da0`).
+  - 24 slots of 20 bytes (`DAT_06078cc8`). The first 8 are reserved, one per
+    looped (mode 2) sound (`DAT_060723b8`).
+  - A slot is keyed by (sound id, position pointer).
+  - Modes:
+    - WAIT (0): if the same id and position is still playing, do nothing.
+    - RESTART (1): restart it.
+    - Mode 3: never plays.
+  - Every frame, volume and pan are recomputed from the stored position pointer
+    for positioned sounds still playing, and finished slots are freed.
+  - Up to 32 hardware voices.
+- **Ours:** `sndPlaySample` (`saturn/sound.cpp`), the sound CPU's voices
+  (`saturn/sound.68k`).
+  - Keyed by sample index only. Two emitters of the same sound share one voice:
+    for WAIT and LOOP the second call only rewrites the volume, and for REPLAY it
+    cuts the first.
+  - Two variants of one WAIT sound can overlap.
+  - Volume is never updated after key-on (only when the sound is played again),
+    and there is no pan.
+  - 8 voices. A new sound is dropped when they're all busy, or when decoding it
+    would take the sound CPU past its budget (`DECODE_BUDGET`) and every voice
+    decoding is as loud or louder; otherwise the quietest decoding voice gives
+    way. Retail's 24 slots never decode anything.
+- **Effect:** two wolves, darts or gunmen collapse into one sound. Moving sources
+  (boulders, running creatures) don't fade or pan as they move.
+- **Fix:** port the slot table into `soundPlay` and `sound.cpp`.
+- **More voices, a possible lever (2026-11-11):** the 8-voice limit comes partly from the sound
+  CPU's decode budget. The sound chip's own DSP (in the SCSP, not the SCU DSP that does our scene
+  work) is unused in ours. It could take the PlayStation ADPCM decoding off the 68000: the same
+  sound, with the 68000 free for more voices. Celeriyacon's sound driver decodes ADPCM on it.
+  Unproven: the PlayStation format changes its filter every 28 samples and the DSP has no
+  branches; the DSP runs one fixed step per 44.1 kHz sample while our voices play at many pitches;
+  its work area takes sound RAM from the pre-decoded copies (16 KB at least, from memory, to check);
+  and whether its reads slow the 68000's. Using it for vertices (Jollyroger's 2026 demo) was ruled
+  out for us: every vertex would cross the slow bus to sound RAM and back.
 
 ### 314. The attract demos part from retail's: creatures steer for other points
 *Closed 2026-11-18: both attract demos match retail tick for tick to their ends on the host build: Lara and the logic random seed every tick (Vilcabamba 1,020 ticks, Lost Valley 921, against whole retail runs), and every recorded field of wolves 13, 14, 18 and the bear; eight logic fixes from retail, listed below.*
