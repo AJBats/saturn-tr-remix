@@ -15,6 +15,7 @@ import os
 import struct
 import subprocess
 import sys
+from collections import Counter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
@@ -44,24 +45,40 @@ def host_records(replay, ticks):
 
 
 def saturn_records(build, last):
+    """Each tick's record as Mednafen keeps it: the ring read every 30 vertical
+    blanks, so each tick is seen in several reads (a tick takes two or more,
+    the ring holds 64), read twice each time. A tick's record is one read the
+    same at least twice; reads now and then come back garbled (a read twice
+    over can differ), so a record seen once only is left out as unsure."""
     syms = symbols(os.path.join(build, '0MAIN.elf'))
     ring = symbol(syms, '_gReplayRing')
     m = Mednafen(os.path.join(build, 'disc', 'tomb.cue'), 'replaycheck')
-    recs, frame, idle = {}, 0, 0
+    seen, frame, idle, torn = {}, 0, 0, 0
     try:
-        while last not in recs and idle < 60:
-            frame += 40
+        while last not in seen and idle < 80:
+            frame += 30
             m.send(f'run_to_frame {frame}', 'done run_to_frame', 600)
             data = m.read(ring, REC.size * RING)
-            got = len(recs)
+            again = m.read(ring, REC.size * RING)
+            got = len(seen)
             for i in range(RING):
+                if data[i * REC.size:(i + 1) * REC.size] != again[i * REC.size:(i + 1) * REC.size]:
+                    torn += 1   # garbled one way or the other: neither counted
+                    continue
                 r = REC.unpack_from(data, i * REC.size)
                 if r[1]:    # a level: written (a replay starts in one)
-                    recs.setdefault(r[0], r[1:])
-            idle = idle + 1 if len(recs) == got else 0
+                    seen.setdefault(r[0], Counter())[r[1:]] += 1
+            idle = idle + 1 if len(seen) == got else 0
     finally:
         m.quit()
-    return recs, frame
+    recs, unsure = {}, 0
+    for t, c in seen.items():
+        rec, n = c.most_common(1)[0]
+        if n >= 2:
+            recs[t] = rec
+        else:
+            unsure += 1
+    return recs, frame, torn, unsure
 
 
 def main():
@@ -82,9 +99,10 @@ def main():
     if not host:
         sys.exit('host: no records')
     last = max(host)
-    saturn, frames = saturn_records(os.path.abspath(a.build), last)
+    saturn, frames, torn, unsure = saturn_records(os.path.abspath(a.build), last)
     seen = sorted(t for t in saturn if t in host)
     print(f'host {len(host)} ticks; Mednafen {len(saturn)} ticks seen in {frames} vertical blanks, {len(seen)} of them the host\'s')
+    print(f'reads of a record that differed read twice over: {torn}; ticks left out as unsure (no record read the same twice): {unsure}')
     missed = [t for t in range(last + 1) if t not in saturn]
     if missed:
         print(f'not seen on Mednafen: {len(missed)} ticks, first {missed[:10]}')
