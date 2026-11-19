@@ -3115,8 +3115,14 @@ struct Lara : ItemObj
 
                 if (arm->target->health > 0) {
                     arm->target->hit(params.damage, to.pos, 0);
-                } else if (arm->target->type != ITEM_MUMMY) {
-                    arm->target->fxBlood(to.pos, 0, 0);    // a corpse bleeds, and counts no kill (retail's HitTarget)
+                } else {
+                    // a corpse still takes the damage and bleeds, and counts
+                    // no kill (retail's HitTarget, 0601fff4)
+                    arm->target->health -= params.damage;
+                    arm->target->flags |= ITEM_FLAG_INJURED;
+                    if (arm->target->type != ITEM_MUMMY) {
+                        arm->target->fxBlood(to.pos, 0, 0);
+                    }
                 }
             } else {
                 to.pos += dir;
