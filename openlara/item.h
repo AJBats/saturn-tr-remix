@@ -1166,7 +1166,7 @@ ItemObj::ItemObj(Room* room)
     animIndex   = level.models[type].animIndex;
     frameIndex  = level.anims[animIndex].frameBegin;
     state       = uint8(level.anims[animIndex].state);
-    nextState   = state;
+    nextState   = 0;        // none, as retail's InitialiseItem (required_anim_state)
     goalState   = state;
     extra       = NULL;
     health      = NOT_ENEMY;
