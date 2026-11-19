@@ -1046,6 +1046,9 @@ vec3i ItemObj::getJoint(int32 jointIndex, const vec3i &offset) const
 
     ASSERT(jointIndex < model->count);
 
+    // an enemy's head and neck turns, as getSpheres (retail's GetJointAbsPosition)
+    const int16* extraAngles = (type != ITEM_LARA && extra) ? (const int16*)extra : NULL;
+
     for (int32 i = 0; i < jointIndex; i++)
     {
         if (node->flags & 1) matrixPop();
@@ -1053,7 +1056,12 @@ vec3i ItemObj::getJoint(int32 jointIndex, const vec3i &offset) const
 
         matrixFrame(&node->pos, ++frameAngles);
 
-        // TODO extra rotations
+        if (extraAngles)
+        {
+            if (node->flags & NODE_FLAG_ROTY) matrixRotateY(*extraAngles++);
+            if (node->flags & NODE_FLAG_ROTX) matrixRotateX(*extraAngles++);
+            if (node->flags & NODE_FLAG_ROTZ) matrixRotateZ(*extraAngles++);
+        }
 
         node++;
     }
@@ -1115,6 +1123,11 @@ int32 ItemObj::getSpheres(Sphere* spheres, bool flag) const
     }
     matrixPop();
     
+    // an enemy's head and neck turns on the nodes flagged for them, in their
+    // order, as its drawing takes them (retail's GetSpheres, from the
+    // creature block)
+    const int16* extraAngles = (type != ITEM_LARA && extra) ? (const int16*)extra : NULL;
+
     for (int32 i = 1; i < model->count; i++)
     {
         if (node->flags & 1) matrixPop();
@@ -1122,7 +1135,12 @@ int32 ItemObj::getSpheres(Sphere* spheres, bool flag) const
 
         matrixFrame(&node->pos, ++frameAngles);
 
-        // TODO extra rotations
+        if (extraAngles)
+        {
+            if (node->flags & NODE_FLAG_ROTY) matrixRotateY(*extraAngles++);
+            if (node->flags & NODE_FLAG_ROTX) matrixRotateX(*extraAngles++);
+            if (node->flags & NODE_FLAG_ROTZ) matrixRotateZ(*extraAngles++);
+        }
 
         matrixPush();
         {
@@ -1204,6 +1222,10 @@ ItemObj::ItemObj(Room* room)
     ASSERT(room);
 
     room->add(this);
+
+    // the floor under it, as retail's InitialiseItem takes item->floor: a
+    // creature's first step follows it
+    roomFloor = room->getSector(pos.x, pos.z)->getFloor(pos.x, pos.y, pos.z);
 }
 
 #ifdef __GNUC__
