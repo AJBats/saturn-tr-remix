@@ -271,6 +271,71 @@ static Spot spotAt(Room* from, int32 x, int32 y, int32 z)
     return sp;
 }
 
+// What stands in her way that the floor doesn't show: the rooms' static
+// meshes that collide (statues, columns, the mummy) and save crystals, as
+// boxes grown by her radius.
+struct Obstacle
+{
+    int32 minX, maxX, minY, maxY, minZ, maxZ;
+};
+static Obstacle gObstacles[1024];
+static int32 gObstaclesCount;
+
+static void obstaclesFind()
+{
+    gObstaclesCount = 0;
+    for (int32 r = 0; r < level.roomsCount; r++)
+    {
+        const Room &room = rooms[r];
+        for (int32 i = 0; i < room.info->meshesCount && gObstaclesCount < int32(X_COUNT(gObstacles)); i++)
+        {
+            const RoomMesh* mesh = room.data.meshes + i;
+            const StaticMesh* sm = level.staticMeshes + STATIC_MESH_ID(mesh->zf);
+            if (sm->flags & STATIC_MESH_FLAG_NO_COLLISION)
+                continue;
+            AABBi box(sm->cbox);
+            boxRotateYQ(box, STATIC_MESH_QUADRANT(mesh->zf));
+            int32 x = (room.info->x << 8) + (int32(mesh->xy) >> 16);
+            int32 y = int32(mesh->xy) << 16 >> 16;
+            int32 z = (room.info->z << 8) + (int32(mesh->zf) >> 16);
+            if (box.maxX - box.minX < 32 || box.maxZ - box.minZ < 32)
+                continue;
+            Obstacle &o = gObstacles[gObstaclesCount++];
+            o.minX = x + box.minX - LARA_RADIUS;
+            o.maxX = x + box.maxX + LARA_RADIUS;
+            o.minY = y + box.minY;
+            o.maxY = y + box.maxY;
+            o.minZ = z + box.minZ - LARA_RADIUS;
+            o.maxZ = z + box.maxZ + LARA_RADIUS;
+        }
+    }
+    for (int32 i = 0; i < level.itemsCount && gObstaclesCount < int32(X_COUNT(gObstacles)); i++)
+    {
+        const ItemObj* item = items + i;
+        if (item->type != ITEM_CRYSTAL || !item->room)
+            continue;
+        Obstacle &o = gObstacles[gObstaclesCount++];
+        o.minX = item->pos.x - 256 - LARA_RADIUS;
+        o.maxX = item->pos.x + 256 + LARA_RADIUS;
+        o.minY = item->pos.y - 1024;
+        o.maxY = item->pos.y;
+        o.minZ = item->pos.z - 256 - LARA_RADIUS;
+        o.maxZ = item->pos.z + 256 + LARA_RADIUS;
+    }
+}
+
+// In the way of her standing at x, z on that floor.
+static bool blocked(int32 x, int32 floor, int32 z)
+{
+    for (int32 i = 0; i < gObstaclesCount; i++)
+    {
+        const Obstacle &o = gObstacles[i];
+        if (x > o.minX && x < o.maxX && z > o.minZ && z < o.maxZ && o.maxY > floor - LARA_HEIGHT && o.minY < floor - 64)
+            return true;
+    }
+    return false;
+}
+
 struct Cell
 {
     int16 sx, sz;
@@ -486,7 +551,10 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                 }
                 if (m == MOVE_NONE || (m != MOVE_WALK && isBlocked(gCells[c], kDirX[d], kDirZ[d])))
                     continue;
-                int32 n = cellFind(gCells[c].sx + kDirX[d], gCells[c].sz + kDirZ[d], b.floor, true, b.room);
+                int32 nsx = gCells[c].sx + kDirX[d], nsz = gCells[c].sz + kDirZ[d];
+                if (blocked((nsx << 10) + 512, b.floor, (nsz << 10) + 512) && !(nsx == gsx && nsz == gsz))
+                    continue;
+                int32 n = cellFind(nsx, nsz, b.floor, true, b.room);
                 if (n < 0 || gCells[n].done)
                     continue;
                 int32 cost = gCells[c].cost + 1024;
@@ -511,7 +579,10 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                 Spot b;
                 if (!jumpBetween(gCells[c], kDirX[d], kDirZ[d], gap, b) || isBlocked(gCells[c], kDirX[d] * (gap + 1), kDirZ[d] * (gap + 1)))
                     continue;
-                int32 n = cellFind(gCells[c].sx + kDirX[d] * (gap + 1), gCells[c].sz + kDirZ[d] * (gap + 1), b.floor, true, b.room);
+                int32 jsx = gCells[c].sx + kDirX[d] * (gap + 1), jsz = gCells[c].sz + kDirZ[d] * (gap + 1);
+                if (blocked((jsx << 10) + 512, b.floor, (jsz << 10) + 512))
+                    continue;
+                int32 n = cellFind(jsx, jsz, b.floor, true, b.room);
                 if (n < 0 || gCells[n].done)
                     continue;
                 int32 cost = gCells[c].cost + 4096 + gap * 1024;
@@ -566,6 +637,8 @@ static bool clearWalk(int32 x, int32 z)
             int32 sx = l->pos.x + dx * t / len + px * side, sz = l->pos.z + dz * t / len + pz * side;
             Spot sp = spotAt(room, sx, floor - 256, sz);
             if (sp.floor == WALL || abs(sp.floor - floor) > 192 || sp.floor - sp.ceiling < LARA_HEIGHT)
+                return false;
+            if (side == 0 && blocked(sx, sp.floor, sz))
                 return false;
             room = sp.room;
             floor = sp.floor;
@@ -627,9 +700,9 @@ static bool climbAt(int16 heading, int32 x, int32 z, int32 floor)
 }
 
 // One way of jumping from a's sector over the gap: from `back` units short of
-// its edge, running (UP+A held from there) or standing, grabbing or not;
-// true once she stands on the far sector.
-static bool jumpTry(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor, int32 back, bool grab)
+// its edge, forward held `run` ticks before Jump is added (0: a standing
+// jump), grabbing or not; true once she stands on the far sector.
+static bool jumpTry(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor, int32 back, int32 run, bool grab)
 {
     int16 heading = int16(phd_atan(dz, dx));
     int32 ex = cellX(a) + dx * 440, ez = cellZ(a) + dz * 440;
@@ -637,8 +710,7 @@ static bool jumpTry(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor, i
     if (!goStraight(sx, sz, 48, true) || !settle() || !turnTo(heading, ANGLE(1)))
         return false;
     int32 tx = (a.sx + dx * (gap + 1)) << 10, tz = (a.sz + dz * (gap + 1)) << 10;
-    uint32 k = IK_UP | IK_A | (grab ? IK_B : 0);
-    for (int32 i = 0; i < 120; i++)
+    for (int32 i = 0; i < 160; i++)
     {
         const Lara* l = lara();
         bool there = (l->pos.x >> 10) == (tx >> 10) && (l->pos.z >> 10) == (tz >> 10) && abs(l->pos.y - floor) < 128;
@@ -646,7 +718,8 @@ static bool jumpTry(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor, i
             return true;
         if (l->health <= 0)
             return false;
-        // in the air: the keys stay; hanging: pull up; landed: let go to stand
+        uint32 k = (i < run) ? IK_UP : (IK_UP | IK_A | (grab ? IK_B : 0));
+        // hanging: pull up; landed: let go to stand
         if (l->state == Lara::STATE_HANG) {
             k = IK_UP | IK_B;
         } else if (there) {
@@ -659,26 +732,29 @@ static bool jumpTry(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor, i
 
 static bool jumpAcross(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor)
 {
-    static const int32 kBack[] = { 0, 160, 320, 480, 640, 800 };
+    static const int32 kBack[] = { 0, 200, 400, 600, 800, 1000, 1200 };
+    static const int32 kRun[] = { 0, 3, 6, 9, 12, 16 };
     static uint32 keys[BOT_TRIAL_TICKS];
     int32 bestScore = -1, bestTicks = 0;
-    for (int32 grab = 0; grab < 2; grab++)
+    for (int32 grab = 0; grab < 2 && bestScore < 0; grab++)
     {
         for (int32 v = 0; v < int32(X_COUNT(kBack)); v++)
         {
-            int32 back = kBack[v];
-            int32 ticks = 0;
-            int32 score = trial([&]() { return jumpTry(a, dx, dz, gap, floor, back, grab != 0) ? lara()->health : -1; },
-                                keys, &ticks);
-            if (score > bestScore)
+            for (int32 r = 0; r < int32(X_COUNT(kRun)); r++)
             {
-                bestScore = score;
-                bestTicks = ticks;
-                memcpy(gJumpBest, keys, ticks * sizeof(uint32));
+                int32 back = kBack[v], run = kRun[r];
+                int32 ticks = 0;
+                int32 score = trial([&]() { return jumpTry(a, dx, dz, gap, floor, back, run, grab != 0) ? lara()->health : -1; },
+                                    keys, &ticks);
+                // the most health, then the fewest ticks
+                if (score > bestScore || (score == bestScore && score >= 0 && ticks < bestTicks))
+                {
+                    bestScore = score;
+                    bestTicks = ticks;
+                    memcpy(gJumpBest, keys, ticks * sizeof(uint32));
+                }
             }
         }
-        if (bestScore >= 0)
-            break;      // a jump without grabbing is best: grabbing only if none lands
     }
     if (bestScore < 0)
         return false;
@@ -749,6 +825,7 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
         again = true;
         return false;
     }
+    obstaclesFind();
     int32 len = sectorPath(roomIndex, x, z, path, X_COUNT(path));
     if (!len) {
         fail("no way there");

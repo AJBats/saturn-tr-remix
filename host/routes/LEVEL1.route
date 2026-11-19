@@ -58,3 +58,6 @@ face 90
 wait 15
 goto 16 20992 59904
 goto 14 18944 55808
+# back up to the bridges, the running jump across the gap (past the save
+# crystal), the medipack behind the columns
+pickup 34
