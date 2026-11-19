@@ -2935,20 +2935,21 @@ struct Lara : ItemObj
         extraL->camera.targetAngle.x = ANGLE(-22);
     }
 
-    // The water current a FLOW trigger sets for the frame (TR1's
-    // LaraWaterCurrent): Lara drifts towards the sink, at its speed, along a path
-    // through the boxes as a swimming creature would take.
+    // The water current a FLOW trigger sets (TR1's LaraWaterCurrent): Lara
+    // drifts towards the sink, at its speed, along a path through the boxes as
+    // a swimming creature would take. The trigger's current waits until she
+    // swims: one crossed on land pulls her the tick she dives in, as retail's
+    // current_active, kept above water; a place with no box keeps it too.
     void updateFlow()
     {
         const FixedCamera* sink = extraL->flowSink;
-        extraL->flowSink = NULL;
-
         if (!sink)
             return;
 
         uint32 boxIndex = room->getSector(pos.x, pos.z)->boxIndex;
         if (boxIndex == NO_BOX)
             return;
+        extraL->flowSink = NULL;
 
         Nav &nav = extraL->nav;
         if (extraL->navSink != sink)
@@ -3945,10 +3946,6 @@ struct Lara : ItemObj
             } else {
                 oxygen = LARA_MAX_OXYGEN;
             }
-        }
-
-                if (waterState == WATER_STATE_ABOVE) {
-            extraL->flowSink = NULL; // currents pull in water and at the surface (retail's LaraSurface too)
         }
 
 
