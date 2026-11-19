@@ -67,10 +67,27 @@ struct Voice
     int32 sample;   // -1 when free
     uint8 gen;      // its play's, which DONE shows when it has played out
     uint8 tl;
+    uint8 pan;      // DIPAN
+    uint8 loop;
     uint32 load;    // the sound CPU's cycles a second decoding it (0: none)
 };
 
 static Voice gVoices[VOICES];
+
+// A play's handle: its voice and the voice's generation then, so a handle
+// whose voice has moved on to another sound is known stale
+static int32 handleOf(int32 v)
+{
+    return v | (int32(gVoices[v].gen) << 8);
+}
+
+static int32 voiceOf(int32 handle)
+{
+    if (handle < 0)
+        return -1;
+    int32 v = handle & 0xFF;
+    return (v < VOICES && gVoices[v].sample >= 0 && gVoices[v].gen == uint8(handle >> 8)) ? v : -1;
+}
 
 struct Command
 {
@@ -408,38 +425,51 @@ void sndFrame()
     }
 }
 
-void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
+// A voice's level and pan posted when either has changed
+static void voiceLevel(int32 v, uint32 tl, uint32 pan)
+{
+    if (gVoices[v].tl == tl && gVoices[v].pan == pan)
+        return;
+    Command c = {};
+    c.op = OP_LEVEL;
+    c.voice = uint8(v);
+    c.tl = uint8(tl);
+    c.pan = uint8(pan);
+    post(c);
+    gVoices[v].tl = uint8(tl);
+    gVoices[v].pan = uint8(pan);
+}
+
+int32 sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode, int32 pan)
 {
     if (index < 0 || index >= level.soundOffsetsCount)
-        return NULL;
+        return -1;
 
     uint32 entry = entryOf(index);
     uint32 size = uint32(level.soundOffsets[index * 2 + 1]);
     uint32 length = size & SOUND_LENGTH_MASK;
     if (!length)
-        return NULL;
+        return -1;
     uint32 format = (entry >> SOUND_FORMAT_SHIFT) & SOUND_FORMAT_MASK;
     bool decoded = format == SOUND_FORMAT_ADPCM;
     uint32 load = decoded ? (size >> SOUND_COST_SHIFT) * 2 * DECODE_RATE * uint32(X_MAX(pitch, 1)) / 128 : 0;
     uint32 tl = sampleTL(index, volume);
 
-    // already playing: its level updated, or restarted for REPLAY
-    int32 v = 0;
-    while (v < VOICES && gVoices[v].sample != index) {
-        v++;
-    }
-    if (v < VOICES && mode != REPLAY)
+    // a loop plays once, its level and pan set by the nearest source
+    // (item.h's soundLoopsEnd); any other sound takes a voice of its own,
+    // as the game's slots ask for it (item.h soundPlay)
+    int32 v = VOICES;
+    if (mode == LOOP)
     {
-        if (gVoices[v].tl != tl)
-        {
-            Command c = {};
-            c.op = OP_LEVEL;
-            c.voice = uint8(v);
-            c.tl = uint8(tl);
-            post(c);
-            gVoices[v].tl = uint8(tl);
+        v = 0;
+        while (v < VOICES && !(gVoices[v].sample == index && gVoices[v].loop)) {
+            v++;
         }
-        return gVoices + v;
+        if (v < VOICES)
+        {
+            voiceLevel(v, tl, uint32(pan));
+            return handleOf(v);
+        }
     }
 
     // past what the sound CPU can decode, the quietest voices decoding give
@@ -461,21 +491,18 @@ void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
                 }
             }
             if (quietest < 0 || gVoices[quietest].tl <= tl)
-                return NULL;
+                return -1;
             total -= gVoices[quietest].load;
             voiceStop(quietest);
         }
     }
 
-    if (v == VOICES)
-    {
-        v = 0;
-        while (v < VOICES && gVoices[v].sample >= 0) {
-            v++;
-        }
-        if (v == VOICES)
-            return NULL;
+    v = 0;
+    while (v < VOICES && gVoices[v].sample >= 0) {
+        v++;
     }
+    if (v == VOICES)
+        return -1;
 
     Voice &voice = gVoices[v];
     Command c = {};
@@ -487,15 +514,38 @@ void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
     c.length = decoded ? length : (format == SOUND_FORMAT_PCM8 ? length : length >> 1);
     c.pitch = pitchOctFns(gRates[(entry >> SOUND_RATE_SHIFT) & SOUND_RATE_MASK], pitch);
     c.tl = uint8(tl);
-    c.pan = 0;
+    c.pan = uint8(pan);
     if (!post(c))
-        return NULL;
+        return -1;
 
     voice.sample = index;
     voice.gen = c.gen;
     voice.tl = uint8(tl);
+    voice.pan = uint8(pan);
+    voice.loop = uint8(mode == LOOP);
     voice.load = load;
-    return &voice;
+    return handleOf(v);
+}
+
+void sndSetSample(int32 handle, int32 volume, int32 pan)
+{
+    int32 v = voiceOf(handle);
+    if (v >= 0) {
+        voiceLevel(v, sampleTL(gVoices[v].sample, volume), uint32(pan));
+    }
+}
+
+bool sndSamplePlaying(int32 handle)
+{
+    return voiceOf(handle) >= 0;
+}
+
+void sndStopHandle(int32 handle)
+{
+    int32 v = voiceOf(handle);
+    if (v >= 0) {
+        voiceStop(v);
+    }
 }
 
 // OpenLara's track numbers are the original disc's (the Caves play 5 and the

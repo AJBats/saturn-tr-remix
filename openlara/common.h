@@ -3217,10 +3217,12 @@ void floorShake(const ItemObj* item);
 // under it, SND_ANY anywhere (retail's Sound_Effect flags 0, 1, 2); a sound
 // without a place plays anywhere
 enum { SND_DRY = 0, SND_WET = 1, SND_ANY = 2 };
-void* soundPlay(int16 id, const vec3i* pos, int32 where = SND_DRY);
+void soundPlay(int16 id, const vec3i* pos, int32 where = SND_DRY);
 void soundStop(int16 id);
 void soundLoopsEnd();
 void soundLoopsStop();
+void soundSlotsUpdate();    // a frame's: the slots' levels and pans follow their places
+void soundSlotsClear();     // a new level's: every slot forgotten
 
 // TR1's box flags: a door or a block can stand in a blockable box, and blocks
 // it for enemies' paths while it does
@@ -3251,7 +3253,14 @@ void sndInit();
 void sndInitSamples();
 void sndFreeSamples();
 void sndFill(int8* buffer);
-void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode);
+// A sample played (volume 1..64, pitch 128 its own rate, pan as the SCSP's
+// DIPAN: bits 3-0 the far side's attenuation, bit 4 set for the left): its
+// handle while it plays, -1 if it doesn't. A loop plays once, set again by
+// each call; any other sound takes a voice of its own.
+int32 sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode, int32 pan);
+void sndSetSample(int32 handle, int32 volume, int32 pan);
+bool sndSamplePlaying(int32 handle);
+void sndStopHandle(int32 handle);
 void sndPlayTrack(int32 track);
 bool sndTrackIsPlaying();
 void sndStopTrack();

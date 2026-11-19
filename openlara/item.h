@@ -34,24 +34,128 @@ struct Loop
     int16 index;    // the sample, chosen when it started
     int16 pitch;
     int16 volume;   // the loudest this update, 0 if unplayed
+    int16 pan;      // the loudest's
 };
 
 static Loop gLoops[MAX_LOOPS];
 static int32 gLoopsCount;
 
-void soundLoop(int16 id, int32 index, int32 volume, int32 pitch);
+void soundLoop(int16 id, int32 index, int32 volume, int32 pitch, int32 pan);
+
+// Retail's sound slots (Sound_GetSlot 06023af4, the slot loop 06023c7c): a
+// sound that isn't a loop holds one, known by its id and the place it
+// plays from, the same place pointer as long as it plays. WAIT plays
+// nothing while its slot's sound plays on; RESTART starts it over; each
+// frame a placed one's level and pan follow its place (UpdateSlotParams
+// 06023da0). Retail has 24, the first 8 its loops' (gLoops here).
+#define MAX_SOUND_SLOTS 16
+
+struct SoundSlot
+{
+    const vec3i* pos;   // NULL: plays from nowhere
+    int32 handle;       // sndPlaySample's, -1 when free
+    int16 id;
+};
+
+static SoundSlot gSlots[MAX_SOUND_SLOTS];
+
+// A sound's level at its place, by retail's distance falloff from the
+// camera's target; 0 out of hearing
+static int32 soundVolume(const SoundInfo* b, const vec3i* pos)
+{
+    int32 volume = b->volume;
+    if (pos)
+    {
+        vec3i d = *pos - playersExtra[0].camera.target.pos;
+        if (abs(d.x) >= SND_MAX_DIST || abs(d.y) >= SND_MAX_DIST || abs(d.z) >= SND_MAX_DIST)
+            return 0;
+        volume -= (phd_sqrt(dot(d, d)) << 2);
+    }
+    return volume;
+}
+
+// A level as the driver takes it, 1..64; 0 below hearing (retail's lowest
+// level for any above none, its 06046d60)
+static int32 soundLevel(int32 volume)
+{
+    if (volume <= 0)
+        return 0;
+    return (X_MIN(volume, 0x7FFF) >> 9) + 1;
+}
+
+// The pan as TRX's (sound/common.c M_GetPan, issue 179): the place's turn
+// from the camera's heading, heard from a point the focal length in front
+// of the camera, its sine taken through TRX's curve (the far side down
+// 10 dB at the most, at 90 degrees) to the SCSP's pan steps; none with no
+// place or the sound's no-pan flag.
+static int32 soundPan(const SoundInfo* b, const vec3i* pos)
+{
+    if (!pos || SI_CAMERA(b->flags))
+        return 0;
+
+    const Camera &camera = playersExtra[0].camera;
+    const vec3i &eye = camera.view.pos;
+    int16 heading = int16(phd_atan(camera.target.pos.z - eye.z, camera.target.pos.x - eye.x));
+    int32 s, c;
+    sincos(heading, s, c);
+    int32 dx = pos->x - (eye.x + (s * 210 >> FIXED_SHIFT));
+    int32 dz = pos->z - (eye.z + (c * 210 >> FIXED_SHIFT));
+    if (!dx && !dz)
+        return 0;
+
+    int16 turn = int16(phd_atan(dz, dx) - heading);
+    sincos(turn, s, c);
+
+    // the steps nearest TRX's attenuation (1 - |sin| / 2) ^ (5/3): 0, 2.5,
+    // 6 and 8.5 dB; bit 4 attenuates the right, for a place on the left
+    int32 u = abs(s);
+    int32 step = (u < 2703) ? 0 : (u < 8323) ? 1 : (u < 12910) ? 2 : 3;
+    return step | ((s < 0) ? 0x10 : 0);
+}
+
+void soundSlotsClear()
+{
+    for (int32 i = 0; i < MAX_SOUND_SLOTS; i++) {
+        gSlots[i].handle = -1;
+    }
+}
+
+void soundSlotsUpdate()
+{
+    for (int32 i = 0; i < MAX_SOUND_SLOTS; i++)
+    {
+        SoundSlot &slot = gSlots[i];
+        if (slot.handle < 0)
+            continue;
+
+        if (!sndSamplePlaying(slot.handle))
+        {
+            slot.handle = -1;
+            continue;
+        }
+
+        if (!slot.pos)
+            continue;
+
+        const SoundInfo* b = level.soundsInfo + level.soundMap[slot.id];
+        int32 volume = soundLevel(soundVolume(b, slot.pos));
+        if (!volume)
+        {
+            sndStopHandle(slot.handle);
+            slot.handle = -1;
+            continue;
+        }
+        sndSetSample(slot.handle, volume, soundPan(b, slot.pos));
+    }
+}
 
 // Retail's Sound_Effect (060236e0): a sound for the camera's side of the
 // water only, unless it plays anywhere; that's the whole of its underwater
 // sound (there's no muffling).
-void* soundPlay(int16 id, const vec3i* pos, int32 where)
+void soundPlay(int16 id, const vec3i* pos, int32 where)
 {
-#if defined(__32X__) || defined(__WIN32__) // TODO
-    return NULL;
-#endif
-
     if (id < 0)
-        return NULL;
+        return;
 
     // (a cutscene's camera is its own: there the side isn't asked)
     if (pos && where != SND_ANY && gLevelID != LVL_TR1_CUT_1 && gLevelID != LVL_TR1_CUT_2 &&
@@ -59,7 +163,7 @@ void* soundPlay(int16 id, const vec3i* pos, int32 where)
     {
         const Room* cam = playersExtra[0].camera.view.room;
         if (cam && (where & 1) != ROOM_FLAG_WATER(cam->info->flags))
-            return NULL;
+            return;
     }
 
     // TODO gym
@@ -69,24 +173,20 @@ void* soundPlay(int16 id, const vec3i* pos, int32 where)
     int16 a = level.soundMap[id];
 
     if (a == -1)
-        return NULL;
+        return;
 
     const SoundInfo* b = level.soundsInfo + a;
 
     if (b->chance && b->chance < rand_draw())
-        return NULL;
-
-    int32 volume = b->volume;
+        return;
 
     if (pos)
     {
-        vec3i d = *pos - playersExtra[0].camera.target.pos; // TODO find nearest camera for coop
-
+        vec3i d = *pos - playersExtra[0].camera.target.pos;
         if (abs(d.x) >= SND_MAX_DIST || abs(d.y) >= SND_MAX_DIST || abs(d.z) >= SND_MAX_DIST)
-            return NULL;
-
-        volume -= (phd_sqrt(dot(d, d)) << 2);
+            return;
     }
+    int32 volume = soundVolume(b, pos);
 
     if (SI_GAIN(b->flags)) {
         volume -= rand_draw() >> 2;
@@ -100,12 +200,9 @@ void* soundPlay(int16 id, const vec3i* pos, int32 where)
         volume >>= 1;
     }
 
-    // any level above none plays, the quietest at retail's lowest level
-    // (its 06046d60): 1..64, 64 full
-    if (volume <= 0)
-        return NULL;
-
-    volume = (X_MIN(volume, 0x7FFF) >> 9) + 1;
+    volume = soundLevel(volume);
+    if (!volume)
+        return;
 
     // retail's pitch wobble moves the frequency by a few raw FNS units, far
     // too little to hear (its driver adds (pitch - 100) >> 1): the draw is
@@ -121,21 +218,48 @@ void* soundPlay(int16 id, const vec3i* pos, int32 where)
         index += (rand_draw() * SI_COUNT(b->flags)) >> 15;
     }
 
-    if (SI_MODE(b->flags) == LOOP)
+    int32 pan = soundPan(b, pos);
+    int32 mode = SI_MODE(b->flags);
+
+    if (mode == LOOP)
     {
-        soundLoop(id, index, volume, pitch);
-        return NULL;
+        soundLoop(id, index, volume, pitch, pan);
+        return;
     }
 
-    return sndPlaySample(index, volume, pitch, SI_MODE(b->flags));
+    if (mode > LOOP)    // retail's mode 3 never plays
+        return;
+
+    SoundSlot* slot = NULL;
+    SoundSlot* spare = NULL;
+    for (int32 i = 0; i < MAX_SOUND_SLOTS; i++)
+    {
+        if (gSlots[i].handle < 0) {
+            spare = gSlots + i;
+        } else if (gSlots[i].id == id && gSlots[i].pos == pos) {
+            slot = gSlots + i;
+            break;
+        }
+    }
+
+    if (slot)
+    {
+        if (mode == UNIQUE)
+            return;
+        sndStopHandle(slot->handle);
+    } else {
+        slot = spare;
+        if (!slot)
+            return;
+    }
+
+    slot->handle = sndPlaySample(index, volume, pitch, mode, pan);
+    slot->id = id;
+    slot->pos = pos;
 }
 
 void soundStop(int16 id)
 {
-#if defined(__32X__) || defined(__WIN32__) // TODO
-    return;
-#endif
-
     int16 a = level.soundMap[id];
 
     if (a == -1)
@@ -159,7 +283,7 @@ void soundStop(int16 id)
 
 // The looped sounds played this update, started or set to their level at its
 // end (soundLoopsEnd).
-void soundLoop(int16 id, int32 index, int32 volume, int32 pitch)
+void soundLoop(int16 id, int32 index, int32 volume, int32 pitch, int32 pan)
 {
     int32 i = 0;
     while (i < gLoopsCount && gLoops[i].id != id) {
@@ -177,9 +301,10 @@ void soundLoop(int16 id, int32 index, int32 volume, int32 pitch)
         gLoops[i].volume = 0;
     }
 
-    // the nearest source sets the level
+    // the nearest source sets the level and the pan
     if (gLoops[i].volume < volume) {
         gLoops[i].volume = int16(volume);
+        gLoops[i].pan = int16(pan);
     }
 }
 
@@ -196,7 +321,7 @@ void soundLoopsEnd()
         Loop &loop = gLoops[i];
         if (loop.volume)
         {
-            sndPlaySample(loop.index, loop.volume, loop.pitch, LOOP);
+            sndPlaySample(loop.index, loop.volume, loop.pitch, LOOP, loop.pan);
             loop.volume = 0;
             i++;
         } else {

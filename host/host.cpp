@@ -178,12 +178,65 @@ static int32 gHostTick;
 
 void sndInitSamples() {}
 void sndFreeSamples() {}
-void* sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode)
+// voices as the Saturn's: a play lasts its sample's length (a loop till
+// stopped), its handle stale once it ends
+static struct { int32 sample, ends, gen; bool loop; } gHostVoices[8];
+
+int32 sndPlaySample(int32 index, int32 volume, int32 pitch, int32 mode, int32 pan)
 {
     if (getenv("SOUNDS")) {
-        printf("tick %4d: sample %3d level %2d pitch %3d mode %d\n", gHostTick, index, volume, pitch, mode);
+        printf("tick %4d: sample %3d level %2d pitch %3d mode %d pan %02x\n", gHostTick, index, volume, pitch, mode, pan);
     }
-    return NULL;
+    if (index < 0 || index >= level.soundOffsetsCount)
+        return -1;
+    for (int32 v = 0; v < 8; v++)
+    {
+        if (mode == LOOP && gHostVoices[v].loop && gHostVoices[v].sample == index && gHostVoices[v].ends > gHostTick)
+            return v | (gHostVoices[v].gen << 8);
+    }
+    for (int32 v = 0; v < 8; v++)
+    {
+        if (gHostVoices[v].ends <= gHostTick)
+        {
+            uint32 bytes = uint32(level.soundOffsets[index * 2 + 1]) & 0x00FFFFFF;     // SOUND_LENGTH_MASK (saturn/sound.h)
+            gHostVoices[v].sample = index;
+            gHostVoices[v].loop = (mode == LOOP);
+            gHostVoices[v].ends = (mode == LOOP) ? 0x7FFFFFFF : gHostTick + 1 + int32(bytes * 28 / 16 / 368);    // ADPCM at 11025 Hz
+            gHostVoices[v].gen = (gHostVoices[v].gen + 1) & 0xFF;
+            return v | (gHostVoices[v].gen << 8);
+        }
+    }
+    return -1;
+}
+
+static int32 hostVoice(int32 handle)
+{
+    int32 v = handle & 0xFF;
+    return (handle >= 0 && v < 8 && gHostVoices[v].ends > gHostTick && gHostVoices[v].gen == (handle >> 8)) ? v : -1;
+}
+
+void sndSetSample(int32 handle, int32 volume, int32 pan)
+{
+    int32 v = hostVoice(handle);
+    if (v >= 0 && getenv("SOUNDS")) {
+        printf("tick %4d: sample %3d set level %2d pan %02x\n", gHostTick, gHostVoices[v].sample, volume, pan);
+    }
+}
+
+bool sndSamplePlaying(int32 handle)
+{
+    return hostVoice(handle) >= 0;
+}
+
+void sndStopHandle(int32 handle)
+{
+    int32 v = hostVoice(handle);
+    if (v >= 0) {
+        if (getenv("SOUNDS")) {
+            printf("tick %4d: sample %3d stopped\n", gHostTick, gHostVoices[v].sample);
+        }
+        gHostVoices[v].ends = 0;
+    }
 }
 void sndPlayTrack(int32 track) {}
 bool sndTrackIsPlaying() { return true; }
@@ -193,9 +246,23 @@ void sndStopSample(int32 index)
     if (getenv("SOUNDS")) {
         printf("tick %4d: sample %3d stopped\n", gHostTick, index);
     }
+    for (int32 v = 0; v < 8; v++)
+    {
+        if (gHostVoices[v].sample == index) {
+            gHostVoices[v].ends = 0;
+        }
+    }
 }
-void sndStop() {}
-void sndPause() {}
+void sndStop()
+{
+    for (int32 v = 0; v < 8; v++) {
+        gHostVoices[v].ends = 0;
+    }
+}
+void sndPause()
+{
+    sndStop();
+}
 void sndResume() {}
 bool sndWaitTrack() { return true; }
 

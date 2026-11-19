@@ -341,6 +341,7 @@ void gameLoadLevel(const void* data)
 
     setEffect(FX_NONE, NULL);
     soundLoopsStop();
+    soundSlotsClear();
 
     // a level she plays starts from what she reached it with (her
     // constructor takes her guns from it, the ring is filled from it below)
@@ -532,6 +533,7 @@ void gameUpdateItems(int32 frames)
     gSaveGame.time += frames;   // the level's time taken (retail's ControlPhase counts each tick)
     updateLevel(frames);
     soundLoopsEnd();
+    soundSlotsUpdate();
 }
 
 // What the menus read the pad through: Lara, or with none (a cutscene's end)
