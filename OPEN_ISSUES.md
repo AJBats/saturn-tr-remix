@@ -264,14 +264,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Inventory, HUD, saves and game flow
 
-### 314. The attract demos part from retail's: creatures steer for other points
-*Severity: visible · Confidence: confirmed (recorded) · Fix: medium*
-
-- **Found 2026-11-18** playing Vilcabamba's demo (162) on the host logic build (`DEMO=1`) against retail recorded in Mednafen from boot (scratchpad `retaildemo.py`, `demoitems.py`): Lara's path matches retail's to the unit for 306 ticks. At tick 306 retail's wolf 13 reaches her and its collision pushes her 12 units (ItemPushLara `0600edf8`, from CreatureCollision); ours is still 1,400 away, and from there she leaves the route (off by 970 at tick 600; retail goes on into room 15, ours stays in room 13).
-- **Why wolf 13 is elsewhere:** its heading parts from retail's at word 264: turning left at the most a tick, retail stops at yaw 828 (its target a few degrees right of straight on), ours turns on to 0. Wolf 14 parts at word 282 the same way (1053 against 1126), wolf 18 at 298 (retail turns 737 over two ticks, ours 1,820). The turn rule matches retail's CreatureTurn (`0600be48`), so the points they steer for differ: retail's creature target against our `Nav::getWaypoint` and its box search, or the mood that picks the target (CreatureMood `0600a0fc`).
-- **Also seen:** wolf 21's last hit leaves retail's at -1 health and ours at 0 (both pistols' shots in one tick, or our clamp); a ground creature's height lagged retail's by a tick on steps (fixed 65407ea).
-- **Next:** dump retail's creature block (target, LOT boxes) for wolf 13 at words 256-264 and step our nav against it.
-
 ## Audio
 
 ### 179. No stereo pan
@@ -1027,6 +1019,23 @@ word. Of the same kind and already open: 264, 265, 266.
 None open. Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each): 88 keep the torso's no-turn walk; 99 fix the gorilla's sidestep as TRX; 11 keep the combat camera's stale distance; 139 the Saturn's 150 hits; 179 pan smoothly as TRX; 183 neither the loop restart nor the octave-down loops; 253 keep the shimmers.
 
 ## Closed
+
+### 314. The attract demos part from retail's: creatures steer for other points
+*Closed 2026-11-18: both attract demos match retail tick for tick to their ends on the host build: Lara and the logic random seed every tick (Vilcabamba 1,020 ticks, Lost Valley 921, against whole retail runs), and every recorded field of wolves 13, 14, 18 and the bear; eight logic fixes from retail, listed below.*
+
+*Severity: visible · Confidence: confirmed (recorded) · Fix: medium*
+
+- **Found 2026-11-18** playing Vilcabamba's demo (162) on the host logic build (`DEMO=1`) against retail recorded in Mednafen from boot: Lara matched retail for 306 ticks, then a wolf that should have bumped her was 1,400 away and she left the route.
+- **How it was run down:** retail stopped at every ProcessDemoInput (`06011f48`, once a tick) in Mednafen, Lara, the logic RNG's seed (`06060d34`) and each watched creature's item and creature block read before the tick (scratchpad `retailcreature.py`; the block: +0 head, +2 neck, +4 max turn, +0xc mood, LOT from +0x10: +0x24 target box, +0x26 required box, +0x28 its target point; +0x34 the creature's target), against the host's `TINFO=ITEM` (nav state, waypoint, seed each tick) and `RNG=1` (each logic random number's caller, addr2line), compared field by field (`navdiff.py`); a field's writer found with Mednafen watchpoints (`retailwrites.py`).
+- **What differed, each fixed from retail:**
+  - Boxes' far sides are the last unit inside in retail: TargetBox's point and the stalk and escape tests' box middle a unit off (the middle put a box out of stalking range a tick early, and every random number after parted) - 4b76b78.
+  - The random box is count x random / 0x7FFF on the Saturn (a multiply-divide in CreatureMood), not >> 15 - 4b76b78.
+  - A creature's fall and a gunman's drop are picked in its own control the tick after the hit, as retail's (the wolf's random number moved a tick) - 4b76b78.
+  - Lara's jump from the crouch sets its direction in the crouch (LaraAsCompress): a back jump's first tick went forward - 9823b3c.
+  - Items start with no next state (InitialiseItem): the bear stood a tick longer on waking - 3976baf.
+  - Shots at a corpse still take its health (HitTarget) - a2d06bc.
+  - A water current crossed on land waits until Lara swims (current_active): Lost Valley's dive - 5d6942d.
+  - Spheres and joints turn with a creature's head and neck (GetSpheres, GetJointAbsPosition), and an item's floor is set as it's created (item->floor) - 19c82ab.
 
 ### 139. The Gym ending waits 90 trigger hits; retail waits 150
 *Closed 2026-11-18: the Saturn's 150 trigger hits (5 s), counted from 0 each visit as TRX's (retail never resets its count, so a second visit would end at once); the user's call.*
