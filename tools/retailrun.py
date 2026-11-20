@@ -126,11 +126,12 @@ def split_inventory(keys, host):
     return kept, script
 
 
-def assemble():
+def assemble(name='retailrun'):
     src = os.path.join(HERE, 'retailpad.s')
-    os.makedirs(os.path.join(ROOT, 'build/retailpad'), exist_ok=True)
-    obj = os.path.join(ROOT, 'build/retailpad/retailpad.o')
-    out = os.path.join(ROOT, 'build/retailpad/retailpad.bin')
+    folder = os.path.join(ROOT, 'build/retailpad', name)     # a run beside another assembles its own
+    os.makedirs(folder, exist_ok=True)
+    obj = os.path.join(folder, 'retailpad.o')
+    out = os.path.join(folder, 'retailpad.bin')
     subprocess.run([BIN + 'sh2eb-elf-as', '-o', obj, src], check=True)
     subprocess.run([BIN + 'sh2eb-elf-objcopy', '-O', 'binary', obj, out], check=True)
     syms = subprocess.run([BIN + 'sh2eb-elf-nm', obj], capture_output=True, text=True, check=True).stdout
@@ -177,6 +178,7 @@ def main():
     ap.add_argument('--ticks', type=int, default=0)
     ap.add_argument('--items', type=int, default=0, help='at the end, this many items printed (raw)')
     ap.add_argument('--watch', type=int, default=0, help="this item in the ring instead of Lara's (no comparison)")
+    ap.add_argument('--name', default='retailrun', help='its Mednafen (build/NAME_home): another name runs beside it')
     args = ap.parse_args()
     level, keys = read_replay(args.replay)
     if args.ticks:
@@ -188,8 +190,8 @@ def main():
     kept, script = split_inventory(keys, host)
     if len(kept) > MAX_TICKS or len(script) > MAX_SCRIPT:
         sys.exit('too many ticks or inventory frames for the tables')
-    code, vars_off = assemble()
-    m = Mednafen(CUE, 'retailrun')
+    code, vars_off = assemble(args.name)
+    m = Mednafen(CUE, args.name)
     recs = {}
     try:
         m.send('deterministic', 'deterministic', 10)

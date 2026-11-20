@@ -656,6 +656,55 @@ static bool waterAt(Room* from, int32 x, int32 y, int32 z, WaterCol &w)
     return w.bottom - w.top >= 400;
 }
 
+// The argument of that action in the trigger on the floor there; -1 if it
+// has none.
+static int32 triggerArg(Room* from, int32 x, int32 y, int32 z, int32 what)
+{
+    Room* room = from->getRoom(x, y, z);
+    room->getSector(x, z)->getFloor(x, y, z);
+    const FloorData* fd = gLastFloorData;
+    if (!fd)
+        return -1;
+    if (FD_FLOOR_TYPE(*fd) == FLOOR_TYPE_LAVA)
+    {
+        if (FD_END(*fd))
+            return -1;
+        fd++;
+    }
+    uint16 cmd = *fd++;
+    fd++;   // timer and mask
+    if (FD_TRIGGER_TYPE(cmd) == TRIGGER_TYPE_SWITCH || FD_TRIGGER_TYPE(cmd) == TRIGGER_TYPE_KEY ||
+        FD_TRIGGER_TYPE(cmd) == TRIGGER_TYPE_PICKUP) {
+        fd++;
+    }
+    for (int32 i = 0; i < 16; i++)
+    {
+        uint16 action = *fd++;
+        if (FD_ACTION(action) == what)
+            return FD_ARGS(action);
+        if (FD_ACTION(action) == TRIGGER_ACTION_ACTIVATE_CAMERA) {
+            action = *fd++;     // the camera's own word ends the list if any does
+        }
+        if (FD_END(action))
+            break;
+    }
+    return -1;
+}
+
+// A current not with her way into the water at x, z (heading dx, dz): a
+// flow trigger on its floor carries her to its sink (a stream over its
+// falls), so she swims only the way it goes (within 60 degrees of its sink),
+// never across or against it.
+static bool againstFlow(Room* from, int32 x, int32 y, int32 z, int32 dx, int32 dz)
+{
+    int32 sink = triggerArg(from, x, y, z, TRIGGER_ACTION_FLOW);
+    if (sink < 0 || getenv("BOT_NOFLOW"))
+        return false;
+    const FixedCamera &cam = level.cameras[sink];
+    double vx = cam.pos.x - x, vz = cam.pos.z - z;
+    return vx * dx + vz * dz <= 0.5 * sqrt(vx * vx + vz * vz);
+}
+
 // moves that failed when tried, left out of the next plan
 struct Blocked
 {
@@ -804,7 +853,7 @@ static bool waterMoves(int32 c, int32 gsx, int32 gsz)
             }
             if (!wet || !w.air)
                 continue;
-            if (w.top < a.floor - 64 || w.top > a.floor + 4096)
+            if (w.top < a.floor - 64 || w.top > a.floor + 4096 || againstFlow(w.room, nx, w.bottom - 64, nz, dx, dz))
                 continue;
             int32 n = cellFind(nsx, nsz, w.bottom, true, w.room, true);
             if (n >= 0) {
@@ -826,7 +875,7 @@ static bool waterMoves(int32 c, int32 gsx, int32 gsz)
                 continue;
             int32 lo = X_MAX(w.top, a.top), hi = X_MIN(w.bottom, a.floor);
             y = X_MAX(y, w.bottom - 256);   // on below this stretch
-            if (hi - lo < 300)     // room to swim through: a sloping tunnel overlaps by less than its height
+            if (hi - lo < 300 || againstFlow(w.room, nx, w.bottom - 64, nz, dx, dz))     // room to swim through: a sloping tunnel overlaps by less than its height
                 continue;
             int32 n = cellFind(nsx, nsz, w.bottom, true, w.room, true);
             if (n >= 0) {
@@ -2897,6 +2946,68 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
                            gCells[i].move);
                 }
             }
+        } else if (!strcmp(cmd, "spot") && n >= 5) {
+            // spot ROOM X Y Z: debugging, the floor and ceiling there as the planner reads them
+            Spot sp = spotAt(rooms + atoi(a), atoi(b), atoi(c), atoi(d));
+            printf("    spot %d %d %d: room %d floor %d ceiling %d\n", atoi(b), atoi(c), atoi(d), int32(sp.room - rooms), sp.floor, sp.ceiling);
+        } else if (!strcmp(cmd, "triggers") && n >= 2) {
+            // triggers ACTION: debugging, each sector whose trigger has that action (7: the level's end)
+            for (int32 r = 0; r < level.roomsCount; r++)
+            {
+                const RoomInfo* ri = rooms[r].info;
+                for (int32 sx = 1; sx < ri->xSectors - 1; sx++)
+                {
+                    for (int32 sz = 1; sz < ri->zSectors - 1; sz++)
+                    {
+                        int32 x = (ri->x << 8) + (sx << 10) + 512, z = (ri->z << 8) + (sz << 10) + 512;
+                        const Sector* sector = rooms[r].getSector(x, z);
+                        if (sector->floor == NO_FLOOR)
+                            continue;
+                        int32 y = (sector->floor << 8) - 64;
+                        int32 arg = triggerArg(rooms + r, x, y, z, atoi(a));
+                        if (arg >= 0)
+                            printf("    trigger %d: room %d at %d %d %d (sector %d,%d) arg %d (camera at %d %d %d, room %d)\n", atoi(a), r, x,
+                                   y + 64, z, sx, sz, arg, level.cameras[arg].pos.x, level.cameras[arg].pos.y, level.cameras[arg].pos.z,
+                                   level.cameras[arg].roomIndex);
+                    }
+                }
+            }
+        } else if (!strcmp(cmd, "floors") && n >= 5) {
+            // floors X0 Z0 X1 Z1: debugging, each sector's floors from the top
+            // down (every room stacked there), ceilings after the slash
+            for (int32 sz = atoi(d) >> 10; sz >= (atoi(b) >> 10); sz--)
+            {
+                printf("    z %6d:", sz << 10);
+                for (int32 sx = atoi(a) >> 10; sx <= (atoi(c) >> 10); sx++)
+                {
+                    int32 x = (sx << 10) + 512, z = (sz << 10) + 512, last = WALL;
+                    char cellText[64] = "";
+                    int32 len = 0;
+                    for (int32 y = -12288; y <= 12288 && len < 48; y += 128)
+                    {
+                        for (int32 r = 0; r < level.roomsCount; r++)
+                        {
+                            const RoomInfo* ri = rooms[r].info;
+                            if (x < (ri->x << 8) + 1024 || z < (ri->z << 8) + 1024 || x >= (ri->x << 8) + (ri->xSectors << 10) - 1024 ||
+                                z >= (ri->z << 8) + (ri->zSectors << 10) - 1024 || y < ri->yTop || y > ri->yBottom)
+                                continue;
+                            Spot sp = spotAt(rooms + r, x, y, z);
+                            if (sp.floor != WALL && sp.floor != last && sp.floor >= y && sp.floor - y < 128) {
+                                len += snprintf(cellText + len, sizeof(cellText) - len, "%s%d", last == WALL ? "" : ",", sp.floor);
+                                last = sp.floor;
+                            }
+                            break;
+                        }
+                    }
+                    printf(" %13s", cellText[0] ? cellText : "-");
+                }
+                printf("\n");
+            }
+            printf("    x       :");
+            for (int32 sx = atoi(a) >> 10; sx <= (atoi(c) >> 10); sx++) {
+                printf(" %13d", sx << 10);
+            }
+            printf("\n");
         } else if (!strcmp(cmd, "statics") && n >= 3) {
             // statics X Z: debugging, every static mesh within two sectors, its box as Lara meets it
             for (int32 r = 0; r < level.roomsCount; r++)
