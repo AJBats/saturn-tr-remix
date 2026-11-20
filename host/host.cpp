@@ -815,6 +815,12 @@ int main(int argc, char** argv)
 
         if (tick % (getenv("EVERY") ? atoi(getenv("EVERY")) : 30) == 0 || tick == ticks - 1) {
             printLara(tick);
+            if (getenv("CINFO")) {    // CINFO=1: her last collision as the logic left it
+                printf("     cinfo: type %d offset %d %d %d pos %d %d %d quadrant %d angle %d radius %d static %d front %d/%d left %d/%d right %d/%d mid %d/%d\n",
+                       cinfo.type, cinfo.offset.x, cinfo.offset.y, cinfo.offset.z, cinfo.pos.x, cinfo.pos.y, cinfo.pos.z, cinfo.quadrant,
+                       uint16(cinfo.angle), cinfo.radius, cinfo.staticHit, cinfo.f.floor, cinfo.f.ceiling, cinfo.l.floor, cinfo.l.ceiling,
+                       cinfo.r.floor, cinfo.r.ceiling, cinfo.m.floor, cinfo.m.ceiling);
+            }
             for (const char* w = getenv("WATCH"); w && *w; w = strchr(w, ',') ? strchr(w, ',') + 1 : "")
             {
                 const ItemObj* item = items + atoi(w);    // WATCH=ITEM,ITEM...: those too

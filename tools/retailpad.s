@@ -21,6 +21,7 @@
 !        that tick) till the driver changes it
 !   +20  script address (long): halfwords, one an inventory frame
 !   +24  script position (long)
+!   +28  the item recorded in the ring (long): its address, 0 for Lara
 ! A ring entry: index (long), seed (long), level (long), 0 (long), Lara's item (72 bytes), pad (8)
 ! Only r0-r7 are used: the caller keeps the rest.
 
@@ -114,8 +115,12 @@ entry:
     mov.l   r0,@(8,r5)
     mov     #0,r0
     mov.l   r0,@(12,r5)
+    mov.l   @(28,r1),r6     ! the item watched, if any
+    tst     r6,r6
+    bf      have
     mov.l   lara,r0
     mov.l   @r0,r6          ! Lara's item
+have:
     mov     r5,r7
     add     #16,r7
     mov     #18,r2
@@ -157,4 +162,4 @@ through: .long 0x20000000
 mask:   .word 511
     .align 2
     .global vars
-vars:   .long 0, 0, 0, 0, -1, 0, 0
+vars:   .long 0, 0, 0, 0, -1, 0, 0, 0

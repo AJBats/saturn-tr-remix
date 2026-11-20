@@ -56,6 +56,7 @@ PATCHES = [
 ]
 TITLE_TO_NEW_GAME = ['2400', '+start', '2700', '+start', '3600', '+a', '4100', '+start', '4400', '+a', '4600', '+a',
                      '5000', '+start']
+ITEMS = 0x06072BDC     # the items' base (a pointer)
 FIELDS = ('room', 'x', 'y', 'z', 'yaw', 'anim', 'frame', 'health', 'seed')
 
 
@@ -175,6 +176,7 @@ def main():
     ap.add_argument('--max-vblanks', type=int, default=400000)
     ap.add_argument('--ticks', type=int, default=0)
     ap.add_argument('--items', type=int, default=0, help='at the end, this many items printed (raw)')
+    ap.add_argument('--watch', type=int, default=0, help="this item in the ring instead of Lara's (no comparison)")
     args = ap.parse_args()
     level, keys = read_replay(args.replay)
     if args.ticks:
@@ -208,7 +210,8 @@ def main():
         poke(m, RING, bytes(RING_SIZE * ENTRY))
         poke(m, STUB, code)
         stop = len(kept) if args.items else 0xFFFFFFFF
-        poke(m, STUB + vars_off, struct.pack('>7I', 1, 0, TABLE, RING, stop, SCRIPT, 0))
+        watched = m.word(ITEMS) + 0x48 * args.watch if args.watch else 0
+        poke(m, STUB + vars_off, struct.pack('>8I', 1, 0, TABLE, RING, stop, SCRIPT, 0, watched))
         for addr, data, why in PATCHES:
             poke(m, addr, data)
         poke(m, POOL, struct.pack('>I', STUB))
@@ -236,7 +239,7 @@ def main():
                 yaw, = struct.unpack('>H', item[0x3E:0x40])
                 recs[i] = dict(level=lvl, room=room, x=x, y=y, z=z, yaw=yaw, anim=anim, frame=frame, health=hp, seed=seed,
                                state=state, goal=goal)
-                if part is None and differs(recs, host, kept, i):
+                if part is None and not args.watch and differs(recs, host, kept, i):
                     part = i
                     print(f"  parted at the host's tick {kept[i] - 1}: on to a few ticks past it", flush=True)
             if index >= len(kept) or (part is not None and index > part + 8):
@@ -255,7 +258,7 @@ def main():
                 print(f'  vblank {vblanks}: tick {index}', flush=True)
         if args.items:
             # held before the tick after the table's last: the items as they stand after it
-            base = m.word(0x06072BDC)
+            base = m.word(ITEMS)
             raw = m.read(base, 0x48 * args.items)
             print(f'items at tick {m.word(STUB + vars_off + 4)}:')
             for n in range(args.items):
@@ -282,6 +285,9 @@ def main():
             if first is None and differs(recs, host, kept, i):
                 first = i
     print(f'{len(recs)} records of {len(kept)} game ticks -> {args.out}')
+    if args.watch:
+        print(f'item {args.watch} recorded, not compared (host: WATCH={args.watch} EVERY=1)')
+        return 0
     if first is None:
         print('ALIKE: Lara and the seed on every tick read')
         return 0
