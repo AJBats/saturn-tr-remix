@@ -345,7 +345,7 @@ struct Enemy : ItemObj
         int16 turn = phd_atan(dz, dx) - angle.y;
                 int32 r = (hSpeed << FIXED_SHIFT) / maxTurn; //@DIV
         int32 d = (abs(dx) > 32000 || abs(dz) > 32000) ? 0x7FFF : int32(phd_sqrt(dx * dx + dz * dz));
-        bool aim = (turn > -ANGLE_90) && (turn < ANGLE_90);
+        bool aim = (turn >= -ANGLE_90) && (turn <= ANGLE_90);     // a quarter turn either way still ahead (retail)
 
         if (!aim && (d < r))
             maxTurn >>= 1;

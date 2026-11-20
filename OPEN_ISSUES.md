@@ -953,6 +953,13 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 320. A creature exactly a quarter turn off its way turns at half its rate
+*Closed 2026-11-20: COMMIT. Retail's CreatureTurn (`0600be48`) halves the turn only past a quarter turn (its test: `(angle + 0x4000) & 0xffff > 0x8000`); ours halved at exactly a quarter turn too. A wolf stalking under Lara turned one degree, not two, and the push she got falling onto it a few ticks later differed by 3 and 8 units. Both attract demos still match retail.*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen, the wolf recorded) · Fix: trivial*
+
+- **Found 2026-11-20** by the bot's Caves run played by retail (tools/retailrun.py): Lara parted from retail at tick 8,795 falling onto a wolf in room 14; with the wolf recorded in retail's place (`--watch 26`), the wolf had parted at tick 8,766, turning 364 in retail and 182 in ours.
+
 ### 319. A new level's first tick sees the press that shut the last menu
 *Closed 2026-11-20: 7f56996. The level is loaded inside the tick whose press shut the stats screen or "Save Game?", and our first tick of it ran at once with that tick's pad: Lara set off on the button (a jump from the Save prompt's A). Retail's ControlPhase reads the pad again for the level's first tick, after the load, when a player has let go; ours now runs it with nothing held. The same for a game loaded from the passport.*
 
