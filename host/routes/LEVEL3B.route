@@ -101,8 +101,8 @@ pickup 28
 ignore on
 pickup 31
 ignore off
-# Larson from the cave's mouth: his fall ends the level
-goto 11 42496 48640
+# Larson from the shore at the cave's mouth: his fall ends the level
+goto 11 42496 49664
 fight 8192
 # (the film comes a little after his fall)
 wait 600

@@ -366,6 +366,31 @@ struct Lara : ItemObj
         inventory.useSlot = SLOT_MAX;
     }
 
+    // A ring a hole (or the Midas hand) opened has shut on an item: retail's
+    // KeyHoleCollision (0602b30c) and its kin open the ring from inside the
+    // tick, as she meets the hole, and use what was chosen as it returns, in
+    // that same tick. Here the ring takes ticks of its own, so the use comes
+    // as it shuts, before the tick after steps her on.
+    void useChosenAtHole()
+    {
+        Room** adjRoom = room->getAdjRooms();
+        while (*adjRoom)
+        {
+            for (ItemObj* item = (*adjRoom++)->firstItem; item; item = item->nextItem)
+            {
+                bool hole = (item->type >= ITEM_KEYHOLE_1 && item->type <= ITEM_KEYHOLE_4) ||
+                            (item->type >= ITEM_PUZZLEHOLE_1 && item->type <= ITEM_PUZZLEHOLE_4) || item->type == ITEM_MIDAS_HAND;
+                if (!hole || (item->flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INVISIBLE)
+                    continue;
+                vec3i d = pos - item->pos;
+                if (abs(d.x) < 4096 && abs(d.y) < 4096 && abs(d.z) < 4096) {
+                    item->collide(this, &cinfo);
+                }
+            }
+        }
+        inventory.useSlot = SLOT_MAX;
+    }
+
     // Retail's LaraBaddieCollision (0600e9ac): no hit pose unless something
     // staggers her this tick: what she's against (ItemPushLara), or an
     // effect's hit a tick at a time (its spaz, 0600eb28); the pose starts

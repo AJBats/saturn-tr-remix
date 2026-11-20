@@ -220,12 +220,16 @@ def arm(m, want, window, script, code, vars_off, stop, watch):
 def differs(recs, host, kept, i):
     """Retail's record i against the host's, but for the first of a level: retail's is
     the new level as it loads, the host's the old one's last tick (the host numbers the
-    levels one on)."""
+    levels one on). Straight after a stay in the ring only the seed: a ring a hole opens
+    is retail's from inside the tick, and the key it gives is used before that tick ends;
+    the host's ring takes ticks and uses it as the ring shuts."""
     if not 1 <= i < len(kept):
         return False
     h = host[kept[i] - 1]
     if recs[i]['level'] + 1 != h['level']:
         return False
+    if h['inv']:
+        return recs[i]['seed'] != h['seed']
     return any(recs[i][k] != h[k] for k in FIELDS)
 
 

@@ -659,6 +659,8 @@ void gameUpdate(int32 frames, bool items = true)
         {
             if (lara->useItem(inventory.useSlot)) {
                 inventory.useSlot = SLOT_MAX;
+            } else if (inventory.page == INV_PAGE_USE && inventory.useSlot != SLOT_MAX) {
+                lara->useChosenAtHole();
             }
         }
     }
