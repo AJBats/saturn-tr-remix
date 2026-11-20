@@ -954,7 +954,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 ## Closed
 
 ### 318. Running into a wall, Lara answers the pad a tick early
-*Closed 2026-11-20: COMMIT. As retail's LaraColRun (`0601c374`): against a wall high enough to splat she takes the splat state, and past the run cycle's frames keeps it with the stand animation for one update (the splat's handler ignores the pad); against a low wall the stand animation comes with her state kept. Ours set the stand's state. The bot's whole Caves run played by retail now matches every tick (25,869).*
+*Closed 2026-11-20: a344925. As retail's LaraColRun (`0601c374`): against a wall high enough to splat she takes the splat state, and past the run cycle's frames keeps it with the stand animation for one update (the splat's handler ignores the pad); against a low wall the stand animation comes with her state kept. Ours set the stand's state. The bot's whole Caves run played by retail now matches every tick (25,869).*
 
 *Severity: subtle · Confidence: confirmed (retail run in Mednafen) · Fix: trivial*
 
