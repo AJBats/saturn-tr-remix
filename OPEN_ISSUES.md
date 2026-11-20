@@ -954,7 +954,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 ## Closed
 
 ### 324. A creature crossing into a room reads the floors round it from the room it left
-*Closed 2026-11-20: COMMIT. Retail's CreatureAnimation reads the floor at the creature's new spot with GetFloor, whose room it updates, and tests the floors within its radius (Box_BadFloor) from that room; ours started those tests from the room the creature was in. Where it crosses a portal, the room it left reads the wall beside the portal: the bear walking from room 93 into 85 in Vilcabamba was pushed back and turned twice as fast. Both attract demos still match retail.*
+*Closed 2026-11-20: 882d6ae. Retail's CreatureAnimation reads the floor at the creature's new spot with GetFloor, whose room it updates, and tests the floors within its radius (Box_BadFloor) from that room; ours started those tests from the room the creature was in. Where it crosses a portal, the room it left reads the wall beside the portal: the bear walking from room 93 into 85 in Vilcabamba was pushed back and turned twice as fast. Both attract demos still match retail.*
 
 *Severity: subtle · Confidence: confirmed (retail run in Mednafen, the bear recorded) · Fix: trivial*
 
