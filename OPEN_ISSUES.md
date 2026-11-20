@@ -954,7 +954,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 ## Closed
 
 ### 329. A fall collides along the angle Lara last collided at, not the way she moves
-*Closed 2026-11-20: COMMIT. Retail's col routines all collide along Lara's move angle (GetLaraCollisionInfo takes it as the facing); ColFastFall (0601c950) leaves the move angle as it is. Ours took a fall's collision angle from whatever the last collision had set: after a forward jump smashed into a wall (the move angle turned back), the fall's next tick probed toward the wall, not the way she was moving, and held her a few units off where retail's ended. Both attract demos still match retail.*
+*Closed 2026-11-20: 6660f6f. Retail's col routines all collide along Lara's move angle (GetLaraCollisionInfo takes it as the facing); ColFastFall (0601c950) leaves the move angle as it is. Ours took a fall's collision angle from whatever the last collision had set: after a forward jump smashed into a wall (the move angle turned back), the fall's next tick probed toward the wall, not the way she was moving, and held her a few units off where retail's ended. Both attract demos still match retail.*
 
 *Severity: subtle · Confidence: confirmed (retail run in Mednafen; Lara matches retail through the fall and the landing) · Fix: trivial*
 
