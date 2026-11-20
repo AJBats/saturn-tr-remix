@@ -953,6 +953,13 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 319. A new level's first tick sees the press that shut the last menu
+*Closed 2026-11-20: COMMIT. The level is loaded inside the tick whose press shut the stats screen or "Save Game?", and our first tick of it ran at once with that tick's pad: Lara set off on the button (a jump from the Save prompt's A). Retail's ControlPhase reads the pad again for the level's first tick, after the load, when a player has let go; ours now runs it with nothing held. The same for a game loaded from the passport.*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen) · Fix: trivial*
+
+- **Found 2026-11-20** by the bot's Caves and Vilcabamba run played by retail (tools/retailrun.py): at Vilcabamba's first tick retail's Lara stood (animation 103), ours had started a jump (animation 73).
+
 ### 318. Running into a wall, Lara answers the pad a tick early
 *Closed 2026-11-20: a344925. As retail's LaraColRun (`0601c374`): against a wall high enough to splat she takes the splat state, and past the run cycle's frames keeps it with the stand animation for one update (the splat's handler ignores the pad); against a low wall the stand animation comes with her state kept. Ours set the stand's state. The bot's whole Caves run played by retail now matches every tick (25,869).*
 

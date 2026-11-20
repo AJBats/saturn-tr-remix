@@ -696,7 +696,15 @@ void gameUpdate(int32 frames, bool items = true)
             startLevel(gLevelID);
         }
         gLevelStarts++;
+
+        // The new level's first tick reads the pad after the load, as retail's
+        // ControlPhase does: the press that shut the last menu is not held
+        // into it (a player has let go by then; ours would still see it, the
+        // load done in the same tick, and Lara hopped at the start).
+        uint32 held = keys;
+        keys = 0;
         gameUpdate(1);
+        keys = held;
     }
 }
 
