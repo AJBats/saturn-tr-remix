@@ -286,6 +286,9 @@ def main():
             arm(m, want, window, script, code, vars_off, len(kept) if args.items else 0xFFFFFFFF, args.watch)
         print(f'armed at vblank {m.send("status", "status", 10).split("frame=")[1].split()[0]}: {len(keys)} ticks, '
               f'{len(keys) - len(kept)} of them in the inventory ({script.count(0)} stays)', flush=True)
+        # (a resumed run's ring still holds the records from before the state:
+        # perhaps another item's, a --watch run's; only those from here on)
+        since = m.word(STUB + vars_off + 4) if resume else 0
         saved = False
         vblanks = 0
         # the game runs a tick in two vblanks at most: the ring holds 512 vblanks' worth
@@ -301,7 +304,7 @@ def main():
             for e in range(RING_SIZE):
                 b = ring[e * ENTRY:(e + 1) * ENTRY]
                 i, seed, lvl = struct.unpack('>3I', b[0:12])
-                if i in recs or i >= index or (i == 0 and seed == 0):
+                if i in recs or i >= index or i < since or (i == 0 and seed == 0):
                     continue
                 item = b[16:16 + 0x48]
                 state, goal, req, anim, frame, room = struct.unpack('>6h', item[0x0E:0x1A])
