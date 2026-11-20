@@ -1,8 +1,9 @@
 # St. Francis' Folly at 100%, in progress (Stella: 23 kills, 19 pickups with
 # the 4 keys, 4 secrets). Done: the lions, the omega block, the gorilla room,
-# Pierre driven off (he can't be killed here). Next: the pillars to secret 1,
-# the balcony door, the long slide (secret 2), the flooded passage (secret
-# 3), the tall room's four doors.
+# Pierre driven off (he can't be killed here), the pillars and ledges to the
+# balcony door (the large medipack). Next: secret 1's jump combination, the
+# long slide (secret 2), the flooded passage (secret 3), the tall room's four
+# doors.
 # tools/levelmap.py draws the level.
 start LEVEL4 newgame
 wait 30
@@ -33,3 +34,26 @@ fight 8192
 # into the gorilla room till then)
 goto 2 43008 39424
 wait 150
+# up the pillars: onto the block, a standing jump to grab the low block two
+# sectors on, running jumps to the pillar west and the one south, in front
+# of the secret room's doorway
+goto 0 34304 36352
+leap 0 34304 38400
+leap 1 31232 38400
+leap 1 31232 35328 -3328
+# (secret 1, the angled blocks' jump combination in the room through that
+# doorway, not yet: the backflip off block B misses the ledge so far)
+# back over the pillars to the tall one with the large medipack, a running
+# jump onto the north wall's ledges, along them west and down the west
+# wall's to the balcony door (open: the omega block and the gorilla switch)
+leap 1 31232 38400 -3072
+leap 0 34304 38400 -2304
+leap 1 34304 40448 -3840
+pickup 5
+leap 1 35328 43520 -3072
+leap 1 32256 43520 -3072
+goto 1 31232 43520
+leap 1 28160 43520 -3072
+leap 1 25088 43520 -3072
+leap 1 25088 41472 -3072
+goto 1 25088 38400
