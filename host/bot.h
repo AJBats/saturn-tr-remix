@@ -326,16 +326,18 @@ static int32 gObstaclesCount;
 struct Trap
 {
     int32 sx, sz, top;
+    bool spikes;
 };
 static Trap gTraps[256];
 static int32 gTrapsCount;
+static bool gWalkSpikes;    // a walk through spikes (slow: they don't hurt), as a route asks
 
 static bool trapAt(int32 sx, int32 sz, int32 floor)
 {
     for (int32 i = 0; i < gTrapsCount; i++)
     {
         const Trap &t = gTraps[i];
-        if (t.sx == sx && t.sz == sz && abs(t.top - floor) < 64)
+        if (t.sx == sx && t.sz == sz && abs(t.top - floor) < 64 && !(t.spikes && gWalkSpikes))
             return true;
     }
     return false;
@@ -369,6 +371,7 @@ static void obstaclesFind()
         t.sx = item->pos.x >> 10;
         t.sz = item->pos.z >> 10;
         t.top = spikes ? item->pos.y : item->pos.y - 512;
+        t.spikes = spikes;
     }
     gObstaclesCount = 0;
     for (int32 r = 0; r < level.roomsCount; r++)
@@ -745,6 +748,20 @@ static bool isBlocked(const Cell &a, int32 dx, int32 dz, bool walk = false)
     return false;
 }
 
+// spots beside something in a sector's middle where a climb up failed (too
+// near a wall to pull up), left out of the next plan
+static int32 gFailedX[16], gFailedZ[16], gFailedCount;
+
+static bool failedSpot(int32 x, int32 z)
+{
+    for (int32 i = 0; i < gFailedCount; i++)
+    {
+        if (abs(gFailedX[i] - x) < 32 && abs(gFailedZ[i] - z) < 32)
+            return true;
+    }
+    return false;
+}
+
 static void block(const Cell &a, int32 dx, int32 dz, bool walk = false)
 {
     if (gBlockedCount < int32(X_COUNT(gBlocked)))
@@ -853,6 +870,17 @@ static void reach(int32 c, int32 n, int32 cost, Move m)
 // four sectors down); from a water cell on along the water (a stretch beside
 // it meeting this one by half a sector of height), or out onto a floor up
 // to two clicks over the surface. True if c is a water cell (no land moves).
+// A stretch of water's roof and bed where it meets the next sector: a sloping
+// tunnel's, its slopes' own heights there (its middle's can miss the next
+// sector's altogether); open above, its surface.
+static void waterEdge(Room* from, int32 x, int32 y, int32 z, int32 top, int32 &edgeTop, int32 &edgeBottom)
+{
+    Room* r = from->getRoom(x, y, z);
+    const Sector* sc = r->getSector(x, z);
+    edgeBottom = sc->getFloor(x, y, z);
+    edgeTop = (sc->roomAbove != NO_ROOM && ROOM_FLAG_WATER(rooms[sc->roomAbove].info->flags)) ? top : sc->getCeiling(x, y, z);
+}
+
 static bool waterMoves(int32 c, int32 gsx, int32 gsz)
 {
     const Cell a = gCells[c];
@@ -886,10 +914,11 @@ static bool waterMoves(int32 c, int32 gsx, int32 gsz)
             continue;
         }
         // on through the water: the neighbour's stretch looked for at heights down this one
-        // (every stretch down the neighbour's column: a tunnel can run under a hall)
-        for (int32 y = a.top + 200; y < a.floor - 100; y += 256)
+        // (every stretch down the neighbour's column: a tunnel can run under a hall),
+        // and a little below it (a tunnel sloping down)
+        for (int32 y = a.top + 200; y < a.floor + 128; y += 256)
         {
-            Spot side = spotAt(a.room, cx + dx * 448, y, cz + dz * 448);
+            Spot side = spotAt(a.room, cx + dx * 448, X_MIN(y, a.floor - 64), cz + dz * 448);
             if (side.floor == WALL)
                 continue;
             WaterCol w;
@@ -897,7 +926,17 @@ static bool waterMoves(int32 c, int32 gsx, int32 gsz)
                 continue;
             int32 lo = X_MAX(w.top, a.top), hi = X_MIN(w.bottom, a.floor);
             y = X_MAX(y, w.bottom - 256);   // on below this stretch
-            if (hi - lo < 300 || againstFlow(w.room, nx, w.bottom - 64, nz, dx, dz))     // room to swim through: a sloping tunnel overlaps by less than its height
+            if (hi - lo < 300)
+            {
+                // room to swim through where they meet (a sloping tunnel
+                // overlaps by less than its height middle to middle)
+                int32 aTop, aBottom, wTop, wBottom;
+                waterEdge(a.room, cx + dx * 500, (a.top + a.floor) / 2, cz + dz * 500, a.top, aTop, aBottom);
+                waterEdge(w.room, cx + dx * 524, (w.top + w.bottom) / 2, cz + dz * 524, w.top, wTop, wBottom);
+                lo = X_MAX(aTop, wTop);
+                hi = X_MIN(aBottom, wBottom);
+            }
+            if (hi - lo < 300 || againstFlow(w.room, nx, w.bottom - 64, nz, dx, dz))
                 continue;
             int32 n = cellFind(nsx, nsz, w.bottom, true, w.room, true);
             if (n >= 0) {
@@ -1023,7 +1062,8 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                 // where she'd stand in it: its middle, with no wall of a static
                 // between (a bridge's rail); walked into, a spot round what
                 // stands in its middle if that's the way (a save crystal in a
-                // corridor's turn)
+                // corridor's turn); climbed onto, a spot along the edge beside
+                // it (a statue in an alcove)
                 const Cell &a = gCells[c];
                 int32 lineFloor = X_MIN(b.floor, a.floor);
                 int32 px = (nsx << 10) + 512, pz = (nsz << 10) + 512;
@@ -1035,6 +1075,20 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                     Spot sp = spotAt(b.room, px, b.floor - 256, pz);
                     clear = sp.floor != WALL && abs(sp.floor - b.floor) < 64 && sp.floor - sp.ceiling >= LARA_HEIGHT &&
                             !blocked(px, b.floor, pz) && lineClear(a.px, a.pz, px, pz, lineFloor);
+                }
+                // (the side of it the goal is on first, if it's the goal's sector)
+                static const int32 kAlong[6] = { 320, -320, 360, -360, 400, -400 };
+                int32 side = 1;
+                if (goalCell && (kDirZ[d] ? x - ((nsx << 10) + 512) : z - ((nsz << 10) + 512)) < 0) {
+                    side = -1;
+                }
+                for (int32 k = 0; k < 6 && !clear && m == MOVE_CLIMB; k++)
+                {
+                    px = (nsx << 10) + 512 + abs(kDirZ[d]) * kAlong[k] * side;
+                    pz = (nsz << 10) + 512 + abs(kDirX[d]) * kAlong[k] * side;
+                    Spot sp = spotAt(b.room, px, b.floor - 256, pz);
+                    clear = sp.floor != WALL && abs(sp.floor - b.floor) < 64 && sp.floor - sp.ceiling >= LARA_HEIGHT &&
+                            !blocked(px, b.floor, pz) && !failedSpot(px, pz);
                 }
                 if (!clear)
                 {
@@ -1774,6 +1828,7 @@ static bool goTo(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius = 96
     gBlockedCount = 0;
     gNoWayWaits = 0;
     gStuckX = gStuckZ = -0x40000000;
+    gFailedCount = 0;
     bool threatsOnly = gThreatsOnly;
     gThreatsOnly = true;
     bool ok = false;
@@ -1937,10 +1992,19 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
         }
         if (m == MOVE_CLIMB)
         {
+            // at the middle of the edge, or along it level with where she'll stand
             int16 heading = int16(phd_atan(dz, dx));
-            if (!climbAt(heading, cellX(a) + dx * 512, cellZ(a) + dz * 512, b.floor))
+            int32 along = (b.px - cellX(b)) * abs(dz) + (b.pz - cellZ(b)) * abs(dx);
+            if (!climbAt(heading, cellX(a) + dx * 512 + abs(dz) * along, cellZ(a) + dz * 512 + abs(dx) * along, b.floor))
             {
-                block(a, dx, dz);
+                // beside something in the middle: another spot along the edge next
+                if (along && gFailedCount < int32(X_COUNT(gFailedX)))
+                {
+                    gFailedX[gFailedCount] = b.px;
+                    gFailedZ[gFailedCount++] = b.pz;
+                } else {
+                    block(a, dx, dz);
+                }
                 again = true;
                 return false;
             }
@@ -2080,12 +2144,67 @@ static uint32 parseBotKeys(const char* s)
 }
 
 // Picked up: walked onto it, Action till she bends for it.
+static void holster();
+
+// One on a pedestal (Qualopec's piece of the Scion, 640 over her floor):
+// stood 200 to 350 short of it, square to it from the side nearest her,
+// facing it, hands free, then Action (her own animation, the camera's cut).
+static bool pickupRaised(ItemObj* item, int32 floor)
+{
+    uint8 before = gSaveGame.pickups;
+    obstaclesFind();
+    int32 bestDir = -1, bestDist = 0x7FFFFFFF;
+    for (int32 dir = 0; dir < 4; dir++)
+    {
+        int32 sx = item->pos.x + kDirX[dir] * 330, sz = item->pos.z + kDirZ[dir] * 330;
+        Spot sp = spotAt(item->room, sx, floor - 256, sz);
+        if (sp.floor == WALL || abs(sp.floor - floor) > 64 || blocked(sx, floor, sz))
+            continue;
+        int32 d = distTo(sx, sz);
+        if (d < bestDist) {
+            bestDist = d;
+            bestDir = dir;
+        }
+    }
+    if (bestDir < 0) {
+        fail("no side of it to stand at");
+        return false;
+    }
+    int32 sx = item->pos.x + kDirX[bestDir] * 330, sz = item->pos.z + kDirZ[bestDir] * 330;
+    gGoalFloorY = floor;
+    bool there = goTo(int32(item->room - rooms), sx, sz, true, 32);
+    gGoalFloorY = NO_GOAL_Y;
+    if (!there || !settle() || !turnTo(int16(phd_atan(-kDirZ[bestDir], -kDirX[bestDir])), ANGLE(2))) {
+        fail("couldn't stand facing it");
+        return false;
+    }
+    holster();
+    for (int32 i = 0; i < 30 && lara()->state != Lara::STATE_PICKUP; i++) {
+        step(IK_B);
+    }
+    if (lara()->state != Lara::STATE_PICKUP) {
+        fail("Action didn't take it");
+        return false;
+    }
+    for (int32 i = 0; i < 300 && lara()->state == Lara::STATE_PICKUP; i++) {
+        step(0);
+    }
+    if (gSaveGame.pickups == before) {
+        fail("took nothing");
+        return false;
+    }
+    return true;
+}
+
 static bool pickup(int32 index)
 {
     ItemObj* item = items + index;
     if (!item->room || (item->flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INVISIBLE) {
         fail("no such item to pick up");
         return false;
+    }
+    if (item->type == ITEM_SCION_PICKUP_QUALOPEC) {
+        return pickupRaised(item, item->pos.y + 640);
     }
     uint8 before = gSaveGame.pickups;
     if (ROOM_FLAG_WATER(item->room->info->flags))
@@ -2128,9 +2247,18 @@ static bool pickup(int32 index)
         return true;
     }
     // stood just short of it, facing it: it must lie in front of her (to 256
-    // ahead, 100 behind, 256 aside)
+    // ahead, 100 behind, 256 aside); walked to, by an edge or a break-away
+    // tile (a run's stop slides her on over it)
+    bool edge = false;
+    obstaclesFind();
+    for (int32 dir = 0; dir < 4 && !edge; dir++)
+    {
+        int32 ex = item->pos.x + kDirX[dir] * 384, ez = item->pos.z + kDirZ[dir] * 384;
+        Spot sp = spotAt(item->room, ex, item->pos.y - 256, ez);
+        edge = sp.floor != WALL && (sp.floor > item->pos.y + 256 || trapAt(ex >> 10, ez >> 10, sp.floor));
+    }
     gGoalFloorY = item->pos.y;
-    bool there = goTo(int32(item->room - rooms), item->pos.x, item->pos.z, false, 200);
+    bool there = goTo(int32(item->room - rooms), item->pos.x, item->pos.z, edge, 200);
     gGoalFloorY = NO_GOAL_Y;
     if (!there)
         return false;
@@ -2426,6 +2554,40 @@ static bool collapse(int32 index, int32 deg)
         return true;
     fail("couldn't bring the tile down");
     return false;
+}
+
+// A run that doesn't stop, straight from spot to spot, over break-away tiles
+// (each falls a while after she steps on it): turned to the first spot
+// stood, then forward held through them all; true once she stands at the
+// last on its floor. walk: walked instead, spot to spot close (round a
+// boulder resting in a corridor's turn, where the planner sees no way).
+static bool dash(Room* room, const int32* xz, int32 count, bool walk = false)
+{
+    static uint32 keys[BOT_TRIAL_TICKS];
+    int32 lx = xz[count * 2 - 2], lz = xz[count * 2 - 1];
+    Spot to = spotAt(room, lx, lara()->pos.y - 1024, lz);
+    int32 ticks = 0;
+    int32 score = trial([&]() -> int32 {
+        if (!settle() || !turnTo(headingTo(xz[0], xz[1]), ANGLE(2)))
+            return -1;
+        for (int32 k = 0; k < count; k++)
+        {
+            if (!goStraight(xz[k * 2], xz[k * 2 + 1], walk ? 48 : (k == count - 1 ? 128 : 256), walk, 30 * 20))
+                return -1;
+        }
+        if (!settle())
+            return -1;
+        const Lara* l = lara();
+        bool there = (l->pos.x >> 10) == (lx >> 10) && (l->pos.z >> 10) == (lz >> 10) && abs(l->pos.y - to.floor) < 128;
+        return (there && l->health > 0) ? l->health : -1;
+    }, keys, &ticks);
+    if (score < 0)
+    {
+        fail("the run didn't get there");
+        return false;
+    }
+    play(keys, ticks);
+    return true;
 }
 
 // To a spot past something that swings or sweeps (blades): stood still a
@@ -3123,10 +3285,13 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             heal();
         }
         if (!strcmp(cmd, "goto") && n >= 4) {
-            // goto ROOM X Z [walk] [RADIUS]
-            bool walk = n >= 5 && !strcmp(d, "walk");
+            // goto ROOM X Z [walk|spikes] [RADIUS]: spikes, a walk through
+            // spikes (walked, they don't hurt)
+            gWalkSpikes = n >= 5 && !strcmp(d, "spikes");
+            bool walk = n >= 5 && (!strcmp(d, "walk") || gWalkSpikes);
             int32 radius = (n >= 5 && !walk) ? atoi(d) : (n >= 6 ? atoi(e) : 0);
             ok = goTo(atoi(a), atoi(b), atoi(c), walk, radius > 0 ? radius : 96);
+            gWalkSpikes = false;
         } else if (!strcmp(cmd, "goto3") && n >= 5) {
             // goto3 ROOM X Y Z [RADIUS]: to the floor at that height there
             gGoalFloorY = atoi(c);
@@ -3324,7 +3489,7 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             for (int32 i = 0; i < level.itemsCount; i++)
             {
                 const ItemObj* item = items + i;
-                if (!isCreature(item) || !item->room || abs(item->pos.x - atoi(a)) > 3072 || abs(item->pos.z - atoi(b)) > 3072)
+                if ((!isCreature(item) && item->type != ITEM_TRAP_BOULDER) || !item->room || abs(item->pos.x - atoi(a)) > 3072 || abs(item->pos.z - atoi(b)) > 3072)
                     continue;
                 const AABBs &box = item->getBoundingBox(false);
                 printf("    creature %d health %d at %d %d %d yaw %d: box x %d..%d y %d..%d z %d..%d\n", i, item->health, item->pos.x,
@@ -3371,6 +3536,18 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             cl.floor = lara()->pos.y;
             cl.room = lara()->room;
             ok = jumpTry(cl, jdx, jdz, gap, floor, atoi(b), atoi(c), n >= 5 && atoi(d));
+        } else if ((!strcmp(cmd, "dash") || !strcmp(cmd, "creep")) && n >= 4) {
+            // dash ROOM X Z [X Z ...]: a run that doesn't stop through those spots (over break-away tiles);
+            // creep: walked through them
+            int32 xz[16], count = 0;
+            const char* w[] = { b, c, d, e, a6, a7, a8 };
+            for (int32 k = 0; k + 1 < n - 2 && k + 1 < int32(X_COUNT(w)) && count < 8; k += 2)
+            {
+                xz[count * 2] = atoi(w[k]);
+                xz[count * 2 + 1] = atoi(w[k + 1]);
+                count++;
+            }
+            ok = dash(rooms + atoi(a), xz, count, !strcmp(cmd, "creep"));
         } else if (!strcmp(cmd, "leap") && n >= 4) {
             // leap ROOM X Z: a jump from her sector to that spot, at any heading
             ok = leap(rooms + atoi(a), atoi(b), atoi(c));

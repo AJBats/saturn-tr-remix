@@ -1,8 +1,8 @@
 # Tomb of Qualopec at 100%, in progress (Stella: 7 kills + the mummy, 8 pickups
-# with the Scion, 3 secrets). Done: the raptor door, the face and sun doors'
-# gate switches, the bird door's two block switches. Next: the bird door's
-# running jumps block to block over the spikes to switch 53, the three gates,
-# the dart trap, secrets 1 and 2, the Scion, the lake (secret 3), Larson.
+# with the Scion, 3 secrets). Done: the three gates' switches, secrets 1 and
+# 2, the Scion and the boulder after it. Next: the mummy (shot before the
+# Scion), the lake (secret 3 down the tunnel), the large medipack past
+# Larson, Larson.
 # tools/levelmap.py draws the level.
 start LEVEL3B newgame
 wait 30
@@ -43,8 +43,52 @@ switch 63
 pickup 64
 # the bird door (east): through the upper passage (door 75 opens on the way)
 # to switch 76, which moves block 50 two sectors north; back to the room
-# above the low ramp, switch 74 moves block 49 two sectors east. Next: the
-# running jumps block to block and over the spikes to switch 53 (the
-# second gate); the planner finds no way yet
+# above the low ramp, switch 74 moves block 49 two sectors east
 switch 76
 switch 74
+# from the raised alcove a running jump onto block 49, one onto block 50 (not
+# in line with it), one over the spikes into the doorway: switch 53 opens the
+# second gate. Back onto block 50 (a jump down off the doorway lands hard)
+goto 27 69120 46592
+leap 27 72192 47616
+leap 28 74240 45568
+switch 53
+goto 28 74240 45568
+leap 27 72192 47616
+# through the three gates (the save crystal in the passage's turn walked
+# round) and the dart room to the stairs
+goto 22 55808 70144
+goto 39 64000 71168
+# secret 1: up into the alcove left of the statue over the first step (the
+# door behind it opens), a run over the break-away tiles to the platform in
+# the far corner: the shotgun (its shells, with one in hand)
+goto 39 64624 74240
+wait 30
+goto 7 65024 75264
+dash 7 64300 76500 64000 78336
+pickup 29
+# secret 2: hung from the platform's south edge, along it to the wall, let
+# go between the spikes; the magnum clips under the platform; walked through
+# the spikes (walked, they don't hurt) and up into the passage
+traverse 7 64000 77980 0 left 63600 77720
+wait 30
+goto 4 64000 78336 spikes
+pickup 19
+goto 7 65024 75264 spikes
+# down off the alcove onto the first step (hung first), up the stairs to the
+# Scion
+attempt 39 64700 73216
+goto 39 64624 74240
+face 0
+keys DOWN+B 30
+wait 40
+end
+pickup 20
+# the ceiling comes down and the boulder rolls down the ramp after her: out
+# of its line in the big room, then round it where it stops in the passage's
+# turn, to the stairs up to the lake
+goto 20 56832 64512
+wait 150
+goto 19 49664 62208
+creep 19 49250 62250 49070 62375 49000 62520
+goto 19 46592 64000
