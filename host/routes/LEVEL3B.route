@@ -1,0 +1,43 @@
+# Tomb of Qualopec at 100%, in progress (Stella: 7 kills + the mummy, 8 pickups
+# with the Scion, 3 secrets). Done: the raptor door, the face and sun doors'
+# gate switches. Next: the bird door (switch 74 left alone, blocks 49/50 moved
+# by switches 76 then 74, running jumps block to block over the spikes to
+# switch 53), the three gates, the dart trap, secrets 1 and 2, the Scion,
+# the lake (secret 3), Larson. tools/levelmap.py draws the level.
+start LEVEL3B newgame
+wait 30
+# the switch left of the passage the boulder runs into opens the door the two
+# raptors charge out of
+switch 36
+draw
+fight 8192
+# the face door (west from the crossroads): the block twice south, the one
+# beside it once east, across the break-away tile to the first gate's switch,
+# back over its spike pit with a standing jump
+push 66 180 2
+push 67 90 1
+goto 37 49664 45568
+face 180
+keys UP 24
+switch 65
+# back over the pit: a standing jump from its edge (the corridor is four
+# clicks high: the planner won't jump in it)
+attempt 37 49664 45568
+face 0
+keys UP 12
+keys UP+A 6
+wait 40
+end
+goto 37 48640 47616
+# the sun door (south): the alcove's break-away floor brought down, down into
+# the three wolves' room; the block pulled once and pushed aside, up the
+# stairs (the small medipack in the hole) to the third gate's switch and the
+# small medipack in the corner
+collapse 57
+goto 33 58880 41472
+fight
+pull 62 180 1
+push 62 90 1
+pickup 61
+switch 63
+pickup 64

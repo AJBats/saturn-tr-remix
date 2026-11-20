@@ -20,6 +20,7 @@ the title's menus (a new game: the Caves only, so far). --items N holds the game
 prints N items."""
 import argparse
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -255,6 +256,13 @@ def main():
                 m.send(f'screenshot {shot.replace(os.sep, "/")}', 'screenshot', 30)
                 print(f'  no game tick since tick {index} (script at {m.word(STUB + vars_off + 24)} of {len(script)}, '
                       f'picture {shot}): stopped', flush=True)
+                # where it is held: the master's PC and PR a few frames apart
+                for _ in range(4):
+                    regs = m.send('dump_regs', 'R0=', 10)
+                    pc = re.search(r'PC=([0-9A-Fa-f]{8})', regs)
+                    pr = re.search(r'PR=([0-9A-Fa-f]{8})', regs)
+                    print(f'    held at PC {pc.group(1) if pc else "?"} PR {pr.group(1) if pr else "?"}', flush=True)
+                    m.send('frame_advance 7', 'done frame_advance', 60)
                 break
             if vblanks % 6000 == 0:
                 print(f'  vblank {vblanks}: tick {index}', flush=True)

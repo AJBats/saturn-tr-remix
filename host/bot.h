@@ -357,12 +357,16 @@ static void obstaclesFind()
     for (int32 i = 0; i < level.itemsCount && gTrapsCount < int32(X_COUNT(gTraps)); i++)
     {
         const ItemObj* item = items + i;
-        if (item->type != ITEM_TRAP_FLOOR || !item->room || item->state > 1)
+        // spikes too (on the floor they stand on): never landed on
+        bool spikes = item->type == ITEM_TRAP_SPIKES;
+        if ((item->type != ITEM_TRAP_FLOOR || item->state > 1) && !spikes)
+            continue;
+        if (!item->room)
             continue;
         Trap &t = gTraps[gTrapsCount++];
         t.sx = item->pos.x >> 10;
         t.sz = item->pos.z >> 10;
-        t.top = item->pos.y - 512;
+        t.top = spikes ? item->pos.y : item->pos.y - 512;
     }
     gObstaclesCount = 0;
     for (int32 r = 0; r < level.roomsCount; r++)
@@ -2247,9 +2251,10 @@ static bool collapse(int32 index, int32 deg)
                     step(0);
                 }
                 settle();
+                // back on her floor, on that side (a hop back may land a sector further)
                 const Lara* l = lara();
-                if (tile->state < 2 || !standing() || (l->pos.x >> 10) != tsx + dx || (l->pos.z >> 10) != tsz + dz ||
-                    abs(l->pos.y - side.floor) > 64)
+                int32 back = ((l->pos.x >> 10) - tsx) * dx + ((l->pos.z >> 10) - tsz) * dz;
+                if (tile->state < 2 || !standing() || back < 1 || back > 2 || abs(l->pos.y - side.floor) > 64)
                     return -1;
                 return l->health;
             }, keys, &ticks);
@@ -3202,9 +3207,33 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             if (foe->health <= 0) {
                 ok = true;
             } else if (n >= 5) {
-                gFleeing = true;
-                ok = goTo(atoi(b), atoi(c), atoi(d), false, 128);
-                gFleeing = false;
+                // the way there tried after a few waits (a creature waking on
+                // the way can catch her at a climb): the first that gets her
+                // there alive played
+                static const int32 kWaits[] = { 0, 45, 90, 180, 300 };
+                static uint32 keys[BOT_TRIAL_TICKS];
+                int32 room = atoi(b), x = atoi(c), z = atoi(d), ticks = 0;
+                ok = false;
+                for (int32 w = 0; w < int32(X_COUNT(kWaits)) && !ok; w++)
+                {
+                    int32 wait = kWaits[w];
+                    int32 score = trial([&]() -> int32 {
+                        for (int32 i = 0; i < wait; i++) {
+                            step(0);
+                        }
+                        gFleeing = true;
+                        bool there = goTo(room, x, z, false, 128);
+                        gFleeing = false;
+                        return (there && lara()->health > 0) ? lara()->health : -1;
+                    }, keys, &ticks);
+                    if (score >= 0) {
+                        play(keys, ticks);
+                        ok = true;
+                    }
+                }
+                if (!ok) {
+                    fail("couldn't get to the safe spot alive");
+                }
                 ok = ok && shootFromHere(foe);
             } else {
                 ok = fightFromSafety(foe, 8192);
