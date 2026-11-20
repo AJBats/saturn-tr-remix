@@ -1,5 +1,5 @@
 # Lost Valley at 100%, in progress (Stella: 16 pickups with the 3 cogs and the
-# shotgun, 5 secrets, 13 kills). In progress: secrets 1, 3, 4 and 5, the exit.
+# shotgun, 5 secrets, 13 kills). In progress: secrets 1, 3 and 4 (shimmying, grab jumps).
 start LEVEL3A newgame
 wait 30
 # the wolves at the pool below the falls (shot as they come up)
@@ -40,3 +40,13 @@ switch 10
 wait 60
 # down the stream past the gold gate: the shotgun on the explorer's remains
 pickup 12
+# secret 5: the underwater tunnel at the end of the passage, up into the
+# small room (a small medipack, two boxes of shells)
+pickup 20
+pickup 18
+pickup 19
+# up onto the ledge the waterfall hid, along the passage to its end (the
+# door there opens as she steps up to it), on to the level's end
+goto 49 38400 75264
+wait 60
+endlevel 50 43520 74240

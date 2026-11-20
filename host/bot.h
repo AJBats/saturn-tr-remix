@@ -887,8 +887,11 @@ static bool waterMoves(int32 c, int32 gsx, int32 gsz)
         // out onto a floor beside the surface
         if (a.air)
         {
-            Spot b = spotAt(a.room, nx, a.top - 640, nz);
-            Spot edge = spotAt(a.room, cx + dx * 576, a.top - 640, cz + dz * 576);
+            // looked for from the room over the surface (a shaft up from a
+            // tunnel opens into a room the water's own room doesn't reach)
+            Room* air = a.room->getRoom(cx, a.top - 64, cz);
+            Spot b = spotAt(air, nx, a.top - 640, nz);
+            Spot edge = spotAt(air, cx + dx * 576, a.top - 640, cz + dz * 576);
             if (b.floor != WALL && edge.floor != WALL && !ROOM_FLAG_WATER(b.room->info->flags) &&
                 b.floor >= a.top - 512 && b.floor <= a.top + 100 && b.floor - b.ceiling >= LARA_HEIGHT &&
                 !blocked(nx, b.floor, nz) && !trapAt(nsx, nsz, b.floor)) {
@@ -1048,8 +1051,12 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
         if (plan && getenv("BOT_PLAN")[0] == '2')
         {
             for (int32 i = 0; i < gCellsCount; i++) {
-                printf("    seen %d,%d floor %d room %d%s cost %d\n", gCells[i].sx << 10, gCells[i].sz << 10, gCells[i].floor,
+                printf("    seen %d,%d floor %d room %d%s cost %d", gCells[i].sx << 10, gCells[i].sz << 10, gCells[i].floor,
                        int32(gCells[i].room - rooms), gCells[i].water ? " water" : "", gCells[i].cost);
+                if (gCells[i].water) {
+                    printf(" top %d%s", gCells[i].top, gCells[i].air ? " air" : "");
+                }
+                printf("\n");
             }
         }
         return 0;
@@ -2945,6 +2952,48 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
                            gCells[i].water ? "water" : "land", gCells[i].floor, gCells[i].top, int32(gCells[i].room - rooms),
                            gCells[i].move);
                 }
+            }
+        } else if (!strcmp(cmd, "sector") && n >= 4) {
+            // sector ROOM SX SZ: debugging, its raw fields and floor data
+            const Room &room = rooms[atoi(a)];
+            const Sector* sc = room.sectors + atoi(b) * room.info->zSectors + atoi(c);
+            printf("    sector %d,%d of room %d: floorIndex %d box %d floor %d ceiling %d above %d below %d; data", atoi(b), atoi(c), atoi(a),
+                   sc->floorIndex, sc->boxIndex, sc->floor, sc->ceiling, sc->roomAbove, sc->roomBelow);
+            for (int32 k = 0; sc->floorIndex && k < 8; k++) {
+                printf(" %04x", level.floors[sc->floorIndex + k]);
+            }
+            printf("\n");
+        } else if (!strcmp(cmd, "portals") && n >= 2) {
+            // portals ROOM: debugging, its sectors that lead on (sideways, up, down)
+            const Room &room = rooms[atoi(a)];
+            const RoomInfo* ri = room.info;
+            for (int32 sz = 0; sz < ri->zSectors; sz++)
+            {
+                for (int32 sx = 0; sx < ri->xSectors; sx++)
+                {
+                    const Sector* sc = room.sectors + sx * ri->zSectors + sz;
+                    Room* next = sc->getNextRoom();
+                    if (next || sc->roomAbove != NO_ROOM || sc->roomBelow != NO_ROOM)
+                        printf("    sector %d,%d (x %d z %d): floor %d ceiling %d side %d above %d below %d\n", sx, sz, (ri->x << 8) + (sx << 10),
+                               (ri->z << 8) + (sz << 10), sc->floor << 8, sc->ceiling << 8, next ? int32(next - rooms) : -1,
+                               sc->roomAbove == NO_ROOM ? -1 : sc->roomAbove, sc->roomBelow == NO_ROOM ? -1 : sc->roomBelow);
+                }
+            }
+        } else if (!strcmp(cmd, "rooms") && n >= 4) {
+            // rooms X Y Z: debugging, every room whose box holds the point, its sector there
+            int32 x = atoi(a), y = atoi(b), z = atoi(c);
+            for (int32 r = 0; r < level.roomsCount; r++)
+            {
+                const RoomInfo* ri = rooms[r].info;
+                if (x < (ri->x << 8) || z < (ri->z << 8) || x >= (ri->x << 8) + (ri->xSectors << 10) ||
+                    z >= (ri->z << 8) + (ri->zSectors << 10) || y < ri->yTop || y > ri->yBottom)
+                    continue;
+                const Sector* sc = rooms[r].getSector(x, z);
+                Room* next = sc->getNextRoom();
+                printf("    room %d alt %d (x %d z %d, %dx%d sectors, y %d..%d): sector floor %d ceiling %d above %d below %d portal %d\n", r, rooms[r].alternateRoom == NO_ROOM ? -1 : rooms[r].alternateRoom, ri->x << 8,
+                       ri->z << 8, ri->xSectors, ri->zSectors, ri->yTop, ri->yBottom, sc->floor << 8, sc->ceiling << 8,
+                       sc->roomAbove == NO_ROOM ? -1 : sc->roomAbove, sc->roomBelow == NO_ROOM ? -1 : sc->roomBelow,
+                       next ? int32(next - rooms) : -1);
             }
         } else if (!strcmp(cmd, "spot") && n >= 5) {
             // spot ROOM X Y Z: debugging, the floor and ceiling there as the planner reads them
