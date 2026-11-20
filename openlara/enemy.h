@@ -59,7 +59,7 @@ struct Enemy : ItemObj
         extra->enemy = this;
         extra->rotHead = extra->rotNeck = 0;
         extra->maxTurn = ANGLE_1;   // as retail's InitialiseSlot sets it
-        mood = MOOD_SLEEP;          // and the mood bored (not one left from an earlier time awake)
+        mood = MOOD_SLEEP;          // and the mood bored (the field holds whatever it held)
         extra->nav.stepHeight = 256;
         extra->nav.dropHeight = -256;
         extra->nav.vSpeed = 0;

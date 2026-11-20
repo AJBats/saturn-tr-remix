@@ -953,8 +953,8 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
-### 323. A creature woken again keeps the mood it had when it last went to sleep
-*Closed 2026-11-20: 9d338d3. Retail's InitialiseSlot (`06023278`) starts every creature it gives an AI slot bored; ours set the slot's turn but left the mood (a field the item keeps), so a bat woken a second time came back stalking and, Lara in its zone, went straight to attack (retail: bored, then stalk, a random box). Now bored, as retail. Both attract demos still match retail.*
+### 323. A creature given an AI slot keeps whatever its mood field held
+*Closed 2026-11-20: 9d338d3. Retail's InitialiseSlot (`06023278`) starts every creature it gives an AI slot bored; ours set the slot's turn but left the mood field as it was (the item keeps it, sharing its storage with other fields): Vilcabamba's bat 11, waking for the first time, held stalk and, Lara in its zone and no box asked for, went straight to attack (retail: bored, then stalk, a random box). Now bored, as retail. Both attract demos still match retail.*
 
 *Severity: subtle · Confidence: confirmed (retail run in Mednafen, the bat's mood recorded) · Fix: trivial*
 
