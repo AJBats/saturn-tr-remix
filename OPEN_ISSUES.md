@@ -953,6 +953,13 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 324. A creature crossing into a room reads the floors round it from the room it left
+*Closed 2026-11-20: COMMIT. Retail's CreatureAnimation reads the floor at the creature's new spot with GetFloor, whose room it updates, and tests the floors within its radius (Box_BadFloor) from that room; ours started those tests from the room the creature was in. Where it crosses a portal, the room it left reads the wall beside the portal: the bear walking from room 93 into 85 in Vilcabamba was pushed back and turned twice as fast. Both attract demos still match retail.*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen, the bear recorded) · Fix: trivial*
+
+- **Found 2026-11-20** by the bot's Vilcabamba run played by retail (tools/retailrun.py): the logic seed parted at tick 29,060 (one random number fewer in ours, the bear's); the bear (`--watch 86`, from a save state at tick 24,024) had parted at 28,970 at the portal between rooms 93 and 85.
+
 ### 323. A creature given an AI slot keeps whatever its mood field held
 *Closed 2026-11-20: 9d338d3. Retail's InitialiseSlot (`06023278`) starts every creature it gives an AI slot bored; ours set the slot's turn but left the mood field as it was (the item keeps it, sharing its storage with other fields): Vilcabamba's bat 11, waking for the first time, held stalk and, Lara in its zone and no box asked for, went straight to attack (retail: bored, then stalk, a random box). Now bored, as retail. Both attract demos still match retail.*
 

@@ -548,9 +548,9 @@ struct Enemy : ItemObj
     // TR1's box test (TRX Box_BadFloor): a floor the creature can't step to
     // from the height of its box, a blocked or missing box, or a step down
     // into a box higher than the one its path goes through next.
-    bool badFloor(int32 x, int32 y, int32 z, int32 boxHeight, int32 nextHeight)
+    bool badFloor(Room* from, int32 x, int32 y, int32 z, int32 boxHeight, int32 nextHeight)
     {
-        const Sector* sector = room->getRoom(x, y, z)->getSector(x, z);
+        const Sector* sector = from->getRoom(x, y, z)->getSector(x, z);
         if (sector->boxIndex == NO_BOX)
             return true;
 
@@ -622,7 +622,11 @@ struct Enemy : ItemObj
         int32 y = pos.y + top;
         int32 boxHeight = (tinfo.boxIndex == NO_BOX) ? roomFloor : level.boxes[tinfo.boxIndex].floor;
 
-        const Sector* sector = room->getRoom(pos.x, y, pos.z)->getSector(pos.x, pos.z);
+        // the room its new spot is in, its floor read from there on (retail's
+        // room_num, GetFloor's own: not the room it was in, which at a portal
+        // reads the wall beside it)
+        Room* at = room->getRoom(pos.x, y, pos.z);
+        const Sector* sector = at->getSector(pos.x, pos.z);
         int32 height, nextHeight;
         boxHeights(sector, boxHeight, height, nextHeight);
 
@@ -648,7 +652,8 @@ struct Enemy : ItemObj
                 pos.z = old.z | 1023;
             }
 
-            sector = room->getRoom(pos.x, y, pos.z)->getSector(pos.x, pos.z);
+            at = at->getRoom(pos.x, y, pos.z);
+            sector = at->getSector(pos.x, pos.z);
             boxHeights(sector, boxHeight, height, nextHeight);
         }
 
@@ -663,15 +668,15 @@ struct Enemy : ItemObj
 
         if (pz < r)
         {
-            if (badFloor(x, y, z - r, height, nextHeight)) {
+            if (badFloor(at, x, y, z - r, height, nextHeight)) {
                 shiftZ = r - pz;
             }
 
             if (px < r)
             {
-                if (badFloor(x - r, y, z, height, nextHeight)) {
+                if (badFloor(at, x - r, y, z, height, nextHeight)) {
                     shiftX = r - px;
-                } else if (!shiftZ && badFloor(x - r, y, z - r, height, nextHeight)) {
+                } else if (!shiftZ && badFloor(at, x - r, y, z - r, height, nextHeight)) {
                     if (angle.y > -ANGLE_135 && angle.y < ANGLE_45) {
                         shiftZ = r - pz;
                     } else {
@@ -681,9 +686,9 @@ struct Enemy : ItemObj
             }
             else if (px > 1024 - r)
             {
-                if (badFloor(x + r, y, z, height, nextHeight)) {
+                if (badFloor(at, x + r, y, z, height, nextHeight)) {
                     shiftX = 1024 - r - px;
-                } else if (!shiftZ && badFloor(x + r, y, z - r, height, nextHeight)) {
+                } else if (!shiftZ && badFloor(at, x + r, y, z - r, height, nextHeight)) {
                     if (angle.y > -ANGLE_45 && angle.y < ANGLE_135) {
                         shiftZ = r - pz;
                     } else {
@@ -694,15 +699,15 @@ struct Enemy : ItemObj
         }
         else if (pz > 1024 - r)
         {
-            if (badFloor(x, y, z + r, height, nextHeight)) {
+            if (badFloor(at, x, y, z + r, height, nextHeight)) {
                 shiftZ = 1024 - r - pz;
             }
 
             if (px < r)
             {
-                if (badFloor(x - r, y, z, height, nextHeight)) {
+                if (badFloor(at, x - r, y, z, height, nextHeight)) {
                     shiftX = r - px;
-                } else if (!shiftZ && badFloor(x - r, y, z + r, height, nextHeight)) {
+                } else if (!shiftZ && badFloor(at, x - r, y, z + r, height, nextHeight)) {
                     if (angle.y > -ANGLE_45 && angle.y < ANGLE_135) {
                         shiftX = r - px;
                     } else {
@@ -712,9 +717,9 @@ struct Enemy : ItemObj
             }
             else if (px > 1024 - r)
             {
-                if (badFloor(x + r, y, z, height, nextHeight)) {
+                if (badFloor(at, x + r, y, z, height, nextHeight)) {
                     shiftX = 1024 - r - px;
-                } else if (!shiftZ && badFloor(x + r, y, z + r, height, nextHeight)) {
+                } else if (!shiftZ && badFloor(at, x + r, y, z + r, height, nextHeight)) {
                     if (angle.y > -ANGLE_135 && angle.y < ANGLE_45) {
                         shiftX = 1024 - r - px;
                     } else {
@@ -725,13 +730,13 @@ struct Enemy : ItemObj
         }
         else if (px < r)
         {
-            if (badFloor(x - r, y, z, height, nextHeight)) {
+            if (badFloor(at, x - r, y, z, height, nextHeight)) {
                 shiftX = r - px;
             }
         }
         else if (px > 1024 - r)
         {
-            if (badFloor(x + r, y, z, height, nextHeight)) {
+            if (badFloor(at, x + r, y, z, height, nextHeight)) {
                 shiftX = 1024 - r - px;
             }
         }
