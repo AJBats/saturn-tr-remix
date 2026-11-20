@@ -7,7 +7,8 @@ wait 30
 draw
 fight 8192
 # through the cave and the twisting passage (a wolf), up the stepped blocks:
-# the large medipack by the skeleton
+# the large medipack by the skeleton (the three wolves down the tunnel to the
+# right are left asleep: their trigger is on its top slope, a slide down)
 pickup 28
 # into the valley (raptors) to a tunnel off the west wall, then the T-rex shot
 # from the spot it can't reach with the most of its ground in shot (pistols:

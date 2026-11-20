@@ -672,8 +672,8 @@ static bool climbBetween(const Cell &a, int32 dx, int32 dz, const Spot &low, Spo
     b = spotAt(hs.room, cx + dx * 1024, high, cz + dz * 1024);
     if (b.floor == WALL || b.floor > a.floor - 384 || b.floor < a.floor - BOT_MAX_CLIMB)
         return false;
-    if (low.floor != WALL && b.floor >= low.floor - 256)
-        return false;   // the same floor the low look sees: moveBetween's
+    if (low.floor != WALL && b.floor >= low.floor - 256 && low.floor > a.floor - 384)
+        return false;   // the same floor the low look sees: moveBetween's (a step up of 1.5 clicks is a climb)
     if (abs(hs.floor - b.floor) > 256 || b.floor - b.ceiling < LARA_HEIGHT)
         return false;
     int32 ex = cx + dx * 544, ez = cz + dz * 544;
