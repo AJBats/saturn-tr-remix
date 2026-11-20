@@ -954,7 +954,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 ## Closed
 
 ### 320. A creature exactly a quarter turn off its way turns at half its rate
-*Closed 2026-11-20: COMMIT. Retail's CreatureTurn (`0600be48`) halves the turn only past a quarter turn (its test: `(angle + 0x4000) & 0xffff > 0x8000`); ours halved at exactly a quarter turn too. A wolf stalking under Lara turned one degree, not two, and the push she got falling onto it a few ticks later differed by 3 and 8 units. Both attract demos still match retail.*
+*Closed 2026-11-20: bf41e87. Retail's CreatureTurn (`0600be48`) halves the turn only past a quarter turn (its test: `(angle + 0x4000) & 0xffff > 0x8000`); ours halved at exactly a quarter turn too. A wolf stalking under Lara turned one degree, not two, and the push she got falling onto it a few ticks later differed by 3 and 8 units. Both attract demos still match retail.*
 
 *Severity: subtle · Confidence: confirmed (retail run in Mednafen, the wolf recorded) · Fix: trivial*
 
