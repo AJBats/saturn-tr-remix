@@ -2329,7 +2329,11 @@ static bool isThreat(const ItemObj* item)
 {
     switch (item->type)
     {
-        case ITEM_BAT: case ITEM_MUTANT_1: case ITEM_MUTANT_2: case ITEM_CENTAUR: case ITEM_LARSON: case ITEM_PIERRE:
+        case ITEM_BAT:
+            // one circling high (bored or stalking, it may never come down)
+            // is left alone till it dives
+            return abs(item->pos.y - lara()->pos.y) <= 1536;
+        case ITEM_MUTANT_1: case ITEM_MUTANT_2: case ITEM_CENTAUR: case ITEM_LARSON: case ITEM_PIERRE:
         case ITEM_SKATER: case ITEM_COWBOY: case ITEM_MR_T: case ITEM_NATLA:
             return true;
         default:
@@ -2381,10 +2385,12 @@ static const FightStyle kFightStyles[] = {
     { ANGLE(25), 0, 20 }, { ANGLE(8), 640, 20 }, { ANGLE(12), 384, 8 }, { ANGLE(6), 448, 40 },
 };
 
+static bool goStraight(int32 x, int32 z, int32 radius, bool walk, int32 maxTicks, bool wary);
+
 static bool fight(const FightStyle &st, int32 range = 4096, int32 maxTicks = 30 * 90)
 {
     ExtraInfoLara* e = lara()->extraL;
-    int32 quiet = 0, unaimed = 0;
+    int32 quiet = 0, unaimed = 0, untargeted = 0;
     for (int32 i = 0; i < maxTicks; i++)
     {
         if (lara()->health <= 0) {
@@ -2421,6 +2427,25 @@ static bool fight(const FightStyle &st, int32 range = 4096, int32 maxTicks = 30 
         {
             for (int32 j = 0; j < 12; j++) {
                 step(IK_DOWN | IK_A | IK_B);
+            }
+            continue;
+        }
+        // no aim for two seconds with it near (over her, against a wall, no
+        // room to jump back): two sectors off the way it's clear, then on
+        untargeted = (!target && distTo(foe->pos.x, foe->pos.z) < 2048) ? untargeted + 1 : 0;
+        if (untargeted > 60 && standing())
+        {
+            untargeted = 0;
+            const Lara* l = lara();
+            for (int32 q = 0; q < 4; q++)
+            {
+                int16 a = int16(l->angle.y + ANGLE_180 + q * ANGLE_90);
+                int32 tx = l->pos.x + (sinRetail(a) * 2048 >> FIXED_SHIFT), tz = l->pos.z + (cosRetail(a) * 2048 >> FIXED_SHIFT);
+                if (clearWalk(tx, tz))
+                {
+                    goStraight(tx, tz, 256, false, 90, false);
+                    break;
+                }
             }
             continue;
         }
@@ -2718,11 +2743,9 @@ static bool fightBest(int32 range)
     }
     if (best < 0)
     {
-        if (ItemObj* foe = nearestFoe(range))
-        {
-            if (fightFromSafety(foe, X_MAX(range, 8192)))
-                return true;
-        }
+        ItemObj* foe = nearestFoe(range);
+        if (foe && fightFromSafety(foe, X_MAX(range, 8192)))
+            return true;
         fail("every way of fighting died");
         return false;
     }
