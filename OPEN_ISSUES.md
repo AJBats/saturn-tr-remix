@@ -953,6 +953,13 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 321. Creatures test "farther than" on a rounded-down distance
+*Closed 2026-11-20: COMMIT. Retail's creatures compare the squared distance (CreatureAIInfo's, `06009950`) with a squared range, `distance > range * range`; ours took the whole-number square root first, so a creature just past a range (its square root rounding down onto it) counted as within it. Eleven "farther than" tests (the wolf, bear, crocodile, T-rex, Larson, the skateboard kid, the cowboy, Mr. T, the mutants) now use the squared distance; "nearer than" tests were already the same either way. A stalking wolf just past three sectors drew a howl roll in ours (a random number retail didn't take). Both attract demos still match retail.*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen) · Fix: trivial*
+
+- **Found 2026-11-20** by the bot's Caves run played by retail (tools/retailrun.py): the logic seed parted at tick 8,727 with Lara the same; ours took two random numbers in that tick (the stalking wolf 26 and the sleeping wolf 27), retail one.
+
 ### 320. A creature exactly a quarter turn off its way turns at half its rate
 *Closed 2026-11-20: bf41e87. Retail's CreatureTurn (`0600be48`) halves the turn only past a quarter turn (its test: `(angle + 0x4000) & 0xffff > 0x8000`); ours halved at exactly a quarter turn too. A wolf stalking under Lara turned one degree, not two, and the push she got falling onto it a few ticks later differed by 3 and 8 units. Both attract demos still match retail.*
 

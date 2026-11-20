@@ -1236,11 +1236,11 @@ struct Wolf : Enemy
                     return STATE_RUN;
                 if (tinfo.dist < DIST_BITE && tinfo.canAttack)
                     return STATE_BITE;
-                if (tinfo.dist > DIST_STALK)
+                if (tinfo.dist2 > DIST_STALK * DIST_STALK)
                     return STATE_RUN;
                 if (mood == MOOD_ATTACK)
                 {
-                    if (!tinfo.front || tinfo.dist > DIST_ATTACK || tinfo.behind)
+                    if (!tinfo.front || tinfo.dist2 > DIST_ATTACK * DIST_ATTACK || tinfo.behind)
                         return STATE_RUN;
                     break;
                 }
@@ -1487,7 +1487,7 @@ struct Bear : Enemy
                     return STATE_HOWL;
                 }
 
-                if (tinfo.dist > 2048 || rand_logic() < 0x600)
+                if (tinfo.dist2 > 2048 * 2048 || rand_logic() < 0x600)
                 {
                     nextState = STATE_STOP;
                     return STATE_HOWL;
@@ -1760,7 +1760,7 @@ struct Crocodile : Enemy
                 tinfo.turn = 0;
             }
 
-            bool fastTurn = (mood == MOOD_ATTACK) && (tinfo.dist > DIST_FAST_TURN) &&
+            bool fastTurn = (mood == MOOD_ATTACK) && (tinfo.dist2 > DIST_FAST_TURN * DIST_FAST_TURN) &&
                             (abs(tinfo.angle) > ANGLE_90);
 
             switch (state)
@@ -2424,7 +2424,7 @@ struct Rex : Enemy
             tinfo.target->hit((state == STATE_RUN) ? DAMAGE_RUN : DAMAGE_WALK, _vec3i(0, 0, 0), 0);
         }
 
-        bool walk = (tinfo.canAttack && (tinfo.dist > DIST_BITE) && (tinfo.dist < DIST_WALK)) ||
+        bool walk = (tinfo.canAttack && (tinfo.dist2 > DIST_BITE * DIST_BITE) && (tinfo.dist < DIST_WALK)) ||
                     (tinfo.behind && !tinfo.front && (mood != MOOD_ESCAPE));
 
         switch (state)
@@ -2840,7 +2840,7 @@ struct Larson : Gunman
                     nextState = STATE_RUN;
                 else if (canShoot())
                     nextState = STATE_AIM;
-                else if (!tinfo.front || tinfo.dist > DIST_WALK)
+                else if (!tinfo.front || tinfo.dist2 > DIST_WALK * DIST_WALK)
                     nextState = STATE_RUN;
                 else
                     break;
@@ -3087,7 +3087,7 @@ struct Skater : Gunman
                     return STATE_PUSH;
                 if (canShoot())
                 {
-                    if (tinfo.dist > DIST_DONT_STOP && tinfo.dist < DIST_STOP && mood != MOOD_ESCAPE)
+                    if (tinfo.dist2 > DIST_DONT_STOP * DIST_DONT_STOP && tinfo.dist < DIST_STOP && mood != MOOD_ESCAPE)
                         return STATE_STOP;
                     return STATE_SHOOT_2;
                 }
@@ -3201,7 +3201,7 @@ struct Cowboy : Gunman
                     nextState = STATE_RUN;
                 else if (canShoot())
                     nextState = STATE_AIM;
-                else if (tinfo.dist > DIST_WALK)
+                else if (tinfo.dist2 > DIST_WALK * DIST_WALK)
                     nextState = STATE_RUN;
                 else
                     break;
@@ -3312,7 +3312,7 @@ struct MrT : Gunman
                     nextState = STATE_RUN;
                 else if (canShoot())
                     nextState = STATE_AIM;
-                else if (tinfo.dist > DIST_WALK)
+                else if (tinfo.dist2 > DIST_WALK * DIST_WALK)
                     nextState = STATE_RUN;
                 else
                     break;
@@ -3469,7 +3469,7 @@ struct Mutant : Gunman
         // a shot: in sight, out of reach or far, its side picking the gun
         bool shoot1 = false;
         bool shoot2 = false;
-        if (type != ITEM_MUTANT_3 && canShoot() && (!checkZone() || tinfo.dist > DIST_SHOOT))
+        if (type != ITEM_MUTANT_3 && canShoot() && (!checkZone() || tinfo.dist2 > DIST_SHOOT * DIST_SHOOT))
         {
             if (tinfo.angle > 0 && tinfo.angle < ANGLE_45) {
                 shoot1 = true;
@@ -3561,7 +3561,7 @@ struct Mutant : Gunman
                     if (rand_logic() < 80) {
                         goalState = STATE_POSE;
                     }
-                } else if (mood == MOOD_STALK && tinfo.dist > DIST_WALK) {
+                } else if (mood == MOOD_STALK && tinfo.dist2 > DIST_WALK * DIST_WALK) {
                     goalState = STATE_STOP;
                 }
                 break;
