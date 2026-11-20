@@ -72,3 +72,5 @@ switch 18
 wait 120
 goto 12 41984 34304
 fight 8192
+# along the drained passage west and up the stairs to the tall room's top
+goto3 18 33280 11008 41472

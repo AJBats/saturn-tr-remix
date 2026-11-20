@@ -418,10 +418,22 @@ static void obstaclesFind()
         t.top = spikes ? item->pos.y : item->pos.y - 512;
         t.spikes = spikes;
     }
+    // the rooms a flip map isn't showing: an alternate's slot holds whichever
+    // version is off (flipMap swaps their contents), its statics aren't there
+    static bool off[1024];
+    memset(off, 0, sizeof(off));
+    for (int32 r = 0; r < level.roomsCount; r++)
+    {
+        if (rooms[r].alternateRoom != NO_ROOM && rooms[r].alternateRoom < int32(X_COUNT(off))) {
+            off[rooms[r].alternateRoom] = true;
+        }
+    }
     gObstaclesCount = 0;
     for (int32 r = 0; r < level.roomsCount; r++)
     {
         const Room &room = rooms[r];
+        if (r < int32(X_COUNT(off)) && off[r])
+            continue;
         for (int32 i = 0; i < room.info->meshesCount && gObstaclesCount < int32(X_COUNT(gObstacles)); i++)
         {
             const RoomMesh* mesh = room.data.meshes + i;
