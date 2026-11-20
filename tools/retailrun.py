@@ -164,6 +164,30 @@ def rec_line(t, r):
             f'frame {r["frame"]} health {r["health"]} seed {r["seed"]:08x}{extra}\n')
 
 
+def arm(m, want, table, script, code, vars_off, stop, watch):
+    """Retail run from its title to the level's first game tick, then the stub, its
+    tables and the patches poked in and the pad scan pointed at the stub."""
+    for st in TITLE_TO_NEW_GAME:
+        if st.startswith('+'):
+            tap(m, st[1:])
+        else:
+            m.send(f'run_to_frame {st}', 'done run_to_frame', 1200)
+    m.send(f'breakpoint {CONTROL_PHASE:08X}', 'breakpoint', 10)
+    while True:
+        m.send('run', 'break pc=', 1200)
+        if m.word(LEVEL) == want:
+            break
+    m.send('breakpoint_clear', 'breakpoint', 10)
+    poke(m, TABLE, table)
+    poke(m, SCRIPT, b''.join(struct.pack('>H', k) for k in script))
+    poke(m, RING, bytes(RING_SIZE * ENTRY))
+    poke(m, STUB, code)
+    poke(m, STUB + vars_off, struct.pack('>9I', 1, 0, TABLE, RING, stop, SCRIPT, 0, watch, 0))
+    for addr, data, why in PATCHES:
+        poke(m, addr, data)
+    poke(m, POOL, struct.pack('>I', STUB))
+
+
 def differs(recs, host, kept, i):
     """Retail's record i against the host's, but for the first of a level: retail's is
     the new level as it loads, the host's the old one's last tick (the host numbers the
@@ -185,6 +209,8 @@ def main():
     ap.add_argument('--items', type=int, default=0, help='at the end, this many items printed (raw)')
     ap.add_argument('--watch', type=int, default=0, help="this item in the ring instead of Lara's (no comparison)")
     ap.add_argument('--name', default='retailrun', help='its Mednafen (build/NAME_home): another name runs beside it')
+    ap.add_argument('--save-at', type=int, default=0, help='a save state once retail reaches this game tick (to --state)')
+    ap.add_argument('--state', help='the save state file: written with --save-at, else loaded to start there (the same replay)')
     args = ap.parse_args()
     level, keys = read_replay(args.replay)
     if args.ticks:
@@ -199,31 +225,20 @@ def main():
     code, vars_off = assemble(args.name)
     m = Mednafen(CUE, args.name)
     recs = {}
+    table = b''.join(struct.pack('>H', keys[t]) for t in kept) + struct.pack('>H', NOTHING) * 64
+    resume = args.state and not args.save_at
     try:
         m.send('deterministic', 'deterministic', 10)
-        for st in TITLE_TO_NEW_GAME:
-            if st.startswith('+'):
-                tap(m, st[1:])
-            else:
-                m.send(f'run_to_frame {st}', 'done run_to_frame', 1200)
-        m.send(f'breakpoint {CONTROL_PHASE:08X}', 'breakpoint', 10)
-        while True:
-            m.send('run', 'break pc=', 1200)
-            if m.word(LEVEL) == want:
-                break
-        m.send('breakpoint_clear', 'breakpoint', 10)
-        table = b''.join(struct.pack('>H', keys[t]) for t in kept) + struct.pack('>H', NOTHING) * 64
-        poke(m, TABLE, table)
-        poke(m, SCRIPT, b''.join(struct.pack('>H', k) for k in script))
-        poke(m, RING, bytes(RING_SIZE * ENTRY))
-        poke(m, STUB, code)
-        stop = len(kept) if args.items else 0xFFFFFFFF
-        poke(m, STUB + vars_off, struct.pack('>8I', 1, 0, TABLE, RING, stop, SCRIPT, 0, args.watch))
-        for addr, data, why in PATCHES:
-            poke(m, addr, data)
-        poke(m, POOL, struct.pack('>I', STUB))
+        if resume:
+            # the game as a run of this replay left it (stub, tables and all)
+            m.send(f'load_state {os.path.abspath(args.state).replace(os.sep, "/")}', 'ok load_state', 120)
+            poke(m, STUB + vars_off + 28, struct.pack('>I', args.watch))
+            print(f'resumed at game tick {m.word(STUB + vars_off + 4)}', flush=True)
+        if not resume:
+            arm(m, want, table, script, code, vars_off, len(kept) if args.items else 0xFFFFFFFF, args.watch)
         print(f'armed at vblank {m.send("status", "status", 10).split("frame=")[1].split()[0]}: {len(keys)} ticks, '
               f'{len(keys) - len(kept)} of them in the inventory ({script.count(0)} stays)', flush=True)
+        saved = False
         vblanks = 0
         # the game runs a tick in two vblanks at most: the ring holds 512 vblanks' worth
         step = 300      # (with --items the game holds before the tick after the last: no overshoot)
@@ -253,6 +268,10 @@ def main():
                 if part is None and not args.watch and differs(recs, host, kept, i):
                     part = i
                     print(f"  parted at the host's tick {kept[i] - 1}: on to a few ticks past it", flush=True)
+            if args.save_at and not saved and index >= args.save_at:
+                m.send(f'save_state {os.path.abspath(args.state).replace(os.sep, "/")}', 'ok save_state', 120)
+                print(f'  saved the state at game tick {index}: {args.state}', flush=True)
+                saved = True
             if index >= len(kept) or (part is not None and index > part + 8):
                 break
             # no game tick for two minutes: held somewhere the replay doesn't
@@ -265,8 +284,8 @@ def main():
                 print(f'  no game tick since tick {index} (script at {m.word(STUB + vars_off + 24)} of {len(script)}, '
                       f'picture {shot}): stopped', flush=True)
                 # ours still in place? (the game may have written over low work RAM)
-                stub = m.read(STUB, len(code))
-                print(f'    the stub {"intact" if stub == code else "WRITTEN OVER"}; table head '
+                stub = m.read(STUB, vars_off)      # its code (its vars change as it runs)
+                print(f'    the stub {"intact" if stub == code[:vars_off] else "WRITTEN OVER"}; table head '
                       f'{"intact" if m.read(TABLE, 64) == table[:64] else "WRITTEN OVER"}', flush=True)
                 low = m.read(0x00200000, 0x50000)
                 spans, start = [], None
@@ -279,6 +298,23 @@ def main():
                         spans.append((start, at))
                         start = None
                 print('    low work RAM in use outside ours: ' + ', '.join(f'{0x00200000 + a:08x}..{0x00200000 + b:08x}' for a, b in spans[:12]), flush=True)
+                # room elsewhere: runs of zeros of 16 KB or more in work RAM low
+                # and high and in sound RAM
+                for base, size in ((0x00200000, 0x100000), (0x06000000, 0x100000), (0x25A00000, 0x80000)):
+                    mem = m.read(base, size)
+                    runs, start = [], None
+                    for at in range(0, size, 1024):
+                        zero = not any(mem[at:at + 1024])
+                        if zero and start is None:
+                            start = at
+                        elif not zero and start is not None:
+                            if at - start >= 0x4000:
+                                runs.append((start, at))
+                            start = None
+                    if start is not None and size - start >= 0x4000:
+                        runs.append((start, size))
+                    print(f'    zero runs from {base:08x}: ' + ', '.join(f'{base + a:08x}..{base + b:08x}' for a, b in runs[:16]),
+                          flush=True)
                 # where it is held: the master's PC and PR a few frames apart
                 for _ in range(4):
                     regs = m.send('dump_regs', 'R0=', 10)

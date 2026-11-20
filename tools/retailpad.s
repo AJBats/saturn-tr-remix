@@ -23,6 +23,9 @@
 !   +24  script position (long)
 !   +28  the item recorded in the ring (long): its index, 0 for Lara (the items'
 !        base read each time: a new level moves them)
+!   +32  in an opening (long): set by its first entry read; the next game tick
+!        then moves the script past the opening's end (a menu that shuts on its
+!        last press leaves the gap after it unread)
 ! A ring entry: index (long), seed (long), level (long), 0 or a watched creature's
 ! mood (long), the item (72 bytes), then for a creature its maximum turn and its
 ! target's x and z less its own (halfwords), pad (2)
@@ -69,6 +72,8 @@ script:
     bf      none
     add     #1,r3
     mov.l   r3,@(24,r1)
+    mov     #1,r2
+    mov.l   r2,@(32,r1)     ! in an opening
     bra     feed
     nop
 none:
@@ -82,18 +87,27 @@ hold:
     mov.l   @(16,r1),r0     ! held before this tick while stop-at is it
     cmp/eq  r0,r3
     bt      hold
-    ! the script's end of an opening stepped past: the next opening reads on
+    ! after an opening, the script past its end: the next opening reads on
+    mov.l   @(32,r1),r0
+    tst     r0,r0
+    bt      entry
+    mov     #0,r0
+    mov.l   r0,@(32,r1)
     mov.l   @(20,r1),r4
     mov.l   @(24,r1),r6
     mov     r6,r5
     shll    r5
-    add     r5,r4
-    mov.w   @r4,r0
+    add     r5,r4           ! r4: the script's entry at the position
+seek:
+    mov.w   @r4+,r0
     extu.w  r0,r0
+    mov     #1,r2
+    cmp/eq  r2,r0           ! the end of them all: stay on it
+    bt      entry
     tst     r0,r0
-    bf      entry
+    bf/s    seek
     add     #1,r6
-    mov.l   r6,@(24,r1)
+    mov.l   r6,@(24,r1)     ! just past the opening's end
 entry:
     ! the ring entry
     mov     r3,r4
@@ -200,4 +214,4 @@ through: .long 0x20000000
 mask:   .word 255
     .align 2
     .global vars
-vars:   .long 0, 0, 0, 0, -1, 0, 0, 0
+vars:   .long 0, 0, 0, 0, -1, 0, 0, 0, 0
