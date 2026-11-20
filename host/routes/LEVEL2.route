@@ -78,10 +78,9 @@ timed 61 23040 29184
 timed 61 20992 29184
 switch 60
 # swum through to the second pool, up the stairs: the switch that opens the
-# exit's gate; the bear in the hall shot from the balcony
+# exit's gate; the bear in the hall shot from where it can't reach (a balcony)
 switch 84
-goto 72 15872 31232
-fight 8192
+safe 82 72 15872 31232
 # the switch that stops the blades, the doorway opposite: down twice to secret 3
 switch 83
 pickup 89

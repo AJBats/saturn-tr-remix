@@ -27,8 +27,8 @@
 //                                 statistics and "Save Game?" to the next level
 //   use small|big                 a medipack from the ring (also used by
 //                                 themselves when she's low)
-//   safe ITEM                     that creature (awake) shot dead from the
-//                                 nearest spot it can't reach (the T-rex)
+//   safe ITEM [ROOM X Z]          that creature (awake) shot dead from a spot
+//                                 it can't reach, that one or the bot's pick
 //   fight [RANGE]                 guns drawn, every creature awake within
 //                                 RANGE (4096 if none) shot dead
 //   attempt ROOM X Z [TRIES]      the lines to `end` (keys, wait, face, goto)
@@ -1428,10 +1428,25 @@ static bool goTo(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius = 96
 static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius, bool &again)
 {
     static int32 path[1024];
+    // sliding or falling (a drop that went on down a slope): to rest first; a
+    // slide wedged against a wall (no way on) left with a jump
+    vec3i last = lara()->pos;
+    int32 still = 0;
+    for (int32 i = 0; i < 300 && lara()->waterState == WATER_STATE_ABOVE && !standing() && lara()->health > 0; i++)
+    {
+        int32 st = lara()->state;
+        if (st != Lara::STATE_SLIDE && st != Lara::STATE_SLIDE_BACK && st != Lara::STATE_FALL && st != Lara::STATE_FALL_BACK)
+            break;
+        still = (lara()->pos.x == last.x && lara()->pos.z == last.z) ? still + 1 : 0;
+        last = lara()->pos;
+        step(still > 30 && (st == Lara::STATE_SLIDE || st == Lara::STATE_SLIDE_BACK) ? IK_A : 0);
+    }
     if (nearestFoe(3072))
     {
         if (!fightBest())
             return false;
+        // moves that failed with it about may work now
+        gBlockedCount = 0;
         again = true;
         return false;
     }
@@ -1481,6 +1496,8 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
             // run in off the side, then plan again from the water
             if (!goStraight(cellX(a), cellZ(a), 256, walk) || !settle() || !turnTo(int16(phd_atan(dz, dx)), ANGLE(4))) {
                 fail("couldn't stand at the water");
+                block(a, dx, dz);
+                again = true;
                 return false;
             }
             for (int32 t = 0; t < 120 && lara()->waterState == WATER_STATE_ABOVE; t++) {
@@ -1572,6 +1589,8 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
             if (!goStraight(cellX(a), cellZ(a), 256, walk) || !settle() ||
                 !turnTo(int16(phd_atan(dz, dx)), ANGLE(4))) {
                 fail("couldn't stand at the drop");
+                block(a, dx, dz);
+                again = true;
                 return false;
             }
             for (int32 t = 0; t < 90 && (lara()->pos.x >> 10) == a.sx && (lara()->pos.z >> 10) == a.sz; t++) {
@@ -2171,65 +2190,10 @@ static bool fight(const FightStyle &st, int32 range = 4096, int32 maxTicks = 30 
 
 // A fight played each way in kFightStyles in a trial, the one that leaves
 // her the most health played for real.
-// A creature too strong to fight in the open (the T-rex) fought from where
-// it can't follow: a sector she can reach that lies in no box the creature
-// walks (its zone, as its own pathfinding sees it) and two sectors from every
-// one of them, the one with the most of its ground within shot (2 to 6
-// sectors off), the nearer of equals; run to, then shot from, standing.
-static bool fightFromSafety(ItemObj* foe, int32 range)
+// Stood where it can't reach her: turned to it and shot whenever it's near,
+// waited for as it roams (played as it goes, no trial), up to 40 minutes.
+static bool shootFromHere(ItemObj* foe)
 {
-    if (!foe->extraE || foe->extraE->nav.zoneType == ZONE_FLY)
-        return false;
-    const Nav &nav = foe->extraE->nav;
-    const uint16* zones = level.zones[gSaveGame.flipped][nav.zoneType];
-    uint16 zone = zones[foe->room->getSector(foe->pos.x, foe->pos.z)->boxIndex];
-    // every sector she can reach: the planner's search with nowhere to stop
-    static int32 path[1024];
-    obstaclesFind();
-    sectorPath(int32(lara()->room - rooms), -0x400000, -0x400000, path, X_COUNT(path));
-    int32 best = -1, bestSeen = 0;
-    for (int32 i = 0; i < gCellsCount; i++)
-    {
-        const Cell &c = gCells[i];
-        if (c.water || c.cost == 0x7FFFFFFF || c.cost > 60 * 1024)
-            continue;
-        int32 cx = cellX(c), cz = cellZ(c);
-        int32 nearest = 0x7FFFFFFF, seen = 0;
-        for (int32 b = 0; b < level.boxesCount && nearest >= 2048; b++)
-        {
-            const Box &box = level.boxes[b];
-            if (zones[b] != zone || (box.overlap & nav.mask))
-                continue;
-            int32 dx = X_MAX(0, X_MAX((box.minX << 10) - cx, cx - (box.maxX << 10)));
-            int32 dz = X_MAX(0, X_MAX((box.minZ << 10) - cz, cz - (box.maxZ << 10)));
-            int32 d = X_MAX(dx, dz);
-            nearest = X_MIN(nearest, d);
-            if (d <= 6144) {
-                seen += (box.maxX - box.minX) * (box.maxZ - box.minZ);
-            }
-        }
-        if (nearest < 2048 || seen == 0)
-            continue;
-        if (best < 0 || seen > bestSeen || (seen == bestSeen && c.cost < gCells[best].cost))
-        {
-            best = i;
-            bestSeen = seen;
-        }
-    }
-    if (best < 0) {
-        fail("no safe spot to fight it from");
-        return false;
-    }
-    const Cell target = gCells[best];
-    printf("  safe spot: %d,%d floor %d room %d (%d sectors of its ground within shot)\n", cellX(target), cellZ(target),
-           target.floor, int32(target.room - rooms), bestSeen);
-    gFleeing = true;
-    bool there = goTo(int32(target.room - rooms), cellX(target), cellZ(target), false, 256);
-    gFleeing = false;
-    if (!there)
-        return false;
-    // stood: turned to it and shot whenever it's near, waited for as it roams
-    // (it can't come for her here: played as it goes, no trial), up to 40 minutes
     ExtraInfoLara* e = lara()->extraL;
     int32 t0 = gTick;
     for (int32 i = 0; i < 30 * 60 * 40 && foe->health > 0; i++)
@@ -2263,7 +2227,97 @@ static bool fightFromSafety(ItemObj* foe, int32 range)
         return false;
     }
     printf("  fight from safety: %d s, health %d\n", (gTick - t0) / 30, lara()->health);
+    // guns away (a switch wants her hands free)
+    for (int32 i = 0; i < 60 && e->weaponState != WEAPON_STATE_FREE; i++) {
+        step(i == 0 ? IK_C : 0);
+    }
+    settle(60);
     return true;
+}
+
+// A creature too strong to fight in the open (the T-rex) fought from where
+// it can't follow: a sector she can reach that lies in no box the creature
+// walks (its zone, as its own pathfinding sees it) and two sectors from every
+// one of them: the one whose way there crosses least of its ground, then with
+// the most of its ground within shot (2 to 6 sectors off), then the nearest;
+// run to, then shot from, standing.
+static bool fightFromSafety(ItemObj* foe, int32 range)
+{
+    if (!foe->extraE || foe->extraE->nav.zoneType == ZONE_FLY)
+        return false;
+    const Nav &nav = foe->extraE->nav;
+    const uint16* zones = level.zones[gSaveGame.flipped][nav.zoneType];
+    uint16 zone = zones[foe->room->getSector(foe->pos.x, foe->pos.z)->boxIndex];
+    // every sector she can reach: the planner's search with nowhere to stop
+    static int32 path[1024];
+    obstaclesFind();
+    sectorPath(int32(lara()->room - rooms), -0x400000, -0x400000, path, X_COUNT(path));
+    // how many of the sectors on her way to each lie in its zone (the fewer,
+    // the less she meets it on the way)
+    static int16 exposure[BOT_CELLS];
+    for (int32 i = 0; i < gCellsCount; i++) {
+        exposure[i] = -1;
+    }
+    for (int32 i = 0; i < gCellsCount; i++)
+    {
+        int32 chain[256], n = 0, c = i;
+        while (c >= 0 && exposure[c] < 0 && n < 256)
+        {
+            chain[n++] = c;
+            c = gCells[c].from;
+        }
+        int32 e = (c >= 0 && exposure[c] >= 0) ? exposure[c] : 0;
+        while (n > 0)
+        {
+            const Cell &q = gCells[chain[--n]];
+            uint16 box = q.room->getSector(cellX(q), cellZ(q))->boxIndex;
+            e += (!q.water && box != NO_BOX && zones[box] == zone) ? 1 : 0;
+            exposure[chain[n]] = int16(X_MIN(e, 0x7FFF));
+        }
+    }
+    int32 best = -1, bestSeen = 0;
+    for (int32 i = 0; i < gCellsCount; i++)
+    {
+        const Cell &c = gCells[i];
+        if (c.water || c.cost == 0x7FFFFFFF || c.cost > 60 * 1024)
+            continue;
+        int32 cx = cellX(c), cz = cellZ(c);
+        int32 nearest = 0x7FFFFFFF, seen = 0;
+        for (int32 b = 0; b < level.boxesCount && nearest >= 2048; b++)
+        {
+            const Box &box = level.boxes[b];
+            if (zones[b] != zone || (box.overlap & nav.mask))
+                continue;
+            int32 dx = X_MAX(0, X_MAX((box.minX << 10) - cx, cx - (box.maxX << 10)));
+            int32 dz = X_MAX(0, X_MAX((box.minZ << 10) - cz, cz - (box.maxZ << 10)));
+            int32 d = X_MAX(dx, dz);
+            nearest = X_MIN(nearest, d);
+            if (d <= 6144) {
+                seen += (box.maxX - box.minX) * (box.maxZ - box.minZ);
+            }
+        }
+        if (nearest < 2048 || seen == 0)
+            continue;
+        if (best < 0 || exposure[i] < exposure[best] ||
+            (exposure[i] == exposure[best] && (seen > bestSeen || (seen == bestSeen && c.cost < gCells[best].cost))))
+        {
+            best = i;
+            bestSeen = seen;
+        }
+    }
+    if (best < 0) {
+        fail("no safe spot to fight it from");
+        return false;
+    }
+    const Cell target = gCells[best];
+    printf("  safe spot: %d,%d floor %d room %d (%d sectors of its ground within shot, %d of it on the way)\n", cellX(target),
+           cellZ(target), target.floor, int32(target.room - rooms), bestSeen, exposure[best]);
+    gFleeing = true;
+    bool there = goTo(int32(target.room - rooms), cellX(target), cellZ(target), false, 256);
+    gFleeing = false;
+    if (!there)
+        return false;
+    return shootFromHere(foe);
 }
 
 static bool fightBest(int32 range)
@@ -2659,8 +2713,11 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             // the statistics and the "Save Game?" prompt till the next level is up
             LevelID was = gLevelID;
             goTo(atoi(a), atoi(b), atoi(c), false);
-            for (int32 i = 0; i < 30 * 120 && (gLevelID == was || !players[0]); i++) {
-                step((i % 8) == 0 ? IK_A : 0);
+            // (at "Save Game?" No, as a QA run leaves the backup memory alone)
+            for (int32 i = 0; i < 30 * 120 && (gLevelID == was || !players[0]); i++)
+            {
+                bool ask = inventory.state != INV_STATE_NONE && inventory.page == INV_PAGE_SAVE && inventory.optionIndex == 0;
+                step((i % 8) == 0 ? (ask ? IK_RIGHT : IK_A) : 0);
             }
             ok = gLevelID != was;
             if (ok) {
@@ -2677,9 +2734,19 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             // push|pull ITEM DEGREES TIMES: a block moved that way, a sector a time
             ok = moveBlock(atoi(a), int16(atoi(b) * 0x10000 / 360), atoi(c), !strcmp(cmd, "pull"));
         } else if (!strcmp(cmd, "safe") && n >= 2) {
-            // safe ITEM: the creature fought from a spot it can't reach, till it's dead
+            // safe ITEM [ROOM X Z]: the creature fought from a spot it can't
+            // reach (that one, or the bot's pick), till it's dead
             ItemObj* foe = items + atoi(a);
-            ok = foe->health > 0 ? fightFromSafety(foe, 8192) : true;
+            if (foe->health <= 0) {
+                ok = true;
+            } else if (n >= 5) {
+                gFleeing = true;
+                ok = goTo(atoi(b), atoi(c), atoi(d), false, 128);
+                gFleeing = false;
+                ok = ok && shootFromHere(foe);
+            } else {
+                ok = fightFromSafety(foe, 8192);
+            }
         } else if (!strcmp(cmd, "timed") && n >= 4) {
             ok = timed(atoi(a), atoi(b), atoi(c), n >= 5 ? atoi(d) : 90);
         } else if (!strcmp(cmd, "collapse") && n >= 2) {
