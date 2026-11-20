@@ -954,7 +954,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 ## Closed
 
 ### 315. Darts hit Lara at once and never push her
-*Closed 2026-11-20: COMMIT. As retail: a dart touching her pushes her out of it (ObjectCollision, `0600ec4c`) and takes its 50 at its own next update (DartsControl, `060304b4`), the touch cleared as it animates (AnimateItem, `0600f894`). The bot's Caves run played by retail now matches past the darts.*
+*Closed 2026-11-20: 2e6ccc6. As retail: a dart touching her pushes her out of it (ObjectCollision, `0600ec4c`) and takes its 50 at its own next update (DartsControl, `060304b4`), the touch cleared as it animates (AnimateItem, `0600f894`). The bot's Caves run played by retail now matches past the darts.*
 
 *Severity: gameplay · Confidence: confirmed (retail run in Mednafen) · Fix: small*
 
