@@ -1549,8 +1549,8 @@ void ItemObj::collidePush(Lara* lara, CollisionInfo* cinfo, bool enemyHit, bool 
 
     if (enemyHit)
     {
-        int32 cx = (minX + maxX) >> 1;
-        int32 cz = (minZ + maxZ) >> 1;
+        int32 cx = (minX + maxX) / 2; // @DIV (retail halves toward zero)
+        int32 cz = (minZ + maxZ) / 2; // @DIV
         dx -= X_ROTX(cx, cz, s, c);
         dz -= X_ROTY(cx, cz, s, c);
         lara->animHit(dx, dz, 0);

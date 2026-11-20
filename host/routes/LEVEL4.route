@@ -1,8 +1,9 @@
 # St. Francis' Folly at 100%, in progress (Stella: 23 kills, 19 pickups with
 # the 4 keys, 4 secrets). Done: the lions, the omega block, the gorilla room,
 # Pierre driven off (he can't be killed here), the pillars and ledges to the
-# balcony door (the large medipack), the long slide, the crocodile. Next: the
-# tall room's four doors; secrets 1, 2 and 3 (see their notes).
+# balcony door (the large medipack), the long slide, the crocodile, two of
+# the tall room's switches. Next: back up the tall room, the four keys, the
+# lions and Pierre at the exit; secrets 1 to 4 (see their notes).
 # tools/levelmap.py draws the level.
 start LEVEL4 newgame
 wait 30
@@ -74,3 +75,12 @@ goto 12 41984 34304
 fight 8192
 # along the drained passage west and up the stairs to the tall room's top
 goto3 18 33280 11008 41472
+# the tall room: a running jump from the west ledge onto the central
+# structure; the switch on the fifth level (opens the door on the third),
+# then down to the bottom's switch (opens the door at the top). Next: back up
+# by Stella's ledges (the planner finds no way up), the keys behind the doors
+draw
+goto3 18 38400 11520 42496
+fight 8192
+switch 49
+switch 9
