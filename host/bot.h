@@ -237,6 +237,8 @@ static bool turnTo(int16 heading, int32 tol = ANGLE(2))
 static ItemObj* nearestFoe(int32 range);
 static bool gThreatsOnly;   // while she's on her way: nearestFoe() sees threats only
 static bool gFleeing;       // on her way to a safe spot: nearestFoe() sees none
+static ItemObj* gKeepsOff;  // a creature no fight could touch (it kept off her), left alone a while
+static int32 gKeepsOffUntil, gKeepsOffHealth;
 
 static bool goStraight(int32 x, int32 z, int32 radius, bool walk, int32 maxTicks = 30 * 120, bool wary = false)
 {
@@ -2351,6 +2353,9 @@ static ItemObj* nearestFoe(int32 range)
     {
         if (!isCreature(item) || item->health <= 0 || (gThreatsOnly && !isThreat(item)))
             continue;
+        // left alone for half a minute while it keeps off her (till it hurts her)
+        if (item == gKeepsOff && gTick < gKeepsOffUntil && lara()->health >= gKeepsOffHealth)
+            continue;
         int32 d = distTo(item->pos.x, item->pos.z);
         if (d < bestDist) {
             best = item;
@@ -2720,10 +2725,12 @@ static bool fightBest(int32 range)
 {
     static uint32 keys[BOT_TRIAL_TICKS];
     int32 best = -1, bestTicks = 0, bestScore = -1;
+    int32 health = lara()->health;
+    bool untouched = false;     // a fight lost only by running out of time, not a scratch on her
     for (int32 v = 0; v < int32(X_COUNT(kFightStyles)); v++)
     {
         int32 ticks = 0;
-        int32 score = trial([v, range]() {
+        int32 score = trial([v, range, health]() {
             bool won = fight(kFightStyles[v], range);
             static bool tell = getenv("BOT_FIGHTS") != NULL;
             if (tell) {
@@ -2731,8 +2738,12 @@ static bool fightBest(int32 range)
                 fprintf(stderr, "  fight style %d at tick %d: %s, health %d, foe %d (health %d)\n", v, gTick, won ? "won" : "lost",
                         lara()->health, foe ? int32(foe - items) : -1, foe ? foe->health : 0);
             }
-            return won ? lara()->health : -1;
+            return won ? lara()->health : (lara()->health >= health ? -2 : -1);
         }, NULL, NULL);
+        untouched = untouched || score == -2;
+        if (score < 0) {
+            score = -1;
+        }
         if (score > bestScore)
         {
             bestScore = score;
@@ -2744,6 +2755,16 @@ static bool fightBest(int32 range)
     if (best < 0)
     {
         ItemObj* foe = nearestFoe(range);
+        // one that keeps its distance (a bat circling below, out of aim) and
+        // in one of them never touches her: no fight, her way goes on
+        if (untouched && foe)
+        {
+            printf("  no fight: %d keeps off\n", int32(foe - items));
+            gKeepsOff = foe;
+            gKeepsOffUntil = gTick + 30 * 30;
+            gKeepsOffHealth = lara()->health;
+            return true;
+        }
         if (foe && fightFromSafety(foe, X_MAX(range, 8192)))
             return true;
         fail("every way of fighting died");
