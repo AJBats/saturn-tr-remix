@@ -953,6 +953,13 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 328. A creature that's stopped or dead never checks for a creature it overlaps
+*Closed 2026-11-20: COMMIT. Retail's CreatureCreature (0600ae8c) checks every creature, whatever its own speed or hit points, against the moving creatures ahead of it in its room's list, and CreatureAnimation puts one that overlaps back where it was, height and all. Ours skipped a creature that wasn't moving or was dead, so a bat shot down beside a live one fell at once; retail's hung in the air till the live one moved off, then dropped with the fall speed it had gathered. Both attract demos still match retail.*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen, the dead bat recorded; it and Lara match retail tick for tick) · Fix: trivial*
+
+- **Found 2026-11-20** by the bot's chained run played by retail (CHAIN_r327): in Vilcabamba room 4 (the host's tick 27,647) the falling bat pushed Lara a few units further in retail than ours; `--watch 38` showed retail's bat hanging at its height while ours fell.
+
 ### 327. A forward jump that smashes into a wall as it lands skips the smash
 *Closed 2026-11-20: bba5e78. Retail's ColForwardJump (0601c5cc) lets LaraDeflectEdgeJump (0601daf0) set the smash (fast fall, its animation from frame 481, speed a quarter, turned back) and then lands her by the forward jump's own rule: goal stop or run, speed 0, the smash animated on a frame. The next tick ColFastFall (0601c950), which lands whatever the fall speed, gives the landing animation. Ours landed by the state the smash had just set (the fall) and took the landing animation at once, keeping her speed; and our fall's landing waited for a fall speed. Both attract demos still match retail.*
 

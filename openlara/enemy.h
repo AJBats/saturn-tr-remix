@@ -571,11 +571,10 @@ struct Enemy : ItemObj
     // A moving creature ahead of this one in its room's list and nearer than
     // this one's radius, as TR1 tests: each pair once, so the later one gives
     // way and the two part.
+    // retail's CreatureCreature (0600ae8c): any creature, moving or not, dead
+    // or alive (a dead bat falling through a live one is held where it was)
     bool overlapsCreature()
     {
-        if (!hSpeed || health <= 0)
-            return false;
-
         int32 r2 = X_SQR(int32(radius));
         for (ItemObj* item = room->firstItem; item && item != this; item = item->nextItem)
         {
