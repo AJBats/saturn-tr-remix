@@ -82,11 +82,11 @@ static void step(uint32 k)
     {
         const Lara* l = players[0];
         const ExtraInfoLara* e = l->extraL;
-        printf("  tick %5d keys %04x room %3d pos %6d %6d %6d yaw %5d state %2d anim %3d:%d speed %3d health %4d "
-               "gun %d/%d target %d aim %d arm %d:%d\n",
-               gTick, k, int32(l->room - rooms), l->pos.x, l->pos.y, l->pos.z, uint16(l->angle.y), l->state, l->animIndex, l->frameIndex,
-               l->hSpeed, l->health, e->weapon, e->weaponState, e->armR.target ? int32(e->armR.target - items) : -1,
-               e->armR.aim, e->armR.animIndex, e->armR.frameIndex);
+        printf("  tick %5d keys %04x room %3d pos %6d %6d %6d yaw %5d pitch %6d state %2d anim %3d:%d speed %3d vspeed %3d water %d "
+               "health %4d gun %d/%d target %d aim %d arm %d:%d\n",
+               gTick, k, int32(l->room - rooms), l->pos.x, l->pos.y, l->pos.z, uint16(l->angle.y), l->angle.x, l->state, l->animIndex,
+               l->frameIndex, l->hSpeed, l->vSpeed, l->waterState, l->health, e->weapon, e->weaponState,
+               e->armR.target ? int32(e->armR.target - items) : -1, e->armR.aim, e->armR.animIndex, e->armR.frameIndex);
         if (l->state == Lara::STATE_HANG || getenv("BOT_CINFO")) {
             printf("     hang: front %d/%d left %d/%d right %d/%d mid %d/%d static %d type %d\n", cinfo.f.floor, cinfo.f.ceiling,
                    cinfo.l.floor, cinfo.l.ceiling, cinfo.r.floor, cinfo.r.ceiling, cinfo.m.floor, cinfo.m.ceiling, cinfo.staticHit,
@@ -282,6 +282,7 @@ static bool goStraight(int32 x, int32 z, int32 radius, bool walk, int32 maxTicks
 // Action). A straight run between two points is taken where every point
 // along it, and either side of it by her width, is a walk from the last.
 #define BOT_MAX_DROP    2048
+#define BOT_SAFE_DROP   1664       // run off, she lands below 140 a tick: no harm (more: 66 at seven clicks, 395 at 7.5)
 #define BOT_MAX_HANG_DROP 3584     // hung from the edge first: her height and reach off the fall
 #define BOT_MAX_CLIMB   1920
 #define BOT_CELLS       16384
@@ -310,6 +311,10 @@ static Spot spotAt(Room* from, int32 x, int32 y, int32 z)
 struct Obstacle
 {
     int32 minX, maxX, minY, maxY, minZ, maxZ;
+    // turned (a body): x, z also inside its own box, lx/lz, about cx, cz by
+    // the turn's sin and cos (0, 0: not turned)
+    int32 cx, cz, s, c;
+    int32 lminX, lmaxX, lminZ, lmaxZ;
 };
 static Obstacle gObstacles[1024];
 static int32 gObstaclesCount;
@@ -332,6 +337,18 @@ static bool trapAt(int32 sx, int32 sz, int32 floor)
             return true;
     }
     return false;
+}
+
+// One obstacle in the way of her standing at x, z on that floor.
+static bool inObstacle(const Obstacle &o, int32 x, int32 floor, int32 z)
+{
+    if (x <= o.minX || x >= o.maxX || z <= o.minZ || z >= o.maxZ || o.maxY <= floor - LARA_HEIGHT || o.minY >= floor - 64)
+        return false;
+    if (!o.s && !o.c)
+        return true;
+    int32 dx = x - o.cx, dz = z - o.cz;
+    int32 lx = (dx * o.c - dz * o.s) >> FIXED_SHIFT, lz = (dz * o.c + dx * o.s) >> FIXED_SHIFT;
+    return lx > o.lminX && lx < o.lmaxX && lz > o.lminZ && lz < o.lmaxZ;
 }
 
 static void obstaclesFind()
@@ -364,7 +381,7 @@ static void obstaclesFind()
             int32 z = (room.info->z << 8) + (int32(mesh->zf) >> 16);
             if ((box.maxX - box.minX < 32 || box.maxZ - box.minZ < 32) && getenv("BOT_THIN") == NULL)
                 continue;
-            Obstacle &o = gObstacles[gObstaclesCount++];
+            Obstacle &o = gObstacles[gObstaclesCount++] = Obstacle();
             o.minX = x + box.minX - LARA_RADIUS;
             o.maxX = x + box.maxX + LARA_RADIUS;
             o.minY = y + box.minY;
@@ -378,7 +395,7 @@ static void obstaclesFind()
         const ItemObj* item = items + i;
         if (item->type != ITEM_CRYSTAL || !item->room)
             continue;
-        Obstacle &o = gObstacles[gObstaclesCount++];
+        Obstacle &o = gObstacles[gObstaclesCount++] = Obstacle();
         o.minX = item->pos.x - 160 - LARA_RADIUS;
         o.maxX = item->pos.x + 160 + LARA_RADIUS;
         o.minY = item->pos.y - 1024;
@@ -398,7 +415,15 @@ static void obstaclesFind()
         if (X_MAX(box.maxX - box.minX, box.maxZ - box.minZ) < 1536)
             continue;
         int32 s = sinRetail(item->angle.y), c = cosRetail(item->angle.y);
-        Obstacle &o = gObstacles[gObstaclesCount++];
+        Obstacle &o = gObstacles[gObstaclesCount++] = Obstacle();
+        o.cx = item->pos.x;
+        o.cz = item->pos.z;
+        o.s = s;
+        o.c = c;
+        o.lminX = box.minX - 64;
+        o.lmaxX = box.maxX + 64;
+        o.lminZ = box.minZ - 64;
+        o.lmaxZ = box.maxZ + 64;
         o.minX = o.minZ = 0x7FFFFFFF;
         o.maxX = o.maxZ = -0x7FFFFFFF;
         for (int32 k = 0; k < 4; k++)
@@ -413,6 +438,11 @@ static void obstaclesFind()
         }
         o.minY = item->pos.y + box.minY;
         o.maxY = item->pos.y + box.maxY;
+        // her own spot in its box: what stops her is its body, not all its
+        // box (a tail's reach), so there's room there; this plan goes without it
+        if (lara() && inObstacle(o, lara()->pos.x, lara()->pos.y, lara()->pos.z)) {
+            gObstaclesCount--;
+        }
     }
 }
 
@@ -421,8 +451,7 @@ static bool blocked(int32 x, int32 floor, int32 z)
 {
     for (int32 i = 0; i < gObstaclesCount; i++)
     {
-        const Obstacle &o = gObstacles[i];
-        if (x > o.minX && x < o.maxX && z > o.minZ && z < o.maxZ && o.maxY > floor - LARA_HEIGHT && o.minY < floor - 64)
+        if (inObstacle(gObstacles[i], x, floor, z))
             return true;
     }
     return false;
@@ -544,10 +573,15 @@ static Move moveBetweenFlat(const Cell &a, int32 dx, int32 dz, Spot &b)
                 return MOVE_CLIMB;
         }
     }
+    // a floor under water is no floor to drop onto (waterMoves: into the water)
+    if (ROOM_FLAG_WATER(b.room->getRoom(nx, b.floor - 32, nz)->info->flags))
+        return MOVE_NONE;
+    // a fall that would hurt from a level edge is hung from first
+    bool level = abs(side.floor - a.floor) <= 64;
+    if (down > BOT_SAFE_DROP && down <= BOT_MAX_HANG_DROP && level && edge.floor >= side.floor - 256)
+        return MOVE_HANG_DROP;
     if (down > 256 && down <= BOT_MAX_DROP && edge.floor >= side.floor - 256)
         return MOVE_DROP;
-    if (down > BOT_MAX_DROP && down <= BOT_MAX_HANG_DROP && abs(side.floor - a.floor) <= 64 && edge.floor >= side.floor - 256)
-        return MOVE_HANG_DROP;
     return MOVE_NONE;
 }
 
@@ -909,7 +943,7 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                     continue;
                 int32 cost = gCells[c].cost + 1024;
                 if (m == MOVE_DROP) {
-                    cost += 2048 + (b.floor - gCells[c].floor);
+                    cost += 2048 + (b.floor - gCells[c].floor) + (b.floor - gCells[c].floor > BOT_SAFE_DROP ? 16384 : 0);
                 } else if (m == MOVE_HANG_DROP) {
                     cost += 4096 + (b.floor - gCells[c].floor);
                 } else if (m == MOVE_CLIMB) {
@@ -1207,30 +1241,80 @@ static bool jumpAcross(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor
 }
 
 // Down a drop too deep to fall: stood at the edge with her back to it, a
-// step back with Action held hangs her from it, then let go.
-static bool hangDrop(const Cell &a, int32 dx, int32 dz, int32 floor)
+// step back with Action held hangs her from it, then let go. Stood off from
+// the sector's middle by off (toward the drop); her health at the bottom, or
+// -1. Off an edge that is a slope she slides instead: her health with
+// kElsewhere if she comes to rest alive (the way planned again from there).
+static const int32 kElsewhere = 0x100000;
+
+static int32 hangTry(const Cell &a, int32 dx, int32 dz, int32 floor, int32 off)
 {
     int16 heading = int16(phd_atan(-dz, -dx));     // facing away from the drop
-    int32 sx = cellX(a) + dx * 380, sz = cellZ(a) + dz * 380;
-    if (!goStraight(sx, sz, 48, true) || !settle() || !turnTo(heading, ANGLE(3))) {
-        fail("couldn't stand at the edge to hang");
-        return false;
+    int32 sx = cellX(a) + dx * off, sz = cellZ(a) + dz * off;
+    if (!goStraight(sx, sz, 48, true) || !settle() || !turnTo(heading, ANGLE(3)))
+        return -1;
+    static bool tell = getenv("BOT_JUMPS") != NULL;
+    if (tell) {
+        fprintf(stderr, "hang from %d,%d by %d,%d off %d: at the edge %d,%d,%d yaw %d\n", cellX(a), cellZ(a), dx, dz, off,
+                lara()->pos.x, lara()->pos.y, lara()->pos.z, uint16(lara()->angle.y));
     }
     for (int32 i = 0; i < 60 && lara()->state != Lara::STATE_HANG; i++) {
         step(IK_DOWN | IK_B);
     }
-    if (lara()->state != Lara::STATE_HANG) {
-        fail("didn't hang from the edge");
-        return false;
+    if (lara()->state != Lara::STATE_HANG)
+    {
+        for (int32 i = 0; i < 150 && !(standing() && lara()->hSpeed == 0) && lara()->health > 0; i++) {
+            step(0);
+        }
+        if (tell) {
+            fprintf(stderr, "  no hang: at rest %d,%d,%d state %d health %d\n", lara()->pos.x, lara()->pos.y, lara()->pos.z,
+                    lara()->state, lara()->health);
+        }
+        return (lara()->health > 0) ? (lara()->health | kElsewhere) : -1;     // still sliding: goToOnce sees her out of it
     }
     for (int32 i = 0; i < 90; i++)
     {
         if (standing() && abs(lara()->pos.y - floor) < 128)
-            return true;
+            return lara()->health;
         step(0);
     }
-    fail("the drop from hanging went wrong");
-    return false;
+    if (tell) {
+        fprintf(stderr, "  hung, not down: %d,%d,%d state %d (floor %d)\n", lara()->pos.x, lara()->pos.y, lara()->pos.z, lara()->state,
+                floor);
+    }
+    return -1;
+}
+
+// The edge's stand-off tried a few ways, the first that hangs her and lands
+// her played (1); else the slide that leaves her the most health (2: plan
+// again from where she is); 0 if none.
+static int32 hangDrop(const Cell &a, int32 dx, int32 dz, int32 floor)
+{
+    static const int32 kOff[] = { 380, 330, 430, 280, 470 };
+    int32 slide = -1, slideOff = 0;
+    for (int32 v = 0; v < int32(X_COUNT(kOff)); v++)
+    {
+        int32 ticks = 0;
+        int32 score = trial([&]() { return hangTry(a, dx, dz, floor, kOff[v]); }, gJumpBest, &ticks);
+        if (score >= 0 && !(score & kElsewhere))
+        {
+            play(gJumpBest, ticks);
+            return 1;
+        }
+        if (score >= 0 && (score & ~kElsewhere) > slide) {
+            slide = score & ~kElsewhere;
+            slideOff = kOff[v];
+        }
+    }
+    if (slide < 0) {
+        fail("didn't hang from the edge and drop");
+        return 0;
+    }
+    int32 ticks = 0;
+    trial([&]() { return hangTry(a, dx, dz, floor, slideOff); }, gJumpBest, &ticks);
+    play(gJumpBest, ticks);
+    printf("  slid down off the edge, health %d\n", lara()->health);
+    return 2;
 }
 
 // An item of the ring used, as a player does it: START opens the ring, left
@@ -1330,7 +1414,7 @@ static bool swimTo(int32 x, int32 y, int32 z, int32 radius, int32 maxTicks = 30 
         else if (l->waterState == WATER_STATE_UNDER)
         {
             int16 pitch = int16(phd_atan(dh, -dy));     // up is positive, as angle.x
-            int16 dpitch = int16(pitch - l->angle.x);
+            int32 dpitch = int32(pitch) - l->angle.x;      // unwrapped: her pitch goes to 100 degrees, past straight up or down
             bool overhead = dh < 384 && abs(dy) > 600;     // straight up or down: no heading to turn to
             if (overhead) {
                 dyaw = 0;
@@ -1517,6 +1601,11 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
     {
         const Cell &a = gCells[path[i]], &b = gCells[path[i + 1]];
         int32 dx = b.sx - a.sx, dz = b.sz - a.sz;
+        // low before a drop or a jump (a fall of seven clicks takes a fifth
+        // of her health): a medipack first
+        if ((abs(dx) + abs(dz) > 1 || b.move == MOVE_DROP || b.move == MOVE_HANG_DROP) && lara()->health < 500 && settle()) {
+            heal();
+        }
         if (abs(dx) + abs(dz) > 1)
         {
             int32 gap = X_MAX(abs(dx), abs(dz)) - 1;
@@ -1618,7 +1707,8 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
         }
         if (m == MOVE_HANG_DROP)
         {
-            if (!hangDrop(a, dx, dz, b.floor))
+            // not as planned (slid off it somewhere): not tried again from there
+            if (hangDrop(a, dx, dz, b.floor) != 1)
             {
                 block(a, dx, dz);
                 again = true;
@@ -1641,7 +1731,7 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
             for (int32 t = 0; t < 90 && (lara()->pos.x >> 10) == a.sx && (lara()->pos.z >> 10) == a.sz; t++) {
                 step(IK_UP);
             }
-            if (!settle(150) && lara()->health > 0) {
+            if (!settle(150) && lara()->health > 0 && lara()->waterState == WATER_STATE_ABOVE) {     // in water: planned on from there
                 fail("didn't come to rest after the drop");
                 return false;
             }
@@ -2302,10 +2392,11 @@ static bool lureSpot(ItemObj* foe, int32 &room, int32 &x, int32 &z)
 
 // A lure: into its zone, shot at as it comes, back to the spot before it's
 // within near. Its score: her health, with 32 for each hit on it; < 0 if she
-// died, didn't get back, or it wasn't hit.
+// didn't get back, it wasn't hit, or it cost her more than a fifth of her
+// health (a bite: the next lure is safer).
 static int32 lureTry(ItemObj* foe, int32 lroom, int32 lx, int32 lz, int32 sroom, int32 sx, int32 sz, int32 near)
 {
-    int32 hp = foe->health;
+    int32 hp = foe->health, health = lara()->health;
     holster();
     gFleeing = true;
     bool ok = goTo(lroom, lx, lz, false, 256);
@@ -2322,7 +2413,7 @@ static int32 lureTry(ItemObj* foe, int32 lroom, int32 lx, int32 lz, int32 sroom,
         step(shootKeys(foe, i));
     }
     int32 hits = hp - X_MAX(foe->health, 0);
-    if (!ok || lara()->health <= 0 || hits <= 0)
+    if (!ok || lara()->health <= 0 || hits <= 0 || health - lara()->health > 200)
         return -1;
     return hits * 32 + lara()->health;
 }
@@ -2384,6 +2475,7 @@ static bool shootFromHere(ItemObj* foe)
     // guns away (a switch wants her hands free)
     holster();
     settle(60);
+    heal();
     return true;
 }
 
@@ -2443,7 +2535,11 @@ static bool fightFromSafety(ItemObj* foe, int32 range)
             int32 dx = X_MAX(0, X_MAX((box.minX << 10) - cx, cx - (box.maxX << 10)));
             int32 dz = X_MAX(0, X_MAX((box.minZ << 10) - cz, cz - (box.maxZ << 10)));
             int32 d = X_MAX(dx, dz);
-            nearest = X_MIN(nearest, d);
+            // a ledge four clicks over its floor is out of its reach from
+            // below (a bite reaches a click up: retail's CreatureAIInfo)
+            if (c.floor >= box.floor - 1024) {
+                nearest = X_MIN(nearest, d);
+            }
             if (d <= 6144) {
                 seen += (box.maxX - box.minX) * (box.maxZ - box.minZ);
             }

@@ -15,7 +15,9 @@ pickup 7
 # on along the long passage to the pool (two bats drop)
 goto 4 55808 26112
 fight
-# the stable: its bear, the medipack in the hayloft
+# the stable: up to the hayloft first, the bear shot from there as it wakes
+# (in the open it's a near thing), then the medipack there
+safe 86 33 77312 29184
 pickup 33
 # under water: the lever by the trapdoor; up through it into secret 1
 lever 31
