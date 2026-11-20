@@ -21,8 +21,11 @@
 !        that tick) till the driver changes it
 !   +20  script address (long): halfwords, one an inventory frame
 !   +24  script position (long)
-!   +28  the item recorded in the ring (long): its address, 0 for Lara
-! A ring entry: index (long), seed (long), level (long), 0 (long), Lara's item (72 bytes), pad (8)
+!   +28  the item recorded in the ring (long): its index, 0 for Lara (the items'
+!        base read each time: a new level moves them)
+! A ring entry: index (long), seed (long), level (long), 0 or a watched creature's
+! mood (long), the item (72 bytes), then for a creature its maximum turn and its
+! target's x and z less its own (halfwords), pad (2)
 ! Only r0-r7 are used: the caller keeps the rest.
 
     .section .text
@@ -117,7 +120,19 @@ entry:
     mov.l   r0,@(12,r5)
     mov.l   @(28,r1),r6     ! the item watched, if any
     tst     r6,r6
-    bf      have
+    bt      laras
+    mov     r6,r0           ! base + index * 0x48
+    shll2   r0
+    shll    r0              ! * 8
+    shll2   r6
+    shll2   r6
+    shll2   r6              ! * 64
+    add     r0,r6
+    mov.l   itemsp,r0
+    mov.l   @r0,r0
+    bra     have
+    add     r0,r6
+laras:
     mov.l   lara,r0
     mov.l   @r0,r6          ! Lara's item
 have:
@@ -130,6 +145,28 @@ copy:
     dt      r2
     bf/s    copy
     add     #4,r7
+    ! a creature watched: its mood (in the entry's fourth long), maximum turn and
+    ! target less its position (in the pad), from its creature block (item +0x2c)
+    mov.l   @(28,r1),r0
+    tst     r0,r0
+    bt      nocreature
+    add     #-72,r6
+    mov.l   @(44,r6),r4
+    tst     r4,r4
+    bt      nocreature
+    mov.l   @(12,r4),r0
+    mov.l   r0,@(12,r5)
+    mov.w   @(4,r4),r0
+    mov.w   r0,@(0,r7)
+    mov.l   @(52,r4),r0
+    mov.l   @(48,r6),r2
+    sub     r2,r0
+    mov.w   r0,@(2,r7)
+    mov.l   @(60,r4),r0
+    mov.l   @(56,r6),r2
+    sub     r2,r0
+    mov.w   r0,@(4,r7)
+nocreature:
     ! the tick table's entry
     mov.l   @(8,r1),r4
     mov     r3,r5
@@ -157,6 +194,7 @@ save:   .long 0x0602cbe2    ! the "Save Game?" prompt, after its call
 seed:   .long 0x06060d34
 level:  .long 0x06060cb4
 lara:   .long 0x060a00e4
+itemsp: .long 0x06072bdc    ! the items' base
 pad:    .long 0x0606e404
 through: .long 0x20000000
 mask:   .word 255

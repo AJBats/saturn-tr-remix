@@ -158,6 +158,8 @@ def tap(m, k):
 
 def rec_line(t, r):
     extra = f' state {r["state"]} goal {r["goal"]}' if 'state' in r else ''
+    if 'mood' in r:
+        extra += f' mood {r["mood"]} maxturn {r["maxturn"]} target {r["x"] + r["tdx"]} {r["z"] + r["tdz"]}'
     return (f'rec {t} level {r["level"]} room {r["room"]} pos {r["x"]} {r["y"]} {r["z"]} yaw {r["yaw"]} anim {r["anim"]} '
             f'frame {r["frame"]} health {r["health"]} seed {r["seed"]:08x}{extra}\n')
 
@@ -216,8 +218,7 @@ def main():
         poke(m, RING, bytes(RING_SIZE * ENTRY))
         poke(m, STUB, code)
         stop = len(kept) if args.items else 0xFFFFFFFF
-        watched = m.word(ITEMS) + 0x48 * args.watch if args.watch else 0
-        poke(m, STUB + vars_off, struct.pack('>8I', 1, 0, TABLE, RING, stop, SCRIPT, 0, watched))
+        poke(m, STUB + vars_off, struct.pack('>8I', 1, 0, TABLE, RING, stop, SCRIPT, 0, args.watch))
         for addr, data, why in PATCHES:
             poke(m, addr, data)
         poke(m, POOL, struct.pack('>I', STUB))
@@ -245,6 +246,10 @@ def main():
                 yaw, = struct.unpack('>H', item[0x3E:0x40])
                 recs[i] = dict(level=lvl, room=room, x=x, y=y, z=z, yaw=yaw, anim=anim, frame=frame, health=hp, seed=seed,
                                state=state, goal=goal)
+                if args.watch:
+                    mood, = struct.unpack('>I', b[12:16])
+                    turn, tdx, tdz = struct.unpack('>3h', b[88:94])
+                    recs[i].update(mood=mood, maxturn=turn, tdx=tdx, tdz=tdz)
                 if part is None and not args.watch and differs(recs, host, kept, i):
                     part = i
                     print(f"  parted at the host's tick {kept[i] - 1}: on to a few ticks past it", flush=True)
