@@ -954,7 +954,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 ## Closed
 
 ### 328. A creature that's stopped or dead never checks for a creature it overlaps
-*Closed 2026-11-20: COMMIT. Retail's CreatureCreature (0600ae8c) checks every creature, whatever its own speed or hit points, against the moving creatures ahead of it in its room's list, and CreatureAnimation puts one that overlaps back where it was, height and all. Ours skipped a creature that wasn't moving or was dead, so a bat shot down beside a live one fell at once; retail's hung in the air till the live one moved off, then dropped with the fall speed it had gathered. Both attract demos still match retail.*
+*Closed 2026-11-20: d0a91e2. Retail's CreatureCreature (0600ae8c) checks every creature, whatever its own speed or hit points, against the moving creatures ahead of it in its room's list, and CreatureAnimation puts one that overlaps back where it was, height and all. Ours skipped a creature that wasn't moving or was dead, so a bat shot down beside a live one fell at once; retail's hung in the air till the live one moved off, then dropped with the fall speed it had gathered. Both attract demos still match retail.*
 
 *Severity: subtle · Confidence: confirmed (retail run in Mednafen, the dead bat recorded; it and Lara match retail tick for tick) · Fix: trivial*
 
