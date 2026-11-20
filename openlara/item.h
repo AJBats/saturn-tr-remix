@@ -670,7 +670,7 @@ void ItemObj::animCmd(bool fx, const Anim* anim)
     }
 }
 
-void ItemObj::animSkip(int32 stateBefore, int32 stateAfter, bool advance)
+void ItemObj::animSkip(int32 stateBefore, int32 stateAfter)
 {
     goalState = stateBefore;
 
@@ -679,10 +679,6 @@ void ItemObj::animSkip(int32 stateBefore, int32 stateAfter, bool advance)
     while (state != goalState)
     {
         animProcess(false);
-    }
-
-    if (advance) {
-        animProcess();
     }
 
     pos = p;

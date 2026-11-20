@@ -962,12 +962,15 @@ struct Switch : Object
 
         bool isDown = (state == STATE_DOWN);
 
+        // as retail's SwitchCollision (0602b0d0): Lara animated till she's in the
+        // pull (its first frame, no step on), the switch a step at once
         goalState = isDown ? STATE_UP : STATE_DOWN;
-        lara->animSkip(isDown ? Lara::STATE_SWITCH_DOWN : Lara::STATE_SWITCH_UP, Lara::STATE_STOP, true);
+        lara->animSkip(isDown ? Lara::STATE_SWITCH_DOWN : Lara::STATE_SWITCH_UP, Lara::STATE_STOP);
         activate();
         flags &= ~ITEM_FLAG_STATUS;
         flags |= ITEM_FLAG_STATUS_ACTIVE;
         lara->extraL->weaponState = WEAPON_STATE_BUSY;
+        animProcess();
     }
 
     bool use(int32 t)
@@ -1019,11 +1022,14 @@ struct SwitchWater : Switch
         lara->vSpeed = 0; // underwater speed
         goalState = (state == STATE_UP) ? STATE_DOWN : STATE_UP;
 
-        lara->animSkip(Lara::STATE_SWITCH_DOWN, Lara::STATE_UW_TREAD, true);
+        // as retail's SwitchCollision2 (0602b1fc): no step past the pull's first
+        // frame; the lever a step at once
+        lara->animSkip(Lara::STATE_SWITCH_DOWN, Lara::STATE_UW_TREAD);
         activate();
         flags &= ~ITEM_FLAG_STATUS;
         flags |= ITEM_FLAG_STATUS_ACTIVE;
         lara->extraL->weaponState = WEAPON_STATE_BUSY;
+        animProcess();
     }
 };
 

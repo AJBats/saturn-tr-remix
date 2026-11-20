@@ -1847,7 +1847,7 @@ struct ItemObj
     const Anim* animSet(int32 newAnimIndex, bool resetState, int32 frameOffset = 0);
     const Anim* animChange(const Anim* anim);
     void animCmd(bool fx, const Anim* anim);
-    void animSkip(int32 stateBefore, int32 stateAfter, bool advance = false);
+    void animSkip(int32 stateBefore, int32 stateAfter);
     void animProcess(bool movement = true);
     bool animIsEnd(int32 offset) const;
     void animHit(int32 dirX, int32 dirZ, int32 ticks);
