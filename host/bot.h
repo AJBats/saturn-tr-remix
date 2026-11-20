@@ -471,6 +471,7 @@ struct Cell
     bool water;
     bool air;       // a water cell's: air above its top (a surface to come up to)
     Room* room;
+    int32 px, pz;   // where she stands in it: its middle, or a spot round what stands there
     int32 cost, from;
     int8 move;      // how it was reached from `from` (Move)
     bool done;
@@ -479,6 +480,16 @@ struct Cell
 static Cell gCells[BOT_CELLS];
 static int32 gCellsCount;
 static int32 gCellHash[BOT_CELLS * 2];
+
+static int32 cellX(const Cell &c)
+{
+    return (c.sx << 10) + 512;
+}
+
+static int32 cellZ(const Cell &c)
+{
+    return (c.sz << 10) + 512;
+}
 
 static int32 cellFind(int32 sx, int32 sz, int32 floor, bool add, Room* room, bool water = false)
 {
@@ -500,6 +511,8 @@ static int32 cellFind(int32 sx, int32 sz, int32 floor, bool add, Room* room, boo
     c.water = water;
     c.air = false;
     c.room = room->getRoom((sx << 10) + 512, floor - 64, (sz << 10) + 512);    // the room she stands in there
+    c.px = (sx << 10) + 512;
+    c.pz = (sz << 10) + 512;
     c.cost = 0x7FFFFFFF;
     c.from = -1;
     c.move = -1;
@@ -711,26 +724,28 @@ static bool againstFlow(Room* from, int32 x, int32 y, int32 z, int32 dx, int32 d
     return vx * dx + vz * dz <= 0.5 * sqrt(vx * vx + vz * vz);
 }
 
-// moves that failed when tried, left out of the next plan
+// moves that failed when tried, left out of the next plan (walks apart from
+// the rest: a climb that failed leaves the walk that way open)
 struct Blocked
 {
     int16 sx, sz, dx, dz;
+    bool walk;
 };
 static Blocked gBlocked[64];
 static int32 gBlockedCount;
 
-static bool isBlocked(const Cell &a, int32 dx, int32 dz)
+static bool isBlocked(const Cell &a, int32 dx, int32 dz, bool walk = false)
 {
     for (int32 i = 0; i < gBlockedCount; i++)
     {
         const Blocked &b = gBlocked[i];
-        if (b.sx == a.sx && b.sz == a.sz && b.dx == dx && b.dz == dz)
+        if (b.sx == a.sx && b.sz == a.sz && b.dx == dx && b.dz == dz && b.walk == walk)
             return true;
     }
     return false;
 }
 
-static void block(const Cell &a, int32 dx, int32 dz)
+static void block(const Cell &a, int32 dx, int32 dz, bool walk = false)
 {
     if (gBlockedCount < int32(X_COUNT(gBlocked)))
     {
@@ -739,6 +754,7 @@ static void block(const Cell &a, int32 dx, int32 dz)
         b.sz = a.sz;
         b.dx = int16(dx);
         b.dz = int16(dz);
+        b.walk = walk;
     }
 }
 
@@ -916,6 +932,19 @@ static int32 gGoalY = NO_GOAL_Y;
 static int32 gGoalFloorY = NO_GOAL_Y;   // a goal on a floor at this height (a bridge, a ledge over a floor); none: the room's middle's
 static bool gGoalAir;   // the goal: the nearest water with air over it
 
+// Nothing standing on the line between two spots (looked at every eighth).
+static bool lineClear(int32 x0, int32 z0, int32 x1, int32 z1, int32 floor)
+{
+    for (int32 t = 1; t < 8; t++)
+    {
+        if (blocked(x0 + (x1 - x0) * t / 8, floor, z0 + (z1 - z0) * t / 8))
+            return false;
+    }
+    return true;
+}
+
+static const int8 kAround[8][2] = { { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 }, { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+
 static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 maxLen)
 {
     Lara* l = lara();
@@ -936,6 +965,12 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
         gCells[start].air = sw.air;
     } else {
         start = cellFind(l->pos.x >> 10, l->pos.z >> 10, l->pos.y, true, l->room);
+    }
+    // (a static in the middle of the sector she starts in: from her own spot)
+    if (blocked(gCells[start].px, gCells[start].floor, gCells[start].pz))
+    {
+        gCells[start].px = l->pos.x;
+        gCells[start].pz = l->pos.z;
     }
     gCells[start].cost = 0;
     int32 gsx = x >> 10, gsz = z >> 10, found = -1;
@@ -964,6 +999,8 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
         }
         if (waterMoves(c, gsx, gsz))
             continue;
+        // stood off its middle (something stands there): walks on only
+        bool offMiddle = gCells[c].cost != 0 && (gCells[c].px != cellX(gCells[c]) || gCells[c].pz != cellZ(gCells[c]));
         for (int32 d = 0; d < 4; d++)
         {
             for (int32 look = 0; look < 2; look++)
@@ -977,25 +1014,35 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                         continue;
                     m = MOVE_CLIMB;
                 }
-                if (m == MOVE_NONE || (m != MOVE_WALK && isBlocked(gCells[c], kDirX[d], kDirZ[d])))
+                if (m == MOVE_NONE || isBlocked(gCells[c], kDirX[d], kDirZ[d], m == MOVE_WALK) || (m != MOVE_WALK && offMiddle))
                     continue;
                 int32 nsx = gCells[c].sx + kDirX[d], nsz = gCells[c].sz + kDirZ[d];
-                if ((blocked((nsx << 10) + 512, b.floor, (nsz << 10) + 512) || trapAt(nsx, nsz, b.floor)) && !(nsx == gsx && nsz == gsz))
+                bool goalCell = nsx == gsx && nsz == gsz;
+                if (trapAt(nsx, nsz, b.floor) && !goalCell)
                     continue;
-                // a wall of a static between them (a bridge's rail): no way across
-                // (looked for from her own spot in the sector she starts in, if a
-                // static stands in its middle)
-                int32 ox = (gCells[c].sx << 10) + 512, oz = (gCells[c].sz << 10) + 512;
-                if (gCells[c].cost == 0 && blocked(ox, gCells[c].floor, oz)) {
-                    ox = lara()->pos.x;
-                    oz = lara()->pos.z;
+                // where she'd stand in it: its middle, with no wall of a static
+                // between (a bridge's rail); walked into, a spot round what
+                // stands in its middle if that's the way (a save crystal in a
+                // corridor's turn)
+                const Cell &a = gCells[c];
+                int32 lineFloor = X_MIN(b.floor, a.floor);
+                int32 px = (nsx << 10) + 512, pz = (nsz << 10) + 512;
+                bool clear = !blocked(px, b.floor, pz) && (m == MOVE_CLIMB || lineClear(a.px, a.pz, px, pz, lineFloor));
+                for (int32 k = 0; k < 8 && !clear && m == MOVE_WALK; k++)
+                {
+                    px = (nsx << 10) + 512 + kAround[k][0] * 320;
+                    pz = (nsz << 10) + 512 + kAround[k][1] * 320;
+                    Spot sp = spotAt(b.room, px, b.floor - 256, pz);
+                    clear = sp.floor != WALL && abs(sp.floor - b.floor) < 64 && sp.floor - sp.ceiling >= LARA_HEIGHT &&
+                            !blocked(px, b.floor, pz) && lineClear(a.px, a.pz, px, pz, lineFloor);
                 }
-                bool across = false;
-                for (int32 t = 128; t < 1024 && !across; t += 128) {
-                    across = blocked(ox + kDirX[d] * t, X_MIN(b.floor, gCells[c].floor), oz + kDirZ[d] * t);
+                if (!clear)
+                {
+                    if (!goalCell)
+                        continue;
+                    px = (nsx << 10) + 512;
+                    pz = (nsz << 10) + 512;
                 }
-                if (across && m != MOVE_CLIMB && !(nsx == gsx && nsz == gsz))
-                    continue;
                 int32 n = cellFind(nsx, nsz, b.floor, true, b.room);
                 if (n < 0 || gCells[n].done)
                     continue;
@@ -1011,10 +1058,12 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                     gCells[n].cost = cost;
                     gCells[n].from = c;
                     gCells[n].move = int8(m);
+                    gCells[n].px = px;
+                    gCells[n].pz = pz;
                 }
             }
         }
-        for (int32 d = 0; d < 8; d++)
+        for (int32 d = 0; d < 8 && !offMiddle; d++)
         {
             for (int32 gap = 1; gap <= 5; gap++)
             {
@@ -1043,6 +1092,8 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                     gCells[n].cost = cost;
                     gCells[n].from = c;
                     gCells[n].move = MOVE_JUMP;
+                    gCells[n].px = cellX(gCells[n]);
+                    gCells[n].pz = cellZ(gCells[n]);
                 }
                 }
             }
@@ -1073,8 +1124,12 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
     }
     if (plan) {
         for (int32 c = found; c >= 0; c = gCells[c].from) {
-            printf("    %d,%d floor %d room %d move %d\n", gCells[c].sx << 10, gCells[c].sz << 10, gCells[c].floor,
+            printf("    %d,%d floor %d room %d move %d", gCells[c].sx << 10, gCells[c].sz << 10, gCells[c].floor,
                    int32(gCells[c].room - rooms), gCells[c].move);
+            if (gCells[c].px != cellX(gCells[c]) || gCells[c].pz != cellZ(gCells[c])) {
+                printf(" (stood at %d,%d)", gCells[c].px, gCells[c].pz);
+            }
+            printf("\n");
         }
     }
     if (len > maxLen)
@@ -1112,16 +1167,6 @@ static bool clearWalk(int32 x, int32 z)
         }
     }
     return true;
-}
-
-static int32 cellX(const Cell &c)
-{
-    return (c.sx << 10) + 512;
-}
-
-static int32 cellZ(const Cell &c)
-{
-    return (c.sz << 10) + 512;
 }
 
 // Up onto the sector beyond the side at x, z (heading across it): stood square
@@ -1298,6 +1343,85 @@ static bool jumpAcross(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor
     if (bestScore < 0)
         return false;
     printf("  jump: %d sectors, health %d\n", gap, bestScore);
+    play(gJumpBest, bestTicks);
+    return true;
+}
+
+// A jump from the sector she stands in to the spot (x, z) whatever its
+// heading (the planner's jumps run along the eight sector lines only): from
+// her sector's edge on the line to it (turned `turn` off that line), back
+// `back` units, forward held `run` ticks before Jump; true once she stands on
+// the spot's floor within a sector of it.
+static bool leapTry(int32 x, int32 z, int32 floor, int16 turn, int32 back, int32 run, bool grab)
+{
+    const Lara* l = lara();
+    int32 cx = ((l->pos.x >> 10) << 10) + 512, cz = ((l->pos.z >> 10) << 10) + 512;
+    int16 heading = int16(phd_atan(z - cz, x - cx) + turn);
+    int32 dx = sinRetail(heading), dz = cosRetail(heading);     // FIXED_SHIFT units
+    // from the middle along the line to the sector's edge, a little short of it
+    int32 tx = dx ? (512 << FIXED_SHIFT) / abs(dx) : 0x7FFFFFFF;
+    int32 tz = dz ? (512 << FIXED_SHIFT) / abs(dz) : 0x7FFFFFFF;
+    int32 edge = X_MIN(tx, tz) - 80;
+    int32 sx = cx + ((edge - back) * dx >> FIXED_SHIFT), sz = cz + ((edge - back) * dz >> FIXED_SHIFT);
+    if (!settle() || !goStraight(cx, cz, 64, true) || !settle() || !goStraight(sx, sz, 48, true) || !settle() ||
+        !turnTo(heading, ANGLE(1)))
+        return false;
+    for (int32 i = 0; i < 300; i++)
+    {
+        l = lara();
+        bool there = abs(l->pos.x - x) < 1024 && abs(l->pos.z - z) < 1024 && abs(l->pos.y - floor) < 128;
+        if (there && standing())
+            return true;
+        if (l->health <= 0)
+            return false;
+        uint32 k = (i < run) ? IK_UP : (IK_UP | IK_A | (grab ? IK_B : 0));
+        if (l->state == Lara::STATE_HANG) {
+            k = IK_UP | IK_B;
+        } else if (there) {
+            k = 0;
+        }
+        step(k);
+    }
+    return false;
+}
+
+static bool leap(Room* room, int32 x, int32 z)
+{
+    static const int32 kTurn[] = { 0, -3, 3, -6, 6, -10, 10 };     // degrees
+    static const int32 kBack[] = { 0, 200, 400, 600, 800 };
+    static const int32 kRun[] = { 0, 3, 6, 9, 12, 16 };
+    static uint32 keys[BOT_TRIAL_TICKS];
+    Spot to = spotAt(room, x, lara()->pos.y - 1024, z);
+    int32 bestScore = -1, bestTicks = 0;
+    for (int32 grab = 0; grab < 2 && bestScore < 0; grab++)
+    {
+        for (int32 t = 0; t < int32(X_COUNT(kTurn)); t++)
+        {
+            for (int32 v = 0; v < int32(X_COUNT(kBack)); v++)
+            {
+                for (int32 r = 0; r < int32(X_COUNT(kRun)); r++)
+                {
+                    int32 ticks = 0;
+                    int16 turn = int16(kTurn[t] * 0x10000 / 360);
+                    int32 back = kBack[v], run = kRun[r];
+                    int32 score = trial([&]() { return leapTry(x, z, to.floor, turn, back, run, grab != 0) ? lara()->health : -1; },
+                                        keys, &ticks);
+                    if (score > bestScore || (score == bestScore && score >= 0 && ticks < bestTicks))
+                    {
+                        bestScore = score;
+                        bestTicks = ticks;
+                        memcpy(gJumpBest, keys, ticks * sizeof(uint32));
+                    }
+                }
+            }
+        }
+    }
+    if (bestScore < 0)
+    {
+        fail("no jump got there");
+        return false;
+    }
+    printf("  leap: health %d\n", bestScore);
     play(gJumpBest, bestTicks);
     return true;
 }
@@ -1643,11 +1767,13 @@ static ItemObj* nearestFoe(int32 range);
 static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius, bool &again);
 
 static int32 gNoWayWaits;
+static int32 gStuckX, gStuckZ;  // where she last got stuck on a walk
 
 static bool goTo(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius = 96)
 {
     gBlockedCount = 0;
     gNoWayWaits = 0;
+    gStuckX = gStuckZ = -0x40000000;
     bool threatsOnly = gThreatsOnly;
     gThreatsOnly = true;
     bool ok = false;
@@ -1861,17 +1987,33 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
             const Cell &q = gCells[path[k]];
             if (q.move != MOVE_WALK)
                 break;
-            int32 tx = (k == len - 1) ? x : cellX(q), tz = (k == len - 1) ? z : cellZ(q);
+            int32 tx = (k == len - 1) ? x : q.px, tz = (k == len - 1) ? z : q.pz;
             if (!clearWalk(tx, tz))
                 break;
             j = k;
         }
-        int32 tx = (j == len - 1) ? x : cellX(gCells[path[j]]), tz = (j == len - 1) ? z : cellZ(gCells[path[j]]);
+        int32 tx = (j == len - 1) ? x : gCells[path[j]].px, tz = (j == len - 1) ? z : gCells[path[j]].pz;
         if (!goStraight(tx, tz, (j == len - 1) ? X_MAX(radius, 256) : 256, walk, 30 * 120, true)) {
             // a creature to fight, or stuck (against one, or a corner): plan
             // again from here (goTo's tries run out if it keeps happening)
             if (!nearestFoe(3072)) {
                 fail("stuck on the way, planning again");
+                // stuck at the same spot twice: the walk on from the sector
+                // she's in left out of the plans (a body across a tunnel's
+                // mouth: the way round)
+                const Lara* l = lara();
+                if (abs(l->pos.x - gStuckX) < 256 && abs(l->pos.z - gStuckZ) < 256)
+                {
+                    for (int32 k = i; k < j; k++)
+                    {
+                        const Cell &q = gCells[path[k]], &r = gCells[path[k + 1]];
+                        if (q.sx == (l->pos.x >> 10) && q.sz == (l->pos.z >> 10)) {
+                            block(q, r.sx - q.sx, r.sz - q.sz, true);
+                        }
+                    }
+                }
+                gStuckX = l->pos.x;
+                gStuckZ = l->pos.z;
                 settle(30);
                 // off the line between sectors' middles (a corner of a static
                 // in the way): back to the middle of hers first
@@ -3168,6 +3310,26 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
                 printf(" %13d", sx << 10);
             }
             printf("\n");
+        } else if (!strcmp(cmd, "obstacles") && n >= 3) {
+            // obstacles X Z: debugging, every obstacle the planner sees within three sectors
+            obstaclesFind();
+            for (int32 i = 0; i < gObstaclesCount; i++)
+            {
+                const Obstacle &o = gObstacles[i];
+                if (o.maxX < atoi(a) - 3072 || o.minX > atoi(a) + 3072 || o.maxZ < atoi(b) - 3072 || o.minZ > atoi(b) + 3072)
+                    continue;
+                printf("    obstacle x %d..%d y %d..%d z %d..%d turned %d,%d about %d,%d: x %d..%d z %d..%d\n", o.minX, o.maxX, o.minY, o.maxY,
+                       o.minZ, o.maxZ, o.s, o.c, o.cx, o.cz, o.lminX, o.lmaxX, o.lminZ, o.lmaxZ);
+            }
+            for (int32 i = 0; i < level.itemsCount; i++)
+            {
+                const ItemObj* item = items + i;
+                if (!isCreature(item) || !item->room || abs(item->pos.x - atoi(a)) > 3072 || abs(item->pos.z - atoi(b)) > 3072)
+                    continue;
+                const AABBs &box = item->getBoundingBox(false);
+                printf("    creature %d health %d at %d %d %d yaw %d: box x %d..%d y %d..%d z %d..%d\n", i, item->health, item->pos.x,
+                       item->pos.y, item->pos.z, uint16(item->angle.y), box.minX, box.maxX, box.minY, box.maxY, box.minZ, box.maxZ);
+            }
         } else if (!strcmp(cmd, "statics") && n >= 3) {
             // statics X Z: debugging, every static mesh within two sectors, its box as Lara meets it
             for (int32 r = 0; r < level.roomsCount; r++)
@@ -3209,6 +3371,9 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             cl.floor = lara()->pos.y;
             cl.room = lara()->room;
             ok = jumpTry(cl, jdx, jdz, gap, floor, atoi(b), atoi(c), n >= 5 && atoi(d));
+        } else if (!strcmp(cmd, "leap") && n >= 4) {
+            // leap ROOM X Z: a jump from her sector to that spot, at any heading
+            ok = leap(rooms + atoi(a), atoi(b), atoi(c));
         } else if (!strcmp(cmd, "attempt") && n >= 4) {
             // the block's lines, to its end
             gBlockCount = 0;
