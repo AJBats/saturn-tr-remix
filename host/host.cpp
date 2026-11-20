@@ -797,8 +797,10 @@ int main(int argc, char** argv)
         {
             ReplayRec r;
             replayRecord(r, tick);
-            printf("rec %d level %d room %d pos %d %d %d yaw %d anim %d frame %d health %d seed %08x items %08x\n",
-                   r.tick, r.level, r.room, r.x, r.y, r.z, r.yaw, r.anim, r.frame, r.health, r.seed, r.items);
+            // (inv: the inventory is open after it; tools/retailrun.py follows retail's apart)
+            printf("rec %d level %d room %d pos %d %d %d yaw %d anim %d frame %d health %d seed %08x items %08x inv %d\n",
+                   r.tick, r.level, r.room, r.x, r.y, r.z, r.yaw, r.anim, r.frame, r.health, r.seed, r.items,
+                   inventory.state != INV_STATE_NONE);
         }
 
         if (getenv("BOUNCE") && players[0] && players[0]->extraL->camera.bounce) {
