@@ -1871,6 +1871,13 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
             if (!nearestFoe(3072)) {
                 fail("stuck on the way, planning again");
                 settle(30);
+                // off the line between sectors' middles (a corner of a static
+                // in the way): back to the middle of hers first
+                int32 cx = ((lara()->pos.x >> 10) << 10) + 512, cz = ((lara()->pos.z >> 10) << 10) + 512;
+                if (!blocked(cx, lara()->pos.y, cz) && distTo(cx, cz) > 128) {
+                    goStraight(cx, cz, 96, true, 90);
+                    settle(30);
+                }
             }
             again = true;
             return false;
@@ -2650,9 +2657,10 @@ static bool fightFromSafety(ItemObj* foe, int32 range)
             int32 dx = X_MAX(0, X_MAX((box.minX << 10) - cx, cx - (box.maxX << 10)));
             int32 dz = X_MAX(0, X_MAX((box.minZ << 10) - cz, cz - (box.maxZ << 10)));
             int32 d = X_MAX(dx, dz);
-            // a ledge four clicks over its floor is out of its reach from
-            // below (a bite reaches a click up: retail's CreatureAIInfo)
-            if (c.floor >= box.floor - 1024) {
+            // a ledge two clicks over its floor is out of its reach from
+            // below (a bite reaches under a click up: retail's
+            // CreatureAIInfo; a ground creature steps a click)
+            if (c.floor > box.floor - 512) {
                 nearest = X_MIN(nearest, d);
             }
             if (d <= 6144) {
