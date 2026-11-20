@@ -262,6 +262,14 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Level logic, traps and objects
 
+### 316. Darts from an emitter facing +x start at the emitter, not 412 behind it
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen) · Fix: trivial · Decision: keep or copy*
+
+- **Found 2026-11-20** by the playtest bot's Caves run played by retail (tools/retailrun.py): at Lara's tick 427 retail's dart was 412 units further along than ours.
+- **Retail's DartEmitterControl (`060302e4`)** places the dart by the emitter's facing: 0xC000 x +412, 0x8000 z +412, 0 z -412, and for +x it tests 0x3FEC (`0603047c`), not 0x4000. Every +x emitter in the data faces 0x4000, so its darts start at the emitter itself, 412 nearer Lara than the other three facings' darts.
+- **Ours, PC TR1 and TRX** (`TRX/src/trx/game/objects/traps/dart_emitter.c`, `case DEG_90: x = -412`) start them 412 behind the emitter, as the other facings.
+- The retail runs patch the test to 0x4000 (PATCHES in tools/retailrun.py) so they can follow on. The user's call: keep ours (PC, TRX) or copy the Saturn's.
+
 ## Inventory, HUD, saves and game flow
 
 ## Audio
@@ -937,9 +945,21 @@ word. Of the same kind and already open: 264, 265, 266.
 
 ## Decisions needed before fixing
 
-None open. Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each): 88 keep the torso's no-turn walk; 99 fix the gorilla's sidestep as TRX; 11 keep the combat camera's stale distance; 139 the Saturn's 150 hits; 179 pan smoothly as TRX; 183 neither the loop restart nor the octave-down loops; 253 keep the shimmers.
+| Issue | The question | TRX |
+|---|---|---|
+| 316 | Darts from +x emitters: start 412 behind (ours, PC) or at the emitter (retail Saturn)? Suggested: keep ours. | 412 behind |
+
+Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each): 88 keep the torso's no-turn walk; 99 fix the gorilla's sidestep as TRX; 11 keep the combat camera's stale distance; 139 the Saturn's 150 hits; 179 pan smoothly as TRX; 183 neither the loop restart nor the octave-down loops; 253 keep the shimmers.
 
 ## Closed
+
+### 315. Darts hit Lara at once and never push her
+*Closed 2026-11-20: COMMIT. As retail: a dart touching her pushes her out of it (ObjectCollision, `0600ec4c`) and takes its 50 at its own next update (DartsControl, `060304b4`), the touch cleared as it animates (AnimateItem, `0600f894`). The bot's Caves run played by retail now matches past the darts.*
+
+*Severity: gameplay · Confidence: confirmed (retail run in Mednafen) · Fix: small*
+
+- **Found 2026-11-20:** the playtest bot's Caves run played by retail (tools/retailrun.py) matched ours tick for tick (Lara, her animation, the logic seed) for 426 ticks; at 427 retail's dart pushed her 124 units and took 50 health the tick after, ours missed her (the dart was 412 behind: issue 316).
+- Ours hit in the collision itself, with no push; and the touch was never cleared, so a dart that had touched her took 50 every update till it hit a wall (seen once the push was in: dead at the dart steps).
 
 ### 286. Coming back from the inventory, room textures show their lower detail for a frame or two
 *Closed 2026-11-19: 7e38918. Not lower detail: the first scene frame after the inventory planned its objects' part of the command list by the inventory frame's few draws, and cut about 90 commands (the trees and plants at room 51 gone for a frame). Only a scene frame sets that count now; Mednafen, room 51 (clipdisc at 51@41188:3584:36270): the first frame back 611 commands, was 517, as the frames after. Saturn not seen.*

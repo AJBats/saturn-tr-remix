@@ -1539,20 +1539,27 @@ struct Dart : Object
 {
     Dart(Room* room) : Object(room) {}
 
+    // retail's ObjectCollision (0600ec4c): touched, Lara is pushed out of it,
+    // and the touch costs her at the dart's next update
     virtual void collide(Lara* lara, CollisionInfo* cinfo)
     {
-        if (!updateHitMask(lara, cinfo))
-            return;
-
-        if (hitMask)
-        {
-            lara->fxBlood(pos, lara->angle.y, lara->hSpeed);
-            lara->hit(50, pos, 0);
+        if (updateHitMask(lara, cinfo) && cinfo->enemyPush) {
+            collidePush(lara, cinfo, false);
         }
     }
 
+    // retail's DartsControl (060304b4): a touch at Lara's last collision takes
+    // 50; animating clears the touch (AnimateItem, 0600f894)
     virtual void update()
     {
+        if (hitMask)
+        {
+            Lara* lara = getLara(pos);
+            lara->hit(50, pos, 0);
+            lara->fxBlood(pos, lara->angle.y, lara->hSpeed);
+        }
+        hitMask = 0;
+
         animProcess();
         updateRoom();
 
