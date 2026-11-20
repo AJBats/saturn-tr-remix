@@ -17,10 +17,12 @@ and the statistics as ticks with the game held: those ticks leave the tick table
 presses, spaced out, make the script; a run of routes chained (host/bot.h) is followed from
 level to level. Armed at the first ControlPhase of the replay's level, reached from boot by
 the title's menus (a new game: the Caves only, so far). --items N holds the game before the tick after the replay's last and
-prints N items."""
+prints N items. build/retail_clean_sav holds retail's backup memory files from a clean boot (a run's
+Mednafen home's sav/ before any run saved a game): each run starts from them."""
 import argparse
 import os
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -256,6 +258,15 @@ def main():
     if len(script) > MAX_SCRIPT:
         sys.exit('too many inventory frames for the script')
     code, vars_off = assemble(args.name)
+    # retail's backup memory as it boots clean: a run that went astray at a
+    # "Save Game?" prompt leaves a save there, and with one the title's
+    # menus take other presses
+    clean = os.path.join(ROOT, 'build/retail_clean_sav')
+    if os.path.isdir(clean):
+        sav = os.path.join(ROOT, f'build/{args.name}_home/sav')
+        os.makedirs(sav, exist_ok=True)
+        for f in os.listdir(clean):
+            shutil.copyfile(os.path.join(clean, f), os.path.join(sav, f))
     m = Mednafen(CUE, args.name)
     recs = {}
     window = Window(keys, kept)
