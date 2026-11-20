@@ -954,7 +954,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 ## Closed
 
 ### 319. A new level's first tick sees the press that shut the last menu
-*Closed 2026-11-20: COMMIT. The level is loaded inside the tick whose press shut the stats screen or "Save Game?", and our first tick of it ran at once with that tick's pad: Lara set off on the button (a jump from the Save prompt's A). Retail's ControlPhase reads the pad again for the level's first tick, after the load, when a player has let go; ours now runs it with nothing held. The same for a game loaded from the passport.*
+*Closed 2026-11-20: 7f56996. The level is loaded inside the tick whose press shut the stats screen or "Save Game?", and our first tick of it ran at once with that tick's pad: Lara set off on the button (a jump from the Save prompt's A). Retail's ControlPhase reads the pad again for the level's first tick, after the load, when a player has let go; ours now runs it with nothing held. The same for a game loaded from the passport.*
 
 *Severity: visible · Confidence: confirmed (retail run in Mednafen) · Fix: trivial*
 
