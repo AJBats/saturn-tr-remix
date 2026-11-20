@@ -954,7 +954,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 ## Closed
 
 ### 321. Creatures test "farther than" on a rounded-down distance
-*Closed 2026-11-20: COMMIT. Retail's creatures compare the squared distance (CreatureAIInfo's, `06009950`) with a squared range, `distance > range * range`; ours took the whole-number square root first, so a creature just past a range (its square root rounding down onto it) counted as within it. Eleven "farther than" tests (the wolf, bear, crocodile, T-rex, Larson, the skateboard kid, the cowboy, Mr. T, the mutants) now use the squared distance; "nearer than" tests were already the same either way. A stalking wolf just past three sectors drew a howl roll in ours (a random number retail didn't take). Both attract demos still match retail.*
+*Closed 2026-11-20: 179ce6e. Retail's creatures compare the squared distance (CreatureAIInfo's, `06009950`) with a squared range, `distance > range * range`; ours took the whole-number square root first, so a creature just past a range (its square root rounding down onto it) counted as within it. Eleven "farther than" tests (the wolf, bear, crocodile, T-rex, Larson, the skateboard kid, the cowboy, Mr. T, the mutants) now use the squared distance; "nearer than" tests were already the same either way. A stalking wolf just past three sectors drew a howl roll in ours (a random number retail didn't take). Both attract demos still match retail.*
 
 *Severity: subtle · Confidence: confirmed (retail run in Mednafen) · Fix: trivial*
 
