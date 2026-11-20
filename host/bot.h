@@ -3103,8 +3103,9 @@ static bool fightBest(int32 range)
             static bool tell = getenv("BOT_FIGHTS") != NULL;
             if (tell) {
                 const ItemObj* foe = nearestFoe(range);
-                fprintf(stderr, "  fight style %d at tick %d: %s, health %d, foe %d (health %d)\n", v, gTick, won ? "won" : "lost",
-                        lara()->health, foe ? int32(foe - items) : -1, foe ? foe->health : 0);
+                fprintf(stderr, "  fight style %d at tick %d: %s, health %d, foe %d (health %d)%s%s\n", v, gTick, won ? "won" : "lost",
+                        lara()->health, foe ? int32(foe - items) : -1, foe ? foe->health : 0, gFleeing ? " (fleeing)" : "",
+                        gThreatsOnly ? " (threats only)" : "");
             }
             return won ? lara()->health : (lara()->health >= health ? -2 : -1);
         }, NULL, NULL);
@@ -3350,6 +3351,12 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
         if (setjmp(gLevelEndJump)) {
             ended = true;
             ok = true;
+            // what the step left set, jumped out of (a goto's threats-only fights)
+            gThreatsOnly = false;
+            gFleeing = false;
+            gWalkSpikes = false;
+            gGoalY = gGoalFloorY = NO_GOAL_Y;
+            gGoalAir = false;
         }
         gLevelEndArmed = !ended;
         if (!ended && strcmp(cmd, "keys") && strcmp(cmd, "wait") && strcmp(cmd, "expect")) {

@@ -1,0 +1,25 @@
+# St. Francis' Folly at 100%, in progress (Stella: 23 kills, 19 pickups with
+# the 4 keys, 4 secrets). Done: the lions, the omega block, the gorilla room.
+# Next: Pierre, the pillars to secret 1, the balcony door, the long slide
+# (secret 2), the flooded passage (secret 3), the tall room's four doors.
+# tools/levelmap.py draws the level.
+start LEVEL4 newgame
+wait 30
+draw
+# the two lions shot from the low platform north of the way in
+safe 2 55 23040 42496
+safe 4 55 23040 42496
+# the block in the groove: pulled onto the near omega (half of the balcony
+# door's opening), pushed twice onto the other (the gorilla room's door
+# opens), once more to the groove's end
+pull 0 270 1
+wait 30
+push 0 90 2
+wait 60
+push 0 90 1
+# the gorilla room: two gorillas come down from the platforms; the switch at
+# the middle of the lower floor opens the balcony door (and brings the third)
+goto 0 39424 39424
+fight 8192
+switch 7
+fight 8192
