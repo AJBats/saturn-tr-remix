@@ -80,6 +80,7 @@ goto3 18 33280 11008 41472
 # then down to the bottom's switch (opens the door at the top). Next: back up
 # by Stella's ledges (the planner finds no way up), the keys behind the doors
 draw
+fight 8192
 goto3 18 38400 11520 42496
 fight 8192
 switch 49
