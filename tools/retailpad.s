@@ -6,7 +6,7 @@
 !   table, one entry a tick; Lara's item, the control seed and the level, as
 !   they stand before the tick, go to a 512-entry ring first;
 ! - called by the inventory's own loop (Display_Inventory, a frame at a time)
-!   or the level's statistics screen:
+!   or the level's statistics screen or its "Save Game?" prompt:
 !   from the script, one entry a call, up to a 0 that ends the opening (held
 !   there till the next game tick steps past it) or the 1 that ends them all;
 ! - called from anywhere else (menus, statistics): the real pad.
@@ -46,6 +46,9 @@ _start:
     cmp/eq  r2,r0
     bt      script
     mov.l   stats,r2
+    cmp/eq  r2,r0
+    bt      script
+    mov.l   save,r2
     cmp/eq  r2,r0
     bf      out
 script:
@@ -144,7 +147,8 @@ out:
 scan:   .long 0x06043720
 tick:   .long 0x0600f6b6    ! ControlPhase, after its call to S_UpdateInput
 inv:    .long 0x060175c0    ! Display_Inventory's loop, after its call
-stats:  .long 0x060167f2    ! the level's statistics screen, after its call
+stats:  .long 0x060167f4    ! the level's statistics screen, after its call
+save:   .long 0x0602cbe2    ! the "Save Game?" prompt, after its call
 seed:   .long 0x06060d34
 level:  .long 0x06060cb4
 lara:   .long 0x060a00e4

@@ -230,7 +230,10 @@ def main():
             still = still + 1 if index == last else 0
             last = index
             if still >= 12 and not args.items:
-                print(f'  no game tick since tick {index}: stopped', flush=True)
+                shot = os.path.splitext(args.out)[0] + '_held.png'
+                m.send(f'screenshot {shot.replace(os.sep, "/")}', 'screenshot', 30)
+                print(f'  no game tick since tick {index} (script at {m.word(STUB + vars_off + 24)} of {len(script)}, '
+                      f'picture {shot}): stopped', flush=True)
                 break
             if vblanks % 6000 == 0:
                 print(f'  vblank {vblanks}: tick {index}', flush=True)
