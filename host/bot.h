@@ -8,7 +8,7 @@
 //
 // A route, one step a line ('#' starts a comment):
 //   start LEVEL newgame|kit       the level and how it starts (as a replay's)
-//   goto ROOM X Z [walk]          to that spot along the level's boxes
+//   goto ROOM X Z [walk] [RADIUS] to that spot (within RADIUS units, 96 if none)
 //   face DEGREES                  turned to that heading (0 is +z, 90 is +x)
 //   keys KEYS TICKS               those keys held (UP+A ...), for a move by hand
 //   wait TICKS                    no key held
@@ -16,6 +16,9 @@
 //   switch ITEM                   stood at it and pulled it
 //   lever ITEM                    an underwater lever, swum to and pulled
 //   usehole ITEM                  its key or puzzle item put in, from the ring
+//   collapse ITEM [DEG]           a break-away tile brought down (stepped onto heading DEG)
+//   timed ROOM X Z [MAXWAIT]      to that spot past swinging blades: each wait
+//                                 first tried, the one losing least health played
 //   push|pull ITEM DEGREES TIMES  a movable block moved that way, a sector a time
 //   swimto ROOM X Y Z             to a spot in the water
 //   draw                          guns out
@@ -23,7 +26,8 @@
 //                                 statistics and "Save Game?" to the next level
 //   use small|big                 a medipack from the ring (also used by
 //                                 themselves when she's low)
-//   fight                         guns drawn, every creature awake shot dead
+//   fight [RANGE]                 guns drawn, every creature awake within
+//                                 RANGE (4096 if none) shot dead
 //   attempt ROOM X Z [TRIES]      the lines to `end` (keys, wait, face, goto)
 //   ...                           tried with their keys' ticks varied, till
 //   end                           she stands on that sector (a move by hand)
@@ -75,11 +79,16 @@ static void step(uint32 k)
     {
         const Lara* l = players[0];
         const ExtraInfoLara* e = l->extraL;
-        printf("  tick %5d keys %04x room %3d pos %6d %6d %6d yaw %5d state %2d anim %3d speed %3d health %4d "
+        printf("  tick %5d keys %04x room %3d pos %6d %6d %6d yaw %5d state %2d anim %3d:%d speed %3d health %4d "
                "gun %d/%d target %d aim %d arm %d:%d\n",
-               gTick, k, int32(l->room - rooms), l->pos.x, l->pos.y, l->pos.z, uint16(l->angle.y), l->state, l->animIndex,
+               gTick, k, int32(l->room - rooms), l->pos.x, l->pos.y, l->pos.z, uint16(l->angle.y), l->state, l->animIndex, l->frameIndex,
                l->hSpeed, l->health, e->weapon, e->weaponState, e->armR.target ? int32(e->armR.target - items) : -1,
                e->armR.aim, e->armR.animIndex, e->armR.frameIndex);
+        if (l->state == Lara::STATE_HANG) {
+            printf("     hang: front %d/%d left %d/%d right %d/%d mid %d/%d static %d type %d\n", cinfo.f.floor, cinfo.f.ceiling,
+                   cinfo.l.floor, cinfo.l.ceiling, cinfo.r.floor, cinfo.r.ceiling, cinfo.m.floor, cinfo.m.ceiling, cinfo.staticHit,
+                   cinfo.type);
+        }
         for (const ItemObj* item = ItemObj::sFirstActive; item; item = item->nextActive)
         {
             if (item->type >= ITEM_WOLF && item->type <= ITEM_ADAM) {
@@ -121,7 +130,8 @@ template <class F> int32 trial(F f, uint32* keys, int32* ticks)
     {
         int32 start = gTick;
         gDepth++;
-        if (!freopen("/dev/null", "w", stdout)) {
+        static bool childOut = getenv("BOT_CHILD_OUT") != NULL;     // debugging: the trials' traces too
+        if (!childOut && !freopen("/dev/null", "w", stdout)) {
             _exit(2);
         }
         int32 score = f();
@@ -219,6 +229,7 @@ static bool turnTo(int16 heading, int32 tol = ANGLE(2))
 
 // Run (or walk) straight at a point, steering; true once within radius.
 static ItemObj* nearestFoe(int32 range);
+static bool gThreatsOnly;   // while she's on her way: nearestFoe() sees threats only
 
 static bool goStraight(int32 x, int32 z, int32 radius, bool walk, int32 maxTicks = 30 * 120, bool wary = false)
 {
@@ -296,8 +307,39 @@ struct Obstacle
 static Obstacle gObstacles[1024];
 static int32 gObstaclesCount;
 
+// Break-away tiles still up (shaking counts: it falls whoever is on it):
+// the planner never has her stand on one.
+struct Trap
+{
+    int32 sx, sz, top;
+};
+static Trap gTraps[256];
+static int32 gTrapsCount;
+
+static bool trapAt(int32 sx, int32 sz, int32 floor)
+{
+    for (int32 i = 0; i < gTrapsCount; i++)
+    {
+        const Trap &t = gTraps[i];
+        if (t.sx == sx && t.sz == sz && abs(t.top - floor) < 64)
+            return true;
+    }
+    return false;
+}
+
 static void obstaclesFind()
 {
+    gTrapsCount = 0;
+    for (int32 i = 0; i < level.itemsCount && gTrapsCount < int32(X_COUNT(gTraps)); i++)
+    {
+        const ItemObj* item = items + i;
+        if (item->type != ITEM_TRAP_FLOOR || !item->room || item->state > 1)
+            continue;
+        Trap &t = gTraps[gTrapsCount++];
+        t.sx = item->pos.x >> 10;
+        t.sz = item->pos.z >> 10;
+        t.top = item->pos.y - 512;
+    }
     gObstaclesCount = 0;
     for (int32 r = 0; r < level.roomsCount; r++)
     {
@@ -387,7 +429,7 @@ static int32 cellFind(int32 sx, int32 sz, int32 floor, bool add, Room* room, boo
     c.top = floor;
     c.water = water;
     c.air = false;
-    c.room = room;
+    c.room = room->getRoom((sx << 10) + 512, floor - 64, (sz << 10) + 512);    // the room she stands in there
     c.cost = 0x7FFFFFFF;
     c.from = -1;
     c.move = -1;
@@ -474,7 +516,7 @@ static bool climbBetween(const Cell &a, int32 dx, int32 dz, const Spot &low, Spo
     Spot over = spotAt(a.room, cx + dx * 448, high, cz + dz * 448);
     if (abs(over.floor - a.floor) > 64)
         return false;   // something over her at the edge (under a bridge): no wall to climb
-    Spot hs = spotAt(a.room, cx + dx * 576, high, cz + dz * 576);
+    Spot hs = spotAt(over.room, cx + dx * 576, high, cz + dz * 576);
     if (hs.floor == WALL)
         return false;
     b = spotAt(hs.room, cx + dx * 1024, high, cz + dz * 1024);
@@ -564,29 +606,80 @@ static void block(const Cell &a, int32 dx, int32 dz)
 
 static const int32 kDirX[4] = { 1, -1, 0, 0 };
 static const int32 kDirZ[4] = { 0, 0, 1, -1 };
+// jumps: along the grid, then diagonally
+static const int32 kJumpX[8] = { 1, -1, 0, 0, 1, 1, -1, -1 };
+static const int32 kJumpZ[8] = { 0, 0, 1, -1, 1, -1, 1, -1 };
 
 // A jump from a's sector across `gap` sectors of pit (open above her) onto
-// the sector beyond, up to five clicks higher (grabbed and pulled up onto) or
-// lower: b filled in.
-static bool jumpBetween(const Cell &a, int32 dx, int32 dz, int32 gap, Spot &b)
+// the sector beyond, along the grid or diagonally: b filled in. Along the
+// grid the far floor can be up to five clicks higher (grabbed and pulled up
+// onto) or lower; diagonally no more than a click higher, with the two
+// sectors beside every corner she crosses open and no higher than either
+// end. `high`: the far floor looked for from five and a half clicks up, as a
+// ledge over open floor is seen (from below, its underside is a ceiling).
+static bool jumpBetween(const Cell &a, int32 dx, int32 dz, int32 gap, Spot &b, bool high = false)
 {
     int32 cx = (a.sx << 10) + 512, cz = (a.sz << 10) + 512;
     int32 y = a.floor - 640;     // above a bridge up to 2.5 clicks higher, so its floor is seen
-    Room* room = a.room;
-    Spot side = spotAt(room, cx + dx * 448, y, cz + dz * 448);
+    Room* way[6];                // the room of each sector along the way
+    way[0] = a.room;
+    if (gap > 5 || (dx && dz && gap > 2))
+        return false;
+    Spot side = spotAt(a.room, cx + dx * 448, y, cz + dz * 448);
     if (side.floor == WALL || abs(side.floor - a.floor) > 256)
         return false;
-    room = side.room;
+    // break-away tiles level with her first (run across: along the grid,
+    // two at most), then no more than three sectors of pit (two diagonally)
+    Room* room = side.room;
+    int32 tiles = 0;
     for (int32 g = 1; g <= gap; g++)
     {
         Spot mid = spotAt(room, cx + dx * 1024 * g, y, cz + dz * 1024 * g);
-        if (mid.floor == WALL || mid.floor <= a.floor + 512 || mid.ceiling > a.floor - 1280)
+        if (mid.floor == WALL || mid.ceiling > a.floor - 1280)
             return false;
-        room = mid.room;
+        if (mid.floor >= a.floor - 64 && mid.floor <= a.floor + 64 && trapAt(a.sx + dx * g, a.sz + dz * g, mid.floor) &&
+            tiles == g - 1 && tiles < 2 && !(dx && dz)) {
+            tiles++;
+        } else if (mid.floor <= a.floor + 512) {
+            return false;
+        }
+        room = way[g] = mid.room;
     }
-    b = spotAt(room, cx + dx * 1024 * (gap + 1), y, cz + dz * 1024 * (gap + 1));
+    if (gap - tiles > 3 || (dx && dz && gap > 2))
+        return false;
+    if (high)
+    {
+        int32 yh = a.floor - 1408;
+        room = spotAt(a.room, cx, yh, cz).room;
+        for (int32 g = 1; g <= gap; g++)
+        {
+            Spot mid = spotAt(room, cx + dx * 1024 * g, yh, cz + dz * 1024 * g);
+            if (mid.floor == WALL)
+                return false;
+            room = mid.room;
+        }
+        b = spotAt(room, cx + dx * 1024 * (gap + 1), yh, cz + dz * 1024 * (gap + 1));
+    } else {
+        b = spotAt(room, cx + dx * 1024 * (gap + 1), y, cz + dz * 1024 * (gap + 1));
+    }
     if (b.floor == WALL || b.floor < a.floor - 1280 || b.floor > a.floor + 1280 || b.floor - b.ceiling < LARA_HEIGHT)
         return false;
+    if (dx && dz)
+    {
+        if (b.floor < a.floor - 256)
+            return false;
+        int32 top = X_MIN(a.floor, b.floor);
+        for (int32 k = 0; k <= gap; k++)
+        {
+            for (int32 s = 0; s < 2; s++)
+            {
+                int32 nx = cx + dx * 1024 * (k + (s == 0)), nz = cz + dz * 1024 * (k + (s == 1));
+                Spot n = spotAt(way[k], nx, y, nz);
+                if (n.floor == WALL || n.floor < top - 64 || n.ceiling > top - LARA_HEIGHT - 256)
+                    return false;
+            }
+        }
+    }
     return true;
 }
 
@@ -666,7 +759,7 @@ static bool waterMoves(int32 c, int32 gsx, int32 gsz)
             Spot edge = spotAt(a.room, cx + dx * 576, a.top - 640, cz + dz * 576);
             if (b.floor != WALL && edge.floor != WALL && !ROOM_FLAG_WATER(b.room->info->flags) &&
                 b.floor >= a.top - 512 && b.floor <= a.top + 100 && b.floor - b.ceiling >= LARA_HEIGHT &&
-                !blocked(nx, b.floor, nz)) {
+                !blocked(nx, b.floor, nz) && !trapAt(nsx, nsz, b.floor)) {
                 reach(c, cellFind(nsx, nsz, b.floor, true, b.room), 2048, MOVE_WATER_OUT);
             }
         }
@@ -745,7 +838,7 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                 if (m == MOVE_NONE || (m != MOVE_WALK && isBlocked(gCells[c], kDirX[d], kDirZ[d])))
                     continue;
                 int32 nsx = gCells[c].sx + kDirX[d], nsz = gCells[c].sz + kDirZ[d];
-                if (blocked((nsx << 10) + 512, b.floor, (nsz << 10) + 512) && !(nsx == gsx && nsz == gsz))
+                if ((blocked((nsx << 10) + 512, b.floor, (nsz << 10) + 512) || trapAt(nsx, nsz, b.floor)) && !(nsx == gsx && nsz == gsz))
                     continue;
                 int32 n = cellFind(nsx, nsz, b.floor, true, b.room);
                 if (n < 0 || gCells[n].done)
@@ -765,24 +858,36 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                 }
             }
         }
-        for (int32 d = 0; d < 4; d++)
+        for (int32 d = 0; d < 8; d++)
         {
-            for (int32 gap = 1; gap <= 2; gap++)
+            for (int32 gap = 1; gap <= 5; gap++)
             {
+                int32 lowFloor = WALL;
+                for (int32 look = 0; look < 2; look++)
+                {
                 Spot b;
-                if (!jumpBetween(gCells[c], kDirX[d], kDirZ[d], gap, b) || isBlocked(gCells[c], kDirX[d] * (gap + 1), kDirZ[d] * (gap + 1)))
+                if (!jumpBetween(gCells[c], kJumpX[d], kJumpZ[d], gap, b, look == 1) ||
+                    isBlocked(gCells[c], kJumpX[d] * (gap + 1), kJumpZ[d] * (gap + 1)))
                     continue;
-                int32 jsx = gCells[c].sx + kDirX[d] * (gap + 1), jsz = gCells[c].sz + kDirZ[d] * (gap + 1);
-                if (blocked((jsx << 10) + 512, b.floor, (jsz << 10) + 512))
+                if (look == 0) {
+                    lowFloor = b.floor;
+                } else if (abs(b.floor - lowFloor) < 128) {
+                    continue;   // the same floor both looks see
+                }
+                int32 jsx = gCells[c].sx + kJumpX[d] * (gap + 1), jsz = gCells[c].sz + kJumpZ[d] * (gap + 1);
+                if (blocked((jsx << 10) + 512, b.floor, (jsz << 10) + 512) || (trapAt(jsx, jsz, b.floor) && !(jsx == gsx && jsz == gsz)))
                     continue;
                 int32 n = cellFind(jsx, jsz, b.floor, true, b.room);
                 if (n < 0 || gCells[n].done)
                     continue;
-                int32 cost = gCells[c].cost + 4096 + gap * 1024;
+                // a jump takes as long as a run of eight sectors or so (the run-up, the
+                // landing)
+                int32 cost = gCells[c].cost + 8192 + gap * ((kJumpX[d] && kJumpZ[d]) ? 1448 : 1024);
                 if (cost < gCells[n].cost) {
                     gCells[n].cost = cost;
                     gCells[n].from = c;
                     gCells[n].move = MOVE_JUMP;
+                }
                 }
             }
         }
@@ -792,7 +897,16 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
         printf("  plan: %d cells looked at, %s\n", gCellsCount, found < 0 ? "no way" : "a way");
     }
     if (found < 0)
+    {
+        if (plan && getenv("BOT_PLAN")[0] == '2')
+        {
+            for (int32 i = 0; i < gCellsCount; i++) {
+                printf("    seen %d,%d floor %d room %d%s cost %d\n", gCells[i].sx << 10, gCells[i].sz << 10, gCells[i].floor,
+                       int32(gCells[i].room - rooms), gCells[i].water ? " water" : "", gCells[i].cost);
+            }
+        }
         return 0;
+    }
     int32 len = 0;
     for (int32 c = found; c >= 0; c = gCells[c].from) {
         len++;
@@ -831,7 +945,7 @@ static bool clearWalk(int32 x, int32 z)
             Spot sp = spotAt(room, sx, floor - 256, sz);
             if (sp.floor == WALL || abs(sp.floor - floor) > 192 || sp.floor - sp.ceiling < LARA_HEIGHT)
                 return false;
-            if (side == 0 && blocked(sx, sp.floor, sz))
+            if ((side == 0 && blocked(sx, sp.floor, sz)) || trapAt(sx >> 10, sz >> 10, sp.floor))
                 return false;
             room = sp.room;
             floor = sp.floor;
@@ -852,7 +966,8 @@ static int32 cellZ(const Cell &c)
 
 // Up onto the sector beyond the side at x, z (heading across it): stood square
 // at the wall, forward and Action held, as a player climbs (two or three
-// clicks) or jumps up, grabs and pulls up (to seven and a half).
+// clicks) or jumps up, grabs and pulls up (to seven and a half); or, at a
+// ledge over open floor, walked to the edge first.
 static bool climbAt(int16 heading, int32 x, int32 z, int32 floor)
 {
     int32 bx = x - (sinRetail(heading) * 200 >> FIXED_SHIFT);
@@ -862,10 +977,17 @@ static bool climbAt(int16 heading, int32 x, int32 z, int32 floor)
         return false;
     }
     static uint32 keys[BOT_TRIAL_TICKS];
-    for (int32 way = 0; way < 2; way++)
+    for (int32 way = 0; way < 3; way++)
     {
         int32 ticks = 0;
         int32 score = trial([&]() -> int32 {
+            if (way == 2)
+            {
+                // walked on till she stops at the edge, then straight up
+                for (int32 i = 0; i < 60 && !(i > 4 && standing() && lara()->hSpeed == 0); i++) {
+                    step(IK_UP | IK_L);
+                }
+            }
             for (int32 i = 0; i < 150; i++)
             {
                 const Lara* l = lara();
@@ -874,7 +996,7 @@ static bool climbAt(int16 heading, int32 x, int32 z, int32 floor)
                 if (l->health <= 0)
                     return -1;
                 uint32 k = IK_UP | IK_B;
-                if (way == 1) {
+                if (way != 0) {
                     // straight up with Action, then forward to pull up once hanging
                     k = (l->state == Lara::STATE_HANG || l->state == Lara::STATE_HANG_UP) ? (IK_UP | IK_B) : (IK_A | IK_B);
                 }
@@ -898,11 +1020,22 @@ static bool climbAt(int16 heading, int32 x, int32 z, int32 floor)
 static bool jumpTry(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor, int32 back, int32 run, bool grab)
 {
     int16 heading = int16(phd_atan(dz, dx));
-    int32 ex = cellX(a) + dx * 440, ez = cellZ(a) + dz * 440;
-    int32 sx = ex - dx * back, sz = ez - dz * back;
+    // break-away tiles first: run across them (a sector in 22 ticks or so)
+    for (int32 g = 1; g <= 2 && !(dx && dz); g++)
+    {
+        int32 tx = a.sx + dx * g, tz = a.sz + dz * g;
+        Spot t = spotAt(a.room, (tx << 10) + 512, a.floor - 640, (tz << 10) + 512);
+        if (t.floor == WALL || abs(t.floor - a.floor) > 64 || !trapAt(tx, tz, t.floor))
+            break;
+        run += 22;
+    }
+    bool diagonal = dx && dz;
+    int32 ex = cellX(a) + dx * 440, ez = cellZ(a) + dz * 440;     // diagonally: near the corner
+    int32 unit = diagonal ? 724 : 1024;
+    int32 sx = ex - dx * back * unit / 1024, sz = ez - dz * back * unit / 1024;
     static bool tell = getenv("BOT_JUMPS") != NULL;
     // to the run-up's start by way of the sector's middle, square to the gap
-    if (!goStraight(cellX(a), cellZ(a), 64, true) || !settle() || !goStraight(sx, sz, 48, true) || !settle() ||
+    if (!settle() || !goStraight(cellX(a), cellZ(a), 64, true) || !settle() || !goStraight(sx, sz, 48, true) || !settle() ||
         !turnTo(heading, ANGLE(1)))
     {
         if (tell) {
@@ -912,15 +1045,15 @@ static bool jumpTry(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor, i
         return false;
     }
     // landed: on the far side's floor, past the gap and no more than two
-    // sectors further, within a sector of the line jumped along
-    int32 near = (dx ? a.sx : a.sz) + (gap + 1) * (dx + dz);
-    int32 across = dx ? a.sz : a.sx;
-    for (int32 i = 0; i < 160; i++)
+    // sectors further, within a sector of the line jumped along (measured in
+    // sectors along and across it: a diagonal step counts two along)
+    int32 near = (gap + 1) * (diagonal ? 2 : 1);
+    for (int32 i = 0; i < 300; i++)
     {
         const Lara* l = lara();
-        int32 along = (dx ? l->pos.x : l->pos.z) >> 10, side = (dx ? l->pos.z : l->pos.x) >> 10;
-        int32 past = (along - near) * (dx + dz);
-        bool there = past >= 0 && past <= 2 && abs(side - across) <= 1 && abs(l->pos.y - floor) < 128;
+        int32 ox = (l->pos.x >> 10) - a.sx, oz = (l->pos.z >> 10) - a.sz;
+        int32 past = ox * dx + oz * dz - near, side = ox * dz - oz * dx;
+        bool there = past >= (diagonal ? -1 : 0) && past <= (diagonal ? 3 : 2) && abs(side) <= 1 && abs(l->pos.y - floor) < 128;
         if (there && standing())
             return true;
         if (l->health <= 0)
@@ -1202,7 +1335,7 @@ static bool swimStep(const Cell &a, const Cell &b)
     return true;
 }
 
-static bool fightBest();
+static bool fightBest(int32 range = 4096);
 static ItemObj* nearestFoe(int32 range);
 
 // To a spot in a room: along the sectors, straight runs where they are clear,
@@ -1211,21 +1344,32 @@ static ItemObj* nearestFoe(int32 range);
 // her is fought first.
 static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius, bool &again);
 
+static int32 gNoWayWaits;
+
 static bool goTo(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius = 96)
 {
     gBlockedCount = 0;
-    for (int32 tries = 0; tries < 24; tries++)
+    gNoWayWaits = 0;
+    bool threatsOnly = gThreatsOnly;
+    gThreatsOnly = true;
+    bool ok = false;
+    int32 tries = 0;
+    for (; tries < 24 && !ok; tries++)
     {
         heal();
         bool again = false;
-        if (goToOnce(roomIndex, x, z, walk, radius, again))
-            return true;
-        if (!again || lara()->health <= 0)
-            return false;
-        settle(120);
+        ok = goToOnce(roomIndex, x, z, walk, radius, again);
+        if (!ok && (!again || lara()->health <= 0))
+            break;
+        if (!ok) {
+            settle(120);
+        }
     }
-    fail("gave up planning the way");
-    return false;
+    gThreatsOnly = threatsOnly;
+    if (!ok && tries == 24) {
+        fail("gave up planning the way");
+    }
+    return ok;
 }
 
 static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius, bool &again)
@@ -1240,7 +1384,18 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
     }
     obstaclesFind();
     int32 len = sectorPath(roomIndex, x, z, path, X_COUNT(path));
-    if (!len) {
+    if (!len)
+    {
+        // a door a switch just opened may still be opening: a few looks, a second apart
+        if (gNoWayWaits < 4 && gBlockedCount == 0)
+        {
+            gNoWayWaits++;
+            for (int32 i = 0; i < 30; i++) {
+                step(0);
+            }
+            again = true;
+            return false;
+        }
         fail("no way there");
         return false;
     }
@@ -1251,7 +1406,7 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
         int32 dx = b.sx - a.sx, dz = b.sz - a.sz;
         if (abs(dx) + abs(dz) > 1)
         {
-            int32 gap = abs(dx) + abs(dz) - 1;
+            int32 gap = X_MAX(abs(dx), abs(dz)) - 1;
             int32 ux = (dx > 0) - (dx < 0), uz = (dz > 0) - (dz < 0);
             if (!jumpAcross(a, ux, uz, gap, b.floor))
             {
@@ -1425,16 +1580,23 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
         }
         return true;
     }
-    if (!goStraight(x, z, X_MAX(radius, 256), walk)) {
-        fail("stuck near the spot");
+    // (a creature on her here: fought, then on again)
+    if (!goStraight(x, z, X_MAX(radius, 256), walk, 30 * 120, true)) {
+        again = nearestFoe(3072) != NULL;
+        if (!again) {
+            fail("stuck near the spot");
+        }
         return false;
     }
     if (!settle()) {
         fail("didn't stop");
         return false;
     }
-    if (distTo(x, z) > radius && !goStraight(x, z, radius, true)) {
-        fail("couldn't walk onto the spot");
+    if (distTo(x, z) > radius && !goStraight(x, z, radius, true, 30 * 120, true)) {
+        again = nearestFoe(3072) != NULL;
+        if (!again) {
+            fail("couldn't walk onto the spot");
+        }
         return false;
     }
     return settle();
@@ -1665,19 +1827,140 @@ static bool useHole(int32 index)
     return true;
 }
 
+// A break-away tile brought down: stood on the sector beside it (the side
+// she steps onto it from heading DEG, or any she can reach), a walk onto it
+// starts it shaking and she gets back off before it falls; tried a few ways.
+static bool collapse(int32 index, int32 deg)
+{
+    ItemObj* tile = items + index;
+    if (tile->type != ITEM_TRAP_FLOOR) {
+        fail("not a break-away tile");
+        return false;
+    }
+    int32 tsx = tile->pos.x >> 10, tsz = tile->pos.z >> 10, top = tile->pos.y - 512;
+    static int32 path[1024];
+    static uint32 keys[BOT_TRIAL_TICKS];
+    for (int32 d = 0; d < 4 && tile->state == 0; d++)
+    {
+        int32 dx = kDirX[d], dz = kDirZ[d];     // from the tile to the side she stands on
+        int16 heading = int16(phd_atan(-dz, -dx));
+        if (deg >= 0 && abs(int16(heading - int16(deg * 0x10000 / 360))) > ANGLE(10))
+            continue;
+        int32 sx = ((tsx + dx) << 10) + 512, sz = ((tsz + dz) << 10) + 512;
+        Spot side = spotAt(tile->room, sx, top - 256, sz);
+        obstaclesFind();
+        if (side.floor == WALL || abs(side.floor - top) > 64 || trapAt(tsx + dx, tsz + dz, side.floor) ||
+            !sectorPath(int32(side.room - rooms), sx, sz, path, X_COUNT(path)))
+            continue;
+        if (!goTo(int32(side.room - rooms), sx, sz, true, 64) || !settle() || !turnTo(heading, ANGLE(3)))
+            return false;
+        int32 bestScore = -1, bestTicks = 0;
+        for (int32 way = 0; way < 3; way++)
+        {
+            int32 ticks = 0;
+            int32 score = trial([&]() -> int32 {
+                int32 i = 0;
+                for (; i < 120 && tile->state == 0; i++) {
+                    step(IK_UP | IK_L);
+                }
+                if (way != 1)
+                {
+                    for (int32 t = 0; t < 30 && !standing(); t++) {
+                        step(0);
+                    }
+                }
+                for (int32 t = 0; t < 60 && ((lara()->pos.x >> 10) != tsx + dx || (lara()->pos.z >> 10) != tsz + dz); t++) {
+                    step(way == 2 ? IK_DOWN : (IK_DOWN | IK_A));
+                }
+                for (int32 t = 0; t < 150 && tile->state < 2; t++) {
+                    step(0);
+                }
+                settle();
+                const Lara* l = lara();
+                if (tile->state < 2 || !standing() || (l->pos.x >> 10) != tsx + dx || (l->pos.z >> 10) != tsz + dz ||
+                    abs(l->pos.y - side.floor) > 64)
+                    return -1;
+                return l->health;
+            }, keys, &ticks);
+            if (score > bestScore || (score == bestScore && score >= 0 && ticks < bestTicks))
+            {
+                bestScore = score;
+                bestTicks = ticks;
+                memcpy(gJumpBest, keys, ticks * sizeof(uint32));
+            }
+        }
+        if (bestScore >= 0)
+        {
+            play(gJumpBest, bestTicks);
+            return true;
+        }
+    }
+    if (tile->state != 0)
+        return true;
+    fail("couldn't bring the tile down");
+    return false;
+}
+
+// To a spot past something that swings or sweeps (blades): stood still a
+// while first, each wait up to MAXWAIT tried; the one that gets her there
+// with the most health, then soonest, is played.
+static bool timed(int32 roomIndex, int32 x, int32 z, int32 maxWait)
+{
+    static uint32 keys[BOT_TRIAL_TICKS];
+    int32 bestScore = -1, bestTicks = 0;
+    for (int32 w = 0; w <= maxWait; w += 3)
+    {
+        int32 ticks = 0;
+        int32 score = trial([&]() -> int32 {
+            for (int32 i = 0; i < w; i++) {
+                step(0);
+            }
+            if (!goTo(roomIndex, x, z, false, 160))
+                return -1;
+            return lara()->health;
+        }, keys, &ticks);
+        if (score > bestScore || (score == bestScore && score >= 0 && ticks < bestTicks))
+        {
+            bestScore = score;
+            bestTicks = ticks;
+            memcpy(gJumpBest, keys, ticks * sizeof(uint32));
+        }
+    }
+    if (bestScore < 0) {
+        fail("no wait got her there");
+        return false;
+    }
+    play(gJumpBest, bestTicks);
+    return true;
+}
+
 static bool isCreature(const ItemObj* item)
 {
     return item->type >= ITEM_WOLF && item->type <= ITEM_ADAM && item->type != ITEM_SKATEBOARD;
 }
 
 // The nearest creature awake and alive, or none.
+// A threat to her where she is: one that flies or shoots, or one on her level
+// (within four clicks); a bear pacing a floor far below her is no threat.
+static bool isThreat(const ItemObj* item)
+{
+    switch (item->type)
+    {
+        case ITEM_BAT: case ITEM_MUTANT_1: case ITEM_MUTANT_2: case ITEM_CENTAUR: case ITEM_LARSON: case ITEM_PIERRE:
+        case ITEM_SKATER: case ITEM_COWBOY: case ITEM_MR_T: case ITEM_NATLA:
+            return true;
+        default:
+            return abs(item->pos.y - lara()->pos.y) <= 1024;
+    }
+}
+
 static ItemObj* nearestFoe(int32 range)
 {
     ItemObj* best = NULL;
     int32 bestDist = range;
     for (ItemObj* item = ItemObj::sFirstActive; item; item = item->nextActive)
     {
-        if (!isCreature(item) || item->health <= 0)
+        if (!isCreature(item) || item->health <= 0 || (gThreatsOnly && !isThreat(item)))
             continue;
         int32 d = distTo(item->pos.x, item->pos.z);
         if (d < bestDist) {
@@ -1763,8 +2046,10 @@ static bool fight(const FightStyle &st, int32 range = 4096, int32 maxTicks = 30 
         } else if (d < -st.deadband) {
             k |= IK_LEFT;
         }
+        // aimed at nothing, or still at one that's dead (the lock holds while
+        // Action is held): let go a moment for a new target
         bool aimed = e->armR.aim || e->armL.aim;
-        unaimed = (target && !aimed) ? unaimed + 1 : 0;
+        unaimed = (target && (!aimed || target->health <= 0)) ? unaimed + 1 : 0;
         if (e->weaponState == WEAPON_STATE_READY && unaimed < st.letGo) {
             k |= IK_B;
         } else if (unaimed >= st.letGo) {
@@ -1783,19 +2068,28 @@ static bool fight(const FightStyle &st, int32 range = 4096, int32 maxTicks = 30 
 
 // A fight played each way in kFightStyles in a trial, the one that leaves
 // her the most health played for real.
-static bool fightBest()
+static bool fightBest(int32 range)
 {
     static uint32 keys[BOT_TRIAL_TICKS];
     int32 best = -1, bestTicks = 0, bestScore = -1;
     for (int32 v = 0; v < int32(X_COUNT(kFightStyles)); v++)
     {
         int32 ticks = 0;
-        int32 score = trial([v]() { return fight(kFightStyles[v]) ? lara()->health : -1; }, NULL, NULL);
+        int32 score = trial([v, range]() {
+            bool won = fight(kFightStyles[v], range);
+            static bool tell = getenv("BOT_FIGHTS") != NULL;
+            if (tell) {
+                const ItemObj* foe = nearestFoe(range);
+                fprintf(stderr, "  fight style %d at tick %d: %s, health %d, foe %d (health %d)\n", v, gTick, won ? "won" : "lost",
+                        lara()->health, foe ? int32(foe - items) : -1, foe ? foe->health : 0);
+            }
+            return won ? lara()->health : -1;
+        }, NULL, NULL);
         if (score > bestScore)
         {
             bestScore = score;
             best = v;
-            trial([v]() { return fight(kFightStyles[v]) ? lara()->health : -1; }, keys, &ticks);
+            trial([v, range]() { return fight(kFightStyles[v], range) ? lara()->health : -1; }, keys, &ticks);
             bestTicks = ticks;
         }
     }
@@ -1893,7 +2187,11 @@ static bool blockTry(int32 roomIndex, int32 x, int32 z, int32 floor, int32 varia
             if (!turnTo(int16(atoi(a) * 0x10000 / 360)))
                 return false;
         } else if (!strcmp(cmd, "goto") && n >= 4) {
-            if (!goTo(atoi(a), atoi(b), atoi(c), false))
+            char d[64] = "", e[64] = "";
+            sscanf(gBlock[i], "%*s %*s %*s %*s %63s %63s", d, e);
+            bool walk = !strcmp(d, "walk");
+            int32 radius = atoi(walk ? e : d);
+            if (!goTo(atoi(a), atoi(b), atoi(c), walk, radius > 0 ? radius : 96))
                 return false;
         } else {
             return false;
@@ -1995,8 +2293,8 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
         if (char* hash = strchr(line, '#')) {
             *hash = 0;
         }
-        char cmd[32], a[64], b[64], c[64], d[64];
-        int32 n = sscanf(line, "%31s %63s %63s %63s %63s", cmd, a, b, c, d);
+        char cmd[32], a[64], b[64], c[64], d[64], e[64];
+        int32 n = sscanf(line, "%31s %63s %63s %63s %63s %63s", cmd, a, b, c, d, e);
         if (n <= 0 || !strcmp(cmd, "start"))
             continue;
         int32 t0 = gTick;
@@ -2004,7 +2302,10 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
             heal();
         }
         if (!strcmp(cmd, "goto") && n >= 4) {
-            ok = goTo(atoi(a), atoi(b), atoi(c), n >= 5 && !strcmp(d, "walk"));
+            // goto ROOM X Z [walk] [RADIUS]
+            bool walk = n >= 5 && !strcmp(d, "walk");
+            int32 radius = (n >= 5 && !walk) ? atoi(d) : (n >= 6 ? atoi(e) : 0);
+            ok = goTo(atoi(a), atoi(b), atoi(c), walk, radius > 0 ? radius : 96);
         } else if (!strcmp(cmd, "face") && n >= 2) {
             ok = turnTo(int16(atoi(a) * 0x10000 / 360));
             if (!ok) {
@@ -2039,13 +2340,21 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
                 bool climb = climbBetween(cl, kDirX[dir], kDirZ[dir], low, hi);
                 printf("    dir %d,%d: move %d to floor %d ceiling %d room %d; climb %s %d\n", kDirX[dir], kDirZ[dir], m, low.floor,
                        low.ceiling, low.room ? int32(low.room - rooms) : -1, climb ? "yes" : "no", climb ? hi.floor : 0);
-                for (int32 gap = 1; gap <= 2; gap++)
+            }
+            for (int32 dir = 0; dir < 8; dir++)
+            {
+                for (int32 gap = 1; gap <= 5; gap++)
                 {
-                    Spot jb;
-                    bool j = jumpBetween(cl, kDirX[dir], kDirZ[dir], gap, jb);
-                    int32 jx = (cl.sx + kDirX[dir] * (gap + 1)) << 10, jz = (cl.sz + kDirZ[dir] * (gap + 1)) << 10;
-                    printf("      jump %d: %s floor %d%s\n", gap, j ? "yes" : "no", j ? jb.floor : 0,
-                           (j && blocked(jx + 512, jb.floor, jz + 512)) ? " (in the way of something)" : "");
+                    for (int32 look = 0; look < 2; look++)
+                    {
+                        Spot jb;
+                        bool j = jumpBetween(cl, kJumpX[dir], kJumpZ[dir], gap, jb, look == 1);
+                        int32 jx = (cl.sx + kJumpX[dir] * (gap + 1)) << 10, jz = (cl.sz + kJumpZ[dir] * (gap + 1)) << 10;
+                        if (j) {
+                            printf("    jump %d,%d gap %d%s: floor %d%s\n", kJumpX[dir], kJumpZ[dir], gap, look ? " (from above)" : "",
+                                   jb.floor, blocked(jx + 512, jb.floor, jz + 512) ? " (in the way of something)" : "");
+                        }
+                    }
                 }
             }
         } else if (!strcmp(cmd, "explainwater") && n >= 5) {
@@ -2071,6 +2380,16 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
                            gCells[i].move);
                 }
             }
+        } else if (!strcmp(cmd, "teleport") && n >= 5) {
+            // teleport ROOM X Y Z [DEG]: debugging only (the replay no longer plays the same)
+            Lara* l = lara();
+            l->pos = _vec3i(atoi(b), atoi(c), atoi(d));
+            l->room = rooms + atoi(a);
+            l->roomFloor = l->pos.y;
+            if (n >= 6) {
+                l->angle.y = int16(atoi(e) * 0x10000 / 360);
+            }
+            settle();
         } else if (!strcmp(cmd, "jumptest") && n >= 4) {
             // jumptest DX:DZ:GAP:FLOOR BACK RUN GRAB: one jump try, here, for real
             int32 jdx, jdz, gap, floor;
@@ -2121,6 +2440,10 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
         } else if ((!strcmp(cmd, "push") || !strcmp(cmd, "pull")) && n >= 4) {
             // push|pull ITEM DEGREES TIMES: a block moved that way, a sector a time
             ok = moveBlock(atoi(a), int16(atoi(b) * 0x10000 / 360), atoi(c), !strcmp(cmd, "pull"));
+        } else if (!strcmp(cmd, "timed") && n >= 4) {
+            ok = timed(atoi(a), atoi(b), atoi(c), n >= 5 ? atoi(d) : 90);
+        } else if (!strcmp(cmd, "collapse") && n >= 2) {
+            ok = collapse(atoi(a), n >= 3 ? atoi(b) : -1);
         } else if (!strcmp(cmd, "usehole") && n >= 2) {
             ok = useHole(atoi(a));
         } else if (!strcmp(cmd, "lever") && n >= 2) {
@@ -2131,7 +2454,7 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
         } else if (!strcmp(cmd, "draw")) {
             ok = draw();
         } else if (!strcmp(cmd, "fight")) {
-            ok = fightBest();
+            ok = fightBest(n >= 2 ? atoi(a) : 4096);
             if (!ok && lara()->health > 0) {
                 fail("creatures left awake");
             }

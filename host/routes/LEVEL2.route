@@ -1,14 +1,20 @@
-# Vilcabamba at 100%, in progress (Stella: 13 pickups with the silver key and
-# gold idol, 3 secrets, 29 kills). In progress: to the five wolves by the
-# red-roofed building.
+# Vilcabamba at 100% (Stella: 13 pickups with the silver key and gold idol,
+# 3 secrets, 29 kills).
 start LEVEL2 newgame
 # the entrance doors open as the level starts
 wait 90
 # four wolves in the cave beyond the entrance
 draw
+fight 8192
+# round the perimeter: along the narrow hallway (three bats, a wolf at the
+# corner), the medipack in the greenery
+goto 6 74240 44544
+goto 6 66048 44544
 fight
-# round the perimeter: the medipack in the greenery (a wolf, bats on the way)
 pickup 7
+# on along the long passage to the pool (two bats drop)
+goto 4 55808 26112
+fight
 # the stable: its bear, the medipack in the hayloft
 pickup 33
 # under water: the lever by the trapdoor; up through it into secret 1
@@ -28,9 +34,10 @@ switch 16
 wait 60
 # a running jump to the ledge (as the planner finds it); then on across the
 # break-away tiles before they fall, and a running jump over the pit to the
-# alcove's platform
+# alcove's platform, from the same spot each try
 goto 23 59904 35328
 attempt 17 59904 30208 60
+goto 23 59904 35328 walk 24
 face 180
 keys UP 24
 keys UP+A 30
@@ -49,4 +56,36 @@ pickup 4
 usehole 9
 wait 60
 goto 36 37376 28160
-fight
+fight 8192
+
+# the left door: up the pool room's ledges (a jump to a ledge four clicks up, a
+# diagonal running jump across the pool), two bats, the medipack and the
+# switch that opens the right door; the shells on the ledge outside, the
+# medipack on the red roof
+pickup 54
+switch 53
+pickup 52
+pickup 48
+# the right door: up the second pool room by its ledges over the break-away
+# tiles (as the planner finds them), a bat, the switch that opens the middle door
+switch 71
+# the middle door: three swinging blades, each passed when it swings away;
+# the switch past them drops the floor into a pool
+goto 61 28160 29184
+goto 61 27200 29184 walk 64
+timed 61 25088 29184
+timed 61 23040 29184
+timed 61 20992 29184
+switch 60
+# swum through to the second pool, up the stairs: the switch that opens the
+# exit's gate; the bear in the hall shot from the balcony
+switch 84
+goto 72 15872 31232
+fight 8192
+# the switch that stops the blades, the doorway opposite: down twice to secret 3
+switch 83
+pickup 89
+expect secrets 3
+# the gold idol in its hole by the gate, and out
+usehole 79
+endlevel 87 9728 29184
