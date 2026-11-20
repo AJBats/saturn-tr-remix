@@ -156,6 +156,18 @@ def rec_line(t, r):
             f'frame {r["frame"]} health {r["health"]} seed {r["seed"]:08x}{extra}\n')
 
 
+def differs(recs, host, kept, i):
+    """Retail's record i against the host's, but for the first of a level: retail's is
+    the new level as it loads, the host's the old one's last tick (the host numbers the
+    levels one on)."""
+    if not 1 <= i < len(kept):
+        return False
+    h = host[kept[i] - 1]
+    if recs[i]['level'] + 1 != h['level']:
+        return False
+    return any(recs[i][k] != h[k] for k in FIELDS)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('replay')
@@ -206,6 +218,7 @@ def main():
         # the game runs a tick in two vblanks at most: the ring holds 1024 vblanks' worth
         step = 600      # (with --items the game holds before the tick after the last: no overshoot)
         last, still = -1, 0
+        part = None     # the first record that differs: the run stops a few ticks on
         while vblanks < args.max_vblanks:
             m.send(f'frame_advance {step}', 'done frame_advance', 600)
             vblanks += step
@@ -223,7 +236,10 @@ def main():
                 yaw, = struct.unpack('>H', item[0x3E:0x40])
                 recs[i] = dict(level=lvl, room=room, x=x, y=y, z=z, yaw=yaw, anim=anim, frame=frame, health=hp, seed=seed,
                                state=state, goal=goal)
-            if index >= len(kept):
+                if part is None and differs(recs, host, kept, i):
+                    part = i
+                    print(f"  parted at the host's tick {kept[i] - 1}: on to a few ticks past it", flush=True)
+            if index >= len(kept) or (part is not None and index > part + 8):
                 break
             # no game tick for two minutes: held somewhere the replay doesn't
             # lead it out of (a level's load and its film take less)
@@ -263,7 +279,7 @@ def main():
             t = kept[i] - 1
             f.write(rec_line(t, recs[i]))
             fh.write(rec_line(t, host[t]))
-            if first is None and any(recs[i][k] != host[t][k] for k in FIELDS):
+            if first is None and differs(recs, host, kept, i):
                 first = i
     print(f'{len(recs)} records of {len(kept)} game ticks -> {args.out}')
     if first is None:
