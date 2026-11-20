@@ -1804,17 +1804,25 @@ struct Lara : ItemObj
         pos.y += cinfo.m.floor;
     }
 
-    void c_fall()
+    // Landed: by the state whose collision this is (retail's col routine for
+    // it), not the one a smash into a wall just set (a forward jump that hits
+    // a wall as it lands keeps the smash this tick, its goal a stop or a run:
+    // ColForwardJump 0601c5cc)
+    void c_fall(int32 from = -1)
     {
-        if (vSpeed <= 0 || cinfo.m.floor > 0)
+        int32 st = (from >= 0) ? from : state;
+
+        // (a fast fall lands whatever its speed: ColFastFall 0601c950 has no
+        // test of it, so a smash that landed last tick takes the landing now)
+        if ((vSpeed <= 0 && st != STATE_FALL) || cinfo.m.floor > 0)
             return;
 
         // a swan dive just lands: no fall damage, no triggers (LaraColSwanDive 0601d418)
-        if (state != STATE_SWAN_DIVE && c_checkLanding()) {
+        if (st != STATE_SWAN_DIVE && c_checkLanding()) {
             goalState = STATE_DEATH;
-        } else if (state == STATE_JUMP && (input & IN_UP) && !(input & IN_WALK)) {
+        } else if (st == STATE_JUMP && (input & IN_UP) && !(input & IN_WALK)) {
             goalState = STATE_RUN;
-        } else if (state == STATE_FALL) {
+        } else if (st == STATE_FALL) {
             animSet(ANIM_LANDING, true);
         } else {
             goalState = STATE_STOP;
@@ -1826,13 +1834,16 @@ struct Lara : ItemObj
         vSpeed = 0;
         flags &= ~ITEM_FLAG_GRAVITY;
 
-        if (state == STATE_JUMP) {
+        // a forward jump stops dead (a smash's bounce back goes no further)
+        if (st == STATE_JUMP) {
+            hSpeed = 0;
             animProcess();
         }
     }
 
     void c_jump()
     {
+        int32 from = state;
         cinfo.gapPos = -WALL;
         cinfo.gapNeg = (state == STATE_REACH) ? 0 : -LARA_STEP_HEIGHT;
         cinfo.gapCeiling = 192;
@@ -1876,7 +1887,7 @@ struct Lara : ItemObj
             angle.y -= ANGLE(5);
         }
 
-        c_fall();
+        c_fall(from);
     }
 
     void c_slide()

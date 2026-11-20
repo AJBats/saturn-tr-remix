@@ -1389,7 +1389,18 @@ static bool jumpTry(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor, i
         int32 past = ox * dx + oz * dz - near, side = ox * dz - oz * dx;
         bool there = past >= (diagonal ? -1 : 0) && past <= (diagonal ? 3 : 2) && abs(side) <= 1 && abs(l->pos.y - floor) < 128;
         if (there && standing())
-            return true;
+        {
+            // and still there at rest (landed against a wall she smashes
+            // into it and steps back, off a narrow ledge)
+            settle(30);
+            l = lara();
+            ox = (l->pos.x >> 10) - a.sx;
+            oz = (l->pos.z >> 10) - a.sz;
+            past = ox * dx + oz * dz - near;
+            side = ox * dz - oz * dx;
+            return standing() && past >= (diagonal ? -1 : 0) && past <= (diagonal ? 3 : 2) && abs(side) <= 1 &&
+                   abs(l->pos.y - floor) < 128;
+        }
         if (l->health <= 0)
             return false;
         uint32 k = (i < run) ? IK_UP : (IK_UP | IK_A | (grab ? IK_B : 0));
@@ -1470,7 +1481,11 @@ static bool leapTry(int32 x, int32 z, int32 floor, int16 turn, int32 back, int32
         l = lara();
         bool there = abs(l->pos.x - x) < 1024 && abs(l->pos.z - z) < 1024 && abs(l->pos.y - floor) < 128;
         if (there && standing())
-            return true;
+        {
+            settle(30);     // and still there at rest
+            l = lara();
+            return standing() && abs(l->pos.x - x) < 1024 && abs(l->pos.z - z) < 1024 && abs(l->pos.y - floor) < 128;
+        }
         if (l->health <= 0)
             return false;
         uint32 k = (i < run) ? IK_UP : (IK_UP | IK_A | (grab ? IK_B : 0));
@@ -1484,13 +1499,16 @@ static bool leapTry(int32 x, int32 z, int32 floor, int16 turn, int32 back, int32
     return false;
 }
 
-static bool leap(Room* room, int32 x, int32 z)
+static bool leap(Room* room, int32 x, int32 z, int32 floor = NO_GOAL_Y)
 {
     static const int32 kTurn[] = { 0, -3, 3, -6, 6, -10, 10 };     // degrees
     static const int32 kBack[] = { 0, 200, 400, 600, 800 };
     static const int32 kRun[] = { 0, 3, 6, 9, 12, 16 };
     static uint32 keys[BOT_TRIAL_TICKS];
     Spot to = spotAt(room, x, lara()->pos.y - 1024, z);
+    if (floor != NO_GOAL_Y) {
+        to.floor = floor;   // the route's (a pillar's top the room seen from her height misses)
+    }
     int32 bestScore = -1, bestTicks = 0;
     for (int32 grab = 0; grab < 2 && bestScore < 0; grab++)
     {
@@ -3628,8 +3646,8 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             }
             ok = dash(rooms + atoi(a), xz, count, !strcmp(cmd, "creep"));
         } else if (!strcmp(cmd, "leap") && n >= 4) {
-            // leap ROOM X Z: a jump from her sector to that spot, at any heading
-            ok = leap(rooms + atoi(a), atoi(b), atoi(c));
+            // leap ROOM X Z [FLOOR]: a jump from her sector to that spot, at any heading
+            ok = leap(rooms + atoi(a), atoi(b), atoi(c), n >= 5 ? atoi(d) : NO_GOAL_Y);
         } else if (!strcmp(cmd, "attempt") && n >= 4) {
             // the block's lines, to its end
             gBlockCount = 0;

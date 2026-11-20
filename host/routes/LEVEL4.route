@@ -29,3 +29,7 @@ fight 8192
 switch 66
 goto 0 37888 39424
 fight 8192
+# (hit down to 40 he runs, and goes once the camera has lost him a moment:
+# into the gorilla room till then)
+goto 2 43008 39424
+wait 150
