@@ -2241,37 +2241,140 @@ static bool fight(const FightStyle &st, int32 range = 4096, int32 maxTicks = 30 
 
 // A fight played each way in kFightStyles in a trial, the one that leaves
 // her the most health played for real.
-// Stood where it can't reach her: turned to it and shot whenever it's near,
-// waited for as it roams (played as it goes, no trial), up to 40 minutes.
-static bool shootFromHere(ItemObj* foe)
+// One tick of shooting from where she stands: guns drawn, turned to it,
+// Action while it's near (let go now and then for a new aim).
+static uint32 shootKeys(ItemObj* foe, int32 i)
 {
     ExtraInfoLara* e = lara()->extraL;
+    if (e->weaponState == WEAPON_STATE_FREE)
+        return (i & 1) ? 0 : IK_C;
+    uint32 k = 0;
+    int16 d = int16(headingTo(foe->pos.x, foe->pos.z) - lara()->angle.y);
+    if (d > ANGLE(8)) {
+        k |= IK_RIGHT;
+    } else if (d < -ANGLE(8)) {
+        k |= IK_LEFT;
+    }
+    ItemObj* target = e->armR.target;
+    bool aimed = (e->armR.aim || e->armL.aim) && target && target->health > 0;
+    if (e->weaponState == WEAPON_STATE_READY && distTo(foe->pos.x, foe->pos.z) < 8192 && (aimed || (i & 15) < 12)) {
+        k |= IK_B;
+    }
+    return k;
+}
+
+static void holster()
+{
+    for (int32 i = 0; i < 60 && lara()->extraL->weaponState != WEAPON_STATE_FREE; i++) {
+        step(i == 0 ? IK_C : 0);
+    }
+}
+
+// The sector of its zone nearest her by the planner's way, on the ground:
+// where she stands to be in its reach (false if none).
+static bool lureSpot(ItemObj* foe, int32 &room, int32 &x, int32 &z)
+{
+    const Nav &nav = foe->extraE->nav;
+    const uint16* zones = level.zones[gSaveGame.flipped][nav.zoneType];
+    uint16 zone = zones[foe->room->getSector(foe->pos.x, foe->pos.z)->boxIndex];
+    static int32 path[1024];
+    obstaclesFind();
+    sectorPath(int32(lara()->room - rooms), -0x400000, -0x400000, path, X_COUNT(path));
+    int32 best = -1;
+    for (int32 i = 0; i < gCellsCount; i++)
+    {
+        const Cell &c = gCells[i];
+        if (c.water || c.cost == 0x7FFFFFFF)
+            continue;
+        uint16 box = c.room->getSector(cellX(c), cellZ(c))->boxIndex;
+        if (box == NO_BOX || zones[box] != zone || (level.boxes[box].overlap & nav.mask))
+            continue;
+        if (best < 0 || c.cost < gCells[best].cost)
+            best = i;
+    }
+    if (best < 0)
+        return false;
+    room = int32(gCells[best].room - rooms);
+    x = cellX(gCells[best]);
+    z = cellZ(gCells[best]);
+    return true;
+}
+
+// A lure: into its zone, shot at as it comes, back to the spot before it's
+// within near. Its score: her health, with 32 for each hit on it; < 0 if she
+// died, didn't get back, or it wasn't hit.
+static int32 lureTry(ItemObj* foe, int32 lroom, int32 lx, int32 lz, int32 sroom, int32 sx, int32 sz, int32 near)
+{
+    int32 hp = foe->health;
+    holster();
+    gFleeing = true;
+    bool ok = goTo(lroom, lx, lz, false, 256);
+    for (int32 i = 0; ok && i < 30 * 60 && foe->health > 0 && distTo(foe->pos.x, foe->pos.z) >= near; i++)
+    {
+        if (lara()->health <= 0)
+            return -1;
+        step(shootKeys(foe, i));
+    }
+    holster();
+    ok = ok && goTo(sroom, sx, sz, false, 256);
+    gFleeing = false;
+    for (int32 i = 0; ok && i < 150; i++) {
+        step(shootKeys(foe, i));
+    }
+    int32 hits = hp - X_MAX(foe->health, 0);
+    if (!ok || lara()->health <= 0 || hits <= 0)
+        return -1;
+    return hits * 32 + lara()->health;
+}
+
+// Stood where it can't reach her: turned to it and shot whenever it's near,
+// up to 40 minutes. A creature hit while she's out of its zone runs from her
+// till she's in it again (retail's Creature_Mood: escape, then attack only
+// when she's in its zone), so after 15 quiet seconds she lures it (lureTry,
+// the nearest it may come tried three ways, the best played).
+static bool shootFromHere(ItemObj* foe)
+{
     int32 t0 = gTick;
-    for (int32 i = 0; i < 30 * 60 * 40 && foe->health > 0; i++)
+    int32 sroom = int32(lara()->room - rooms), sx = lara()->pos.x, sz = lara()->pos.z;
+    int32 lroom = 0, lx = 0, lz = 0;
+    bool lure = lureSpot(foe, lroom, lx, lz);
+    if (lure) {
+        printf("  lure spot: %d,%d room %d\n", lx, lz, lroom);
+    }
+    static uint32 keys[BOT_TRIAL_TICKS];
+    static const int32 kNear[] = { 8192, 6144, 4096 };
+    int32 quiet = 0;
+    for (int32 i = 0; gTick - t0 < 30 * 60 * 40 && foe->health > 0; i++)
     {
         if (lara()->health <= 0) {
             fail("died at the safe spot");
             return false;
         }
-        if (e->weaponState == WEAPON_STATE_FREE) {
-            step(IK_C);
-            step(0);
+        quiet = (distTo(foe->pos.x, foe->pos.z) < 8192) ? 0 : quiet + 1;
+        if (lure && quiet > 30 * 15)
+        {
+            quiet = 0;
+            int32 best = -1, bestNear = 0;
+            for (int32 n = 0; n < int32(X_COUNT(kNear)); n++)
+            {
+                int32 near = kNear[n];
+                int32 score = trial([&]() { return lureTry(foe, lroom, lx, lz, sroom, sx, sz, near); }, NULL, NULL);
+                if (score > best) {
+                    best = score;
+                    bestNear = near;
+                }
+            }
+            if (best >= 0)
+            {
+                int32 ticks = 0, hp = foe->health;
+                trial([&]() { return lureTry(foe, lroom, lx, lz, sroom, sx, sz, bestNear); }, keys, &ticks);
+                play(keys, ticks);
+                printf("  lure: back as it came within %d, %d hits on it, her health %d\n", bestNear, hp - X_MAX(foe->health, 0),
+                       lara()->health);
+            }
             continue;
         }
-        uint32 k = 0;
-        int16 d = int16(headingTo(foe->pos.x, foe->pos.z) - lara()->angle.y);
-        if (d > ANGLE(8)) {
-            k |= IK_RIGHT;
-        } else if (d < -ANGLE(8)) {
-            k |= IK_LEFT;
-        }
-        ItemObj* target = e->armR.target;
-        bool aimed = (e->armR.aim || e->armL.aim) && target && target->health > 0;
-        // Action while it's near; let go now and then for a new aim
-        if (e->weaponState == WEAPON_STATE_READY && distTo(foe->pos.x, foe->pos.z) < 8192 && (aimed || (i & 15) < 12)) {
-            k |= IK_B;
-        }
-        step(k);
+        step(shootKeys(foe, i));
     }
     if (foe->health > 0) {
         fail("couldn't kill it from the safe spot");
@@ -2279,9 +2382,7 @@ static bool shootFromHere(ItemObj* foe)
     }
     printf("  fight from safety: %d s, health %d\n", (gTick - t0) / 30, lara()->health);
     // guns away (a switch wants her hands free)
-    for (int32 i = 0; i < 60 && e->weaponState != WEAPON_STATE_FREE; i++) {
-        step(i == 0 ? IK_C : 0);
-    }
+    holster();
     settle(60);
     return true;
 }
