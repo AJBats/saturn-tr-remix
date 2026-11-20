@@ -4,7 +4,7 @@
 ! read as nothing held:
 ! - called for a game tick (S_UpdateInput called by ControlPhase): from the tick
 !   table, one entry a tick; Lara's item, the control seed and the level, as
-!   they stand before the tick, go to a 512-entry ring first;
+!   they stand before the tick, go to a 256-entry ring first;
 ! - called by the inventory's own loop (Display_Inventory, a frame at a time)
 !   or the level's statistics screen or its "Save Game?" prompt:
 !   from the script, one entry a call, up to a 0 that ends the opening (held
@@ -16,7 +16,7 @@
 !   +0   armed (long, 0 = off)
 !   +4   index (long): the tick table's next entry, the ticks fed so far
 !   +8   tick table address (long): halfwords, one a tick
-!   +12  ring address (long): 512 entries of 96 bytes
+!   +12  ring address (long): 256 entries of 96 bytes
 !   +16  stop at (long): when the index reaches it, the game holds here (before
 !        that tick) till the driver changes it
 !   +20  script address (long): halfwords, one an inventory frame
@@ -159,7 +159,7 @@ level:  .long 0x06060cb4
 lara:   .long 0x060a00e4
 pad:    .long 0x0606e404
 through: .long 0x20000000
-mask:   .word 511
+mask:   .word 255
     .align 2
     .global vars
 vars:   .long 0, 0, 0, 0, -1, 0, 0, 0

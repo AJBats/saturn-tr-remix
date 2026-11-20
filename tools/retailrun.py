@@ -32,14 +32,17 @@ from capture import Mednafen  # noqa: E402
 
 CUE = ROOT + '/external_resources/tomb_raider_usa/Tomb Raider (USA).cue'
 BIN = ROOT + '/toolchain/gcc-14.2.0/sh2eb-elf/bin/'
-# low work RAM retail leaves alone (all zero from boot into the Caves: 0x00200010..0x00245d10)
-STUB = 0x00200100
-RING = 0x00201000       # 512 entries, to 0x0020d000
-TABLE = 0x0020E000      # to 0x00240000
-SCRIPT = 0x00240000     # to 0x00245000
-MAX_TICKS = (SCRIPT - TABLE) // 2 - 64
-MAX_SCRIPT = (0x00245000 - SCRIPT) // 2
-RING_SIZE = 512
+# low work RAM retail leaves alone (all zero from boot into the Caves:
+# 0x00200010..0x00245d10), but for its bottom: the inventory ring, opened in a
+# level, writes from 0x00200000 on (over the stub where it was, at 0x00200100);
+# everything here is above 0x0020e000, which it left alone
+STUB = 0x0020E000       # to 0x0020e400, its vars in it
+RING = 0x0020E400       # 256 entries of 96 bytes, to 0x00214400
+SCRIPT = 0x00214400     # to 0x00219400
+TABLE = 0x00219400      # to 0x00245c00
+MAX_TICKS = (0x00245C00 - TABLE) // 2 - 64
+MAX_SCRIPT = (TABLE - SCRIPT) // 2
+RING_SIZE = 256
 POOL = 0x06037644       # S_UpdateInput's pool word for the pad scan
 CONTROL_PHASE = 0x0600F66C
 LEVEL = 0x06060CB4
@@ -221,8 +224,8 @@ def main():
         print(f'armed at vblank {m.send("status", "status", 10).split("frame=")[1].split()[0]}: {len(keys)} ticks, '
               f'{len(keys) - len(kept)} of them in the inventory ({script.count(0)} stays)', flush=True)
         vblanks = 0
-        # the game runs a tick in two vblanks at most: the ring holds 1024 vblanks' worth
-        step = 600      # (with --items the game holds before the tick after the last: no overshoot)
+        # the game runs a tick in two vblanks at most: the ring holds 512 vblanks' worth
+        step = 300      # (with --items the game holds before the tick after the last: no overshoot)
         last, still = -1, 0
         part = None     # the first record that differs: the run stops a few ticks on
         while vblanks < args.max_vblanks:
@@ -251,11 +254,26 @@ def main():
             # lead it out of (a level's load and its film take less)
             still = still + 1 if index == last else 0
             last = index
-            if still >= 12 and not args.items:
+            if still >= 24 and not args.items:
                 shot = os.path.splitext(args.out)[0] + '_held.png'
                 m.send(f'screenshot {shot.replace(os.sep, "/")}', 'screenshot', 30)
                 print(f'  no game tick since tick {index} (script at {m.word(STUB + vars_off + 24)} of {len(script)}, '
                       f'picture {shot}): stopped', flush=True)
+                # ours still in place? (the game may have written over low work RAM)
+                stub = m.read(STUB, len(code))
+                print(f'    the stub {"intact" if stub == code else "WRITTEN OVER"}; table head '
+                      f'{"intact" if m.read(TABLE, 64) == table[:64] else "WRITTEN OVER"}', flush=True)
+                low = m.read(0x00200000, 0x50000)
+                spans, start = [], None
+                for at in range(0, len(low), 256):
+                    ours = STUB - 0x00200000 <= at < 0x00245C00 - 0x00200000
+                    busy = any(low[at:at + 256]) and not ours
+                    if busy and start is None:
+                        start = at
+                    elif not busy and start is not None:
+                        spans.append((start, at))
+                        start = None
+                print('    low work RAM in use outside ours: ' + ', '.join(f'{0x00200000 + a:08x}..{0x00200000 + b:08x}' for a, b in spans[:12]), flush=True)
                 # where it is held: the master's PC and PR a few frames apart
                 for _ in range(4):
                     regs = m.send('dump_regs', 'R0=', 10)
