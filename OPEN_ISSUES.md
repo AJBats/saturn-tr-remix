@@ -953,6 +953,13 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 318. Running into a wall, Lara answers the pad a tick early
+*Closed 2026-11-20: COMMIT. As retail's LaraColRun (`0601c374`): against a wall high enough to splat she takes the splat state, and past the run cycle's frames keeps it with the stand animation for one update (the splat's handler ignores the pad); against a low wall the stand animation comes with her state kept. Ours set the stand's state. The bot's whole Caves run played by retail now matches every tick (25,869).*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen) · Fix: trivial*
+
+- **Found 2026-11-20** by the bot's Caves run played by retail (tools/retailrun.py): after Lara ran into a wall at room 33, the bot's turn started a tick earlier in ours, and every tick after was a tick ahead of retail's.
+
 ### 317. Pulling a switch, Lara's animation starts a frame on, and the switch a step behind
 *Closed 2026-11-20: 9f20f2b. As retail's SwitchCollision (`0602b0d0`) and SwitchCollision2 (`0602b1fc`): Lara animated till she's in the pull, its first frame (OpenLara stepped one more), and the switch animated a step at once. The bot's Caves run played by retail now matches to tick 8,000 (it parted at 7,251).*
 

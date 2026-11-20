@@ -2166,17 +2166,24 @@ struct Lara : ItemObj
         if (c_checkClimbUp())
             return;
 
+        // as retail's LaraColRun (0601c374): against a wall high enough she
+        // splats; past the run cycle's frames that splat state stays with the
+        // stand animation (its next update the splat's, ignoring the pad); a
+        // low wall stops her with the state kept
         if (c_checkWall()) {
             angle.z = 0;
 
-            if (cinfo.f.slantType == SLANT_NONE && cinfo.f.floor < -LARA_SMASH_HEIGHT && frameIndex < 22)
+            if (cinfo.f.slantType == SLANT_NONE && cinfo.f.floor < -LARA_SMASH_HEIGHT)
             {
-                animSet(frameIndex < 10 ? ANIM_SMASH_RUN_LEFT : ANIM_SMASH_RUN_RIGHT, false);
                 state = STATE_SPLAT;
-                return;
+                if (frameIndex < 22)
+                {
+                    animSet(frameIndex < 10 ? ANIM_SMASH_RUN_LEFT : ANIM_SMASH_RUN_RIGHT, false);
+                    return;
+                }
             }
 
-            animSet(ANIM_STAND, true);
+            animSet(ANIM_STAND, false);
         }
 
         if (c_checkFall(LARA_STEP_HEIGHT))
