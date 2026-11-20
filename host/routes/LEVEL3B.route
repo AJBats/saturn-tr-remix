@@ -1,8 +1,5 @@
-# Tomb of Qualopec at 100%, in progress (Stella: 7 kills + the mummy, 8 pickups
-# with the Scion, 3 secrets). Done: the three gates' switches, secrets 1 and
-# 2, the Scion and the boulder after it. Next: the mummy (shot before the
-# Scion), the lake (secret 3 down the tunnel), the large medipack past
-# Larson, Larson.
+# Tomb of Qualopec at 100% (Stella: 7 kills + the mummy, 8 pickups with the
+# Scion, 3 secrets).
 # tools/levelmap.py draws the level.
 start LEVEL3B newgame
 wait 30
@@ -76,13 +73,16 @@ goto 4 64000 78336 spikes
 pickup 19
 goto 7 65024 75264 spikes
 # down off the alcove onto the first step (hung first), up the stairs to the
-# Scion
+# tomb: the mummy shot till it falls (it never moves; an extra kill), then
+# the Scion
 attempt 39 64700 73216
 goto 39 64624 74240
 face 0
 keys DOWN+B 30
 wait 40
 end
+goto 5 73216 60416
+fight 8192
 pickup 20
 # the ceiling comes down and the boulder rolls down the ramp after her: out
 # of its line in the big room, then round it where it stops in the passage's
@@ -90,5 +90,19 @@ pickup 20
 goto 20 56832 64512
 wait 150
 goto 19 49664 62208
-creep 19 49250 62250 49070 62375 49000 62520
+creep 19 49250 62250 49070 62375 48900 62700 48640 63100
 goto 19 46592 64000
+# secret 3: down the lake's tunnel to the room off it (magnum clips, a large
+# medipack)
+pickup 27
+pickup 28
+# the large medipack up the cliff past Larson (left alone: he stays by the
+# lake)
+ignore on
+pickup 31
+ignore off
+# Larson from the cave's mouth: his fall ends the level
+goto 11 42496 48640
+fight 8192
+# (the film comes a little after his fall)
+wait 600

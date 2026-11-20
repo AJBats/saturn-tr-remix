@@ -40,6 +40,7 @@
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <math.h>
+#include <setjmp.h>
 
 namespace bot {
 
@@ -59,12 +60,21 @@ struct TrialOut
     uint32 keys[BOT_TRIAL_TICKS];
 };
 static TrialOut* gTrialOut[4];
+static int32 gTrialStart[4];        // the tick each trial (by depth) began at
 static uint32 gJumpBest[BOT_TRIAL_TICKS];
 
 static Lara* lara()
 {
     return players[0];
 }
+
+// The level's end, wherever a step reaches it (an end trigger, a creature
+// whose death ends it): the route's steps for the level stop there.
+static jmp_buf gLevelEndJump;
+static bool gLevelEndArmed;         // a route step is running: the end jumps back to the route
+static bool gInLevelEnd;
+static int32 gLastHealth;
+static void throughLevelEnd();
 
 // A tick with these keys held.
 static void step(uint32 k)
@@ -75,6 +85,24 @@ static void step(uint32 k)
     }
     hostTick(gTick, k);
     gLog[gTick++] = k;
+    if (players[0] && gNextLevel == LVL_MAX) {
+        gLastHealth = players[0]->health;
+    }
+    if (!gInLevelEnd && (gNextLevel != LVL_MAX || !players[0]))
+    {
+        if (gDepth > 0)
+        {
+            // a trial that ends the level: done, her health as it ended
+            TrialOut* out = gTrialOut[gDepth - 1];
+            out->ticks = X_MIN(gTick - gTrialStart[gDepth - 1], BOT_TRIAL_TICKS);
+            memcpy(out->keys, gLog + gTrialStart[gDepth - 1], out->ticks * sizeof(uint32));
+            out->score = gLastHealth;
+            _exit(0);
+        }
+        throughLevelEnd();
+        if (gLevelEndArmed)
+            longjmp(gLevelEndJump, 1);
+    }
     // BOT_TRACE=N: Lara every N ticks, her guns, the creatures awake, and
     // WATCH=ITEM,ITEM... those items
     static int32 every = getenv("BOT_TRACE") ? atoi(getenv("BOT_TRACE")) : 0;
@@ -132,6 +160,7 @@ template <class F> int32 trial(F f, uint32* keys, int32* ticks)
     if (pid == 0)
     {
         int32 start = gTick;
+        gTrialStart[gDepth] = start;
         gDepth++;
         static bool childOut = getenv("BOT_CHILD_OUT") != NULL;     // debugging: the trials' traces too
         if (!childOut && !freopen("/dev/null", "w", stdout)) {
@@ -166,6 +195,22 @@ static void play(const uint32* keys, int32 ticks)
     for (int32 i = 0; i < ticks; i++) {
         step(keys[i]);
     }
+}
+
+// On from the level's end to the next level she plays: Action through the
+// statistics (and any film between), No at "Save Game?" (a QA run leaves the
+// backup memory alone).
+static void throughLevelEnd()
+{
+    gInLevelEnd = true;
+    LevelID was = gLevelID;
+    for (int32 i = 0; i < 30 * 600 && (gLevelID == was || !players[0] || !isPlayLevel(gLevelID)); i++)
+    {
+        bool ask = inventory.state != INV_STATE_NONE && inventory.page == INV_PAGE_SAVE && inventory.optionIndex == 0;
+        step((i % 8) == 0 ? (ask ? IK_RIGHT : IK_A) : 0);
+    }
+    gInLevelEnd = false;
+    printf("  level %d up after %d ticks\n", gLevelID, gTick);
 }
 
 // Headings: the game's (0 is +z, 0x4000 +x), as phd_atan gives them.
@@ -1073,7 +1118,7 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                     px = (nsx << 10) + 512 + kAround[k][0] * 320;
                     pz = (nsz << 10) + 512 + kAround[k][1] * 320;
                     Spot sp = spotAt(b.room, px, b.floor - 256, pz);
-                    clear = sp.floor != WALL && abs(sp.floor - b.floor) < 64 && sp.floor - sp.ceiling >= LARA_HEIGHT &&
+                    clear = sp.floor != WALL && abs(sp.floor - b.floor) < 192 && sp.floor - sp.ceiling >= LARA_HEIGHT &&
                             !blocked(px, b.floor, pz) && lineClear(a.px, a.pz, px, pz, lineFloor);
                 }
                 // (the side of it the goal is on first, if it's the goal's sector)
@@ -1087,7 +1132,7 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                     px = (nsx << 10) + 512 + abs(kDirZ[d]) * kAlong[k] * side;
                     pz = (nsz << 10) + 512 + abs(kDirX[d]) * kAlong[k] * side;
                     Spot sp = spotAt(b.room, px, b.floor - 256, pz);
-                    clear = sp.floor != WALL && abs(sp.floor - b.floor) < 64 && sp.floor - sp.ceiling >= LARA_HEIGHT &&
+                    clear = sp.floor != WALL && abs(sp.floor - b.floor) < 192 && sp.floor - sp.ceiling >= LARA_HEIGHT &&
                             !blocked(px, b.floor, pz) && !failedSpot(px, pz);
                 }
                 if (!clear)
@@ -2568,17 +2613,36 @@ static bool dash(Room* room, const int32* xz, int32 count, bool walk = false)
     Spot to = spotAt(room, lx, lara()->pos.y - 1024, lz);
     int32 ticks = 0;
     int32 score = trial([&]() -> int32 {
+        static bool tell = getenv("BOT_DASH") != NULL;     // debugging: where a dash or creep went
+        holster();
         if (!settle() || !turnTo(headingTo(xz[0], xz[1]), ANGLE(2)))
+        {
+            if (tell) {
+                fprintf(stderr, "  dash: didn't stand turned: Lara at %d,%d state %d gun %d\n", lara()->pos.x, lara()->pos.z, lara()->state,
+                        lara()->extraL->weaponState);
+            }
             return -1;
+        }
         for (int32 k = 0; k < count; k++)
         {
-            if (!goStraight(xz[k * 2], xz[k * 2 + 1], walk ? 48 : (k == count - 1 ? 128 : 256), walk, 30 * 20))
+            if (!goStraight(xz[k * 2], xz[k * 2 + 1], walk ? (k == count - 1 ? 96 : 48) : (k == count - 1 ? 128 : 256), walk, 30 * 20))
+            {
+                if (tell) {
+                    fprintf(stderr, "  dash: not to spot %d: Lara at %d,%d state %d\n", k, lara()->pos.x, lara()->pos.z, lara()->state);
+                }
                 return -1;
+            }
+            if (tell) {
+                fprintf(stderr, "  dash: spot %d at tick %d: Lara at %d,%d\n", k, gTick, lara()->pos.x, lara()->pos.z);
+            }
         }
         if (!settle())
             return -1;
         const Lara* l = lara();
         bool there = (l->pos.x >> 10) == (lx >> 10) && (l->pos.z >> 10) == (lz >> 10) && abs(l->pos.y - to.floor) < 128;
+        if (tell && !there) {
+            fprintf(stderr, "  dash: ended at %d,%d,%d (floor %d)\n", l->pos.x, l->pos.y, l->pos.z, to.floor);
+        }
         return (there && l->health > 0) ? l->health : -1;
     }, keys, &ticks);
     if (score < 0)
@@ -3281,10 +3345,18 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
         if (n <= 0 || !strcmp(cmd, "start"))
             continue;
         int32 t0 = gTick;
-        if (strcmp(cmd, "keys") && strcmp(cmd, "wait") && strcmp(cmd, "expect")) {
+        // (the level's end, reached in the step, jumps back here)
+        bool ended = false;
+        if (setjmp(gLevelEndJump)) {
+            ended = true;
+            ok = true;
+        }
+        gLevelEndArmed = !ended;
+        if (!ended && strcmp(cmd, "keys") && strcmp(cmd, "wait") && strcmp(cmd, "expect")) {
             heal();
         }
-        if (!strcmp(cmd, "goto") && n >= 4) {
+        if (ended) {
+        } else if (!strcmp(cmd, "goto") && n >= 4) {
             // goto ROOM X Z [walk|spikes] [RADIUS]: spikes, a walk through
             // spikes (walked, they don't hurt)
             gWalkSpikes = n >= 5 && !strcmp(d, "spikes");
@@ -3570,22 +3642,14 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             }
             ok = attempt(atoi(a), atoi(b), atoi(c), n >= 5 ? atoi(d) : 24);
         } else if (!strcmp(cmd, "endlevel") && n >= 4) {
-            // endlevel ROOM X Z: to the end trigger there, then Action through
-            // the statistics and the "Save Game?" prompt till the next level is up
-            LevelID was = gLevelID;
+            // endlevel ROOM X Z: to the end trigger there (the level's end
+            // takes over from the step that reaches it)
             goTo(atoi(a), atoi(b), atoi(c), false);
-            // (at "Save Game?" No, as a QA run leaves the backup memory alone)
-            for (int32 i = 0; i < 30 * 120 && (gLevelID == was || !players[0]); i++)
-            {
-                bool ask = inventory.state != INV_STATE_NONE && inventory.page == INV_PAGE_SAVE && inventory.optionIndex == 0;
-                step((i % 8) == 0 ? (ask ? IK_RIGHT : IK_A) : 0);
+            for (int32 i = 0; i < 30 * 10; i++) {
+                step(0);
             }
-            ok = gLevelID != was;
-            if (ok) {
-                printf("  level %d up after %d ticks\n", gLevelID, gTick);
-            } else {
-                fail("the level didn't end");
-            }
+            fail("the level didn't end");
+            ok = false;
         } else if (!strcmp(cmd, "swimto") && n >= 5) {
             // swimto ROOM X Y Z: to a spot in the water
             gGoalY = atoi(c);
@@ -3632,6 +3696,9 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             } else {
                 ok = fightFromSafety(foe, 8192);
             }
+        } else if (!strcmp(cmd, "ignore") && n >= 2) {
+            // ignore on|off: creatures left alone (not fought) from here till off
+            gFleeing = !strcmp(a, "on");
         } else if (!strcmp(cmd, "timed") && n >= 4) {
             ok = timed(atoi(a), atoi(b), atoi(c), n >= 5 ? atoi(d) : 90);
         } else if (!strcmp(cmd, "traverse") && n >= 8) {
@@ -3661,6 +3728,7 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             fail("no such step");
             ok = false;
         }
+        gLevelEndArmed = false;
         const Lara* l = lara();
         printf("line %3d %-7s ticks %5d..%5d %s room %3d pos %6d %6d %6d yaw %5d health %4d\n", gLine, cmd, t0, gTick,
                ok ? "ok  " : "FAIL", int32(l->room - rooms), l->pos.x, l->pos.y, l->pos.z, uint16(l->angle.y), l->health);
@@ -3668,6 +3736,8 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             fail("Lara died");
             ok = false;
         }
+        if (ended)
+            break;      // the rest of this route is behind her
     }
     fclose(f);
     // the last level finished's statistics, as its screen shows them
