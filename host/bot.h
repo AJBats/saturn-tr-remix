@@ -440,15 +440,14 @@ static int32 cellFind(int32 sx, int32 sz, int32 floor, bool add, Room* room, boo
 
 enum Move { MOVE_WALK, MOVE_DROP, MOVE_HANG_DROP, MOVE_CLIMB, MOVE_JUMP, MOVE_WATER_IN, MOVE_SWIM, MOVE_WATER_OUT, MOVE_NONE };
 
-// A slope too steep to stand on (more than two clicks a sector, as Lara
-// slides): its floor three quarters of a sector across, either way.
+// A slope too steep to stand on: the floor's slant there more than two clicks
+// a sector either way, as Lara slides (her collision reads the same slant).
 static bool steepAt(Room* room, int32 x, int32 y, int32 z)
 {
-    Spot e = spotAt(room, x + 384, y, z), w = spotAt(room, x - 384, y, z);
-    Spot n = spotAt(room, x, y, z + 384), s = spotAt(room, x, y, z - 384);
-    if (e.floor == WALL || w.floor == WALL || n.floor == WALL || s.floor == WALL)
+    Room* r = room->getRoom(x, y, z);
+    if (r->getSector(x, z)->getFloor(x, y, z) == WALL)
         return false;
-    return abs(e.floor - w.floor) > 512 || abs(n.floor - s.floor) > 512;
+    return abs(FD_SLANT_X(gLastFloorSlant)) > 2 || abs(FD_SLANT_Z(gLastFloorSlant)) > 2;
 }
 
 // How Lara gets from a's sector to its neighbour at b's: b filled in. Onto a
@@ -489,11 +488,26 @@ static Move moveBetweenFlat(const Cell &a, int32 dx, int32 dz, Spot &b)
     if (up > 256 && up <= BOT_MAX_CLIMB && abs(b.floor - edge.floor) <= 256 && b.floor - b.ceiling >= LARA_HEIGHT)
     {
         int32 ex = cx + dx * 544, ez = cz + dz * 544;
-        Spot l = spotAt(edge.room, ex + dz * 160, y - 2048, ez + dx * 160);
-        Spot r = spotAt(edge.room, ex - dz * 160, y - 2048, ez - dx * 160);
+        Spot l = spotAt(edge.room, ex + dz * 72, y - 2048, ez + dx * 72);
+        Spot r = spotAt(edge.room, ex - dz * 72, y - 2048, ez - dx * 72);
         if (l.floor != WALL && r.floor != WALL && abs(l.floor - r.floor) < LARA_HANG_SLANT)
             return MOVE_CLIMB;
         return MOVE_NONE;
+    }
+    // the wall a little past the sides (a rock's lip): her floor runs on, the
+    // higher one seen a third of a sector into the neighbour
+    if (abs(side.floor - a.floor) <= 256 && abs(edge.floor - side.floor) <= 256 && b.floor < a.floor - 256 &&
+        a.floor - b.floor <= BOT_MAX_CLIMB && b.floor - b.ceiling >= LARA_HEIGHT)
+    {
+        Spot far = spotAt(edge.room, cx + dx * 832, y, cz + dz * 832);
+        if (far.floor != WALL && abs(b.floor - far.floor) <= 256)
+        {
+            int32 ex = cx + dx * 800, ez = cz + dz * 800;
+            Spot l = spotAt(far.room, ex + dz * 72, y - 2048, ez + dx * 72);
+            Spot r = spotAt(far.room, ex - dz * 72, y - 2048, ez - dx * 72);
+            if (l.floor != WALL && r.floor != WALL && abs(l.floor - r.floor) < LARA_HANG_SLANT)
+                return MOVE_CLIMB;
+        }
     }
     if (down > 256 && down <= BOT_MAX_DROP && edge.floor >= side.floor - 256)
         return MOVE_DROP;
@@ -527,8 +541,8 @@ static bool climbBetween(const Cell &a, int32 dx, int32 dz, const Spot &low, Spo
     if (abs(hs.floor - b.floor) > 256 || b.floor - b.ceiling < LARA_HEIGHT)
         return false;
     int32 ex = cx + dx * 544, ez = cz + dz * 544;
-    Spot l = spotAt(hs.room, ex + dz * 160, high, ez + dx * 160);
-    Spot r = spotAt(hs.room, ex - dz * 160, high, ez - dx * 160);
+    Spot l = spotAt(hs.room, ex + dz * 72, high, ez + dx * 72);
+    Spot r = spotAt(hs.room, ex - dz * 72, high, ez - dx * 72);
     return l.floor != WALL && r.floor != WALL && abs(l.floor - r.floor) < LARA_HANG_SLANT;
 }
 
@@ -991,7 +1005,7 @@ static bool climbAt(int16 heading, int32 x, int32 z, int32 floor)
             for (int32 i = 0; i < 150; i++)
             {
                 const Lara* l = lara();
-                if (standing() && abs(l->pos.y - floor) < 128 && i > 10)
+                if (standing() && abs(l->pos.y - floor) < 320 && i > 10)
                     return l->health;
                 if (l->health <= 0)
                     return -1;
@@ -1616,6 +1630,45 @@ static bool pickup(int32 index)
         return false;
     }
     uint8 before = gSaveGame.pickups;
+    if (ROOM_FLAG_WATER(item->room->info->flags))
+    {
+        // under water: swum to just above it, at rest, then Action (facing it)
+        int32 y = item->pos.y - 200;
+        gGoalY = y;
+        bool there = goTo(int32(item->room - rooms), item->pos.x, item->pos.z, false, 200);
+        gGoalY = NO_GOAL_Y;
+        if (!there)
+            return false;
+        for (int32 tries = 0; tries < 6; tries++)
+        {
+            for (int32 i = 0; i < 60 && lara()->vSpeed > 0; i++) {
+                step(0);
+            }
+            int32 ddx = item->pos.x - lara()->pos.x, ddy = y - lara()->pos.y, ddz = item->pos.z - lara()->pos.z;
+            if (sqrt(double(ddx) * ddx + double(ddy) * ddy + double(ddz) * ddz) < 300)
+                break;
+            swimTo(item->pos.x, y, item->pos.z, 120);
+        }
+        for (int32 i = 0; i < 150 && gSaveGame.pickups == before; i++)
+        {
+            int16 d = int16(headingTo(item->pos.x, item->pos.z) - lara()->angle.y);
+            uint32 k = IK_B;
+            if (d > ANGLE(10)) {
+                k |= IK_RIGHT;
+            } else if (d < -ANGLE(10)) {
+                k |= IK_LEFT;
+            }
+            step(k);
+        }
+        for (int32 i = 0; i < 180 && lara()->state != Lara::STATE_UW_TREAD; i++) {
+            step(0);
+        }
+        if (gSaveGame.pickups == before) {
+            fail("couldn't pick it up under water");
+            return false;
+        }
+        return true;
+    }
     // stood just short of it, facing it: it must lie in front of her (to 256
     // ahead, 100 behind, 256 aside)
     if (!goTo(int32(item->room - rooms), item->pos.x, item->pos.z, false, 200))
@@ -2265,9 +2318,10 @@ static void writeReplay(const char* path, const char* levelName, bool newGame)
     fclose(f);
 }
 
-// The route played from the level's start (already loaded): 0 if every step
-// was met.
-static int32 run(const char* routePath, const char* outPath, const char* levelName, bool newGame)
+// The routes played from the first's level's start (already loaded), each on
+// from where the last left her (its endlevel took her into the next level;
+// the start line is the first's alone): 0 if every step was met.
+static int32 run(const char* routePaths, const char* outPath, const char* levelName, bool newGame)
 {
     for (int32 d = 0; d < int32(X_COUNT(gTrialOut)); d++)
     {
@@ -2277,15 +2331,20 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
             return 2;
         }
     }
+    // the level's first tick, as the host's loop starts
+    step(0);
+    bool ok = true;
+    for (const char* rp = routePaths; ok && *rp; rp = strchr(rp, ',') ? strchr(rp, ',') + 1 : "")
+    {
+    char routePath[512];
+    snprintf(routePath, sizeof(routePath), "%.*s", int(strchr(rp, ',') ? strchr(rp, ',') - rp : strlen(rp)), rp);
     FILE* f = fopen(routePath, "r");
     if (!f) {
         fprintf(stderr, "bot: can't open %s\n", routePath);
         return 2;
     }
-    // the level's first tick, as the host's loop starts
-    step(0);
+    printf("route %s from tick %d\n", routePath, gTick);
     char line[256];
-    bool ok = true;
     gLine = 0;
     while (ok && fgets(line, sizeof(line), f))
     {
@@ -2480,6 +2539,7 @@ static int32 run(const char* routePath, const char* outPath, const char* levelNa
     }
     printf("last level finished: kills %d, pickups %d, secrets %d, %d s\n", gLevelStats.kills, gLevelStats.pickups, secrets,
            gLevelStats.time / 30);
+    }
     writeReplay(outPath, levelName, newGame);
     printf("%s: %d ticks (%d s of play), replay %s\n", ok ? "ROUTE DONE" : "ROUTE FAILED", gTick, gTick / 30, outPath);
     return ok ? 0 : 1;

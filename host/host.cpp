@@ -642,7 +642,13 @@ int main(int argc, char** argv)
     const char* levelName = argv[2];
     if (getenv("BOT"))
     {
-        readReplay(getenv("BOT"), true);   // BOT=ROUTE: its start line (host/bot.h)
+        // BOT=ROUTE[,ROUTE...]: the first's start line (host/bot.h)
+        char first[512];
+        snprintf(first, sizeof(first), "%s", getenv("BOT"));
+        if (char* comma = strchr(first, ',')) {
+            *comma = 0;
+        }
+        readReplay(first, true);
         gReplayRuns = -1;
         levelName = gReplayLevel;
     }
