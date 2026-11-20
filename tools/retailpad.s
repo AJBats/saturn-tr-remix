@@ -5,7 +5,8 @@
 ! - called for a game tick (S_UpdateInput called by ControlPhase): from the tick
 !   table, one entry a tick; Lara's item, the control seed and the level, as
 !   they stand before the tick, go to a 512-entry ring first;
-! - called by the inventory's own loop (Display_Inventory, a frame at a time):
+! - called by the inventory's own loop (Display_Inventory, a frame at a time)
+!   or the level's statistics screen:
 !   from the script, one entry a call, up to a 0 that ends the opening (held
 !   there till the next game tick steps past it) or the 1 that ends them all;
 ! - called from anywhere else (menus, statistics): the real pad.
@@ -43,7 +44,11 @@ _start:
     bt      game
     mov.l   inv,r2
     cmp/eq  r2,r0
+    bt      script
+    mov.l   stats,r2
+    cmp/eq  r2,r0
     bf      out
+script:
     ! an inventory frame: the script's next entry, if this opening has one
     mov.l   @(20,r1),r4
     mov.l   @(24,r1),r3
@@ -139,6 +144,7 @@ out:
 scan:   .long 0x06043720
 tick:   .long 0x0600f6b6    ! ControlPhase, after its call to S_UpdateInput
 inv:    .long 0x060175c0    ! Display_Inventory's loop, after its call
+stats:  .long 0x060167f2    ! the level's statistics screen, after its call
 seed:   .long 0x06060d34
 level:  .long 0x06060cb4
 lara:   .long 0x060a00e4

@@ -12,10 +12,11 @@ the pool word at 0x06037644; that word is turned to tools/retailpad.s (assembled
 pinned toolchain) at STUB. For a game tick it feeds pad 1 from the tick table, one entry a
 tick, and keeps Lara's item and the seed in a ring; for a frame of the inventory's own loop
 (retail's ring is modal, an input a frame and its animation by the vblanks gone) it feeds
-the inventory script. The host runs the inventory as ticks with the game held: those ticks
-leave the tick table, and their presses, spaced out, make the script. Armed at the first
-ControlPhase of the replay's level, reached from boot by the title's menus (a new game: the
-Caves only, so far). --items N holds the game before the tick after the replay's last and
+the inventory script (so does the level's statistics screen). The host runs the inventory
+and the statistics as ticks with the game held: those ticks leave the tick table, and their
+presses, spaced out, make the script; a run of routes chained (host/bot.h) is followed from
+level to level. Armed at the first ControlPhase of the replay's level, reached from boot by
+the title's menus (a new game: the Caves only, so far). --items N holds the game before the tick after the replay's last and
 prints N items."""
 import argparse
 import os
@@ -198,6 +199,7 @@ def main():
         vblanks = 0
         # the game runs a tick in two vblanks at most: the ring holds 1024 vblanks' worth
         step = 30 if args.items else 600
+        last, still = -1, 0
         while vblanks < args.max_vblanks:
             m.send(f'frame_advance {step}', 'done frame_advance', 600)
             vblanks += step
@@ -214,7 +216,14 @@ def main():
                 x, y, z = struct.unpack('>3i', item[0x30:0x3C])
                 yaw, = struct.unpack('>H', item[0x3E:0x40])
                 recs[i] = dict(level=lvl, room=room, x=x, y=y, z=z, yaw=yaw, anim=anim, frame=frame, health=hp, seed=seed)
-            if index >= len(kept) or m.word(LEVEL) != want:
+            if index >= len(kept):
+                break
+            # no game tick for two minutes: held somewhere the replay doesn't
+            # lead it out of (a level's load and its film take less)
+            still = still + 1 if index == last else 0
+            last = index
+            if still >= 12 and not args.items:
+                print(f'  no game tick since tick {index}: stopped', flush=True)
                 break
             if vblanks % 6000 == 0:
                 print(f'  vblank {vblanks}: tick {index}', flush=True)
