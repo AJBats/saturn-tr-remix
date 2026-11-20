@@ -246,6 +246,7 @@ def main():
     ap.add_argument('--name', default='retailrun', help='its Mednafen (build/NAME_home): another name runs beside it')
     ap.add_argument('--save-at', type=int, default=0, help='a save state once retail reaches this game tick (to --state)')
     ap.add_argument('--state', help='the save state file: written with --save-at, else loaded to start there (a replay that runs the same to its tick)')
+    ap.add_argument('--from', dest='start', help='a save state to start from while --save-at writes --state')
     args = ap.parse_args()
     level, keys = read_replay(args.replay)
     if args.ticks:
@@ -270,12 +271,13 @@ def main():
     m = Mednafen(CUE, args.name)
     recs = {}
     window = Window(keys, kept)
-    resume = args.state and not args.save_at
+    load = args.start or (args.state if not args.save_at else None)
+    resume = bool(load)
     try:
         m.send('deterministic', 'deterministic', 10)
         if resume:
             # the game as a run of this replay left it (stub, tables and all)
-            m.send(f'load_state {os.path.abspath(args.state).replace(os.sep, "/")}', 'ok load_state', 120)
+            m.send(f'load_state {os.path.abspath(load).replace(os.sep, "/")}', 'ok load_state', 120)
             poke(m, STUB + vars_off + 28, struct.pack('>I', args.watch))
             # this replay's tables (one that runs as the state's did up to its
             # tick but parts later, a bot run after a fix, resumes too)
