@@ -954,7 +954,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 ## Closed
 
 ### 322. A creature moving backwards never halves its turn near its target
-*Closed 2026-11-20: COMMIT. Retail's CreatureTurn (`0600be48`) halves the turn when the target is behind and within its turning circle, comparing squares: `x*x + z*z < range*range`, range = speed << 14 / maximum turn. A crouching wolf backs off (speed -6), so its range is negative; squared, retail still halves; ours compared the distance with the negative range and never did. Now squares in 32 bits as the SH-2 multiplies. Both attract demos still match retail.*
+*Closed 2026-11-20: a78e1e1. Retail's CreatureTurn (`0600be48`) halves the turn when the target is behind and within its turning circle, comparing squares: `x*x + z*z < range*range`, range = speed << 14 / maximum turn. A crouching wolf backs off (speed -6), so its range is negative; squared, retail still halves; ours compared the distance with the negative range and never did. Now squares in 32 bits as the SH-2 multiplies. Both attract demos still match retail.*
 
 *Severity: subtle · Confidence: confirmed (retail run in Mednafen, the wolf and its target recorded) · Fix: trivial*
 
