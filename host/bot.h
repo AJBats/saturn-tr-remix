@@ -9,6 +9,7 @@
 // A route, one step a line ('#' starts a comment):
 //   start LEVEL newgame|kit       the level and how it starts (as a replay's)
 //   goto ROOM X Z [walk] [RADIUS] to that spot (within RADIUS units, 96 if none)
+//   goto3 ROOM X Y Z [RADIUS]     to the floor at height Y there (a bridge's top)
 //   face DEGREES                  turned to that heading (0 is +z, 90 is +x)
 //   keys KEYS TICKS               those keys held (UP+A ...), for a move by hand
 //   wait TICKS                    no key held
@@ -26,6 +27,8 @@
 //                                 statistics and "Save Game?" to the next level
 //   use small|big                 a medipack from the ring (also used by
 //                                 themselves when she's low)
+//   safe ITEM                     that creature (awake) shot dead from the
+//                                 nearest spot it can't reach (the T-rex)
 //   fight [RANGE]                 guns drawn, every creature awake within
 //                                 RANGE (4096 if none) shot dead
 //   attempt ROOM X Z [TRIES]      the lines to `end` (keys, wait, face, goto)
@@ -41,7 +44,7 @@
 namespace bot {
 
 #define BOT_MAX_TICKS   (30 * 60 * 120)     // two hours of play a level
-#define BOT_TRIAL_TICKS 4096
+#define BOT_TRIAL_TICKS 8192
 
 static uint32 gLog[BOT_MAX_TICKS];  // the run's keys, by tick
 static int32 gTick;                 // the ticks run
@@ -84,7 +87,7 @@ static void step(uint32 k)
                gTick, k, int32(l->room - rooms), l->pos.x, l->pos.y, l->pos.z, uint16(l->angle.y), l->state, l->animIndex, l->frameIndex,
                l->hSpeed, l->health, e->weapon, e->weaponState, e->armR.target ? int32(e->armR.target - items) : -1,
                e->armR.aim, e->armR.animIndex, e->armR.frameIndex);
-        if (l->state == Lara::STATE_HANG) {
+        if (l->state == Lara::STATE_HANG || getenv("BOT_CINFO")) {
             printf("     hang: front %d/%d left %d/%d right %d/%d mid %d/%d static %d type %d\n", cinfo.f.floor, cinfo.f.ceiling,
                    cinfo.l.floor, cinfo.l.ceiling, cinfo.r.floor, cinfo.r.ceiling, cinfo.m.floor, cinfo.m.ceiling, cinfo.staticHit,
                    cinfo.type);
@@ -230,6 +233,7 @@ static bool turnTo(int16 heading, int32 tol = ANGLE(2))
 // Run (or walk) straight at a point, steering; true once within radius.
 static ItemObj* nearestFoe(int32 range);
 static bool gThreatsOnly;   // while she's on her way: nearestFoe() sees threats only
+static bool gFleeing;       // on her way to a safe spot: nearestFoe() sees none
 
 static bool goStraight(int32 x, int32 z, int32 radius, bool walk, int32 maxTicks = 30 * 120, bool wary = false)
 {
@@ -355,7 +359,7 @@ static void obstaclesFind()
             int32 x = (room.info->x << 8) + (int32(mesh->xy) >> 16);
             int32 y = int32(mesh->xy) << 16 >> 16;
             int32 z = (room.info->z << 8) + (int32(mesh->zf) >> 16);
-            if (box.maxX - box.minX < 32 || box.maxZ - box.minZ < 32)
+            if ((box.maxX - box.minX < 32 || box.maxZ - box.minZ < 32) && getenv("BOT_THIN") == NULL)
                 continue;
             Obstacle &o = gObstacles[gObstaclesCount++];
             o.minX = x + box.minX - LARA_RADIUS;
@@ -372,12 +376,12 @@ static void obstaclesFind()
         if (item->type != ITEM_CRYSTAL || !item->room)
             continue;
         Obstacle &o = gObstacles[gObstaclesCount++];
-        o.minX = item->pos.x - 256 - LARA_RADIUS;
-        o.maxX = item->pos.x + 256 + LARA_RADIUS;
+        o.minX = item->pos.x - 160 - LARA_RADIUS;
+        o.maxX = item->pos.x + 160 + LARA_RADIUS;
         o.minY = item->pos.y - 1024;
         o.maxY = item->pos.y;
-        o.minZ = item->pos.z - 256 - LARA_RADIUS;
-        o.maxZ = item->pos.z + 256 + LARA_RADIUS;
+        o.minZ = item->pos.z - 160 - LARA_RADIUS;
+        o.maxZ = item->pos.z + 160 + LARA_RADIUS;
     }
 }
 
@@ -786,13 +790,14 @@ static bool waterMoves(int32 c, int32 gsx, int32 gsz)
 // A goal in the water: its height (NO_GOAL_Y: a goal on a floor).
 #define NO_GOAL_Y (-0x7FFFFFFF)
 static int32 gGoalY = NO_GOAL_Y;
+static int32 gGoalFloorY = NO_GOAL_Y;   // a goal on a floor at this height (a bridge, a ledge over a floor); none: the room's middle's
 static bool gGoalAir;   // the goal: the nearest water with air over it
 
 static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 maxLen)
 {
     Lara* l = lara();
     Room* goalRoom = rooms + roomIndex;
-    Spot goal = spotAt(goalRoom, x, (goalRoom->info->yTop + goalRoom->info->yBottom) / 2, z);
+    Spot goal = spotAt(goalRoom, x, gGoalFloorY != NO_GOAL_Y ? gGoalFloorY - 128 : (goalRoom->info->yTop + goalRoom->info->yBottom) / 2, z);
     WaterCol gw;
     bool waterGoal = gGoalY != NO_GOAL_Y && waterAt(goalRoom, x, gGoalY, z, gw);
     gCellsCount = 0;
@@ -853,6 +858,13 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                     continue;
                 int32 nsx = gCells[c].sx + kDirX[d], nsz = gCells[c].sz + kDirZ[d];
                 if ((blocked((nsx << 10) + 512, b.floor, (nsz << 10) + 512) || trapAt(nsx, nsz, b.floor)) && !(nsx == gsx && nsz == gsz))
+                    continue;
+                // a wall of a static between them (a bridge's rail): no way across
+                bool across = false;
+                for (int32 t = 128; t < 1024 && !across; t += 128) {
+                    across = blocked((gCells[c].sx << 10) + 512 + kDirX[d] * t, X_MIN(b.floor, gCells[c].floor), (gCells[c].sz << 10) + 512 + kDirZ[d] * t);
+                }
+                if (across && m != MOVE_CLIMB && !(nsx == gsx && nsz == gsz))
                     continue;
                 int32 n = cellFind(nsx, nsz, b.floor, true, b.room);
                 if (n < 0 || gCells[n].done)
@@ -982,11 +994,38 @@ static int32 cellZ(const Cell &c)
 // at the wall, forward and Action held, as a player climbs (two or three
 // clicks) or jumps up, grabs and pulls up (to seven and a half); or, at a
 // ledge over open floor, walked to the edge first.
+// Straight to x, z, round an obstacle in the way (a save crystal in a narrow
+// passage): first aside, as far as there's floor, then on.
+static bool goStraightAround(int32 x, int32 z, int32 radius, bool walk)
+{
+    const Lara* l = lara();
+    int32 dx = x - l->pos.x, dz = z - l->pos.z;
+    int32 len = int32(sqrt(double(dx) * dx + double(dz) * dz));
+    bool hit = false;
+    for (int32 t = 64; t < len && !hit; t += 64) {
+        hit = blocked(l->pos.x + dx * t / len, l->pos.y, l->pos.z + dz * t / len);
+    }
+    if (hit && len > 0)
+    {
+        // aside on whichever side has floor level with hers, then on past it
+        for (int32 side = -1; side <= 1; side += 2)
+        {
+            int32 px = l->pos.x - dz * 400 * side / len, pz = l->pos.z + dx * 400 * side / len;
+            Spot sp = spotAt(l->room, px, l->pos.y - 256, pz);
+            if (sp.floor == WALL || abs(sp.floor - l->pos.y) > 128 || blocked(px, sp.floor, pz))
+                continue;
+            if (goStraight(px, pz, 64, true) && settle() && goStraight(x - dz * 400 * side / len, z + dx * 400 * side / len, 96, true))
+                break;
+        }
+    }
+    return goStraight(x, z, radius, walk);
+}
+
 static bool climbAt(int16 heading, int32 x, int32 z, int32 floor)
 {
     int32 bx = x - (sinRetail(heading) * 200 >> FIXED_SHIFT);
     int32 bz = z - (cosRetail(heading) * 200 >> FIXED_SHIFT);
-    if (!goStraight(bx, bz, 64, true) || !settle() || !turnTo(heading, ANGLE(2))) {
+    if (!goStraightAround(bx, bz, 64, true) || !settle() || !turnTo(heading, ANGLE(2))) {
         fail("couldn't stand at the climb");
         return false;
     }
@@ -1671,7 +1710,10 @@ static bool pickup(int32 index)
     }
     // stood just short of it, facing it: it must lie in front of her (to 256
     // ahead, 100 behind, 256 aside)
-    if (!goTo(int32(item->room - rooms), item->pos.x, item->pos.z, false, 200))
+    gGoalFloorY = item->pos.y;
+    bool there = goTo(int32(item->room - rooms), item->pos.x, item->pos.z, false, 200);
+    gGoalFloorY = NO_GOAL_Y;
+    if (!there)
         return false;
     if (distTo(item->pos.x, item->pos.z) > 32 && !turnTo(headingTo(item->pos.x, item->pos.z), ANGLE(4))) {
         fail("couldn't face the item");
@@ -1703,7 +1745,10 @@ static bool pullSwitch(int32 index)
     int16 yaw = item->angle.y;
     int32 x = item->pos.x + (sinRetail(yaw) * 400 >> FIXED_SHIFT);
     int32 z = item->pos.z + (cosRetail(yaw) * 400 >> FIXED_SHIFT);
-    if (!goTo(int32(item->room - rooms), x, z, false, 64))
+    gGoalFloorY = item->pos.y;
+    bool there = goTo(int32(item->room - rooms), x, z, false, 64);
+    gGoalFloorY = NO_GOAL_Y;
+    if (!there)
         return false;
     if (!turnTo(yaw, ANGLE(3))) {
         fail("couldn't face the switch");
@@ -1840,7 +1885,10 @@ static bool useHole(int32 index)
     int16 yaw = hole->angle.y;
     int32 x = hole->pos.x + (sinRetail(yaw) * 400 >> FIXED_SHIFT);
     int32 z = hole->pos.z + (cosRetail(yaw) * 400 >> FIXED_SHIFT);
-    if (!goTo(int32(hole->room - rooms), x, z, false, 64) || !turnTo(yaw, ANGLE(3))) {
+    gGoalFloorY = hole->pos.y;
+    bool there = goTo(int32(hole->room - rooms), x, z, false, 64);
+    gGoalFloorY = NO_GOAL_Y;
+    if (!there || !turnTo(yaw, ANGLE(3))) {
         fail("couldn't stand at the hole");
         return false;
     }
@@ -2011,6 +2059,8 @@ static ItemObj* nearestFoe(int32 range)
 {
     ItemObj* best = NULL;
     int32 bestDist = range;
+    if (gFleeing)
+        return NULL;
     for (ItemObj* item = ItemObj::sFirstActive; item; item = item->nextActive)
     {
         if (!isCreature(item) || item->health <= 0 || (gThreatsOnly && !isThreat(item)))
@@ -2121,6 +2171,101 @@ static bool fight(const FightStyle &st, int32 range = 4096, int32 maxTicks = 30 
 
 // A fight played each way in kFightStyles in a trial, the one that leaves
 // her the most health played for real.
+// A creature too strong to fight in the open (the T-rex) fought from where
+// it can't follow: a sector she can reach that lies in no box the creature
+// walks (its zone, as its own pathfinding sees it) and two sectors from every
+// one of them, the one with the most of its ground within shot (2 to 6
+// sectors off), the nearer of equals; run to, then shot from, standing.
+static bool fightFromSafety(ItemObj* foe, int32 range)
+{
+    if (!foe->extraE || foe->extraE->nav.zoneType == ZONE_FLY)
+        return false;
+    const Nav &nav = foe->extraE->nav;
+    const uint16* zones = level.zones[gSaveGame.flipped][nav.zoneType];
+    uint16 zone = zones[foe->room->getSector(foe->pos.x, foe->pos.z)->boxIndex];
+    // every sector she can reach: the planner's search with nowhere to stop
+    static int32 path[1024];
+    obstaclesFind();
+    sectorPath(int32(lara()->room - rooms), -0x400000, -0x400000, path, X_COUNT(path));
+    int32 best = -1, bestSeen = 0;
+    for (int32 i = 0; i < gCellsCount; i++)
+    {
+        const Cell &c = gCells[i];
+        if (c.water || c.cost == 0x7FFFFFFF || c.cost > 60 * 1024)
+            continue;
+        int32 cx = cellX(c), cz = cellZ(c);
+        int32 nearest = 0x7FFFFFFF, seen = 0;
+        for (int32 b = 0; b < level.boxesCount && nearest >= 2048; b++)
+        {
+            const Box &box = level.boxes[b];
+            if (zones[b] != zone || (box.overlap & nav.mask))
+                continue;
+            int32 dx = X_MAX(0, X_MAX((box.minX << 10) - cx, cx - (box.maxX << 10)));
+            int32 dz = X_MAX(0, X_MAX((box.minZ << 10) - cz, cz - (box.maxZ << 10)));
+            int32 d = X_MAX(dx, dz);
+            nearest = X_MIN(nearest, d);
+            if (d <= 6144) {
+                seen += (box.maxX - box.minX) * (box.maxZ - box.minZ);
+            }
+        }
+        if (nearest < 2048 || seen == 0)
+            continue;
+        if (best < 0 || seen > bestSeen || (seen == bestSeen && c.cost < gCells[best].cost))
+        {
+            best = i;
+            bestSeen = seen;
+        }
+    }
+    if (best < 0) {
+        fail("no safe spot to fight it from");
+        return false;
+    }
+    const Cell target = gCells[best];
+    printf("  safe spot: %d,%d floor %d room %d (%d sectors of its ground within shot)\n", cellX(target), cellZ(target),
+           target.floor, int32(target.room - rooms), bestSeen);
+    gFleeing = true;
+    bool there = goTo(int32(target.room - rooms), cellX(target), cellZ(target), false, 256);
+    gFleeing = false;
+    if (!there)
+        return false;
+    // stood: turned to it and shot whenever it's near, waited for as it roams
+    // (it can't come for her here: played as it goes, no trial), up to 40 minutes
+    ExtraInfoLara* e = lara()->extraL;
+    int32 t0 = gTick;
+    for (int32 i = 0; i < 30 * 60 * 40 && foe->health > 0; i++)
+    {
+        if (lara()->health <= 0) {
+            fail("died at the safe spot");
+            return false;
+        }
+        if (e->weaponState == WEAPON_STATE_FREE) {
+            step(IK_C);
+            step(0);
+            continue;
+        }
+        uint32 k = 0;
+        int16 d = int16(headingTo(foe->pos.x, foe->pos.z) - lara()->angle.y);
+        if (d > ANGLE(8)) {
+            k |= IK_RIGHT;
+        } else if (d < -ANGLE(8)) {
+            k |= IK_LEFT;
+        }
+        ItemObj* target = e->armR.target;
+        bool aimed = (e->armR.aim || e->armL.aim) && target && target->health > 0;
+        // Action while it's near; let go now and then for a new aim
+        if (e->weaponState == WEAPON_STATE_READY && distTo(foe->pos.x, foe->pos.z) < 8192 && (aimed || (i & 15) < 12)) {
+            k |= IK_B;
+        }
+        step(k);
+    }
+    if (foe->health > 0) {
+        fail("couldn't kill it from the safe spot");
+        return false;
+    }
+    printf("  fight from safety: %d s, health %d\n", (gTick - t0) / 30, lara()->health);
+    return true;
+}
+
 static bool fightBest(int32 range)
 {
     static uint32 keys[BOT_TRIAL_TICKS];
@@ -2146,7 +2291,13 @@ static bool fightBest(int32 range)
             bestTicks = ticks;
         }
     }
-    if (best < 0) {
+    if (best < 0)
+    {
+        if (ItemObj* foe = nearestFoe(range))
+        {
+            if (fightFromSafety(foe, X_MAX(range, 8192)))
+                return true;
+        }
         fail("every way of fighting died");
         return false;
     }
@@ -2365,6 +2516,11 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             bool walk = n >= 5 && !strcmp(d, "walk");
             int32 radius = (n >= 5 && !walk) ? atoi(d) : (n >= 6 ? atoi(e) : 0);
             ok = goTo(atoi(a), atoi(b), atoi(c), walk, radius > 0 ? radius : 96);
+        } else if (!strcmp(cmd, "goto3") && n >= 5) {
+            // goto3 ROOM X Y Z [RADIUS]: to the floor at that height there
+            gGoalFloorY = atoi(c);
+            ok = goTo(atoi(a), atoi(b), atoi(d), false, n >= 6 && atoi(e) > 0 ? atoi(e) : 96);
+            gGoalFloorY = NO_GOAL_Y;
         } else if (!strcmp(cmd, "face") && n >= 2) {
             ok = turnTo(int16(atoi(a) * 0x10000 / 360));
             if (!ok) {
@@ -2439,6 +2595,27 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
                            gCells[i].move);
                 }
             }
+        } else if (!strcmp(cmd, "statics") && n >= 3) {
+            // statics X Z: debugging, every static mesh within two sectors, its box as Lara meets it
+            for (int32 r = 0; r < level.roomsCount; r++)
+            {
+                const Room &room = rooms[r];
+                for (int32 i = 0; i < room.info->meshesCount; i++)
+                {
+                    const RoomMesh* mesh = room.data.meshes + i;
+                    const StaticMesh* sm = level.staticMeshes + STATIC_MESH_ID(mesh->zf);
+                    int32 x = (room.info->x << 8) + (int32(mesh->xy) >> 16);
+                    int32 y = int32(mesh->xy) << 16 >> 16;
+                    int32 z = (room.info->z << 8) + (int32(mesh->zf) >> 16);
+                    if (abs(x - atoi(a)) > 2048 || abs(z - atoi(b)) > 2048)
+                        continue;
+                    AABBi box(sm->cbox);
+                    boxRotateYQ(box, STATIC_MESH_QUADRANT(mesh->zf));
+                    printf("    static room %d at %d %d %d: x %d..%d y %d..%d z %d..%d%s\n", r, x, y, z, x + box.minX, x + box.maxX,
+                           y + box.minY, y + box.maxY, z + box.minZ, z + box.maxZ,
+                           (sm->flags & STATIC_MESH_FLAG_NO_COLLISION) ? " (no collision)" : "");
+                }
+            }
         } else if (!strcmp(cmd, "teleport") && n >= 5) {
             // teleport ROOM X Y Z [DEG]: debugging only (the replay no longer plays the same)
             Lara* l = lara();
@@ -2499,6 +2676,10 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
         } else if ((!strcmp(cmd, "push") || !strcmp(cmd, "pull")) && n >= 4) {
             // push|pull ITEM DEGREES TIMES: a block moved that way, a sector a time
             ok = moveBlock(atoi(a), int16(atoi(b) * 0x10000 / 360), atoi(c), !strcmp(cmd, "pull"));
+        } else if (!strcmp(cmd, "safe") && n >= 2) {
+            // safe ITEM: the creature fought from a spot it can't reach, till it's dead
+            ItemObj* foe = items + atoi(a);
+            ok = foe->health > 0 ? fightFromSafety(foe, 8192) : true;
         } else if (!strcmp(cmd, "timed") && n >= 4) {
             ok = timed(atoi(a), atoi(b), atoi(c), n >= 5 ? atoi(d) : 90);
         } else if (!strcmp(cmd, "collapse") && n >= 2) {

@@ -1,0 +1,31 @@
+# Lost Valley at 100%, in progress (Stella: 16 pickups with the 3 cogs and the
+# shotgun, 5 secrets, 13 kills). In progress: the cogs and secret 2.
+start LEVEL3A newgame
+wait 30
+# the wolves at the pool below the falls (shot as they come up)
+draw
+fight 8192
+# through the cave and the twisting passage (a wolf), up the stepped blocks:
+# the large medipack by the skeleton
+pickup 28
+# into the valley (raptors) to a tunnel off the west wall, then the T-rex shot
+# from the spot it can't reach with the most of its ground in shot (pistols:
+# a long wait)
+goto 36 32256 22016
+safe 55
+# the temple: the cog under water
+pickup 40
+# out, across the valley to the well-lit opening with the low block, along
+# the passage past the save crystal to the broken bridge, the running jump
+# across it: the cog on the platform where it meets the wall
+goto 44 72192 11776
+goto 63 60928 17920
+goto3 63 60928 1024 19968
+goto3 57 47616 1408 20992 500
+goto3 57 43520 -512 20992
+pickup 53
+# the third cog at the top of the stepped rocks by the small pool
+pickup 33
+# secret 2: the shells in the opening right of the double waterfalls
+pickup 31
+expect secrets 1
