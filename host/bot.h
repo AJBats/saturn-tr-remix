@@ -187,12 +187,15 @@ static bool standing()
     return lara()->state == Lara::STATE_STOP;
 }
 
-// No key till she stands still (a run or a pickup ends).
+// No key till she stands still (a run or a pickup ends, a turn's speed runs
+// out: it keeps turning her a few ticks after the key, into a run-up too) in
+// a standing animation (a landing's own takes no key for 40 ticks).
 static bool settle(int32 maxTicks = 90)
 {
     for (int32 i = 0; i < maxTicks; i++)
     {
-        if (standing() && lara()->hSpeed == 0)
+        int32 anim = lara()->animIndex;     // Lara's animations come first
+        if (standing() && lara()->hSpeed == 0 && lara()->turnSpeed == 0 && (anim == Lara::ANIM_STAND || anim == Lara::ANIM_STAND_NORMAL))
             return true;
         step(0);
     }
@@ -382,6 +385,34 @@ static void obstaclesFind()
         o.maxY = item->pos.y;
         o.minZ = item->pos.z - 160 - LARA_RADIUS;
         o.maxZ = item->pos.z + 160 + LARA_RADIUS;
+    }
+    // the big dead: a body pushes her to the edge of its box (retail's
+    // CreatureCollision), and one too long to be pushed round (the T-rex's)
+    // stalls her walking into it; small ones she slides past
+    for (int32 i = 0; i < level.itemsCount && gObstaclesCount < int32(X_COUNT(gObstacles)); i++)
+    {
+        const ItemObj* item = items + i;
+        if (item->type < ITEM_WOLF || item->type > ITEM_ADAM || item->type == ITEM_SKATEBOARD || !item->room || item->health > 0)
+            continue;
+        const AABBs &box = item->getBoundingBox(false);
+        if (X_MAX(box.maxX - box.minX, box.maxZ - box.minZ) < 1536)
+            continue;
+        int32 s = sinRetail(item->angle.y), c = cosRetail(item->angle.y);
+        Obstacle &o = gObstacles[gObstaclesCount++];
+        o.minX = o.minZ = 0x7FFFFFFF;
+        o.maxX = o.maxZ = -0x7FFFFFFF;
+        for (int32 k = 0; k < 4; k++)
+        {
+            int32 lx = (k & 1) ? box.maxX : box.minX, lz = (k & 2) ? box.maxZ : box.minZ;
+            int32 wx = item->pos.x + ((lx * c + lz * s) >> FIXED_SHIFT);
+            int32 wz = item->pos.z + ((lz * c - lx * s) >> FIXED_SHIFT);
+            o.minX = X_MIN(o.minX, wx - 64);
+            o.maxX = X_MAX(o.maxX, wx + 64);
+            o.minZ = X_MIN(o.minZ, wz - 64);
+            o.maxZ = X_MAX(o.maxZ, wz + 64);
+        }
+        o.minY = item->pos.y + box.minY;
+        o.maxY = item->pos.y + box.maxY;
     }
 }
 
@@ -860,9 +891,16 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                 if ((blocked((nsx << 10) + 512, b.floor, (nsz << 10) + 512) || trapAt(nsx, nsz, b.floor)) && !(nsx == gsx && nsz == gsz))
                     continue;
                 // a wall of a static between them (a bridge's rail): no way across
+                // (looked for from her own spot in the sector she starts in, if a
+                // static stands in its middle)
+                int32 ox = (gCells[c].sx << 10) + 512, oz = (gCells[c].sz << 10) + 512;
+                if (gCells[c].cost == 0 && blocked(ox, gCells[c].floor, oz)) {
+                    ox = lara()->pos.x;
+                    oz = lara()->pos.z;
+                }
                 bool across = false;
                 for (int32 t = 128; t < 1024 && !across; t += 128) {
-                    across = blocked((gCells[c].sx << 10) + 512 + kDirX[d] * t, X_MIN(b.floor, gCells[c].floor), (gCells[c].sz << 10) + 512 + kDirZ[d] * t);
+                    across = blocked(ox + kDirX[d] * t, X_MIN(b.floor, gCells[c].floor), oz + kDirZ[d] * t);
                 }
                 if (across && m != MOVE_CLIMB && !(nsx == gsx && nsz == gsz))
                     continue;
@@ -1088,12 +1126,15 @@ static bool jumpTry(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor, i
     int32 sx = ex - dx * back * unit / 1024, sz = ez - dz * back * unit / 1024;
     static bool tell = getenv("BOT_JUMPS") != NULL;
     // to the run-up's start by way of the sector's middle, square to the gap
-    if (!settle() || !goStraight(cellX(a), cellZ(a), 64, true) || !settle() || !goStraight(sx, sz, 48, true) || !settle() ||
-        !turnTo(heading, ANGLE(1)))
+    int32 stage = 0;
+    if (!settle() || (stage = 1, !goStraight(cellX(a), cellZ(a), 64, true)) || (stage = 2, !settle()) ||
+        (stage = 3, !goStraight(sx, sz, 48, true)) || (stage = 4, !settle()) || (stage = 5, !turnTo(heading, ANGLE(1))))
     {
         if (tell) {
-            fprintf(stderr, "  no take-off at %d,%d: Lara at %d,%d yaw %d state %d\n", sx, sz, lara()->pos.x, lara()->pos.z,
-                    uint16(lara()->angle.y), lara()->state);
+            fprintf(stderr, "  no take-off at %d,%d (stage %d): Lara at %d,%d yaw %d state %d hspeed %d turn %d\n", sx, sz, stage,
+                    lara()->pos.x, lara()->pos.z, uint16(lara()->angle.y), lara()->state, lara()->hSpeed, lara()->turnSpeed);
+            fprintf(stderr, "     cinfo: front %d/%d left %d/%d right %d/%d mid %d/%d static %d type %d\n", cinfo.f.floor, cinfo.f.ceiling,
+                    cinfo.l.floor, cinfo.l.ceiling, cinfo.r.floor, cinfo.r.ceiling, cinfo.m.floor, cinfo.m.ceiling, cinfo.staticHit, cinfo.type);
         }
         return false;
     }
@@ -1119,6 +1160,10 @@ static bool jumpTry(const Cell &a, int32 dx, int32 dz, int32 gap, int32 floor, i
             k = 0;
         }
         step(k);
+    }
+    if (tell) {
+        fprintf(stderr, "  not landed: Lara at %d,%d,%d room %d state %d health %d\n", lara()->pos.x, lara()->pos.y, lara()->pos.z,
+                lara()->room ? int32(lara()->room - rooms) : -1, lara()->state, lara()->health);
     }
     return false;
 }
@@ -1819,9 +1864,15 @@ static bool pullLever(int32 index)
     {
         if (item->state != state || item->goalState != state)
             break;
+        // levelled first: steeper than 80 degrees the lever can't be pulled
+        // (and treading keeps the pitch she swam up or down at)
         int16 d = int16(yaw - lara()->angle.y);
         uint32 k = IK_B;
-        if (d > ANGLE(6)) {
+        if (lara()->angle.x > ANGLE(30)) {
+            k = IK_UP;
+        } else if (lara()->angle.x < -ANGLE(30)) {
+            k = IK_DOWN;
+        } else if (d > ANGLE(6)) {
             k = IK_RIGHT;
         } else if (d < -ANGLE(6)) {
             k = IK_LEFT;
