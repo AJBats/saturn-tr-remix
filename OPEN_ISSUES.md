@@ -954,7 +954,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 ## Closed
 
 ### 327. A forward jump that smashes into a wall as it lands skips the smash
-*Closed 2026-11-20: COMMIT. Retail's ColForwardJump (0601c5cc) lets LaraDeflectEdgeJump (0601daf0) set the smash (fast fall, its animation from frame 481, speed a quarter, turned back) and then lands her by the forward jump's own rule: goal stop or run, speed 0, the smash animated on a frame. The next tick ColFastFall (0601c950), which lands whatever the fall speed, gives the landing animation. Ours landed by the state the smash had just set (the fall) and took the landing animation at once, keeping her speed; and our fall's landing waited for a fall speed. Both attract demos still match retail.*
+*Closed 2026-11-20: bba5e78. Retail's ColForwardJump (0601c5cc) lets LaraDeflectEdgeJump (0601daf0) set the smash (fast fall, its animation from frame 481, speed a quarter, turned back) and then lands her by the forward jump's own rule: goal stop or run, speed 0, the smash animated on a frame. The next tick ColFastFall (0601c950), which lands whatever the fall speed, gives the landing animation. Ours landed by the state the smash had just set (the fall) and took the landing animation at once, keeping her speed; and our fall's landing waited for a fall speed. Both attract demos still match retail.*
 
 *Severity: subtle · Confidence: confirmed (retail run in Mednafen; Lara matches retail through the landing) · Fix: small*
 
