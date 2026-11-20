@@ -34,7 +34,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | Issues | Area |
 |---|---|
 | 1-7 | Progression blockers |
-| 8-28 | Camera |
+| 8-28, 330 | Camera |
 | 29-51, 248-250 | Lara: movement, collision, water, controls |
 | 52-73 | Weapons and combat |
 | 74-112 | Creatures and AI |
@@ -165,6 +165,18 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 ## Progression blockers
 
 ## Camera
+
+### 330. In Lost Valley's west tunnel the camera stands 1,200 units nearer Lara than retail's
+*Severity: subtle (the view too, untested) · Confidence: confirmed (retail run in Mednafen, g_Camera read tick by tick) · Fix: unknown, look at the chase camera's wall handling*
+
+- **Found 2026-11-20** by the bot's chained run played by retail (CHAIN_r329, from save state build/bot/r329_62000.mcs).
+  Lara stands in the tunnel the bot shoots the T-rex from (room 36, 32294, 3190, 22011, facing 22283). Retail's camera
+  (06074d70) sits at 30774, 2360, 22264, 1,540 from her; ours at 31956, 2353, 22527, 617 from her. The target matches
+  (32294, 2353, 22011).
+- It changes the game, not just the view: the T-rex's stomp (DinoStomp, 060159b8) shakes the camera by how far it is from
+  the T-rex. Retail's farther camera gets -19, ours -9; the shake draws three random numbers a tick till it's gone, so
+  retail draws three more and the control seed parts (the host's tick 67,655).
+- Check: host `CAM=FIRST` prints our camera a tick at a time; scratchpad retailcam.py reads retail's from a save state.
 
 ### 262. The near plane is 64 where retail's is 80
 *Kind: visible · Size: small · Fix: decide with the near-face work*

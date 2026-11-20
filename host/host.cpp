@@ -836,6 +836,16 @@ int main(int argc, char** argv)
                    e->armL.angle.y, e->armL.angle.x, e->armR.target ? int32(e->armR.target - items) : -1, e->weaponState);
         }
 
+        // CAM=FIRST: from that tick on, the camera after each tick (as retail's
+        // g_Camera: position, target, bounce)
+        static int32 camFrom = getenv("CAM") ? atoi(getenv("CAM")) : -1;
+        if (camFrom >= 0 && tick >= camFrom && players[0])
+        {
+            const Camera &c = players[0]->extraL->camera;
+            printf("     cam %d: %d %d %d target %d %d %d bounce %d\n", tick, c.view.pos.x, c.view.pos.y, c.view.pos.z, c.target.pos.x,
+                   c.target.pos.y, c.target.pos.z, c.bounce);
+        }
+
         if (getenv("BOUNCE") && players[0] && players[0]->extraL->camera.bounce) {
             printf("tick %4d: camera bounce %d\n", tick, players[0]->extraL->camera.bounce);
         }
