@@ -1,9 +1,8 @@
 # St. Francis' Folly at 100%, in progress (Stella: 23 kills, 19 pickups with
 # the 4 keys, 4 secrets). Done: the lions, the omega block, the gorilla room,
 # Pierre driven off (he can't be killed here), the pillars and ledges to the
-# balcony door (the large medipack). Next: secret 1's jump combination, the
-# long slide (secret 2), the flooded passage (secret 3), the tall room's four
-# doors.
+# balcony door (the large medipack), the long slide, the crocodile. Next: the
+# tall room's four doors; secrets 1, 2 and 3 (see their notes).
 # tools/levelmap.py draws the level.
 start LEVEL4 newgame
 wait 30
@@ -57,3 +56,19 @@ leap 1 28160 43520 -3072
 leap 1 25088 43520 -3072
 leap 1 25088 41472 -3072
 goto 1 25088 38400
+# through the door and down the hall to the top of the long slide: off it
+# into the water below (secret 2, a jump off the slide's end into an opening
+# over the water, not yet); out to the switch room's ledge leaving the
+# crocodile be (secret 3, swum to under the switch room before the water's
+# drained, not yet); the switch drains it, the crocodile fought on the floor
+goto 6 23040 34304
+face 90
+keys UP 20
+wait 400
+ignore on
+goto 13 43008 34304 256
+ignore off
+switch 18
+wait 120
+goto 12 41984 34304
+fight 8192
