@@ -343,11 +343,15 @@ struct Enemy : ItemObj
         int32 dx = tinfo.waypoint.x - pos.x;
         int32 dz = tinfo.waypoint.z - pos.z;
         int16 turn = phd_atan(dz, dx) - angle.y;
-                int32 r = (hSpeed << FIXED_SHIFT) / maxTurn; //@DIV
-        int32 d = (abs(dx) > 32000 || abs(dz) > 32000) ? 0x7FFF : int32(phd_sqrt(dx * dx + dz * dz));
+        int32 r = (hSpeed << FIXED_SHIFT) / maxTurn; //@DIV
         bool aim = (turn >= -ANGLE_90) && (turn <= ANGLE_90);     // a quarter turn either way still ahead (retail)
 
-        if (!aim && (d < r))
+        // within its turning circle the turn is halved; squares as retail
+        // compares them (a creature going backwards has a negative r), in 32
+        // bits as the SH-2 multiplies
+        int32 d2 = int32(uint32(dx) * uint32(dx) + uint32(dz) * uint32(dz));
+        int32 r2 = int32(uint32(r) * uint32(r));
+        if (!aim && d2 < r2)
             maxTurn >>= 1;
 
         // turned now, so it moves along the new heading (retail's CreatureTurn, 0600be48)

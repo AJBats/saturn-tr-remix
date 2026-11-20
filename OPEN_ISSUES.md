@@ -953,6 +953,13 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 322. A creature moving backwards never halves its turn near its target
+*Closed 2026-11-20: COMMIT. Retail's CreatureTurn (`0600be48`) halves the turn when the target is behind and within its turning circle, comparing squares: `x*x + z*z < range*range`, range = speed << 14 / maximum turn. A crouching wolf backs off (speed -6), so its range is negative; squared, retail still halves; ours compared the distance with the negative range and never did. Now squares in 32 bits as the SH-2 multiplies. Both attract demos still match retail.*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen, the wolf and its target recorded) · Fix: trivial*
+
+- **Found 2026-11-20** by the bot's Vilcabamba run played by retail (tools/retailrun.py): Lara parted at tick 24,686, pushed by wolf 13 three ticks early in retail; the wolf (`--watch 13`, its target recorded too) had parted at 24,542 with the same target, turning 91 in retail and 182 in ours.
+
 ### 321. Creatures test "farther than" on a rounded-down distance
 *Closed 2026-11-20: 179ce6e. Retail's creatures compare the squared distance (CreatureAIInfo's, `06009950`) with a squared range, `distance > range * range`; ours took the whole-number square root first, so a creature just past a range (its square root rounding down onto it) counted as within it. Eleven "farther than" tests (the wolf, bear, crocodile, T-rex, Larson, the skateboard kid, the cowboy, Mr. T, the mutants) now use the squared distance; "nearer than" tests were already the same either way. A stalking wolf just past three sectors drew a howl roll in ours (a random number retail didn't take). Both attract demos still match retail.*
 
