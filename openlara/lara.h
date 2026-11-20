@@ -3655,13 +3655,15 @@ struct Lara : ItemObj
         }
     }
 
+    // retail's find_target_point (0601fbc4): the middle of its box across (halved
+    // toward zero, as retail divides), a third of the way down from its top
     void weaponGetAimPoint(ItemObj* target, Location &point)
     {
         const AABBs &box = target->getBoundingBox(false);
         vec3i p;
-        p.x = (box.minX + box.maxX) >> 1;
+        p.x = (box.minX + box.maxX) / 2; // @DIV
         p.y = box.minY + (box.maxY - box.minY) / 3; // @DIV
-        p.z = (box.minZ + box.maxZ) >> 1;
+        p.z = (box.minZ + box.maxZ) / 2; // @DIV
         int32 s, c;
         sincos(target->angle.y, s, c);
         X_ROTXY(p.x, p.z, -s, c);

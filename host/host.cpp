@@ -70,6 +70,19 @@ static void watchdog(int)
     _exit(3);
 }
 
+// a crash: where (addresses for addr2line -e build/host/logic), then out
+static void crashed(int sig)
+{
+    void* frames[32];
+    int32 count = backtrace(frames, 32);
+    fprintf(stderr, "logic: signal %d, stack:", sig);
+    for (int32 i = 0; i < count; i++) {
+        fprintf(stderr, " %p", frames[i]);
+    }
+    fprintf(stderr, "\n");
+    _exit(4);
+}
+
 int32 fps;
 CpuState gHostCpuState;
 extern "C" { int32 gFocalScale = 1 << 14; }
@@ -597,6 +610,7 @@ int main(int argc, char** argv)
         return 1;
     }
     setvbuf(stdout, NULL, _IOLBF, 0);   // a line at a time, so a run that hangs still shows where
+    signal(SIGSEGV, crashed);
     if (getenv("WATCHDOG")) {
         signal(SIGALRM, watchdog);
         alarm(atoi(getenv("WATCHDOG")));
@@ -807,6 +821,19 @@ int main(int argc, char** argv)
             printf("rec %d level %d room %d pos %d %d %d yaw %d anim %d frame %d health %d seed %08x items %08x inv %d\n",
                    r.tick, r.level, r.room, r.x, r.y, r.z, r.yaw, r.anim, r.frame, r.health, r.seed, r.items,
                    inventory.state != INV_STATE_NONE);
+        }
+
+        // ARMS=FIRST: from that tick on, her arms after each tick (as retail's
+        // g_Lara.left_arm / right_arm: frame in the arm's frames, lock, y and x)
+        static int32 armsFrom = getenv("ARMS") ? atoi(getenv("ARMS")) : -1;
+        if (armsFrom >= 0 && tick >= armsFrom && players[0])
+        {
+            const ExtraInfoLara* e = players[0]->extraL;
+            int32 base = level.anims[level.models[ITEM_LARA_PISTOLS].animIndex].frameBegin;
+            printf("     arms %d: R frame %d lock %d y %d x %d  L frame %d lock %d y %d x %d  target %d gun %d\n", tick,
+                   int32(level.anims[e->armR.animIndex].frameBegin + e->armR.frameIndex) - base, e->armR.aim, e->armR.angle.y,
+                   e->armR.angle.x, int32(level.anims[e->armL.animIndex].frameBegin + e->armL.frameIndex) - base, e->armL.aim,
+                   e->armL.angle.y, e->armL.angle.x, e->armR.target ? int32(e->armR.target - items) : -1, e->weaponState);
         }
 
         if (getenv("BOUNCE") && players[0] && players[0]->extraL->camera.bounce) {

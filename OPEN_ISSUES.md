@@ -953,6 +953,13 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 325. Lara aims at the middle of a target's box rounded down, where retail rounds toward zero
+*Closed 2026-11-20: COMMIT. Retail's find_target_point (0601fbc4) halves the sum of the box's two sides by dividing (toward zero); ours shifted (down), a unit off for an odd negative sum. With a bat almost straight over her that unit turns the aim by a fraction of a degree: in Lost Valley her left pistol kept its lock a tick longer than retail's and fired a tick early. Her arms now match retail tick for tick there; both attract demos still match retail.*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen, g_Lara's arms read tick by tick) · Fix: trivial*
+
+- **Found 2026-11-20** by the bot's chained run played by retail (tools/retailrun.py, CHAIN_r324): the control seed parted at the host's tick 45,018 (two random numbers early in ours: the pistol shot's scatter). Retail's arm angles were 54 units off ours from tick 45,012 on, while the bat fought her from 800 units over her head.
+
 ### 324. A creature crossing into a room reads the floors round it from the room it left
 *Closed 2026-11-20: 882d6ae. Retail's CreatureAnimation reads the floor at the creature's new spot with GetFloor, whose room it updates, and tests the floors within its radius (Box_BadFloor) from that room; ours started those tests from the room the creature was in. Where it crosses a portal, the room it left reads the wall beside the portal: the bear walking from room 93 into 85 in Vilcabamba was pushed back and turned twice as fast. Both attract demos still match retail.*
 
