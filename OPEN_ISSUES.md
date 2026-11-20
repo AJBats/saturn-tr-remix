@@ -954,7 +954,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 ## Closed
 
 ### 326. A key chosen at the keyhole that opened the ring goes in a tick late
-*Closed 2026-11-20: COMMIT. Retail's KeyHoleCollision (0602b30c), like the puzzle holes' and the Midas hand's, opens the ring from inside the tick as Lara meets the hole, and uses what was chosen as the ring returns, in that same tick: she is aligned and her use animation set before the next tick steps it on. Ours opened the ring and used the key at the next tick's collision, after her animation had stepped: a tick behind retail from then on. The ring a hole opened now uses its item as it shuts, before the tick after. Both attract demos still match retail.*
+*Closed 2026-11-20: a208470. Retail's KeyHoleCollision (0602b30c), like the puzzle holes' and the Midas hand's, opens the ring from inside the tick as Lara meets the hole, and uses what was chosen as the ring returns, in that same tick: she is aligned and her use animation set before the next tick steps it on. Ours opened the ring and used the key at the next tick's collision, after her animation had stepped: a tick behind retail from then on. The ring a hole opened now uses its item as it shuts, before the tick after. Both attract demos still match retail.*
 
 *Severity: subtle · Confidence: confirmed (retail run in Mednafen; Lara matches retail from the tick after the ring) · Fix: small*
 
