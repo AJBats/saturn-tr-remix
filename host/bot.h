@@ -1373,6 +1373,60 @@ static int32 hangDrop(const Cell &a, int32 dx, int32 dz, int32 floor)
     return 2;
 }
 
+// Along an edge hanging (a crevice, a ledge's face): stood at x, z facing
+// heading, hung from it (her back to the drop, a step back with Action held;
+// or, grab, facing the wall under it, a jump up with Action held), left or
+// right with Action till she's within 64 of tx, tz, then let go (or, up,
+// pulled up there). True once she stands again.
+static bool goTo(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius);
+
+static bool traverse(int32 roomIndex, int32 x, int32 z, int16 heading, bool left, int32 tx, int32 tz, bool up, bool grab)
+{
+    if (!goTo(roomIndex, x, z, true, 48) || !settle() || !turnTo(heading, ANGLE(2))) {
+        fail("couldn't stand at the edge to traverse");
+        return false;
+    }
+    for (int32 i = 0; i < 60 && lara()->state != Lara::STATE_HANG; i++) {
+        step(grab ? ((i < 2 ? IK_A : 0) | IK_B) : (IK_DOWN | IK_B));
+    }
+    if (lara()->state != Lara::STATE_HANG) {
+        fail("didn't hang from the edge to traverse");
+        return false;
+    }
+    int32 best = distTo(tx, tz), since = 0;
+    for (int32 i = 0; i < 30 * 60; i++)
+    {
+        int32 st = lara()->state;
+        if (st != Lara::STATE_HANG && st != Lara::STATE_HANG_LEFT && st != Lara::STATE_HANG_RIGHT) {
+            fail("let go of the edge traversing");
+            return false;
+        }
+        int32 d = distTo(tx, tz);
+        if (d < 64)
+            break;
+        if (d < best - 8) {
+            best = d;
+            since = 0;
+        } else if (++since > 60) {
+            fail("stuck traversing");
+            return false;
+        }
+        step(IK_B | (left ? IK_LEFT : IK_RIGHT));
+    }
+    // still, then up or down
+    for (int32 i = 0; i < 30 && lara()->state != Lara::STATE_HANG; i++) {
+        step(IK_B);
+    }
+    for (int32 i = 0; i < 150 && !(standing() && lara()->hSpeed == 0); i++) {
+        step(up ? (IK_UP | IK_B) : 0);
+    }
+    if (!standing() || lara()->health <= 0) {
+        fail("didn't come to stand after the traverse");
+        return false;
+    }
+    return true;
+}
+
 // An item of the ring used, as a player does it: START opens the ring, left
 // turns it till the item is in front, Action takes it and uses it.
 static bool ringUse(InvSlot slot)
@@ -2861,8 +2915,8 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
         if (char* hash = strchr(line, '#')) {
             *hash = 0;
         }
-        char cmd[32], a[64], b[64], c[64], d[64], e[64];
-        int32 n = sscanf(line, "%31s %63s %63s %63s %63s %63s", cmd, a, b, c, d, e);
+        char cmd[32], a[64], b[64], c[64], d[64], e[64], a6[64], a7[64], a8[64];
+        int32 n = sscanf(line, "%31s %63s %63s %63s %63s %63s %63s %63s %63s", cmd, a, b, c, d, e, a6, a7, a8);
         if (n <= 0 || !strcmp(cmd, "start"))
             continue;
         int32 t0 = gTick;
@@ -3157,6 +3211,11 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             }
         } else if (!strcmp(cmd, "timed") && n >= 4) {
             ok = timed(atoi(a), atoi(b), atoi(c), n >= 5 ? atoi(d) : 90);
+        } else if (!strcmp(cmd, "traverse") && n >= 8) {
+            // traverse ROOM X Z DEG left|right TX TZ [up|grab|grab,up]: hung from the edge there and along it
+            // (the last word: up, grab or grab,up)
+            ok = traverse(atoi(a), atoi(b), atoi(c), int16(atoi(d) * 0x10000 / 360), !strcmp(e, "left"), atoi(a6), atoi(a7),
+                          n >= 9 && strstr(a8, "up") != NULL, n >= 9 && strstr(a8, "grab") != NULL);
         } else if (!strcmp(cmd, "collapse") && n >= 2) {
             ok = collapse(atoi(a), n >= 3 ? atoi(b) : -1);
         } else if (!strcmp(cmd, "usehole") && n >= 2) {
