@@ -953,6 +953,13 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 329. A fall collides along the angle Lara last collided at, not the way she moves
+*Closed 2026-11-20: COMMIT. Retail's col routines all collide along Lara's move angle (GetLaraCollisionInfo takes it as the facing); ColFastFall (0601c950) leaves the move angle as it is. Ours took a fall's collision angle from whatever the last collision had set: after a forward jump smashed into a wall (the move angle turned back), the fall's next tick probed toward the wall, not the way she was moving, and held her a few units off where retail's ended. Both attract demos still match retail.*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen; Lara matches retail through the fall and the landing) · Fix: trivial*
+
+- **Found 2026-11-20** by the bot's chained run played by retail (CHAIN_r328): in Lost Valley room 24 (the host's tick 63,073) Lara, falling back off a wall she had jumped into, was 4 units further on in retail.
+
 ### 328. A creature that's stopped or dead never checks for a creature it overlaps
 *Closed 2026-11-20: d0a91e2. Retail's CreatureCreature (0600ae8c) checks every creature, whatever its own speed or hit points, against the moving creatures ahead of it in its room's list, and CreatureAnimation puts one that overlaps back where it was, height and all. Ours skipped a creature that wasn't moving or was dead, so a bat shot down beside a live one fell at once; retail's hung in the air till the live one moved off, then dropped with the fall speed it had gathered. Both attract demos still match retail.*
 

@@ -2339,9 +2339,12 @@ struct Lara : ItemObj
         pos.y += cinfo.m.floor;
     }
 
+    // retail's ColFastFall (0601c950) leaves the move angle as it is (a smash
+    // just turned it back) and collides along it, as every col routine does
     C_HANDLER( STATE_FALL )
     {
         flags |= ITEM_FLAG_GRAVITY;
+        cinfo.setAngle(extraL->moveAngle);
         c_jump();
     }
 
