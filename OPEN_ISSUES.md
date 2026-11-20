@@ -954,7 +954,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 ## Closed
 
 ### 317. Pulling a switch, Lara's animation starts a frame on, and the switch a step behind
-*Closed 2026-11-20: COMMIT. As retail's SwitchCollision (`0602b0d0`) and SwitchCollision2 (`0602b1fc`): Lara animated till she's in the pull, its first frame (OpenLara stepped one more), and the switch animated a step at once. The bot's Caves run played by retail now matches to tick 8,000 (it parted at 7,251).*
+*Closed 2026-11-20: 9f20f2b. As retail's SwitchCollision (`0602b0d0`) and SwitchCollision2 (`0602b1fc`): Lara animated till she's in the pull, its first frame (OpenLara stepped one more), and the switch animated a step at once. The bot's Caves run played by retail now matches to tick 8,000 (it parted at 7,251).*
 
 *Severity: subtle · Confidence: confirmed (retail run in Mednafen) · Fix: trivial*
 
