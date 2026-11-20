@@ -32,15 +32,17 @@ from capture import Mednafen  # noqa: E402
 
 CUE = ROOT + '/external_resources/tomb_raider_usa/Tomb Raider (USA).cue'
 BIN = ROOT + '/toolchain/gcc-14.2.0/sh2eb-elf/bin/'
-# low work RAM retail leaves alone (all zero from boot into the Caves:
-# 0x00200010..0x00245d10), but for its bottom: the inventory ring, opened in a
-# level, writes from 0x00200000 on (over the stub where it was, at 0x00200100);
-# everything here is above 0x0020e000, which it left alone
-STUB = 0x0020E000       # to 0x0020e400, its vars in it
-RING = 0x0020E400       # 256 entries of 96 bytes, to 0x00214400
-SCRIPT = 0x00214400     # to 0x00219400
-TABLE = 0x00219400      # to 0x00245c00
-MAX_TICKS = (0x00245C00 - TABLE) // 2 - 64
+# Low work RAM retail leaves alone: its bottom. The inventory ring, opened in a
+# level, writes 0x00200000..0x00200100; a level's data fills it from higher up
+# down (the Caves from 0x00245d10, Lost Valley lower: it wrote over a tick
+# table that reached 0x00245c00). Everything here is below 0x0020e000, zero in
+# Lost Valley; the tick table is a window the driver keeps filled ahead.
+STUB = 0x00201000       # to 0x00201400, its vars in it
+RING = 0x00201400       # 256 entries of 96 bytes, to 0x00207400
+SCRIPT = 0x00207400     # to 0x0020b400
+TABLE = 0x0020B400      # to 0x0020d400: entry i of the tick table at i % WINDOW
+WINDOW = 4096
+OURS_END = TABLE + WINDOW * 2
 MAX_SCRIPT = (TABLE - SCRIPT) // 2
 RING_SIZE = 256
 POOL = 0x06037644       # S_UpdateInput's pool word for the pad scan
@@ -164,7 +166,34 @@ def rec_line(t, r):
             f'frame {r["frame"]} health {r["health"]} seed {r["seed"]:08x}{extra}\n')
 
 
-def arm(m, want, table, script, code, vars_off, stop, watch):
+class Window:
+    """The tick table's window in retail's memory: entry i at i % WINDOW, those from
+    the stub's next one on kept written (the stub reads a few hundred between two
+    looks)."""
+
+    def __init__(self, keys, kept):
+        self.entries = [keys[t] for t in kept]
+        self.mem = bytearray(struct.pack('>H', NOTHING) * WINDOW)
+        self.written = 0    # entries written: 0 .. written - 1
+
+    def entry(self, i):
+        return self.entries[i] if i < len(self.entries) else NOTHING
+
+    def fill(self, m, index):
+        """Written ahead from the stub's index (a new run, or a resumed one, starts there)."""
+        if index > self.written or index + WINDOW <= self.written:
+            self.written = index
+        end = index + WINDOW - 64
+        while self.written < end:
+            at = self.written % WINDOW
+            n = min(end - self.written, WINDOW - at)
+            data = b''.join(struct.pack('>H', self.entry(self.written + k)) for k in range(n))
+            self.mem[at * 2:(at + n) * 2] = data
+            poke(m, TABLE + at * 2, data)
+            self.written += n
+
+
+def arm(m, want, window, script, code, vars_off, stop, watch):
     """Retail run from its title to the level's first game tick, then the stub, its
     tables and the patches poked in and the pad scan pointed at the stub."""
     for st in TITLE_TO_NEW_GAME:
@@ -178,7 +207,7 @@ def arm(m, want, table, script, code, vars_off, stop, watch):
         if m.word(LEVEL) == want:
             break
     m.send('breakpoint_clear', 'breakpoint', 10)
-    poke(m, TABLE, table)
+    window.fill(m, 0)
     poke(m, SCRIPT, b''.join(struct.pack('>H', k) for k in script))
     poke(m, RING, bytes(RING_SIZE * ENTRY))
     poke(m, STUB, code)
@@ -220,12 +249,12 @@ def main():
         sys.exit('only a new game into the Caves so far')
     host = host_records(args.replay, len(keys))
     kept, script = split_inventory(keys, host)
-    if len(kept) > MAX_TICKS or len(script) > MAX_SCRIPT:
-        sys.exit('too many ticks or inventory frames for the tables')
+    if len(script) > MAX_SCRIPT:
+        sys.exit('too many inventory frames for the script')
     code, vars_off = assemble(args.name)
     m = Mednafen(CUE, args.name)
     recs = {}
-    table = b''.join(struct.pack('>H', keys[t]) for t in kept) + struct.pack('>H', NOTHING) * 64
+    window = Window(keys, kept)
     resume = args.state and not args.save_at
     try:
         m.send('deterministic', 'deterministic', 10)
@@ -233,9 +262,10 @@ def main():
             # the game as a run of this replay left it (stub, tables and all)
             m.send(f'load_state {os.path.abspath(args.state).replace(os.sep, "/")}', 'ok load_state', 120)
             poke(m, STUB + vars_off + 28, struct.pack('>I', args.watch))
+            window.fill(m, m.word(STUB + vars_off + 4))
             print(f'resumed at game tick {m.word(STUB + vars_off + 4)}', flush=True)
         if not resume:
-            arm(m, want, table, script, code, vars_off, len(kept) if args.items else 0xFFFFFFFF, args.watch)
+            arm(m, want, window, script, code, vars_off, len(kept) if args.items else 0xFFFFFFFF, args.watch)
         print(f'armed at vblank {m.send("status", "status", 10).split("frame=")[1].split()[0]}: {len(keys)} ticks, '
               f'{len(keys) - len(kept)} of them in the inventory ({script.count(0)} stays)', flush=True)
         saved = False
@@ -248,6 +278,7 @@ def main():
             m.send(f'frame_advance {step}', 'done frame_advance', 600)
             vblanks += step
             index = m.word(STUB + vars_off + 4)
+            window.fill(m, index)
             ring = m.read(RING, RING_SIZE * ENTRY)
             for e in range(RING_SIZE):
                 b = ring[e * ENTRY:(e + 1) * ENTRY]
@@ -285,12 +316,14 @@ def main():
                       f'picture {shot}): stopped', flush=True)
                 # ours still in place? (the game may have written over low work RAM)
                 stub = m.read(STUB, vars_off)      # its code (its vars change as it runs)
-                print(f'    the stub {"intact" if stub == code[:vars_off] else "WRITTEN OVER"}; table head '
-                      f'{"intact" if m.read(TABLE, 64) == table[:64] else "WRITTEN OVER"}', flush=True)
+                print(f'    the stub {"intact" if stub == code[:vars_off] else "WRITTEN OVER"}; the table window '
+                      f'{"intact" if m.read(TABLE, WINDOW * 2) == bytes(window.mem) else "WRITTEN OVER"}; the script '
+                      f'{"intact" if m.read(SCRIPT, len(script) * 2) == b"".join(struct.pack(">H", k) for k in script) else "WRITTEN OVER"}',
+                      flush=True)
                 low = m.read(0x00200000, 0x50000)
                 spans, start = [], None
                 for at in range(0, len(low), 256):
-                    ours = STUB - 0x00200000 <= at < 0x00245C00 - 0x00200000
+                    ours = STUB - 0x00200000 <= at < OURS_END - 0x00200000
                     busy = any(low[at:at + 256]) and not ours
                     if busy and start is None:
                         start = at

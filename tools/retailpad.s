@@ -15,7 +15,8 @@
 ! the symbol table) holds, set by the driver:
 !   +0   armed (long, 0 = off)
 !   +4   index (long): the tick table's next entry, the ticks fed so far
-!   +8   tick table address (long): halfwords, one a tick
+!   +8   tick table address (long): halfwords, one a tick, entry i at i % 4096
+!        (a window the driver keeps filled ahead)
 !   +12  ring address (long): 256 entries of 96 bytes
 !   +16  stop at (long): when the index reaches it, the game holds here (before
 !        that tick) till the driver changes it
@@ -44,7 +45,10 @@ _start:
     or      r0,r1
     mov.l   @r1,r0          ! armed?
     tst     r0,r0
-    bt      out
+    bf      armed
+    bra     out
+    nop
+armed:
     mov.l   @(4,r15),r0     ! S_UpdateInput's return address, as it saved it
     mov.l   tick,r2
     cmp/eq  r2,r0
@@ -183,9 +187,10 @@ copy:
 nocreature:
     ! the tick table's entry
     mov.l   @(8,r1),r4
-    mov     r3,r5
-    shll    r5
-    add     r5,r4
+    mov.w   window,r0
+    and     r3,r0
+    shll    r0
+    add     r0,r4
     mov.w   @r4,r0
     add     #1,r3
     mov.l   r3,@(4,r1)
@@ -212,6 +217,7 @@ itemsp: .long 0x06072bdc    ! the items' base
 pad:    .long 0x0606e404
 through: .long 0x20000000
 mask:   .word 255
+window: .word 4095
     .align 2
     .global vars
 vars:   .long 0, 0, 0, 0, -1, 0, 0, 0, 0
