@@ -953,6 +953,13 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 323. A creature woken again keeps the mood it had when it last went to sleep
+*Closed 2026-11-20: COMMIT. Retail's InitialiseSlot (`06023278`) starts every creature it gives an AI slot bored; ours set the slot's turn but left the mood (a field the item keeps), so a bat woken a second time came back stalking and, Lara in its zone, went straight to attack (retail: bored, then stalk, a random box). Now bored, as retail. Both attract demos still match retail.*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen, the bat's mood recorded) · Fix: trivial*
+
+- **Found 2026-11-20** by the bot's Vilcabamba run played by retail (tools/retailrun.py): the logic seed parted at tick 26,062 with Lara the same, retail taking 9 random numbers that tick and ours 7; bat 11 (`--watch 11`) was mood 0 then 3 in retail, attack in ours.
+
 ### 322. A creature moving backwards never halves its turn near its target
 *Closed 2026-11-20: a78e1e1. Retail's CreatureTurn (`0600be48`) halves the turn when the target is behind and within its turning circle, comparing squares: `x*x + z*z < range*range`, range = speed << 14 / maximum turn. A crouching wolf backs off (speed -6), so its range is negative; squared, retail still halves; ours compared the distance with the negative range and never did. Now squares in 32 bits as the SH-2 multiplies. Both attract demos still match retail.*
 
