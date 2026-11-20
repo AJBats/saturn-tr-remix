@@ -98,7 +98,9 @@ def host_records(replay, ticks):
 
 def split_inventory(keys, host):
     """The ticks retail plays as game ticks (those the host starts and ends with the
-    inventory open leave), and the inventory script: each stay's presses, spaced."""
+    inventory open leave), and the inventory script: each stay's presses, spaced. A
+    press that shuts it (the host's tick that shuts it is also a game tick) goes to the
+    script too, the tick's own entry left with nothing held (keys is changed)."""
     kept, script = [], []
     t = 0
     while t < len(keys):
@@ -108,6 +110,9 @@ def split_inventory(keys, host):
             while t < len(keys) and host[t - 1]['inv'] and host[t]['inv']:
                 stay.append(keys[t])
                 t += 1
+            if t < len(keys) and keys[t] != NOTHING:
+                stay.append(keys[t])
+                keys[t] = NOTHING
             presses = [k for i, k in enumerate(stay) if k != NOTHING and (i == 0 or stay[i - 1] != k)]
             script += [NOTHING] * OPEN_WAIT
             for k in presses:
@@ -146,8 +151,9 @@ def tap(m, k):
 
 
 def rec_line(t, r):
+    extra = f' state {r["state"]} goal {r["goal"]}' if 'state' in r else ''
     return (f'rec {t} level {r["level"]} room {r["room"]} pos {r["x"]} {r["y"]} {r["z"]} yaw {r["yaw"]} anim {r["anim"]} '
-            f'frame {r["frame"]} health {r["health"]} seed {r["seed"]:08x}\n')
+            f'frame {r["frame"]} health {r["health"]} seed {r["seed"]:08x}{extra}\n')
 
 
 def main():
@@ -198,7 +204,7 @@ def main():
               f'{len(keys) - len(kept)} of them in the inventory ({script.count(0)} stays)', flush=True)
         vblanks = 0
         # the game runs a tick in two vblanks at most: the ring holds 1024 vblanks' worth
-        step = 30 if args.items else 600
+        step = 600      # (with --items the game holds before the tick after the last: no overshoot)
         last, still = -1, 0
         while vblanks < args.max_vblanks:
             m.send(f'frame_advance {step}', 'done frame_advance', 600)
@@ -215,7 +221,8 @@ def main():
                 hp, = struct.unpack('>h', item[0x22:0x24])
                 x, y, z = struct.unpack('>3i', item[0x30:0x3C])
                 yaw, = struct.unpack('>H', item[0x3E:0x40])
-                recs[i] = dict(level=lvl, room=room, x=x, y=y, z=z, yaw=yaw, anim=anim, frame=frame, health=hp, seed=seed)
+                recs[i] = dict(level=lvl, room=room, x=x, y=y, z=z, yaw=yaw, anim=anim, frame=frame, health=hp, seed=seed,
+                               state=state, goal=goal)
             if index >= len(kept):
                 break
             # no game tick for two minutes: held somewhere the replay doesn't
