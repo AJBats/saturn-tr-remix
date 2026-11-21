@@ -39,7 +39,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 52-73 | Weapons and combat |
 | 74-112 | Creatures and AI |
 | 113-139 | Level logic, traps and objects |
-| 140-173, 331 | Inventory, HUD, saves and game flow |
+| 140-173, 331-333 | Inventory, HUD, saves and game flow |
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
@@ -283,6 +283,13 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 - The retail runs patch the test to 0x4000 (PATCHES in tools/retailrun.py) so they can follow on. The user's call: keep ours (PC, TRX) or copy the Saturn's.
 
 ## Inventory, HUD, saves and game flow
+
+### 333. After loading a game, floors drew black (Saturn)
+*Severity: visible · Confidence: reported, not reproduced · Fix: unknown*
+
+- Reported by the user 2026-11-20 on the Saturn (main ab70e4b, release disc), with a photo: Lara on a ledge between two pits whose floors are black, by the textures the Cistern's drained pools, floors drawn by VDP2. The game loaded was from their cartridge, which this build read though it hadn't written it (issue 331): its item data may be to blame.
+- Mednafen: our own save loaded in the Caves (rooms 26 and 27, floor and ceiling on VDP2) draws the plane right after the load; the Cistern not tried.
+- To do: a save of this build's at a Cistern crystal near the pools, loaded on the Saturn.
 
 ## Audio
 
@@ -965,6 +972,16 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 332. After the compass is looked at, the ring draws the next item wrong or not at all
+*Closed 2026-11-21: 2ada524. The shared frame goes back to 0 as an item is put back on the ring (setSelection(false)): after the compass, the next items draw with their names. Saturn not seen.*
+
+*Severity: visible · Confidence: confirmed (Mednafen, a new game: before and after) · Fix: small*
+
+- Reported by the user 2026-11-20 on the Saturn, then caught by them in Mednafen 2026-11-21 (the ring paused on the pistols, nothing drawn, no name). Their Saturn words: the compass high and looking open, the medipack gone when turned to, the uzis fine.
+- The ring shares one animation frame between its items (inventory.frameIndex). The compass and the passport run on to their last frame as they go back on the ring (retail's Option_Compass and Option_Passport, as ours), and the frame stayed there (24 for the compass) while the next item's should start at 0. The item turned to then drew at frame 24 of its own animation: the pistols' is shorter, nothing showed; the small medipack's drew it open. Its name, shown only when the frame is where it's headed, was gone too. Till the ring closed and opened again.
+- Retail keeps a frame per item (TR1X inventry.c, inv_item->current_frame).
+- Mednafen, Caves test disc (start at the crystal, room 20), the ring with 2 small medipacks poked in: open, A on the compass, B back, then right, left, left. Before: frame 24 from the compass on; no names; the medipack drawn open, the pistols gone. After: frame 0; the compass, the small medipack and the pistols drawn with their names.
+
 ### 331. The game reads retail's saved game as its own, and would overwrite it
 *Closed 2026-11-20: 78234e3. The file is TOMBRAIDSAT now (comment SAVE_FILE), so retail's is neither read nor written. Mednafen, release disc: with retail's save in backup memory the passport opens on Start Game; our save at the Caves crystal (health poked to 500), walked off, Load Game, Current Position: back at the crystal with 500. Saves from earlier builds are no longer found.*
 
@@ -972,8 +989,8 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 - Reported by the user 2026-11-20 on the Saturn (main ab70e4b, release disc): backup memory CARTRIDGE, the passport's Load Game list offered the Caves; started there, the ring held uzi clips, the compass drew high and the small medipack vanished when the ring turned to it. After loading a game, floors drew black (their photo: Lara on a ledge between drained pools, by its textures the Cistern).
 - Our file had retail's name, TOMBRAIDER_ (issue 155), but not retail's format, and nothing checked the file was ours: its bytes became the level start's guns, ammo and medipacks, and on a load the items' states. Mednafen, our release disc with a save retail wrote (from build/retailrun_home) in backup memory: the Load Game list shows Caves and Lost Valley, and the Caves start has 64 small medipacks. A save in our build would also have overwritten retail's.
-- The Saturn, the same code, a new game, no file read (tick replay discs: build/ringA, the Caves with its VDP2 floor; build/ringB, packed without it): the ring draws the compass and the pistols right on both. So the ring's faults came from the file, not from the plane: the VDP2 design's open risk, the CPU reading the item textures from bank B under the plane, reads right for those two items (the medipacks' textures not tried).
-- Inference, not checked: the user's cartridge holds retail Tomb Raider's own save, or one from a build since 2026-11-18 (the same name, an older layout). The black floors after the load were not reproduced; they fit a load of that file's item data.
+- The Saturn, the same code, a new game, no file read (tick replay discs: build/ringA, the Caves with its VDP2 floor; build/ringB, packed without it): the ring draws the compass and the pistols right on both, so the plane isn't to blame: the CPU reads the item textures from bank B under the plane right (the medipacks' textures not tried). The ring's faults were not the file's either, as first written here: they are issue 332 (the compass looked at and put back), which those discs never did.
+- Inference, not checked: the user's cartridge holds retail Tomb Raider's own save, or one from a build since 2026-11-18 (the same name, an older layout). The black floors after the load: issue 333.
 
 ### 329. A fall collides along the angle Lara last collided at, not the way she moves
 *Closed 2026-11-20: 6660f6f. Retail's col routines all collide along Lara's move angle (GetLaraCollisionInfo takes it as the facing); ColFastFall (0601c950) leaves the move angle as it is. Ours took a fall's collision angle from whatever the last collision had set: after a forward jump smashed into a wall (the move angle turned back), the fall's next tick probed toward the wall, not the way she was moving, and held her a few units off where retail's ended. Both attract demos still match retail.*
