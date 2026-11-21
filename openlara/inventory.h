@@ -519,6 +519,10 @@ struct Inventory
             selRotPreTarget = 0;
             selRotXTarget = 0;
             selRotYTarget = 0;
+            // retail's ring items each keep their own frame (inv_item->current_frame); ours share
+            // one, which goes back to the start here: the compass and the passport run on to their
+            // last frame as they're put back, and the next item turned to would draw at it
+            frameIndex = 0;
         }
 
         selDistInc = (selDistTarget - selDist) / timer;
