@@ -39,7 +39,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 52-73 | Weapons and combat |
 | 74-112 | Creatures and AI |
 | 113-139 | Level logic, traps and objects |
-| 140-173 | Inventory, HUD, saves and game flow |
+| 140-173, 331 | Inventory, HUD, saves and game flow |
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
@@ -964,6 +964,16 @@ word. Of the same kind and already open: 264, 265, 266.
 Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each): 88 keep the torso's no-turn walk; 99 fix the gorilla's sidestep as TRX; 11 keep the combat camera's stale distance; 139 the Saturn's 150 hits; 179 pan smoothly as TRX; 183 neither the loop restart nor the octave-down loops; 253 keep the shimmers.
 
 ## Closed
+
+### 331. The game reads retail's saved game as its own, and would overwrite it
+*Closed 2026-11-20: 78234e3. The file is TOMBRAIDSAT now (comment SAVE_FILE), so retail's is neither read nor written. Mednafen, release disc: with retail's save in backup memory the passport opens on Start Game; our save at the Caves crystal (health poked to 500), walked off, Load Game, Current Position: back at the crystal with 500. Saves from earlier builds are no longer found.*
+
+*Severity: visible (an inventory nobody had, items drawn wrong, a level in pieces after a load; a retail save lost on saving) · Confidence: confirmed (Mednafen, with a save retail wrote in backup memory) · Fix: small*
+
+- Reported by the user 2026-11-20 on the Saturn (main ab70e4b, release disc): backup memory CARTRIDGE, the passport's Load Game list offered the Caves; started there, the ring held uzi clips, the compass drew high and the small medipack vanished when the ring turned to it. After loading a game, floors drew black (their photo: Lara on a ledge between drained pools, by its textures the Cistern).
+- Our file had retail's name, TOMBRAIDER_ (issue 155), but not retail's format, and nothing checked the file was ours: its bytes became the level start's guns, ammo and medipacks, and on a load the items' states. Mednafen, our release disc with a save retail wrote (from build/retailrun_home) in backup memory: the Load Game list shows Caves and Lost Valley, and the Caves start has 64 small medipacks. A save in our build would also have overwritten retail's.
+- The Saturn, the same code, a new game, no file read (tick replay discs: build/ringA, the Caves with its VDP2 floor; build/ringB, packed without it): the ring draws the compass and the pistols right on both. So the ring's faults came from the file, not from the plane: the VDP2 design's open risk, the CPU reading the item textures from bank B under the plane, reads right for those two items (the medipacks' textures not tried).
+- Inference, not checked: the user's cartridge holds retail Tomb Raider's own save, or one from a build since 2026-11-18 (the same name, an older layout). The black floors after the load were not reproduced; they fit a load of that file's item data.
 
 ### 329. A fall collides along the angle Lara last collided at, not the way she moves
 *Closed 2026-11-20: 6660f6f. Retail's col routines all collide along Lara's move angle (GetLaraCollisionInfo takes it as the facing); ColFastFall (0601c950) leaves the move angle as it is. Ours took a fall's collision angle from whatever the last collision had set: after a forward jump smashed into a wall (the move angle turned back), the fall's next tick probed toward the wall, not the way she was moving, and held her a few units off where retail's ended. Both attract demos still match retail.*

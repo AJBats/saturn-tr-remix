@@ -182,7 +182,7 @@ Filed as OPEN_ISSUES 273-279, "Production code", for later: timer reads, 16 KB o
 
 1. **The late buffer change under the erase.** The lab's vanishing came from a late change with slow work before FBCR. Main writes FBCR first, and the lab's cure also held off the vblank's last lines, which main doesn't. Not seen on the Saturn in the first runs of either level. If it vanishes, that margin is the next thing, by libyaul's rule.
 2. **NBG0's bitmap with the plane on**, for the inventory and test discs' overlay: the overlay and the first Saturn runs show nothing wrong.
-3. **The CPU reading bank B under the plane**, for the item textures: the same.
+3. **The CPU reading bank B under the plane**, for the item textures: the same. Saturn 2026-11-20: the Caves ring (compass, pistols) draws right with the plane on and off (issue 331, build/hw_ringA_*, build/hw_ringB_*).
 
 ## The test
 
