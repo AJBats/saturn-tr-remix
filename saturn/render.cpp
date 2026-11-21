@@ -696,7 +696,9 @@ static void roomsDarkInit(uint32 count)
                     }
                 }
             }
-            for (int32 shade = 31; shade >= 0 && brightest + gShadeLevel[shade] - 16 <= DARK_LIMIT; shade--) {
+            // each shade's level as the game draws it, 31 - shade: not gShadeLevel, which the
+            // ring's fade darkens on plane levels (shadesFade) when a load from it gets here
+            for (int32 shade = 31; shade >= 0 && brightest + (31 - shade) - 16 <= DARK_LIMIT; shade--) {
                 from = shade;
             }
         }
