@@ -25,8 +25,19 @@ void screenGamma(int32_t gamma);
 void screenDimPicture(bool dim);
 
 // Shows BINDATA/<name>.BIN, a 15-bit RGB picture width x 224, centred, in
-// place of the game's frame until screenRelease.
+// place of the game's frame until screenRelease. The picture already shown
+// stays, brought back up to full; one held is copied from work RAM, not read
+// from the CD (a read stops the CD's music).
 void screenShow(const char* name, int32_t width);
+
+// <name>'s picture at data (width x 224 15-bit pixels) for screenShow, till
+// screenHeldForget: at most 2.
+void screenHoldPicture(const char* name, const void* data);
+void screenHeldForget();
+
+// <name>'s picture, if it's the one shown, copied out of the bitmap into data
+// (width x 224 pixels).
+bool screenCopyShown(const char* name, int32_t width, void* data);
 
 // A black picture to draw into, in place of the game's frame until
 // screenRelease: the bitmap, 512 pixels a line, its top left at the screen's.

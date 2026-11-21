@@ -527,7 +527,9 @@ void startLevel(LevelID id)
     }
 
     sndInitSamples();
-    sndPlayTrack(getAmbientTrack());
+    if (inventory.page != INV_PAGE_BACKUP) {    // the title's backup pages are silent, as retail's: its track starts with Press START
+        sndPlayTrack(getAmbientTrack());
+    }
     if (isCutsceneLevel()) {
         sndWaitTrack();     // its pictures keep time with the track (retail's StartSyncedAudio, 0603c794)
     }
@@ -634,9 +636,10 @@ void gameUpdate(int32 frames, bool items = true)
     }
     gDemoTicks += frames;
 
-    // the title's music loops; a level has none of its own, only what its
+    // the title's music loops, from Press START on (none on the backup
+    // pages, as retail's); a level has none of its own, only what its
     // triggers play, once (retail plays no level-start track)
-    if (gLevelID == LVL_TR1_TITLE && !sndTrackIsPlaying()) {
+    if (gLevelID == LVL_TR1_TITLE && inventory.page != INV_PAGE_BACKUP && !sndTrackIsPlaying()) {
         gCurTrack = -1;
         sndPlayTrack(getAmbientTrack());
     }

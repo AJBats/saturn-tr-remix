@@ -35,6 +35,12 @@ static bool gCaptured;          // the picture is the frame screenCapture took, 
 static bool gPlaneLevel;        // the level has a plane
 static volatile bool gPlaneShown;
 static uint32_t gPictures;
+static const char* gShownName;  // the picture screenShow put in the bitmap, while it's there
+
+// Pictures held in work RAM (screenHoldPicture): shown with no CD read, which
+// would stop the CD's music
+#define HELD_PICTURES   2
+static struct { const char* name; const void* data; } gHeld[HELD_PICTURES];
 
 // The colour offsets' fades, the bitmap's and the frames': each one's offset
 // << 16, its step a vblank, its target and the vblanks left.
@@ -217,6 +223,7 @@ int32_t screenFramesFade()
 // The bitmap is about to take a picture.
 static void takeBitmap()
 {
+    gShownName = nullptr;
     gPicture = gOverlay = gCaptured = false;
     gPictures++;
     showLayers();
@@ -263,23 +270,77 @@ void screenInit()
     onVblank(fadeVblank);
 }
 
+void screenHoldPicture(const char* name, const void* data)
+{
+    for (int32_t i = 0; i < HELD_PICTURES; i++)
+    {
+        if (!gHeld[i].name)
+        {
+            gHeld[i].name = name;
+            gHeld[i].data = data;
+            return;
+        }
+    }
+}
+
+void screenHeldForget()
+{
+    memset(gHeld, 0, sizeof(gHeld));
+}
+
+bool screenCopyShown(const char* name, int32_t width, void* data)
+{
+    if (!gPicture || !gShownName || strcmp(gShownName, name))
+        return false;
+    uint32_t left = (SCREEN_WIDTH - width) / 2;
+    uint32_t top = (SCREEN_HEIGHT - PICTURE_HEIGHT) / 2;
+    uint32_t* dst = (uint32_t*)data;
+    for (uint32_t y = top; y < top + PICTURE_HEIGHT; y++)
+    {
+        const volatile uint32_t* src = (const volatile uint32_t*)(VDP2_VRAM + y * BITMAP_WIDTH * 2 + left * 2);
+        for (uint32_t x = 0; x < uint32_t(width) / 2; x++) {
+            *dst++ = src[x];
+        }
+    }
+    return true;
+}
+
 void screenShow(const char* name, int32_t width)
 {
     vdp1OnNextFrame(nullptr);
     hideFrames();
+
+    // the picture already up stays, back up to full from a dim or a fade
+    if (gPicture && gShownName && !strcmp(gShownName, name))
+    {
+        fade(FADE_PICTURE, 0, 30);
+        return;
+    }
+
     takeScreen();
 
-    char path[32] = "BINDATA/";
-    strcat(path, name);
-    strcat(path, ".BIN");
-    if (cdLoadFile(path, (void*)STAGING, STAGING_SIZE) != width * PICTURE_HEIGHT * 2)
-        return;
+    const void* from = nullptr;
+    for (int32_t i = 0; i < HELD_PICTURES; i++)
+    {
+        if (gHeld[i].name && !strcmp(gHeld[i].name, name)) {
+            from = gHeld[i].data;
+        }
+    }
+    if (!from)
+    {
+        char path[32] = "BINDATA/";
+        strcat(path, name);
+        strcat(path, ".BIN");
+        if (cdLoadFile(path, (void*)STAGING, STAGING_SIZE) != width * PICTURE_HEIGHT * 2)
+            return;
+        from = (const void*)STAGING;
+    }
 
     // centred on the 352x240 screen; 0 is transparent, showing the back colour
     uint32_t left = (SCREEN_WIDTH - width) / 2;
     uint32_t top = (SCREEN_HEIGHT - PICTURE_HEIGHT) / 2;
     volatile uint32_t* dst = (volatile uint32_t*)VDP2_VRAM;
-    const volatile uint32_t* src = (const volatile uint32_t*)STAGING;
+    const volatile uint32_t* src = (const volatile uint32_t*)from;
 
     for (uint32_t y = 0; y < BITMAP_HEIGHT; y++)
     {
@@ -300,6 +361,7 @@ void screenShow(const char* name, int32_t width)
 
     // up from black over 30 vblanks, as retail's pictures
     fade(FADE_PICTURE, -255, 0);
+    gShownName = name;
     gPicture = true;
     showLayers();
     fade(FADE_PICTURE, 0, 30);

@@ -383,10 +383,28 @@ void osRoomFacesFlipped()
     }
 }
 
+// A title picture kept in low work RAM for screenShow, if the title leaves room.
+#define TITLE_LOW_SPARE (64 * 1024)     // left for the title level's own (its sectors take the rest)
+
+static void holdPicture(const char* name)
+{
+    const uint32 bytes = 352 * 224 * 2;
+    if (osLowLeft() < bytes + TITLE_LOW_SPARE)
+        return;
+    char path[32] = "BINDATA/";
+    strcat(path, name);
+    strcat(path, ".BIN");
+    void* data = osLowAlloc(bytes);
+    if (screenCopyShown(name, 352, data) || cdLoadFile(path, data, bytes) == int32(bytes)) {
+        screenHoldPicture(name, data);
+    }
+}
+
 const void* osLoadLevel(LevelID id)
 {
     const char* name = (const char*)gLevelInfo[id].data;
 
+    screenHeldForget();     // in the low work RAM the level is about to take
     crashHold(true);
     traceStop();    // the loading picture stages over the trace
     crashLog("LEVEL", id);
@@ -414,6 +432,14 @@ const void* osLoadLevel(LevelID id)
     uint32 subSize = loadOrHalt(name, ".SUB", subData, LEVEL_MAX - levelSize);
     detailInit(VRAM_TEX_BASE + texSize, subData, subSize);
     gLowFree = (uint8*)((uint32(subData) + subSize + 15) & ~15);
+
+    // the title's two pictures held: its pages change pictures with no CD read,
+    // which would stop its music and start it over (osPressStart, osLoadScreen)
+    if (id == LVL_TR1_TITLE)
+    {
+        holdPicture("USATIT");
+        holdPicture("USAOPT");
+    }
 
     // a floor and ceiling on VDP2, if the level has them: straight to bank B
     uint32 planeCells = fileSize(name, ".PLC");
