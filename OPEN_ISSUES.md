@@ -284,17 +284,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Inventory, HUD, saves and game flow
 
-### 333. After loading a game, floors drew black (Saturn)
-*Severity: visible · Confidence: reported, not reproduced · Fix: unknown*
-
-- Reported by the user 2026-11-20 on the Saturn (main ab70e4b, release disc), with a photo: Lara on a ledge between two pits whose floors are black, by the textures the Cistern's drained pools, floors drawn by VDP2. The game loaded was from their cartridge, which this build read though it hadn't written it (issue 331): its item data may be to blame.
-- Mednafen: our own save loaded in the Caves (rooms 26 and 27, floor and ceiling on VDP2) draws the plane right after the load; the Cistern not tried.
-- To do: a save of this build's at a Cistern crystal near the pools, loaded on the Saturn.
-
-## Audio
-
-## Numeric primitives and timing
-
 ### 198. Animation interpolation lerps relative matrices, not two full stacks
 *Severity: subtle (drawing only) · Confidence: confirmed · Fix: medium · Audit:
 MATH-4*
@@ -972,6 +961,15 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 333. After loading a game from the ring, floors drew black
+*Closed 2026-11-21: 57d57d4. roomsDarkInit takes each shade's level as the game draws it (31 - shade), not the live table. Mednafen, Caves test disc (start at the crystal, room 20): save, walk off, load Current Position from the ring: before, 33 textures' thresholds 8 shades darker after the load; after, none change. Saturn not seen.*
+
+*Severity: visible · Confidence: confirmed (Mednafen: the user's session, then a test disc before and after) · Fix: small*
+
+- Reported by the user 2026-11-20 on the Saturn (photo: big black floor tiles by the pillar near the Caves' vine rooms; first read here as the Cistern, wrongly), then caught by them in Mednafen 2026-11-21: start a game, save, load.
+- The black was VDP1's: plain black polygons (colour 0x8000), the renderer's faces too dark to see (c987059). At a level's load, roomsDarkInit (saturn/render.cpp) gives each room texture the shade from which its faces count as that dark, from the shade table gShadeLevel. On plane levels the ring fades by darkening that same table (shadesFade); loading a game from the ring reloads the level mid fade, so the thresholds came out 8 shades too dark: in the user's session 33 of the Caves' 156 textures (25 -> 17, 30 -> 22 ...), black at shades they're plainly seen at, till the next level load.
+- Not the save file: a test disc that never read a foreign file does it too.
+
 ### 332. After the compass is looked at, the ring draws the next item wrong or not at all
 *Closed 2026-11-21: 2ada524. The shared frame goes back to 0 as an item is put back on the ring (setSelection(false)): after the compass, the next items draw with their names. Saturn not seen.*
 
@@ -987,7 +985,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 *Severity: visible (an inventory nobody had, items drawn wrong, a level in pieces after a load; a retail save lost on saving) · Confidence: confirmed (Mednafen, with a save retail wrote in backup memory) · Fix: small*
 
-- Reported by the user 2026-11-20 on the Saturn (main ab70e4b, release disc): backup memory CARTRIDGE, the passport's Load Game list offered the Caves; started there, the ring held uzi clips, the compass drew high and the small medipack vanished when the ring turned to it. After loading a game, floors drew black (their photo: Lara on a ledge between drained pools, by its textures the Cistern).
+- Reported by the user 2026-11-20 on the Saturn (main ab70e4b, release disc): backup memory CARTRIDGE, the passport's Load Game list offered the Caves; started there, the ring held uzi clips, the compass drew high and the small medipack vanished when the ring turned to it. After loading a game, floors drew black (issue 333, not this file's doing).
 - Our file had retail's name, TOMBRAIDER_ (issue 155), but not retail's format, and nothing checked the file was ours: its bytes became the level start's guns, ammo and medipacks, and on a load the items' states. Mednafen, our release disc with a save retail wrote (from build/retailrun_home) in backup memory: the Load Game list shows Caves and Lost Valley, and the Caves start has 64 small medipacks. A save in our build would also have overwritten retail's.
 - The Saturn, the same code, a new game, no file read (tick replay discs: build/ringA, the Caves with its VDP2 floor; build/ringB, packed without it): the ring draws the compass and the pistols right on both, so the plane isn't to blame: the CPU reads the item textures from bank B under the plane right (the medipacks' textures not tried). The ring's faults were not the file's either, as first written here: they are issue 332 (the compass looked at and put back), which those discs never did.
 - Inference, not checked: the user's cartridge holds retail Tomb Raider's own save, or one from a build since 2026-11-18 (the same name, an older layout). The black floors after the load: issue 333.
