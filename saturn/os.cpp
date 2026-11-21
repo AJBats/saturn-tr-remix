@@ -56,9 +56,11 @@ int32 osGetSystemTimeMS()
     return 0; // TODO FRT based timer
 }
 
-// The one saved game lives in backup RAM, named as retail's (its write,
-// 0604605c): "TOMBRAIDER_", comment "SAVE_FILE".
-#define SAVE_FILE       "TOMBRAIDER_"
+// The one saved game lives in backup RAM under a name of its own. Retail's
+// (its write, 0604605c) is "TOMBRAIDER_", comment "SAVE_FILE": ours isn't
+// retail's format, so under that name the game would read a retail save as
+// its own and overwrite it on saving.
+#define SAVE_FILE       "TOMBRAIDSAT"
 #define SAVE_COMMENT    "SAVE_FILE"
 
 // The level last loaded, and whether the next load skips its video: a saved
