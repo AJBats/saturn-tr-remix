@@ -3149,7 +3149,7 @@ void clear();
 Room** renderWalk(Room* cameraRoom);
 void renderModel(const ItemObj* item);
 void renderModelUnder(const ItemObj* item);    // the inventory's: under the matrix on top, lit by gLight*
-void renderMesh(int32 mesh, int32 ambient, int32 range);   // a level mesh under the matrix on top, lit along gLightView
+void renderMesh(int32 mesh, int32 ambient, int32 range, bool onTop = false);   // a level mesh under the matrix on top, lit along gLightView; onTop: sorted over what it lies on
 void renderMeshSwap(int32 a, int32 b);          // two level meshes trade places for drawing
 void renderBolt(int32 x1, int32 y1, int32 z1, int32 x2, int32 y2, int32 z2, int32 width);  // view space
 void renderShadowCall(const ItemObj* item, int32 floor, int32 size);

@@ -165,9 +165,13 @@ void facesListStart(CommandList &list, Command* cmds, uint32_t (*grd)[2], int32_
 
 // A mesh's faces, with its vertices; mode MESH_INSIDE: none of them is off
 // the frame or past a plane, so no face is culled for that; MESH_WATER: under
-// water, its shades fading to teal with distance.
+// water, its shades fading to teal with distance; MESH_ON_TOP: its faces sorted
+// MESH_ON_TOP_BUCKETS nearer than they lie (frame.cpp frameMesh), the compass's needle
+// over its dial.
 #define MESH_INSIDE     1
 #define MESH_WATER      2
+#define MESH_ON_TOP     4
+#define MESH_ON_TOP_BUCKETS 1
 extern "C" void facesMeshAsm(const FaceSet* set, const Vertex* vertices, uint32_t mode, CommandList* list);
 
 // A mesh's cards' corners placed in its projected vertices: each corner its

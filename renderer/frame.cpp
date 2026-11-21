@@ -13,6 +13,7 @@
 namespace render {
 
 #define FACE_WATER  (1u << 30)
+#define FACE_ON_TOP (1u << 28)  // render.cpp's: a mesh drawn over what it lies on
 #define FACE_LINE_H (8u << 14)  // FaceType FACE_TYPE_LINE_H: renderRect's line, a fill's
 #define X_MAX(a, b) ((a) > (b) ? (a) : (b))
 
@@ -284,6 +285,13 @@ void frameMesh(uint32_t i, const FaceSet* set, const Vertex* vertices, uint32_t 
     vertices = (const Vertex*)((const uint8_t*)vertices - set->back);
     if (set->cards) {
         facesMeshCardsAsm(set, const_cast<Vertex*>(vertices), mode, gSplit.divTable, verticesCardShade(i));
+    }
+    if (mode & MESH_ON_TOP)
+    {
+        HintFaces nearer = {};
+        nearer.buckets = -MESH_ON_TOP_BUCKETS;
+        facesMeshHinted(set, vertices, mode & ~MESH_ON_TOP, gMeshList, nearer, gHeld, gHeldCount, MAX_HELD);
+        return;
     }
     if (!frameMeshHinted(i, set, vertices, mode)) {
         facesMeshAsm(set, vertices, mode, &gMeshList);
@@ -847,7 +855,8 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
         const FaceSet* set = d.type == DRAW_SHADOW ? facesShadow()
                                                    : (const FaceSet*)(sets + ((const uint32_t*)sets)[d.mesh]);
         int32_t inside = posed ? verticesInsideOf(i) : d.inside;
-        uint32_t mode = (inside ? MESH_INSIDE : 0) | (d.flags & FACE_WATER ? MESH_WATER : 0);
+        uint32_t mode = (inside ? MESH_INSIDE : 0) | (d.flags & FACE_WATER ? MESH_WATER : 0) |
+                        (d.flags & FACE_ON_TOP ? MESH_ON_TOP : 0);
         frameMesh(i, set, vertices, mode);
     }
     frameHintsPlace(true, s.masterWait);

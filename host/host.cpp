@@ -296,7 +296,7 @@ static Room* gNoRooms[1];
 Room** renderWalk(Room* cameraRoom) { return gNoRooms; }
 void renderModel(const ItemObj* item) {}
 void renderModelUnder(const ItemObj* item) {}
-void renderMesh(int32 mesh, int32 ambient, int32 range) {}
+void renderMesh(int32 mesh, int32 ambient, int32 range, bool onTop) {}
 void renderMeshSwap(int32 a, int32 b) {}
 void renderBolt(int32 x1, int32 y1, int32 z1, int32 x2, int32 y2, int32 z2, int32 width) {}
 void renderShadowCall(const ItemObj* item, int32 floor, int32 size) {}

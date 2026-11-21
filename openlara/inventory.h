@@ -1940,7 +1940,7 @@ struct Inventory
             matrixFrame(&frame->pos, angles);
             matrixFrame(&node->pos, angles + 1);
             matrixRotateY(needle);
-            renderMesh(level.models[type].start + 1, gLightAmbient, gLightRange);
+            renderMesh(level.models[type].start + 1, gLightAmbient, gLightRange, true);    // over the dial
             matrixPop();
         }
 

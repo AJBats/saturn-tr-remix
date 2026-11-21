@@ -35,6 +35,7 @@ static_assert(sizeof(ItemObj) == sizeof(render::GameItem) && sizeof(Texture) == 
               "the renderer reads the game's layouts");
 
 #define FACE_WATER      (1u << 30)  // the faces' flags: under water
+#define FACE_ON_TOP     (1u << 28)  // ... sorted nearer (renderer/frame.cpp)
 #define FACE_TYPE_FILL_S    7       // render::facesOther's 2D faces
 #define FACE_TYPE_LINE_H    8
 #define FACE_TYPE_LINE_V    9
@@ -149,8 +150,9 @@ void renderModelUnder(const ItemObj* item)
 
 // One of the level's meshes under the matrix on top, lit by ambient and
 // range along gLightView (a body part's flat, object.h BodyPart; the
-// compass needle as the ring's light, inventory.h drawSlot).
-void renderMesh(int32 mesh, int32 ambient, int32 range)
+// compass needle as the ring's light, inventory.h drawSlot). On top: its faces
+// sorted a bucket nearer than they lie (renderer/faces.h MESH_ON_TOP), over the face it lies on.
+void renderMesh(int32 mesh, int32 ambient, int32 range, bool onTop)
 {
     if (gGivenCount == MAX_GIVEN)
         return;
@@ -166,6 +168,9 @@ void renderMesh(int32 mesh, int32 ambient, int32 range)
     l.view[2] = int16(gLightView.z);
     l.pad = 0;
     c->args[0] = mesh;
+    if (onTop) {
+        c->flags |= FACE_ON_TOP;
+    }
 }
 
 // The level's meshes a and b (level.meshes) trade places for drawing, as
