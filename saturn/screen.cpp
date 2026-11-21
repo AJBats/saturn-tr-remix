@@ -36,6 +36,7 @@ static bool gPlaneLevel;        // the level has a plane
 static volatile bool gPlaneShown;
 static uint32_t gPictures;
 static const char* gShownName;  // the picture screenShow put in the bitmap, while it's there
+static int32_t gShownWidth;     // ... its width
 
 // Pictures held in work RAM (screenHoldPicture): shown with no CD read, which
 // would stop the CD's music
@@ -317,8 +318,6 @@ void screenShow(const char* name, int32_t width)
         return;
     }
 
-    takeScreen();
-
     const void* from = nullptr;
     for (int32_t i = 0; i < HELD_PICTURES; i++)
     {
@@ -326,6 +325,32 @@ void screenShow(const char* name, int32_t width)
             from = gHeld[i].data;
         }
     }
+
+    // centred on the 352x240 screen; 0 is transparent, showing the back colour
+    uint32_t left = (SCREEN_WIDTH - width) / 2;
+    uint32_t top = (SCREEN_HEIGHT - PICTURE_HEIGHT) / 2;
+
+    // a held picture over one shown: straight over it from a vblank, ahead of
+    // the beam down the screen, with no black between
+    if (from && gPicture && gShownName && gShownWidth == width)
+    {
+        waitVblank();
+        const uint32_t* src = (const uint32_t*)from;
+        for (uint32_t y = top; y < top + PICTURE_HEIGHT; y++)
+        {
+            volatile uint32_t* dst = (volatile uint32_t*)(VDP2_VRAM + y * BITMAP_WIDTH * 2 + left * 2);
+            for (uint32_t x = 0; x < uint32_t(width) / 2; x++) {
+                dst[x] = *src++;
+            }
+        }
+        gShownName = name;
+        gPictures++;
+        fade(FADE_PICTURE, 0, 0);
+        crashLogShow();
+        return;
+    }
+
+    takeScreen();
     if (!from)
     {
         char path[32] = "BINDATA/";
@@ -336,9 +361,6 @@ void screenShow(const char* name, int32_t width)
         from = (const void*)STAGING;
     }
 
-    // centred on the 352x240 screen; 0 is transparent, showing the back colour
-    uint32_t left = (SCREEN_WIDTH - width) / 2;
-    uint32_t top = (SCREEN_HEIGHT - PICTURE_HEIGHT) / 2;
     volatile uint32_t* dst = (volatile uint32_t*)VDP2_VRAM;
     const volatile uint32_t* src = (const volatile uint32_t*)from;
 
@@ -362,6 +384,7 @@ void screenShow(const char* name, int32_t width)
     // up from black over 30 vblanks, as retail's pictures
     fade(FADE_PICTURE, -255, 0);
     gShownName = name;
+    gShownWidth = width;
     gPicture = true;
     showLayers();
     fade(FADE_PICTURE, 0, 30);
