@@ -12,10 +12,21 @@
 // Page 2, the numbers, measured with picture A shown: CPU writes into the hidden picture and into
 // the shown one, SCU DMA into the hidden one (a row at a time, and whole), CPU writes into sound
 // RAM and into work RAM; MB/s and cycles a word. "ok" = the hidden picture read back as written.
+//
+// With the PlayStation disc beside the build (Makefile's PS1TRACK), frames of its videos packed by
+// tools/mdec.py benchframes are decoded (saturn/mdec.cpp) and timed: the master alone, then the two
+// CPUs a part each, and the stages apart; "ok" = the pixels' checksum is tools/mdec.py's. Page 1 then
+// shows the decoded frames.
 
 #include "platform.h"
 #include "hw.h"
 #include "font.h"
+
+#if __has_include("fmvframes.h")
+#include "fmvframes.h"
+#include "mdec.h"
+#define DECODE 1
+#endif
 
 #define VDP2_WPSX0      REG16(0x25F800C0)
 #define VDP2_WPSY0      REG16(0x25F800C2)
@@ -118,9 +129,12 @@ static void waitVblank()
     while (!(VDP2_TVSTAT & TVSTAT_VBLANK));
 }
 
+static int32_t gShown;
+
 // Picture half (0: lines 0-119, 1: lines 128-247) on screen from this vertical blank.
 static void show(int32_t half)
 {
+    gShown = half;
     const uint16_t bitmap = (CYCP_N0CG << 12) | (CYCP_N0CG << 8) | (CYCP_N0CG << 4) | CYCP_N0CG;
     const uint16_t cpu = (CYCP_CPU << 12) | (CYCP_CPU << 8) | (CYCP_CPU << 4) | CYCP_CPU;
     const uint16_t a = half ? cpu : bitmap;
@@ -407,16 +421,196 @@ static void measure()
     dmaTimed(gCardB, uint32_t(hidden), PIC_H * PITCH * 4);
 }
 
+#ifdef DECODE
+
+// --- decoding the PlayStation's frames ---------------------------------------------------
+
+#define FRT_TCR         (*(volatile uint8_t*)0xFFFFFE16)
+#define FRT_SLOW        2       // a tick every 128 cycles: wraps after 293 ms, for whole frames
+#define FRT_FAST        0       // a tick every 8 (platform.cpp's)
+#define MAX_ROWS        13
+#define PICTURE_ROW     12      // the picture's first line in a 9-row record (the PS1 frame's line 44)
+
+static uint32_t gPicture[MAX_ROWS * 16 * PIC_W];
+
+// cycles over 128-cycle ticks, for spans up to 293 ms
+static uint32_t slowSince(uint32_t start)
+{
+    return ((ticks() - start) & 0xFFFF) * 128;
+}
+
+static void slaveDecode(void* record)
+{
+    mdecDecode((const MdecRecord*)record, 1, gPicture, PIC_W);
+}
+
+static uint32_t pictureChecksum(const MdecRecord* r)
+{
+    cachePurge();       // the slave's pixels
+    uint32_t sum = 0;
+    const uint32_t* p = gPicture;
+    uint32_t n = r->rows * 16 * PIC_W;
+    for (uint32_t i = 0; i < n; i++) {
+        sum += p[i] * (i + 1);
+    }
+    return sum;
+}
+
+// Both parts, the slave taking part 1: (wall cycles, the master's own)
+static void decodeBoth(const MdecRecord* r, uint32_t* wall, uint32_t* master)
+{
+    uint32_t start = ticks();
+    slaveRun(slaveDecode, (void*)r);
+    mdecDecode(r, 0, gPicture, PIC_W);
+    *master = slowSince(start);
+    slaveWait();
+    *wall = slowSince(start);
+}
+
+static char* putMs(char* p, uint32_t cyc)
+{
+    return putHundredths(p, uint32_t(uint64_t(cyc) * 100 / CLOCK_KHZ), 3);
+}
+
+static void decodeBench()
+{
+    mdecInit();
+    add("PS1 FRAMES ON THE SATURN (ms, 1 CPU, 2 CPUs)");
+    uint32_t sumWall = 0, sumMaster = 0, count = 0;
+    bool allOk = true;
+    for (int32_t f = 0; f < FMV_BENCH_FRAMES; f++)
+    {
+        const FmvBenchFrame& fr = gFmvFrames[f];
+        const MdecRecord* r = (const MdecRecord*)fr.record;
+        FRT_TCR = FRT_SLOW;
+        uint32_t start = ticks();
+        mdecDecode(r, 0, gPicture, PIC_W);
+        uint32_t one0 = slowSince(start);
+        start = ticks();
+        mdecDecode(r, 1, gPicture, PIC_W);
+        uint32_t one1 = slowSince(start);
+        bool okOne = pictureChecksum(r) == fr.checksum;
+        for (uint32_t i = 0; i < r->rows * 16 * PIC_W; i++) {
+            gPicture[i] = 0;
+        }
+        uint32_t wall, master;
+        decodeBoth(r, &wall, &master);
+        bool okBoth = pictureChecksum(r) == fr.checksum;
+        FRT_TCR = FRT_FAST;
+        allOk &= okOne && okBoth;
+
+        char text[TEXT_COLUMNS + 1];
+        char* p = put(text, fr.name);
+        while (p - text < 8) {
+            *p++ = ' ';
+        }
+        p = putInt(p, fr.number, 4);
+        p = put(p, " ");
+        p = putInt(p, fr.psSize, 5);
+        p = put(p, "B ");
+        p = putMs(p, one0 + one1);
+        p = put(p, " ");
+        p = putMs(p, wall);
+        p = put(p, okOne && okBoth ? " ok" : " BAD");
+        add(text);
+        if (r->rows == 9)
+        {
+            sumWall += wall;
+            sumMaster += master;
+            count++;
+        }
+    }
+
+    // the stages apart, on the master, one frame (CANYON 1500), the timer read around each
+    const MdecRecord* r = (const MdecRecord*)gFmvFrames[2].record;
+    static int32_t blocks[6][64];
+    MdecBits bits;
+    MdecCoef coefs[64];
+    uint32_t parse = 0, idct = 0, colour = 0;
+    cycles();           // its wraps counted afresh after the slow timer
+    for (int32_t part = 0; part < 2; part++)
+    {
+        mdecPartStart(r, part, &bits, coefs);
+        int32_t m = part ? r->split : 0, end = part ? r->mbs : r->split;
+        for (; m < end; m++)
+        {
+            uint32_t t0 = cycles();
+            for (int32_t i = 0; i < 6; i++) {
+                mdecParseBlock(&bits, coefs, blocks[i]);
+            }
+            uint32_t t1 = cycles();
+            for (int32_t i = 0; i < 6; i++) {
+                mdecIdct(blocks[i]);
+            }
+            uint32_t t2 = cycles();
+            mdecColour(blocks, gPicture + (m / 20) * 16 * PIC_W + (m % 20) * 16, PIC_W);
+            uint32_t t3 = cycles();
+            parse += t1 - t0;
+            idct += t2 - t1;
+            colour += t3 - t2;
+        }
+    }
+    char text[TEXT_COLUMNS + 1];
+    char* p = put(text, "a block: parse ");
+    p = putInt(p, parse / (r->mbs * 6), 0);
+    p = put(p, " idct ");
+    p = putInt(p, idct / (r->mbs * 6), 0);
+    p = put(p, " colour ");
+    p = putInt(p, colour / (r->mbs * 6), 0);
+    put(p, " cyc");
+    add(text);
+
+    p = put(text, "letterboxed, 2 CPUs: ");
+    p = putMs(p, count ? sumWall / count : 0);
+    p = put(p, " ms (master ");
+    p = putMs(p, count ? sumMaster / count : 0);
+    put(p, ")");
+    add(text);
+    add(allOk ? "15 fps needs 66.67 ms. pixels exact" : "15 fps needs 66.67 ms. PIXELS DIFFER");
+}
+
+// The decoded frames, a second each, through the hidden half
+static void decodeShow()
+{
+    for (int32_t f = 0; f < FMV_BENCH_FRAMES; f++)
+    {
+        const MdecRecord* r = (const MdecRecord*)gFmvFrames[f].record;
+        if (r->rows != 9)
+            continue;
+        uint32_t wall, master;
+        FRT_TCR = FRT_SLOW;
+        decodeBoth(r, &wall, &master);
+        FRT_TCR = FRT_FAST;
+        int32_t half = gShown ^ 1;
+        volatile uint32_t* dst = gBitmap + (half ? 128 : 0) * PITCH;
+        for (int32_t y = 0; y < PIC_H; y++) {
+            dmaTimed(gPicture + (PICTURE_ROW + y) * PIC_W, uint32_t(dst + y * PITCH), PIC_W * 4);
+        }
+        show(half);
+        for (int32_t v = 0; v < 59; v++) {
+            waitVblank();
+        }
+    }
+}
+
+#endif
+
 int main()
 {
     platformInit();
     textClear();
     textRow(0, "FMV BENCH measuring...");
     measure();
+#ifdef DECODE
+    decodeBench();
+#endif
 
     while (1)
     {
         // page 1: the pictures, flipped every second
+#ifdef DECODE
+        decodeShow();
+#else
         for (int32_t s = 0; s < 8; s++)
         {
             show(s & 1);
@@ -424,6 +618,7 @@ int main()
                 waitVblank();
             }
         }
+#endif
         // page 2: the numbers
         modeText();
         for (int32_t r = 0; r < gRowCount; r++) {

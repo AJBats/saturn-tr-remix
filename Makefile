@@ -327,10 +327,22 @@ vdp1bench: $(V1BENCH)/disc/tomb.cue
 $(eval $(call DISC_RULE,$(V1BENCH),))
 
 # What the Saturn can do for the PlayStation's videos (fmvbench/bench.cpp, docs/ps1-fmv.md step 3): a
-# program of its own, on a disc of its own, on the DSP benchmark's start-up: make fmvbench
+# program of its own, on a disc of its own, on the DSP benchmark's start-up: make fmvbench. With the
+# PlayStation disc there (PS1TRACK), it decodes and times frames of its videos (saturn/mdec.cpp), packed
+# into build/fmvbench/gen/fmvframes.h (not for the repository).
 FMVBENCH := build/fmvbench
-FMVBENCH_SRC := fmvbench/bench.cpp dspbench/platform.cpp dspbench/crt0.s saturn/font.cpp
-FMVBENCH_FLAGS := -m2 -mb -O2 -Wall -Idspbench -Isaturn -ffunction-sections
+FMVBENCH_SRC := fmvbench/bench.cpp dspbench/platform.cpp dspbench/crt0.s saturn/font.cpp saturn/mdec.cpp
+FMVBENCH_FLAGS := -m2 -mb -O2 -Wall -Idspbench -Isaturn -I$(FMVBENCH)/gen -ffunction-sections
+FMVBENCH_FRAMES := CAFE:700 CANYON:600 CANYON:1500 PRISON:300 END:400 SNOW:900 LIFT:500 CORELOGO:60
+
+$(FMVBENCH)/gen/fmvframes.stamp: tools/mdec.py
+	@mkdir -p $(@D)
+	@if [ -f "$(PS1TRACK)" ]; then $(PY) tools/mdec.py benchframes "$(PS1TRACK)" $(@D)/fmvframes.h $(FMVBENCH_FRAMES); \
+	else rm -f $(@D)/fmvframes.h; echo "fmvbench: no PlayStation disc at PS1TRACK, decoding left out"; fi
+	@touch $@
+
+$(FMVBENCH)/obj/fmvbench/bench.cpp.o: $(FMVBENCH)/gen/fmvframes.stamp saturn/mdec.h
+$(FMVBENCH)/obj/saturn/mdec.cpp.o: saturn/mdec.h
 
 $(FMVBENCH)/obj/%.cpp.o: %.cpp dspbench/platform.h saturn/hw.h saturn/font.h | check-toolchain
 	@mkdir -p $(@D)

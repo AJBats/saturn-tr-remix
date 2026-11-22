@@ -11,6 +11,7 @@ The fixed-point steps here are the Saturn's: the decoder in saturn/ must give th
     mdec.py check TRACK [--every N] [--videos NAME ...] [--ffmpeg DIR]   pictures and sound against ffmpeg's
     mdec.py frame TRACK NAME N OUT.png                                     one frame, as RGB
     mdec.py info TRACK                                                     frames, sizes, rows that are black
+    mdec.py benchframes TRACK OUT.h NAME:N ...                             frames packed for fmvbench, checked
 
 TRACK is the PS1 disc's first track, raw (MODE2/2352).
 """
@@ -175,15 +176,23 @@ class BadFrame(Exception):
     pass
 
 
-def parse(data, max_blocks):
+def parse(data, max_blocks, starts=None):
     """A BS v2 frame's blocks: (quant scale, coefficients [n, 64] int32 in raster order, dequantised and
-    saturated, bits read). Stops at the end-of-frame code or after max_blocks."""
+    saturated, bits read). Stops at the end-of-frame code or after max_blocks. starts, a list, gets each
+    block's first bit (counted from the bitstream's, after the 8-byte header) and the bit after the last."""
     if len(data) < 8:
         raise BadFrame('short')
     _, ident, quant, version = struct.unpack_from('<HHHH', data, 0)
     if ident != 0x3800 or version != 2 or not 0 < quant < 64:
         raise BadFrame(f'header {ident:04x} v{version} quant {quant}')
     words = struct.unpack_from(f'<{(len(data) - 8) // 2}H', data, 8)
+    coeffs, bits = parse_words(words, quant, max_blocks, True, starts)
+    return quant, coeffs, bits
+
+
+def parse_words(words, quant, max_blocks, end_code, starts=None):
+    """The blocks in a stream of 16-bit words read from the top bit down: (coefficients, bits read).
+    end_code: stop at the end-of-frame code (the PS1's frames; packed parts have none)."""
     nwords = len(words)
     table = AC_TABLE
     scale = [QUANT[k] * quant for k in range(64)]
@@ -197,8 +206,10 @@ def parse(data, max_blocks):
             wi += 1
             cnt += 16
         dc = (buf >> (cnt - 10)) & 0x3FF
-        if dc == 0x1FF and nblocks % 6 == 0:
+        if end_code and dc == 0x1FF and nblocks % 6 == 0:
             break
+        if starts is not None:
+            starts.append(wi * 16 - cnt)
         cnt -= 10
         blk = out[nblocks]
         v = signed10(dc) * qdc
@@ -233,7 +244,9 @@ def parse(data, max_blocks):
             blk[ZAGZIG[k]] = -0x400 if v < -0x400 else 0x3FF if v > 0x3FF else v
         nblocks += 1
         buf &= (1 << cnt) - 1
-    return quant, out[:nblocks], (wi * 16 - cnt)
+    if starts is not None:
+        starts.append(wi * 16 - cnt)
+    return out[:nblocks], (wi * 16 - cnt)
 
 
 # --- the inverse DCT (psx-spx's fast_idct_core, in the Saturn's fixed point) --
@@ -346,6 +359,91 @@ def decode(frame, width, height, fixed=True):
         raise BadFrame(f'{len(coeffs)} blocks, not {mbs * 6}')
     pix = idct(coeffs) if fixed else np.rint(idct_float(coeffs)).astype(np.int32)
     return assemble(pix, width, height), (quant, coeffs, bits)
+
+
+# --- the Saturn's frame records (docs/ps1-fmv.md) ----------------------------------
+
+MB_COLS = 20
+WORK_PER_MB = 1300      # a macroblock's IDCT and colour against its bits, for splitting a frame's work
+RECORD_HEADER = '>HHHHHHI'  # quant, macroblocks, first row, rows, split, 0, part 1's offset (part 0 at 16)
+
+
+def _bits(halfword_bytes):
+    """Bytes of 16-bit little-endian words -> their bits in reading order (top bit first)."""
+    a = np.frombuffer(halfword_bytes[:len(halfword_bytes) // 2 * 2], np.uint8).reshape(-1, 2)[:, ::-1]
+    return np.unpackbits(a.ravel())
+
+
+def pack(frame, width, height, rows):
+    """A PS1 frame as the Saturn reads it. rows: the macroblock rows kept (a range). The header, then two
+    parts (one a CPU): macroblocks [0, split) and [split, n), row by row, each block's codes copied bit for
+    bit, top bit first, padded to 4 bytes and followed by 4 zero bytes."""
+    mbh = (height + 15) // 16
+    starts = []
+    quant, coeffs, _ = parse(frame, MB_COLS * mbh * 6, starts)
+    if len(coeffs) != MB_COLS * mbh * 6:
+        raise BadFrame(f'{len(coeffs)} blocks')
+    bits = _bits(frame[8:])
+    order = [col * mbh + r for r in rows for col in range(MB_COLS)]
+    cost = [starts[m * 6 + 6] - starts[m * 6] + WORK_PER_MB for m in order]
+    half, acc, split = sum(cost) / 2, 0, len(order)
+    for i, c in enumerate(cost):
+        if acc + c / 2 >= half:
+            split = i
+            break
+        acc += c
+
+    def stream(mbs):
+        b = np.concatenate([bits[starts[m * 6]:starts[m * 6 + 6]] for m in mbs]) if mbs else np.zeros(0, np.uint8)
+        b = np.concatenate([b, np.zeros((-len(b)) % 32 + 32, np.uint8)])
+        return np.packbits(b).tobytes()
+
+    p0, p1 = stream(order[:split]), stream(order[split:])
+    return struct.pack(RECORD_HEADER, quant, len(order), rows.start, len(rows), split, 0, 16 + len(p0)) + p0 + p1
+
+
+def unpack(record):
+    """A packed record's Y, Cb, Cr planes (its rows only), as the Saturn's decoder must make them."""
+    quant, mbs, first, nrows, split, _, off1 = struct.unpack_from(RECORD_HEADER, record, 0)
+
+    def words(b):
+        return struct.unpack(f'>{len(b) // 2}H', b[:len(b) // 2 * 2])
+
+    c0, _ = parse_words(words(record[16:off1]), quant, split * 6, False)
+    c1, _ = parse_words(words(record[off1:]), quant, (mbs - split) * 6, False)
+    pix = idct(np.concatenate([c0, c1]))
+    y = np.zeros((nrows * 16, MB_COLS * 16), np.int32)
+    cb = np.zeros((nrows * 8, MB_COLS * 8), np.int32)
+    cr = np.zeros((nrows * 8, MB_COLS * 8), np.int32)
+    for m in range(mbs):
+        row, col = divmod(m, MB_COLS)
+        b = pix[m * 6:m * 6 + 6]
+        cr[row * 8:row * 8 + 8, col * 8:col * 8 + 8] = b[0]
+        cb[row * 8:row * 8 + 8, col * 8:col * 8 + 8] = b[1]
+        y0, x0 = row * 16, col * 16
+        y[y0:y0 + 8, x0:x0 + 8] = b[2]
+        y[y0:y0 + 8, x0 + 8:x0 + 16] = b[3]
+        y[y0 + 8:y0 + 16, x0:x0 + 8] = b[4]
+        y[y0 + 8:y0 + 16, x0 + 8:x0 + 16] = b[5]
+    return y, cb, cr
+
+
+def pixels32(y, cb, cr):
+    """The Saturn's 24-bit pixels: 0x80000000 | B << 16 | G << 8 | R."""
+    p = rgb(y, cb, cr).astype(np.uint32)
+    return 0x80000000 | (p[..., 2] << 16) | (p[..., 1] << 8) | p[..., 0]
+
+
+def checksum(pixels):
+    """Sum of pixel i times i + 1, over 32 bits, row by row: the Saturn's decoder computes the same."""
+    p = pixels.ravel().astype(np.uint64)
+    return int(np.sum((p * np.arange(1, len(p) + 1, dtype=np.uint64)) & 0xFFFFFFFF) & 0xFFFFFFFF)
+
+
+def kept_rows(name, height):
+    """The macroblock rows holding picture (mdec.py info): all for CORELOGO, 2-10 for the rest."""
+    mbh = (height + 15) // 16
+    return range(mbh) if name == 'CORELOGO' else range(2, 11)
 
 
 # --- XA sound (psx-spx) -----------------------------------------------------
@@ -485,6 +583,39 @@ def cmd_info(args):
     return 0
 
 
+def cmd_benchframes(args):
+    """Frames packed for fmvbench, as a C header: the record, its checksum when decoded."""
+    vids = videos(args.track)
+    out = ['// Generated by tools/mdec.py benchframes from the PlayStation disc: not for the repository.',
+           '#include <stdint.h>', '']
+    entries = []
+    for i, spec in enumerate(args.frames):
+        name, n = spec.split(':')
+        n = int(n)
+        raw = vids[name]
+        width, height = frame_size(raw)
+        frames, _ = demux(raw)
+        rec = pack(frames[n], width, height, kept_rows(name, height))
+        y, cb, cr = decode(frames[n], width, height)[0]
+        rows = kept_rows(name, height)
+        ref = (y[rows.start * 16:rows.stop * 16], cb[rows.start * 8:rows.stop * 8], cr[rows.start * 8:rows.stop * 8])
+        got = unpack(rec)
+        if not all(np.array_equal(a, b) for a, b in zip(ref, got)):
+            raise SystemExit(f'{spec}: the packed record decodes differently')
+        out.append(f'static const uint8_t gFmvFrame{i}[{len(rec)}] __attribute__((aligned(4))) = {{')
+        for k in range(0, len(rec), 24):
+            out.append('    ' + ','.join(str(b) for b in rec[k:k + 24]) + ',')
+        out.append('};')
+        entries.append(f'    {{ "{name}", {n}, {len(frames[n])}, {checksum(pixels32(*got))}u, gFmvFrame{i} }},')
+    out += ['', 'struct FmvBenchFrame { const char* name; uint32_t number, psSize, checksum; const uint8_t* record; };',
+            f'#define FMV_BENCH_FRAMES {len(entries)}',
+            'static const FmvBenchFrame gFmvFrames[FMV_BENCH_FRAMES] = {'] + entries + ['};', '']
+    with open(args.out, 'w', newline='\n') as f:
+        f.write('\n'.join(out))
+    print(f'{args.out}: {len(entries)} frames, packed records checked against the PS1 frames')
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -502,8 +633,12 @@ def main():
     i.add_argument('track')
     i.add_argument('--every', type=int, default=10)
     i.add_argument('--black', type=int, default=24)
+    b = sub.add_parser('benchframes')
+    b.add_argument('track')
+    b.add_argument('out')
+    b.add_argument('frames', nargs='+', help='NAME:N ...')
     args = ap.parse_args()
-    return {'check': cmd_check, 'frame': cmd_frame, 'info': cmd_info}[args.cmd](args)
+    return {'check': cmd_check, 'frame': cmd_frame, 'info': cmd_info, 'benchframes': cmd_benchframes}[args.cmd](args)
 
 
 if __name__ == '__main__':

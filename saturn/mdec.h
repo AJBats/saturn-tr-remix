@@ -1,0 +1,51 @@
+// The PlayStation's video frames decoded on an SH-2 (docs/ps1-fmv.md), from records as tools/mdec.py's
+// pack() writes them: the PS1's BS v2 codes copied bit for bit, macroblocks row by row, in two parts (one
+// a CPU). The pixels are bit for bit those of tools/mdec.py's unpack() and pixels32().
+//
+// Written from psx-spx (Martin Korth, problemkaputt.de/psx-spx.htm): "CDROM File Video BS Compression"
+// (DC values, AC codes) and "MDEC Decompression" (dequantising, the fast IDCT, YUV to RGB, the quant
+// table, the zigzag).
+#ifndef MDEC_H
+#define MDEC_H
+
+#include <stdint.h>
+
+// A record's header (big-endian, as written): part 0's codes follow it.
+struct MdecRecord
+{
+    uint16_t quant;     // the frame's quantiser scale
+    uint16_t mbs;       // macroblocks, row by row, 20 a row
+    uint16_t firstRow;  // the PS1 frame's macroblock row they start at
+    uint16_t rows;
+    uint16_t split;     // part 1's first macroblock
+    uint16_t pad;
+    uint32_t part1;     // part 1's byte offset from the record's start
+};
+
+// Builds the tables: once, before any decode.
+void mdecInit();
+
+// Decodes part (0 or 1) of a record into 24-bit pixels (VDP2's: 0x80000000 | B << 16 | G << 8 | R):
+// picture is the record's first macroblock row's top left, pitch pixels a line.
+void mdecDecode(const MdecRecord* record, int part, uint32_t* picture, int pitch);
+
+// The stages mdecDecode runs, for timing them apart (fmvbench).
+struct MdecBits
+{
+    uint32_t buf;           // the next bits, top first
+    int32_t cnt;            // how many of them are loaded
+    const uint16_t* p;      // the next 16
+};
+struct MdecCoef
+{
+    int16_t scale;          // quant table x quantiser scale, in zigzag order
+    int16_t pre;            // the IDCT's prescale for the value's place
+    int16_t raster;         // the value's place in the block
+    int16_t pad;
+};
+void mdecPartStart(const MdecRecord* record, int part, MdecBits* bits, MdecCoef* coefs);
+void mdecParseBlock(MdecBits* bits, const MdecCoef* coefs, int32_t* block);
+void mdecIdct(int32_t* block);
+void mdecColour(int32_t blocks[6][64], uint32_t* dst, int pitch);
+
+#endif
