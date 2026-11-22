@@ -398,6 +398,27 @@ decoders stay in the binary, because the PlayStation disc is optional.
      42 ms each.
    - **Its risk:** our DSP bench measured its DMA slowing the CPUs' cache fills
      17.5 -> 83 cycles while it runs. Here that's about 10 ms of DMA a frame.
+
+   **Parse and colour in assembly, 2026-11-21** (`d5bfdc6`, exact against the C on
+   every macroblock):
+   - **`saturn/mdecparse.s`:** a shift by a register's amount, which the SH-2
+     doesn't have, is a multiply by 2^n. Rare codes go to a slow path. There's no
+     saturation test: fmvpack checks no value reaches it, and none does in 22M
+     sampled values.
+   - **`saturn/mdeccolour.s`:** every value stays in a register. A 16-bit table of
+     0x8000 | blue puts blue and VDP2's top bit in place with one shift.
+   - **Saturn:** two CPUs take 107.4 ms a letterboxed frame (was 153.9), and
+     CORELOGO 147.7.
+   - **Per block, C against assembly:** parse 2,820/1,645, colour 3,176/1,884; the
+     IDCT stays 2,341 in C.
+
+   **What's left** (budget ~3,240 cycles a block; now ~5,400):
+   - **The DSP takes every IDCT** (about -1,900 a block on average).
+   - **Colour:** hide load stalls by working on two pixels at once (about -15%).
+   - **Parse:** for the common levels (±1, ±2), the scaled and prescaled value
+     comes from a table built for each frame. That skips two multiplies a code.
+   - **Projection:** about 2,970 a block on the CPUs, so ~56 ms on two CPUs plus
+     ~4 ms of sound and streaming, about 60 ms of 66.7.
 5. **Assembly hot paths**, matching the C bit for bit. Then a Saturn run on CANYON
    (the highest data rate) and CORELOGO (the most blocks), counting late frames and
    checking sound and picture stay in step.
