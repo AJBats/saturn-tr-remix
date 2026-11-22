@@ -530,6 +530,53 @@ six frames of its clip, a keyframe and the five after it:
 - **Where the time goes,** estimated, not measured: mostly the codebooks. At q1 a
   strip can send 512 entries every frame, each converted to 4 pixels.
 
+**The CD drive, measured 2026-11-22** (`make cdbench`). The disc holds 1500 sectors
+of a pattern on the data track, and the same on a last track of Mode 2 Form 2
+sectors (`tools/mkdisc.py --form2`). Each is read start to end with the CD block
+checked once a frame, as a player would, and every word is checked.
+
+| | Saturn (Satiator) | Mednafen |
+|---|---|---|
+| Mode 1 (2048 bytes a sector) | 150.0 sectors/s: 300 KB/s | the same |
+| Mode 2 Form 2 (2324 bytes a sector) | 149.7-150.0 sectors/s: 340 KB/s | the same |
+| First sector after the play command | 66 ms nearby, 183 ms across the disc | 117-133 ms, 618 ms |
+
+The master's cycles to move one Mode 1 sector out of the CD block, the commands
+included:
+
+| How | Saturn | Mednafen | Share of a CPU at 150 sectors/s |
+|---|---|---|---|
+| CPU, 16-bit reads (`cd.cpp` today) | 41,263 | 32,532 | 21.6% |
+| CPU, 32-bit reads of the port at 0x25818000 | 26,373 | 16,667 | 13.8% |
+| The SH-2's DMA controller, 16-bit | 24,392 | 20,167 | 12.8% |
+| SCU DMA from the 32-bit port (waited for) | 12,175 | 8,986 | 6.4% |
+
+- **Form 2 sectors** come over as 2336 bytes (subheader, data, EDC): cpu32 29,858
+  cycles, SCU 13,733.
+- **The SCU's DMA** needn't be waited for. A player can start it and go on decoding.
+- **A quirk:** reading from the Form 2 track's first sector, straight after the last
+  audio track with no pregap, gets its sectors from 37 on, every time. From sector
+  100 on, every sector arrives, through the track's end. Mednafen delivers all of
+  them. A real disc gives a data track after audio a 2-second pregap; the videos
+  should start clear of the track's first sectors.
+- **Form 2 drops the third layer of error correction** (ECC). Inference, not
+  measured: an SD card never needs it. On a burned disc, an error CIRC can't fix
+  would spoil part of a picture rather than stop the stream.
+
+**What's left for the picture**, at the retail Saturn's sound quality (16-bit PCM,
+22.25 kHz stereo, 86.9 KB/s). The same sound compressed losslessly, every sample
+kept, measured with FLAC on all ten videos' retail sound: 63.5% of the size with
+LPC, 65.9% with only fixed predictors (the simplest to decode), so about 57 KB/s.
+
+| | Retail PCM, 86.9 KB/s | Lossless, about 57 KB/s |
+|---|---|---|
+| Mode 1, 300 KB/s | 213 KB/s of video | 243 KB/s |
+| Form 2, 340 KB/s | 253 KB/s | 283 KB/s |
+
+Against the clips' best settings (q1: CAFE 149, PRISON 199, CANYON 277 with 8
+strips, 336 with 16), Form 2 with lossless sound fits all but CANYON's 16 strips,
+before any buffering.
+
 ## Decisions
 
 1. **24-bit colour** (the user, 2026-11-21), as the PlayStation shows it. 15-bit is

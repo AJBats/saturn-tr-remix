@@ -1,7 +1,7 @@
 """Build a Saturn disc image: an ISO9660 data track plus the original disc's
 audio tracks.
 
-usage: mkdisc.py --ip IP.BIN --cue ORIG.cue --out DIR --name NAME
+usage: mkdisc.py --ip IP.BIN --cue ORIG.cue --out DIR --name NAME [--form2 FILE]
                  DISCPATH=SRCPATH [DISCPATH=SRCPATH ...]
 
 The data track is written as 2048-byte sectors (MODE1/2048 in the cue), which
@@ -10,6 +10,10 @@ boots the first file in the root directory, so name the program 0MAIN.BIN.
 Audio tracks are hard-linked next to the cue because Mednafen on Windows
 does not follow '..' in cue FILE paths, or copied where a link can't reach
 them (another drive).
+
+--form2 FILE adds a last track after the audio: FILE's bytes in Mode 2 Form 2
+sectors (2324 bytes of data each, the last padded with zeros), raw 2352-byte
+sectors (MODE2/2352), as video CDs carry their pictures.
 """
 import argparse
 import os
@@ -104,6 +108,48 @@ def sectors(n):
     return (n + SECTOR - 1) // SECTOR
 
 
+RAW = 2352
+FORM2_DATA = 2324
+SYNC = b"\x00" + b"\xff" * 10 + b"\x00"
+SUBHEADER = bytes([1, 0, 0x28, 0]) * 2     # file 1, channel 0, submode: Form 2 (0x20), data (0x08)
+
+
+def _edc_table():
+    t = []
+    for i in range(256):
+        e = i
+        for _ in range(8):
+            e = (e >> 1) ^ (0xD8018001 if e & 1 else 0)
+        t.append(e)
+    return t
+
+
+EDC_TABLE = _edc_table()
+
+
+def edc(data):
+    """The CD-ROM error detection code (ECMA-130 14.3), as stored: little-endian."""
+    e = 0
+    for b in data:
+        e = EDC_TABLE[(e ^ b) & 0xFF] ^ (e >> 8)
+    return struct.pack("<I", e)
+
+
+def bcd(v):
+    return (v // 10) << 4 | v % 10
+
+
+def form2_track(payload, first_lba):
+    """payload in raw Mode 2 Form 2 sectors, the first at first_lba on the disc."""
+    out = bytearray()
+    for k in range(0, max(1, len(payload)), FORM2_DATA):
+        data = payload[k:k + FORM2_DATA].ljust(FORM2_DATA, b"\x00")
+        fad = first_lba + k // FORM2_DATA + 150
+        header = bytes([bcd(fad // 4500), bcd(fad // 75 % 60), bcd(fad % 75), 2])
+        out += SYNC + header + SUBHEADER + data + edc(SUBHEADER + data)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ip", required=True)
@@ -111,6 +157,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--name", required=True)
     ap.add_argument("--volume", default="TOMBRAIDER")
+    ap.add_argument("--form2", help="a last track of this file's bytes in Mode 2 Form 2 sectors")
     ap.add_argument("entries", nargs="+")
     args = ap.parse_args()
 
@@ -229,8 +276,10 @@ def main():
     blocks = re.split(r'(?m)^(?=FILE )', open(args.cue).read())
     blocks = [b for b in blocks if b.startswith("FILE ")]
     out = [f'FILE "{track1}" BINARY\n  TRACK 01 MODE1/2048\n    INDEX 01 00:00:00\n']
+    disc_lba = total
     for i, block in enumerate(blocks[1:], 2):
         src = re.match(r'FILE "([^"]+)"', block).group(1)
+        disc_lba += os.path.getsize(os.path.join(cue_dir, src)) // RAW
         link = f"{args.name}_track{i:02d}.bin"
         dst = os.path.join(args.out, link)
         if not os.path.exists(dst):
@@ -239,6 +288,14 @@ def main():
             except OSError:
                 shutil.copyfile(os.path.join(cue_dir, src), dst)
         out.append(block.replace(f'FILE "{src}"', f'FILE "{link}"', 1))
+    if args.form2:
+        number = len(blocks) + 1
+        name = f"{args.name}_track{number:02d}.bin"
+        track = form2_track(open(args.form2, "rb").read(), disc_lba)
+        with open(os.path.join(args.out, name), "wb") as f:
+            f.write(track)
+        out.append(f'FILE "{name}" BINARY\n  TRACK {number:02d} MODE2/2352\n    INDEX 01 00:00:00\n')
+        print(f"track {number}: Mode 2 Form 2, {len(track) // RAW} sectors from LBA {disc_lba}")
     with open(os.path.join(args.out, f"{args.name}.cue"), "w", newline="\n") as f:
         f.write("".join(out))
 

@@ -162,22 +162,20 @@ static int cmdEndTransfer()
     return ret;
 }
 
+// Selector commands finish after their response: ESEL, cleared as each is issued, says when.
 static int cmdResetSelector(uint8_t flags, uint8_t selector)
 {
-    int ret = cmdChecked(EFLS, 0x4800 | flags, 0, selector << 8, 0);
+    int ret = cmdChecked(EFLS | ESEL, 0x4800 | flags, 0, selector << 8, 0);
     if (ret)
         return ret;
     return waitHirq(ESEL);
 }
 
-static int cmdSetSectorLength2048()
-{
-    return cmdChecked(ESEL, 0x6000, 0, 0, 0);
-}
 
 static int cmdConnectCdDevice(uint8_t filter)
 {
-    return cmdChecked(ESEL, 0x3000, 0, filter << 8, 0);
+    int ret = cmdChecked(ESEL, 0x3000, 0, filter << 8, 0);
+    return ret ? ret : waitHirq(ESEL);
 }
 
 static bool gAudio;    // a track was started and nothing has stopped it since
@@ -256,16 +254,41 @@ static int cmdSectorCount(uint8_t buffer)
     return res.cr4;
 }
 
+static uint32_t gSectorBytes = CD_SECTOR_SIZE;
+
+uint32_t cdSectorsReady()
+{
+    return cmdSectorCount(0);
+}
+
+int cdStatus(uint32_t* fad)
+{
+    CdRegs in = { 0x0000, 0, 0, 0 };    // Get Status
+    CdRegs res;
+    int ret = cdCommand(0, in, &res);
+    if (ret)
+        return ret;
+    *fad = ((res.cr3 & 0xFF) << 16) | res.cr4;
+    return STATUS_CODE(res.cr1);
+}
+
+int cdTransferBegin(uint32_t sectors)
+{
+    int ret = cmdChecked(EHST, 0x6300, 0, 0, sectors); // get then delete sector data
+    return ret ? ret : waitHirq(DRDY | EHST);
+}
+
+int cdTransferEnd()
+{
+    return cmdEndTransfer();
+}
+
 // Moves up to size bytes from the front of buffer 0 into dst, freeing the sectors.
 static int transfer(uint8_t* dst, uint32_t size)
 {
-    uint32_t sectors = (size + CD_SECTOR_SIZE - 1) / CD_SECTOR_SIZE;
+    uint32_t sectors = (size + gSectorBytes - 1) / gSectorBytes;
 
-    int ret = cmdChecked(EHST, 0x6300, 0, 0, sectors); // get then delete sector data
-    if (ret)
-        return ret;
-
-    ret = waitHirq(DRDY | EHST);
+    int ret = cdTransferBegin(sectors);
     if (ret)
         return ret;
 
@@ -283,6 +306,33 @@ static int transfer(uint8_t* dst, uint32_t size)
     return cmdEndTransfer();
 }
 
+int cdSectorBytes(uint32_t bytes)
+{
+    // Set Sector Length: the size handed over (CR1's low byte) and put back (CR2's high byte),
+    // 0 for 2048 bytes, 1 for 2336
+    uint32_t code = bytes == CD_SECTOR_MODE2 ? 1 : 0;
+    int ret = cmdChecked(ESEL, 0x6000 | code, code << 8, 0, 0);
+    if (ret == 0 && (ret = waitHirq(ESEL)) == 0) {
+        gSectorBytes = bytes;
+    }
+    return ret;
+}
+
+int cdToc(uint32_t toc[102])
+{
+    int ret = cmdChecked(DRDY, 0x0200, 0, 0, 0);      // Get TOC: 102 longs to read
+    if (ret)
+        return ret;
+    if ((ret = waitHirq(DRDY)) != 0)
+        return ret;
+    for (int32_t i = 0; i < 102; i++)
+    {
+        uint32_t hi = CD_DTR;
+        toc[i] = (hi << 16) | CD_DTR;
+    }
+    return cmdEndTransfer();
+}
+
 int cdInit()
 {
     int ret;
@@ -292,7 +342,7 @@ int cdInit()
     if ((ret = cmdChecked(0, 0x0400, 0x0002, 0, 0x0001)) != 0) return ret; // init CD system
     if ((ret = cmdEndTransfer()) != 0) return ret;
     if ((ret = cmdResetSelector(0xFC, 0)) != 0) return ret;
-    if ((ret = cmdSetSectorLength2048()) != 0) return ret;
+    if ((ret = cdSectorBytes(CD_SECTOR_SIZE)) != 0) return ret;
 
     return 0;
 }
@@ -332,12 +382,17 @@ int cdRead(uint32_t lba, uint32_t size, void* dst)
     return 0;
 }
 
-int cdStreamStart(uint32_t lba, uint32_t sectors)
+int cdStreamStartFad(uint32_t fad, uint32_t sectors)
 {
     int ret;
     if ((ret = cmdResetSelector(0, 0)) != 0) return ret;
     if ((ret = cmdConnectCdDevice(0)) != 0) return ret;
-    return cmdPlay(LBA_TO_FAD(lba), sectors);
+    return cmdPlay(fad, sectors);
+}
+
+int cdStreamStart(uint32_t lba, uint32_t sectors)
+{
+    return cdStreamStartFad(LBA_TO_FAD(lba), sectors);
 }
 
 int32_t cdStreamRead(void* dst, uint32_t maxSectors)
@@ -348,7 +403,7 @@ int32_t cdStreamRead(void* dst, uint32_t maxSectors)
     if (ready == 0)
         return 0;
 
-    int ret = transfer((uint8_t*)dst, ready * CD_SECTOR_SIZE);
+    int ret = transfer((uint8_t*)dst, ready * gSectorBytes);
     return ret ? ret : int32_t(ready);
 }
 

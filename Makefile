@@ -131,11 +131,12 @@ GAME_SRC := $(wildcard saturn/*.c saturn/*.cpp saturn/*.s) openlara/common.cpp \
 
 DISC_TXT := ABS.TXT=disc/ABS.TXT BIB.TXT=disc/BIB.TXT CPY.TXT=disc/CPY.TXT
 
-# $(call DISC_RULE,dir,extra entries): dir/disc/tomb.cue holding dir/0MAIN.BIN
+# $(call DISC_RULE,dir,extra entries[,form2 file]): dir/disc/tomb.cue holding dir/0MAIN.BIN, and a last
+# track of the form2 file's bytes in Mode 2 Form 2 sectors if one is given
 define DISC_RULE
-$(1)/disc/tomb.cue: $(1)/0MAIN.BIN $(wildcard disc/*) tools/mkdisc.py $(DISC)/filelist.txt $(foreach e,$(2),$(lastword $(subst =, ,$(e))))
+$(1)/disc/tomb.cue: $(1)/0MAIN.BIN $(wildcard disc/*) tools/mkdisc.py $(DISC)/filelist.txt $(foreach e,$(2),$(lastword $(subst =, ,$(e)))) $(3)
 	$$(PY) tools/mkdisc.py --ip $(DISC)/IP.BIN --cue "$(ORIGCUE)" --out $(1)/disc --name tomb \
-		0MAIN.BIN=$(1)/0MAIN.BIN $(DISC_TXT) $(2)
+		$(if $(3),--form2 $(3)) 0MAIN.BIN=$(1)/0MAIN.BIN $(DISC_TXT) $(2)
 	-@$$(PY) tools/housekeep.py --if-due
 endef
 
@@ -156,7 +157,7 @@ M68K_HEADERS := $(patsubst saturn/%.68k,$(BUILD)/gen/%_m68k.h,$(wildcard saturn/
 HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h renderer/*.h) $(DSP_HEADERS) $(M68K_HEADERS) \
 	$(BUILD)/gen/depth_hints.h $(BUILD)/gen/occluders.h $(FLAGS_FILE)
 
-.PHONY: all disc levels dspbench vdp1bench fmvbench cpkbench lab extract extract-ps1 ghidra check-toolchain check-python
+.PHONY: all disc levels dspbench vdp1bench fmvbench cpkbench cdbench lab extract extract-ps1 ghidra check-toolchain check-python
 
 # keep intermediate files (0MAIN.BIN) produced through pattern rules
 .SECONDARY:
@@ -396,6 +397,35 @@ $(CPKBENCH)/0MAIN.elf: $(patsubst %,$(CPKBENCH)/obj/%.o,$(CPKBENCH_SRC)) saturn/
 
 cpkbench: $(CPKBENCH)/disc/tomb.cue
 $(eval $(call DISC_RULE,$(CPKBENCH),))
+
+# The CD drive measured (cdbench/bench.cpp, docs/ps1-fmv.md): a program of its own, on a disc of its own
+# with test data from cdbench/gen_data.py on the data track and on a last, Mode 2 Form 2 track: make cdbench
+CDBENCH := build/cdbench
+CDBENCH_SRC := cdbench/bench.cpp dspbench/platform.cpp dspbench/crt0.s saturn/font.cpp saturn/cd.cpp
+CDBENCH_FLAGS := -m2 -mb -O2 -Wall -Idspbench -Isaturn -ffunction-sections
+
+$(CDBENCH)/gen/STREAM.BIN: cdbench/gen_data.py
+	@mkdir -p $(@D)
+	$(PY) $< $(@D)
+
+$(CDBENCH)/gen/FORM2.DAT: $(CDBENCH)/gen/STREAM.BIN
+
+$(CDBENCH)/obj/cdbench/bench.cpp.o $(CDBENCH)/obj/saturn/cd.cpp.o: saturn/cd.h
+
+$(CDBENCH)/obj/%.cpp.o: %.cpp dspbench/platform.h saturn/hw.h saturn/font.h | check-toolchain
+	@mkdir -p $(@D)
+	$(CXX) $(CDBENCH_FLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
+		-fno-asynchronous-unwind-tables -c $< -o $@
+
+$(CDBENCH)/obj/%.s.o: %.s | check-toolchain
+	@mkdir -p $(@D)
+	$(CC) $(CDBENCH_FLAGS) -c $< -o $@
+
+$(CDBENCH)/0MAIN.elf: $(patsubst %,$(CDBENCH)/obj/%.o,$(CDBENCH_SRC)) saturn/saturn.ld
+	$(CXX) $(CDBENCH_FLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
+
+cdbench: $(CDBENCH)/disc/tomb.cue
+$(eval $(call DISC_RULE,$(CDBENCH),STREAM.BIN=$(CDBENCH)/gen/STREAM.BIN,$(CDBENCH)/gen/FORM2.DAT))
 
 # The clean-room renderer's lab (lab/lab.cpp): a program of its own, on a disc
 # of its own with a captured frame (tools/capture.py) packed as its scene:
