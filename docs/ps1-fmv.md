@@ -371,6 +371,33 @@ decoders stay in the binary, because the PlayStation disc is optional.
      before the bus is shared and before sound (~5 ms). The fixed-point format may
      change to suit the SH-2; `tools/mdec.py` changes with it and must still pass
      against ffmpeg.
+
+   **The SH-2's fixed point, 2026-11-21** (`7316331`):
+   - **The new format:** every product is a 64-bit `dmuls.l` with its middle word
+     taken by `xtrct` (>> 16, rounded down). Constants carry 16 fraction bits, and
+     pixels carry 8 through the IDCT into the colour, rounded once at the clamp table.
+   - **No shift routines left.** It's closer to ffmpeg than before: within 2-3
+     levels, mean 0.06-0.10.
+   - **A reference bug fixed on the way:** the reference's colour step overflowed
+     32-bit numpy for strong colours. 116 frames of all ten videos now give the C
+     decoder's pixels exactly, checked big-endian (PowerPC under qemu).
+   - **Saturn:** two CPUs take 153.9 ms a letterboxed frame (was 204.8). A block:
+     parse 2,797 cycles, IDCT 2,315 (C), colour 3,187.
+   - **The assembly IDCT** (`saturn/mdecidct.s`) equals the C on every block, but
+     runs 10% slower on the Saturn (2,537). GCC schedules the 64-bit products well.
+
+   **The gap:** the budget is about 3.5M cycles a frame for both CPUs (66.7 ms, less
+   sound and streaming), about 3,240 a block. Today it's about 8,040.
+   - **Parse and colour in assembly** should roughly halve them (to ~700 and
+     ~1,550): GCC's colour loop spills registers to the stack every pixel, and each
+     code costs ~180 cycles to parse.
+   - **That alone leaves ~70 ms,** just over the line.
+   - **The SCU DSP as a third processor for the IDCT** looks like the margin. About
+     700 DSP cycles a block with its DMA, and DC-only blocks skipped, comes to ~44 ms
+     of DSP time a frame, beside the CPUs, which would keep parse and colour: about
+     42 ms each.
+   - **Its risk:** our DSP bench measured its DMA slowing the CPUs' cache fills
+     17.5 -> 83 cycles while it runs. Here that's about 10 ms of DMA a frame.
 5. **Assembly hot paths**, matching the C bit for bit. Then a Saturn run on CANYON
    (the highest data rate) and CORELOGO (the most blocks), counting late frames and
    checking sound and picture stay in step.
