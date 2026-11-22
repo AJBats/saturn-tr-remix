@@ -794,7 +794,11 @@ steps down a setting.
      On a composite television the dither's pattern stays visible.
    - **The colour that's left is the codec's:** CORELOGO's darkest areas break into
      4x4 blocks with a green tint. The smoothed picture is 54.8 dB from the PS1's, ours
-     47.4 dB (`build/fmv_compare/corelogo24/flip.html`, every frame).
+     47.4 dB (`build/fmv_compare/corelogo24/flip.html`, every frame). Tried and
+     dropped (the user, 2026-11-22: no difference to the eye, and an odd code path):
+     lifting the darks before encoding (each channel to the power 1/1.5) and putting
+     them back per codebook entry. At today's bytes it halved the green tint by
+     measure, for 0.6 dB less over the whole picture.
    - **Open: a freeze.** Now and then a play stops on a frame (71 twice, 97 once, and
      once before the first): the item header the parser waits on is garbage, and the
      68000 stops on the sound chunk in the same sector. Not in Mednafen. The bench
