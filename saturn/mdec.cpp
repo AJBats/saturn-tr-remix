@@ -314,6 +314,11 @@ static void idctPass(const int32_t* in, int32_t* out)
     }
 }
 
+void mdecIdctPass(const int32_t* in, int32_t* out)
+{
+    idctPass(in, out);
+}
+
 void mdecIdct(int32_t* block)
 {
     int32_t temp[64];

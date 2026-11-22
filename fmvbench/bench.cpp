@@ -25,6 +25,8 @@
 #if __has_include("fmvframes.h")
 #include "fmvframes.h"
 #include "mdec.h"
+#include "dsp.h"
+#include "idct2_dsp.h"
 #define DECODE 1
 #endif
 
@@ -401,11 +403,9 @@ static void measure()
     result("CPU>shown   ", picBytes, cpuShown, 4, "");
     result("DMA>hid row ", picBytes, dmaRows, 4, badRows ? " BAD" : " ok");
     result("DMA>hid all ", PIC_H * PITCH * 4, dmaWhole, 4, badWhole ? " BAD" : " ok");
-    add("text page (VDP2 idle for us):");
-    result("CPU>sound16 ", 65536, sound, 2, "");
-    result("CPU>lowRAM  ", 131072, low, 4, "");
-    result("CPU>highRAM ", 131072, high, 4, "");
-    add("MB/s, then cycles a word (16 or 32 bit)");
+    (void)sound;
+    (void)low;
+    (void)high;
     if (badCpu || badRows || badWhole)
     {
         char text[TEXT_COLUMNS + 1];
@@ -628,6 +628,121 @@ static void decodeBench()
     add(allOk ? "15 fps needs 66.67 ms. pixels exact" : "15 fps needs 66.67 ms. PIXELS DIFFER");
 }
 
+// --- the IDCT's second pass on the DSP (fmvbench/gen_idct2.py) ------------------------------
+
+#define DSP_BLOCKS      240
+#define DSP_K_AT        48
+#define DSP_PARAMS_AT   56
+
+static int32_t gDspIn[DSP_BLOCKS * 64] __attribute__((aligned(16)));
+static int32_t gDspOut[DSP_BLOCKS * 64] __attribute__((aligned(16)));
+// a first pass's vector i goes to slot kSlot[i]: rows 0 2 3 1 to the DSP's bank 0, 4 6 5 7 to bank 1
+static const uint8_t kSlot[8] = { 0, 3, 1, 2, 4, 6, 5, 7 };
+
+static void dspRun(int32_t count)
+{
+    static const uint32_t k[4] = { 92682, 121095, 171254, 70936 };   // mdec.cpp's K1414 K1847 K2613 K1082
+    uint32_t params[3] = { uint32_t(count), dspAddress(gDspIn), dspAddress(gDspOut) };
+    dspLoad(idct2_dsp, IDCT2_DSP_COUNT);
+    dspWrite(0, DSP_K_AT, k, 4);
+    dspWrite(0, DSP_PARAMS_AT, params, 3);
+    dspStart(0);
+}
+
+// The colour of macroblocks of DSP-made pixels, over and over: the CPU's work beside the DSP
+static uint32_t colourBusy(int32_t rounds)
+{
+    static int32_t blocks[6][64];
+    static uint32_t pix[256];
+    for (int32_t b = 0; b < 6; b++) {
+        for (int32_t i = 0; i < 64; i++) {
+            blocks[b][i] = gDspOut[b * 64 + i];
+        }
+    }
+    uint32_t start = ticks();
+    for (int32_t r = 0; r < rounds; r++) {
+        mdecColourAsm(blocks, pix, 16);
+    }
+    return slowSince(start);
+}
+
+static void dspBench()
+{
+    // blocks with AC values from the frames, their first pass made in C
+    static int32_t block[64], temp[64], ref[64];
+    MdecBits bits;
+    MdecCoef coefs[64];
+    int32_t n = 0;
+    for (int32_t f = 0; f < FMV_BENCH_FRAMES && n < DSP_BLOCKS; f++)
+    {
+        const MdecRecord* r = (const MdecRecord*)gFmvFrames[f].record;
+        mdecPartStart(r, 0, &bits, coefs);
+        for (int32_t b = 0; b < r->split * 6 && n < DSP_BLOCKS; b++)
+        {
+            if (!mdecParseBlock(&bits, coefs, block))
+                continue;
+            mdecIdctPass(block, temp);
+            for (int32_t v = 0; v < 8; v++) {
+                for (int32_t i = 0; i < 8; i++) {
+                    gDspIn[n * 64 + kSlot[v] * 8 + i] = temp[v * 8 + i];
+                }
+            }
+            n++;
+        }
+    }
+
+    // the DSP alone
+    FRT_TCR = FRT_SLOW;
+    uint32_t start = ticks();
+    dspRun(n);
+    while (dspBusy());
+    uint32_t alone = slowSince(start);
+
+    // its values against the C's second pass
+    cachePurge();
+    uint32_t differ = 0;
+    for (int32_t b = 0; b < n; b++)
+    {
+        for (int32_t v = 0; v < 8; v++) {
+            for (int32_t i = 0; i < 8; i++) {
+                temp[v * 8 + i] = gDspIn[b * 64 + kSlot[v] * 8 + i];
+            }
+        }
+        mdecIdctPass(temp, ref);
+        for (int32_t i = 0; i < 8; i++) {
+            for (int32_t x = 0; x < 8; x++) {
+                differ += ref[i * 8 + x] != gDspOut[b * 64 + x * 8 + i];
+            }
+        }
+    }
+
+    // the CPU's colour with the DSP idle, then beside it (the DSP's DMA shares the bus)
+    const int32_t rounds = 40;
+    uint32_t cpuAlone = colourBusy(rounds);
+    start = ticks();
+    dspRun(n);
+    uint32_t cpuBeside = colourBusy(rounds);
+    while (dspBusy());
+    uint32_t dspBeside = slowSince(start);
+    FRT_TCR = FRT_FAST;
+
+    char text[TEXT_COLUMNS + 1];
+    char* p = put(text, "DSP pass 2: ");
+    p = putInt(p, n, 0);
+    p = put(p, " blk ");
+    p = putInt(p, alone / n, 0);
+    p = put(p, " cyc/blk ");
+    put(p, differ ? "DIFFER" : "exact");
+    add(text);
+    p = put(text, " beside colour: DSP ");
+    p = putInt(p, dspBeside / n, 0);
+    p = put(p, " colour ");
+    p = putInt(p, cpuAlone / rounds, 0);
+    p = put(p, ">");
+    putInt(p, cpuBeside / rounds, 0);
+    add(text);
+}
+
 // The decoded frames, a second each, through the hidden half
 static void decodeShow()
 {
@@ -662,6 +777,7 @@ int main()
     measure();
 #ifdef DECODE
     decodeBench();
+    dspBench();
 #endif
 
     while (1)

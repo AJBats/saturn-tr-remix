@@ -52,6 +52,8 @@ extern "C" uint32_t gMdecCodes9[8];
 extern "C" uint32_t gMdecPow2[32];
 extern "C" uint16_t gMdecLong[6][16];
 void mdecIdct(int32_t* block);                      // the C, the assembly's yardstick
+// One of its passes: vector i (in[i], in[8 + i] ... in[56 + i]) to out[8i] ... out[8i + 7]
+void mdecIdctPass(const int32_t* in, int32_t* out);
 extern "C" void mdecIdctAsm(int32_t* block);        // mdecidct.s: the same, bit for bit
 void mdecColour(int32_t blocks[6][64], uint32_t* dst, int pitch);  // the C, the assembly's yardstick
 extern "C" void mdecColourAsm(int32_t blocks[6][64], uint32_t* dst, int pitch);   // mdeccolour.s

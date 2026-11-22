@@ -332,7 +332,7 @@ $(eval $(call DISC_RULE,$(V1BENCH),))
 # into build/fmvbench/gen/fmvframes.h (not for the repository).
 FMVBENCH := build/fmvbench
 FMVBENCH_SRC := fmvbench/bench.cpp dspbench/platform.cpp dspbench/crt0.s saturn/font.cpp saturn/mdec.cpp \
-	saturn/mdecidct.s saturn/mdeccolour.s saturn/mdecparse.s
+	saturn/mdecidct.s saturn/mdeccolour.s saturn/mdecparse.s saturn/dsp.cpp
 FMVBENCH_FLAGS := -m2 -mb -O2 -Wall -Idspbench -Isaturn -I$(FMVBENCH)/gen -ffunction-sections
 FMVBENCH_FRAMES := CAFE:700 CANYON:600 CANYON:1500 PRISON:300 END:400 SNOW:900 LIFT:500 CORELOGO:60
 
@@ -342,7 +342,15 @@ $(FMVBENCH)/gen/fmvframes.stamp: tools/mdec.py
 	else rm -f $(@D)/fmvframes.h; echo "fmvbench: no PlayStation disc at PS1TRACK, decoding left out"; fi
 	@touch $@
 
-$(FMVBENCH)/obj/fmvbench/bench.cpp.o: $(FMVBENCH)/gen/fmvframes.stamp saturn/mdec.h
+$(FMVBENCH)/gen/idct2.dsp: fmvbench/gen_idct2.py
+	@mkdir -p $(@D)
+	$(PY) $< $@
+
+$(FMVBENCH)/gen/idct2_dsp.h: $(FMVBENCH)/gen/idct2.dsp tools/dspasm.py
+	$(PY) tools/dspasm.py $< $@ idct2_dsp
+
+$(FMVBENCH)/obj/fmvbench/bench.cpp.o: $(FMVBENCH)/gen/fmvframes.stamp $(FMVBENCH)/gen/idct2_dsp.h saturn/mdec.h \
+	saturn/dsp.h
 $(FMVBENCH)/obj/saturn/mdec.cpp.o: saturn/mdec.h
 
 $(FMVBENCH)/obj/%.cpp.o: %.cpp dspbench/platform.h saturn/hw.h saturn/font.h | check-toolchain
