@@ -207,41 +207,66 @@ changes. The heaviest stream, CANYON (219 KB/s of frames + 43.2 KB/s of XA, abou
 - **Two pictures:** a 120-line picture fits twice, at lines 0-119 (banks A0/A1) and
   at lines 128-247 (banks B0/B1). The hidden one is in the other pair of banks from
   the one being shown.
-- **Flip:** when a frame is due, the vertical scroll moves to its half at the next
-  vertical blank.
-- **No RAM buffer:** the CPUs write pixels straight into the hidden half.
+- **Cycle slots:** a 16M-colour bitmap needs all 8 cycle slots of a bank it's read
+  from (VDP2 manual, table 3.3). The shown picture's banks give all 8 to the bitmap,
+  and the hidden picture's banks give all 8 to the CPUs.
+- **Flip:** when a frame is due, the cycle slots swap and the vertical scroll moves
+  to the new half, at the next vertical blank.
+- **Window W0** leaves only the picture's lines on screen. The other lines would come
+  from banks with no bitmap slots.
+- **Getting pixels there:** each macroblock row is decoded into a strip in high work
+  RAM (320x16 pixels, 20 KB), and SCU DMA moves the strip into the hidden half while
+  the next strip decodes. Two strips fit in the renderer's 56 KB of scratch. fmvpack
+  writes macroblocks row by row for this. It can, because version 2 codes every block
+  on its own.
 - **CORELOGO:** 208 lines don't fit twice, so it uses the same scheme in 15-bit
-  (two 512x256 16-bit bitmaps, also 512 KB).
+  (two 512x256 16-bit bitmaps, also 512 KB). A single 24-bit picture written behind
+  the beam would need about 9 MB/s into the banks being shown, and the bench measured
+  2.51 MB/s.
 
-Two things here are unproven, and the bench settles them first:
-- **VDP2 setup:** the 16M-colour bitmap's access-cycle settings. They must come from
-  the VDP2 manual's tables and a known-good configuration. Mednafen accepts some VDP2
-  layouts the Saturn doesn't (see the VDP2 notes).
-- **Write speed:** how fast the CPUs (and SCU DMA) can write into the hidden banks
-  while the shown banks are being read.
+**Measured on the Saturn, 2026-11-21** (`fmvbench/`, `make fmvbench`, shots in
+`build/hw_fmvbench_*.png`):
+- **The layout works.** Both pictures show cleanly and swap without garbage. The
+  test card's band tops (8 bits a colour) are smooth, and its bottoms (cut to 5) are
+  banded, so all 24 bits reach the screen. Colours are in the right order.
+- **Write speeds,** with picture A shown:
 
-If writes stall, the fallback is to decode into a RAM picture and copy it in during
-vertical blank, as `showPicture` does today. That needs RAM:
-- **Low work RAM:** the SCU's DMA can't reach it.
-- **High work RAM:** renderer scratch (`renderScratch`) is only 56 KB. Videos play
-  before the next level loads (`os.cpp playVideos`), so whether the level's high-RAM
-  area is free then is to be checked.
+| Write | MB/s | SH-2 cycles a word |
+|---|---|---|
+| CPU into the hidden picture | 8.40 | 13.6 (32-bit; reads back exact) |
+| CPU into the shown picture | 2.51 | 45.6 (lands only in the blanks) |
+| SCU DMA into the hidden picture, 1,280-byte rows | 41.9 | 2.7 |
+| SCU DMA into the hidden picture, one 240 KB move | 52.5 | 2.2 |
+| CPU into sound RAM | 2.81 | 20.3 (16-bit) |
+| CPU into low work RAM | 5.74 | 19.9 |
+| CPU into high work RAM | 13.58 | 8.4 |
+
+Mednafen gives the same numbers, except CPU writes into the shown picture: 10.7 MB/s,
+because it doesn't model the cycle slots.
+
+What the numbers mean for the design:
+- **DMA, not CPU writes, into VRAM:** CPU writes would cost 0.52M cycles a frame for
+  a 24-bit 320x120 picture. Strips in high work RAM cost 0.32M, and the DMA runs
+  beside them.
+- **Hot buffers in high work RAM:** low work RAM costs 20 cycles a longword to write.
+  The CD ring can stay there: about 0.1M cycles a frame.
+- **Sound RAM:** 20 cycles a sample comes to about 0.1M a frame for XA's output.
 
 **Retail behaviour kept.** `fmvPlay(name, skippable)` keeps its interface, so these
 stay as they are: CORELOGO and END can't be skipped, the 30-vblank fades, the video
 order, and the centring in our 352x224 screen.
 
-**Budget (estimates, not measured).** The SH-2s run at 28.64 MHz in our 352-wide
-mode. A video frame lasts 66.7 ms (15 fps), which is 1.91M cycles a CPU.
+**Budget (estimates; the write costs are measured).** The SH-2s run at 28.64 MHz in
+our 352-wide mode. A video frame lasts 66.7 ms (15 fps), which is 1.91M cycles a CPU.
 
 | Work a video frame (both CPUs together) | Cycles | Basis |
 |---|---|---|
 | Huffman codes and dequantising | ~0.6M | ~20K codes a frame (14 KB average) x ~30 |
 | Inverse DCT | ~0.9M | 1,080 blocks x ~800 |
-| YUV to RGB and the pixel writes | ~0.55M | 46K pixels x ~12 |
-| XA and the sound RAM writes | ~0.15M | 5,040 samples x ~30 |
-| Getting the picture onto the screen | ? | the bench |
-| **Total** | **~2.2M: about 38 ms of each CPU's 66.7** | |
+| YUV to RGB, pixels to high work RAM strips | ~0.6M | 46K pixels x ~5 + 8.4 measured a write |
+| XA and the sound RAM writes | ~0.15M | 5,040 samples x (~15 + 20.3 measured) |
+| Strips into VRAM | DMA | 52.5 MB/s measured: ~3 ms of DMA, beside the CPUs |
+| **Total** | **~2.25M: about 39 ms of each CPU's 66.7** | |
 
 CORELOGO has 1.44x the blocks, about 3.1M cycles: 81%. It's the tightest video and
 needs watching. Frames vary: the largest is 19.5 KB against a 14 KB average. The SCU
@@ -298,6 +323,12 @@ decoders stay in the binary, because the PlayStation disc is optional.
      black rows.
    - **Sound:** its XA output against ffmpeg's `adpcm_xa` decoder. This should match
      exactly, since the format defines integer maths.
+
+   **Done 2026-11-21** (`5cecaf1`). Every 25th frame of all ten videos is within 3-4
+   levels of ffmpeg (mean 0.08-0.13). The fixed-point IDCT is within 1 of the exact
+   one. The sound is bit-exact (36.9M samples). Macroblocks go column by column, and
+   Y2 is top right. The picture is in macroblock rows 2-10 (all 13 for CORELOGO).
+   SNOW's 8 extra frames are a fade to black that the Saturn version cut.
 2. **fmvpack + `.MDV` + `make disc` + builder.** The reference decoder reads the packed
    file and gives the same pictures as from the PlayStation's own file: the repack is
    lossless. Two runs give byte-identical discs.
@@ -308,6 +339,9 @@ decoders stay in the binary, because the PlayStation disc is optional.
 
    This decides between 24-bit and 15-bit, and between writing straight to VRAM or
    via RAM.
+
+   **Done 2026-11-21** (`1b89ce3`): 24-bit works, CORELOGO goes 15-bit, and strips go
+   to VRAM by DMA. Results under "Picture" above.
 4. **Saturn decoder in C:**
    - first on the master alone: frames captured in Mednafen must match `tools/mdec.py`
      bit for bit;
@@ -325,10 +359,7 @@ decoders stay in the binary, because the PlayStation disc is optional.
 2. **CORELOGO** is the Core Design logo video (the first one at boot), and the only
    one whose picture fills its whole 320x208 frame. Two 208-line 24-bit pictures need
    416 lines, and VDP2's memory holds 256, so it can't be double-buffered in 24-bit.
-   Step 3 decides between:
-   - **One 24-bit picture,** updated in place. Each line is written just after the
-     beam has drawn it and before the beam comes round again, so no refresh shows
-     half a frame. The writes must keep behind the beam and finish within a refresh
-     plus the picture's own scan: 266 KB at about 9 MB/s, into the banks VDP2 is
-     reading at that moment.
-   - **15-bit, double-buffered,** like the other videos' fallback.
+   **Decided by the bench: 15-bit, double-buffered.** A single 24-bit picture
+   updated behind the beam would need about 9 MB/s into the banks being shown, and
+   the Saturn takes 2.51 MB/s there. If its 15-bit colour shows banding,
+   TrekkiesUnite118's full-screen Cinepak (RE2) shows there are other routes.
