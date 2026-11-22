@@ -419,6 +419,34 @@ decoders stay in the binary, because the PlayStation disc is optional.
      comes from a table built for each frame. That skips two multiplies a code.
    - **Projection:** about 2,970 a block on the CPUs, so ~56 ms on two CPUs plus
      ~4 ms of sound and streaming, about 60 ms of 66.7.
+
+   **The DSP's second pass, 2026-11-21** (`12d476b`, `fmvbench/gen_idct2.py`):
+   - **How it works:** each butterfly step runs across a block's 8 rows, so the
+     DSP's address counters step through arrays of 8. It's 197 program words.
+   - **Exact:** in the simulator (360 blocks) and on the Saturn (240 blocks).
+   - **Alone,** it takes 1,411 SH-2 cycles a block.
+   - **Beside the CPU's colour work, it doesn't pay:** it slows to 2,123 a block
+     (+50%), and it slows the colour 19% (10,515 -> ~12,480 a macroblock). Its DMA
+     and the CPUs share the bus.
+   - **The trade:** it would save ~1,100 cycles on each block with AC values, but
+     slow every CPU memory access while it runs. That nets perhaps 5-10 ms a frame,
+     and the DSP itself would need ~60-65 ms a frame under contention. Set aside
+     unless the CPU path falls just short.
+
+   **Where 15 fps stands:** about 3,050 cycles a block are needed against 5,430
+   today, so each stage must get about 45% faster.
+   - **Colour:** 44 cycles a pixel measured against ~21 instructions. Its tables
+     and blocks fill most of the 4 KB cache, and 17% of its pixels are letterbox
+     black that needn't be made.
+   - **Parse:** two multiplies a code; a per-frame table of the common values would
+     skip them.
+   - **IDCT:** the assembly isn't yet better than GCC's, and sparse blocks could
+     take shorter paths.
+
+   A realistic landing is 13-15 fps. Frames that miss their time would show late
+   while the sound keeps the clock. CORELOGO's full frame is 1.44x the work and
+   won't reach 15 on any CPU path; the retail Saturn's own CORELOGO (10 s, nearly
+   the same picture) is the fallback.
 5. **Assembly hot paths**, matching the C bit for bit. Then a Saturn run on CANYON
    (the highest data rate) and CORELOGO (the most blocks), counting late frames and
    checking sound and picture stay in step.
