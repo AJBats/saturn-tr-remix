@@ -156,7 +156,7 @@ M68K_HEADERS := $(patsubst saturn/%.68k,$(BUILD)/gen/%_m68k.h,$(wildcard saturn/
 HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h renderer/*.h) $(DSP_HEADERS) $(M68K_HEADERS) \
 	$(BUILD)/gen/depth_hints.h $(BUILD)/gen/occluders.h $(FLAGS_FILE)
 
-.PHONY: all disc levels dspbench vdp1bench fmvbench lab extract extract-ps1 ghidra check-toolchain check-python
+.PHONY: all disc levels dspbench vdp1bench fmvbench cpkbench lab extract extract-ps1 ghidra check-toolchain check-python
 
 # keep intermediate files (0MAIN.BIN) produced through pattern rules
 .SECONDARY:
@@ -367,6 +367,35 @@ $(FMVBENCH)/0MAIN.elf: $(patsubst %,$(FMVBENCH)/obj/%.o,$(FMVBENCH_SRC)) saturn/
 
 fmvbench: $(FMVBENCH)/disc/tomb.cue
 $(eval $(call DISC_RULE,$(FMVBENCH),))
+
+# Cinepak in 24-bit on the Saturn (cpkbench/bench.cpp, docs/ps1-fmv.md "The other route"): a program of
+# its own, on a disc of its own: make cpkbench. Needs the PlayStation disc (PS1TRACK) and ffmpeg
+# (FFMPEG_DIR): tools/cinepak.py benchframes encodes its frames into build/cpkbench/gen/cpkframes.h.
+CPKBENCH := build/cpkbench
+CPKBENCH_SRC := cpkbench/bench.cpp dspbench/platform.cpp dspbench/crt0.s saturn/font.cpp saturn/cinepak.cpp
+CPKBENCH_FLAGS := -m2 -mb -O2 -Wall -Idspbench -Isaturn -I$(CPKBENCH)/gen -ffunction-sections
+
+$(CPKBENCH)/gen/cpkframes.h: tools/cinepak.py tools/mdec.py
+	@mkdir -p $(@D)
+	$(PY) tools/cinepak.py benchframes "$(PS1TRACK)" $@
+
+$(CPKBENCH)/obj/cpkbench/bench.cpp.o: $(CPKBENCH)/gen/cpkframes.h saturn/cinepak.h
+$(CPKBENCH)/obj/saturn/cinepak.cpp.o: saturn/cinepak.h
+
+$(CPKBENCH)/obj/%.cpp.o: %.cpp dspbench/platform.h saturn/hw.h saturn/font.h | check-toolchain
+	@mkdir -p $(@D)
+	$(CXX) $(CPKBENCH_FLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
+		-fno-asynchronous-unwind-tables -c $< -o $@
+
+$(CPKBENCH)/obj/%.s.o: %.s | check-toolchain
+	@mkdir -p $(@D)
+	$(CC) $(CPKBENCH_FLAGS) -c $< -o $@
+
+$(CPKBENCH)/0MAIN.elf: $(patsubst %,$(CPKBENCH)/obj/%.o,$(CPKBENCH_SRC)) saturn/saturn.ld
+	$(CXX) $(CPKBENCH_FLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
+
+cpkbench: $(CPKBENCH)/disc/tomb.cue
+$(eval $(call DISC_RULE,$(CPKBENCH),))
 
 # The clean-room renderer's lab (lab/lab.cpp): a program of its own, on a disc
 # of its own with a captured frame (tools/capture.py) packed as its scene:

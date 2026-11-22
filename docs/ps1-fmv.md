@@ -500,8 +500,35 @@ pictures are in `build/fmv_compare/cinepak/` (not in git).
   encodes, that takes CAFE from 44.2 to 36.0 dB, PRISON from 45.5 to 40.0 dB and
   CANYON from 38.9 to 35.6 dB. Either route should show 24-bit, and the 24-bit
   double-buffer from step 3 carries over unchanged.
-- **Not measured:** what a 24-bit Cinepak decode costs on the Saturn at twice the
-  retail's data rate. Today's player plays the retail videos in 15-bit.
+
+**Decoding it on the Saturn, measured 2026-11-22** (`make cpkbench`;
+`saturn/cinepak.cpp`, plain C; frames from `tools/cinepak.py benchframes`, held in
+high work RAM, so this is the decoder without the CD). Each run is the heaviest
+six frames of its clip, a keyframe and the five after it:
+
+| Run | Data rate | 1 CPU, slowest / mean | 2 CPUs, slowest / mean |
+|---|---|---|---|
+| CANYON q1, 16 strips | 513 KB/s | 46.8 / 46.4 ms | 24.4 / 23.9 ms |
+| CANYON q2, 8 strips | 365 KB/s | 36.2 / 35.9 ms | 18.3 / 18.1 ms |
+| CAFE q1, 16 strips | 348 KB/s | 37.4 / 34.1 ms | 21.2 / 18.5 ms |
+| Random pixels, q1, 32 strips: the worst a frame can be | 831 KB/s | 71.5 / 71.5 ms | 35.5 / 35.5 ms |
+
+- **Exact:** every picture's checksum matches `tools/cinepak.py`, whose decoder
+  matches ffmpeg's pixel for pixel (600 frames, `cinepak.py check`).
+- **The picture's trip to VRAM** by SCU DMA, a row at a time: 3.49 ms.
+- **Played live** at 15 fps on both CPUs through the 24-bit double buffer: no late
+  frames, the random pixels included.
+- **Mednafen** reads 6-9% low (one CPU: 43.2, 32.8, 34.1, 66.9 ms).
+- **The CPUs aren't the limit.** On two, the worst frame Cinepak can make takes
+  35.5 + 3.5 ms of the 66.7. On one, the real frames fit 15 fps and leave the slave
+  free. The limit is the CD: a 2x drive reads 300 KB/s, and the best setting
+  averages up to 336 KB/s (CANYON), with seconds of 513.
+- **The strip rule** (`cinepak.h`): each strip's vectors use only codebook entries
+  that strip sent in the same frame. ffmpeg's encoder keeps it in every frame
+  checked, and the builder must check it. It lets either CPU take any strip with one
+  codebook of its own. The slave takes the strips after half the frame's bytes.
+- **Where the time goes,** estimated, not measured: mostly the codebooks. At q1 a
+  strip can send 512 entries every frame, each converted to 4 pixels.
 
 ## Decisions
 
