@@ -347,6 +347,30 @@ decoders stay in the binary, because the PlayStation disc is optional.
      bit for bit;
    - then split across both CPUs;
    - then timed in Mednafen: work and waits per CPU, in ms a video frame.
+
+   **The C decoder, 2026-11-21** (`9fd544e`: `saturn/mdec.cpp`, timed by `fmvbench`):
+   - **Exact on the Saturn:** 8 frames of 7 videos give `tools/mdec.py`'s pixels, on
+     one CPU and on two.
+   - **Too slow in plain C:** 191-221 ms a letterboxed frame on two CPUs (mean 205;
+     Mednafen 199), and CORELOGO 279. That's 3.1x the 66.7 ms that 15 fps allows.
+   - **Where the time goes,** per block: parse 2,892 cycles, IDCT 4,386, colour
+     3,466. GCC calls a library routine for every arithmetic shift, because the SH-2
+     only shifts arithmetically one bit at a time.
+   - **What the frames hold** (`mdec.py`, sampled across 7 videos): 19% of blocks are
+     DC only, with 13.4 AC values in an average block. The IDCT's first pass needs the
+     full butterfly in 3.3 of its 8 columns; the rest are fills.
+
+   **Assembly estimate (not measured):**
+   - **Parse:** about 15 codes a block x ~28 cycles + ~100, so about 520 a block.
+   - **IDCT:** products by `dmuls.l` + `xtrct`, constants in 16 fraction bits, so no
+     shift routines at all. About 340 for pass 1 (fills where possible) + 600 for pass
+     2, and nothing for DC-only blocks, which averages about 760 a block.
+   - **Colour:** about 22 cycles a pixel, 8.4 of them the measured write to high work
+     RAM, so about 7K a macroblock.
+   - **Total:** about 14.7K a macroblock, 2.65M a frame: about 46 ms on two CPUs,
+     before the bus is shared and before sound (~5 ms). The fixed-point format may
+     change to suit the SH-2; `tools/mdec.py` changes with it and must still pass
+     against ffmpeg.
 5. **Assembly hot paths**, matching the C bit for bit. Then a Saturn run on CANYON
    (the highest data rate) and CORELOGO (the most blocks), counting late frames and
    checking sound and picture stay in step.
