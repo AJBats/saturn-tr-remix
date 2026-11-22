@@ -452,6 +452,57 @@ decoders stay in the binary, because the PlayStation disc is optional.
    checking sound and picture stay in step.
 6. **Release:** discs.json, the builder's text, the README.
 
+## The other route: re-encoding the PS1's picture to Cinepak, measured
+
+TrekkiesUnite118's route for RE2: decode the PlayStation's video on a PC and
+encode it again as Cinepak, which the Saturn decodes with table lookups and
+copies. The question was whether the PS1's picture survives that second
+encoding, or whether a better source would be needed. Measured 2026-11-22 with
+FFmpeg 7.0's Cinepak encoder on three 10-second clips (150 frames each, the
+120-line picture area). Each clip was scored against the PS1 frames themselves.
+The retail Saturn's Cinepak, same frames, is the yardstick. The script and
+pictures are in `build/fmv_compare/cinepak/` (not in git).
+
+| Clip | Version | Video KB/s (mean / worst second) | Luma PSNR | SSIM |
+|---|---|---|---|---|
+| CAFE 600-749 (dark interior, magazine text) | retail Saturn | 87 / 139 | 37.3 dB | 0.975 |
+| | Cinepak from PS1, q2 | 109 / 228 | 42.6 dB | 0.981 |
+| | Cinepak from PS1, q1, 16 strips | 149 / 335 | 44.2 dB | 0.986 |
+| PRISON 250-399 (dark, red light) | retail Saturn | 100 / 133 | 38.4 dB | 0.984 |
+| | Cinepak from PS1, q4 | 116 / 153 | 42.2 dB | 0.988 |
+| | Cinepak from PS1, q1 | 199 / 265 | 45.5 dB | 0.993 |
+| CANYON 1400-1549 (rock detail, the heaviest video) | retail Saturn | 132 / 168 | 36.2 dB | 0.956 |
+| | Cinepak from PS1, q4 | 175 / 312 | 38.9 dB | 0.970 |
+| | Cinepak from PS1, q2 | 234 / 366 | 40.4 dB | 0.978 |
+
+- **The PS1 picture survives the re-encode.** At data rates that fit a 2x drive
+  beside sound, Cinepak lands within 39-45 dB of the PS1 picture. The retail
+  Saturn's encode lands at 36-38 dB. That comparison flatters the transcode,
+  because the retail was encoded from the master, not from the PS1 picture.
+  Still, at 2x zoom the transcodes are hard to tell from the PS1. No better
+  source is needed for this route; a better one would only help to beat the PS1's
+  own picture.
+- **What Cinepak still loses, at 4x zoom:** 4x4 blocks in fine texture (CANYON's
+  rock, CAFE's background) and a faint green cast in the darkest areas. Text stays
+  close to the PS1's; the retail's text is blockier.
+- **Detail costs data.** CANYON needs about 230 KB/s to look as close to the PS1 as
+  the dark clips do at 110-150. That fits only beside sound the size of the PS1's
+  XA (43 KB/s), not the retail's 16-bit PCM (88 KB/s).
+- **No rate control.** FFmpeg's Cinepak encoder takes a quality setting, not a data
+  rate. The builder would pick the setting per video (or per scene). At the best
+  settings the worst one-second windows reach 265-375 KB/s, so the player needs a
+  few seconds of buffer, or the builder must cap each second's bytes.
+- **Strips and keyframes barely matter:** 16 strips against 8 is worth +0.2-0.3 dB
+  for 3-6% more data (CANYON +1.6 dB for +22%). A keyframe every 60 frames instead
+  of every 12 saves 2-8%.
+- **15-bit colour costs more than the re-encode.** Today's player draws 15-bit
+  pixels (the low 3 bits of each channel dropped). Applied to the in-budget
+  encodes, that takes CAFE from 44.2 to 36.0 dB, PRISON from 45.5 to 40.0 dB and
+  CANYON from 38.9 to 35.6 dB. Either route should show 24-bit, and the 24-bit
+  double-buffer from step 3 carries over unchanged.
+- **Not measured:** what a 24-bit Cinepak decode costs on the Saturn at twice the
+  retail's data rate. Today's player plays the retail videos in 15-bit.
+
 ## Decisions
 
 1. **24-bit colour** (the user, 2026-11-21), as the PlayStation shows it. 15-bit is
