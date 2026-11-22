@@ -660,8 +660,12 @@ steps down a setting.
 
 **The builder** (`tools/fmvpack.py`, run by the disc build when the PS1 disc is there):
 1. **Picture:** each video's PS1 picture (120 lines from 44; CORELOGO's whole 208),
-   flicker averaged out, encoded whole by ffmpeg's Cinepak at q1 (16 strips), q1 (8),
-   q2, q4, q8, q16 and q32. The strip rule is checked on every frame
+   flicker averaged out over the whole video, encoded by ffmpeg's Cinepak at q1 (16
+   strips), q1 (8), q2, q4, q8, q16 and q32. Each group of 12 frames is encoded on its
+   own, so it starts with a keyframe. ffmpeg's encoder places its own keyframes: after
+   the first, 17-21 frames on, then every 12, whatever `-g`, `-keyint_min` or
+   `-force_key_frames` say. Whole-video encodes therefore don't join between settings:
+   23 of MANSION's frames came out wrong. The strip rule is checked on every frame
    (`tools/cinepak.py`).
 2. **Sound:** the retail Saturn CPK's 16-bit PCM, packed losslessly in 1024-sample
    chunks (`tools/lossless.py`). The two discs' videos match frame for frame (the
@@ -699,7 +703,39 @@ steps down a setting.
 **Steps, each checked before the next:**
 1. **The builder,** with a PC player that plays a stream end to end: its frames and
    sound must equal the planned ones exactly, and the simulated drive must meet every
-   deadline.
+   deadline. **Done 2026-11-22** (`tools/fmvpack.py build`, then `check`; the stream and
+   index formats are in its header):
+   - **Built:** all ten videos in 15.6 minutes on 16 processes. The cache keeps the
+     smoothed pictures and every setting's encodes, so a second build only plans and
+     lays out again.
+   - **Checked** in 3.1 minutes, all ten ok:
+     - every frame equals ffmpeg's decode of its group's encode, pixel for pixel;
+     - every group starts with a whole keyframe;
+     - the strip rule holds;
+     - the sound equals the retail PCM sample for sample, padded with silence where
+       the PS1 picture runs longer (SNOW's last 8 frames, a fade to black: the two
+       discs' frames line up from the first);
+     - nothing is late on the drive, sector by sector, with 1 MB of buffer.
+   - **The Form 2 track:** 91,083 sectors (211.7 MB). With the 90,000-sector data track
+     and the 122,020 sectors of audio tracks, the disc is 67 minutes, inside a 74-minute
+     CD.
+
+   | Video | Frames | At the best setting | At q1 (16 or 8 strips) | Stream | Luma against the PS1 |
+   |---|---|---|---|---|---|
+   | CAFE | 1547 | 96% | 100% | 226 KB/s | 43.5 dB |
+   | CANYON | 2709 | 69% | 86% | 313 KB/s | 41.2 dB |
+   | CORELOGO | 152 | 100% | 100% | 329 KB/s | 46.2 dB |
+   | END | 909 | 67% | 75% | 251 KB/s | 41.9 dB |
+   | LIFT | 1534 | 87% | 99% | 312 KB/s | 43.1 dB |
+   | MANSION | 177 | 40% | 60% | 270 KB/s | 36.2 dB |
+   | PRISON | 1381 | 94% | 100% | 288 KB/s | 44.2 dB |
+   | PYRAMID | 129 | 100% | 100% | 228 KB/s | 43.3 dB |
+   | SNOW | 1529 | 88% | 92% | 274 KB/s | 42.3 dB |
+   | VISION | 810 | 63% | 89% | 306 KB/s | 42.0 dB |
+
+   91% of all frames are at q1. The stream column is all of it: picture, sound,
+   headers and the last sector's padding. Luma is measured against the PS1 picture
+   before smoothing. MANSION stays low at every setting, still not looked into.
 2. **The player on a bench disc first,** one video (CANYON, the heaviest), on the
    Saturn: late frames, the sound's lead, CPU time a frame, and the drive's real rate
    while the CPUs decode.
