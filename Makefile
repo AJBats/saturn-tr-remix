@@ -474,6 +474,7 @@ $(PLAYBENCH)/gen/fmvsound_m68k.h: saturn/fmvsound.68k tools/m68kasm.py
 
 $(PLAYBENCH)/obj/saturn/fmvplay.cpp.o: $(PLAYBENCH)/gen/fmvsound_m68k.h saturn/fmvplay.h saturn/cinepak.h saturn/cd.h
 $(PLAYBENCH)/obj/playbench/bench.cpp.o: saturn/fmvplay.h saturn/cd.h
+$(PLAYBENCH)/obj/saturn/cinepak.cpp.o: saturn/cinepak.h
 
 $(PLAYBENCH)/obj/%.cpp.o: %.cpp dspbench/platform.h saturn/hw.h saturn/font.h | check-toolchain
 	@mkdir -p $(@D)

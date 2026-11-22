@@ -635,10 +635,13 @@ steps down a setting.
 2. **CORELOGO** is the Core Design logo video (the first one at boot), and the only
    one whose picture fills its whole 320x208 frame. Two 208-line 24-bit pictures need
    416 lines, and VDP2's memory holds 256, so it can't be double-buffered in 24-bit.
-   **Decided by the bench: 15-bit, double-buffered.** A single 24-bit picture
-   updated behind the beam would need about 9 MB/s into the banks being shown, and
-   the Saturn takes 2.51 MB/s there. If its 15-bit colour shows banding,
-   TrekkiesUnite118's full-screen Cinepak (RE2) shows there are other routes.
+   First decided 15-bit, double-buffered: a single 24-bit picture written by the CPU
+   into the banks being shown would need about 9 MB/s, and the Saturn takes 2.51 MB/s
+   there. **Now 24-bit with one buffer** (2026-11-22, on the Saturn; TrekkiesUnite118's
+   tip, Sega's Cinepak sample 6): the picture's halves sit in different banks, and each
+   half goes in by SCU DMA (42-52 MB/s) while the beam is in the other, its bank's
+   slots handed to the CPUs meanwhile. The 15-bit ways (bits dropped, rounded,
+   dithered) stay in the player for comparison.
 3. **The route: Cinepak re-encoded from the PS1 picture** (the user, 2026-11-22,
    after the flip page in `build/fmv_compare/ps1_vs_cinepak/`), in 24-bit, decoded
    by the SH-2s (`saturn/cinepak.cpp`). Native MDEC decoding is set aside at 13-15
@@ -697,8 +700,8 @@ steps down a setting.
   the hidden half of the 24-bit double buffer, flipped at a vertical blank. A frame
   not ready in time shows late; the sound keeps time.
 - **START** skips. At the end, the game's sound program and display come back.
-- **CORELOGO** can't double-buffer in 24-bit (decision 2). It plays in 15-bit, from
-  the same decoder with 15-bit codebooks.
+- **CORELOGO** can't double-buffer in 24-bit (decision 2). It plays in 24-bit from one
+  buffer, a half at a time behind the beam (`FMV_TALL_24`).
 
 **Steps, each checked before the next:**
 1. **The builder,** with a PC player that plays a stream end to end: its frames and
@@ -775,6 +778,29 @@ steps down a setting.
    - **Cheapest gain next:** copying a frame out of the ring (12 ms, uncached reads
      of sectors scattered by their headers). DMA could lay the sectors' data end to
      end and let the decoder read frames in place.
+   **CORELOGO, 2026-11-22** (`make playbench PLAY_VIDEO=CORETEST`, or `CORE24` for the
+   24-bit play alone):
+   - **24-bit, one buffer** (`FMV_TALL_24`): the picture centred so its top 104 lines
+     are bitmap lines 24-127 (banks A0/A1) and its bottom 104 are lines 128-231
+     (B0/B1). SCU timer 0 interrupts as the beam reaches screen line 114, past the top
+     half: A's slots go to the CPUs and the top half goes in by SCU DMA level 1, a
+     line at a time (level 0 stays the drive's). The bottom half goes in from the next
+     vertical blank, B's slots to the CPUs, and is in before the beam comes down to it.
+     A frame is due a field after its top half went in. On the Saturn: 152 frames, 5
+     late; decode 40.3 ms slowest, 17.8 mean. No tearing seen on the television.
+   - **15-bit**, double-buffered in a 512x512 bitmap: the codebooks converted with the
+     low 3 bits dropped (as the retail player does), rounded, or a 2x2 ordered
+     dither (`cpkInit15`). Dithered on the Saturn: 28 late, decode 65.7 ms slowest.
+     On a composite television the dither's pattern stays visible.
+   - **The colour that's left is the codec's:** CORELOGO's darkest areas break into
+     4x4 blocks with a green tint. The smoothed picture is 54.8 dB from the PS1's, ours
+     47.4 dB (`build/fmv_compare/corelogo24/flip.html`, every frame).
+   - **Open: a freeze.** Now and then a play stops on a frame (71 twice, 97 once, and
+     once before the first): the item header the parser waits on is garbage, and the
+     68000 stops on the sound chunk in the same sector. Not in Mednafen. The bench
+     shows the player's, the CD block's and the 68000's state after 4 s without a new
+     frame, and checks every sector's EDC as it lands: 0 bad sectors in the 24 plays
+     since, none of which froze.
 3. **Into the game:** `fmvPlay` takes the new player where the index has the video.
    Every video played on the Saturn.
 4. **Release:** the builder's text, the README.

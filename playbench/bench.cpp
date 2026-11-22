@@ -12,6 +12,8 @@
 #include "cd.h"
 #include "fmvplay.h"
 
+#include <string.h>
+
 #ifndef VIDEO
 #define VIDEO "CANYON"
 #endif
@@ -21,7 +23,9 @@
 #define BIOS_SET_SINT   (*(void (**)(uint32_t, void (*)()))0x06000300)
 #define BIOS_CHG_SCUIM  (*(void (**)(uint32_t, uint32_t))0x06000344)
 #define VECTOR_VBLANK_IN 0x40
+#define VECTOR_TIMER0   0x43
 #define SCU_IMS_VBLANK_IN 0x0001
+#define SCU_IMS_TIMER0  0x0008
 #define FRT_TCR         (*(volatile uint8_t*)0xFFFFFE16)
 #define FRT_SLOW        2           // a tick every 128 cycles
 #define CLOCK_HZ        28636000
@@ -31,8 +35,24 @@
 #define FRAME_BYTES     (128 * 1024)
 
 static uint8_t gRing[RING_BYTES] __attribute__((aligned(16)));     // high work RAM: SCU DMA can't reach low
-static uint32_t gPicture[320 * 128];
-static CpkBook gBooks[2];
+static uint32_t gPicture[320 * 208];     // CORELOGO's whole picture in 24-bit
+static uint8_t gBooks[2 * FMV_BOOK_BYTES] __attribute__((aligned(16)));
+
+// VIDEO "CORETEST": CORELOGO from the PS1 in 24-bit with one buffer, then taken to 15-bit each of the three
+// ways in turn, over and over with a title before each: for comparing them on a television.
+struct Play
+{
+    const char* name;
+    int32_t tall;
+    const char* title[4];
+};
+#define CORE_PLAYS 4
+static const Play kCoreTest[CORE_PLAYS] = {
+    { "CORELOGO", FMV_TALL_24, { "1 of 4", "OURS: PS1 picture, 24-BIT,", "ONE BUFFER, COPIED BEHIND THE BEAM", "" } },
+    { "CORELOGO", CPK15_DROP, { "2 of 4", "OURS: PS1 picture, 15-bit,", "BITS DROPPED (as retail)", "" } },
+    { "CORELOGO", CPK15_ROUND, { "3 of 4", "OURS: PS1 picture, 15-bit,", "ROUNDED", "" } },
+    { "CORELOGO", CPK15_DITHER, { "4 of 4", "OURS: PS1 picture, 15-bit,", "DITHERED", "" } },
+};
 
 // --- the host ---------------------------------------------------------------------------------------------
 
@@ -42,15 +62,37 @@ static volatile uint32_t gTickBase;     // 128-cycle ticks up to gTickLast
 static volatile uint16_t gTickLast;
 
 extern "C" void vblankEntry();      // irq.s
+extern "C" void lineEntry();
+static void watch(const uint32_t* stack);
+static void (*volatile gLineHook)();
 
-extern "C" void vblankIn()
+// SCU timer 0: counts the lines since the vertical blank ended, and interrupts at the one compared
+extern "C" void lineIn()
+{
+    if (gLineHook) {
+        gLineHook();
+    }
+}
+
+void fmvHostOnLine(void (*fn)(), int32_t line)
+{
+    gLineHook = nullptr;
+    if (fn) {
+        SCU_T0C = uint32_t(line);
+    }
+    gLineHook = fn;
+}
+
+extern "C" void vblankIn(const uint32_t* stack)
 {
     uint16_t now = uint16_t(ticks());
     gTickBase += uint16_t(now - gTickLast);
     gTickLast = now;
     gVblanks++;
-    if (gHook) {
+    if (gHook)
+    {
         gHook();
+        watch(stack);
     }
 }
 
@@ -113,6 +155,143 @@ static char* putMs(char* p, uint32_t cycles)
     *p++ = '0' + hundredths % 10;
     *p = 0;
     return p;
+}
+
+static char* putHex(char* p, uint32_t v, int32_t digits)
+{
+    for (int32_t i = digits - 1; i >= 0; i--) {
+        *p++ = "0123456789ABCDEF"[(v >> (i * 4)) & 15];
+    }
+    *p = 0;
+    return p;
+}
+
+static void textScreen()
+{
+    const uint16_t bitmap = (CYCP_N0CG << 12) | (CYCP_N0CG << 8) | (CYCP_N0CG << 4) | CYCP_N0CG;
+    const uint16_t cpu = (CYCP_CPU << 12) | (CYCP_CPU << 8) | (CYCP_CPU << 4) | CYCP_CPU;
+    VDP2_BGON = 0;
+    VDP2_WCTLA = 0;
+    VDP2_CHCTLA = CHCTLA_N0_32K | CHCTLA_N0BMEN;
+    VDP2_CYCA0L = VDP2_CYCA1L = bitmap;
+    VDP2_CYCA0U = VDP2_CYCA1U = cpu;
+    VDP2_CYCB0L = VDP2_CYCB0U = VDP2_CYCB1L = VDP2_CYCB1U = cpu;
+    VDP2_SCXIN0 = 0;
+    VDP2_SCYIN0 = 0;
+    textClear();
+    REG16(VDP2_VRAM + 0x7FFFE) = 0;
+    VDP2_BGON = BGON_N0ON;
+}
+
+// A video whose picture hasn't moved for 4 s (a frame lasts 4 blanks, the wait before the first a second):
+// what the player, the CD block and the 68000 are doing, on screen, every half second from then on (in the
+// vertical blank's interrupt, so it shows even with the main loop stuck).
+#define WATCH_BLANKS    240
+static int32_t gWatchShown = -2;
+static uint32_t gWatchSince;
+
+static void watch(const uint32_t* stack)
+{
+    const volatile FmvLive* l = (const volatile FmvLive*)(uintptr_t(fmvLive()) | 0x20000000);
+    if (l->shown != gWatchShown)
+    {
+        gWatchShown = l->shown;
+        gWatchSince = gVblanks;
+        return;
+    }
+    uint32_t still = gVblanks - gWatchSince;
+    if (still < WATCH_BLANKS || (still - WATCH_BLANKS) % 30)
+        return;
+    if (still == WATCH_BLANKS)
+    {
+        textScreen();
+        REG16(0x25B00400) = 1 << 9;     // the SCSP's master volume to 0: the slots loop what's left
+    }
+    const volatile uint32_t* shared = (const volatile uint32_t*)0x25A0F000;
+    char text[80];
+    int32_t row = 0;
+    char* p = put(text, "FROZEN: frame ");
+    p = putInt(p, l->shown);
+    p = put(p, " for ");
+    p = putInt(p, int32_t(still));
+    p = put(p, " blanks, at ");
+    putInt(p, int32_t(l->where));
+    textRow(row++, text);
+    p = put(text, "ring: in ");
+    p = putInt(p, int32_t(l->arrived));
+    p = put(p, " parse ");
+    p = putInt(p, int32_t(l->parse));
+    p = put(p, " done ");
+    putInt(p, int32_t(l->doneTo));
+    textRow(row++, text);
+    p = put(text, "queue ");
+    p = putInt(p, int32_t(l->queueHead));
+    p = put(p, "-");
+    p = putInt(p, int32_t(l->queueTail));
+    p = put(p, " sound wr ");
+    putInt(p, int32_t(l->soundWr));
+    textRow(row++, text);
+    p = put(text, "cd: ready ");
+    p = putInt(p, int32_t(l->lastReady));
+    p = put(p, " ret ");
+    p = putInt(p, l->lastRet);
+    p = put(p, " refused ");
+    putInt(p, int32_t(l->cdFailed));
+    textRow(row++, text);
+    p = put(text, "cd regs ");
+    p = putHex(p, REG16(0x25890008), 4);
+    p = put(p, " ");
+    p = putHex(p, REG16(0x25890018), 4);
+    p = put(p, " ");
+    p = putHex(p, REG16(0x2589001C), 4);
+    p = put(p, " ");
+    p = putHex(p, REG16(0x25890020), 4);
+    p = put(p, " ");
+    putHex(p, REG16(0x25890024), 4);
+    textRow(row++, text);
+    p = put(text, "68k: state ");
+    p = putInt(p, int32_t(REG16(0x25A0F006)));
+    p = put(p, " rd ");
+    p = putInt(p, int32_t(shared[0x0C / 4]));
+    p = put(p, " wr ");
+    putInt(p, int32_t(shared[0x10 / 4]));
+    textRow(row++, text);
+    p = put(text, "68k: play ");
+    p = putInt(p, int32_t(shared[0x14 / 4]));
+    p = put(p, " decoded ");
+    p = putInt(p, int32_t(shared[0x18 / 4]));
+    p = put(p, " low ");
+    putInt(p, int32_t(shared[0x1C / 4]));
+    textRow(row++, text);
+    p = put(text, "slave in ");
+    p = putInt(p, int32_t(l->slaveIn));
+    p = put(p, " out ");
+    p = putInt(p, int32_t(l->slaveOut));
+    p = put(p, "  dma ");
+    putHex(p, REG32(0x25FE007C), 8);
+    textRow(row++, text);
+    p = put(text, "bad sectors ");
+    p = putInt(p, int32_t(l->edcBad));
+    p = put(p, ": first ");
+    p = putInt(p, int32_t(l->edcFirst));
+    p = put(p, " last ");
+    putInt(p, int32_t(l->edcLast));
+    textRow(row++, text);
+    // code addresses on the interrupt's stack: the interrupted PC among them
+    p = put(text, "stack:");
+    for (int32_t i = 0, n = 0; i < 40 && n < 3; i++)
+    {
+        uint32_t v = stack[i];
+        if (v >= 0x06004000 && v < 0x06010000)
+        {
+            p = put(p, " ");
+            p = putInt(p, i);
+            p = put(p, "=");
+            p = putHex(p, v, 8);
+            n++;
+        }
+    }
+    textRow(row++, text);
 }
 
 static void modeText()
@@ -206,10 +385,14 @@ int main()
     FRT_TCR = FRT_SLOW;
     gTickLast = uint16_t(ticks());
     BIOS_SET_SINT(VECTOR_VBLANK_IN, vblankEntry);
-    BIOS_CHG_SCUIM(0, 0xFFFF & ~SCU_IMS_VBLANK_IN);     // the SCU's other interrupts masked
+    BIOS_SET_SINT(VECTOR_TIMER0, lineEntry);
+    SCU_T1MD = 0x001;                                   // the timers counting
+    // the SCU's other interrupts masked
+    BIOS_CHG_SCUIM(0, 0xFFFF & ~(SCU_IMS_VBLANK_IN | SCU_IMS_TIMER0));
     uint32_t sr;
     asm volatile("stc sr, %0" : "=r"(sr));
-    asm volatile("ldc %0, sr" : : "r"((sr & ~0xF0u) | (14 << 4)));  // the CPU takes level 15 alone: vblank-in
+    // the CPU takes levels 12 up: vblank-in (15) and timer 0 (12), the only ones unmasked
+    asm volatile("ldc %0, sr" : : "r"((sr & ~0xF0u) | (11 << 4)));
 
     textClear();
     textRow(0, "PLAY BENCH: " VIDEO " starting...");
@@ -228,10 +411,52 @@ int main()
     mem.picture = gPicture;
     mem.books = gBooks;
 
+    // VIDEO "CORE24": the first of CORETEST's alone, over and over
+    const bool core24 = strcmp(VIDEO, "CORE24") == 0;
+    if (core24 || strcmp(VIDEO, "CORETEST") == 0)
+    {
+        const int32_t count = core24 ? 1 : CORE_PLAYS;
+        char last[3][80] = { "", "", "" };
+        uint32_t plays = 0, badPlays = 0, badSectors = 0;
+        for (int32_t k = 0;; k = (k + 1) % count)
+        {
+            modeText();
+            for (int32_t row = 0; row < 4; row++) {
+                textRow(4 + row, kCoreTest[k].title[row]);
+            }
+            for (int32_t row = 0; row < 3; row++) {
+                textRow(10 + row, last[row]);
+            }
+            for (uint32_t v = gVblanks; gVblanks - v < 180;);
+            FmvStats stats;
+            bool ok = fmvPlayStream(kCoreTest[k].name, mem, false, kCoreTest[k].tall, &stats);
+            const volatile FmvLive* live = fmvLive();
+            plays++;
+            badPlays += live->edcBad != 0;
+            badSectors += live->edcBad;
+            char* p = put(last[0], ok ? "last: " : "FAILED: ");
+            p = putInt(p, int32_t(stats.frames));
+            p = put(p, " frames, ");
+            p = putInt(p, int32_t(stats.late));
+            put(p, " late");
+            p = put(last[1], "decode ms: most ");
+            p = putMs(p, stats.decodeMost);
+            p = put(p, " mean ");
+            putMs(p, stats.frames ? stats.decodeSum / stats.frames : 0);
+            p = put(last[2], "bad sectors ");
+            p = putInt(p, int32_t(badSectors));
+            p = put(p, " in ");
+            p = putInt(p, int32_t(badPlays));
+            p = put(p, " of ");
+            p = putInt(p, int32_t(plays));
+            put(p, " plays");
+        }
+    }
+
     for (int32_t round = 1;; round++)
     {
         FmvStats stats;
-        bool ok = fmvPlayStream(VIDEO, mem, false, &stats);
+        bool ok = fmvPlayStream(VIDEO, mem, false, CPK15_DITHER, &stats);
         modeText();
         if (!ok && stats.frames == 0) {
             textRow(1, "not played: no index entry or no Form 2 track?");

@@ -15,6 +15,24 @@ struct CpkBook
 
 void cpkInit();
 
+// 15-bit output, for a picture too tall to double-buffer in 24-bit (docs/ps1-fmv.md, decision 2): pixels
+// 0x8000 | B << 10 | G << 5 | R, each channel's 8 bits taken down to 5 by dropping 3 (as saturn/fmv.cpp
+// does), rounding, or a 2x2 ordered dither. The dither is in the codebooks: a V4 entry's 4 pixels and each
+// V1 colour's 2x2 quarter fall on the pattern's 4 places, so playing costs nothing more.
+enum { CPK15_DROP, CPK15_ROUND, CPK15_DITHER };
+
+struct CpkBook15
+{
+    uint32_t v4[256][2];    // a V4 entry's top pixel pair, bottom pair
+    uint32_t v1[256][8];    // a V1 entry's 4 quarters, each its top pair and bottom pair
+};
+
+void cpkInit15(int32_t convert);
+
+// As cpkDecode, into 15-bit pixels; pitch counts pixel pairs (32-bit words) a line.
+void cpkDecode15(const uint8_t* frame, uint32_t size, uint32_t* pic, int32_t pitch, CpkBook15* book,
+                 int32_t first, int32_t last);
+
 // The strips in a frame.
 int32_t cpkStrips(const uint8_t* frame);
 

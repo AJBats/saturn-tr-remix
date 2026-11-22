@@ -19,7 +19,19 @@
 
 static_assert(FMVSOUND_SIZE <= 0xF000 - 256, "fmvsound.68k runs into its stack");
 
-// --- VDP2's 24-bit double buffer (as fmvbench and cpkbench) ----------------------------------------------
+// --- VDP2's double buffer: 24-bit (as fmvbench and cpkbench), or 15-bit for a taller picture ------------
+//
+// 24-bit: NBG0 a 512x256 bitmap of 32-bit pixels (all of VRAM), the pictures at lines 0 (banks A0/A1) and
+// 128 (B0/B1); the shown banks' 8 cycle slots all to the bitmap, the hidden ones' to the CPUs. 15-bit: a
+// 512x512 bitmap of 16-bit pixels, the pictures at lines 0 (A0/A1) and 256 (B0/B1); the shown banks' slots
+// half to the bitmap (15-bit takes 4), the hidden ones' all to the CPUs. A flip swaps them with the vertical
+// scroll, in a vertical blank; window W0 leaves only the picture's lines on screen.
+//
+// A taller picture in 24-bit (FMV_TALL_24) has one buffer, as Sega's Cinepak sample 6 does: the picture sits
+// with its top half in banks A0/A1 (bitmap lines up to 127) and its bottom half in B0/B1, all 8 slots of each
+// bank to the bitmap. A frame goes in a half at a time while the beam is in the other: the top half once the
+// beam has passed into the bottom (the host's line interrupt), with A's slots handed to the CPUs meanwhile;
+// the bottom half from the next vertical blank, B's slots to the CPUs, done before the beam comes down to it.
 
 #define VDP2_WPSX0      REG16(0x25F800C0)
 #define VDP2_WPSY0      REG16(0x25F800C2)
@@ -28,19 +40,41 @@ static_assert(FMVSOUND_SIZE <= 0xF000 - 256, "fmvsound.68k runs into its stack")
 #define CHCTLA_N0_16M   0x0040
 #define WCTLA_N0W0E     0x0002
 #define WCTLA_N0W0A     0x0001
-#define PITCH           512         // 32-bit pixels a bitmap line
+#define PITCH           512         // pixels a bitmap line
 #define WIDTH           320
-#define HALF_LINES      128         // the second picture's first line
+#define HALF_LINES      128         // the second 24-bit picture's first line
+#define HALF_LINES15    256         // the second 15-bit picture's first line
+#define CHCTLA_N0_512   0x0004      // NBG0's bitmap 512x512
 
 static volatile uint32_t* const gBitmap = (volatile uint32_t*)VDP2_VRAM;
 static int32_t gLines, gTop;
+static bool g15;                    // the picture in 15-bit
+static bool gRace;                  // the picture in 24-bit, one buffer
+static int32_t gRaceFirst;          // its first bitmap line
+static const uint16_t kSlotsBitmap = (CYCP_N0CG << 12) | (CYCP_N0CG << 8) | (CYCP_N0CG << 4) | CYCP_N0CG;
+static const uint16_t kSlotsCpu = (CYCP_CPU << 12) | (CYCP_CPU << 8) | (CYCP_CPU << 4) | CYCP_CPU;
 
 static void cycles(int32_t half)
 {
-    const uint16_t bitmap = (CYCP_N0CG << 12) | (CYCP_N0CG << 8) | (CYCP_N0CG << 4) | CYCP_N0CG;
-    const uint16_t cpu = (CYCP_CPU << 12) | (CYCP_CPU << 8) | (CYCP_CPU << 4) | CYCP_CPU;
+    const uint16_t bitmap = kSlotsBitmap;
+    const uint16_t cpu = kSlotsCpu;
+    if (gRace)
+    {
+        VDP2_CYCA0L = VDP2_CYCA0U = VDP2_CYCA1L = VDP2_CYCA1U = bitmap;
+        VDP2_CYCB0L = VDP2_CYCB0U = VDP2_CYCB1L = VDP2_CYCB1U = bitmap;
+        VDP2_SCYIN0 = (gRaceFirst - gTop + 256) & 255;
+        return;
+    }
     const uint16_t a = half ? cpu : bitmap;
     const uint16_t b = half ? bitmap : cpu;
+    if (g15)
+    {
+        VDP2_CYCA0L = VDP2_CYCA1L = a;
+        VDP2_CYCB0L = VDP2_CYCB1L = b;
+        VDP2_CYCA0U = VDP2_CYCA1U = VDP2_CYCB0U = VDP2_CYCB1U = cpu;
+        VDP2_SCYIN0 = ((half ? HALF_LINES15 : 0) - gTop + 512) & 511;
+        return;
+    }
     VDP2_CYCA0L = VDP2_CYCA0U = VDP2_CYCA1L = VDP2_CYCA1U = a;
     VDP2_CYCB0L = VDP2_CYCB0U = VDP2_CYCB1L = VDP2_CYCB1U = b;
     VDP2_SCYIN0 = ((half ? HALF_LINES : 0) - gTop + 256) & 255;
@@ -52,17 +86,20 @@ static void waitVblank()
     while (!(VDP2_TVSTAT & TVSTAT_VBLANK));
 }
 
-static void mode24(int32_t lines)
+static void mode(int32_t lines, int32_t tall)
 {
     gLines = lines;
     gTop = (224 - lines) / 2;
+    g15 = lines > HALF_LINES && tall != FMV_TALL_24;
+    gRace = lines > HALF_LINES && tall == FMV_TALL_24;
+    gRaceFirst = HALF_LINES - lines / 2;
     const int32_t left = (352 - WIDTH) / 2;
     waitVblank();
     VDP2_BGON = 0;
     for (int32_t i = 0; i < 256 * PITCH; i++) {
-        gBitmap[i] = 0x80000000;
+        gBitmap[i] = g15 ? 0x80008000 : 0x80000000;
     }
-    VDP2_CHCTLA = CHCTLA_N0_16M | CHCTLA_N0BMEN;
+    VDP2_CHCTLA = g15 ? CHCTLA_N0_32K | CHCTLA_N0_512 | CHCTLA_N0BMEN : CHCTLA_N0_16M | CHCTLA_N0BMEN;
     VDP2_SCXIN0 = (PITCH - left) & (PITCH - 1);
     VDP2_WPSX0 = left * 2;
     VDP2_WPEX0 = (left + WIDTH - 1) * 2;
@@ -191,6 +228,9 @@ static void slotsOff()
 #define MOVE_MOST       32
 #define TRACK_DATA      0x40        // the TOC's control bit for a data track
 
+static volatile FmvLive gLive;
+const volatile FmvLive* fmvLive() { return &gLive; }
+
 static const FmvMemory* gMem;
 static uint32_t gSlots;             // sectors the ring holds
 static uint32_t gArrived;           // sectors moved in, from the stream's first
@@ -206,9 +246,45 @@ static const uint8_t* slotData(uint32_t sector)
 
 static uint32_t arrivedBytes() { return gArrived * PAYLOAD; }
 
+// Each sector's EDC (ECMA-130 14.3: a CRC over the subheader and data, stored little-endian after them) and
+// subheader checked as it lands in the ring, to tell bad data off the disc from anything after.
+static uint32_t gEdcTable[256];
+
+static void edcInit()
+{
+    for (uint32_t i = 0; i < 256; i++)
+    {
+        uint32_t e = i;
+        for (int32_t k = 0; k < 8; k++) {
+            e = (e >> 1) ^ ((e & 1) ? 0xD8018001 : 0);
+        }
+        gEdcTable[i] = e;
+    }
+}
+
+static bool sectorGood(uint32_t sector)
+{
+    const uint32_t* p = (const uint32_t*)((uintptr_t(gMem->ring) | 0x20000000) + (sector % gSlots) * SECTOR_BYTES);
+    if (p[0] != 0x01002800 || p[1] != 0x01002800)
+        return false;
+    uint32_t e = 0;
+    for (int32_t i = 0; i < (PAYLOAD_AT + PAYLOAD) / 4; i++)
+    {
+        const uint32_t w = p[i];
+        e = gEdcTable[(e ^ (w >> 24)) & 0xFF] ^ (e >> 8);
+        e = gEdcTable[(e ^ (w >> 16)) & 0xFF] ^ (e >> 8);
+        e = gEdcTable[(e ^ (w >> 8)) & 0xFF] ^ (e >> 8);
+        e = gEdcTable[(e ^ w) & 0xFF] ^ (e >> 8);
+    }
+    const uint32_t stored = p[(PAYLOAD_AT + PAYLOAD) / 4];
+    return e == ((stored >> 24) | ((stored >> 8) & 0xFF00) | ((stored << 8) & 0xFF0000) | (stored << 24));
+}
+
 static void moveSectors()
 {
+    gLive.where = FMV_AT_READY;
     uint32_t ready = cdSectorsReady();
+    gLive.lastReady = ready;
     if (ready > gStats->blockMost) {
         gStats->blockMost = ready;
     }
@@ -225,7 +301,9 @@ static void moveSectors()
     if (!n)
         return;
     uint32_t t = fmvHostCycles();
+    gLive.where = FMV_AT_BEGIN;
     int ret = cdTransferBegin(n);
+    gLive.lastRet = ret;
     if (ret != 0)
     {
         if (!gStats->cdFailed++)
@@ -238,8 +316,20 @@ static void moveSectors()
         cdTransferEnd();
         return;
     }
+    gLive.where = FMV_AT_DMA;
     dma(CD_PORT32, uintptr_t(gMem->ring) + (gArrived % gSlots) * SECTOR_BYTES, n * SECTOR_BYTES, true);
+    gLive.where = FMV_AT_END;
     cdTransferEnd();
+    for (uint32_t k = 0; k < n; k++)
+    {
+        if (!sectorGood(gArrived + k))
+        {
+            if (!gLive.edcBad++) {
+                gLive.edcFirst = gArrived + k;
+            }
+            gLive.edcLast = gArrived + k;
+        }
+    }
     gArrived += n;
     gStats->sectors += n;
     gStats->moveSum += fmvHostCycles() - t;
@@ -371,10 +461,27 @@ struct Job
 
 static Job gJob;
 
+static void* book(int32_t cpu)
+{
+    return (uint8_t*)gMem->books + cpu * FMV_BOOK_BYTES;
+}
+
+static void decode(const uint8_t* frame, uint32_t bytes, int32_t cpu, int32_t first, int32_t last)
+{
+    if (g15) {
+        cpkDecode15(frame, bytes, gMem->picture, WIDTH / 2, (CpkBook15*)book(cpu), first, last);
+    } else {
+        cpkDecode(frame, bytes, gMem->picture, WIDTH, (CpkBook*)book(cpu), first, last);
+    }
+}
+
 static void slaveDecode(void* arg)
 {
     const Job* j = (const Job*)arg;
-    cpkDecode(j->frame, j->bytes, gMem->picture, WIDTH, &gMem->books[1], j->first, 0x7FFF);
+    volatile FmvLive* live = (volatile FmvLive*)(uintptr_t(&gLive) | 0x20000000);
+    live->slaveIn = live->slaveIn + 1;
+    decode(j->frame, j->bytes, 1, j->first, 0x7FFF);
+    live->slaveOut = live->slaveOut + 1;
 }
 
 // the strip the slave starts at: the first past half the frame's bytes
@@ -391,10 +498,45 @@ static int32_t splitAt(const uint8_t* f, uint32_t size)
     return strips;
 }
 
-// The next frame out of the ring, decoded, and into the hidden half.
+// The one-buffer picture's half (0 top, 1 bottom) from the picture to its banks, by SCU level 1 DMA a line at
+// a time (level 1 moves at most 4 KB, and its registers aren't level 0's, which the main loop may be using
+// for the drive); in an interrupt, done before it returns.
+#define SCU_D1R         REG32(0x25FE0020)
+#define SCU_D1W         REG32(0x25FE0024)
+#define SCU_D1C         REG32(0x25FE0028)
+#define SCU_D1AD        REG32(0x25FE002C)
+#define SCU_D1EN        REG32(0x25FE0030)
+#define SCU_D1MD        REG32(0x25FE0034)
+#define DSTA_D1_BUSY    0x00020300  // level 1 waiting, moving, or put aside for level 0
+
+static void copyHalf(int32_t half)
+{
+    volatile uint16_t* l0 = half ? &VDP2_CYCB0L : &VDP2_CYCA0L;
+    volatile uint16_t* l1 = half ? &VDP2_CYCB1L : &VDP2_CYCA1L;
+    volatile uint16_t* u0 = half ? &VDP2_CYCB0U : &VDP2_CYCA0U;
+    volatile uint16_t* u1 = half ? &VDP2_CYCB1U : &VDP2_CYCA1U;
+    *l0 = *u0 = *l1 = *u1 = kSlotsCpu;
+    const int32_t first = half ? gLines / 2 : 0;
+    const int32_t last = half ? gLines : gLines / 2;
+    for (int32_t y = first; y < last; y++)
+    {
+        while (SCU_DSTA & DSTA_D1_BUSY);
+        SCU_D1R = uintptr_t(gMem->picture + y * WIDTH);
+        SCU_D1W = uintptr_t(gBitmap + (gRaceFirst + y) * PITCH);
+        SCU_D1C = WIDTH * 4;
+        SCU_D1AD = 0x101;
+        SCU_D1MD = 0x07;
+        SCU_D1EN = 0x101;
+    }
+    while (SCU_DSTA & DSTA_D1_BUSY);
+    *l0 = *u0 = *l1 = *u1 = kSlotsBitmap;
+}
+
+// The next frame out of the ring, decoded, and (but for the one-buffer picture) into the hidden half.
 static void prepare(const Pending& p, int32_t hiddenHalf)
 {
     uint32_t t0 = fmvHostCycles();
+    gLive.where = FMV_AT_COPY;
     streamCopy(gMem->frame, p.at, (p.bytes + 3) & ~3u);
     uint32_t t1 = fmvHostCycles();
     const int32_t split = splitAt(gMem->frame, p.bytes);
@@ -402,12 +544,18 @@ static void prepare(const Pending& p, int32_t hiddenHalf)
     gJob.bytes = p.bytes;
     gJob.first = split;
     fmvHostSlaveRun(slaveDecode, &gJob);
-    cpkDecode(gMem->frame, p.bytes, gMem->picture, WIDTH, &gMem->books[0], 0, split);
+    gLive.where = FMV_AT_DECODE;
+    decode(gMem->frame, p.bytes, 0, 0, split);
+    gLive.where = FMV_AT_SLAVE;
     fmvHostSlaveWait();
+    gLive.where = FMV_AT_VRAM;
     uint32_t t2 = fmvHostCycles();
-    volatile uint32_t* dst = gBitmap + (hiddenHalf ? HALF_LINES : 0) * PITCH;
-    for (int32_t y = 0; y < gLines; y++) {
-        dma(uintptr_t(gMem->picture + y * WIDTH), uintptr_t(dst + y * PITCH), WIDTH * 4, false);
+    // a line's pixels: 320 32-bit words in 24-bit (the bitmap's lines 2 KB apart), 160 in 15-bit (1 KB)
+    const uint32_t words = g15 ? WIDTH / 2 : WIDTH;
+    const uint32_t stride = g15 ? PITCH / 2 : PITCH;
+    volatile uint32_t* dst = gBitmap + (hiddenHalf ? (g15 ? HALF_LINES15 : HALF_LINES) : 0) * stride;
+    for (int32_t y = 0; y < gLines && !gRace; y++) {
+        dma(uintptr_t(gMem->picture + y * words), uintptr_t(dst + y * stride), words * 4, false);
     }
     uint32_t t3 = fmvHostCycles();
     gStats->copyMost = t1 - t0 > gStats->copyMost ? t1 - t0 : gStats->copyMost;
@@ -422,6 +570,7 @@ static volatile int32_t gFlipAt;    // the vertical blank to flip at, or -1
 static volatile uint32_t gDue;      // the vertical blank that frame was due in
 static volatile int32_t gShown;     // the frame on screen, -1 none
 static volatile int32_t gHalf;      // the half on screen
+static volatile bool gTopCopied;    // the one-buffer picture's next frame has its top half in
 static volatile bool gKeying;       // the slots start at gKeyon
 static volatile bool gSounding;
 static volatile uint32_t gKeyon;    // the vertical blank the sound starts in: its play position 0
@@ -429,6 +578,16 @@ static volatile uint32_t gKeyon;    // the vertical blank the sound starts in: i
 static void onVblank()
 {
     uint32_t v = fmvHostVblanks();
+    gLive.arrived = gArrived;
+    gLive.parse = gParse;
+    gLive.doneTo = gDoneTo;
+    gLive.queueHead = gQueueHead;
+    gLive.queueTail = gQueueTail;
+    gLive.soundWr = gSoundWr;
+    gLive.cdFailed = gStats->cdFailed;
+    gLive.shown = gShown;
+    gLive.sounding = gSounding;
+    gLive.vblank = v;
     if (gKeying && int32_t(v - gKeyon) >= 0)
     {
         slotsOn();
@@ -438,11 +597,20 @@ static void onVblank()
     if (gSounding) {
         *(volatile uint32_t*)(SOUND_RAM + SHARED + S_PLAY) = (v - gKeyon) * SAMPLES_PER_100_VBL / 100;
     }
-    if (gFlipAt >= 0 && int32_t(v - uint32_t(gFlipAt)) >= 0)
+    // the one-buffer picture shows a frame once its top half went in during the field before
+    if (gFlipAt >= 0 && int32_t(v - uint32_t(gFlipAt)) >= 0 && (!gRace || gTopCopied))
     {
         int32_t late = int32_t(v - gDue);
-        gHalf ^= 1;
-        cycles(gHalf);
+        if (gRace)
+        {
+            copyHalf(1);
+            gTopCopied = false;
+        }
+        else
+        {
+            gHalf ^= 1;
+            cycles(gHalf);
+        }
         gShown = gShown + 1;
         gFlipAt = -1;
         if (late > 0)
@@ -450,6 +618,17 @@ static void onVblank()
             gStats->late++;
             gStats->mostLate = uint32_t(late) > gStats->mostLate ? uint32_t(late) : gStats->mostLate;
         }
+    }
+}
+
+// The beam just past the one-buffer picture's top half: a frame to show in the next vertical blank has its top
+// half put in now.
+static void onLine()
+{
+    if (gFlipAt >= 0 && !gTopCopied && int32_t(fmvHostVblanks() + 1 - uint32_t(gFlipAt)) >= 0)
+    {
+        copyHalf(0);
+        gTopCopied = true;
     }
 }
 
@@ -498,17 +677,20 @@ static uint32_t trackFad()
     return fad;
 }
 
-bool fmvPlayStream(const char* name, const FmvMemory& mem, bool skippable, FmvStats* stats)
+bool fmvPlayStream(const char* name, const FmvMemory& mem, bool skippable, int32_t tall, FmvStats* stats)
 {
     memset(stats, 0, sizeof(*stats));
     stats->soundLow = 0x7FFFFFFF;
     cpkInit();
+    cpkInit15(tall == FMV_TALL_24 ? CPK15_DROP : tall);
+    edcInit();
+    gLive.edcBad = gLive.edcFirst = gLive.edcLast = 0;
     gStats = stats;
     gMem = &mem;
 
     uint32_t first, sectors, frames, lines;
     uint32_t fad = trackFad();
-    if (!fad || !find(name, &first, &sectors, &frames, &lines) || lines > HALF_LINES)
+    if (!fad || !find(name, &first, &sectors, &frames, &lines) || lines > 224)
         return false;
 
     gSlots = mem.ringBytes / SECTOR_BYTES;
@@ -523,8 +705,9 @@ bool fmvPlayStream(const char* name, const FmvMemory& mem, bool skippable, FmvSt
     gHalf = 0;
     gKeying = false;
     gSounding = false;
+    gTopCopied = false;
 
-    mode24(int32_t(lines));
+    mode(int32_t(lines), tall);
     soundStart();
     if (cdSectorBytes(CD_SECTOR_MODE2) != 0 || cdStreamStartFad(fad + first, sectors) != 0)
     {
@@ -532,6 +715,9 @@ bool fmvPlayStream(const char* name, const FmvMemory& mem, bool skippable, FmvSt
         return false;
     }
     fmvHostOnVblank(onVblank);
+    if (gRace) {
+        fmvHostOnLine(onLine, gTop + int32_t(lines) / 2 + 2);
+    }
 
     const uint32_t start = fmvHostVblanks();
     uint32_t looked = start - 1;
@@ -541,6 +727,7 @@ bool fmvPlayStream(const char* name, const FmvMemory& mem, bool skippable, FmvSt
     bool skipped = false;
     while (!stats->error)
     {
+        gLive.where = FMV_AT_LOOP;
         uint32_t v = fmvHostVblanks();
         if (v != looked)
         {
@@ -552,7 +739,9 @@ bool fmvPlayStream(const char* name, const FmvMemory& mem, bool skippable, FmvSt
                 break;
             }
         }
+        gLive.where = FMV_AT_PARSE;
         parse();
+        gLive.where = FMV_AT_REST;
 
         // the next frame, once the one before is on screen
         if (!prepared && next < frames && gFlipAt < 0 && gShown == int32_t(next) - 1 && gQueueHead != gQueueTail)
@@ -570,7 +759,7 @@ bool fmvPlayStream(const char* name, const FmvMemory& mem, bool skippable, FmvSt
             // first frame start together, in the next vertical blank
             if (prepared && v - start >= 60 && soundLong(SHARED + S_DECODED) >= 8192)
             {
-                gKeyon = v + 1;
+                gKeyon = v + (gRace ? 2 : 1);     // the one-buffer picture's top half goes in a field ahead
                 gDue = gKeyon;
                 gKeying = true;
                 gFlipAt = int32_t(gKeyon);
@@ -597,6 +786,7 @@ bool fmvPlayStream(const char* name, const FmvMemory& mem, bool skippable, FmvSt
     }
 
     fmvHostOnVblank(nullptr);
+    fmvHostOnLine(nullptr, 0);
     slotsOff();
     stats->soundLow = int32_t(soundLong(SHARED + S_LOW));
     *soundWord(SHARED + S_CMD) = 0;

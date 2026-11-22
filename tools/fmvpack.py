@@ -50,6 +50,20 @@ import lossless  # noqa: E402
 import mdec  # noqa: E402
 
 LADDER = ['q1s16', 'q1s8', 'q2s8', 'q4s8', 'q8s8', 'q16s8', 'q32s8']    # best first
+# videos made from the retail Saturn disc's own pictures (for side-by-side tests, named with --videos): the
+# CPK they come from and their lines. Its Cinepak can't be copied as it is: Sega's encoder lets a strip use
+# codebook entries sent in earlier frames, which the Saturn decoder here doesn't keep.
+RETAIL = {'CORERTL': ('CORELOGO', 200)}
+
+
+def lines_of(name):
+    if name in RETAIL:
+        return RETAIL[name][1]
+    return cinepak.PICTURE.get(name, (cinepak.H, cinepak.TOP))[0]
+
+
+def source_cpk(satfmv, name):
+    return os.path.join(satfmv, (RETAIL[name][0] if name in RETAIL else name) + '.CPK')
 GOP = 12
 FPS = 15
 RATE = 22254
@@ -74,11 +88,15 @@ def item_bytes(payload):
 # --- build ----------------------------------------------------------------------------------------------
 
 def smoothed(ffdir, raw, name, cache):
-    """The video's PS1 picture with its flicker averaged out, as raw RGB frames in the cache: its path."""
+    """The video's PS1 picture with its flicker averaged out (a RETAIL video's picture as it is), as raw RGB
+    frames in the cache: its path."""
     path = os.path.join(cache, f'{name}.rgb')
     if not os.path.exists(path):
-        subprocess.run([ff(ffdir), '-v', 'error', '-y', '-f', 'psxstr', '-i', raw, '-an',
-                        '-vf', cinepak.picture_crop(name) + ',atadenoise', '-fps_mode', 'passthrough',
+        if name in RETAIL:
+            source = ['-i', raw, '-an']
+        else:
+            source = ['-f', 'psxstr', '-i', raw, '-an', '-vf', cinepak.picture_crop(name) + ',atadenoise']
+        subprocess.run([ff(ffdir), '-v', 'error', '-y'] + source + ['-fps_mode', 'passthrough',
                         '-f', 'rawvideo', '-pix_fmt', 'rgb24', path + '.part'], check=True, capture_output=True)
         os.replace(path + '.part', path)
     return path
@@ -193,6 +211,9 @@ def cmd_build(args):
     os.makedirs(cache, exist_ok=True)
     raws = {}
     for name in names:
+        if name in RETAIL:
+            raws[name] = source_cpk(args.satfmv, name)
+            continue
         raws[name] = os.path.join(cache, f'{name}.str')
         if not os.path.exists(raws[name]) or os.path.getsize(raws[name]) != len(vids[name]):
             with open(raws[name], 'wb') as f:
@@ -200,8 +221,7 @@ def cmd_build(args):
     with ProcessPoolExecutor(args.jobs) as pool:
         rgbs = dict(zip(names, pool.map(smoothed, [args.ffmpeg] * len(names), [raws[n] for n in names], names,
                                         [cache] * len(names))))
-        jobs = [(args.ffmpeg, rgbs[n], n, cinepak.PICTURE.get(n, (cinepak.H, 0))[0], s, cache)
-                for n in names for s in LADDER]
+        jobs = [(args.ffmpeg, rgbs[n], n, lines_of(n), s, cache) for n in names for s in LADDER]
         jobs.sort(key=lambda j: -os.path.getsize(j[1]))
         for name, setting in pool.map(encode, jobs):
             pass
@@ -212,7 +232,7 @@ def cmd_build(args):
         sizes = {s: json.load(open(os.path.join(cache, f'{name}_{s}.json'))) for s in LADDER}
         n = len(sizes[LADDER[0]])
         assert all(len(v) == n for v in sizes.values()), name
-        chunks, _ = sound_of(args.ffmpeg, os.path.join(args.satfmv, name + '.CPK'), n)
+        chunks, _ = sound_of(args.ffmpeg, source_cpk(args.satfmv, name), n)
         level = plan_video(sizes, [len(c) for c in chunks])
         frames_at = {}
         frames = []
@@ -221,7 +241,7 @@ def cmd_build(args):
             if s not in frames_at:
                 frames_at[s] = frames_of(args.ffmpeg, os.path.join(cache, f'{name}_{s}.avi'))
             frames.append(frames_at[s][k])
-        lines, _ = cinepak.PICTURE.get(name, (cinepak.H, cinepak.TOP))
+        lines = lines_of(name)
         data = stream_bytes(cinepak.W, lines, frames, chunks)
         first = len(track) // SECTOR
         sectors = -(-len(data) // SECTOR)
@@ -329,8 +349,11 @@ def check_video(job):
     for s in sorted(set(groups)):
         pipes[s] = subprocess.Popen([ff(ffdir), '-v', 'error', '-i', os.path.join(cache, f'{name}_{s}.avi'),
                                      '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], stdout=subprocess.PIPE)
-    ps1 = subprocess.Popen([ff(ffdir), '-v', 'error', '-f', 'psxstr', '-i', os.path.join(cache, f'{name}.str'), '-an',
-                            '-vf', cinepak.picture_crop(name), '-fps_mode', 'passthrough', '-f', 'rawvideo',
+    if name in RETAIL:
+        source = ['-i', source_cpk(satfmv, name), '-an']
+    else:
+        source = ['-f', 'psxstr', '-i', os.path.join(cache, f'{name}.str'), '-an', '-vf', cinepak.picture_crop(name)]
+    ps1 = subprocess.Popen([ff(ffdir), '-v', 'error'] + source + ['-fps_mode', 'passthrough', '-f', 'rawvideo',
                             '-pix_fmt', 'rgb24', '-'], stdout=subprocess.PIPE)
     cinepak.H = h       # the decoder's picture
     dec = cinepak.Decoder()
@@ -363,7 +386,7 @@ def check_video(job):
         p.wait()
 
     sound = lossless.decode(b''.join(chunks))
-    _, want = sound_of(ffdir, os.path.join(satfmv, name + '.CPK'), frames_n)
+    _, want = sound_of(ffdir, source_cpk(satfmv, name), frames_n)
     sound_ok = sound.shape == want.shape and np.array_equal(sound, want)
     late, fullest = drive_late(items, deadlines)
     if frames_seen != frames_n:
