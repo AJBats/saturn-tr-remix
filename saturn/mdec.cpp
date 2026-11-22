@@ -42,9 +42,18 @@ static const CodeGroup kCodes[] = {
 // 5 or more leading zeros (the escape, or a long code).
 static uint16_t gShort[1 << SHORT_BITS];
 // Codes with 6 to 11 leading zeros: the MDEC values their x bits index.
-static uint16_t gLong[6][16];
-// v + 512 -> v clamped to -128..127, plus 128
-static uint8_t gClamp[1024];
+uint16_t gMdecLong[6][16];
+// mdecparse.s's: the code the next 8 bits start with, len x 4 | (run + 1) x 8 << 8 | level << 16 (run + 1
+// of 0 the end of block; len 0 for the escape, the long codes and the 9-bit codes 00100xxxs, whose 8
+// bits index gMdecCodes9, level positive: their sign is the 9th bit); 2^n, its shifts by a register's
+// amount
+uint32_t gMdecCodes8[256];
+uint32_t gMdecCodes9[8];
+uint32_t gMdecPow2[32];
+// v + 512 -> v clamped to -128..127, plus 128; and the same as 0x8000 | value, for blue in
+// mdeccolour.s, whose shift by 16 puts VDP2's top bit in place with it
+uint8_t gMdecClamp[1024];
+uint16_t gMdecClampB[1024];
 
 // the 64 quant table bytes for STR movies, in zigzag order (psx-spx)
 static const uint8_t kQuant[64] = {
@@ -108,6 +117,15 @@ void mdecInit()
         gShort[i] = 0;
     }
     fillShort(2, 2, END_OF_BLOCK);
+    for (uint32_t i = 0; i < 256; i++) {
+        gMdecCodes8[i] = 0;
+    }
+    for (uint32_t i = 0; i < 64; i++) {
+        gMdecCodes8[(2 << 6) | i] = 2 * 4;       // "10": the end of block
+    }
+    for (uint32_t n = 0; n < 32; n++) {
+        gMdecPow2[n] = 1u << n;
+    }
     for (const CodeGroup& g : kCodes)
     {
         int32_t plen;
@@ -121,7 +139,7 @@ void mdecInit()
         {
             if (zeros >= 6)
             {
-                gLong[zeros - 6][x] = g.values[x];
+                gMdecLong[zeros - 6][x] = g.values[x];
                 continue;
             }
             int32_t run = g.values[x] >> 10, level = g.values[x] & 0x3FF;
@@ -131,11 +149,24 @@ void mdecInit()
                 uint32_t code = (prefix << xbits | x) << 1 | s;
                 int32_t l = s ? -level : level;
                 fillShort(code, length, uint16_t(length | run << 4 | (l & 63) << 10));
+                uint32_t entry = (run + 1) * 8 << 8 | uint32_t(l & 0xFFFF) << 16;
+                if (length <= 8)
+                {
+                    for (uint32_t i = 0; i < (1u << (8 - length)); i++) {
+                        gMdecCodes8[(code << (8 - length)) + i] = entry | length * 4;
+                    }
+                }
+                else if (!s)
+                {
+                    gMdecCodes9[x] = entry | length * 4;
+                }
             }
         }
     }
-    for (int32_t v = -512; v < 512; v++) {
-        gClamp[v + 512] = uint8_t((v < -128 ? -128 : v > 127 ? 127 : v) + 128);
+    for (int32_t v = -512; v < 512; v++)
+    {
+        gMdecClamp[v + 512] = uint8_t((v < -128 ? -128 : v > 127 ? 127 : v) + 128);
+        gMdecClampB[v + 512] = uint16_t(0x8000 | gMdecClamp[v + 512]);
     }
 }
 
@@ -229,7 +260,7 @@ int mdecParseBlock(MdecBits* b, const MdecCoef* coefs, int32_t* block)
             }
             int32_t xbits = zeros == 6 ? 3 : 4;
             uint32_t w = b->buf << (zeros + 1);
-            uint32_t v = gLong[zeros - 6][w >> (32 - xbits)];
+            uint32_t v = gMdecLong[zeros - 6][w >> (32 - xbits)];
             run = v >> 10;
             level = (w << xbits) & 0x80000000 ? -int32_t(v & 0x3FF) : int32_t(v & 0x3FF);
             consume(b, zeros + xbits + 2);
@@ -310,8 +341,8 @@ void mdecColour(int32_t b[6][64], uint32_t* dst, int pitch)
                 for (int32_t dx = 0; dx < 2; dx++)
                 {
                     uint32_t v = y[dx];
-                    d[dx] = 0x80000000u | uint32_t(gClamp[((v + bl) >> FRAC) & 1023]) << 16
-                          | uint32_t(gClamp[((v + g) >> FRAC) & 1023]) << 8 | gClamp[((v + r) >> FRAC) & 1023];
+                    d[dx] = 0x80000000u | uint32_t(gMdecClamp[((v + bl) >> FRAC) & 1023]) << 16
+                          | uint32_t(gMdecClamp[((v + g) >> FRAC) & 1023]) << 8 | gMdecClamp[((v + r) >> FRAC) & 1023];
                 }
             }
         }
@@ -331,11 +362,12 @@ void mdecDecode(const MdecRecord* record, int part, uint32_t* picture, int pitch
     int32_t row = m / MB_COLS, col = m % MB_COLS;
     for (; m < end; m++)
     {
+        uint32_t ac = mdecParseMbAsm(&bits, coefs, blocks);
         for (int32_t i = 0; i < 6; i++)
         {
-            if (mdecParseBlock(&bits, coefs, blocks[i]))
+            if (ac & (1 << i))
             {
-                mdecIdctAsm(blocks[i]);
+                mdecIdct(blocks[i]);    // GCC's beats mdecidct.s on the Saturn
                 continue;
             }
             int32_t* b = blocks[i];
@@ -352,7 +384,7 @@ void mdecDecode(const MdecRecord* record, int part, uint32_t* picture, int pitch
                 b[j + 7] = dc;
             }
         }
-        mdecColour(blocks, picture + row * 16 * pitch + col * 16, pitch);
+        mdecColourAsm(blocks, picture + row * 16 * pitch + col * 16, pitch);
         if (++col == MB_COLS)
         {
             col = 0;

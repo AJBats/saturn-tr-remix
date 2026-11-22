@@ -45,8 +45,17 @@ struct MdecCoef
 void mdecPartStart(const MdecRecord* record, int part, MdecBits* bits, MdecCoef* coefs);
 // Returns whether the block has any AC value (else its IDCT is its DC everywhere).
 int mdecParseBlock(MdecBits* bits, const MdecCoef* coefs, int32_t* block);
+// mdecparse.s: a macroblock's six blocks, as mdecParseBlock parses them; bit i for block i's AC values
+extern "C" uint32_t mdecParseMbAsm(MdecBits* bits, const MdecCoef* coefs, int32_t blocks[6][64]);
+extern "C" uint32_t gMdecCodes8[256];
+extern "C" uint32_t gMdecCodes9[8];
+extern "C" uint32_t gMdecPow2[32];
+extern "C" uint16_t gMdecLong[6][16];
 void mdecIdct(int32_t* block);                      // the C, the assembly's yardstick
 extern "C" void mdecIdctAsm(int32_t* block);        // mdecidct.s: the same, bit for bit
-void mdecColour(int32_t blocks[6][64], uint32_t* dst, int pitch);
+void mdecColour(int32_t blocks[6][64], uint32_t* dst, int pitch);  // the C, the assembly's yardstick
+extern "C" void mdecColourAsm(int32_t blocks[6][64], uint32_t* dst, int pitch);   // mdeccolour.s
+extern "C" uint8_t gMdecClamp[1024];
+extern "C" uint16_t gMdecClampB[1024];
 
 #endif

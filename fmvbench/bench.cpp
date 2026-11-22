@@ -523,11 +523,14 @@ static void decodeBench()
 
     // the stages apart, on the master, one frame (CANYON 1500), the timer read around each
     const MdecRecord* r = (const MdecRecord*)gFmvFrames[2].record;
-    // and the C IDCT against the assembly on every block of every frame
+    // and the assembly against the C, every macroblock of every frame: the parse (blocks, AC bits and
+    // the bit reader after), the IDCT, the colour
     static int32_t blocks[6][64], copy[6][64];
-    MdecBits bits;
+    static uint32_t pixC[16 * 16], pixAsm[16 * 16];
+    MdecBits bits, bitsAsm;
     MdecCoef coefs[64];
-    uint32_t parse = 0, idctC = 0, idctAsm = 0, colour = 0, differ = 0;
+    uint32_t parseC = 0, parseAsm = 0, idctC = 0, idctAsm = 0, colourC = 0, colourAsm = 0;
+    uint32_t badParse = 0, badIdct = 0, badColour = 0;
     cycles();           // its wraps counted afresh after the slow timer
     for (int32_t f = 0; f < FMV_BENCH_FRAMES; f++)
     {
@@ -536,62 +539,84 @@ static void decodeBench()
         for (int32_t part = 0; part < 2; part++)
         {
             mdecPartStart(fr, part, &bits, coefs);
+            bitsAsm = bits;
             int32_t m = part ? fr->split : 0, end = part ? fr->mbs : fr->split;
             for (; m < end; m++)
             {
                 uint32_t t0 = cycles();
+                uint32_t ac = 0;
                 for (int32_t i = 0; i < 6; i++) {
-                    mdecParseBlock(&bits, coefs, blocks[i]);
+                    ac |= mdecParseBlock(&bits, coefs, blocks[i]) << i;
                 }
                 uint32_t t1 = cycles();
+                uint32_t acAsm = mdecParseMbAsm(&bitsAsm, coefs, copy);
+                uint32_t t2 = cycles();
+                badParse += ac != acAsm || bits.buf != bitsAsm.buf || bits.cnt != bitsAsm.cnt
+                            || bits.p != bitsAsm.p;
                 for (int32_t i = 0; i < 6; i++)
                 {
                     for (int32_t j = 0; j < 64; j++) {
-                        copy[i][j] = blocks[i][j];
+                        badParse += blocks[i][j] != copy[i][j];
                     }
-                }
-                uint32_t t2 = cycles();
-                for (int32_t i = 0; i < 6; i++) {
-                    mdecIdct(blocks[i]);
                 }
                 uint32_t t3 = cycles();
                 for (int32_t i = 0; i < 6; i++) {
-                    mdecIdctAsm(copy[i]);
+                    mdecIdct(blocks[i]);
                 }
                 uint32_t t4 = cycles();
+                for (int32_t i = 0; i < 6; i++) {
+                    mdecIdctAsm(copy[i]);
+                }
+                uint32_t t5 = cycles();
                 for (int32_t i = 0; i < 6; i++)
                 {
                     for (int32_t j = 0; j < 64; j++) {
-                        differ += blocks[i][j] != copy[i][j];
+                        badIdct += blocks[i][j] != copy[i][j];
                     }
                 }
-                uint32_t t5 = cycles();
-                mdecColour(blocks, gPicture + (m / 20) * 16 * PIC_W + (m % 20) * 16, PIC_W);
                 uint32_t t6 = cycles();
+                mdecColour(blocks, pixC, 16);
+                uint32_t t7 = cycles();
+                mdecColourAsm(blocks, pixAsm, 16);
+                uint32_t t8 = cycles();
+                for (int32_t i = 0; i < 256; i++) {
+                    badColour += pixC[i] != pixAsm[i];
+                }
                 if (timed)
                 {
-                    parse += t1 - t0;
-                    idctC += t3 - t2;
-                    idctAsm += t4 - t3;
-                    colour += t6 - t5;
+                    parseC += t1 - t0;
+                    parseAsm += t2 - t1;
+                    idctC += t4 - t3;
+                    idctAsm += t5 - t4;
+                    colourC += t7 - t6;
+                    colourAsm += t8 - t7;
                 }
             }
         }
     }
     uint32_t n = r->mbs * 6;
     char text[TEXT_COLUMNS + 1];
-    char* p = put(text, "cyc/blk prs ");
-    p = putInt(p, parse / n, 0);
+    char* p = put(text, "cyc/blk C/asm: prs ");
+    p = putInt(p, parseC / n, 0);
+    p = put(p, "/");
+    p = putInt(p, parseAsm / n, 0);
     p = put(p, " idct ");
     p = putInt(p, idctC / n, 0);
     p = put(p, "/");
-    p = putInt(p, idctAsm / n, 0);
-    p = put(p, " col ");
-    putInt(p, colour / n, 0);
+    putInt(p, idctAsm / n, 0);
     add(text);
-    p = put(text, "IDCT asm against C: ");
-    p = putInt(p, differ, 0);
-    put(p, differ ? " VALUES DIFFER" : " values differ");
+    p = put(text, "  colour ");
+    p = putInt(p, colourC / n, 0);
+    p = put(p, "/");
+    putInt(p, colourAsm / n, 0);
+    add(text);
+    p = put(text, "asm against C: prs ");
+    p = putInt(p, badParse, 0);
+    p = put(p, " idct ");
+    p = putInt(p, badIdct, 0);
+    p = put(p, " col ");
+    p = putInt(p, badColour, 0);
+    put(p, badParse | badIdct | badColour ? " DIFFER" : " differ");
     add(text);
 
     p = put(text, "letterboxed, 2 CPUs: ");
