@@ -318,13 +318,17 @@ decoders stay in the binary, because the PlayStation disc is optional.
    checking sound and picture stay in step.
 6. **Release:** discs.json, the builder's text, the README.
 
-## Open questions for the user
+## Decisions
 
-1. **Colour depth.** 24-bit matches the PlayStation; the PlayStation's own player
-   asks for 24-bit. It costs all of VDP2's video RAM during a video, and it depends on
-   step 3. 15-bit is the retail Saturn's depth and leaves banding in the dark scenes
-   (the café, the prison). Recommended: 24-bit, with 15-bit as the fallback if the
-   bench says no.
-2. **CORELOGO in 15-bit.** Two 208-line 24-bit pictures don't fit in VDP2's memory.
-   The alternative is a single 24-bit buffer filled during vertical blank, which may
-   tear.
+1. **24-bit colour** (the user, 2026-11-21), as the PlayStation shows it. 15-bit is
+   the fallback only if step 3 rules 24-bit out.
+2. **CORELOGO** is the Core Design logo video (the first one at boot), and the only
+   one whose picture fills its whole 320x208 frame. Two 208-line 24-bit pictures need
+   416 lines, and VDP2's memory holds 256, so it can't be double-buffered in 24-bit.
+   Step 3 decides between:
+   - **One 24-bit picture,** updated in place. Each line is written just after the
+     beam has drawn it and before the beam comes round again, so no refresh shows
+     half a frame. The writes must keep behind the beam and finish within a refresh
+     plus the picture's own scan: 266 KB at about 9 MB/s, into the banks VDP2 is
+     reading at that moment.
+   - **15-bit, double-buffered,** like the other videos' fallback.
