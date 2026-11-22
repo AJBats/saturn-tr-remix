@@ -136,9 +136,9 @@ HW_LOG sector checks therefore carry over.
   entry for each chunk: offset, size, time (`FFFFFFFFh` for sound), 0. `fmv.cpp`
   hard-codes Cinepak's time base 30 and 22,254 Hz; both are read from the file instead.
 - **Sound chunks:** the PlayStation's XA groups, unchanged, about half a second each
-  (11 sectors' worth, about 23.8 KB). They're placed ahead of their video, as Sega's
-  files do. Half-second chunks keep the table under the player's 64 KB header limit
-  (CANYON: 2,709 frames + about 310 sound chunks = about 48 KB).
+  (9 sectors' worth: 18,144 samples a channel, 0.48 s, 20.7 KB). They're placed ahead
+  of their video, as Sega's files do. Half-second chunks keep the table under the
+  player's 64 KB header limit (CANYON: 2,709 frames + 378 sound chunks = 49 KB).
 - **Video chunks**, one a frame:
   - **Header:** the frame's quantiser scale, then for each CPU's part: its first
     macroblock, its macroblock count, and its byte offset.
