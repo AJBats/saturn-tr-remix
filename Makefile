@@ -157,7 +157,7 @@ M68K_HEADERS := $(patsubst saturn/%.68k,$(BUILD)/gen/%_m68k.h,$(wildcard saturn/
 HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h renderer/*.h) $(DSP_HEADERS) $(M68K_HEADERS) \
 	$(BUILD)/gen/depth_hints.h $(BUILD)/gen/occluders.h $(FLAGS_FILE)
 
-.PHONY: all disc levels dspbench vdp1bench fmvbench cpkbench cdbench lab extract extract-ps1 ghidra check-toolchain check-python
+.PHONY: all disc levels dspbench vdp1bench fmvbench cpkbench cdbench lossbench lab extract extract-ps1 ghidra check-toolchain check-python
 
 # keep intermediate files (0MAIN.BIN) produced through pattern rules
 .SECONDARY:
@@ -426,6 +426,38 @@ $(CDBENCH)/0MAIN.elf: $(patsubst %,$(CDBENCH)/obj/%.o,$(CDBENCH_SRC)) saturn/sat
 
 cdbench: $(CDBENCH)/disc/tomb.cue
 $(eval $(call DISC_RULE,$(CDBENCH),STREAM.BIN=$(CDBENCH)/gen/STREAM.BIN,$(CDBENCH)/gen/FORM2.DAT))
+
+# The FMVs' sound on the sound CPU (lossbench/bench.cpp, saturn/fmvsound.68k, docs/ps1-fmv.md): a program of
+# its own, on a disc of its own: make lossbench. Needs ffmpeg (FFMPEG_DIR) for the retail disc's CANYON sound,
+# which tools/lossless.py benchclip packs into build/lossbench/gen/clip.h.
+LOSSBENCH := build/lossbench
+LOSSBENCH_SRC := lossbench/bench.cpp dspbench/platform.cpp dspbench/crt0.s saturn/font.cpp
+LOSSBENCH_FLAGS := -m2 -mb -O2 -Wall -Idspbench -Isaturn -I$(LOSSBENCH)/gen -ffunction-sections
+LOSSBENCH_CLIP := $(ER)/disc/files/FMV/CANYON.CPK 121.7 8
+
+$(LOSSBENCH)/gen/clip.h: tools/lossless.py
+	@mkdir -p $(@D)
+	$(PY) tools/lossless.py benchclip $(LOSSBENCH_CLIP) $@
+
+$(LOSSBENCH)/gen/fmvsound_m68k.h: saturn/fmvsound.68k tools/m68kasm.py
+	@mkdir -p $(@D)
+	$(PY) tools/m68kasm.py $< $@ fmvsound $(M68K_PREFIX)
+
+$(LOSSBENCH)/obj/lossbench/bench.cpp.o: $(LOSSBENCH)/gen/clip.h $(LOSSBENCH)/gen/fmvsound_m68k.h
+
+$(LOSSBENCH)/obj/%.cpp.o: %.cpp dspbench/platform.h saturn/hw.h saturn/font.h | check-toolchain
+	@mkdir -p $(@D)
+	$(CXX) $(LOSSBENCH_FLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit 		-fno-asynchronous-unwind-tables -c $< -o $@
+
+$(LOSSBENCH)/obj/%.s.o: %.s | check-toolchain
+	@mkdir -p $(@D)
+	$(CC) $(LOSSBENCH_FLAGS) -c $< -o $@
+
+$(LOSSBENCH)/0MAIN.elf: $(patsubst %,$(LOSSBENCH)/obj/%.o,$(LOSSBENCH_SRC)) saturn/saturn.ld
+	$(CXX) $(LOSSBENCH_FLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
+
+lossbench: $(LOSSBENCH)/disc/tomb.cue
+$(eval $(call DISC_RULE,$(LOSSBENCH),))
 
 # The clean-room renderer's lab (lab/lab.cpp): a program of its own, on a disc
 # of its own with a captured frame (tools/capture.py) packed as its scene:

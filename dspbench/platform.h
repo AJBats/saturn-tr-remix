@@ -34,6 +34,9 @@ void cachePurge();
 void textClear();
 void textRow(int32_t row, const char* text);
 
+// The sound CPU (the 68000) running or held in reset (SMPC SNDON / SNDOFF).
+void soundCpu(bool run);
+
 // Starts task(arg) on the slave; the previous one must have returned.
 void slaveRun(void (*task)(void*), void* arg);
 void slaveWait();

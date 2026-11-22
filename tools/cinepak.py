@@ -6,6 +6,9 @@ decoder (`check`). Written from the Cinepak bitstream as saturn/fmv.cpp reads it
 
     cinepak.py check TRACK [--clips NAME:START:COUNT:Q:STRIPS ...]   our decode vs ffmpeg's, and the strip rule
     cinepak.py benchframes TRACK OUT.h                              sequences packed for cpkbench
+    cinepak.py encode TRACK OUTDIR [--settings q1s16 ...] [--videos NAME ...] [--jobs N]
+                                                                    whole videos encoded: each frame's bytes and
+                                                                    the luma PSNR against the PS1, to OUTDIR/*.json
 
 TRACK is the PS1 disc's first track, raw (MODE2/2352). ffmpeg comes from --ffmpeg DIR or $FFMPEG_DIR.
 
@@ -290,6 +293,64 @@ def cmd_benchframes(args):
     return 0
 
 
+# --- whole videos ---------------------------------------------------------------------------------------
+
+PICTURE = {'CORELOGO': (208, 0)}    # lines and first line of the PS1 frame's picture; the rest are 120 from 44
+
+
+def picture_crop(name):
+    lines, top = PICTURE.get(name, (H, TOP))
+    return f'crop={W}:{lines}:0:{top}'
+
+
+def encode_video(job):
+    """One video at one setting: (name, setting, frame sizes, PSNR of Y, U, V against the PS1's picture)."""
+    import json
+    import re
+    ffdir, raw_path, name, setting, outdir = job
+    denoise = setting.startswith('d')       # dq1s16: the PS1 picture's flicker from frame to frame smoothed first
+    q, strips = (int(x) for x in setting.lstrip('d')[1:].split('s'))
+    avi = os.path.join(outdir, f'{name}_{setting}.avi')
+    crop = picture_crop(name)
+    filters = crop + (',atadenoise' if denoise else '')
+    subprocess.run([os.path.join(ffdir, 'ffmpeg'), '-v', 'error', '-y', '-f', 'psxstr', '-i', raw_path, '-an',
+                    '-vf', filters, '-fps_mode', 'passthrough', '-c:v', 'cinepak', '-q:v', str(q), '-max_strips',
+                    str(strips), '-max_extra_cb_iterations', '4', '-g', '12', avi], check=True, capture_output=True)
+    sizes = [int(x) for x in subprocess.run(
+        [os.path.join(ffdir, 'ffprobe'), '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=size',
+         '-of', 'csv=p=0', avi], capture_output=True, text=True, check=True).stdout.split()]
+    log = subprocess.run([os.path.join(ffdir, 'ffmpeg'), '-v', 'info', '-i', avi, '-f', 'psxstr', '-i', raw_path,
+                          '-lavfi', f'[1:v]{crop}[ref];[0:v][ref]psnr', '-f', 'null', '-'],
+                         capture_output=True, text=True).stderr
+    m = re.search(r'PSNR y:([\d.inf]+) u:([\d.inf]+) v:([\d.inf]+)', log)
+    psnr = [float(x) for x in m.groups()] if m else None
+    with open(os.path.join(outdir, f'{name}_{setting}.json'), 'w') as f:
+        json.dump({'name': name, 'setting': setting, 'sizes': sizes, 'psnr': psnr}, f)
+    os.remove(avi)
+    return name, setting, sizes, psnr
+
+
+def cmd_encode(args):
+    from concurrent.futures import ProcessPoolExecutor
+    vids = mdec.videos(args.track)
+    os.makedirs(args.out, exist_ok=True)
+    jobs = []
+    for name in args.videos or sorted(vids):
+        raw_path = os.path.join(args.out, f'{name}.str')
+        with open(raw_path, 'wb') as f:
+            f.write(vids[name])
+        for setting in args.settings:
+            if not os.path.exists(os.path.join(args.out, f'{name}_{setting}.json')):
+                jobs.append((args.ffmpeg, raw_path, name, setting, args.out))
+    # the longest first, so the pool ends together
+    jobs.sort(key=lambda j: -os.path.getsize(j[1]))
+    with ProcessPoolExecutor(args.jobs) as pool:
+        for name, setting, sizes, psnr in pool.map(encode_video, jobs):
+            kbs = sum(sizes) / len(sizes) * 15 / 1024
+            print(f'{name:9s} {setting:6s} {len(sizes):5d} frames {kbs:6.1f} KB/s  PSNR {psnr}', flush=True)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -299,10 +360,16 @@ def main():
     b = sub.add_parser('benchframes')
     b.add_argument('track')
     b.add_argument('out')
-    for p in (c, b):
+    e = sub.add_parser('encode')
+    e.add_argument('track')
+    e.add_argument('out')
+    e.add_argument('--settings', nargs='+', default=['q1s16', 'q1s8', 'q2s8'])
+    e.add_argument('--videos', nargs='+')
+    e.add_argument('--jobs', type=int, default=4)
+    for p in (c, b, e):
         p.add_argument('--ffmpeg', default=os.environ.get('FFMPEG_DIR', ''))
     args = ap.parse_args()
-    return {'check': cmd_check, 'benchframes': cmd_benchframes}[args.cmd](args)
+    return {'check': cmd_check, 'benchframes': cmd_benchframes, 'encode': cmd_encode}[args.cmd](args)
 
 
 if __name__ == '__main__':

@@ -577,6 +577,57 @@ Against the clips' best settings (q1: CAFE 149, PRISON 199, CANYON 277 with 8
 strips, 336 with 16), Form 2 with lossless sound fits all but CANYON's 16 strips,
 before any buffering.
 
+**The sound on the 68000, measured 2026-11-22** (`make lossbench`,
+`saturn/fmvsound.68k`, `tools/lossless.py`). The sound CPU decodes the packed
+sound out of sound RAM into the two rings the slots play from. So the SH-2s only
+copy packed chunks in (about 63 KB/s), and sound RAM holds a 256 KB ring of them,
+about 4 seconds: the sound side of the buffer.
+- **The first format, Rice coding, was too slow.** It packed to 68.4% of the PCM,
+  but cost 315 cycles a sample in Mednafen on the clip that packs worst, against the
+  44,530 samples a second playback needs (35,804 a second). The 68000 has no barrel
+  shifter, and with sound RAM's waits a bit pulled from a bit stream costs it about
+  27 cycles.
+- **The format now has no bit stream.** Each block of 128 samples keeps each
+  residual as a byte, a 2- or 4-bit field and a byte, or 16 bits whole. A sample is
+  then one table lookup and about 13 instructions. It packs all ten videos' sound
+  to 72.6% (57.5% PYRAMID to 79.3% VISION), about 63 KB/s against the PCM's 86.9.
+  Measured on PC, a 6/8/10/12-bit choice would reach 71.8%, and Rice 68.4%.
+- **Saturn:** 91,044 samples a second, 124 cycles a sample (Mednafen 92,067), with
+  the two slots playing or not, so the 68000 is about 49% busy. The output equals
+  `tools/lossless.py`'s sample for sample. Played in real time from the packed ring,
+  the clip's whole 8 seconds, four times over, the decoder stayed at least 16,012
+  samples ahead of the slots. Both rings matched the PC at the end of every round:
+  the predictors carry from chunk to chunk, so a slip anywhere would show. An OBS
+  recording of the playback is the clip (waveform correlation 0.33-0.36 in 0.25 s
+  windows, against 0.06-0.08 for other parts of CANYON).
+
+**Every video planned, 2026-11-22** (`tools/cinepak.py encode`, `tools/fmvplan.py`).
+All ten videos were encoded whole at q1 (16 and 8 strips), q2, q4, q8, q16 and q32,
+and the same with the PS1 picture's flicker averaged out first (ffmpeg's
+`atadenoise`). Then a player was simulated sector by sector:
+- the drive reads into a buffer (the RAM ring and the CD block's sectors together)
+  while there is room;
+- frames are due 1 s after the start plus their time, and sound 0.5 s before it plays.
+
+Each group of 12 frames starts with a keyframe, so groups from different settings
+join freely. While anything is late, the largest group in the 6 seconds before it
+steps down a setting.
+- **Some stretches are heavy at any setting:** CAFE's first seconds, SNOW's, END's
+  and MANSION's run 320-360 KB/s even at q4. Without q8-q32 to step down to, most
+  videos couldn't stream at all.
+- **Shares of frames at q1** (16 or 8 strips), 1 MB of buffer:
+
+| | Retail PCM | Lossless sound | The same, flicker averaged |
+|---|---|---|---|
+| Mode 1 | 71% | 75% | 80% |
+| Form 2 | 83% | 89% | 92% |
+
+  With 512 KB of buffer, Form 2 and lossless sound: 87%.
+- **Averaging out the flicker** saves 6-8% of the data rate at each setting, and
+  costs 0.2-0.3 dB against the PS1 picture.
+- **MANSION** barely changes in size between q1 with 8 strips and q4 (220 against
+  217 KB/s). Not yet looked into.
+
 ## Decisions
 
 1. **24-bit colour** (the user, 2026-11-21), as the PlayStation shows it. 15-bit is

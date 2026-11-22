@@ -93,6 +93,11 @@ static void smpcCommand(uint8_t command)
     while (SMPC_SF & 1);
 }
 
+void soundCpu(bool run)
+{
+    smpcCommand(run ? 0x06 : 0x07);     // SNDON, SNDOFF
+}
+
 // INTBACK without peripheral data: system status 1 (SMPC_DOTSEL).
 static uint32_t smpcStatus()
 {
