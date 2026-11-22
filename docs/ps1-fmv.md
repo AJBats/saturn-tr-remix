@@ -738,7 +738,43 @@ steps down a setting.
    before smoothing. MANSION stays low at every setting, still not looked into.
 2. **The player on a bench disc first,** one video (CANYON, the heaviest), on the
    Saturn: late frames, the sound's lead, CPU time a frame, and the drive's real rate
-   while the CPUs decode.
+   while the CPUs decode. **Done 2026-11-22** (`make playbench`, `saturn/fmvplay.cpp`).
+   CANYON played whole, from the disc's Form 2 track, on the Saturn:
+
+   | | Saturn | Mednafen |
+   |---|---|---|
+   | Frames shown / late | 2709 / 0 | 2709 / 0 |
+   | Decode, both CPUs, slowest / mean | 29.1 / 14.5 ms | 27.8 / 14.0 ms |
+   | A frame out of the ring, slowest | 12.2 ms | 10.9 ms |
+   | The picture to VRAM | 3.7 ms | 3.3 ms |
+   | Moving a sector into the ring (SCU DMA, the commands) | 0.47 ms | 0.35 ms |
+   | The drive, over the video | 311 KB/s, 181 s | 311 KB/s |
+   | Fullest: the ring / the CD block | 256 / 200 sectors | 256 / 200 |
+   | Sound: fewest samples decoded ahead | 13,418 (0.6 s) | 13,047 |
+
+   - **Every frame was on time.** The slowest frame's work (out of the ring, decoded,
+     to VRAM) is 45 ms of its 66.7.
+   - **The drive kept ahead:** the ring and the CD block both filled, so it waited on
+     room, never the other way round.
+   - **Picture and sound together:** an OBS recording of the playback finds CANYON's
+     picture at 13.200 s and its sound at 13.250 s at the same instant (correlations
+     0.86 and 0.95). The sound leads by 50 ms, less than a frame and near the
+     match's resolution; the capture chain's own delays aren't measured.
+   - **The CD block refused** "get these sectors" 3 times in 3 minutes, while
+     playing, with the reject status (`cd.cpp`'s -2). Asked again at the next vertical
+     blank, it gave them. Mednafen never refuses.
+   - **SCU DMA can't reach low work RAM:** the first ring there stayed zeros. The ring
+     moved to high work RAM (600 KB on the bench). In the game, high work RAM between
+     levels has about 350 KB beside the picture: step 3 must fit the ring there or feed
+     a low work RAM ring another way (the SH-2's own DMA controller, measured in
+     `cdbench`, can reach it).
+   - **The BIOS's interrupt entries:** `0x06000300` registers a routine that the BIOS's
+     dispatcher calls as a subroutine. The dispatcher acknowledges the SCU and saves no
+     registers, as `saturn/irq.s` knows. A routine set straight into the vector
+     (`0x06000310`) ran once and never again.
+   - **Cheapest gain next:** copying a frame out of the ring (12 ms, uncached reads
+     of sectors scattered by their headers). DMA could lay the sectors' data end to
+     end and let the decoder read frames in place.
 3. **Into the game:** `fmvPlay` takes the new player where the index has the video.
    Every video played on the Saturn.
 4. **Release:** the builder's text, the README.
