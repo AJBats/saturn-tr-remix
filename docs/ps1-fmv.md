@@ -651,3 +651,58 @@ steps down a setting.
 5. **30 fps is pinned** (the user, 2026-11-22) until 30 fps sources turn up. The
    CPUs would keep up (24.4 ms for the heaviest frames on two); the data rate
    would double.
+6. **The PS1 picture's flicker averaged out before encoding** (the user,
+   2026-11-22, "i cant even tell the difference": the flip page in
+   `build/fmv_compare/smoothing/`). ffmpeg's `atadenoise` saves 6-8% of the data
+   at every setting; the plan puts 92% of frames at the best setting instead of 89%.
+
+## The Cinepak route: what gets built
+
+**The builder** (`tools/fmvpack.py`, run by the disc build when the PS1 disc is there):
+1. **Picture:** each video's PS1 picture (120 lines from 44; CORELOGO's whole 208),
+   flicker averaged out, encoded whole by ffmpeg's Cinepak at q1 (16 strips), q1 (8),
+   q2, q4, q8, q16 and q32. The strip rule is checked on every frame
+   (`tools/cinepak.py`).
+2. **Sound:** the retail Saturn CPK's 16-bit PCM, packed losslessly in 1024-sample
+   chunks (`tools/lossless.py`). The two discs' videos match frame for frame (the
+   comparison of 2026-11-21); SNOW's 8-frame difference in length gets checked before
+   it is trusted.
+3. **Plan:** `tools/fmvplan.py`'s simulation picks each 12-frame group's setting for
+   a Form 2 drive, the player's buffer and a 1-second start.
+4. **Stream:** frames and sound chunks in the order they are needed, each behind a
+   short header (kind, bytes, number), back to back across Form 2 sectors' 2324 bytes.
+5. **Disc:** every video on one Mode 2 Form 2 track after the audio tracks (track 58,
+   so the game's CD audio keeps its track numbers), starting 150 sectors in (the
+   Satiator loses a read's first 37 sectors at the track's start). An index on the data
+   track gives each video's first sector and length, counted from the track's start,
+   whose address comes from the TOC.
+6. **Without the PS1 disc** there is no Form 2 track, and the retail CPK player runs as
+   today.
+
+**The player** (beside `saturn/fmv.cpp`):
+- **Memory, between levels:**
+  - low work RAM, about 1 MB: the stream ring, raw Form 2 sectors as they come;
+  - high work RAM past the program (the level's heap, empty between levels, about 350
+    KB): the 24-bit picture and the codebooks;
+  - sound RAM: `fmvsound.68k`, the two PCM rings, the 256 KB packed sound ring.
+- **The CD:** a stream from the video's first sector. Each batch of sectors is moved by
+  SCU DMA from the 32-bit port, started and left to run while the CPUs decode.
+- **Sound:** chunks copied to the packed ring as they arrive, decoded by the 68000.
+  The play position, counted in vertical blanks as `fmv.cpp` does, is the clock.
+- **Picture:** each frame decoded when due by both CPUs (the strip split), DMA'd into
+  the hidden half of the 24-bit double buffer, flipped at a vertical blank. A frame
+  not ready in time shows late; the sound keeps time.
+- **START** skips. At the end, the game's sound program and display come back.
+- **CORELOGO** can't double-buffer in 24-bit (decision 2). It plays in 15-bit, from
+  the same decoder with 15-bit codebooks.
+
+**Steps, each checked before the next:**
+1. **The builder,** with a PC player that plays a stream end to end: its frames and
+   sound must equal the planned ones exactly, and the simulated drive must meet every
+   deadline.
+2. **The player on a bench disc first,** one video (CANYON, the heaviest), on the
+   Saturn: late frames, the sound's lead, CPU time a frame, and the drive's real rate
+   while the CPUs decode.
+3. **Into the game:** `fmvPlay` takes the new player where the index has the video.
+   Every video played on the Saturn.
+4. **Release:** the builder's text, the README.
