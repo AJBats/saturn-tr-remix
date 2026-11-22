@@ -156,7 +156,7 @@ M68K_HEADERS := $(patsubst saturn/%.68k,$(BUILD)/gen/%_m68k.h,$(wildcard saturn/
 HEADERS := $(wildcard saturn/*.h openlara/*.h openlara/*/*.h renderer/*.h) $(DSP_HEADERS) $(M68K_HEADERS) \
 	$(BUILD)/gen/depth_hints.h $(BUILD)/gen/occluders.h $(FLAGS_FILE)
 
-.PHONY: all disc levels dspbench vdp1bench lab extract extract-ps1 ghidra check-toolchain check-python
+.PHONY: all disc levels dspbench vdp1bench fmvbench lab extract extract-ps1 ghidra check-toolchain check-python
 
 # keep intermediate files (0MAIN.BIN) produced through pattern rules
 .SECONDARY:
@@ -325,6 +325,27 @@ $(V1BENCH)/0MAIN.elf: $(patsubst %,$(V1BENCH)/obj/%.o,$(V1BENCH_SRC)) saturn/sat
 
 vdp1bench: $(V1BENCH)/disc/tomb.cue
 $(eval $(call DISC_RULE,$(V1BENCH),))
+
+# What the Saturn can do for the PlayStation's videos (fmvbench/bench.cpp, docs/ps1-fmv.md step 3): a
+# program of its own, on a disc of its own, on the DSP benchmark's start-up: make fmvbench
+FMVBENCH := build/fmvbench
+FMVBENCH_SRC := fmvbench/bench.cpp dspbench/platform.cpp dspbench/crt0.s saturn/font.cpp
+FMVBENCH_FLAGS := -m2 -mb -O2 -Wall -Idspbench -Isaturn -ffunction-sections
+
+$(FMVBENCH)/obj/%.cpp.o: %.cpp dspbench/platform.h saturn/hw.h saturn/font.h | check-toolchain
+	@mkdir -p $(@D)
+	$(CXX) $(FMVBENCH_FLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
+		-fno-asynchronous-unwind-tables -c $< -o $@
+
+$(FMVBENCH)/obj/%.s.o: %.s | check-toolchain
+	@mkdir -p $(@D)
+	$(CC) $(FMVBENCH_FLAGS) -c $< -o $@
+
+$(FMVBENCH)/0MAIN.elf: $(patsubst %,$(FMVBENCH)/obj/%.o,$(FMVBENCH_SRC)) saturn/saturn.ld
+	$(CXX) $(FMVBENCH_FLAGS) $(LDFLAGS) -Wl,-Map=$(@D)/0MAIN.map -o $@ $(filter %.o,$^) -lc -lgcc
+
+fmvbench: $(FMVBENCH)/disc/tomb.cue
+$(eval $(call DISC_RULE,$(FMVBENCH),))
 
 # The clean-room renderer's lab (lab/lab.cpp): a program of its own, on a disc
 # of its own with a captured frame (tools/capture.py) packed as its scene:
