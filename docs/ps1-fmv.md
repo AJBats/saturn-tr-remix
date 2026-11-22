@@ -639,3 +639,15 @@ steps down a setting.
    updated behind the beam would need about 9 MB/s into the banks being shown, and
    the Saturn takes 2.51 MB/s there. If its 15-bit colour shows banding,
    TrekkiesUnite118's full-screen Cinepak (RE2) shows there are other routes.
+3. **The route: Cinepak re-encoded from the PS1 picture** (the user, 2026-11-22,
+   after the flip page in `build/fmv_compare/ps1_vs_cinepak/`), in 24-bit, decoded
+   by the SH-2s (`saturn/cinepak.cpp`). Native MDEC decoding is set aside at 13-15
+   fps.
+4. **Form 2 sectors and lossless sound** (the user, 2026-11-22). The videos go on a
+   Mode 2 Form 2 track (340 KB/s against Mode 1's 300). Their sound is the retail
+   Saturn's 16-bit PCM packed losslessly (`tools/lossless.py`, about 63 KB/s against
+   86.9), decoded by the 68000 (`saturn/fmvsound.68k`). The plan puts 89% of all
+   frames at the best setting this way.
+5. **30 fps is pinned** (the user, 2026-11-22) until 30 fps sources turn up. The
+   CPUs would keep up (24.4 ms for the heaviest frames on two); the data rate
+   would double.
