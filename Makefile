@@ -331,7 +331,8 @@ $(eval $(call DISC_RULE,$(V1BENCH),))
 # PlayStation disc there (PS1TRACK), it decodes and times frames of its videos (saturn/mdec.cpp), packed
 # into build/fmvbench/gen/fmvframes.h (not for the repository).
 FMVBENCH := build/fmvbench
-FMVBENCH_SRC := fmvbench/bench.cpp dspbench/platform.cpp dspbench/crt0.s saturn/font.cpp saturn/mdec.cpp
+FMVBENCH_SRC := fmvbench/bench.cpp dspbench/platform.cpp dspbench/crt0.s saturn/font.cpp saturn/mdec.cpp \
+	saturn/mdecidct.s
 FMVBENCH_FLAGS := -m2 -mb -O2 -Wall -Idspbench -Isaturn -I$(FMVBENCH)/gen -ffunction-sections
 FMVBENCH_FRAMES := CAFE:700 CANYON:600 CANYON:1500 PRISON:300 END:400 SNOW:900 LIFT:500 CORELOGO:60
 

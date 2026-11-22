@@ -523,41 +523,75 @@ static void decodeBench()
 
     // the stages apart, on the master, one frame (CANYON 1500), the timer read around each
     const MdecRecord* r = (const MdecRecord*)gFmvFrames[2].record;
-    static int32_t blocks[6][64];
+    // and the C IDCT against the assembly on every block of every frame
+    static int32_t blocks[6][64], copy[6][64];
     MdecBits bits;
     MdecCoef coefs[64];
-    uint32_t parse = 0, idct = 0, colour = 0;
+    uint32_t parse = 0, idctC = 0, idctAsm = 0, colour = 0, differ = 0;
     cycles();           // its wraps counted afresh after the slow timer
-    for (int32_t part = 0; part < 2; part++)
+    for (int32_t f = 0; f < FMV_BENCH_FRAMES; f++)
     {
-        mdecPartStart(r, part, &bits, coefs);
-        int32_t m = part ? r->split : 0, end = part ? r->mbs : r->split;
-        for (; m < end; m++)
+        const MdecRecord* fr = (const MdecRecord*)gFmvFrames[f].record;
+        bool timed = fr == r;
+        for (int32_t part = 0; part < 2; part++)
         {
-            uint32_t t0 = cycles();
-            for (int32_t i = 0; i < 6; i++) {
-                mdecParseBlock(&bits, coefs, blocks[i]);
+            mdecPartStart(fr, part, &bits, coefs);
+            int32_t m = part ? fr->split : 0, end = part ? fr->mbs : fr->split;
+            for (; m < end; m++)
+            {
+                uint32_t t0 = cycles();
+                for (int32_t i = 0; i < 6; i++) {
+                    mdecParseBlock(&bits, coefs, blocks[i]);
+                }
+                uint32_t t1 = cycles();
+                for (int32_t i = 0; i < 6; i++)
+                {
+                    for (int32_t j = 0; j < 64; j++) {
+                        copy[i][j] = blocks[i][j];
+                    }
+                }
+                uint32_t t2 = cycles();
+                for (int32_t i = 0; i < 6; i++) {
+                    mdecIdct(blocks[i]);
+                }
+                uint32_t t3 = cycles();
+                for (int32_t i = 0; i < 6; i++) {
+                    mdecIdctAsm(copy[i]);
+                }
+                uint32_t t4 = cycles();
+                for (int32_t i = 0; i < 6; i++)
+                {
+                    for (int32_t j = 0; j < 64; j++) {
+                        differ += blocks[i][j] != copy[i][j];
+                    }
+                }
+                uint32_t t5 = cycles();
+                mdecColour(blocks, gPicture + (m / 20) * 16 * PIC_W + (m % 20) * 16, PIC_W);
+                uint32_t t6 = cycles();
+                if (timed)
+                {
+                    parse += t1 - t0;
+                    idctC += t3 - t2;
+                    idctAsm += t4 - t3;
+                    colour += t6 - t5;
+                }
             }
-            uint32_t t1 = cycles();
-            for (int32_t i = 0; i < 6; i++) {
-                mdecIdct(blocks[i]);
-            }
-            uint32_t t2 = cycles();
-            mdecColour(blocks, gPicture + (m / 20) * 16 * PIC_W + (m % 20) * 16, PIC_W);
-            uint32_t t3 = cycles();
-            parse += t1 - t0;
-            idct += t2 - t1;
-            colour += t3 - t2;
         }
     }
+    uint32_t n = r->mbs * 6;
     char text[TEXT_COLUMNS + 1];
-    char* p = put(text, "a block: parse ");
-    p = putInt(p, parse / (r->mbs * 6), 0);
+    char* p = put(text, "cyc/blk prs ");
+    p = putInt(p, parse / n, 0);
     p = put(p, " idct ");
-    p = putInt(p, idct / (r->mbs * 6), 0);
-    p = put(p, " colour ");
-    p = putInt(p, colour / (r->mbs * 6), 0);
-    put(p, " cyc");
+    p = putInt(p, idctC / n, 0);
+    p = put(p, "/");
+    p = putInt(p, idctAsm / n, 0);
+    p = put(p, " col ");
+    putInt(p, colour / n, 0);
+    add(text);
+    p = put(text, "IDCT asm against C: ");
+    p = putInt(p, differ, 0);
+    put(p, differ ? " VALUES DIFFER" : " values differ");
     add(text);
 
     p = put(text, "letterboxed, 2 CPUs: ");

@@ -58,23 +58,28 @@ static const uint8_t kZagzig[64] = {
     12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
     35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
     58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63 };
-// The fast IDCT's prescale, scalefactor[x] x scalefactor[y] / 8 in 16 fraction bits (psx-spx's scalezag,
-// by place), and its four constants in 12
-static const uint16_t kPrescale[64] = {
-    8192, 11363, 10703, 9633, 8192, 6436, 4433, 2260, 11363, 15760, 14846, 13361, 11363, 8928, 6149, 3135,
-    10703, 14846, 13985, 12586, 10703, 8410, 5793, 2953, 9633, 13361, 12586, 11327, 9633, 7568, 5213, 2658,
-    8192, 11363, 10703, 9633, 8192, 6436, 4433, 2260, 6436, 8928, 8410, 7568, 6436, 5057, 3483, 1776,
-    4433, 6149, 5793, 5213, 4433, 3483, 2399, 1223, 2260, 3135, 2953, 2658, 2260, 1776, 1223, 624 };
-#define K1414   5793
-#define K1847   7568
-#define K2613   10703
-#define K1082   4433
-#define FRAC    6               // fraction bits carried through the IDCT
-// YUV to RGB in 12 fraction bits: R = Y + 1.402 Cr, G = Y - 0.3437 Cb - 0.7143 Cr, B = Y + 1.772 Cb
-#define CR_R    5743
-#define CR_G    2926
-#define CB_G    1408
-#define CB_B    7258
+// Every product is 32 x 32 -> 64 bits with its middle 32 bits kept (the SH-2's DMULS.L and XTRCT): a
+// product >> 16, rounded down. So the constants carry 16 fraction bits, the pixels 8 (FRAC) through the
+// IDCT into the colour, rounded once there (tools/mdec.py).
+#define FRAC    8
+// x 8 values -> scalezag (psx-spx) x the dequantised value in FRAC fraction bits, by place
+static const int32_t kPrescale[64] = {
+    262144, 363604, 342508, 308249, 262144, 205965, 141871, 72325, 363604, 504333, 475072, 427553, 363604,
+    285682, 196781, 100318, 342508, 475072, 447508, 402746, 342508, 269107, 185364, 94498, 308249, 427553,
+    402746, 362462, 308249, 242189, 166823, 85046, 262144, 363604, 342508, 308249, 262144, 205965, 141871,
+    72325, 205965, 285682, 269107, 242189, 205965, 161826, 111468, 56826, 141871, 196781, 185364, 166823,
+    141871, 111468, 76780, 39142, 72325, 100318, 94498, 85046, 72325, 56826, 39142, 19955 };
+#define K1414   92682
+#define K1847   121095
+#define K2613   171254
+#define K1082   70936
+// YUV to RGB: R = Y + 1.402 Cr, G = Y - 0.3437 Cb - 0.7143 Cr, B = Y + 1.772 Cb; a pixel's Y + term +
+// BIAS (the clamp table's offset and the rounding) >> FRAC indexes the clamp table
+#define CR_R    91881
+#define CR_G    46812
+#define CB_G    22525
+#define CB_B    116130
+#define BIAS    ((512 << FRAC) + (1 << (FRAC - 1)))
 
 #define MB_COLS 20
 
@@ -134,6 +139,12 @@ void mdecInit()
     }
 }
 
+// k x x >> 16, rounded down: DMULS.L and XTRCT
+static inline int32_t mul(int32_t k, int32_t x)
+{
+    return int32_t((int64_t(x) * k) >> 16);
+}
+
 // --- the bitstream ---------------------------------------------------------------------
 
 static inline void refill(MdecBits* b)
@@ -165,14 +176,14 @@ void mdecPartStart(const MdecRecord* record, int part, MdecBits* bits, MdecCoef*
     for (int32_t k = 0; k < 64; k++)
     {
         coefs[k].scale = int16_t(kQuant[k] * record->quant);
-        coefs[k].pre = int16_t(kPrescale[kZagzig[k]]);
+        coefs[k].pre = kPrescale[kZagzig[k]];
         coefs[k].raster = kZagzig[k];
     }
 }
 
 // A block's DC and AC values, dequantised, saturated to -400h..3FFh and prescaled for the IDCT, into the
-// (cleared) block at their places
-void mdecParseBlock(MdecBits* b, const MdecCoef* coefs, int32_t* block)
+// (cleared) block at their places; whether there was any AC value
+int mdecParseBlock(MdecBits* b, const MdecCoef* coefs, int32_t* block)
 {
     for (int32_t i = 0; i < 64; i += 8)
     {
@@ -188,7 +199,7 @@ void mdecParseBlock(MdecBits* b, const MdecCoef* coefs, int32_t* block)
     refill(b);
     int32_t dc = int32_t(b->buf) >> 22;     // 10 bits, signed
     consume(b, 10);
-    block[0] = (dc * kQuant[0] * kPrescale[0] + 512) >> (16 - FRAC);
+    block[0] = mul(kPrescale[0], dc * kQuant[0] * 8);
     int32_t k = 0;
     for (;;)
     {
@@ -225,20 +236,17 @@ void mdecParseBlock(MdecBits* b, const MdecCoef* coefs, int32_t* block)
         }
         k += run + 1;
         if (k > 63)
-            break;
+            return k > 64;          // the end of block straight after the DC: k = 64
+        // psx-spx: (level x quant x scale + 4) / 8, saturated to -400h..3FFh; kept x 8, unrounded,
+        // saturated to the same range x 8 (the prescale divides by the 8)
         const MdecCoef& c = coefs[k];
-        int32_t v = (level * c.scale + 4) >> 3;
-        v = v < -0x400 ? -0x400 : v > 0x3FF ? 0x3FF : v;
-        block[c.raster] = (v * c.pre + 512) >> (16 - FRAC);
+        int32_t v = level * c.scale;
+        v = v < -0x2000 ? -0x2000 : v > 0x1FFF ? 0x1FFF : v;
+        block[c.raster] = mul(c.pre, v);
     }
 }
 
 // --- the IDCT (psx-spx's fast_idct_core, in fixed point) ---------------------------------
-
-static inline int32_t mul(int32_t k, int32_t x)
-{
-    return int32_t(uint32_t(x) * uint32_t(k)) >> 12;
-}
 
 // Vector i is in[i], in[8 + i] ... in[56 + i]; its result goes to out[i * 8] ... out[i * 8 + 7].
 static void idctPass(const int32_t* in, int32_t* out)
@@ -280,9 +288,6 @@ void mdecIdct(int32_t* block)
     int32_t temp[64];
     idctPass(block, temp);
     idctPass(temp, block);
-    for (int32_t i = 0; i < 64; i++) {
-        block[i] = (block[i] + (1 << (FRAC - 1))) >> FRAC;
-    }
 }
 
 // --- YUV to RGB ---------------------------------------------------------------------------
@@ -295,18 +300,18 @@ void mdecColour(int32_t b[6][64], uint32_t* dst, int pitch)
         for (int32_t cx = 0; cx < 8; cx++)
         {
             int32_t cr = b[0][cy * 8 + cx], cb = b[1][cy * 8 + cx];
-            int32_t r = (cr * CR_R + 2048) >> 12;
-            int32_t g = (-cb * CB_G - cr * CR_G + 2048) >> 12;
-            int32_t bl = (cb * CB_B + 2048) >> 12;
+            int32_t r = mul(CR_R, cr) + BIAS;
+            int32_t g = mul(-CB_G, cb) + mul(-CR_G, cr) + BIAS;
+            int32_t bl = mul(CB_B, cb) + BIAS;
             const int32_t* y = b[2 + (cy >> 2) * 2 + (cx >> 2)] + (cy & 3) * 16 + (cx & 3) * 2;
             uint32_t* d = dst + cy * 2 * pitch + cx * 2;
             for (int32_t dy = 0; dy < 2; dy++, y += 8, d += pitch)
             {
                 for (int32_t dx = 0; dx < 2; dx++)
                 {
-                    int32_t v = y[dx] + 512;    // the decoded values stay within -274..230 (mdec.py)
-                    d[dx] = 0x80000000u | uint32_t(gClamp[(v + bl) & 1023]) << 16
-                          | uint32_t(gClamp[(v + g) & 1023]) << 8 | gClamp[(v + r) & 1023];
+                    uint32_t v = y[dx];
+                    d[dx] = 0x80000000u | uint32_t(gClamp[((v + bl) >> FRAC) & 1023]) << 16
+                          | uint32_t(gClamp[((v + g) >> FRAC) & 1023]) << 8 | gClamp[((v + r) >> FRAC) & 1023];
                 }
             }
         }
@@ -328,8 +333,24 @@ void mdecDecode(const MdecRecord* record, int part, uint32_t* picture, int pitch
     {
         for (int32_t i = 0; i < 6; i++)
         {
-            mdecParseBlock(&bits, coefs, blocks[i]);
-            mdecIdct(blocks[i]);
+            if (mdecParseBlock(&bits, coefs, blocks[i]))
+            {
+                mdecIdctAsm(blocks[i]);
+                continue;
+            }
+            int32_t* b = blocks[i];
+            int32_t dc = b[0];
+            for (int32_t j = 0; j < 64; j += 8)
+            {
+                b[j] = dc;
+                b[j + 1] = dc;
+                b[j + 2] = dc;
+                b[j + 3] = dc;
+                b[j + 4] = dc;
+                b[j + 5] = dc;
+                b[j + 6] = dc;
+                b[j + 7] = dc;
+            }
         }
         mdecColour(blocks, picture + row * 16 * pitch + col * 16, pitch);
         if (++col == MB_COLS)

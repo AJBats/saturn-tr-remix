@@ -212,8 +212,7 @@ def parse_words(words, quant, max_blocks, end_code, starts=None):
             starts.append(wi * 16 - cnt)
         cnt -= 10
         blk = out[nblocks]
-        v = signed10(dc) * qdc
-        blk[0] = -0x400 if v < -0x400 else 0x3FF if v > 0x3FF else v
+        blk[0] = signed10(dc) * qdc * 8         # in the AC values' units, 8 x the dequantised value
         k = 0
         while True:
             if cnt < 22:
@@ -240,8 +239,10 @@ def parse_words(words, quant, max_blocks, end_code, starts=None):
             k += run + 1
             if k > 63:
                 raise BadFrame(f'block {nblocks}: past 64 values')
-            v = (level * scale[k] + 4) >> 3
-            blk[ZAGZIG[k]] = -0x400 if v < -0x400 else 0x3FF if v > 0x3FF else v
+            # psx-spx: (level x quant x scale + 4) / 8, saturated to -400h..3FFh; kept here x 8, unrounded,
+            # saturated to the same range x 8 (the prescale divides by the 8)
+            v = level * scale[k]
+            blk[ZAGZIG[k]] = -0x2000 if v < -0x2000 else 0x1FFF if v > 0x1FFF else v
         nblocks += 1
         buf &= (1 << cnt) - 1
     if starts is not None:
@@ -253,10 +254,13 @@ def parse_words(words, quant, max_blocks, end_code, starts=None):
 
 # scalefactor[0..7] = cos(k * 90'/8), times sqrt(2) for k > 0 (psx-spx)
 SCALEFACTOR = [1.0, 1.387039845, 1.306562965, 1.175875602, 1.0, 0.785694958, 0.541196100, 0.275899379]
-PRE_BITS = 16                   # the prescale table's fraction
-FRAC = 6                        # pixels carry 6 fraction bits through the two passes
-K_BITS = 12                     # the passes' constants
-PRESCALE = np.array([round(SCALEFACTOR[r % 8] * SCALEFACTOR[r // 8] / 8 * (1 << PRE_BITS)) for r in range(64)],
+# The SH-2's way: every product is 32 x 32 -> 64 bits (DMULS.L) with its middle 32 bits taken (XTRCT), a
+# product >> 16, rounded down; so the constants carry 16 fraction bits, and the pixels 8 (FRAC) through
+# the passes into the colour, rounded once there.
+FRAC = 8
+K_BITS = 16
+# x 8 values (parse_words) -> scalezag x the dequantised value, FRAC fraction bits, by place
+PRESCALE = np.array([round(SCALEFACTOR[r % 8] * SCALEFACTOR[r // 8] * (1 << (K_BITS + FRAC - 6))) for r in range(64)],
                     np.int64)
 K1414 = round(1.414213562 * (1 << K_BITS))
 K1847 = round(1.847759065 * (1 << K_BITS))
@@ -264,17 +268,12 @@ K2613 = round(2.613125930 * (1 << K_BITS))
 K1082 = round(1.082392200 * (1 << K_BITS))
 
 
-def _wrap(a):
-    """32-bit wrap, as the SH-2's registers do."""
-    return ((a + (1 << 31)) & 0xFFFFFFFF) - (1 << 31)
-
-
 def _pass(v):
     """One pass over [n, 8, 8] int64: v[:, j, i] is input j of vector i; returns out[:, i, j]."""
     s = [v[:, j, :] for j in range(8)]
 
     def m(k, x):
-        return _wrap(x * k) >> K_BITS
+        return (x * k) >> K_BITS
 
     z10, z11 = s[0] + s[4], s[0] - s[4]
     z13, z12 = s[2] + s[6], s[2] - s[6]
@@ -294,18 +293,16 @@ def _pass(v):
 
 
 def idct(coeffs):
-    """[n, 64] coefficients (raster) -> [n, 8, 8] pixels, signed, rounded (rows, columns)."""
-    v = (coeffs.astype(np.int64) * PRESCALE + (1 << (PRE_BITS - FRAC - 1))) >> (PRE_BITS - FRAC)
-    v = v.reshape(-1, 8, 8)
-    v = _pass(_pass(v))
-    return (v + (1 << (FRAC - 1))) >> FRAC
+    """[n, 64] x 8 coefficients (raster) -> [n, 8, 8] pixels, signed, FRAC fraction bits (rows, columns)."""
+    v = (coeffs.astype(np.int64) * PRESCALE) >> K_BITS
+    return _pass(_pass(v.reshape(-1, 8, 8)))
 
 
 def idct_float(coeffs):
     """The same IDCT in floating point, from its definition: the yardstick for the fixed point."""
     c = np.array([[(np.sqrt(0.5) if u == 0 else 1.0) * np.cos((2 * x + 1) * u * np.pi / 16) / 2
                    for u in range(8)] for x in range(8)])
-    b = coeffs.reshape(-1, 8, 8).astype(np.float64)
+    b = coeffs.reshape(-1, 8, 8).astype(np.float64) / 8
     # psx-spx's blocks feed dequantised values straight to an IDCT whose DC gain is 1/8 per value after
     # its prescale; the orthonormal IDCT's is 1/8 too, with the AC terms' sqrt(2)s inside c
     return np.einsum('xu,nvu,yv->nyx', c, b, c)
@@ -332,33 +329,40 @@ def assemble(blocks, width, height):
     return y[:height, :width], cb[:height // 2, :width // 2], cr[:height // 2, :width // 2]
 
 
-# YUV to RGB (psx-spx): R = Y + 1.402 Cr, G = Y - 0.3437 Cb - 0.7143 Cr, B = Y + 1.772 Cb, clamped -128..127
-C_BITS = 12
-CR_R = round(1.402 * (1 << C_BITS))
-CR_G = round(0.7143 * (1 << C_BITS))
-CB_G = round(0.3437 * (1 << C_BITS))
-CB_B = round(1.772 * (1 << C_BITS))
+# YUV to RGB (psx-spx): R = Y + 1.402 Cr, G = Y - 0.3437 Cb - 0.7143 Cr, B = Y + 1.772 Cb, clamped
+# -128..127. The terms are products >> 16 (as the IDCT's); a pixel's Y + term, rounded and offset by BIAS,
+# >> FRAC indexes CLAMP.
+CR_R = round(1.402 * (1 << K_BITS))
+CR_G = round(0.7143 * (1 << K_BITS))
+CB_G = round(0.3437 * (1 << K_BITS))
+CB_B = round(1.772 * (1 << K_BITS))
+BIAS = (512 << FRAC) + (1 << (FRAC - 1))
+CLAMP = np.array([min(max(i - 512, -128), 127) + 128 for i in range(1024)], np.uint8)
 
 
 def rgb(y, cb, cr):
-    """Planes -> [h, w, 3] uint8, a chroma value colouring each 2x2 square."""
-    half = 1 << (C_BITS - 1)
-    r = (cr * CR_R + half) >> C_BITS
-    g = (-cb * CB_G - cr * CR_G + half) >> C_BITS
-    b = (cb * CB_B + half) >> C_BITS
-    up = lambda p: np.repeat(np.repeat(p, 2, 0), 2, 1)
-    out = np.stack([y + up(r), y + up(g), y + up(b)], -1)
-    return (np.clip(out, -128, 127) + 128).astype(np.uint8)
+    """Planes (FRAC fraction bits) -> [h, w, 3] uint8, a chroma value colouring each 2x2 square."""
+    cb, cr = cb.astype(np.int64), cr.astype(np.int64)      # the products pass 2^31
+    r = (cr * CR_R) >> K_BITS
+    g = ((cb * -CB_G) >> K_BITS) + ((cr * -CR_G) >> K_BITS)
+    b = (cb * CB_B) >> K_BITS
+    up = lambda p: np.repeat(np.repeat(p.astype(np.int64), 2, 0), 2, 1)
+    yy = y.astype(np.int64)
+    return np.stack([CLAMP[((yy + up(t) + BIAS) >> FRAC) & 1023] for t in (r, g, b)], -1)
 
 
-def decode(frame, width, height, fixed=True):
-    """A frame's Y, Cb, Cr planes (signed ints), and what parse() reports."""
+def plane8(p):
+    """A plane in FRAC fraction bits as ffmpeg's 8-bit plane: rounded, 128 added, clamped."""
+    return np.clip(((p.astype(np.int64) + (1 << (FRAC - 1))) >> FRAC) + 128, 0, 255)
+
+
+def decode(frame, width, height):
+    """A frame's Y, Cb, Cr planes (signed, FRAC fraction bits), and what parse() reports."""
     mbs = ((width + 15) // 16) * ((height + 15) // 16)
     quant, coeffs, bits = parse(frame, mbs * 6)
     if len(coeffs) != mbs * 6:
         raise BadFrame(f'{len(coeffs)} blocks, not {mbs * 6}')
-    pix = idct(coeffs) if fixed else np.rint(idct_float(coeffs)).astype(np.int32)
-    return assemble(pix, width, height), (quant, coeffs, bits)
+    return assemble(idct(coeffs), width, height), (quant, coeffs, bits)
 
 
 # --- the Saturn's frame records (docs/ps1-fmv.md) ----------------------------------
@@ -538,11 +542,11 @@ def cmd_check(args):
             if i % args.every:
                 continue
             (y, cb, cr), (quant, coeffs, bits) = decode(frames[i], width, height)
-            ours = (np.clip(y + 128, 0, 255), np.clip(cb + 128, 0, 255), np.clip(cr + 128, 0, 255))
+            ours = (plane8(y), plane8(cb), plane8(cr))
             d = [np.abs(o.astype(np.int32) - f.astype(np.int32)) for o, f in zip(ours, ff)]
             stats.append((i, max(int(x.max()) for x in d), float(np.mean(np.concatenate([x.ravel() for x in d])))))
-            fl = np.rint(idct_float(coeffs)).astype(np.int32)
-            fixed_vs_float = max(fixed_vs_float, int(np.abs(idct(coeffs).reshape(-1, 64) - fl.reshape(-1, 64)).max()))
+            err = np.abs(idct(coeffs).reshape(-1, 64) / (1 << FRAC) - idct_float(coeffs).reshape(-1, 64)).max()
+            fixed_vs_float = max(fixed_vs_float, float(err))
         worst = max(s[1] for s in stats)
         worst_all = max(worst_all, worst)
         mean = sum(s[2] for s in stats) / len(stats)
@@ -553,7 +557,7 @@ def cmd_check(args):
         sound = 'same' if n and np.array_equal(pcm[:n], ffa[:n]) else \
             f'DIFFERS ({int(np.sum(pcm[:n] != ffa[:n]))} of {n * 2} samples)'
         print(f'{name:9s} {width}x{height} frames {len(frames):5d} checked {len(stats):4d} | vs ffmpeg: max {worst} '
-              f'(frame {wi}) mean {mean:.3f} | fixed vs float IDCT max {fixed_vs_float} | sound {len(pcm)} '
+              f'(frame {wi}) mean {mean:.3f} | fixed vs float IDCT max {fixed_vs_float:.3f} | sound {len(pcm)} '
               f'samples, ffmpeg {len(ffa)}: {sound}', flush=True)
     return 0
 
@@ -576,7 +580,7 @@ def cmd_info(args):
         live = np.zeros(mbh, bool)
         for i in range(0, len(frames), max(1, args.every)):
             (y, _, _), _ = decode(frames[i], width, height)
-            live |= (y + 128).reshape(mbh, 16, -1).max(axis=(1, 2)) > args.black
+            live |= plane8(y).reshape(mbh, 16, -1).max(axis=(1, 2)) > args.black
         rows = ''.join('#' if v else '.' for v in live)
         print(f'{name:9s} {width}x{height} frames {len(frames):5d} bytes {sum(map(len, frames)):9d} '
               f'max {max(map(len, frames)):6d} xa sectors {len(xa):5d} | macroblock rows {rows}', flush=True)

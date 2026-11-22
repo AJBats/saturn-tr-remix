@@ -38,14 +38,15 @@ struct MdecBits
 };
 struct MdecCoef
 {
+    int32_t pre;            // the IDCT's prescale for the value's place (16 fraction bits)
     int16_t scale;          // quant table x quantiser scale, in zigzag order
-    int16_t pre;            // the IDCT's prescale for the value's place
     int16_t raster;         // the value's place in the block
-    int16_t pad;
 };
 void mdecPartStart(const MdecRecord* record, int part, MdecBits* bits, MdecCoef* coefs);
-void mdecParseBlock(MdecBits* bits, const MdecCoef* coefs, int32_t* block);
-void mdecIdct(int32_t* block);
+// Returns whether the block has any AC value (else its IDCT is its DC everywhere).
+int mdecParseBlock(MdecBits* bits, const MdecCoef* coefs, int32_t* block);
+void mdecIdct(int32_t* block);                      // the C, the assembly's yardstick
+extern "C" void mdecIdctAsm(int32_t* block);        // mdecidct.s: the same, bit for bit
 void mdecColour(int32_t blocks[6][64], uint32_t* dst, int pitch);
 
 #endif
