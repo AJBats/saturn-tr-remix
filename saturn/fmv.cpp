@@ -8,10 +8,13 @@
 // and blocks of 16-bit audio, the left channel's samples then the right's.
 //
 // The file streams from the CD into a ring in low work RAM. Audio chunks go
-// to two looping SCSP slots, one per channel, ahead of where they play; the
-// sound's play position is the clock. Once its time comes each frame is decoded
-// over the last in work RAM (Cinepak keeps blocks from frame to frame) and
-// copied to the VDP2 bitmap whole, while the beam is elsewhere.
+// to two looping SCSP slots, one per channel, as far ahead of where they play
+// as the slots' rings allow, whatever the pictures are doing; the sound's play
+// position, from the sound CPU's count of the SCSP's own samples, is the clock.
+// Each frame is decoded over the last in high work RAM (Cinepak keeps blocks
+// from frame to frame), sent to the hidden one of two pictures in the VDP2
+// bitmap, and shown from the vertical blank its time comes in. A frame decoded
+// when the next is already due isn't shown, so the pictures catch up.
 
 #include "fmv.h"
 #include "common.h"
@@ -20,9 +23,6 @@
 #include "slave.h"
 #include "render.h"
 #include "cd.h"
-#ifdef HW_LOG
-#include "font.h"
-#endif
 #include "hw.h"
 #include "input.h"
 #include "screen.h"
@@ -41,11 +41,11 @@ void sndStop(); // OpenLara's (sound.cpp)
 // low work RAM, free between levels
 #define RING            ((uint8_t*)0x00200000)
 #define RING_SIZE       (768 * 1024)
-#define PICTURE         ((uint32_t*)0x002C0000)     // 128 KB: the largest video's 320 x 200
-#define HEADER          ((uint8_t*)0x002E0000)
+#define HEADER          ((uint8_t*)0x002C0000)
 #define HEADER_MAX      (64 * 1024)
-#define SCRATCH         ((uint8_t*)0x002F0000)  // a chunk that wraps the ring
+#define SCRATCH         ((uint8_t*)0x002D0000)  // a chunk that wraps the ring
 #define SCRATCH_MAX     (64 * 1024)
+static_assert(0x002D0000 + SCRATCH_MAX <= LOW_LEVEL_TOP, "the video runs into the save area");
 #define PREROLL         (128 * 1024)    // in the ring before the sound starts
 
 #define SCSP_SLOT(slot, reg) SCSP_REG((slot) * 0x20 + (reg) * 2)
@@ -56,13 +56,14 @@ void sndStop(); // OpenLara's (sound.cpp)
 // A channel's ring of samples in sound RAM, played by a looping slot at
 // 22265 Hz (octave -1 + 10/1024), as near as the SCSP gets to the files' 22254;
 // the left's slot and the right's after it, clear of the sound CPU's voices
-// (sound.68k) and the CD audio's.
+// (sound.68k) and the CD audio's. The slot steps (1024 + FNS) / 2048 samples
+// for each of the SCSP's own.
 #define AUDIO_SLOT      24
 #define AUDIO_RING      32768
 #define AUDIO_LEFT      0x10000
 #define AUDIO_RIGHT     0x20000
-#define AUDIO_PITCH     ((0xF << 11) | 10)
-#define SAMPLES_PER_100_VBL 37146 // at 59.94 vblanks a second
+#define AUDIO_FNS       10
+#define AUDIO_PITCH     ((0xF << 11) | AUDIO_FNS)
 #define AUDIO_MARGIN    2048    // samples kept clear of the play position
 #define FILE_RATE       22254
 #define TIME_BASE       30      // chunk times are in 1/30 s
@@ -307,7 +308,47 @@ static bool skipPressed()
     return (gPad & PAD_START) && !(old & PAD_START);
 }
 
+// --- Crash screens ----------------------------------------------------------
+
+// A video whose picture hasn't moved for 4 s (a frame lasts 4 vertical blanks,
+// the wait before the first about a second) stops on a crash screen of the
+// player's, the CD block's and the sound's state, for the player to report.
+#define VIDEO_STILL_BLANKS  240
+#define CD_HIRQ_REG         0x25890008
+#define SCSP_MASTER         SCSP_REG(0x400)
+
+static const char* gVideoName;
+static int32_t gStillShown;
+static uint32_t gStillSince;
+
+// high work RAM past the program (the level's, free between levels) holds the
+// picture as it's decoded
+#define MASTER_STACK        (8 * 1024)      // as os.cpp keeps
+extern "C" uint8_t _fmvbss_end[], _stack_top[];  // saturn.ld's __fmvbss_end, __stack_top
+
+// A video that can't play: the disc lacks it, high work RAM can't hold it, the
+// drive failed at its start or the file isn't one. A crash screen, as for a
+// video that stands still.
+static void videoFailed(const char* name, uint32_t why)
+{
+    static const char* const labels[] = { "WHY", "VBLANK" };
+    const uint32_t values[] = { why, gVblankCount };
+    static char title[44] = "A video wouldn't play: ";
+    strncpy(title + 23, name, 20);
+    crashReport(RGB(0, 12, 0), title, labels, values, 2);
+}
+
+#define WHY_NOT_ON_DISC     1
+#define WHY_NO_ROOM         2
+#define WHY_NOT_STARTED     3
+#define WHY_BAD_FILE        4
+
 #ifndef FMV_PS1
+// --- The retail videos: sound -----------------------------------------------
+
+static volatile bool gAudioOn;      // the slots keyed on
+static uint32_t gClock0;            // the sound CPU's clock then
+
 static void audioStart()
 {
     static const uint32_t addr[2] = { AUDIO_LEFT, AUDIO_RIGHT };
@@ -331,12 +372,21 @@ static void audioStart()
     }
     SCSP_SLOT(AUDIO_SLOT, 0) = SCSP_SLOT(AUDIO_SLOT, 0) | KYONB;
     SCSP_SLOT(AUDIO_SLOT + 1, 0) = SCSP_SLOT(AUDIO_SLOT + 1, 0) | KYONB | KYONEX;
+    gClock0 = sndClock();
+    gAudioOn = true;
 }
 
 static void audioStop()
 {
     SCSP_SLOT(AUDIO_SLOT, 0) = SCSP_SLOT(AUDIO_SLOT, 0) & ~(KYONB | KYONEX);
     SCSP_SLOT(AUDIO_SLOT + 1, 0) = (SCSP_SLOT(AUDIO_SLOT + 1, 0) & ~KYONB) | KYONEX;
+    gAudioOn = false;
+}
+
+// The samples a channel the slots have played since they were keyed on
+static uint32_t audioPlayed()
+{
+    return uint32_t((uint64_t(sndClock() - gClock0) * (1024 + AUDIO_FNS)) >> 11);
 }
 
 // copies count samples of one channel into its ring from sample pos
@@ -350,133 +400,336 @@ static void audioWrite(uint32_t ring, uint32_t pos, const uint8_t* src, uint32_t
     }
 }
 
-// The picture to the bitmap, begun as the beam passes below it: copied before
-// the beam comes round to it again.
-static void showPicture(volatile uint32_t* dst, int32_t width, int32_t height, int32_t top)
+// --- The retail videos: pictures ----------------------------------------------
+
+// A 512 x 512 15-bit bitmap holding two pictures, at lines 0 (banks A0, A1) and
+// 256 (B0, B1). The shown one's banks have their lower slots reading for the
+// bitmap; the hidden one's banks are all the CPU's (and the SCU DMA's), and the
+// next frame goes there, to show from the vertical blank it's due in.
+#define BITMAP_PITCH    512             // pixels a bitmap line
+#define HALF_LINES      256             // the second picture's first line
+#define CHCTLA_N0_512   0x0004          // NBG0's bitmap 512 x 512
+
+#define SCU_D1R         REG32(0x25FE0020)
+#define SCU_D1W         REG32(0x25FE0024)
+#define SCU_D1C         REG32(0x25FE0028)
+#define SCU_D1AD        REG32(0x25FE002C)
+#define SCU_D1EN        REG32(0x25FE0030)
+#define SCU_D1MD        REG32(0x25FE0034)
+#define DSTA_D1_BUSY    0x00020300  // level 1 waiting, moving, or put aside for level 0
+
+static const uint16_t kSlotsBitmap = (CYCP_N0CG << 12) | (CYCP_N0CG << 8) | (CYCP_N0CG << 4) | CYCP_N0CG;
+static const uint16_t kSlotsCpu = (CYCP_CPU << 12) | (CYCP_CPU << 8) | (CYCP_CPU << 4) | CYCP_CPU;
+
+static int32_t gTop;                    // the picture's first screen line
+static volatile int32_t gShownHalf;     // the picture on screen: 0 the first, 1 the second
+static volatile bool gReady;            // the hidden picture holds the next frame,
+static volatile uint32_t gReadyDue;     // due once the sound has played this many samples
+static volatile int32_t gShown;         // frames shown
+
+static void showHalf(int32_t half)
 {
-    const int32_t below = top + height;
-    const uint32_t start = gVblankCount;
+    VDP2_CYCA0L = VDP2_CYCA1L = half ? kSlotsCpu : kSlotsBitmap;
+    VDP2_CYCB0L = VDP2_CYCB1L = half ? kSlotsBitmap : kSlotsCpu;
+    VDP2_SCYIN0 = (half * HALF_LINES - gTop) & (2 * HALF_LINES - 1);
+    gShownHalf = half;
+}
+
+// Both pictures black, the first on screen, width x height centred
+static void pictureStart(int32_t width, int32_t height)
+{
+    gTop = (SCREEN_HEIGHT - height) / 2;
+    gReady = false;
+    gShown = 0;
+    volatile uint32_t* bitmap = (volatile uint32_t*)VDP2_VRAM;
+    for (int32_t i = 0; i < BITMAP_PITCH * HALF_LINES; i++) {
+        bitmap[i] = 0x80008000;
+    }
+    VDP2_CYCA0U = VDP2_CYCA1U = VDP2_CYCB0U = VDP2_CYCB1U = kSlotsCpu;
+    VDP2_CHCTLA = CHCTLA_N0_32K | CHCTLA_N0_512 | CHCTLA_N0BMEN;
+    VDP2_SCXIN0 = (BITMAP_PITCH - (SCREEN_WIDTH - width) / 2) & (BITMAP_PITCH - 1);
+    showHalf(0);
+}
+
+// The decoded picture into the hidden one, a line at a time by SCU level 1 DMA
+// (at most 4 KB a move; level 0 is system.cpp's)
+static void pictureSend(const uint32_t* picture, int32_t width, int32_t height)
+{
+    volatile uint32_t* dst = (volatile uint32_t*)VDP2_VRAM + (gShownHalf ^ 1) * HALF_LINES * (BITMAP_PITCH / 2);
+    for (int32_t y = 0; y < height; y++)
+    {
+        while (SCU_DSTA & DSTA_D1_BUSY);
+        SCU_D1R = uintptr_t(picture + y * (width / 2));
+        SCU_D1W = uintptr_t(dst + y * (BITMAP_PITCH / 2));
+        SCU_D1C = width * 2;
+        SCU_D1AD = 0x101;
+        SCU_D1MD = 0x07;
+        SCU_D1EN = 0x101;
+    }
+    while (SCU_DSTA & DSTA_D1_BUSY);
+}
+
+// --- The retail videos: playing -------------------------------------------------
+
+static const uint8_t* gTable;   // the chunk table: offset, size, time, and a word not used here
+static uint32_t gCount;
+
+// what the crash screen of a video that stands still shows
+static struct
+{
+    uint32_t audioAt, videoAt;  // the next chunks the sound and the pictures take
+    uint32_t received;          // bytes come into the ring since the first chunk's sector
+    uint32_t sectorsLeft;       // still to come
+    uint32_t written;           // samples a channel sent to the slots' rings
+    uint32_t late;              // samples come too late to play (dropped, so what follows plays on time)
+    uint32_t dropped;           // frames decoded too late to show
+} gFilm;
+
+
+static void filmStood()
+{
+    SCSP_MASTER = 1 << 9;       // silent: the slots loop what's left in their rings
+    static const char* const labels[] = {
+        "SHOWN", "VIDEO AT", "AUDIO AT", "RECEIVED", "SECTORS LEFT", "WRITTEN", "PLAYED", "LATE",
+        "DROPPED", "READY", "HIRQ", "CR1", "CR2", "CR3", "CR4", "VBLANK",
+    };
+    const uint32_t values[] = {
+        uint32_t(gShown), gFilm.videoAt, gFilm.audioAt, gFilm.received, gFilm.sectorsLeft, gFilm.written,
+        gAudioOn ? audioPlayed() : 0, gFilm.late, gFilm.dropped, gReady, REG16(CD_HIRQ_REG),
+        REG16(CD_HIRQ_REG + 0x10), REG16(CD_HIRQ_REG + 0x14), REG16(CD_HIRQ_REG + 0x18), REG16(CD_HIRQ_REG + 0x1C),
+        gVblankCount,
+    };
+    static_assert(sizeof(labels) / sizeof(labels[0]) == sizeof(values) / sizeof(values[0]), "a label each");
+    static char title[44] = "The video stopped: ";
+    strncpy(title + 19, gVideoName, 20);
+    crashReport(RGB(0, 12, 0), title, labels, values, int32_t(sizeof(values) / sizeof(values[0])));
+}
+
+// The vertical blank: the hidden picture shown once its frame is due.
+static void filmVblank()
+{
+    if (gAudioOn && gReady && int32_t(audioPlayed() - gReadyDue) >= 0)
+    {
+        showHalf(gShownHalf ^ 1);
+        gReady = false;
+        gShown++;
+    }
+    if (gShown != gStillShown)
+    {
+        gStillShown = gShown;
+        gStillSince = gVblankCount;
+    }
+    else if (gVblankCount - gStillSince >= VIDEO_STILL_BLANKS)
+    {
+        filmStood();
+    }
+}
+
+// the next chunk from index on that holds sound (or a frame); the count if none
+static uint32_t nextChunk(uint32_t index, bool sound)
+{
+    while (index < gCount && (be32(gTable + index * 16 + 8) == AUDIO_CHUNK) != sound) {
+        index++;
+    }
+    return index;
+}
+
+// the sound sample a frame is due at
+static uint32_t frameDue(uint32_t index)
+{
+    return (be32(gTable + index * 16 + 8) & 0x7FFFFFFF) * FILE_RATE / TIME_BASE;
+}
+
+// A chunk whole: in the ring, or put together in SCRATCH if it wraps the ring's end
+static const uint8_t* chunkAt(uint32_t offset, uint32_t size)
+{
+    const uint8_t* data = RING + offset % RING_SIZE;
+    if (offset % RING_SIZE + size > RING_SIZE)
+    {
+        uint32_t first = RING_SIZE - offset % RING_SIZE;
+        memcpy(SCRATCH, data, first);
+        memcpy(SCRATCH + first, RING, size - first);
+        data = SCRATCH;
+    }
+    return data;
+}
+
+// FMV/name.CPK from the disc
+static void playFilm(const char* name)
+{
+    char path[32] = "FMV/";
+    strcat(path, name);
+    strcat(path, ".CPK");
+    uint32_t lba, fileSize;
+    if (cdFind(path, &lba, &fileSize) != 0)
+        videoFailed(name, WHY_NOT_ON_DISC);
+    if (cdRead(lba, CD_SECTOR_SIZE, HEADER) != 0)
+        videoFailed(name, WHY_NOT_STARTED);
+    const uint32_t headerSize = be32(HEADER + 4);
+    if (memcmp(HEADER, "FILM", 4) != 0 || headerSize > HEADER_MAX)
+        videoFailed(name, WHY_BAD_FILE);
+    if (cdRead(lba, headerSize, HEADER) != 0)
+        videoFailed(name, WHY_NOT_STARTED);
+
+    const uint8_t* fdsc = HEADER + 16;
+    const uint8_t* stab = fdsc + be32(fdsc + 4);
+    const int32_t height = be32(fdsc + 12);
+    const int32_t width = be32(fdsc + 16);
+    if (memcmp(fdsc, "FDSC", 4) != 0 || memcmp(fdsc + 8, "cvid", 4) != 0 || memcmp(stab, "STAB", 4) != 0 ||
+        width > SCREEN_WIDTH || height > SCREEN_HEIGHT)
+        videoFailed(name, WHY_BAD_FILE);
+    gTable = stab + 16;
+    gCount = be32(stab + 12);
+
+    uint32_t* picture = (uint32_t*)((uintptr_t(_fmvbss_end) + 15) & ~15u);
+    if (uintptr_t(picture) + width * height * 2 > uintptr_t(_stack_top) - MASTER_STACK)
+        videoFailed(name, WHY_NO_ROOM);
+    memset(picture, 0, width * height * 2);
+    gBooks = (Codebooks*)renderScratch(sizeof(Codebooks) * MAX_STRIPS);
+
+    gVideoName = name;
+    crashLog(name, 0);
+    screenBlank();
+    sndStop();
+    for (uint32_t i = 0; i < AUDIO_RING; i++)
+    {
+        ((volatile uint16_t*)(SOUND_RAM + AUDIO_LEFT))[i] = 0;
+        ((volatile uint16_t*)(SOUND_RAM + AUDIO_RIGHT))[i] = 0;
+    }
+    pictureStart(width, height);
+
+    // streamed from the sector holding the first chunk; ring offsets count from its start
+    const uint32_t firstSector = headerSize / CD_SECTOR_SIZE;
+    const uint32_t base = firstSector * CD_SECTOR_SIZE;
+    const uint32_t fileEnd = fileSize - base;
+    gFilm = {};
+    gFilm.sectorsLeft = (fileSize + CD_SECTOR_SIZE - 1) / CD_SECTOR_SIZE - firstSector;
+    if (cdStreamStart(lba + firstSector, gFilm.sectorsLeft) != 0)
+        videoFailed(name, WHY_NOT_STARTED);
+    auto offsetOf = [&](uint32_t index) { return index < gCount ? headerSize + be32(gTable + index * 16) - base : fileEnd; };
+
+    gAudioOn = false;
+    gStillShown = gShown;
+    gStillSince = gVblankCount;
+    onVblank(filmVblank);
+
+    gFilm.audioAt = nextChunk(0, true);
+    gFilm.videoAt = nextChunk(0, false);
+    bool decoded = false;       // the picture holds a frame not yet sent
+    uint32_t decodedDue = 0;    // its time
+    uint32_t nextDue = 0;       // the frame after's
+    bool started = false;
+    bool skipped = false;
     for (;;)
     {
-        int32_t line = VDP2_VCNT & 0x1FF;
-        if ((line >= below && line < below + 8) || gVblankCount - start > 1)
+        if (skipPressed())
+        {
+            skipped = true;
             break;
-    }
-    const uint32_t* src = PICTURE;
-    const int32_t pairs = width / 2;
-    for (int32_t y = 0; y < height; y++, dst += 256, src += pairs)
-    {
-        for (int32_t x = 0; x < pairs; x++) {
-            dst[x] = src[x];
         }
-    }
-}
-
-#ifdef HW_LOG
-
-// Every sector of a video summed as it arrives (kept in VDP2's second bank, which
-// nothing else uses between levels), again as a frame is decoded from it, and
-// again read a second time when the video ends: what the boxes in frames on the
-// Saturn come from. The counts show over the picture.
-#define SUMS            ((volatile uint32_t*)VDP2_BANK_B)
-#define SUMS_MAX        (0x3FF00 / 4)
-
-static uint32_t gArrived;       // sectors summed
-static uint32_t gChanged, gChangedAt;   // differing when decoded; the first
-static uint32_t gMisread, gMisreadAt;   // differing when read again; the first
-
-static uint32_t sectorSum(const uint8_t* sector)
-{
-    const uint32_t* p = (const uint32_t*)sector;
-    uint32_t sum = 0;
-    for (int32_t i = 0; i < CD_SECTOR_SIZE / 4; i++) {
-        sum = (sum << 1) + (sum >> 31) + p[i];
-    }
-    return sum;
-}
-
-static void checkArrived(const uint8_t* sectors, int32_t count)
-{
-    for (int32_t i = 0; i < count && gArrived < SUMS_MAX; i++) {
-        SUMS[gArrived++] = sectorSum(sectors + i * CD_SECTOR_SIZE);
-    }
-}
-
-// The chunk at ring offset .. offset + size, sectors counted from the ring's first.
-static void checkDecoded(uint32_t offset, uint32_t size)
-{
-    for (uint32_t k = offset / CD_SECTOR_SIZE; k <= (offset + size - 1) / CD_SECTOR_SIZE && k < gArrived; k++)
-    {
-        if (sectorSum(RING + (k * CD_SECTOR_SIZE) % RING_SIZE) != SUMS[k])
-        {
-            if (!gChanged++) {
-                gChangedAt = k;
-            }
-        }
-    }
-}
-
-static void checkText(volatile uint16_t* bitmap, int32_t x, int32_t y, const char* text)
-{
-    for (; *text; text++, x += 8)
-    {
-        const uint8_t* glyph = gFont8[*text - FONT8_FIRST];
-        for (int32_t r = 0; r < 8; r++)
-        {
-            for (int32_t c = 0; c < 8; c++) {
-                bitmap[(y + r) * 512 + x + c] = (glyph[r] >> c) & 1 ? 0xFFFF : 0x8000;
-            }
-        }
-    }
-}
-
-static void checkNumber(char* at, uint32_t value)
-{
-    for (int32_t i = 5; i >= 0; i--, value /= 10) {
-        at[i] = '0' + value % 10;
-    }
-}
-
-// Reads what arrived again, and shows the counts: until START if anything differed.
-static void checkEnd(volatile uint16_t* bitmap, uint32_t lba)
-{
-    static char changed[] = "CHANGED IN RAM 000000 AT 000000";
-    static char misread[] = "MISREAD ON CD  000000 AT 000000";
-    static char checked[] = "CHECKED        000000";
-    gMisread = 0;
-    gPad = 0xFFFF;
-    checkText(bitmap, 16, 8, "CHECKING... START SKIPS");
-    uint32_t k = 0;
-    while (k < gArrived && !skipPressed())
-    {
-        uint32_t n = gArrived - k < 64 ? gArrived - k : 64;
-        if (cdRead(lba + k, n * CD_SECTOR_SIZE, RING) != 0)
+        if (gFilm.audioAt == gCount && gFilm.videoAt == gCount && !decoded && !gReady)
             break;
-        for (uint32_t i = 0; i < n; i++)
+
+        // the ring kept filled, from the first chunk still wanted
+        const uint32_t audioOffset = offsetOf(gFilm.audioAt);
+        const uint32_t videoOffset = offsetOf(gFilm.videoAt);
+        const uint32_t keep = (audioOffset < videoOffset ? audioOffset : videoOffset) & ~(CD_SECTOR_SIZE - 1);
+        while (gFilm.sectorsLeft > 0)
         {
-            if (sectorSum(RING + i * CD_SECTOR_SIZE) != SUMS[k + i])
+            uint32_t pos = gFilm.received % RING_SIZE;
+            uint32_t space = (RING_SIZE - (gFilm.received - keep)) / CD_SECTOR_SIZE;
+            uint32_t untilEnd = (RING_SIZE - pos) / CD_SECTOR_SIZE;
+            uint32_t want = space < untilEnd ? space : untilEnd;
+            if (want > gFilm.sectorsLeft) {
+                want = gFilm.sectorsLeft;
+            }
+            if (!want)
+                break;
+
+            int32_t got = cdStreamRead(RING + pos, want);
+            if (got <= 0)
+                break;
+            gFilm.received += got * CD_SECTOR_SIZE;
+            gFilm.sectorsLeft -= got;
+        }
+
+        // a start the sound won't outrun
+        if (!started && gFilm.received < PREROLL && gFilm.sectorsLeft > 0)
+            continue;
+        started = true;
+
+        // the sound: every chunk that has come, as far ahead as the slots' rings take
+        const uint32_t played = gAudioOn ? audioPlayed() : 0;
+        while (gFilm.audioAt < gCount)
+        {
+            const uint32_t offset = offsetOf(gFilm.audioAt);
+            const uint32_t size = be32(gTable + gFilm.audioAt * 16 + 4);
+            const uint32_t samples = size / 4;
+            if (offset + size > gFilm.received || gFilm.written + samples > played + AUDIO_RING - AUDIO_MARGIN)
+                break;
+            if (size > SCRATCH_MAX)
+                videoFailed(name, WHY_BAD_FILE);
+            const uint8_t* data = chunkAt(offset, size);
+            uint32_t late = played > gFilm.written ? played - gFilm.written : 0;
+            if (late > samples) {
+                late = samples;
+            }
+            audioWrite(AUDIO_LEFT, gFilm.written + late, data + late * 2, samples - late);
+            audioWrite(AUDIO_RIGHT, gFilm.written + late, data + (samples + late) * 2, samples - late);
+            gFilm.written += samples;
+            gFilm.late += late;
+            gFilm.audioAt = nextChunk(gFilm.audioAt + 1, true);
+        }
+
+        // the pictures: the next frame decoded once it has come, then sent to the
+        // hidden picture once that's free, unless the frame after is due by then
+        // (decoded only, as the next builds on it)
+        if (!decoded && gFilm.videoAt < gCount)
+        {
+            const uint32_t offset = offsetOf(gFilm.videoAt);
+            const uint32_t size = be32(gTable + gFilm.videoAt * 16 + 4);
+            if (offset + size <= gFilm.received)
             {
-                if (!gMisread++) {
-                    gMisreadAt = k + i;
-                }
+                if (size > SCRATCH_MAX)
+                    videoFailed(name, WHY_BAD_FILE);
+                decodeFrame(chunkAt(offset, size), size, picture, width / 2);
+                decodedDue = frameDue(gFilm.videoAt);
+                gFilm.videoAt = nextChunk(gFilm.videoAt + 1, false);
+                nextDue = gFilm.videoAt < gCount ? frameDue(gFilm.videoAt) : 0xFFFFFFFF;
+                decoded = true;
             }
         }
-        k += n;
-    }
-    checkNumber(changed + 15, gChanged);
-    checkNumber(changed + 25, gChangedAt);
-    checkNumber(misread + 15, gMisread);
-    checkNumber(misread + 25, gMisreadAt);
-    checkNumber(checked + 15, k);
-    checkText(bitmap, 16, 8, changed);
-    checkText(bitmap, 16, 16, misread);
-    checkText(bitmap, 16, 24, checked);
-    gPad = 0xFFFF;
-    const uint32_t start = gVblankCount;
-    while (!skipPressed() && ((gChanged || gMisread) || gVblankCount - start < 180));
-}
-#endif
+        if (decoded && !gReady)
+        {
+            if (gAudioOn && audioPlayed() >= nextDue)
+            {
+                gFilm.dropped++;
+            }
+            else
+            {
+                pictureSend(picture, width, height);
+                gReadyDue = decodedDue;
+                gReady = true;
+            }
+            decoded = false;
+        }
 
+        // the sound started with the first picture ready
+        if (!gAudioOn && gReady) {
+            audioStart();
+        }
+    }
+
+    // the sound played out, unless skipped
+    while (gAudioOn && !skipped && audioPlayed() < gFilm.written && !skipPressed());
+    onVblank(nullptr);
+
+    if (gAudioOn) {
+        audioStop();
+    }
+    cdStreamStop();
+    screenAfterVideo();     // the last picture to black (retail's 0603a480), VDP2 back
+}
 #endif
 
 #ifdef FMV_PS1
@@ -491,14 +744,10 @@ static_assert(STREAM_LOW + STREAM_RING_BYTES + STREAM_FRAME_BYTES <= LOW_LEVEL_T
 // high work RAM past the program (the level's, free between levels): the
 // picture, CORELOGO's 320 x 208 in 24-bit, and the CPUs' codebooks
 #define STREAM_PICTURE_BYTES (320 * 208 * 4)
-#define MASTER_STACK        (8 * 1024)      // as os.cpp keeps
-extern "C" uint8_t _fmvbss_end[], _stack_top[];  // saturn.ld's __fmvbss_end, __stack_top
 
 #define SMPC_SNDON          0x06
 #define SMPC_SNDOFF         0x07
-#define SCSP_MASTER         SCSP_REG(0x400)
 #define SOUND_SHARED        0x25A0F000      // fmvsound.68k's shared words
-#define CD_HIRQ_REG         0x25890008
 
 uint32_t fmvHostVblanks() { return gVblankCount; }
 void fmvHostSlaveRun(void (*fn)(void*), void* arg) { slaveRun(fn, arg); }
@@ -518,15 +767,7 @@ void fmvHostOnLine(void (*fn)(), int32_t line)
     }
 }
 
-// A video whose picture hasn't moved for 4 s (a frame lasts 4 vertical blanks,
-// the wait before the first about a second) stops on a crash screen of the
-// player's, the CD block's and the sound CPU's state, for the player to report.
-#define VIDEO_STILL_BLANKS  240
-
 static void (*volatile gVideoVblank)();
-static const char* gVideoName;
-static int32_t gStillShown;
-static uint32_t gStillSince;
 
 static void videoStood()
 {
@@ -576,22 +817,6 @@ void fmvHostOnVblank(void (*fn)())
     onVblank(fn ? videoVblank : nullptr);
 }
 
-// A video that can't play: the disc lacks it, high work RAM can't hold it, or
-// the drive failed at its start. A crash screen, as for a video that stands
-// still.
-static void videoFailed(const char* name, uint32_t why)
-{
-    static const char* const labels[] = { "WHY", "VBLANK" };
-    const uint32_t values[] = { why, gVblankCount };
-    static char title[44] = "A video wouldn't play: ";
-    strncpy(title + 23, name, 20);
-    crashReport(RGB(0, 12, 0), title, labels, values, 2);
-}
-
-#define WHY_NOT_ON_DISC     1
-#define WHY_NO_ROOM         2
-#define WHY_NOT_STARTED     3
-
 // The PlayStation's video name, from its Form 2 track. Its tables (saturn.ld's
 // .fmvbss) and then the picture and codebooks take the high work RAM past the
 // program, which the level that comes next takes again.
@@ -632,185 +857,7 @@ void fmvPlay(const char* name, bool skippable)
 #ifdef FMV_PS1
     playStream(name);
 #else
-
-    gBooks = (Codebooks*)renderScratch(sizeof(Codebooks) * MAX_STRIPS);
-    char path[32] = "FMV/";
-    strcat(path, name);
-    strcat(path, ".CPK");
-
-    uint32_t lba, fileSize;
-    if (cdFind(path, &lba, &fileSize) != 0)
-        return;
-
-    gBooks = (Codebooks*)renderScratch(sizeof(Codebooks) * MAX_STRIPS);
-
-    // the header
-    if (cdRead(lba, CD_SECTOR_SIZE, HEADER) != 0 || memcmp(HEADER, "FILM", 4) != 0)
-        return;
-    uint32_t headerSize = be32(HEADER + 4);
-    if (headerSize > HEADER_MAX || cdRead(lba, headerSize, HEADER) != 0)
-        return;
-
-    const uint8_t* fdsc = HEADER + 16;
-    if (memcmp(fdsc, "FDSC", 4) != 0 || memcmp(fdsc + 8, "cvid", 4) != 0)
-        return;
-    int32_t height = be32(fdsc + 12);
-    int32_t width = be32(fdsc + 16);
-
-    const uint8_t* stab = fdsc + be32(fdsc + 4);
-    if (memcmp(stab, "STAB", 4) != 0)
-        return;
-    uint32_t count = be32(stab + 12);
-    const uint8_t* table = stab + 16;
-
-    // the picture area, centred
-    volatile uint16_t* bitmap = screenBlank();
-    const int32_t pictureTop = (SCREEN_HEIGHT - height) / 2;
-    volatile uint32_t* frameDst = (volatile uint32_t*)bitmap + pictureTop * 256 + ((SCREEN_WIDTH - width) / 2) / 2;
-    memset(PICTURE, 0, width * height * 2);
-
-    // sound
-    sndStop();
-    for (uint32_t i = 0; i < AUDIO_RING; i++)
-    {
-        ((volatile uint16_t*)(SOUND_RAM + AUDIO_LEFT))[i] = 0;
-        ((volatile uint16_t*)(SOUND_RAM + AUDIO_RIGHT))[i] = 0;
-    }
-
-    // stream from the sector holding the first chunk; ring offsets count
-    // from that sector's start
-    uint32_t firstSector = headerSize / CD_SECTOR_SIZE;
-    uint32_t sectorsLeft = (fileSize + CD_SECTOR_SIZE - 1) / CD_SECTOR_SIZE - firstSector;
-    uint32_t base = firstSector * CD_SECTOR_SIZE;
-    if (cdStreamStart(lba + firstSector, sectorsLeft) != 0)
-        return;
-
-    uint32_t received = 0;      // bytes in the ring since base
-    uint32_t written = 0;       // samples per channel sent to the sound rings
-    uint32_t audioStartVbl = 0;
-    bool audioOn = false;
-    bool started = false;
-
-    gPad = 0xFFFF; // a START still held from before doesn't skip
-#ifdef FMV_SKIP_AT
-    gSkipAt = gVblankCount + FMV_SKIP_AT;
-#endif
-#ifdef HW_LOG
-    gArrived = gChanged = gMisread = 0;
-#endif
-
-    bool skipped = false;
-    for (uint32_t index = 0; index < count; )
-    {
-        if (skipPressed())
-        {
-            skipped = true;
-            break;
-        }
-
-        const uint8_t* entry = table + index * 16;
-        uint32_t offset = headerSize + be32(entry) - base;
-        uint32_t size = be32(entry + 4);
-        uint32_t time = be32(entry + 8);
-
-        // keep the ring filled, up to the chunk we're on
-        uint32_t keep = offset & ~(CD_SECTOR_SIZE - 1);
-        while (sectorsLeft > 0)
-        {
-            uint32_t pos = received % RING_SIZE;
-            uint32_t space = (RING_SIZE - (received - keep)) / CD_SECTOR_SIZE;
-            uint32_t untilEnd = (RING_SIZE - pos) / CD_SECTOR_SIZE;
-            uint32_t want = space < untilEnd ? space : untilEnd;
-            if (want > sectorsLeft) {
-                want = sectorsLeft;
-            }
-            if (!want)
-                break;
-
-            int32_t got = cdStreamRead(RING + pos, want);
-            if (got <= 0)
-                break;
-#ifdef HW_LOG
-            checkArrived(RING + pos, got);
-#endif
-            received += got * CD_SECTOR_SIZE;
-            sectorsLeft -= got;
-        }
-
-        // a start the sound won't outrun
-        if (!started && received < PREROLL && sectorsLeft > 0)
-            continue;
-        started = true;
-
-        if (offset + size > received)
-        {
-            if (sectorsLeft == 0)
-                break; // the file ended short
-            continue;
-        }
-
-        const uint8_t* data = RING + offset % RING_SIZE;
-        if (offset % RING_SIZE + size > RING_SIZE)
-        {
-            if (size > SCRATCH_MAX)
-                break;
-            uint32_t first = RING_SIZE - offset % RING_SIZE;
-            memcpy(SCRATCH, data, first);
-            memcpy(SCRATCH + first, RING, size - first);
-            data = SCRATCH;
-        }
-
-        uint32_t played = audioOn ? (gVblankCount - audioStartVbl) * SAMPLES_PER_100_VBL / 100 : 0;
-
-        if (time == AUDIO_CHUNK)
-        {
-            uint32_t samples = size / 4;
-            if (audioOn && written + samples > played + AUDIO_RING - AUDIO_MARGIN)
-                continue; // no room yet
-
-            audioWrite(AUDIO_LEFT, written, data, samples);
-            audioWrite(AUDIO_RIGHT, written, data + samples * 2, samples);
-            written += samples;
-
-            if (!audioOn)
-            {
-                audioStart();
-                audioStartVbl = gVblankCount;
-                audioOn = true;
-            }
-        }
-        else
-        {
-            // a frame shows once the sound reaches its time
-            uint32_t due = (time & 0x7FFFFFFF) * FILE_RATE / TIME_BASE;
-            if (audioOn && played < due)
-                continue;
-#ifdef HW_LOG
-            checkDecoded(offset, size);
-#endif
-            decodeFrame(data, size, PICTURE, width / 2);
-            showPicture(frameDst, width, height, pictureTop);
-        }
-
-        index++;
-    }
-
-    // let the sound play out, unless skipped
-    while (audioOn && !skipped && !skipPressed())
-    {
-        uint32_t played = (gVblankCount - audioStartVbl) * SAMPLES_PER_100_VBL / 100;
-        if (played >= written)
-            break;
-    }
-
-    if (audioOn) {
-        audioStop();
-    }
-    cdStreamStop();
-#ifdef HW_LOG
-    checkEnd(bitmap, lba + firstSector);
-#endif
-    screenFadeOut();    // the last picture to black (retail's 0603a480)
+    playFilm(name);
 #endif
 }
 

@@ -33,6 +33,11 @@
 // Once per frame: frees voices whose samples have played out.
 void sndFrame();
 
+// The SCSP's samples (44.1 kHz) since the sound CPU started, as its timers
+// count them (sound.68k's SAMPLES), in steps of 85 or 86: the SCSP's own time,
+// which the retail video player's sound keeps (fmv.cpp).
+uint32_t sndClock();
+
 #ifdef SOUND_BENCH
 // The sound CPU's decoding speed (soundbench.68k), in the boot log: samples
 // a second for each format (PS1, SAT), with 0, 16 and 30 slots playing.

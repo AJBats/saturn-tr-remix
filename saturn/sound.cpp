@@ -240,6 +240,17 @@ void sndInit()
     driverStart();
 }
 
+// The sound CPU's count, read whole (the SH-2 reads the long a word at a time)
+uint32_t sndClock()
+{
+    volatile uint32* samples = (volatile uint32*)(SOUND_RAM + DRIVER_SAMPLES);
+    uint32 a = *samples, b;
+    while ((b = *samples) != a) {
+        a = b;
+    }
+    return a;
+}
+
 #ifdef SOUND_BENCH
 #include "soundbench_m68k.h"
 
@@ -336,16 +347,6 @@ void sndBench()
 #define SCSP_MONITOR    SCSP_REG(0x408)     // MSLC (15-11) written, CA (10-7) read
 #define CAL_SLOT        31
 
-static uint32 driverSamples()
-{
-    volatile uint32* samples = (volatile uint32*)(SOUND_RAM + DRIVER_SAMPLES);
-    uint32 a = *samples, b;
-    while ((b = *samples) != a) {
-        a = b;
-    }
-    return a;
-}
-
 static uint32 calibrate(uint16 pitch)
 {
     SCSP_SLOT(CAL_SLOT, 0) = KYONEX;
@@ -372,7 +373,7 @@ static uint32 calibrate(uint16 pitch)
         uint32 now = (SCSP_MONITOR >> 7) & 15;
         if (now != ca)
         {
-            last = driverSamples();
+            last = sndClock();
             if (!steps) {
                 first = last;
             }
@@ -386,9 +387,9 @@ static uint32 calibrate(uint16 pitch)
 
 void sndCalibrate()
 {
-    uint32 s0 = driverSamples(), v = gVblankCount;
+    uint32 s0 = sndClock(), v = gVblankCount;
     while (gVblankCount - v < 60);
-    crashLog("SCLK", driverSamples() - s0);
+    crashLog("SCLK", sndClock() - s0);
     crashLog("SCAL0", calibrate((0xE << 11) | 0));
     crashLog("SCAL1", calibrate((0xE << 11) | 0x200));
 }
