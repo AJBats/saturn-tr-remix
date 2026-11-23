@@ -48,7 +48,11 @@ static_assert(FMVSOUND_M68K_SIZE <= 0xF000 - 256, "fmvsound.68k runs into its st
 
 static volatile uint32_t* const gBitmap = (volatile uint32_t*)VDP2_VRAM;
 static int32_t gLines, gTop;
-static bool g15;                    // the picture in 15-bit
+#ifdef CPK_15BIT
+static bool g15;                    // the picture in 15-bit (benches comparing the ways)
+#else
+static const bool g15 = false;      // the game: 24-bit always
+#endif
 static bool gRace;                  // the picture in 24-bit, one buffer
 static int32_t gRaceFirst;          // its first bitmap line
 static const uint16_t kSlotsBitmap = (CYCP_N0CG << 12) | (CYCP_N0CG << 8) | (CYCP_N0CG << 4) | CYCP_N0CG;
@@ -90,7 +94,9 @@ static void mode(int32_t lines, int32_t tall)
 {
     gLines = lines;
     gTop = (224 - lines) / 2;
+#ifdef CPK_15BIT
     g15 = lines > HALF_LINES && tall != FMV_TALL_24;
+#endif
     gRace = lines > HALF_LINES && tall == FMV_TALL_24;
     gRaceFirst = HALF_LINES - lines / 2;
     const int32_t left = (352 - WIDTH) / 2;
@@ -286,7 +292,7 @@ static void sectorsIn(uintptr_t dst, uint32_t bytes)
 
 // Each sector's EDC (ECMA-130 14.3: a CRC over the subheader and data, stored little-endian after them) and
 // subheader checked as it lands in the ring, to tell bad data off the disc from anything after.
-static uint32_t gEdcTable[256];
+static uint32_t gEdcTable[256] FMV_TABLE;
 
 static void edcInit()
 {
@@ -409,7 +415,7 @@ struct Pending
     uint32_t number;
 };
 
-static Pending gQueue[QUEUE];
+static Pending gQueue[QUEUE] FMV_TABLE;
 static uint32_t gQueueHead, gQueueTail;
 static uint32_t gParse;             // the next item's offset
 static bool gEnded;
@@ -506,11 +512,13 @@ static void* book(int32_t cpu)
 
 static void decode(const uint8_t* frame, uint32_t bytes, int32_t cpu, int32_t first, int32_t last)
 {
+#ifdef CPK_15BIT
     if (g15) {
         cpkDecode15(frame, bytes, gMem->picture, WIDTH / 2, (CpkBook15*)book(cpu), first, last);
-    } else {
-        cpkDecode(frame, bytes, gMem->picture, WIDTH, (CpkBook*)book(cpu), first, last);
+        return;
     }
+#endif
+    cpkDecode(frame, bytes, gMem->picture, WIDTH, (CpkBook*)book(cpu), first, last);
 }
 
 static void slaveDecode(void* arg)
@@ -546,6 +554,22 @@ static int32_t splitAt(const uint8_t* f, uint32_t size)
 #define SCU_D1EN        REG32(0x25FE0030)
 #define SCU_D1MD        REG32(0x25FE0034)
 #define DSTA_D1_BUSY    0x00020300  // level 1 waiting, moving, or put aside for level 0
+
+// the screen line the one-buffer picture's bottom half starts on
+static int32_t raceSplit()
+{
+    return gTop + gLines / 2;
+}
+
+// the line the beam is on: reading EXTEN (its EXLTEN clear) latches the counters, and VCNT then holds the
+// line (not interlaced); 224 up is the blank
+#define VDP2_EXTEN      REG16(0x25F80002)
+
+static int32_t beamLine()
+{
+    (void)VDP2_EXTEN;
+    return VDP2_VCNT & 0x1FF;
+}
 
 static void copyHalf(int32_t half)
 {
@@ -643,9 +667,22 @@ static void onVblank()
         {
             copyHalf(1);
             gTopCopied = false;
+            // torn if the beam reached the bottom half before it was all in
+            const int32_t line = beamLine();
+            if (!(VDP2_TVSTAT & TVSTAT_VBLANK))
+            {
+                gStats->bottomLineMost = uint32_t(line) > gStats->bottomLineMost ? uint32_t(line) : gStats->bottomLineMost;
+                if (line >= raceSplit()) {
+                    gStats->torn++;
+                }
+            }
         }
         else
         {
+            // torn if this vertical blank's interrupt came after the blank: the beam is on the picture
+            if (!(VDP2_TVSTAT & TVSTAT_VBLANK)) {
+                gStats->torn++;
+            }
             gHalf ^= 1;
             cycles(gHalf);
         }
@@ -663,10 +700,19 @@ static void onVblank()
 // half put in now.
 static void onLine()
 {
+    // an interrupt held up past the blank finds the beam on the top half again: not this field
+    if (VDP2_TVSTAT & TVSTAT_VBLANK || beamLine() < raceSplit())
+        return;
     if (gFlipAt >= 0 && !gTopCopied && int32_t(fmvHostVblanks() + 1 - uint32_t(gFlipAt)) >= 0)
     {
         copyHalf(0);
         gTopCopied = true;
+        // torn if the beam came round to the top half before it was all in
+        const int32_t line = beamLine();
+        gStats->topLineMost = uint32_t(line) > gStats->topLineMost ? uint32_t(line) : gStats->topLineMost;
+        if (!(VDP2_TVSTAT & TVSTAT_VBLANK) && line < raceSplit()) {
+            gStats->torn++;
+        }
     }
 }
 
@@ -680,7 +726,7 @@ static uint32_t due(uint32_t k)
 
 static bool find(const char* name, uint32_t* first, uint32_t* sectors, uint32_t* frames, uint32_t* lines)
 {
-    static uint8_t index[2048];
+    static uint8_t index[2048] FMV_TABLE;
     if (cdLoadFile("FMV/INDEX.BIN", index, sizeof(index)) < 8 || memcmp(index, "TRSI", 4) != 0)
         return false;
     const uint32_t count = (index[6] << 8) | index[7];
@@ -702,7 +748,7 @@ static bool find(const char* name, uint32_t* first, uint32_t* sectors, uint32_t*
 // the Form 2 track's first frame address: the TOC's last data track
 static uint32_t trackFad()
 {
-    static uint32_t toc[102];
+    static uint32_t toc[102] FMV_TABLE;
     if (cdToc(toc) != 0)
         return 0;
     uint32_t fad = 0;
@@ -726,7 +772,9 @@ bool fmvPlayStream(const char* name, const FmvMemory& mem, bool skippable, int32
     memset(stats, 0, sizeof(*stats));
     stats->soundLow = 0x7FFFFFFF;
     cpkInit();
+#ifdef CPK_15BIT
     cpkInit15(tall == FMV_TALL_24 ? CPK15_DROP : tall);
+#endif
     edcInit();
     gLive.edcBad = gLive.edcFirst = gLive.edcLast = 0;
     gStats = stats;

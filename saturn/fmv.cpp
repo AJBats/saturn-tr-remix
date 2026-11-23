@@ -1,6 +1,7 @@
-// Where the disc has the PlayStation's videos (FMV/INDEX.BIN and its Form 2
-// track, built by tools/fmvpack.py from the PlayStation disc), fmvplay.cpp
-// plays them; this file is its host. Otherwise the retail disc's own play:
+// One player to a build (the Makefile's FMV_PS1). A disc built with the
+// PlayStation's videos (FMV/INDEX.BIN and its Form 2 track, tools/fmvpack.py)
+// has fmvplay.cpp play them, this file its host. Otherwise the retail disc's
+// own play:
 //
 // A Sega FILM file is a header (FDSC: the formats, STAB: a table of chunks,
 // each with its offset, size and time) followed by the chunks: Cinepak frames
@@ -33,6 +34,10 @@
 
 void sndStop(); // OpenLara's (sound.cpp)
 
+#define SCSP_REG(x)     (*(volatile uint16_t*)(0x25B00000 + (x)))
+
+#ifndef FMV_PS1
+
 // low work RAM, free between levels
 #define RING            ((uint8_t*)0x00200000)
 #define RING_SIZE       (768 * 1024)
@@ -43,7 +48,6 @@ void sndStop(); // OpenLara's (sound.cpp)
 #define SCRATCH_MAX     (64 * 1024)
 #define PREROLL         (128 * 1024)    // in the ring before the sound starts
 
-#define SCSP_REG(x)     (*(volatile uint16_t*)(0x25B00000 + (x)))
 #define SCSP_SLOT(slot, reg) SCSP_REG((slot) * 0x20 + (reg) * 2)
 #define KYONEX          0x1000
 #define KYONB           0x0800
@@ -275,6 +279,8 @@ static void decodeFrame(const uint8_t* data, uint32_t size, uint32_t* dst, int32
     }
 }
 
+#endif
+
 // --- Playback -------------------------------------------------------------
 
 static uint16_t gPad;
@@ -301,6 +307,7 @@ static bool skipPressed()
     return (gPad & PAD_START) && !(old & PAD_START);
 }
 
+#ifndef FMV_PS1
 static void audioStart()
 {
     static const uint32_t addr[2] = { AUDIO_LEFT, AUDIO_RIGHT };
@@ -470,6 +477,9 @@ static void checkEnd(volatile uint16_t* bitmap, uint32_t lba)
 }
 #endif
 
+#endif
+
+#ifdef FMV_PS1
 // --- The PlayStation's videos (fmvplay.cpp) ---------------------------------
 
 // low work RAM, free between levels: the ring of the drive's sectors (filled by
@@ -482,7 +492,7 @@ static_assert(STREAM_LOW + STREAM_RING_BYTES + STREAM_FRAME_BYTES <= LOW_LEVEL_T
 // picture, CORELOGO's 320 x 208 in 24-bit, and the CPUs' codebooks
 #define STREAM_PICTURE_BYTES (320 * 208 * 4)
 #define MASTER_STACK        (8 * 1024)      // as os.cpp keeps
-extern "C" uint8_t _bss_end[], _stack_top[];
+extern "C" uint8_t _fmvbss_end[], _stack_top[];  // saturn.ld's __fmvbss_end, __stack_top
 
 #define SMPC_SNDON          0x06
 #define SMPC_SNDOFF         0x07
@@ -566,11 +576,30 @@ void fmvHostOnVblank(void (*fn)())
     onVblank(fn ? videoVblank : nullptr);
 }
 
-// The PlayStation's video name, from its Form 2 track; false if the high work
-// RAM it needs isn't there (then the retail disc's plays).
-static bool playStream(const char* name)
+// A video that can't play: the disc lacks it, high work RAM can't hold it, or
+// the drive failed at its start. A crash screen, as for a video that stands
+// still.
+static void videoFailed(const char* name, uint32_t why)
 {
-    uint8_t* high = (uint8_t*)((uintptr_t(_bss_end) + 15) & ~15u);
+    static const char* const labels[] = { "WHY", "VBLANK" };
+    const uint32_t values[] = { why, gVblankCount };
+    static char title[44] = "A video wouldn't play: ";
+    strncpy(title + 23, name, 20);
+    crashReport(RGB(0, 12, 0), title, labels, values, 2);
+}
+
+#define WHY_NOT_ON_DISC     1
+#define WHY_NO_ROOM         2
+#define WHY_NOT_STARTED     3
+
+// The PlayStation's video name, from its Form 2 track. Its tables (saturn.ld's
+// .fmvbss) and then the picture and codebooks take the high work RAM past the
+// program, which the level that comes next takes again.
+static void playStream(const char* name)
+{
+    if (!fmvHas(name))
+        videoFailed(name, WHY_NOT_ON_DISC);
+    uint8_t* high = (uint8_t*)((uintptr_t(_fmvbss_end) + 15) & ~15u);
     FmvMemory mem;
     mem.ring = (uint8_t*)STREAM_LOW;
     mem.ringBytes = STREAM_RING_BYTES;
@@ -579,18 +608,19 @@ static bool playStream(const char* name)
     mem.picture = (uint32_t*)high;
     mem.books = high + STREAM_PICTURE_BYTES;
     if (uintptr_t(high) + STREAM_PICTURE_BYTES + 2 * FMV_BOOK_BYTES > uintptr_t(_stack_top) - MASTER_STACK)
-        return false;
+        videoFailed(name, WHY_NO_ROOM);
 
     gVideoName = name;
     crashLog(name, 0);
     screenBlank();
     sndStop();
     FmvStats stats;
-    fmvPlayStream(name, mem, gSkippable, FMV_TALL_24, &stats);
+    if (!fmvPlayStream(name, mem, gSkippable, FMV_TALL_24, &stats))
+        videoFailed(name, WHY_NOT_STARTED);
     screenAfterVideo();     // the last picture to black (retail's 0603a480), VDP2 back
     sndInit();              // the game's sound program back on the sound CPU
-    return true;
 }
+#endif
 
 void fmvPlay(const char* name, bool skippable)
 {
@@ -599,8 +629,9 @@ void fmvPlay(const char* name, bool skippable)
 #ifdef FMV_SKIP_AT
     gSkipAt = gVblankCount + FMV_SKIP_AT;
 #endif
-    if (fmvHas(name) && playStream(name))
-        return;
+#ifdef FMV_PS1
+    playStream(name);
+#else
 
     gBooks = (Codebooks*)renderScratch(sizeof(Codebooks) * MAX_STRIPS);
     char path[32] = "FMV/";
@@ -780,6 +811,7 @@ void fmvPlay(const char* name, bool skippable)
     checkEnd(bitmap, lba + firstSector);
 #endif
     screenFadeOut();    // the last picture to black (retail's 0603a480)
+#endif
 }
 
 void fmvPicture(const char* name, int width, int frames)

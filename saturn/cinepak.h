@@ -7,6 +7,10 @@
 
 #include <stdint.h>
 
+// A table only a playing video needs, filled when it starts: kept past bss, in the high work RAM a level takes
+// (saturn.ld's .fmvbss), so it costs the game nothing while a level plays.
+#define FMV_TABLE __attribute__((section(".fmvbss")))
+
 struct CpkBook
 {
     uint32_t v4[256][4];    // a V4 entry's 2x2 pixels: top left, top right, bottom left, bottom right
@@ -15,6 +19,7 @@ struct CpkBook
 
 void cpkInit();
 
+#ifdef CPK_15BIT
 // 15-bit output, for a picture too tall to double-buffer in 24-bit (docs/ps1-fmv.md, decision 2): pixels
 // 0x8000 | B << 10 | G << 5 | R, each channel's 8 bits taken down to 5 by dropping 3 (as saturn/fmv.cpp
 // does), rounding, or a 2x2 ordered dither. The dither is in the codebooks: a V4 entry's 4 pixels and each
@@ -32,6 +37,8 @@ void cpkInit15(int32_t convert);
 // As cpkDecode, into 15-bit pixels; pitch counts pixel pairs (32-bit words) a line.
 void cpkDecode15(const uint8_t* frame, uint32_t size, uint32_t* pic, int32_t pitch, CpkBook15* book,
                  int32_t first, int32_t last);
+
+#endif
 
 // The strips in a frame.
 int32_t cpkStrips(const uint8_t* frame);

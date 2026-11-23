@@ -69,6 +69,16 @@ SECTIONS
         __bss_end = .;
     } > HWRAM
 
+    /* tables a video needs while it plays, between levels (fmvplay.h FMV_TABLE): past bss, in the high work
+       RAM the level takes (os.cpp highReset), filled again for each video */
+    .fmvbss (NOLOAD) : {
+        . = ALIGN(16);
+        __fmvbss_start = .;
+        *(.fmvbss .fmvbss.*)
+        . = ALIGN(16);
+        __fmvbss_end = .;
+    } > HWRAM
+
     __stack_top = ORIGIN(HWRAM) + LENGTH(HWRAM);
 
     /* the master's stack grows down from the top into what bss leaves: it

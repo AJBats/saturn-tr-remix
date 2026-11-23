@@ -30,11 +30,13 @@
 #define FRT_SLOW        2           // a tick every 128 cycles
 #define CLOCK_HZ        28636000
 
+// low work RAM, as the game has it between levels (saturn/fmv.cpp): the ring, filled by the SH-2's DMA
+// controller, and the frame buffer
+#define RING            ((uint8_t*)0x00200000)
 #define RING_BYTES      (256 * 2336)       // about 600 KB: with the CD block's 200 sectors, the plan's 1 MB
-#define FRAME_BUFFER    ((uint8_t*)0x00200000)
+#define FRAME_BUFFER    (RING + RING_BYTES)
 #define FRAME_BYTES     (128 * 1024)
 
-static uint8_t gRing[RING_BYTES] __attribute__((aligned(16)));     // high work RAM: SCU DMA can't reach low
 static uint32_t gPicture[320 * 208];     // CORELOGO's whole picture in 24-bit
 static uint8_t gBooks[2 * FMV_BOOK_BYTES] __attribute__((aligned(16)));
 
@@ -45,6 +47,14 @@ struct Play
     const char* name;
     int32_t tall;
     const char* title[4];
+};
+// VIDEO "GAMETEST": the game's ways, over and over: CORELOGO in 24-bit with one buffer, then two letterboxed
+// videos double-buffered
+#define GAME_PLAYS 3
+static const Play kGameTest[GAME_PLAYS] = {
+    { "CORELOGO", FMV_TALL_24, { "1 of 3", "CORELOGO, 24-bit, one buffer", "", "" } },
+    { "PYRAMID", FMV_TALL_24, { "2 of 3", "PYRAMID, 24-bit, double buffer", "", "" } },
+    { "MANSION", FMV_TALL_24, { "3 of 3", "MANSION, 24-bit, double buffer", "", "" } },
 };
 #define CORE_PLAYS 4
 static const Play kCoreTest[CORE_PLAYS] = {
@@ -404,7 +414,7 @@ int main()
     }
 
     FmvMemory mem;
-    mem.ring = gRing;
+    mem.ring = RING;
     mem.ringBytes = RING_BYTES;
     mem.frame = FRAME_BUFFER;
     mem.frameBytes = FRAME_BYTES;
@@ -413,23 +423,25 @@ int main()
 
     // VIDEO "CORE24": the first of CORETEST's alone, over and over
     const bool core24 = strcmp(VIDEO, "CORE24") == 0;
-    if (core24 || strcmp(VIDEO, "CORETEST") == 0)
+    const bool gameTest = strcmp(VIDEO, "GAMETEST") == 0;
+    if (core24 || gameTest || strcmp(VIDEO, "CORETEST") == 0)
     {
-        const int32_t count = core24 ? 1 : CORE_PLAYS;
-        char last[3][80] = { "", "", "" };
+        const Play* list = gameTest ? kGameTest : kCoreTest;
+        const int32_t count = core24 ? 1 : gameTest ? GAME_PLAYS : CORE_PLAYS;
+        char last[4][80] = { "", "", "", "" };
         uint32_t plays = 0, badPlays = 0, badSectors = 0;
         for (int32_t k = 0;; k = (k + 1) % count)
         {
             modeText();
             for (int32_t row = 0; row < 4; row++) {
-                textRow(4 + row, kCoreTest[k].title[row]);
+                textRow(4 + row, list[k].title[row]);
             }
-            for (int32_t row = 0; row < 3; row++) {
+            for (int32_t row = 0; row < 4; row++) {
                 textRow(10 + row, last[row]);
             }
             for (uint32_t v = gVblanks; gVblanks - v < 180;);
             FmvStats stats;
-            bool ok = fmvPlayStream(kCoreTest[k].name, mem, false, kCoreTest[k].tall, &stats);
+            bool ok = fmvPlayStream(list[k].name, mem, false, list[k].tall, &stats);
             const volatile FmvLive* live = fmvLive();
             plays++;
             badPlays += live->edcBad != 0;
@@ -438,11 +450,17 @@ int main()
             p = putInt(p, int32_t(stats.frames));
             p = put(p, " frames, ");
             p = putInt(p, int32_t(stats.late));
-            put(p, " late");
+            p = put(p, " late, ");
+            p = putInt(p, int32_t(stats.torn));
+            put(p, " torn");
             p = put(last[1], "decode ms: most ");
             p = putMs(p, stats.decodeMost);
             p = put(p, " mean ");
             putMs(p, stats.frames ? stats.decodeSum / stats.frames : 0);
+            p = put(last[3], "halves in by line: top ");
+            p = putInt(p, int32_t(stats.topLineMost));
+            p = put(p, ", bottom ");
+            putInt(p, int32_t(stats.bottomLineMost));
             p = put(last[2], "bad sectors ");
             p = putInt(p, int32_t(badSectors));
             p = put(p, " in ");

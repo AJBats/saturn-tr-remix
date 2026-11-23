@@ -32,7 +32,11 @@ struct FmvMemory
     void* books;            // two of FMV_BOOK_BYTES: the master's, the slave's
 };
 
+#ifdef CPK_15BIT
 #define FMV_BOOK_BYTES (sizeof(CpkBook15) > sizeof(CpkBook) ? sizeof(CpkBook15) : sizeof(CpkBook))
+#else
+#define FMV_BOOK_BYTES sizeof(CpkBook)
+#endif
 
 struct FmvStats
 {
@@ -53,6 +57,9 @@ struct FmvStats
     int32_t cdFirstError;   // the first one's code (cd.cpp's ERR_), and the drive's status then
     int32_t cdFirstStatus;
     uint32_t cdFirstSector; // sectors in by then
+    uint32_t torn;          // pictures changed while the beam was on them (a cut across the frame)
+    uint32_t topLineMost;   // the one-buffer picture: the latest line its top half was all in by
+    uint32_t bottomLineMost;    // and its bottom half, after the blank
     int32_t error;
 };
 
@@ -82,9 +89,10 @@ const volatile FmvLive* fmvLive();
 
 // Plays a video from the index (FMV/INDEX.BIN); returns false if it isn't there or the disc fails. A picture
 // of up to 128 lines plays in 24-bit, double-buffered; a taller one (CORELOGO's 208) as tall says: in 24-bit
-// with one buffer (FMV_TALL_24, the host's line interrupt needed), or in 15-bit converted as a CPK15_ value.
+// with one buffer (FMV_TALL_24, the host's line interrupt needed), or (benches built with CPK_15BIT) in 15-bit
+// converted as a CPK15_ value.
 // Leaves VDP2 in the video's mode and the 68000 running fmvsound.68k: the host puts back its own.
-enum { FMV_TALL_24 = CPK15_DITHER + 1 };
+enum { FMV_TALL_24 = 3 };          // past the CPK15_ ways
 bool fmvHas(const char* name);      // whether the index has the video
 bool fmvPlayStream(const char* name, const FmvMemory& mem, bool skippable, int32_t tall, FmvStats* stats);
 

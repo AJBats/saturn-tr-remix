@@ -104,7 +104,8 @@ been tested only in Mednafen.
 
 The PlayStation's videos also need [ffmpeg](https://ffmpeg.org/) on the PATH, or in a
 folder named by `FFMPEG_DIR` (`make disc FFMPEG_DIR=path/to/ffmpeg`). Without it the
-disc keeps the retail videos, and `make disc` says so. The first build encodes every
+disc keeps the retail videos, and `make disc` says so. The game is built with one video
+player or the other, never both, so a change of disc means a full rebuild. The first build encodes every
 video at several settings, which takes about 15 minutes on 16 cores; later builds reuse
 the encodes in `build/fmv/cache` (2.2 GB). The videos add a 212 MB track to the disc,
 which still fits on a 74-minute CD.

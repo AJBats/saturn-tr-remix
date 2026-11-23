@@ -9,7 +9,7 @@
 
 // Each channel clamped to 0-255 and moved to its place in the pixel, indexed by value + 256: a codebook
 // entry's sums run from -256 to 509.
-static uint32_t gR[768], gG[768], gB[768];
+static uint32_t gR[768] FMV_TABLE, gG[768] FMV_TABLE, gB[768] FMV_TABLE;
 
 void cpkInit()
 {
@@ -37,6 +37,7 @@ static inline uint32_t be32(const uint8_t* p) { return (p[0] << 24) | (p[1] << 1
         mask = 0x80000000;              \
     }
 
+#ifdef CPK_15BIT
 // --- 15-bit -----------------------------------------------------------------------------------------------
 
 static uint8_t gClamp8[768];        // value + 256 clamped to 0-255
@@ -256,6 +257,8 @@ void cpkDecode15(const uint8_t* frame, uint32_t size, uint32_t* pic, int32_t pit
         d = stripEnd;
     }
 }
+
+#endif
 
 int32_t cpkStrips(const uint8_t* frame)
 {

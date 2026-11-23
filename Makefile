@@ -105,6 +105,17 @@ endif
 ifdef SOUND_BENCH
 CFLAGS  += -DSOUND_BENCH    # testing, with HW_LOG: the sound CPU's decoding speed at boot (sound.cpp)
 endif
+# The game's video player, chosen when it's compiled, one to a build: the PlayStation's videos re-encoded
+# (saturn/fmvplay.cpp, FMV_PS1) when the PlayStation disc (PS1TRACK) and ffmpeg (on the PATH, or in
+# FFMPEG_DIR) are there to build them, the retail disc's own (saturn/fmv.cpp) otherwise
+ER      := external_resources
+PS1TRACK ?= $(ER)/ps1/Tomb Raider (USA) (Rev 1) (Track 01).bin
+FFMPEG  := $(if $(FFMPEG_DIR),$(FFMPEG_DIR)/ffmpeg,ffmpeg)
+HAVE_PS1 := $(shell test -f "$(PS1TRACK)" && echo yes)
+FMV_PS1 := $(if $(HAVE_PS1),$(shell "$(FFMPEG)" -version >/dev/null 2>&1 && echo yes))
+ifneq ($(FMV_PS1),)
+CFLAGS  += -DFMV_PS1
+endif
 # -fno-lifetime-dse: OpenLara sets ItemObj fields and then placement-news the
 # subclass over them (ItemObj::init); the constructors read those fields.
 CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit \
@@ -117,7 +128,6 @@ LDFLAGS := -nostdlib -T saturn/saturn.ld -Wl,--no-warn-rwx-segments -Wl,--gc-sec
 O2_SRC  ?= saturn/render.cpp openlara/common.cpp $(wildcard renderer/*.cpp)
 $(patsubst %,$(BUILD)/obj/%.o,$(O2_SRC)): CXXFLAGS := $(subst $(OPT),-O2,$(CXXFLAGS))
 
-ER      := external_resources
 ORIG    := $(ER)/tomb_raider_usa
 TRACK1  := $(ORIG)/Tomb Raider (USA) (Track 01).bin
 ORIGCUE := $(ORIG)/Tomb Raider (USA).cue
@@ -128,6 +138,9 @@ GH_OUT  := build/ghidra
 # The game: every platform source plus the OpenLara core and the renderer
 GAME_SRC := $(wildcard saturn/*.c saturn/*.cpp saturn/*.s) openlara/common.cpp \
 	$(wildcard renderer/*.cpp renderer/*.s)
+ifeq ($(FMV_PS1),)
+GAME_SRC := $(filter-out saturn/fmvplay.cpp saturn/cinepak.cpp,$(GAME_SRC))
+endif
 
 DISC_TXT := ABS.TXT=disc/ABS.TXT BIB.TXT=disc/BIB.TXT CPY.TXT=disc/CPY.TXT
 
@@ -235,7 +248,6 @@ $(BUILD)/0MAIN.elf: $(patsubst %,$(BUILD)/obj/%.o,$(GAME_SRC)) saturn/saturn.ld
 # Levels packed from the original disc's DATA files (tools/pack_level.py),
 # with sound samples from the PlayStation version's levels where they have
 # them (external_resources/ps1: the PlayStation disc extracted; optional)
-PS1TRACK ?= $(ER)/ps1/Tomb Raider (USA) (Rev 1) (Track 01).bin
 PS1OUT  := $(ER)/ps1/files
 PSXDATA := $(PS1OUT)/files/PSXDATA
 LEVELS  := TITLE GYM LEVEL1 LEVEL2 LEVEL3A LEVEL3B LEVEL4 LEVEL5 LEVEL6 LEVEL7A LEVEL7B \
@@ -252,7 +264,7 @@ DEMOS := LEVEL2 LEVEL3A
 GAME_DISC += $(foreach d,$(DEMOS),DEMODATA/$(d).DEM=$(DISC)/files/DEMODATA/$(d).DEM)
 # the original's videos (saturn/fmv.h)
 VIDEOS := CORELOGO CAFE MANSION SNOW LIFT VISION CANYON PYRAMID PRISON END
-GAME_DISC += $(foreach v,$(VIDEOS),FMV/$(v).CPK=$(DISC)/files/FMV/$(v).CPK)
+GAME_DISC += $(if $(FMV_PS1),,$(foreach v,$(VIDEOS),FMV/$(v).CPK=$(DISC)/files/FMV/$(v).CPK))
 
 # OBJECT_ART=1: the meshes' textures reworked as the rooms' are (a test
 # build); build/data/object_art holds the setting, so the levels are packed
@@ -275,13 +287,9 @@ build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%
 # retail videos alone. The first build encodes every video at every setting (about 15 minutes on 16 cores);
 # later ones reuse the encodes in FMVPACK/cache.
 FMVPACK ?= build/fmv
-FFMPEG  := $(if $(FFMPEG_DIR),$(FFMPEG_DIR)/ffmpeg,ffmpeg)
-HAVE_PS1 := $(shell test -f "$(PS1TRACK)" && echo yes)
-ifneq ($(HAVE_PS1),)
-ifneq ($(shell "$(FFMPEG)" -version >/dev/null 2>&1 && echo yes),)
+ifneq ($(FMV_PS1),)
 GAME_FMV       := FMV/INDEX.BIN=$(FMVPACK)/INDEX.BIN
 GAME_FMV_TRACK := $(FMVPACK)/FMV.TRK
-endif
 endif
 
 $(FMVPACK)/FMV.TRK: tools/fmvpack.py tools/cinepak.py tools/fmvplan.py tools/lossless.py tools/mdec.py | check-python
@@ -290,7 +298,7 @@ $(FMVPACK)/INDEX.BIN: $(FMVPACK)/FMV.TRK
 
 disc: $(BUILD)/disc/tomb.cue
 	$(if $(wildcard $(PSXDATA)/*.PSX),,@echo "Note: this disc has the retail Saturn sound samples. For the PlayStation's: make extract-ps1 (README.md)")
-	$(if $(HAVE_PS1),$(if $(GAME_FMV),,@echo "Note: this disc has the retail videos. For the PlayStation's: ffmpeg on the PATH or in FFMPEG_DIR (README.md)"))
+	$(if $(HAVE_PS1),$(if $(FMV_PS1),,@echo "Note: this disc has the retail videos. For the PlayStation's: ffmpeg on the PATH or in FFMPEG_DIR (README.md)"))
 $(eval $(call DISC_RULE,$(BUILD),$(GAME_DISC) $(GAME_FMV),$(GAME_FMV_TRACK)))
 
 # The SCU DSP benchmark (dspbench/bench.cpp): a program of its own, on a disc
@@ -490,7 +498,8 @@ $(eval $(call DISC_RULE,$(LOSSBENCH),))
 PLAYBENCH := build/playbench
 PLAYBENCH_SRC := playbench/bench.cpp playbench/irq.s dspbench/platform.cpp dspbench/crt0.s saturn/font.cpp 	saturn/cd.cpp saturn/cinepak.cpp saturn/fmvplay.cpp
 PLAY_VIDEO ?= CANYON
-PLAYBENCH_FLAGS := -m2 -mb -O2 -Wall -Idspbench -Isaturn -I$(PLAYBENCH)/gen -ffunction-sections -DVIDEO='"$(PLAY_VIDEO)"'
+PLAYBENCH_FLAGS := -m2 -mb -O2 -Wall -Idspbench -Isaturn -I$(PLAYBENCH)/gen -ffunction-sections -DVIDEO='"$(PLAY_VIDEO)"' \
+	-DCPK_15BIT
 
 $(PLAYBENCH)/gen/fmvsound_m68k.h: saturn/fmvsound.68k tools/m68kasm.py
 	@mkdir -p $(@D)

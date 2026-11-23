@@ -822,4 +822,17 @@ steps down a setting.
      it and report it at the project's issues (the user, 2026-11-22: a hang is reported,
      never skipped). Every crash screen now carries that line and the build's commit.
    - **On the Saturn:** CORELOGO and CAFE play at boot and the title follows.
+   - **One player to a build** (the user, 2026-11-22: "we do not have room for multiple
+     code paths"): the Makefile defines `FMV_PS1` when the PlayStation disc and ffmpeg
+     are there, and the game then has `fmvplay.cpp` and `cinepak.cpp` alone (the retail
+     disc's CPKs stay off its disc); otherwise `fmv.cpp`'s retail player alone. The
+     15-bit ways compile only into benches (`CPK_15BIT`). The player's tables (15.8 KB:
+     colour tables, the EDC table, the frame queue, the index) sit in `.fmvbss`, past
+     bss in the high work RAM the next level takes, filled again for each video.
+     High work RAM left for the level (`tools/codesize.py`): retail build 353,856
+     bytes, PS1 build 346,192 (the player's code, 7.7 KB more), both players at once
+     322,496. If that ever has to go too, the player can load as a module for videos
+     only.
+   - **A video that won't play** (not in the index, no room, the drive failing at its
+     start) stops on a crash screen too.
 4. **Release:** the builder's text, the README.
