@@ -292,8 +292,11 @@ def main():
         number = len(blocks) + 1
         name = f"{args.name}_track{number:02d}.bin"
         track = form2_track(open(args.form2, "rb").read(), disc_lba)
-        with open(os.path.join(args.out, name), "wb") as f:
-            f.write(track)
+        path = os.path.join(args.out, name)
+        # an unchanged track keeps its file and time, so a copy to the Saturn's card can pass it by
+        if not (os.path.exists(path) and os.path.getsize(path) == len(track) and open(path, "rb").read() == track):
+            with open(path, "wb") as f:
+                f.write(track)
         out.append(f'FILE "{name}" BINARY\n  TRACK {number:02d} MODE2/2352\n    INDEX 01 00:00:00\n')
         print(f"track {number}: Mode 2 Form 2, {len(track) // RAW} sectors from LBA {disc_lba}")
     with open(os.path.join(args.out, f"{args.name}.cue"), "w", newline="\n") as f:

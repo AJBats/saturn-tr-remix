@@ -253,8 +253,9 @@ static const uint8_t* slotData(uint32_t sector)
 static uint32_t arrivedBytes() { return gArrived * PAYLOAD; }
 
 // The CD block's sectors into the ring: by SCU DMA from its 32-bit port when the ring is in high work RAM, by
-// the SH-2's DMA controller from its 16-bit port when it is in low work RAM, which SCU DMA can't reach (16-bit
-// bursts, as cdbench measured: 24,392 cycles a sector against SCU DMA's 12,175).
+// the SH-2's DMA controller from its 16-bit port when it is in low work RAM, which SCU DMA can't reach. The
+// controller steals a cycle at a time: in bursts (24,392 cycles a sector, cdbench) it held the bus for up to
+// ~9 ms, and a vertical blank's interrupt waiting behind it flipped the picture under the beam.
 #define DMAC_SAR0       (*(volatile uint32_t*)0xFFFFFF80)
 #define DMAC_DAR0       (*(volatile uint32_t*)0xFFFFFF84)
 #define DMAC_TCR0       (*(volatile uint32_t*)0xFFFFFF88)
@@ -264,7 +265,6 @@ static uint32_t arrivedBytes() { return gArrived * PAYLOAD; }
 #define CHCR_DEST_INC   0x4000
 #define CHCR_WORDS      0x0400
 #define CHCR_AUTO       0x0200
-#define CHCR_BURST      0x0010
 #define CHCR_END        0x0002
 #define CHCR_ENABLE     0x0001
 #define DMAOR_ENABLE    0x0001
@@ -285,7 +285,7 @@ static void sectorsIn(uintptr_t dst, uint32_t bytes)
     DMAC_DRCR0 = 0;
     (void)DMAC_DMAOR;
     DMAC_DMAOR = DMAOR_ENABLE;          // its error flags cleared
-    DMAC_CHCR0 = CHCR_DEST_INC | CHCR_WORDS | CHCR_AUTO | CHCR_BURST | CHCR_ENABLE;
+    DMAC_CHCR0 = CHCR_DEST_INC | CHCR_WORDS | CHCR_AUTO | CHCR_ENABLE;      // cycle steal
     while (!(DMAC_CHCR0 & CHCR_END));
     DMAC_CHCR0 = 0;
 }
