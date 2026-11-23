@@ -806,5 +806,20 @@ steps down a setting.
      frame, and checks every sector's EDC as it lands: 0 bad sectors in the 24 plays
      since, none of which froze.
 3. **Into the game:** `fmvPlay` takes the new player where the index has the video.
-   Every video played on the Saturn.
+   Every video played on the Saturn. **Begun 2026-11-22:** `make disc` builds the Form 2
+   track and `FMV/INDEX.BIN` when the PlayStation disc and ffmpeg are there
+   (`FMVPACK`, default `build/fmv`); `saturn/fmv.cpp` hosts `fmvplay.cpp` and falls back
+   to the retail CPK where the index lacks the video.
+   - **Memory, between levels:** the ring (256 sectors, 598 KB) and the frame buffer
+     (128 KB) in low work RAM from 0x200000, the ring filled by the SH-2's DMA
+     controller (16-bit bursts from the CD block's port, as `cdbench` measured); the
+     picture (CORELOGO's 266 KB) and the codebooks past the program in high work RAM.
+   - **Hand-back:** the game's sound program reloaded after every video (`sndInit`),
+     VDP2 set back after the last picture fades (`screenAfterVideo`), the pads' line
+     interrupt back after CORELOGO (`padInit`).
+   - **A video that stands still for 4 s stops on a green crash screen** of the
+     player's, the CD block's and the 68000's numbers, asking the player to photograph
+     it and report it at the project's issues (the user, 2026-11-22: a hang is reported,
+     never skipped). Every crash screen now carries that line and the build's commit.
+   - **On the Saturn:** CORELOGO and CAFE play at boot and the title follows.
 4. **Release:** the builder's text, the README.

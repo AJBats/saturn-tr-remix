@@ -11,8 +11,13 @@
 //   4  VDP1: state << 24 | plot queued << 16 | drawn << 8 (vdp1DebugState)
 //   5  VDP1 EDSR << 16 | COPR (the command it is on, address / 8)
 //   6  the slave's task (0: idle)
+//
+// green (a video stood still, fmv.cpp): its numbers, each named.
+//
+// Every one asks the player to photograph it and report it at the project's issues, with the build's commit.
 
 #include "crash.h"
+#include "buildid.h"
 #include "font.h"
 #include "hw.h"
 #include "screen.h"
@@ -130,14 +135,37 @@ void crashLogShow()
 #endif
 }
 
-static volatile uint16_t* screen(uint16_t color)
+// A line of the 8 x 8 font (gFont8), white
+static void text8(volatile uint16_t* bitmap, int32_t x0, int32_t y0, const char* s)
+{
+    for (; *s; s++, x0 += 8)
+    {
+        if (*s < FONT8_FIRST || *s >= FONT8_FIRST + FONT8_COUNT)
+            continue;
+        const uint8_t* g = gFont8[*s - FONT8_FIRST];
+        for (int32_t y = 0; y < 8; y++) {
+            for (int32_t x = 0; x < 8; x++) {
+                if ((g[y] >> x) & 1) {
+                    bitmap[(y0 + y) * BITMAP_PITCH + x0 + x] = RGB(31, 31, 31);
+                }
+            }
+        }
+    }
+}
+
+static volatile uint16_t* screen(uint16_t color, bool log = true)
 {
     gCrashed = true;
     volatile uint16_t* bitmap = screenBlank();
     for (int32_t i = 0; i < BITMAP_PITCH * SCREEN_HEIGHT; i++) {
         bitmap[i] = color;
     }
-    logLines(bitmap, 192, 32, false);
+    text8(bitmap, 8, 2, "Please photograph this and report it at");
+    text8(bitmap, 8, 11, "github.com/AJBats/saturn-tr-remix/issues");
+    text8(bitmap, 8, SCREEN_HEIGHT - 10, "Build " BUILD_ID);
+    if (log) {
+        logLines(bitmap, 192, 32, false);
+    }
     return bitmap;
 }
 
@@ -157,6 +185,24 @@ extern "C" void crashException(const uint32_t* frame, uint32_t pr, int32_t vecto
     number(bitmap, 2, frame[1]);
     number(bitmap, 3, pr);
     number(bitmap, 4, uint32_t(frame));
+
+    while (1);
+}
+
+void crashReport(uint16_t color, const char* title, const char* const* labels, const uint32_t* values,
+                 int32_t count)
+{
+    asm volatile("ldc %0, sr" : : "r"(0xF0)); // no more interrupts
+
+    screenVdp2();
+    volatile uint16_t* bitmap = screen(color, false);
+    text8(bitmap, 8, 24, title);
+    for (int32_t i = 0; i < count; i++)
+    {
+        const int32_t column = i / CRASH_REPORT_ROWS;
+        const int32_t row = i % CRASH_REPORT_ROWS;
+        text(bitmap, 8 + column * 172, 38 + row * 11, 2, labels[i], true, values[i]);
+    }
 
     while (1);
 }

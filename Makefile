@@ -145,6 +145,11 @@ endef
 FLAGS_FILE := $(BUILD)/gen/flags.txt
 $(shell mkdir -p $(BUILD)/gen && echo '$(CXXFLAGS)' | cmp -s - $(FLAGS_FILE) || echo '$(CXXFLAGS)' > $(FLAGS_FILE))
 
+# The build's commit, for the crash screen (crash.cpp), in a header rewritten when it changes
+BUILD_ID := $(shell git describe --always --dirty --abbrev=7 2>/dev/null || echo unknown)
+$(shell echo '#define BUILD_ID "$(BUILD_ID)"' | cmp -s - $(BUILD)/gen/buildid.h || echo '#define BUILD_ID "$(BUILD_ID)"' > $(BUILD)/gen/buildid.h)
+$(BUILD)/obj/saturn/crash.cpp.o: $(BUILD)/gen/buildid.h
+
 # SCU DSP programs, assembled into headers (tools/dspasm.py): saturn/NAME.dsp,
 # and those renderer/gen_NAME.py writes, to NAME_dsp.h holding NAME_dsp[]
 DSP_HEADERS := $(patsubst saturn/%.dsp,$(BUILD)/gen/%_dsp.h,$(wildcard saturn/*.dsp)) \
@@ -264,9 +269,29 @@ build/data/%.PKD build/data/%.TEX build/data/%.SUB build/data/%.SFX build/data/%
 		build/data/object_art | check-python
 	OBJECT_ART=$(OBJECT_ART) $(PY) tools/pack_level.py $(DISC)/files/DATA $* build/data/$*.PKD $(PSXDATA)
 
+# The PlayStation's videos re-encoded for the Saturn (tools/fmvpack.py, docs/ps1-fmv.md), built when the
+# PlayStation disc (PS1TRACK) and ffmpeg (on the PATH, or in FFMPEG_DIR) are there: a Form 2 track after the
+# audio tracks that the game plays them from (saturn/fmv.cpp), and its index. Without them the disc has the
+# retail videos alone. The first build encodes every video at every setting (about 15 minutes on 16 cores);
+# later ones reuse the encodes in FMVPACK/cache.
+FMVPACK ?= build/fmv
+FFMPEG  := $(if $(FFMPEG_DIR),$(FFMPEG_DIR)/ffmpeg,ffmpeg)
+HAVE_PS1 := $(shell test -f "$(PS1TRACK)" && echo yes)
+ifneq ($(HAVE_PS1),)
+ifneq ($(shell "$(FFMPEG)" -version >/dev/null 2>&1 && echo yes),)
+GAME_FMV       := FMV/INDEX.BIN=$(FMVPACK)/INDEX.BIN
+GAME_FMV_TRACK := $(FMVPACK)/FMV.TRK
+endif
+endif
+
+$(FMVPACK)/FMV.TRK: tools/fmvpack.py tools/cinepak.py tools/fmvplan.py tools/lossless.py tools/mdec.py | check-python
+	$(PY) -I tools/fmvpack.py build "$(PS1TRACK)" $(DISC)/files/FMV $(FMVPACK) $(if $(FFMPEG_DIR),--ffmpeg "$(FFMPEG_DIR)")
+$(FMVPACK)/INDEX.BIN: $(FMVPACK)/FMV.TRK
+
 disc: $(BUILD)/disc/tomb.cue
 	$(if $(wildcard $(PSXDATA)/*.PSX),,@echo "Note: this disc has the retail Saturn sound samples. For the PlayStation's: make extract-ps1 (README.md)")
-$(eval $(call DISC_RULE,$(BUILD),$(GAME_DISC)))
+	$(if $(HAVE_PS1),$(if $(GAME_FMV),,@echo "Note: this disc has the retail videos. For the PlayStation's: ffmpeg on the PATH or in FFMPEG_DIR (README.md)"))
+$(eval $(call DISC_RULE,$(BUILD),$(GAME_DISC) $(GAME_FMV),$(GAME_FMV_TRACK)))
 
 # The SCU DSP benchmark (dspbench/bench.cpp): a program of its own, on a disc
 # of its own: make dspbench
@@ -460,17 +485,16 @@ lossbench: $(LOSSBENCH)/disc/tomb.cue
 $(eval $(call DISC_RULE,$(LOSSBENCH),))
 
 # The PlayStation's videos played from a bench disc (playbench/bench.cpp, saturn/fmvplay.cpp, docs/ps1-fmv.md
-# step 2): make playbench [PLAY_VIDEO=NAME]. Plays tools/fmvpack.py's build (FMVPACK, made by hand for now:
+# step 2): make playbench [PLAY_VIDEO=NAME]. Plays tools/fmvpack.py's build (FMVPACK, as the game disc does:
 # fmvpack.py build) from its Form 2 track.
 PLAYBENCH := build/playbench
 PLAYBENCH_SRC := playbench/bench.cpp playbench/irq.s dspbench/platform.cpp dspbench/crt0.s saturn/font.cpp 	saturn/cd.cpp saturn/cinepak.cpp saturn/fmvplay.cpp
 PLAY_VIDEO ?= CANYON
-FMVPACK ?= build/fmvpack2
 PLAYBENCH_FLAGS := -m2 -mb -O2 -Wall -Idspbench -Isaturn -I$(PLAYBENCH)/gen -ffunction-sections -DVIDEO='"$(PLAY_VIDEO)"'
 
 $(PLAYBENCH)/gen/fmvsound_m68k.h: saturn/fmvsound.68k tools/m68kasm.py
 	@mkdir -p $(@D)
-	$(PY) tools/m68kasm.py $< $@ fmvsound $(M68K_PREFIX)
+	$(PY) tools/m68kasm.py $< $@ fmvsound_m68k $(M68K_PREFIX)
 
 $(PLAYBENCH)/obj/saturn/fmvplay.cpp.o: $(PLAYBENCH)/gen/fmvsound_m68k.h saturn/fmvplay.h saturn/cinepak.h saturn/cd.h
 $(PLAYBENCH)/obj/playbench/bench.cpp.o: saturn/fmvplay.h saturn/cd.h

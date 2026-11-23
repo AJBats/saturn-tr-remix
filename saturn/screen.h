@@ -7,6 +7,13 @@
 
 void screenInit();
 
+// VDP2's NBG0 set back to the 15-bit bitmap the pictures use (after a video's modes, for a crash screen).
+void screenVdp2();
+
+// After fmvplay.cpp's video, which sets VDP2 up its own way and has the vertical blank's hook: its last
+// picture faded to black, VDP2 set back, a blank picture up.
+void screenAfterVideo();
+
 // This level has a plane (plane.h): it shows under the frames, and the picture when
 // there's one, from the next frame; VDP2's offsets are its and the picture's, and
 // the frames fade by what screenFramesFade gives render.cpp.

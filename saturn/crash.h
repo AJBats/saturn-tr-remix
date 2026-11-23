@@ -4,6 +4,7 @@
 //   red      the master CPU took an exception
 //   magenta  the slave CPU took an exception
 //   blue     the game loop stopped for 6 seconds (the master is stuck)
+//   green    a video stopped for 4 seconds (fmv.cpp)
 // and the last lines of a log of how far the program got.
 #ifndef CRASH_H
 #define CRASH_H
@@ -28,5 +29,12 @@ void crashWatchdog(const uint32_t* irqStack);
 // While set (from boot to the first level, level loads, videos), the game
 // loop may stand still.
 void crashHold(bool hold);
+
+// A crash screen of named numbers (capitals and digits), in two columns of
+// CRASH_REPORT_ROWS, under a title line: for a part of the game with its own
+// watch (a video, fmv.cpp). Never returns.
+#define CRASH_REPORT_ROWS 15
+void crashReport(uint16_t color, const char* title, const char* const* labels, const uint32_t* values,
+                 int32_t count);
 
 #endif

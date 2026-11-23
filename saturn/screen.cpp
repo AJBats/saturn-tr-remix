@@ -241,12 +241,9 @@ static void takeScreen()
     takeBitmap();
 }
 
-void screenInit()
+// NBG0 the 512 x 256 15-bit bitmap at VRAM 0, unscrolled, unwindowed.
+void screenVdp2()
 {
-    hideFrames();       // until the first frame is drawn
-    gPicture = gOverlay = false;
-    showLayers();
-
     // A 15-bit bitmap needs four reads per bank it spans; the CPU has the rest.
     uint16_t bitmap = (CYCP_N0CG << 12) | (CYCP_N0CG << 8) | (CYCP_N0CG << 4) | CYCP_N0CG;
     uint16_t cpu = (CYCP_CPU << 12) | (CYCP_CPU << 8) | (CYCP_CPU << 4) | CYCP_CPU;
@@ -265,10 +262,25 @@ void screenInit()
     VDP2_SCXIN0 = VDP2_SCXDN0 = VDP2_SCYIN0 = VDP2_SCYDN0 = 0;
     VDP2_ZMXIN0 = VDP2_ZMYIN0 = 1;
     VDP2_ZMXDN0 = VDP2_ZMYDN0 = 0;
+}
 
+void screenInit()
+{
+    hideFrames();       // until the first frame is drawn
+    gPicture = gOverlay = false;
+    showLayers();
+    screenVdp2();
     fadesClear();
     showLayers();
     onVblank(fadeVblank);
+}
+
+void screenAfterVideo()
+{
+    onVblank(fadeVblank);
+    screenFadeOut();
+    screenVdp2();
+    screenBlank();
 }
 
 void screenHoldPicture(const char* name, const void* data)

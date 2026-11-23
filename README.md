@@ -90,17 +90,24 @@ regions and revisions haven't been tried.
 
 ## With or without the PlayStation disc
 
-The disc changes only the sound effects: the levels' textures and meshes are byte for
-byte the same either way.
+The disc changes the sound effects and the videos: the levels' textures and meshes are
+byte for byte the same either way.
 
-| | Sound effect samples |
-|---|---|
-| With | The PlayStation's, at 11025 Hz |
-| Without | The retail Saturn's: 5512.5 Hz, or 2500 Hz for 56 of the sounds |
+| | Sound effect samples | Videos |
+|---|---|---|
+| With | The PlayStation's, at 11025 Hz | The PlayStation's pictures, re-encoded for the Saturn in 24-bit colour, with the Saturn's own sound |
+| Without | The retail Saturn's: 5512.5 Hz, or 2500 Hz for 56 of the sounds | The retail Saturn's |
 
 Every level has all its sounds either way. A few cutscene sounds stay the Saturn's in
 both, as the PlayStation disc has none for them. A disc built without it has so far
 been tested only in Mednafen.
+
+The PlayStation's videos also need [ffmpeg](https://ffmpeg.org/) on the PATH, or in a
+folder named by `FFMPEG_DIR` (`make disc FFMPEG_DIR=path/to/ffmpeg`). Without it the
+disc keeps the retail videos, and `make disc` says so. The first build encodes every
+video at several settings, which takes about 15 minutes on 16 cores; later builds reuse
+the encodes in `build/fmv/cache` (2.2 GB). The videos add a 212 MB track to the disc,
+which still fits on a 74-minute CD.
 
 ## Playing
 

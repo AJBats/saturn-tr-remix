@@ -1,3 +1,7 @@
+// Where the disc has the PlayStation's videos (FMV/INDEX.BIN and its Form 2
+// track, built by tools/fmvpack.py from the PlayStation disc), fmvplay.cpp
+// plays them; this file is its host. Otherwise the retail disc's own play:
+//
 // A Sega FILM file is a header (FDSC: the formats, STAB: a table of chunks,
 // each with its offset, size and time) followed by the chunks: Cinepak frames
 // and blocks of 16-bit audio, the left channel's samples then the right's.
@@ -9,6 +13,10 @@
 // copied to the VDP2 bitmap whole, while the beam is elsewhere.
 
 #include "fmv.h"
+#include "common.h"
+#include "fmvplay.h"
+#include "crash.h"
+#include "slave.h"
 #include "render.h"
 #include "cd.h"
 #ifdef HW_LOG
@@ -462,9 +470,138 @@ static void checkEnd(volatile uint16_t* bitmap, uint32_t lba)
 }
 #endif
 
+// --- The PlayStation's videos (fmvplay.cpp) ---------------------------------
+
+// low work RAM, free between levels: the ring of the drive's sectors (filled by
+// the SH-2's DMA controller) and the frame buffer (the largest frame is 50 KB)
+#define STREAM_LOW          0x00200000
+#define STREAM_RING_BYTES   (256 * 2336)
+#define STREAM_FRAME_BYTES  (128 * 1024)
+static_assert(STREAM_LOW + STREAM_RING_BYTES + STREAM_FRAME_BYTES <= LOW_LEVEL_TOP, "the stream runs into the save area");
+// high work RAM past the program (the level's, free between levels): the
+// picture, CORELOGO's 320 x 208 in 24-bit, and the CPUs' codebooks
+#define STREAM_PICTURE_BYTES (320 * 208 * 4)
+#define MASTER_STACK        (8 * 1024)      // as os.cpp keeps
+extern "C" uint8_t _bss_end[], _stack_top[];
+
+#define SMPC_SNDON          0x06
+#define SMPC_SNDOFF         0x07
+#define SCSP_MASTER         SCSP_REG(0x400)
+#define SOUND_SHARED        0x25A0F000      // fmvsound.68k's shared words
+#define CD_HIRQ_REG         0x25890008
+
+uint32_t fmvHostVblanks() { return gVblankCount; }
+void fmvHostSlaveRun(void (*fn)(void*), void* arg) { slaveRun(fn, arg); }
+void fmvHostSlaveWait() { slaveWait(); }
+void fmvHostSoundCpu(bool run) { smpcCommand(run ? SMPC_SNDON : SMPC_SNDOFF); }
+bool fmvHostSkip() { return skipPressed(); }
+uint32_t fmvHostCycles() { return timerTicks() * 128; }
+
+// CORELOGO's picture goes in a half at a time behind the beam, from the line
+// interrupt the pads otherwise read in (it can't be skipped)
+void fmvHostOnLine(void (*fn)(), int32_t line)
+{
+    if (fn) {
+        onLine(uint32_t(line - 1), fn);     // onLine counts from the display's first line
+    } else {
+        padInit();
+    }
+}
+
+// A video whose picture hasn't moved for 4 s (a frame lasts 4 vertical blanks,
+// the wait before the first about a second) stops on a crash screen of the
+// player's, the CD block's and the sound CPU's state, for the player to report.
+#define VIDEO_STILL_BLANKS  240
+
+static void (*volatile gVideoVblank)();
+static const char* gVideoName;
+static int32_t gStillShown;
+static uint32_t gStillSince;
+
+static void videoStood()
+{
+    SCSP_MASTER = 1 << 9;       // silent: the slots loop what's left in their rings
+    const volatile FmvLive* l = (const volatile FmvLive*)(uintptr_t(fmvLive()) | 0x20000000);
+    const volatile uint32_t* shared = (const volatile uint32_t*)SOUND_SHARED;
+    static const char* const labels[] = {
+        "FRAME", "WHERE", "SECTORS IN", "PARSE AT", "DONE TO", "QUEUE HEAD", "QUEUE TAIL", "SOUND WR",
+        "CD READY", "CD RETURN", "CD REFUSED", "HIRQ", "CR1", "CR2", "CR3",
+        "CR4", "68K STATE", "68K RD", "68K WR", "68K PLAY", "68K DECODED", "68K LOW", "SLAVE IN",
+        "SLAVE OUT", "BAD SECTORS", "FIRST BAD", "LAST BAD", "VBLANK",
+    };
+    const uint32_t values[] = {
+        uint32_t(l->shown), l->where, l->arrived, l->parse, l->doneTo, l->queueHead, l->queueTail, l->soundWr,
+        l->lastReady, uint32_t(l->lastRet), l->cdFailed, REG16(CD_HIRQ_REG), REG16(CD_HIRQ_REG + 0x10),
+        REG16(CD_HIRQ_REG + 0x14), REG16(CD_HIRQ_REG + 0x18),
+        REG16(CD_HIRQ_REG + 0x1C), *(volatile uint16_t*)(SOUND_SHARED + 0x06), shared[0x0C / 4], shared[0x10 / 4],
+        shared[0x14 / 4], shared[0x18 / 4], shared[0x1C / 4], l->slaveIn,
+        l->slaveOut, l->edcBad, l->edcFirst, l->edcLast, gVblankCount,
+    };
+    static_assert(sizeof(labels) / sizeof(labels[0]) == sizeof(values) / sizeof(values[0]), "a label each");
+    static char title[44] = "The video stopped: ";
+    strncpy(title + 19, gVideoName, 20);
+    crashReport(RGB(0, 12, 0), title, labels, values, int32_t(sizeof(values) / sizeof(values[0])));
+}
+
+static void videoVblank()
+{
+    gVideoVblank();
+    const int32_t shown = fmvLive()->shown;
+    if (shown != gStillShown)
+    {
+        gStillShown = shown;
+        gStillSince = gVblankCount;
+    }
+    else if (gVblankCount - gStillSince >= VIDEO_STILL_BLANKS)
+    {
+        videoStood();
+    }
+}
+
+void fmvHostOnVblank(void (*fn)())
+{
+    gVideoVblank = fn;
+    gStillShown = -2;
+    gStillSince = gVblankCount;
+    onVblank(fn ? videoVblank : nullptr);
+}
+
+// The PlayStation's video name, from its Form 2 track; false if the high work
+// RAM it needs isn't there (then the retail disc's plays).
+static bool playStream(const char* name)
+{
+    uint8_t* high = (uint8_t*)((uintptr_t(_bss_end) + 15) & ~15u);
+    FmvMemory mem;
+    mem.ring = (uint8_t*)STREAM_LOW;
+    mem.ringBytes = STREAM_RING_BYTES;
+    mem.frame = (uint8_t*)(STREAM_LOW + STREAM_RING_BYTES);
+    mem.frameBytes = STREAM_FRAME_BYTES;
+    mem.picture = (uint32_t*)high;
+    mem.books = high + STREAM_PICTURE_BYTES;
+    if (uintptr_t(high) + STREAM_PICTURE_BYTES + 2 * FMV_BOOK_BYTES > uintptr_t(_stack_top) - MASTER_STACK)
+        return false;
+
+    gVideoName = name;
+    crashLog(name, 0);
+    screenBlank();
+    sndStop();
+    FmvStats stats;
+    fmvPlayStream(name, mem, gSkippable, FMV_TALL_24, &stats);
+    screenAfterVideo();     // the last picture to black (retail's 0603a480), VDP2 back
+    sndInit();              // the game's sound program back on the sound CPU
+    return true;
+}
+
 void fmvPlay(const char* name, bool skippable)
 {
     gSkippable = skippable;
+    gPad = 0xFFFF;  // a START still held from before doesn't skip
+#ifdef FMV_SKIP_AT
+    gSkipAt = gVblankCount + FMV_SKIP_AT;
+#endif
+    if (fmvHas(name) && playStream(name))
+        return;
+
     gBooks = (Codebooks*)renderScratch(sizeof(Codebooks) * MAX_STRIPS);
     char path[32] = "FMV/";
     strcat(path, name);

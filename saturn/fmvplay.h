@@ -18,9 +18,10 @@ void fmvHostSoundCpu(bool run);                     // the 68000 running or held
 bool fmvHostSkip();                                 // START pressed (where a video may be skipped)
 uint32_t fmvHostCycles();                           // the master's clock, for FmvStats
 
-// Its memory, the host's: the ring takes the drive's sectors (2336 bytes each, as many as fit; in high work
-// RAM, which SCU DMA reaches and low work RAM it doesn't), the frame buffer a frame at a time (the stream's
-// largest), the picture 320 x lines 32-bit pixels (high work RAM: the decoder writes it).
+// Its memory, the host's: the ring takes the drive's sectors (2336 bytes each, as many as fit; filled by SCU
+// DMA in high work RAM, by the SH-2's DMA controller in low work RAM, which SCU DMA can't reach), the frame
+// buffer a frame at a time (the stream's largest), the picture 320 x lines 32-bit pixels (high work RAM: SCU
+// DMA takes it to VDP2).
 struct FmvMemory
 {
     uint8_t* ring;
@@ -84,6 +85,7 @@ const volatile FmvLive* fmvLive();
 // with one buffer (FMV_TALL_24, the host's line interrupt needed), or in 15-bit converted as a CPK15_ value.
 // Leaves VDP2 in the video's mode and the 68000 running fmvsound.68k: the host puts back its own.
 enum { FMV_TALL_24 = CPK15_DITHER + 1 };
+bool fmvHas(const char* name);      // whether the index has the video
 bool fmvPlayStream(const char* name, const FmvMemory& mem, bool skippable, int32_t tall, FmvStats* stats);
 
 #endif

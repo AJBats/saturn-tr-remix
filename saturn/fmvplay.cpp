@@ -17,7 +17,7 @@
 
 #include <string.h>
 
-static_assert(FMVSOUND_SIZE <= 0xF000 - 256, "fmvsound.68k runs into its stack");
+static_assert(FMVSOUND_M68K_SIZE <= 0xF000 - 256, "fmvsound.68k runs into its stack");
 
 // --- VDP2's double buffer: 24-bit (as fmvbench and cpkbench), or 15-bit for a taller picture ------------
 //
@@ -172,8 +172,8 @@ static void soundStart()
     }
     SCSP_SLOT(0, 0) = KYONEX;
     volatile uint16_t* ram = soundWord(0);
-    const uint16_t* image = (const uint16_t*)fmvsound;
-    for (uint32_t i = 0; i < FMVSOUND_SIZE / 2; i++) {
+    const uint16_t* image = (const uint16_t*)fmvsound_m68k;
+    for (uint32_t i = 0; i < FMVSOUND_M68K_SIZE / 2; i++) {
         ram[i] = image[i];
     }
     for (uint32_t i = 0; i < 0x100; i += 2) {
@@ -246,6 +246,44 @@ static const uint8_t* slotData(uint32_t sector)
 
 static uint32_t arrivedBytes() { return gArrived * PAYLOAD; }
 
+// The CD block's sectors into the ring: by SCU DMA from its 32-bit port when the ring is in high work RAM, by
+// the SH-2's DMA controller from its 16-bit port when it is in low work RAM, which SCU DMA can't reach (16-bit
+// bursts, as cdbench measured: 24,392 cycles a sector against SCU DMA's 12,175).
+#define DMAC_SAR0       (*(volatile uint32_t*)0xFFFFFF80)
+#define DMAC_DAR0       (*(volatile uint32_t*)0xFFFFFF84)
+#define DMAC_TCR0       (*(volatile uint32_t*)0xFFFFFF88)
+#define DMAC_CHCR0      (*(volatile uint32_t*)0xFFFFFF8C)
+#define DMAC_DRCR0      (*(volatile uint8_t*)0xFFFFFE71)
+#define DMAC_DMAOR      (*(volatile uint32_t*)0xFFFFFFB0)
+#define CHCR_DEST_INC   0x4000
+#define CHCR_WORDS      0x0400
+#define CHCR_AUTO       0x0200
+#define CHCR_BURST      0x0010
+#define CHCR_END        0x0002
+#define CHCR_ENABLE     0x0001
+#define DMAOR_ENABLE    0x0001
+#define HIGH_WORK_RAM   0x06000000
+
+static void sectorsIn(uintptr_t dst, uint32_t bytes)
+{
+    if (dst >= HIGH_WORK_RAM)
+    {
+        dma(CD_PORT32, dst, bytes, true);
+        return;
+    }
+    (void)DMAC_CHCR0;
+    DMAC_CHCR0 = 0;                     // off, its end flag cleared
+    DMAC_SAR0 = uintptr_t(&CD_DATA);
+    DMAC_DAR0 = dst;
+    DMAC_TCR0 = bytes / 2;
+    DMAC_DRCR0 = 0;
+    (void)DMAC_DMAOR;
+    DMAC_DMAOR = DMAOR_ENABLE;          // its error flags cleared
+    DMAC_CHCR0 = CHCR_DEST_INC | CHCR_WORDS | CHCR_AUTO | CHCR_BURST | CHCR_ENABLE;
+    while (!(DMAC_CHCR0 & CHCR_END));
+    DMAC_CHCR0 = 0;
+}
+
 // Each sector's EDC (ECMA-130 14.3: a CRC over the subheader and data, stored little-endian after them) and
 // subheader checked as it lands in the ring, to tell bad data off the disc from anything after.
 static uint32_t gEdcTable[256];
@@ -317,7 +355,7 @@ static void moveSectors()
         return;
     }
     gLive.where = FMV_AT_DMA;
-    dma(CD_PORT32, uintptr_t(gMem->ring) + (gArrived % gSlots) * SECTOR_BYTES, n * SECTOR_BYTES, true);
+    sectorsIn(uintptr_t(gMem->ring) + (gArrived % gSlots) * SECTOR_BYTES, n * SECTOR_BYTES);
     gLive.where = FMV_AT_END;
     cdTransferEnd();
     for (uint32_t k = 0; k < n; k++)
@@ -675,6 +713,12 @@ static uint32_t trackFad()
         }
     }
     return fad;
+}
+
+bool fmvHas(const char* name)
+{
+    uint32_t first, sectors, frames, lines;
+    return find(name, &first, &sectors, &frames, &lines);
 }
 
 bool fmvPlayStream(const char* name, const FmvMemory& mem, bool skippable, int32_t tall, FmvStats* stats)
