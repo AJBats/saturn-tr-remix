@@ -272,10 +272,13 @@ int cdStatus(uint32_t* fad)
     return STATUS_CODE(res.cr1);
 }
 
+// The data is there once DRDY is, as SBL's CDC_DataReady waits for a get. Not EHST too: on a Saturn the
+// last transfer's EHST can come after this command cleared it, and reading then starts some 40 words
+// before the sector, which comes in late by as much, its end lost.
 int cdTransferBegin(uint32_t sectors)
 {
     int ret = cmdChecked(EHST, 0x6300, 0, 0, sectors); // get then delete sector data
-    return ret ? ret : waitHirq(DRDY | EHST);
+    return ret ? ret : waitHirq(DRDY);
 }
 
 int cdTransferEnd()
