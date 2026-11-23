@@ -35,7 +35,7 @@ for item in spots:
         if look:
             env_look = {'HW_LOOK': look[0], 'HW_LOOK_FOR': look[1]}
     def run(cmd, cwd, timeout=1200):
-        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=dict(os.environ, HW_TRACE_AT='600', **env_look))
+        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=dict(os.environ, HW_TRACE_AT='240', **env_look))
     r = run(['sh', 'tools/hwtest.sh', spot], tree)
     if r.returncode:
         open(out, 'a').write(f'{spot}: build failed {r.returncode}\n')
