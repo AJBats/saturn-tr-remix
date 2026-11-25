@@ -535,14 +535,47 @@ void startLevel(LevelID id)
     }
 }
 
+// What retail keeps as effects, not items (its FX list: gun flashes,
+// splashes, blood, missiles, flames...)
+static bool isEffect(const ItemObj* item)
+{
+    switch (item->type)
+    {
+        case ITEM_EXPLOSION:
+        case ITEM_SPLASH:
+        case ITEM_BUBBLE:
+        case ITEM_BLOOD:
+        case ITEM_SMOKE:
+        case ITEM_RICOCHET:
+        case ITEM_SPARKLES:
+        case ITEM_MUZZLE_FLASH:
+        case ITEM_MUTANT_BULLET:
+        case ITEM_CENTAUR_BULLET:
+        case ITEM_BODY_PART:
+        case ITEM_LAVA_PARTICLE:
+        case ITEM_FLAME:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Retail's ControlPhase: every item's control, then every effect's, newest
+// first, so an effect an item makes this tick (a creature's gun flash) runs
+// this tick too
 void updateItems()
 {
-    ItemObj* item = ItemObj::sFirstActive;
-    while (item)
+    for (int32 pass = 0; pass < 2; pass++)
     {
-        ItemObj* next = item->nextActive;
-        item->update();
-        item = next;
+        ItemObj* item = ItemObj::sFirstActive;
+        while (item)
+        {
+            ItemObj* next = item->nextActive;
+            if (isEffect(item) == (pass == 1)) {
+                item->update();
+            }
+            item = next;
+        }
     }
 
     if (isCutsceneLevel())

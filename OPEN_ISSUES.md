@@ -949,6 +949,14 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 337. An effect a creature makes runs a tick late (gun flashes)
+*Closed 2026-11-25. updateItems runs the items' updates, then the effects' (the types retail keeps as FX), newest first, before Lara's. Lara and the seed match retail through Larson's shots (1,130 records). Both attract demos still match retail.*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen; Lara and the seed match retail through Larson's shots) · Fix: small*
+
+- **Found 2026-11-25** by the bot's chained run played by retail (CHAIN_336): in Qualopec room 10 (the host's tick 137,115) the control seed parted with Lara the same: ours drew the random number for Larson's gun flash roll a tick later than retail.
+- Retail's ControlPhase runs every item's control, then every effect's (its FX list: gun flashes, splashes, blood, missiles, flames, lava...), then Lara's: an effect made by an item's control runs the same tick. Ours keeps those as items on the one active list, new ones at its head, so one made during the pass waited for the next tick.
+
 ### 336. A creature with no AI slot is solid where retail's isn't (its head turned by the BIOS)
 *Closed 2026-11-25 in the logic as retail has it: getSpheres turns a creature with no AI block by the BIOS's first halfwords (0x2000, 0x0200, 0x0600, 0x2000...). Lara now matches retail past the dead T-rex. Both attract demos still match retail. Still the user's call: keep it (retail) or TRX's zero turn; the drawing is untouched.*
 
