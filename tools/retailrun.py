@@ -15,7 +15,8 @@ tick, and keeps Lara's item and the seed in a ring; for a frame of the inventory
 the inventory script (so does the level's statistics screen). The host runs the inventory
 and the statistics as ticks with the game held: those ticks leave the tick table, and their
 presses, spaced out, make the script; a run of routes chained (host/bot.h) is followed from
-level to level. Armed at the first ControlPhase of the replay's level, reached from boot by
+level to level, past the in-game films and movies between them (retail plays those in loops
+of their own: the host's film ticks leave the table too). Armed at the first ControlPhase of the replay's level, reached from boot by
 the title's menus (a new game: the Caves only, so far). --items N holds the game before the tick after the replay's last and
 prints N items. build/retail_clean_sav holds retail's backup memory files from a clean boot (a run's
 Mednafen home's sav/ before any run saved a game): each run starts from them."""
@@ -57,6 +58,7 @@ OPEN_WAIT, PRESS_GAP = 40, 30   # inventory frames before the first press, betwe
 PAD = {'UP': 0x1000, 'DOWN': 0x2000, 'LEFT': 0x4000, 'RIGHT': 0x8000, 'START': 0x0800, 'A': 0x0400, 'C': 0x0200,
        'B': 0x0100, 'R': 0x0080, 'X': 0x0040, 'Y': 0x0020, 'Z': 0x0010, 'L': 0x0008}
 LEVELS = {'LEVEL1': 1, 'LEVEL2': 2, 'LEVEL3A': 3, 'LEVEL3B': 4}
+FILMS = (6, 12, 17, 19)     # the host's cutscene levels (LVL_TR1_CUT_1..4)
 # Retail's own bugs we keep the fixed way (PC TR1, TRX), patched out of retail so a run
 # can be followed past them: (address, bytes, why)
 PATCHES = [
@@ -109,14 +111,23 @@ def split_inventory(keys, host):
     """The ticks retail plays as game ticks (those the host starts and ends with the
     inventory open leave), and the inventory script: each stay's presses, spaced. A
     press that shuts it (the host's tick that shuts it is also a game tick) goes to the
-    script too, the tick's own entry left with nothing held (keys is changed)."""
+    script too, the tick's own entry left with nothing held (keys is changed). A film
+    between levels is no game tick (retail plays it in a loop of its own, the pad
+    unread by the stub); the statistics and "Save Game?" after it are a stay from their
+    first tick."""
+    def staying(t):
+        return t > 0 and host[t]['inv'] and (host[t - 1]['inv'] or host[t]['level'] in FILMS)
+
     kept, script = [], []
     t = 0
     while t < len(keys):
-        if t > 0 and host[t - 1]['inv'] and host[t]['inv']:
+        if host[t]['level'] in FILMS and not host[t]['inv']:
+            t += 1
+            continue
+        if staying(t):
             # a stay in the inventory: its presses (a run of the same keys held is one)
             stay = []
-            while t < len(keys) and host[t - 1]['inv'] and host[t]['inv']:
+            while t < len(keys) and staying(t):
                 stay.append(keys[t])
                 t += 1
             if t < len(keys) and keys[t] != NOTHING:
@@ -279,6 +290,8 @@ def main():
             # the game as a run of this replay left it (stub, tables and all)
             m.send(f'load_state {os.path.abspath(load).replace(os.sep, "/")}', 'ok load_state', 120)
             poke(m, STUB + vars_off + 28, struct.pack('>I', args.watch))
+            # no hold left over from the state (one saved held before a tick)
+            poke(m, STUB + vars_off + 16, struct.pack('>I', len(kept) if args.items else 0xFFFFFFFF))
             # this replay's tables (one that runs as the state's did up to its
             # tick but parts later, a bot run after a fix, resumes too)
             poke(m, SCRIPT, b''.join(struct.pack('>H', k) for k in script))
@@ -328,11 +341,12 @@ def main():
                 saved = True
             if index >= len(kept) or (part is not None and index > part + 8):
                 break
-            # no game tick for two minutes: held somewhere the replay doesn't
-            # lead it out of (a level's load and its film take less)
+            # no game tick for six minutes: held somewhere the replay doesn't
+            # lead it out of (a level's load, its in-game film and a movie between
+            # levels, Qualopec's after its film, take less)
             still = still + 1 if index == last else 0
             last = index
-            if still >= 24 and not args.items:
+            if still >= 72 and not args.items:
                 shot = os.path.splitext(args.out)[0] + '_held.png'
                 m.send(f'screenshot {shot.replace(os.sep, "/")}', 'screenshot', 30)
                 print(f'  no game tick since tick {index} (script at {m.word(STUB + vars_off + 24)} of {len(script)}, '
