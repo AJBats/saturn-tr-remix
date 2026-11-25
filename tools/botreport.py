@@ -57,7 +57,12 @@ def main():
             mark = '' if (gk, gp, gs) >= (k, p, s) else '  <- short'
             lines.append(f'{name:18} {gk:2}/{k:<4}  {gp:2}/{p:<4}  {gs}/{s:<5}  {t // 60}:{t % 60:02}{mark}')
         else:
-            lines.append(f'{name:18} not finished')
+            so_far = re.findall(r'level so far: kills (\d+), pickups (\d+), secrets (\d+), (\d+) s', out)
+            if i == len(ends) and so_far:
+                gk, gp, gs, t = map(int, so_far[-1])
+                lines.append(f'{name:18} {gk:2}/{k:<4}  {gp:2}/{p:<4}  {gs}/{s:<5}  {t // 60}:{t % 60:02}  <- not finished')
+            else:
+                lines.append(f'{name:18} not finished')
     result = re.search(r'ROUTE (DONE|FAILED): (\d+) ticks \((\d+) s of play\)', out)
     if result:
         lines.append(f'run {result.group(1).lower()}: {result.group(2)} ticks ({int(result.group(3)) // 60} min of play)')

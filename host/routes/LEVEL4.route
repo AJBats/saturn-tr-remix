@@ -85,3 +85,14 @@ goto3 18 38400 11520 42496
 fight 8192
 switch 49
 switch 9
+# the bottom: the Atlas switch (opens the Atlas door on the fourth level)
+switch 79
+# back up by the steps in the east corner and the ledges over them to the
+# magnum clips on the west ledge
+pickup 10
+# the large medipack on the ledge over the Damocles door
+pickup 58
+# up the central structure to the fourth level: the Damocles switch (opens
+# the Damocles door on the second), the small medipack across the gap
+switch 51
+pickup 53

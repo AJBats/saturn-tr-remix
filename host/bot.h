@@ -1095,7 +1095,9 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
         }
         if (waterMoves(c, gsx, gsz))
             continue;
-        // stood off its middle (something stands there): walks on only
+        // stood off its middle (something stands there): walks on only, and
+        // drops run off from there along a clear line (a save crystal on a
+        // block)
         bool offMiddle = gCells[c].cost != 0 && (gCells[c].px != cellX(gCells[c]) || gCells[c].pz != cellZ(gCells[c]));
         for (int32 d = 0; d < 4; d++)
         {
@@ -1110,8 +1112,22 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                         continue;
                     m = MOVE_CLIMB;
                 }
-                if (m == MOVE_NONE || isBlocked(gCells[c], kDirX[d], kDirZ[d], m == MOVE_WALK) || (m != MOVE_WALK && offMiddle))
+                if (m == MOVE_NONE || isBlocked(gCells[c], kDirX[d], kDirZ[d], m == MOVE_WALK))
                     continue;
+                if (offMiddle && m == MOVE_DROP)
+                {
+                    const Cell &a = gCells[c];
+                    int32 toEdge = kDirX[d] ? (kDirX[d] > 0 ? ((a.sx + 1) << 10) - a.px : a.px - (a.sx << 10))
+                                            : (kDirZ[d] > 0 ? ((a.sz + 1) << 10) - a.pz : a.pz - (a.sz << 10));
+                    bool clearRun = true;
+                    for (int32 t = 64; t < toEdge && clearRun; t += 64) {
+                        clearRun = !blocked(a.px + kDirX[d] * t, a.floor, a.pz + kDirZ[d] * t);
+                    }
+                    if (!clearRun)
+                        continue;
+                } else if (m != MOVE_WALK && offMiddle) {
+                    continue;
+                }
                 int32 nsx = gCells[c].sx + kDirX[d], nsz = gCells[c].sz + kDirZ[d];
                 bool goalCell = nsx == gsx && nsz == gsz;
                 if (trapAt(nsx, nsz, b.floor) && !goalCell)
@@ -1191,8 +1207,20 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                     continue;   // the same floor both looks see
                 }
                 int32 jsx = gCells[c].sx + kJumpX[d] * (gap + 1), jsz = gCells[c].sz + kJumpZ[d] * (gap + 1);
-                if (blocked((jsx << 10) + 512, b.floor, (jsz << 10) + 512) || (trapAt(jsx, jsz, b.floor) && !(jsx == gsx && jsz == gsz)))
+                if (trapAt(jsx, jsz, b.floor) && !(jsx == gsx && jsz == gsz))
                     continue;
+                // landed in its middle, or (something standing there: a save
+                // crystal) along the grid at its near edge, walked on from there
+                int32 px = (jsx << 10) + 512, pz = (jsz << 10) + 512;
+                if (blocked(px, b.floor, pz))
+                {
+                    if (kJumpX[d] && kJumpZ[d])
+                        continue;
+                    px -= kJumpX[d] * 384;
+                    pz -= kJumpZ[d] * 384;
+                    if (blocked(px, b.floor, pz))
+                        continue;
+                }
                 int32 n = cellFind(jsx, jsz, b.floor, true, b.room);
                 if (n < 0 || gCells[n].done)
                     continue;
@@ -1203,8 +1231,8 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                     gCells[n].cost = cost;
                     gCells[n].from = c;
                     gCells[n].move = MOVE_JUMP;
-                    gCells[n].px = cellX(gCells[n]);
-                    gCells[n].pz = cellZ(gCells[n]);
+                    gCells[n].px = px;
+                    gCells[n].pz = pz;
                 }
                 }
             }
@@ -1320,7 +1348,7 @@ static bool climbAt(int16 heading, int32 x, int32 z, int32 floor)
         return false;
     }
     static uint32 keys[BOT_TRIAL_TICKS];
-    for (int32 way = 0; way < 3; way++)
+    for (int32 way = 0; way < 4; way++)
     {
         int32 ticks = 0;
         int32 score = trial([&]() -> int32 {
@@ -1331,7 +1359,15 @@ static bool climbAt(int16 heading, int32 x, int32 z, int32 floor)
                     step(IK_UP | IK_L);
                 }
             }
-            for (int32 i = 0; i < 150; i++)
+            if (way == 3)
+            {
+                // nothing stops her at the edge (a doorway under the ledge):
+                // stood just short of it, then straight up
+                int32 nx = x - (sinRetail(heading) * 120 >> FIXED_SHIFT), nz = z - (cosRetail(heading) * 120 >> FIXED_SHIFT);
+                if (!goStraight(nx, nz, 24, true) || !settle() || !turnTo(heading, ANGLE(2)))
+                    return -1;
+            }
+            for (int32 i = 0; i < 240; i++)     // (a second jump, then the pull-up)
             {
                 const Lara* l = lara();
                 if (standing() && abs(l->pos.y - floor) < 320 && i > 10)
@@ -2072,13 +2108,22 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
             int32 along = (b.px - cellX(b)) * abs(dz) + (b.pz - cellZ(b)) * abs(dx);
             if (!climbAt(heading, cellX(a) + dx * 512 + abs(dz) * along, cellZ(a) + dz * 512 + abs(dx) * along, b.floor))
             {
-                // beside something in the middle: another spot along the edge next
-                if (along && gFailedCount < int32(X_COUNT(gFailedX)))
+                // knocked off the sector before the climb (back into the
+                // water, by a creature): planned again from there, the climb
+                // left open
+                const Lara* l = lara();
+                bool onA = (l->pos.x >> 10) == a.sx && (l->pos.z >> 10) == a.sz && abs(l->pos.y - a.floor) < 128 &&
+                           l->waterState == WATER_STATE_ABOVE;
+                if (onA)
                 {
-                    gFailedX[gFailedCount] = b.px;
-                    gFailedZ[gFailedCount++] = b.pz;
-                } else {
-                    block(a, dx, dz);
+                    // beside something in the middle: another spot along the edge next
+                    if (along && gFailedCount < int32(X_COUNT(gFailedX)))
+                    {
+                        gFailedX[gFailedCount] = b.px;
+                        gFailedZ[gFailedCount++] = b.pz;
+                    } else {
+                        block(a, dx, dz);
+                    }
                 }
                 again = true;
                 return false;
@@ -2102,8 +2147,9 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
         {
             // run off it, straight across the side; then plan again from
             // where she comes to rest (a slope slides her on)
-            if (!goStraight(cellX(a), cellZ(a), 256, walk) || !settle() ||
-                !turnTo(int16(phd_atan(dz, dx)), ANGLE(4))) {
+            // (from where she stands in it if something stands in its middle)
+            bool off = a.px != cellX(a) || a.pz != cellZ(a);
+            if (!goStraight(a.px, a.pz, off ? 64 : 256, walk) || !settle() || !turnTo(int16(phd_atan(dz, dx)), ANGLE(4))) {
                 fail("couldn't stand at the drop");
                 block(a, dx, dz);
                 again = true;
@@ -3076,8 +3122,12 @@ static bool fightFromSafety(ItemObj* foe, int32 range)
         if (c.water || c.cost == 0x7FFFFFFF || c.cost > 60 * 1024)
             continue;
         int32 cx = cellX(c), cz = cellZ(c);
+        // out of its reach: two sectors from its ground, or past its bite
+        // (1500, as the T-rex's) from its head at its ground's edge (the
+        // T-rex's 2000 units ahead of it)
+        int32 margin = X_MAX(2048, foe->headOffset + 1536);
         int32 nearest = 0x7FFFFFFF, seen = 0;
-        for (int32 b = 0; b < level.boxesCount && nearest >= 2048; b++)
+        for (int32 b = 0; b < level.boxesCount && nearest >= margin; b++)
         {
             const Box &box = level.boxes[b];
             if (zones[b] != zone || (box.overlap & nav.mask))
@@ -3095,7 +3145,12 @@ static bool fightFromSafety(ItemObj* foe, int32 range)
                 seen += (box.maxX - box.minX) * (box.maxZ - box.minZ);
             }
         }
-        if (nearest < 2048 || seen == 0)
+        static bool tellSafe = getenv("BOT_SAFE") != NULL;
+        if (tellSafe && nearest >= 2048) {
+            fprintf(stderr, "  safe? %d,%d floor %d room %d: nearest %d seen %d exposure %d cost %d\n", cx, cz, c.floor,
+                    int32(c.room - rooms), nearest, seen, exposure[i], c.cost);
+        }
+        if (nearest < margin || seen == 0)
             continue;
         if (best < 0 || exposure[i] < exposure[best] ||
             (exposure[i] == exposure[best] && (seen > bestSeen || (seen == bestSeen && c.cost < gCells[best].cost))))
@@ -3163,6 +3218,14 @@ static bool fightBest(int32 range)
             gKeepsOffUntil = gTick + 30 * 30;
             gKeepsOffHealth = lara()->health;
             return true;
+        }
+        // every way died with her well down: a medipack (the small ones
+        // while they do) and every way again
+        InvSlot slot = (lara()->health > LARA_MAX_HEALTH / 2 || !inventory.counts[SLOT_MEDIKIT_BIG]) ? SLOT_MEDIKIT_SMALL : SLOT_MEDIKIT_BIG;
+        if (foe && lara()->health < 700 && inventory.counts[slot] && ringUse(slot))
+        {
+            printf("  every way died: a medipack, health %d\n", lara()->health);
+            return fightBest(range);
         }
         if (foe && fightFromSafety(foe, X_MAX(range, 8192)))
             return true;
@@ -3362,9 +3425,12 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
         fprintf(stderr, "bot: can't open %s\n", routePath);
         return 2;
     }
-    printf("route %s from tick %d\n", routePath, gTick);
+    printf("route %s from tick %d: medipacks %d big %d small, shotgun shells %d, magnum clips %d, uzi clips %d\n", routePath,
+           gTick, inventory.counts[SLOT_MEDIKIT_BIG], inventory.counts[SLOT_MEDIKIT_SMALL], inventory.counts[SLOT_AMMO_SHOTGUN],
+           inventory.counts[SLOT_AMMO_MAGNUMS], inventory.counts[SLOT_AMMO_UZIS]);
     char line[256];
     gLine = 0;
+    bool levelEnded = false;
     while (ok && fgets(line, sizeof(line), f))
     {
         gLine++;
@@ -3773,8 +3839,10 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             fail("Lara died");
             ok = false;
         }
-        if (ended)
+        if (ended) {
+            levelEnded = true;
             break;      // the rest of this route is behind her
+        }
     }
     fclose(f);
     // the last level finished's statistics, as its screen shows them
@@ -3784,6 +3852,16 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
     }
     printf("last level finished: kills %d, pickups %d, secrets %d, %d s\n", gLevelStats.kills, gLevelStats.pickups, secrets,
            gLevelStats.time / 30);
+    if (!levelEnded)
+    {
+        // the level the route left her in, as far as she got
+        secrets = 0;
+        for (int32 b = 0; b < 8; b++) {
+            secrets += (gSaveGame.secrets >> b) & 1;
+        }
+        printf("level so far: kills %d, pickups %d, secrets %d, %d s\n", gSaveGame.kills, gSaveGame.pickups, secrets,
+               gSaveGame.time / 30);
+    }
     }
     writeReplay(outPath, levelName, newGame);
     printf("%s: %d ticks (%d s of play), replay %s\n", ok ? "ROUTE DONE" : "ROUTE FAILED", gTick, gTick / 30, outPath);
