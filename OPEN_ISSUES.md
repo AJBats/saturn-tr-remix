@@ -949,6 +949,15 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 336. A creature with no AI slot is solid where retail's isn't (its head turned by the BIOS)
+*Closed 2026-11-25 in the logic as retail has it: getSpheres turns a creature with no AI block by the BIOS's first halfwords (0x2000, 0x0200, 0x0600, 0x2000...). Lara now matches retail past the dead T-rex. Both attract demos still match retail. Still the user's call: keep it (retail) or TRX's zero turn; the drawing is untouched.*
+
+*Severity: subtle (the drawing likely visible, untested) · Confidence: confirmed (retail run in Mednafen, both sphere lists read inside TestCollision) · Fix: trivial · Decision: keep retail's turns, or TRX's none*
+
+- **Found 2026-11-25** by the bot's chained run played by retail (CHAIN_c819): in Lost Valley room 58 (the host's tick 90,051) Lara, back-flipping past the dead T-rex, was pushed 200 units by its head in ours; retail's let her by.
+- The two sphere lists differ only at the neck and head (spheres 11-13). Retail's GetSpheres (0602e50c) reads a creature's head and neck turns from item->data with no test; a creature whose AI slot is gone (DisableBaddieAI nulls data: dead and done, or out of slots) gets them from address 0, the BIOS's reset vectors 0x20000200 / 0x06002000 (read in Mednafen): the first turned node 0x2000 (45 degrees), the next 0x0200, then 0x0600, 0x2000. Ours turned nothing.
+- TRX (and so PC) guards it with a zero turn. Retail's drawing very likely reads the same address, so its dead and slotless creatures would be drawn with their heads turned that way; ours aren't (not looked at).
+
 ### 335. A water current pulls Lara before its path has reached her
 *Closed 2026-11-25. Nav::getWaypoint says when the path doesn't reach the end yet (retail's TARGET_NONE: no box, or the search not there); updateFlow then leaves her be and keeps the current for a later tick, the search going on meanwhile. Lara now matches retail through the dive and after. Both attract demos still match retail.*
 

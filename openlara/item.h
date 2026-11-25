@@ -1246,8 +1246,12 @@ int32 ItemObj::getSpheres(Sphere* spheres, bool flag) const
     
     // an enemy's head and neck turns on the nodes flagged for them, in their
     // order, as its drawing takes them (retail's GetSpheres, from the
-    // creature block)
-    const int16* extraAngles = (type != ITEM_LARA && extra) ? (const int16*)extra : NULL;
+    // creature block). A creature with no AI slot (dead and done, or out of
+    // slots) has no block: retail reads the turns from address 0 all the
+    // same, the BIOS's reset vectors (its PC 0x20000200, stack 0x06002000)
+    static const int16 kNoBlock[] = { 0x2000, 0x0200, 0x0600, 0x2000, 0x2000, 0x0200, 0x0600, 0x2000 };
+    const int16* extraAngles = (type == ITEM_LARA) ? NULL : extra ? (const int16*)extra :
+                               (type >= ITEM_WOLF && type <= ITEM_ADAM) ? kNoBlock : NULL;
 
     for (int32 i = 1; i < model->count; i++)
     {
