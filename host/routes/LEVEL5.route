@@ -1,0 +1,12 @@
+# The Colosseum at 100%, in progress (Stella: 26 kills, 14 pickups with the
+# magnums and the key, 3 secrets).
+# tools/levelmap.py draws the level.
+start LEVEL5 newgame
+wait 30
+draw
+# the crocodile in the cave's pool shot from its edge (it stays in the water)
+goto 4 78336 40448
+fight 8192
+# round the pool to the building: the two lions outside it
+goto 8 71168 44544
+fight 8192

@@ -1001,6 +1001,10 @@ static bool waterMoves(int32 c, int32 gsx, int32 gsz)
                 continue;
             if (w.top < a.floor - 64 || w.top > a.floor + 4096 || againstFlow(w.room, nx, w.bottom - 64, nz, dx, dz))
                 continue;
+            // room to run in over it, not under a rock that hangs low over the water
+            Spot over = spotAt(side.room, nx, a.floor - 256, nz);
+            if (over.ceiling != WALL && over.ceiling > a.floor - LARA_HEIGHT)
+                continue;
             int32 n = cellFind(nsx, nsz, w.bottom, true, w.room, true);
             if (n >= 0) {
                 gCells[n].top = w.top;

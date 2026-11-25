@@ -23,6 +23,7 @@ LEVELS = [
     ('LEVEL3A.route', 'Lost Valley', (13, 16, 5)),
     ('LEVEL3B.route', 'Tomb of Qualopec', (8, 8, 3)),     # 7 and the mummy
     ('LEVEL4.route', "St. Francis' Folly", (23, 19, 4)),
+    ('LEVEL5.route', 'Colosseum', (26, 14, 3)),
 ]
 
 
