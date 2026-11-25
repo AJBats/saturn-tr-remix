@@ -2553,7 +2553,8 @@ struct Lightning : Object
         // struck, she flinches every tick of the bolt
         if (!turnSpeed)
             return;
-        lara->extraL->hitQuadrant = X_MIN(1 + (rand_logic() * 4) / (ANGLE_180 - 1), 3);
+        int32 quadrant = 1 + (rand_logic() * 4) / (ANGLE_180 - 1);    // one random number
+        lara->extraL->hitQuadrant = X_MIN(quadrant, 3);
         lara->extraL->hitFrame = X_MIN(lara->extraL->hitFrame + 1, 34);
     }
 
@@ -2607,7 +2608,8 @@ struct Lightning : Object
             }
             else
             {
-                gBolt.target = pos + getJoint(X_MIN(1 + (rand_logic() * 5) / 0x7FFF, level.models[type].count - 1), _vec3i(0, 0, 0));
+                int32 joint = 1 + (rand_logic() * 5) / 0x7FFF;    // one random number
+                gBolt.target = pos + getJoint(X_MIN(joint, level.models[type].count - 1), _vec3i(0, 0, 0));
             }
             memset(gBolt.wibble, 0, sizeof(gBolt.wibble));
             memset(gBolt.shoot, 0, sizeof(gBolt.shoot));

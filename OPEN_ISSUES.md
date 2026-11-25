@@ -949,6 +949,14 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 338. A random number drawn twice where retail draws it once (Larson's hit, the lightning)
+*Closed 2026-11-25. Each of the three draws is made once into a variable before the clamp. Lara and the seed match retail through Larson's hits (1,283 records). Both attract demos still match retail.*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen; Lara and the seed match retail through Larson's hits) · Fix: trivial*
+
+- **Found 2026-11-25** by the bot's chained run played by retail (CHAIN_337): in Qualopec room 11 (the host's tick 137,244) Larson's shot hit Lara and ours drew one random number more than retail.
+- `X_MIN(rand_logic() * 25 / 0x7FFF, joints - 1)` (the joint his hit bleeds at): the macro evaluates its first argument twice, so whenever it was the smaller a second number was drawn. The same in the lightning's hit direction and its bolt's joint (Thor's room).
+
 ### 337. An effect a creature makes runs a tick late (gun flashes)
 *Closed 2026-11-25. updateItems runs the items' updates, then the effects' (the types retail keeps as FX), newest first, before Lara's. Lara and the seed match retail through Larson's shots (1,130 records). Both attract demos still match retail.*
 

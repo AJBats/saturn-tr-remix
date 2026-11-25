@@ -2730,8 +2730,10 @@ struct Gunman : Enemy
 
         if (hit)
         {
-            // retail picks of 25 joints; Lara has 15
-            int32 j = X_MIN((rand_logic() * 25) / 0x7FFF, level.models[target->type].count - 1);
+            // retail picks of 25 joints; Lara has 15 (one random number: X_MIN
+            // would draw it twice)
+            int32 j = (rand_logic() * 25) / 0x7FFF;
+            j = X_MIN(j, level.models[target->type].count - 1);
             target->fxBlood(target->pos + target->getJoint(j, _vec3i(0, 0, 0)), target->angle.y, target->hSpeed);
             soundPlay(SND_BULLET_HIT, &target->pos);
             target->hit(damage, target->pos, 0);
