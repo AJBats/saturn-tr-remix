@@ -1125,7 +1125,7 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                     }
                     if (!clearRun)
                         continue;
-                } else if (m != MOVE_WALK && offMiddle) {
+                } else if (m != MOVE_WALK && m != MOVE_CLIMB && offMiddle) {
                     continue;
                 }
                 int32 nsx = gCells[c].sx + kDirX[d], nsz = gCells[c].sz + kDirZ[d];
@@ -1170,10 +1170,22 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                     px = (nsx << 10) + 512;
                     pz = (nsz << 10) + 512;
                 }
+                // a climb from beside something in her sector's middle: the
+                // spot she jumps from (climbAt's, short of the edge) clear of it
+                if (offMiddle && m == MOVE_CLIMB)
+                {
+                    int32 along = (px - ((nsx << 10) + 512)) * abs(kDirZ[d]) + (pz - ((nsz << 10) + 512)) * abs(kDirX[d]);
+                    int32 jx = cellX(a) + kDirX[d] * (512 - 200) + abs(kDirZ[d]) * along;
+                    int32 jz = cellZ(a) + kDirZ[d] * (512 - 200) + abs(kDirX[d]) * along;
+                    if (blocked(jx, a.floor, jz))
+                        continue;
+                }
                 int32 n = cellFind(nsx, nsz, b.floor, true, b.room);
                 if (n < 0 || gCells[n].done)
                     continue;
-                int32 cost = gCells[c].cost + 1024;
+                // (a drop or a climb from beside something in her sector's
+                // middle only where there's no other way: it's a squeeze)
+                int32 cost = gCells[c].cost + 1024 + ((offMiddle && m != MOVE_WALK) ? 16384 : 0);
                 if (m == MOVE_DROP) {
                     cost += 2048 + (b.floor - gCells[c].floor) + (b.floor - gCells[c].floor > BOT_SAFE_DROP ? 16384 : 0);
                 } else if (m == MOVE_HANG_DROP) {
@@ -1225,8 +1237,9 @@ static int32 sectorPath(int32 roomIndex, int32 x, int32 z, int32* path, int32 ma
                 if (n < 0 || gCells[n].done)
                     continue;
                 // a jump takes as long as a run of eight sectors or so (the run-up, the
-                // landing)
-                int32 cost = gCells[c].cost + 8192 + gap * ((kJumpX[d] && kJumpZ[d]) ? 1448 : 1024);
+                // landing); onto the edge beside something only where there's no other way
+                int32 cost = gCells[c].cost + 8192 + gap * ((kJumpX[d] && kJumpZ[d]) ? 1448 : 1024) +
+                             ((px != cellX(gCells[c]) + kJumpX[d] * (gap + 1) * 1024 || pz != cellZ(gCells[c]) + kJumpZ[d] * (gap + 1) * 1024) ? 16384 : 0);
                 if (cost < gCells[n].cost) {
                     gCells[n].cost = cost;
                     gCells[n].from = c;
@@ -2009,6 +2022,14 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
     {
         const Cell &a = gCells[path[i]], &b = gCells[path[i + 1]];
         int32 dx = b.sx - a.sx, dz = b.sz - a.sz;
+        // a creature on her before a jump, a climb or a drop (a bat that came
+        // down on the way; not one keeping its distance, as Larson): fought
+        // first, the rest planned again
+        if (i > 0 && b.move != MOVE_WALK && lara()->waterState == WATER_STATE_ABOVE && nearestFoe(1536))
+        {
+            again = true;
+            return false;
+        }
         // low before a drop or a jump (a fall of seven clicks takes a fifth
         // of her health): a medipack first
         if ((abs(dx) + abs(dz) > 1 || b.move == MOVE_DROP || b.move == MOVE_HANG_DROP) && lara()->health < 500 && settle()) {
@@ -3253,6 +3274,39 @@ static bool draw()
     return true;
 }
 
+// A tick replay (writeReplay's runs of keys) played from its first tick on,
+// to the run's tick `until`: no level-end handling of the bot's own (the
+// replay has the presses that took that run through it).
+static bool playReplay(const char* path, int32 until)
+{
+    FILE* f = fopen(path, "r");
+    if (!f) {
+        fail("can't open the replay");
+        return false;
+    }
+    char line[128];
+    int32 at = 0;
+    bool inLevelEnd = gInLevelEnd;
+    gInLevelEnd = true;
+    while (gTick < until && fgets(line, sizeof(line), f))
+    {
+        int32 count;
+        char k[96];
+        if (line[0] == '#' || sscanf(line, "%d %95s", &count, k) != 2)
+            continue;   // the comment and start lines
+        uint32 keys = parseBotKeys(k);
+        for (int32 i = 0; i < count && gTick < until; i++, at++)
+        {
+            if (at == 0)
+                continue;   // the run's first tick: run() steps it before the routes
+            step(keys);
+        }
+    }
+    fclose(f);
+    gInLevelEnd = inLevelEnd;
+    return true;
+}
+
 static bool expect(const char* what, int32 value)
 {
     char why[96];
@@ -3455,7 +3509,7 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             gGoalAir = false;
         }
         gLevelEndArmed = !ended;
-        if (!ended && strcmp(cmd, "keys") && strcmp(cmd, "wait") && strcmp(cmd, "expect")) {
+        if (!ended && strcmp(cmd, "keys") && strcmp(cmd, "wait") && strcmp(cmd, "expect") && strcmp(cmd, "until")) {
             heal();
         }
         if (ended) {
@@ -3827,6 +3881,23 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             }
         } else if (!strcmp(cmd, "expect") && n >= 2) {
             ok = expect(a, n >= 3 ? atoi(b) : 0);
+        } else if (!strcmp(cmd, "until") && n >= 3) {
+            // until ITEM STATE [MAXTICKS]: no key held till that item is in
+            // that state (Thor's hammer falling: then off its pad)
+            const ItemObj* item = items + atoi(a);
+            int32 most = n >= 4 ? atoi(c) : 30 * 30;
+            for (int32 i = 0; i < most && item->state != atoi(b); i++) {
+                step(0);
+            }
+            ok = item->state == atoi(b);
+            if (!ok) {
+                fail("the item never came to that state");
+            }
+        } else if (!strcmp(cmd, "replay") && n >= 2) {
+            // replay FILE [TICKS]: a tick replay's pad played as it is (to
+            // tick TICKS of the run), level ends and all: for working on a
+            // later level from where an earlier run reached it
+            ok = playReplay(a, n >= 3 ? atoi(b) : 0x7FFFFFFF);
         } else {
             fail("no such step");
             ok = false;

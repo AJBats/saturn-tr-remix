@@ -1,9 +1,10 @@
 # St. Francis' Folly at 100%, in progress (Stella: 23 kills, 19 pickups with
 # the 4 keys, 4 secrets). Done: the lions, the omega block, the gorilla room,
 # Pierre driven off (he can't be killed here), the pillars and ledges to the
-# balcony door (the large medipack), the long slide, the crocodile, two of
-# the tall room's switches. Next: back up the tall room, the four keys, the
-# lions and Pierre at the exit; secrets 1 to 4 (see their notes).
+# balcony door (the large medipack), the long slide, the crocodile, the tall
+# room's four switches, the Neptune, Atlas and Thor keys. Next: the Damocles
+# key, the bats left in the tall room, the lions and Pierre at the exit, the
+# keys in their holes; secrets 1 to 4 (see their notes).
 # tools/levelmap.py draws the level.
 start LEVEL4 newgame
 wait 30
@@ -96,3 +97,49 @@ pickup 58
 # the Damocles door on the second), the small medipack across the gap
 switch 51
 pickup 53
+# the Neptune room through the door at the top: down the pool with the
+# current, the lever in the alcove off the passage (opens the gate, stops the
+# current), the Neptune key past the gate
+goto 4 39424 46592
+lever 100
+pickup 65
+# the Atlas room (its door on the fourth level): the gorilla, the pad in front
+# of the gate at its far end opens it, the small medipack in the pit at the
+# end of the hall beyond (the gate shuts behind her, the pit opens it again)
+goto 48 47104 44544
+fight 8192
+goto 48 48640 47616
+pickup 94
+# the boulder: off the ramp's foot (its trigger) two backflips up the hall, a
+# hop back holding Action to hang from the pit's edge, and down under its lip
+# while the boulder rolls over into the pit's far end
+attempt 47 49664 48640 24
+goto 47 49664 44200 walk 32
+keys UP+L 14
+keys DOWN+A 40
+wait 10
+keys DOWN+A 40
+wait 50
+keys DOWN+B 10
+keys B 30
+wait 150
+end
+# up the ledges left of the ramp to the Atlas key
+pickup 92
+# the Thor room (its door on the third level): across the lightning room
+# from its corner while the lightning is off; the pad under Thor's hammer
+# till it falls, then a hop back off it (the hammer brings down two blocks)
+goto 24 48640 39424
+timed 25 55808 39424 120
+goto 25 57856 40020 walk 32
+face 0
+until 63 2
+keys DOWN 12
+wait 90
+# the block on the floor pushed against the ledge, the one on the ledge pulled
+# along it to under the tall block in the corner: up them to its small
+# medipack, a running jump to the ledge on the far wall, the alcove's Thor key
+push 20 180 3
+pull 19 90 3
+pickup 21
+pickup 89
