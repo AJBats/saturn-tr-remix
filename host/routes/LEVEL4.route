@@ -112,6 +112,7 @@ pickup 94
 # while the boulder rolls over into the pit's far end
 attempt 47 49664 48640 24
 goto 47 49664 44200 walk 32
+face 180
 keys UP+L 14
 keys DOWN+A 40
 wait 10

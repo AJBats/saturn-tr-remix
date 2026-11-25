@@ -3411,16 +3411,31 @@ static bool hunt(ItemObj* foe)
     return shootFromHere(foe);
 }
 
+// The hit points left in the creatures awake within range of her.
+static int32 foesHealth(int32 range)
+{
+    int32 sum = 0;
+    for (ItemObj* item = ItemObj::sFirstActive; item; item = item->nextActive)
+    {
+        if (isCreature(item) && item->health > 0 && distTo(item->pos.x, item->pos.z) < range)
+            sum += item->health;
+    }
+    return sum;
+}
+
 static bool fightBest(int32 range)
 {
     static uint32 keys[BOT_TRIAL_TICKS];
+    static int32 depth;     // fights picked up again after one that only wore the creatures down
     int32 best = -1, bestTicks = 0, bestScore = -1;
     int32 health = lara()->health;
+    int32 foes = foesHealth(range);
+    int32 worn = -1, wornScore = 0x7FFFFFFF;    // the trial out of time that left them least, her at half or more
     bool untouched = false;     // a fight lost only by running out of time, not a scratch on her
     for (int32 v = 0; v < int32(X_COUNT(kFightStyles)); v++)
     {
         int32 ticks = 0;
-        int32 score = trial([v, range, health]() {
+        int32 score = trial([v, range, health, foes]() -> int32 {
             bool won = fight(kFightStyles[v], range);
             static bool tell = getenv("BOT_FIGHTS") != NULL;
             if (tell) {
@@ -3429,9 +3444,18 @@ static bool fightBest(int32 range)
                         lara()->health, foe ? int32(foe - items) : -1, foe ? foe->health : 0, gFleeing ? " (fleeing)" : "",
                         gThreatsOnly ? " (threats only)" : "");
             }
-            return won ? lara()->health : (lara()->health >= health ? -2 : -1);
+            if (won)
+                return lara()->health;
+            int32 left = foesHealth(range);
+            if (left < foes && lara()->health >= LARA_MAX_HEALTH / 2)
+                return -1000 - left;    // worn down, not beaten
+            return lara()->health >= health ? -2 : -1;
         }, NULL, NULL);
         untouched = untouched || score == -2;
+        if (score <= -1000 && -1000 - score < wornScore) {
+            wornScore = -1000 - score;
+            worn = v;
+        }
         if (score < 0) {
             score = -1;
         }
@@ -3442,6 +3466,18 @@ static bool fightBest(int32 range)
             trial([v, range]() { return fight(kFightStyles[v], range) ? lara()->health : -1; }, keys, &ticks);
             bestTicks = ticks;
         }
+    }
+    if (best < 0 && worn >= 0 && depth < 4)
+    {
+        // none won in time, one wore them down: that one played, then again
+        int32 ticks = 0;
+        trial([worn, range]() { return fight(kFightStyles[worn], range) ? lara()->health : -1; }, keys, &ticks);
+        play(keys, ticks);
+        printf("  fight: style %d wore them down to %d hit points, health %d; again\n", worn, foesHealth(range), lara()->health);
+        depth++;
+        bool ok = fightBest(range);
+        depth--;
+        return ok;
     }
     if (best < 0)
     {
