@@ -44,7 +44,7 @@
 
 namespace bot {
 
-#define BOT_MAX_TICKS   (30 * 60 * 120)     // two hours of play a level
+#define BOT_MAX_TICKS   (30 * 60 * 60 * 8)  // eight hours of play, the whole game
 #define BOT_TRIAL_TICKS 8192
 
 static uint32 gLog[BOT_MAX_TICKS];  // the run's keys, by tick
@@ -284,6 +284,18 @@ static bool gThreatsOnly;   // while she's on her way: nearestFoe() sees threats
 static bool gFleeing;       // on her way to a safe spot: nearestFoe() sees none
 static ItemObj* gKeepsOff;  // a creature no fight could touch (it kept off her), left alone a while
 static int32 gKeepsOffUntil, gKeepsOffHealth;
+static bool gWatchSwords;   // on her way through Damocles swords: stopped the tick one starts to fall
+
+// a Damocles sword falling (it falls at her and drifts to where she was)
+static bool swordFalling()
+{
+    for (ItemObj* item = ItemObj::sFirstActive; item; item = item->nextActive)
+    {
+        if (item->type == ITEM_TRAP_SWORD && (item->flags & ITEM_FLAG_GRAVITY))
+            return true;
+    }
+    return false;
+}
 
 static bool goStraight(int32 x, int32 z, int32 radius, bool walk, int32 maxTicks = 30 * 120, bool wary = false)
 {
@@ -291,6 +303,8 @@ static bool goStraight(int32 x, int32 z, int32 radius, bool walk, int32 maxTicks
     for (int32 i = 0; i < maxTicks; i++)
     {
         if (wary && nearestFoe(3072))
+            return false;
+        if (gWatchSwords && swordFalling())
             return false;
         if (gNextLevel != LVL_MAX)
             return true;    // the level's end took over
@@ -468,6 +482,31 @@ static void obstaclesFind()
         o.maxY = item->pos.y;
         o.minZ = item->pos.z - 160 - LARA_RADIUS;
         o.maxZ = item->pos.z + 160 + LARA_RADIUS;
+    }
+    // Damocles swords that have come down: stuck in the floor where they fell
+    for (int32 i = 0; i < level.itemsCount && gObstaclesCount < int32(X_COUNT(gObstacles)); i++)
+    {
+        const ItemObj* item = items + i;
+        if (item->type != ITEM_TRAP_SWORD || !item->room || item->pos.y < item->roomFloor)
+            continue;
+        // (its blade's box turned as it lies, her radius round it)
+        const AABBs &box = item->getBoundingBox(false);
+        int32 s = sinRetail(item->angle.y), c = cosRetail(item->angle.y);
+        Obstacle &o = gObstacles[gObstaclesCount++] = Obstacle();
+        o.cx = item->pos.x;
+        o.cz = item->pos.z;
+        o.s = s;
+        o.c = c;
+        o.lminX = box.minX - LARA_RADIUS;
+        o.lmaxX = box.maxX + LARA_RADIUS;
+        o.lminZ = box.minZ - LARA_RADIUS;
+        o.lmaxZ = box.maxZ + LARA_RADIUS;
+        o.minX = item->pos.x - 323;
+        o.maxX = item->pos.x + 323;
+        o.minZ = item->pos.z - 323;
+        o.maxZ = item->pos.z + 323;
+        o.minY = item->pos.y - 1024;
+        o.maxY = item->pos.y;
     }
     // the big dead: a body pushes her to the edge of its box (retail's
     // CreatureCollision), and one too long to be pushed round (the T-rex's)
@@ -1962,7 +2001,7 @@ static bool goTo(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius = 96
         heal();
         bool again = false;
         ok = goToOnce(roomIndex, x, z, walk, radius, again);
-        if (!ok && (!again || lara()->health <= 0))
+        if (!ok && (!again || lara()->health <= 0 || (gWatchSwords && swordFalling())))
             break;
         if (!ok) {
             settle(120);
@@ -2202,7 +2241,7 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
         if (!goStraight(tx, tz, (j == len - 1) ? X_MAX(radius, 256) : 256, walk, 30 * 120, true)) {
             // a creature to fight, or stuck (against one, or a corner): plan
             // again from here (goTo's tries run out if it keeps happening)
-            if (!nearestFoe(3072)) {
+            if (!nearestFoe(3072) && !(gWatchSwords && swordFalling())) {
                 fail("stuck on the way, planning again");
                 // stuck at the same spot twice: the walk on from the sector
                 // she's in left out of the plans (a body across a tunnel's
@@ -2784,6 +2823,104 @@ static bool timed(int32 roomIndex, int32 x, int32 z, int32 maxWait)
     return true;
 }
 
+// To a spot through a hall of Damocles swords: walked there; the tick one
+// starts to fall (at her, drifting to where she stood) a hop back, still
+// till it's down, then on (Stella: a step at a time, listening for them).
+static bool swordsTo(int32 roomIndex, int32 x, int32 z)
+{
+    for (int32 round = 0; round < 40; round++)
+    {
+        gWatchSwords = true;
+        bool there = goTo(roomIndex, x, z, true, 320);
+        gWatchSwords = false;
+        if (there)
+            return true;
+        if (lara()->health <= 0)
+            return false;
+        if (!swordFalling())
+        {
+            // no way the planner sees: a sword come down in a doorway. Walked
+            // round it (beside it, each side tried), then on
+            const ItemObj* sword = NULL;
+            for (int32 i = 0; i < level.itemsCount; i++)
+            {
+                const ItemObj* item = items + i;
+                if (item->type == ITEM_TRAP_SWORD && item->room && item->pos.y >= item->roomFloor &&
+                    distTo(item->pos.x, item->pos.z) < 1536 && (!sword || distTo(item->pos.x, item->pos.z) < distTo(sword->pos.x, sword->pos.z)))
+                    sword = item;
+            }
+            if (!sword)
+                return false;
+            // to a spot round it from which the planner sees a way on (the
+            // nearest the goal of those she gets to with the most health)
+            static uint32 keys[BOT_TRIAL_TICKS];
+            static int32 path[1024];
+            int32 bestScore = -1, bestTicks = 0, bestDist = 0;
+            int32 gx = x - sword->pos.x, gz = z - sword->pos.z;
+            double glen = X_MAX(1.0, sqrt(double(gx) * gx + double(gz) * gz));
+            for (int32 dir = 0; dir < 16; dir++)
+            {
+                for (int32 r = 192; r <= 768; r += 64)
+                {
+                  // straight there, or by way of a spot back from it (away
+                  // from the goal: round the blade from behind)
+                  for (int32 staged = 0; staged < 2; staged++)
+                  {
+                    int32 bx = sword->pos.x + (sinRetail(int16(dir * 0x1000)) * r >> FIXED_SHIFT);
+                    int32 bz = sword->pos.z + (cosRetail(int16(dir * 0x1000)) * r >> FIXED_SHIFT);
+                    int32 sx = bx - int32(gx * 768 / glen), sz = bz - int32(gz * 768 / glen);
+                    int32 ticks = 0;
+                    int32 score = trial([&]() -> int32 {
+                        if (staged && (!goTo(int32(lara()->room - rooms), sx, sz, true, 64) || swordFalling()))
+                            return -1;
+                        if (!goStraight(bx, bz, 48, true, 30 * 10) || !settle() || swordFalling())
+                            return -1;
+                        obstaclesFind();
+                        return sectorPath(roomIndex, x, z, path, X_COUNT(path)) ? lara()->health : -1;
+                    }, keys, &ticks);
+                    int32 d = int32(sqrt(double(bx - x) * (bx - x) + double(bz - z) * (bz - z)));
+                    if (score > bestScore || (score == bestScore && score >= 0 && d < bestDist))
+                    {
+                        bestScore = score;
+                        bestTicks = ticks;
+                        bestDist = d;
+                        memcpy(gJumpBest, keys, ticks * sizeof(uint32));
+                    }
+                  }
+                }
+            }
+            if (bestScore < 0)
+            {
+                fail("couldn't get round the sword");
+                if (getenv("BOT_SWORDS"))
+                {
+                    obstaclesFind();
+                    for (int32 i = 0; i < gObstaclesCount; i++)
+                    {
+                        const Obstacle &o = gObstacles[i];
+                        if (o.maxX > lara()->pos.x - 2048 && o.minX < lara()->pos.x + 2048 && o.maxZ > lara()->pos.z - 2048 &&
+                            o.minZ < lara()->pos.z + 2048)
+                            fprintf(stderr, "  obstacle x %d..%d z %d..%d y %d..%d turned %d,%d about %d,%d: %d..%d %d..%d\n", o.minX,
+                                    o.maxX, o.minZ, o.maxZ, o.minY, o.maxY, o.s, o.c, o.cx, o.cz, o.lminX, o.lmaxX, o.lminZ, o.lmaxZ);
+                    }
+                }
+                return false;
+            }
+            play(gJumpBest, bestTicks);
+            continue;
+        }
+        for (int32 i = 0; i < 14; i++) {
+            step(IK_DOWN);
+        }
+        for (int32 i = 0; i < 120 && swordFalling(); i++) {
+            step(0);
+        }
+        settle();
+    }
+    fail("the swords kept falling");
+    return false;
+}
+
 static bool isCreature(const ItemObj* item)
 {
     return item->type >= ITEM_WOLF && item->type <= ITEM_ADAM && item->type != ITEM_SKATEBOARD;
@@ -3162,7 +3299,10 @@ static bool fightFromSafety(ItemObj* foe, int32 range)
             if (c.floor > box.floor - 512) {
                 nearest = X_MIN(nearest, d);
             }
-            if (d <= 6144) {
+            // (from high over it only what's far enough off to aim down at:
+            // her guns go no steeper than 60 degrees, a 4:7 slope)
+            int32 below = (box.floor - c.floor) * 4 / 7;
+            if (d <= 6144 && (below <= 512 || d >= below)) {
                 seen += (box.maxX - box.minX) * (box.maxZ - box.minZ);
             }
         }
@@ -3718,7 +3858,7 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             for (int32 i = 0; i < level.itemsCount; i++)
             {
                 const ItemObj* item = items + i;
-                if ((!isCreature(item) && item->type != ITEM_TRAP_BOULDER) || !item->room || abs(item->pos.x - atoi(a)) > 3072 || abs(item->pos.z - atoi(b)) > 3072)
+                if ((!isCreature(item) && item->type != ITEM_TRAP_BOULDER && item->type != ITEM_TRAP_SWORD && item->type != ITEM_MOVING_OBJECT && item->type != ITEM_DOOR_3) || !item->room || abs(item->pos.x - atoi(a)) > 3072 || abs(item->pos.z - atoi(b)) > 3072)
                     continue;
                 const AABBs &box = item->getBoundingBox(false);
                 printf("    creature %d health %d at %d %d %d yaw %d: box x %d..%d y %d..%d z %d..%d\n", i, item->health, item->pos.x,
@@ -3856,6 +3996,9 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
         } else if (!strcmp(cmd, "ignore") && n >= 2) {
             // ignore on|off: creatures left alone (not fought) from here till off
             gFleeing = !strcmp(a, "on");
+        } else if (!strcmp(cmd, "swords") && n >= 4) {
+            // swords ROOM X Z: to that spot through Damocles swords
+            ok = swordsTo(atoi(a), atoi(b), atoi(c));
         } else if (!strcmp(cmd, "timed") && n >= 4) {
             ok = timed(atoi(a), atoi(b), atoi(c), n >= 5 ? atoi(d) : 90);
         } else if (!strcmp(cmd, "traverse") && n >= 8) {
