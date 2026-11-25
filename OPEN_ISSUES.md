@@ -260,13 +260,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Creatures and AI
 
-### 334. A bear shot dead while running stops turning at once
-*Severity: subtle · Confidence: confirmed (retail run in Mednafen, the bear recorded; it and Lara match retail tick for tick) · Fix: trivial*
-
-- **Found 2026-11-25** by the bot's chained run played by retail (CHAIN_a35): in Vilcabamba room 13 (the host's tick 30,874) retail's Lara, standing still, was pushed west 60 units a tick; ours stayed put.
-- `--watch 86` (from a save state at game tick 30,385): bear 86, shot dead at a run toward her, kept turning in retail, 364 a tick, and slid on along a box edge into her; ours held its heading from the tick it died and slid past.
-- Retail's BearControl (0600947c) calls CreatureTurn (0600be48) with a degree as its first act when the bear's hit points are gone, toward the target it last had (no CreatureAI that tick, so the old one); CreatureAnimation adds the turn again when a box edge shifts it. Ours turned no creature with no hit points. Only the bear does this (TRX: bear.c alone).
-
 ## Level logic, traps and objects
 
 ### 316. Darts from an emitter facing +x start at the emitter, not 412 behind it
@@ -955,6 +948,15 @@ word. Of the same kind and already open: 264, 265, 266.
 Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each): 88 keep the torso's no-turn walk; 99 fix the gorilla's sidestep as TRX; 11 keep the combat camera's stale distance; 139 the Saturn's 150 hits; 179 pan smoothly as TRX; 183 neither the loop restart nor the octave-down loops; 253 keep the shimmers.
 
 ## Closed
+
+### 334. A bear shot dead while running stops turning at once
+*Closed 2026-11-25. A dead bear turns a degree a tick toward the spot it last made for (retail's BearControl calls CreatureTurn as the dead branch starts; the creature's target stays the last one), and CreatureAnimation's turn again when a box edge shifts it follows. ExtraInfoEnemy keeps the whole last waypoint for it. The bear now matches retail through its slide, and Lara through the push. Both attract demos still match retail.*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen, the bear recorded; it and Lara match retail tick for tick) · Fix: trivial*
+
+- **Found 2026-11-25** by the bot's chained run played by retail (CHAIN_a35): in Vilcabamba room 13 (the host's tick 30,874) retail's Lara, standing still, was pushed west 60 units a tick; ours stayed put.
+- `--watch 86` (from a save state at game tick 30,385): bear 86, shot dead at a run toward her, kept turning in retail, 364 a tick, and slid on along a box edge into her; ours held its heading from the tick it died and slid past.
+- Retail's BearControl (0600947c) calls CreatureTurn (0600be48) with a degree as its first act when the bear's hit points are gone, toward the target it last had (no CreatureAI that tick, so the old one); CreatureAnimation adds the turn again when a box edge shifts it. Ours turned no creature with no hit points. Only the bear does this (TRX: bear.c alone).
 
 ### 330. In Lost Valley's west tunnel the camera stands 1,200 units nearer Lara than retail's
 *Closed 2026-11-25. Retail's ChunkyFlag: CalculateCamera (0600d128) sets it (but in a slide, NO_CHUNKY) and clears it as MoveCamera starts, and while it's set GetHeight and GetCeiling read a slope steeper than 2 as flat at its sector's height. Ours had no such flag, so the camera's lines of sight saw over steep floors retail's camera stops at. The first difference was a tick in room 24 (the host's 63,075): retail's line from Lara to fixed camera 3 met the sector's flat 1024, ours passed over the slope at 2471, and the camera went its own way for a while. With the flag every camera sample from the save state to the tunnel matches retail's to the unit (5,000 ticks), and retail's run from it now plays through the T-rex's stomp, Lara and seed alike every tick to tick 70,000. Both attract demos still match retail.*

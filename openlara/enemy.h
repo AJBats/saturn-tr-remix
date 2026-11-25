@@ -334,15 +334,24 @@ struct Enemy : ItemObj
     void updateNavigation()
     {
         tinfo.waypoint = extraE->nav.getWaypoint(tinfo.boxIndex, pos);
+        extraE->waypointX = tinfo.waypoint.x;
         extraE->waypointY = tinfo.waypoint.y;
+        extraE->waypointZ = tinfo.waypoint.z;
 
-        int16 maxTurn = extraE->maxTurn;
+        if (health > 0) {
+            turnTo(tinfo.waypoint.x, tinfo.waypoint.z, extraE->maxTurn);
+        }
+    }
 
-        if (health <= 0 || !hSpeed || !maxTurn)
+    // retail's CreatureTurn (0600be48): toward the spot, by at most maxTurn
+    // (moving, alive or dead)
+    void turnTo(int32 x, int32 z, int16 maxTurn)
+    {
+        if (!hSpeed || !maxTurn)
             return;
 
-        int32 dx = tinfo.waypoint.x - pos.x;
-        int32 dz = tinfo.waypoint.z - pos.z;
+        int32 dx = x - pos.x;
+        int32 dz = z - pos.z;
         int16 turn = phd_atan(dz, dx) - angle.y;
         int32 r = (hSpeed << FIXED_SHIFT) / maxTurn; //@DIV
         bool aim = (turn >= -ANGLE_90) && (turn <= ANGLE_90);     // a quarter turn either way still ahead (retail)
@@ -355,7 +364,7 @@ struct Enemy : ItemObj
         if (!aim && d2 < r2)
             maxTurn >>= 1;
 
-        // turned now, so it moves along the new heading (retail's CreatureTurn, 0600be48)
+        // turned now, so it moves along the new heading
         tinfo.turn = X_CLAMP(turn, -maxTurn, maxTurn);
         angle.y += tinfo.turn;
     }
@@ -1365,6 +1374,9 @@ struct Bear : Enemy
     {
         if (health <= 0)
         {
+            // still turning to where it last made for, a degree a tick
+            turnTo(extraE->waypointX, extraE->waypointZ, ENEMY_TURN_1);
+
             switch (state)
             {
                 case STATE_HIND:
