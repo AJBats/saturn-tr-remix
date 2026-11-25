@@ -1,20 +1,34 @@
 # Lost Valley at 100%, in progress (Stella: 16 pickups with the 3 cogs and the
-# shotgun, 5 secrets, 13 kills). In progress: secrets 1 and 3 (climbs and grabs on
-# sloped rocks the planner reads as too steep).
+# shotgun, 5 secrets, 13 kills). All 13 kills; left: secrets 1 (the building's
+# roof by standing jumps up the angled rocks) and 3 (the crevice traverse in
+# front of the double falls), their 6 pickups.
 start LEVEL3A newgame
 wait 30
 # the wolves at the pool below the falls (shot as they come up)
 draw
 fight 8192
-# through the cave and the twisting passage (a wolf), up the stepped blocks:
-# the large medipack by the skeleton (the three wolves down the tunnel to the
-# right are left asleep: their trigger is on its top slope, a slide down)
+# through the cave and the twisting passage (a wolf); the three wolves down
+# the tunnel to the right: its mouth is a slope down into a pit (their
+# trigger), slid down, they're fought in the pit, and a running jump up the
+# slope gets her back out; up the stepped blocks: the large medipack by the
+# skeleton
+goto 27 33280 49664
+face 270
+keys UP 25
+wait 30
+fight 8192
+leap 27 33280 49664
 pickup 28
 # into the valley (raptors) to a tunnel off the west wall, then the T-rex shot
 # from the spot it can't reach with the most of its ground in shot (pistols:
 # a long wait)
 goto 36 32256 22016
 safe 55
+# the raptor in the U-shaped passage behind (its trigger halfway along),
+# shot from wherever sees it if it keeps off
+goto 37 27136 14848
+fight 8192
+hunt 32
 # the temple: the cog under water
 pickup 40
 # out, across the valley to the well-lit opening with the low block, along
