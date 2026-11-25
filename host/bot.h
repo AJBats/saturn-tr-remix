@@ -197,11 +197,33 @@ static void play(const uint32* keys, int32 ticks)
     }
 }
 
+// What the level still holds: the creatures alive, the pickups lying, the
+// secrets found (a bit each). A pickup taken is invisible, or inactive once
+// a pickup trigger has had it.
+static void printLeft()
+{
+    for (int32 i = 0; i < level.itemsCount; i++)
+    {
+        const ItemObj* item = items + i;
+        uint16 status = item->flags & ITEM_FLAG_STATUS;
+        if (!item->room || status == ITEM_FLAG_STATUS_INVISIBLE)
+            continue;
+        bool creature = item->type >= ITEM_WOLF && item->type <= ITEM_ADAM && item->type != ITEM_SKATEBOARD && item->health > 0;
+        bool lying = inventory.remapToInv(ItemType(item->type)) != ItemType(item->type) && status != ITEM_FLAG_STATUS_INACTIVE;
+        if (creature || lying) {
+            printf("  left: item %3d %s type %3d room %3d pos %6d %6d %6d\n", i, creature ? "alive" : "lying", item->type,
+                   int32(item->room - rooms), item->pos.x, item->pos.y, item->pos.z);
+        }
+    }
+    printf("  left: secrets found %02x\n", gSaveGame.secrets);
+}
+
 // On from the level's end to the next level she plays: Action through the
 // statistics (and any film between), No at "Save Game?" (a QA run leaves the
 // backup memory alone).
 static void throughLevelEnd()
 {
+    printLeft();
     gInLevelEnd = true;
     LevelID was = gLevelID;
     for (int32 i = 0; i < 30 * 600 && (gLevelID == was || !players[0] || !isPlayLevel(gLevelID)); i++)
@@ -3122,6 +3144,8 @@ static void holster()
 // where she stands to be in its reach (false if none).
 static bool lureSpot(ItemObj* foe, int32 &room, int32 &x, int32 &z)
 {
+    if (!foe->extraE)
+        return false;   // no AI slot: it comes to nothing
     const Nav &nav = foe->extraE->nav;
     const uint16* zones = level.zones[gSaveGame.flipped][nav.zoneType];
     uint16 zone = zones[foe->room->getSector(foe->pos.x, foe->pos.z)->boxIndex];
@@ -3336,6 +3360,54 @@ static bool fightFromSafety(ItemObj* foe, int32 range)
     gFleeing = false;
     if (!there)
         return false;
+    return shootFromHere(foe);
+}
+
+// A creature that keeps off where her guns don't reach it (a bat hung in a
+// shaft it can't come down): the nearest place she can get to that sees its
+// aim point within her guns' range and no steeper than they aim (60 degrees,
+// a 4:7 slope), and shot from there.
+static bool hunt(ItemObj* foe)
+{
+    const AABBs &box = foe->getBoundingBox(false);
+    int32 s, c;
+    sincos(foe->angle.y, s, c);
+    vec3i p = _vec3i((box.minX + box.maxX) / 2, box.minY + (box.maxY - box.minY) / 3, (box.minZ + box.maxZ) / 2);
+    X_ROTXY(p.x, p.z, -s, c);
+    Location to;
+    to.pos = foe->pos + p;
+    to.room = foe->room;
+
+    static int32 path[1024];
+    obstaclesFind();
+    sectorPath(int32(lara()->room - rooms), -0x400000, -0x400000, path, X_COUNT(path));
+    int32 best = -1;
+    for (int32 i = 0; i < gCellsCount; i++)
+    {
+        const Cell &q = gCells[i];
+        if (q.water || q.cost == 0x7FFFFFFF || (best >= 0 && q.cost >= gCells[best].cost))
+            continue;
+        Location from;
+        from.pos = _vec3i(cellX(q), q.floor - LARA_AIM_HEIGHT, cellZ(q));
+        from.room = q.room->getRoom(from.pos.x, from.pos.y, from.pos.z);
+        vec3i d = to.pos - from.pos;
+        int32 flat = phd_sqrt(X_SQR(d.x) + X_SQR(d.z));
+        if (X_SQR(flat) + X_SQR(d.y) > X_SQR(8192 - 512) || abs(d.y) * 4 > flat * 7)
+            continue;
+        Location seen = to;
+        if (trace(from, seen)) {
+            best = i;
+        }
+    }
+    if (best < 0) {
+        fail("nowhere in reach sees it");
+        return false;
+    }
+    const Cell spot = gCells[best];
+    printf("  hunt %d from %d,%d floor %d room %d\n", int32(foe - items), cellX(spot), cellZ(spot), spot.floor, int32(spot.room - rooms));
+    if (!goTo(int32(spot.room - rooms), cellX(spot), cellZ(spot), false, 128))
+        return false;
+    gKeepsOff = NULL;
     return shootFromHere(foe);
 }
 
@@ -3997,6 +4069,11 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             } else {
                 ok = fightFromSafety(foe, 8192);
             }
+        } else if (!strcmp(cmd, "hunt") && n >= 2) {
+            // hunt ITEM: a creature that keeps off out of shot, shot from
+            // the nearest place that sees it
+            ItemObj* foe = items + atoi(a);
+            ok = foe->health <= 0 || hunt(foe);
         } else if (!strcmp(cmd, "ignore") && n >= 2) {
             // ignore on|off: creatures left alone (not fought) from here till off
             gFleeing = !strcmp(a, "on");
@@ -4079,6 +4156,7 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
         }
         printf("level so far: kills %d, pickups %d, secrets %d, %d s\n", gSaveGame.kills, gSaveGame.pickups, secrets,
                gSaveGame.time / 30);
+        printLeft();
     }
     }
     writeReplay(outPath, levelName, newGame);

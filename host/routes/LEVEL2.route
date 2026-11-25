@@ -70,6 +70,7 @@ pickup 54
 switch 53
 pickup 52
 pickup 48
+hunt 51
 # the right door: up the second pool room by its ledges over the break-away
 # tiles (as the planner finds them), a bat, the switch that opens the middle door
 switch 71
