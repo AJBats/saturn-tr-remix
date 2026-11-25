@@ -949,6 +949,14 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 335. A water current pulls Lara before its path has reached her
+*Closed 2026-11-25. Nav::getWaypoint says when the path doesn't reach the end yet (retail's TARGET_NONE: no box, or the search not there); updateFlow then leaves her be and keeps the current for a later tick, the search going on meanwhile. Lara now matches retail through the dive and after. Both attract demos still match retail.*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen, breakpoints in LaraWaterCurrent; Lara matches retail through the dive) · Fix: small*
+
+- **Found 2026-11-25** by the bot's chained run played by retail (CHAIN_be07): in Lost Valley room 10 (the host's tick 97,400) Lara, jumping into the pool by the machine, sank straight in retail; ours was carried 48 units a tick toward the stream's sink from the first tick.
+- Retail's LaraWaterCurrent (06022150) calls CalculateTarget, which searches the path from the sink's box a few boxes a tick; till the search reaches her box it gives TARGET_NONE, and LaraWaterCurrent returns without moving her and keeps current_active for a later tick (breakpoints at the dive: box 167, CalculateTarget returned 0). Ours took the path's cut-short target and moved her toward it at once.
+
 ### 334. A bear shot dead while running stops turning at once
 *Closed 2026-11-25. A dead bear turns a degree a tick toward the spot it last made for (retail's BearControl calls CreatureTurn as the dead branch starts; the creature's target stays the last one), and CreatureAnimation's turn again when a box edge shifts it follows. ExtraInfoEnemy keeps the whole last waypoint for it. The bear now matches retail through its slide, and Lara through the push. Both attract demos still match retail.*
 

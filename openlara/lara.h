@@ -2986,7 +2986,9 @@ struct Lara : ItemObj
     // drifts towards the sink, at its speed, along a path through the boxes as
     // a swimming creature would take. The trigger's current waits until she
     // swims: one crossed on land pulls her the tick she dives in, as retail's
-    // current_active, kept above water; a place with no box keeps it too.
+    // current_active, kept above water; it waits too while the path's search
+    // (a few boxes a tick) hasn't reached her box, or she has none (retail's
+    // CalculateTarget gives TARGET_NONE and the current stays for a later tick).
     void updateFlow()
     {
         const FixedCamera* sink = extraL->flowSink;
@@ -2994,13 +2996,11 @@ struct Lara : ItemObj
             return;
 
         uint32 boxIndex = room->getSector(pos.x, pos.z)->boxIndex;
-        if (boxIndex == NO_BOX)
-            return;
-        extraL->flowSink = NULL;
-
         Nav &nav = extraL->nav;
         if (extraL->navSink != sink)
         {
+            if (boxIndex == NO_BOX)
+                return;
             nav.stepHeight = 20 * 1024;
             nav.dropHeight = -20 * 1024;
             nav.vSpeed = 256;
@@ -3010,7 +3010,11 @@ struct Lara : ItemObj
             extraL->navSink = sink;
         }
 
-        vec3i target = nav.getWaypoint(boxIndex, pos);
+        bool none;
+        vec3i target = nav.getWaypoint(boxIndex, pos, &none);
+        if (none)
+            return;
+        extraL->flowSink = NULL;
 
                 int32 speed = sink->roomIndex * 6; // ... and its room its strength
         pos.x += X_CLAMP(target.x - pos.x, -speed, speed);

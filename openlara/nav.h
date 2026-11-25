@@ -49,8 +49,12 @@ void Nav::init(uint32 boxIndex)
     ASSERT(cellsCount > 0);
 }
 
-vec3i Nav::getWaypoint(uint32 boxIndex, const vec3i &from)
+vec3i Nav::getWaypoint(uint32 boxIndex, const vec3i &from, bool* none)
 {
+    if (none) {
+        *none = false;
+    }
+
     if (nextBox != NO_BOX && nextBox != endBox)
     {
         endBox = nextBox;
@@ -105,7 +109,12 @@ vec3i Nav::getWaypoint(uint32 boxIndex, const vec3i &from)
     vec3i wp = from;
 
     if (boxIndex == NO_BOX)
+    {
+        if (none) {
+            *none = true;
+        }
         return wp;
+    }
 
     int32 left = 0, right = 0, top = 0, bottom = 0;
     int32 primeFree = CLIP_ALL;
@@ -277,6 +286,9 @@ vec3i Nav::getWaypoint(uint32 boxIndex, const vec3i &from)
 
     wp.y = box->floor - ((zoneType == ZONE_FLY) ? 384 : 0);
 
+    if (none) {
+        *none = true;
+    }
     return wp;
 }
 

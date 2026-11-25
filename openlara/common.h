@@ -1562,7 +1562,7 @@ struct Nav
 
     void init(uint32 boxIndex);
     void search(uint16 zone, const uint16* zones);
-    vec3i getWaypoint(uint32 boxIndex, const vec3i &from);
+    vec3i getWaypoint(uint32 boxIndex, const vec3i &from, bool* none = NULL);   // none: the path doesn't reach the end yet (retail's TARGET_NONE)
 };
 
 enum WeaponState
