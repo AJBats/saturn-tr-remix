@@ -157,10 +157,13 @@ swords 19 25088 45312
 swords 19 27136 45036
 swords 19 30208 45568
 swords 3 36352 45568
-# the lions at the bottom shot from above, Pierre driven off again; the four
+# down by the near way to the bottom, the lions fought there as they come (on
+# the far way they caught her at a climb), Pierre driven off again; the four
 # keys in their holes on the west wall (the bars over the exit go aside), out
 # along the corridor from the east (the open door's panel lies across its
 # mouth from the north)
+goto 42 37888 41984 384
+fight 8192
 goto 42 38400 41472
 fight 8192
 usehole 80
