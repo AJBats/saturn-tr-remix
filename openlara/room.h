@@ -42,14 +42,19 @@ int32 Sector::getFloor(int32 x, int32 y, int32 z) const
 
         if (FD_FLOOR_TYPE(cmd) == FLOOR_TYPE_FLOOR) // found floor
         {
-            gLastFloorSlant = *fd;
-            int32 sx = FD_SLANT_X(gLastFloorSlant);
-            int32 sz = FD_SLANT_Z(gLastFloorSlant);
-            int32 dx = x & 1023;
-            int32 dz = z & 1023;
-            // each product shifted as retail's GetHeight (0600fff0) rounds it
-            if (sx < 0) floor -= (sx * dx) >> 2; else floor += (sx * (1023 - dx)) >> 2;
-            if (sz < 0) floor -= (sz * dz) >> 2; else floor += (sz * (1023 - dz)) >> 2;
+            int32 sx = FD_SLANT_X(*fd);
+            int32 sz = FD_SLANT_Z(*fd);
+            // the camera looking for its place reads a steep slope as flat
+            // at its sector's height (retail's GetHeight, 0600fff0, with ChunkyFlag)
+            if (!gChunky || (abs(sx) <= 2 && abs(sz) <= 2))
+            {
+                gLastFloorSlant = *fd;
+                int32 dx = x & 1023;
+                int32 dz = z & 1023;
+                // each product shifted as retail's GetHeight rounds it
+                if (sx < 0) floor -= (sx * dx) >> 2; else floor += (sx * (1023 - dx)) >> 2;
+                if (sz < 0) floor -= (sz * dz) >> 2; else floor += (sz * (1023 - dz)) >> 2;
+            }
         }
 
         lowerSector->getTriggerFloorCeiling(x, y, z, &floor, NULL);
@@ -81,9 +86,13 @@ int32 Sector::getCeiling(int32 x, int32 y, int32 z) const
             int32 sz = FD_SLANT_Z(*fd);
             int32 dx = x & 1023;
             int32 dz = z & 1023;
-            // each product shifted as retail's GetCeiling (060109d4) rounds it
-            if (sx < 0) ceiling += (sx * (1023 - dx)) >> 2; else ceiling -= (sx * dx) >> 2;
-            if (sz < 0) ceiling += (sz * dz) >> 2; else ceiling -= (sz * (1023 - dz)) >> 2;
+            // each product shifted as retail's GetCeiling (060109d4) rounds it;
+            // a steep slope flat for the camera, as the floor's
+            if (!gChunky || (abs(sx) <= 2 && abs(sz) <= 2))
+            {
+                if (sx < 0) ceiling += (sx * (1023 - dx)) >> 2; else ceiling -= (sx * dx) >> 2;
+                if (sz < 0) ceiling += (sz * dz) >> 2; else ceiling -= (sz * (1023 - dz)) >> 2;
+            }
         }
     }
 

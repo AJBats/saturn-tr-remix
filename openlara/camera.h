@@ -478,6 +478,8 @@ static void bounceView(vec3i &pos, vec3i &target, int32 &bounce)
 
 void Camera::moveRetail(Location &ideal, int32 speed)
 {
+    gChunky = false;
+
     view.pos.x += (ideal.pos.x - view.pos.x) / speed;
     view.pos.z += (ideal.pos.z - view.pos.z) / speed;
     view.pos.y += (ideal.pos.y - view.pos.y) / speed;
@@ -704,6 +706,12 @@ void Camera::fixedRetail()
 // free camera.
 void Camera::updateRetail()
 {
+    // the camera looks for its place with steep slopes flat (but in a
+    // slide), till it moves (retail's ChunkyFlag)
+    if (flags != CAM_NO_CHUNKY) {
+        gChunky = true;
+    }
+
     bool isFixed = lookAtItem && (mode == CAMERA_MODE_FIXED || mode == CAMERA_MODE_OBJECT);
     ItemObj* item = isFixed ? lookAtItem : laraItem;
 
@@ -771,6 +779,11 @@ void Camera::updateRetail()
 
         target.room = target.room->getRoom(target.pos.x, target.pos.y, target.pos.z);
 
+        // a target under the flattened floor: slopes as they are
+        if (target.pos.y > target.room->getSector(target.pos.x, target.pos.z)->getFloor(target.pos.x, target.pos.y, target.pos.z)) {
+            gChunky = false;
+        }
+
         if (mode == CAMERA_MODE_FOLLOW || flags == CAM_CHASE_OBJECT) {
             chaseRetail(item);
         } else {
@@ -780,6 +793,7 @@ void Camera::updateRetail()
 
     lastIndex = index;
     lastFixed = isFixed;
+    gChunky = false;
 
     if (mode != CAMERA_MODE_OBJECT || timer == -1)
     {

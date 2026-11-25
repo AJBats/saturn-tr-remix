@@ -1461,9 +1461,10 @@ enum CameraMode {
     CAMERA_MODE_CUTSCENE
 };
 
-// Retail's camera flags (FOLLOW_CENTRE, CHASE_OBJECT): the chase aimed at
-// the middle of Lara's box; a fixed camera's item chased instead.
-enum { CAM_CENTER = 1, CAM_CHASE_OBJECT = 3 };
+// Retail's camera flags (FOLLOW_CENTRE, NO_CHUNKY, CHASE_OBJECT): the chase
+// aimed at the middle of Lara's box; slopes read as they are (a slide); a
+// fixed camera's item chased instead.
+enum { CAM_CENTER = 1, CAM_NO_CHUNKY = 2, CAM_CHASE_OBJECT = 3 };
 
 struct Camera {
     Location view;
@@ -1486,7 +1487,7 @@ struct Camera {
     CameraMode mode;
 
     bool lastFixed;
-    uint8 flags;    // CAM_CENTER or CAM_CHASE_OBJECT, for one tick (retail's camera.flags)
+    uint8 flags;    // CAM_CENTER, CAM_NO_CHUNKY or CAM_CHASE_OBJECT, for one tick (retail's camera.flags)
 
     int32 bounce; // retail's: below 0 the view shakes, easing by 5 a tick; above 0 it drops once
     int32 shift; // the view's height moved into the camera's sector (move)
@@ -2852,6 +2853,7 @@ struct CpuState
     const FloorData* lastFloorData; // Sector::getFloor's, for the caller
     FloorData lastFloorSlant;
     AABBs tmpBox;           // ItemObj::getBoundingBox's
+    bool chunky;            // retail's ChunkyFlag: steep slopes read flat (the camera's look for a place)
 };
 
 #ifdef TRS_HOST
@@ -2881,6 +2883,7 @@ inline CpuState* cpuState()
 #define gLastFloorData  (cpuState()->lastFloorData)
 #define gLastFloorSlant (cpuState()->lastFloorSlant)
 #define tmpBox          (cpuState()->tmpBox)
+#define gChunky         (cpuState()->chunky)
 extern int16 gViewRotation[9];
 extern int32 gRandTable[MAX_RAND_TABLE];
 extern int32 gCaustics[MAX_CAUSTICS];

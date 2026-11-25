@@ -960,6 +960,7 @@ struct Lara : ItemObj
 
     S_HANDLER( STATE_SLIDE )
     {
+        extraL->camera.flags = CAM_NO_CHUNKY;
         extraL->camera.targetAngle.x = ANGLE(-45);
 
         if (input & IN_JUMP) {

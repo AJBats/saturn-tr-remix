@@ -166,18 +166,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Camera
 
-### 330. In Lost Valley's west tunnel the camera stands 1,200 units nearer Lara than retail's
-*Severity: subtle (the view too, untested) · Confidence: confirmed (retail run in Mednafen, g_Camera read tick by tick) · Fix: unknown, look at the chase camera's wall handling*
-
-- **Found 2026-11-20** by the bot's chained run played by retail (CHAIN_r329, from save state build/bot/r329_62000.mcs).
-  Lara stands in the tunnel the bot shoots the T-rex from (room 36, 32294, 3190, 22011, facing 22283). Retail's camera
-  (06074d70) sits at 30774, 2360, 22264, 1,540 from her; ours at 31956, 2353, 22527, 617 from her. The target matches
-  (32294, 2353, 22011).
-- It changes the game, not just the view: the T-rex's stomp (DinoStomp, 060159b8) shakes the camera by how far it is from
-  the T-rex. Retail's farther camera gets -19, ours -9; the shake draws three random numbers a tick till it's gone, so
-  retail draws three more and the control seed parts (the host's tick 67,655).
-- Check: host `CAM=FIRST` prints our camera a tick at a time; scratchpad retailcam.py reads retail's from a save state.
-
 ### 262. The near plane is 64 where retail's is 80
 *Kind: visible · Size: small · Fix: decide with the near-face work*
 
@@ -271,6 +259,13 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 ## Weapons and combat
 
 ## Creatures and AI
+
+### 334. A bear shot dead while running stops turning at once
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen, the bear recorded; it and Lara match retail tick for tick) · Fix: trivial*
+
+- **Found 2026-11-25** by the bot's chained run played by retail (CHAIN_a35): in Vilcabamba room 13 (the host's tick 30,874) retail's Lara, standing still, was pushed west 60 units a tick; ours stayed put.
+- `--watch 86` (from a save state at game tick 30,385): bear 86, shot dead at a run toward her, kept turning in retail, 364 a tick, and slid on along a box edge into her; ours held its heading from the tick it died and slid past.
+- Retail's BearControl (0600947c) calls CreatureTurn (0600be48) with a degree as its first act when the bear's hit points are gone, toward the target it last had (no CreatureAI that tick, so the old one); CreatureAnimation adds the turn again when a box edge shifts it. Ours turned no creature with no hit points. Only the bear does this (TRX: bear.c alone).
 
 ## Level logic, traps and objects
 
@@ -960,6 +955,20 @@ word. Of the same kind and already open: 264, 265, 266.
 Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each): 88 keep the torso's no-turn walk; 99 fix the gorilla's sidestep as TRX; 11 keep the combat camera's stale distance; 139 the Saturn's 150 hits; 179 pan smoothly as TRX; 183 neither the loop restart nor the octave-down loops; 253 keep the shimmers.
 
 ## Closed
+
+### 330. In Lost Valley's west tunnel the camera stands 1,200 units nearer Lara than retail's
+*Closed 2026-11-25. Retail's ChunkyFlag: CalculateCamera (0600d128) sets it (but in a slide, NO_CHUNKY) and clears it as MoveCamera starts, and while it's set GetHeight and GetCeiling read a slope steeper than 2 as flat at its sector's height. Ours had no such flag, so the camera's lines of sight saw over steep floors retail's camera stops at. The first difference was a tick in room 24 (the host's 63,075): retail's line from Lara to fixed camera 3 met the sector's flat 1024, ours passed over the slope at 2471, and the camera went its own way for a while. With the flag every camera sample from the save state to the tunnel matches retail's to the unit (5,000 ticks), and retail's run from it now plays through the T-rex's stomp, Lara and seed alike every tick to tick 70,000. Both attract demos still match retail.*
+
+*Severity: subtle (the view too, untested) · Confidence: confirmed (retail run in Mednafen, g_Camera read tick by tick) · Fix: unknown, look at the chase camera's wall handling*
+
+- **Found 2026-11-20** by the bot's chained run played by retail (CHAIN_r329, from save state build/bot/r329_62000.mcs).
+  Lara stands in the tunnel the bot shoots the T-rex from (room 36, 32294, 3190, 22011, facing 22283). Retail's camera
+  (06074d70) sits at 30774, 2360, 22264, 1,540 from her; ours at 31956, 2353, 22527, 617 from her. The target matches
+  (32294, 2353, 22011).
+- It changes the game, not just the view: the T-rex's stomp (DinoStomp, 060159b8) shakes the camera by how far it is from
+  the T-rex. Retail's farther camera gets -19, ours -9; the shake draws three random numbers a tick till it's gone, so
+  retail draws three more and the control seed parts (the host's tick 67,655).
+- Check: host `CAM=FIRST` prints our camera a tick at a time; scratchpad retailcam.py reads retail's from a save state.
 
 ### 333. After loading a game from the ring, floors drew black
 *Closed 2026-11-21: 57d57d4. roomsDarkInit takes each shade's level as the game draws it (31 - shade), not the live table. Mednafen, Caves test disc (start at the crystal, room 20): save, walk off, load Current Position from the ring: before, 33 textures' thresholds 8 shades darker after the load; after, none change. Saturn not seen.*
