@@ -1,0 +1,254 @@
+# The Tomb of Tihocan at 100% (Stella: 17 kills; 26 items with 4 keys and
+# the Scion; 2 secrets).
+start LEVEL7B newgame
+# down the tunnel past the grate to the lever (the water drains); out, the
+# switch (the door on); the crocodile in the room beyond fought as it comes
+lever 17
+switch 16
+draw
+fight 8192
+goto 27 51712 17920
+fight 8192
+safe 18
+# the room of the floating block: up the stairs, a jump to the corner over
+# them, down to the ledge by the block, up onto it (darts), a jump from its
+# corner to the small ledge, a running jump to the ledge under the alcove:
+# its switch (the water back, the block floats up); the small medipack where
+# the block stood; through the passage to the second lever (the water drains,
+# its current runs)
+goto 25 50688 15872
+hop 0.0 0 0 17 50688 16896
+hop 270.0 0 0 26 47616 16896
+reach 17 47616 15872
+creep 17 47170 16320
+face 315
+keys UP+A 3
+keys UP+B 60
+wait 60
+hop 202.5 5 2 17 44544 14848
+switch 20
+pickup 21
+lever 35
+# swept through the long passage to the tall room: its rat; the block
+# pulled once, up the ledges to the right of the two doorways at the top
+# (Pierre in the passage beyond, fought till he goes); down the stairs, the
+# chomping blades, into the room of pressure pads: its crocodile, the
+# magnum clips and two shells; the three pads (the secret's door)
+goto 33 40448 79360
+fight 8192
+safe 23
+pull 22 180 1
+reach 38 40448 76288
+hunt 31
+shoot 31 900
+goto 35 40448 72192
+pickup 28
+pickup 27
+pickup 26
+goto 35 39424 70144
+goto 35 39424 74240
+goto 35 42496 76288
+# secret 1: her back to the ramp, her chest to the lowest angled block, a
+# back flip onto the ramp with Jump held: she springs from block to block up
+# to the ledge: a large medipack and shells (the higher index first: both
+# lie on one spot)
+goto 6 45568 69120
+creep 6 45950 69120
+face 90
+keys DOWN+A 3
+keys A 150
+wait 30
+pickup 1
+pickup 0
+expect secrets 1
+# back up past the blades (timed), to the doorway at the top; down onto the
+# block under it, across to the alcove's shells, up to the other doorway;
+# hung from the gap's edge over the room below, along it to the passage on:
+# its switch floods the room below
+goto 41 37376 78336
+timed 41 37376 75264 150 straight
+goto 39 40448 76288
+reach 14 44544 78720
+pickup 9
+reach 38 43520 76288
+goto 47 42496 74240
+traverse 47 42200 74240 90 right 41883 70144 up
+switch 33
+# down into the water, out at the short hallway: its rat; through the water
+# to the spike room's step: the lion shot from there; the switch in the U
+# passage (the gold key's door, two gorillas), shot from the alcove's high
+# ledge
+goto 50 44544 76288
+fight 8192
+safe 34
+goto 70 49664 74240
+safe 40 70 49664 74240
+switch 41
+goto 73 51712 71168 256
+safe 36 73 51900 71168
+safe 37 73 51900 71168
+# a jump from the alcove to the floor above, across the hole over the spikes
+# to the crevice, along it into the doorway: the gold key, a large medipack
+creep 73 51712 71550
+face 0
+keys UP+A 3
+keys UP+B 90
+wait 100
+creep 66 51712 74650
+face 0
+keys UP+A 3
+keys B 40
+keys B+RIGHT 150
+keys UP+B 90
+wait 100
+pickup 11
+pickup 10
+# a jump back over the hole to the floor round it; down to the gold lock
+# (blocks rise in the pool beyond), jumps across them, the small medipack
+goto 15 52736 76288
+face 180
+keys UP+A 3
+wait 60
+usehole 48
+goto 75 51712 68096
+reach 75 48640 68096
+reach 75 45568 68096
+reach 75 42496 68096
+reach 75 40448 68096
+pickup 49
+# the rooms of the movable block and pressure pads: the block pulled onto the
+# first pad (a door, a gorilla: shot from the block), its room's clips and
+# shells; onto the second, under the high door (another door, another
+# gorilla), its room's shells
+pull 50 180 2
+reach 77 33280 64000
+safe 69 77 33280 64000
+pickup 70
+pickup 71
+pull 50 180 2
+reach 77 33280 61952
+safe 67 77 33280 61952
+pickup 68
+# up from the block into the high door; the chomping blades (her standing
+# by them keeps them going) passed by timing: the rusty key and a large
+# medipack beyond; back from the row beside them, which keeps them going too
+reach 77 33280 61952
+hop 270.0 0 0 79 31232 61952
+goto 79 30900 61952
+timed 79 28160 61952 150 straight
+pickup 65
+pickup 63
+goto 79 28600 62900
+goto 79 29184 62900
+wait 90
+timed 79 30300 61952 90 straight
+goto 79 31232 61952
+# the block pulled onto the third pad (four rats come out), shot from its
+# top; their room's small medipack; the block pushed onto the last pad: a
+# running jump down onto the boulders' track (they start), a climb straight
+# on into the alcove before they meet: the second rusty key, then the
+# medipack on the track
+pull 50 90 2
+reach 77 35328 61952
+fight 8192
+hunt 43
+shoot 43 900
+hunt 44
+shoot 44 900
+hunt 45
+shoot 45 900
+hunt 46
+shoot 46 900
+pickup 47
+push 50 0 2
+goto 78 38400 60100
+creep 78 38400 60330
+face 180
+keys UP 6
+keys UP+A 40
+keys UP+B 60
+wait 120
+pickup 62
+pickup 59
+# the two rusty keys in the double lock: the long chute beyond. Secret 2:
+# from the right of the doorway's mouth turned 30 degrees left, a standing
+# jump onto the chute's left side, Jump held: she springs from side to side
+# down it, let go as she springs back to the left: she slides down into the
+# doorway at the chute's foot. The break-away tiles beyond, jumped one to the
+# next (forward, a side flip left, forward, forward, a side flip right,
+# forward) into the alcove: magnum and Uzi clips
+usehole 57
+usehole 58
+goto 89 31232 68096 200
+attempt 89 23040 67072 12
+creep 89 30800 68400
+face 240
+keys UP+A 3
+keys A 200
+wait 60
+end
+goto 12 23040 66048
+face 180
+keys UP+L 40
+wait 20
+keys DOWN+L 1
+wait 40
+jumpkeys UP+A
+jumpkeys LEFT+A
+jumpkeys UP+A
+jumpkeys UP+A
+jumpkeys RIGHT+A
+jumpkeys UP+A
+wait 30
+pickup 8
+pickup 7
+expect secrets 2
+# down the rest of the chute into the lake, straight across it (a crocodile
+# in the water), out on the gray ledge: the crocodile shot from the water's
+# edge; up the rocks to the switch (the underwater door); through the
+# tunnels to the room of the tomb door's switch
+goto 89 23040 67072
+face 0
+keys UP 20
+wait 110
+swim 15000 4600 68096
+swim 11000 4600 68608
+swim 9700 4150 69100
+goto 93 7680 70144
+safe 66 102 8900 70144
+switch 75
+switch 79
+# out on the sand by the tomb, into its hall past the left centaur statue
+# (it bursts), fought from the doorway; the other statue woken from the hall's
+# far end, burst as she passes it, fought from the doorway too
+goto 90 22016 78336
+weapon magnums
+goto 109 29184 78336
+fight 8192
+fight 8192
+goto 109 29184 80384
+goto 90 25600 77312 300
+goto 109 29184 78336
+fight 8192
+fight 8192
+expect kills 16
+# Tihocan's tomb: Pierre, killed; his magnums, the Scion piece and the gold
+# key (in whatever order the game hands them over); the side ledges' clips,
+# the balcony's large medipack; the gold key in its lock (the tomb's door):
+# into the tomb, the level's end
+goto 110 30208 83456
+hunt 82
+shoot 82 900
+fight 8192
+expect kills 17
+pickupdrop 144
+pickupdrop 129
+pickupdrop 86
+pickupdrop 144
+pickupdrop 129
+pickupdrop 86
+pickup 86
+pickup 84
+pickup 85
+usehole 87
+endlevel 112 32256 96768

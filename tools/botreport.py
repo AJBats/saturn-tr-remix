@@ -26,6 +26,7 @@ LEVELS = [
     ('LEVEL5.route', 'Colosseum', (26, 14, 3)),
     ('LEVEL6.route', 'Palace Midas', (43, 22, 3)),     # Stella's 23 pickups: the Saturn level lays out 22
     ('LEVEL7A.route', 'The Cistern', (34, 27, 3)),     # Stella's 28 items: the Saturn level lays out 27
+    ('LEVEL7B.route', 'Tomb of Tihocan', (17, 26, 2)),
 ]
 
 

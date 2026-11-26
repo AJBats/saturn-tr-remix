@@ -12,8 +12,13 @@
 //   goto3 ROOM X Y Z [RADIUS]     to the floor at height Y there (a bridge's top)
 //   face DEGREES                  turned to that heading (0 is +z, 90 is +x)
 //   keys KEYS TICKS               those keys held (UP+A ...), for a move by hand
+//   jumpkeys KEYS                 those keys held till she's in the air, then none
+//                                 till she stands again (jumps chained tile to tile)
 //   wait TICKS                    no key held
 //   pickup ITEM                   walked to it and picked it up
+//   pickupdrop TYPE               the same for an item a creature dropped, by its
+//                                 type (its slot depends on what came before); none
+//                                 lying: taken already
 //   switch ITEM                   stood at it and pulled it
 //   lever ITEM                    an underwater lever, swum to and pulled
 //   usehole ITEM                  its key or puzzle item put in, from the ring
@@ -231,11 +236,18 @@ static void play(const uint32* keys, int32 ticks)
 // a pickup trigger has had it.
 static void printLeft()
 {
-    for (int32 i = 0; i < level.itemsCount; i++)
+    // the level's items and those added since (a statue's centaur, Pierre's
+    // drops), not the slots on the free list (their old contents linger)
+    static bool spare[MAX_ITEMS];
+    memset(spare, 0, sizeof(spare));
+    for (const ItemObj* item = ItemObj::sFirstFree; item; item = item->nextItem) {
+        spare[item - items] = true;
+    }
+    for (int32 i = 0; i < MAX_ITEMS; i++)
     {
         const ItemObj* item = items + i;
         uint16 status = item->flags & ITEM_FLAG_STATUS;
-        if (!item->room || status == ITEM_FLAG_STATUS_INVISIBLE)
+        if (spare[i] || !item->room || status == ITEM_FLAG_STATUS_INVISIBLE)
             continue;
         bool creature = item->type >= ITEM_WOLF && item->type <= ITEM_ADAM && item->type != ITEM_SKATEBOARD && item->health > 0;
         bool lying = inventory.remapToInv(ItemType(item->type)) != ItemType(item->type) && status != ITEM_FLAG_STATUS_INACTIVE;
@@ -245,6 +257,25 @@ static void printLeft()
         }
     }
     printf("  left: secrets found %02x\n", gSaveGame.secrets);
+}
+
+// An added item of that type lying in the level (one a creature dropped: its
+// slot is whichever was free), the highest slot first; -1 if none.
+static int32 droppedItem(int32 type)
+{
+    static bool spare[MAX_ITEMS];
+    memset(spare, 0, sizeof(spare));
+    for (const ItemObj* item = ItemObj::sFirstFree; item; item = item->nextItem) {
+        spare[item - items] = true;
+    }
+    for (int32 i = MAX_ITEMS - 1; i >= level.itemsCount; i--)
+    {
+        const ItemObj* item = items + i;
+        uint16 status = item->flags & ITEM_FLAG_STATUS;
+        if (!spare[i] && item->room && item->type == type && status != ITEM_FLAG_STATUS_INVISIBLE)
+            return i;
+    }
+    return -1;
 }
 
 // On from the level's end to the next level she plays: Action through the
@@ -2792,6 +2823,21 @@ static uint32 parseBotKeys(const char* s)
     return strcmp(s, "-") ? parseKeys(s) : 0;
 }
 
+// From standing, the keys held till she's in the air (a landing takes no key
+// for a while: the jump goes the moment it can), then none till she stands
+// again: break-away tiles jumped one to the next before they fall.
+static bool jumpKeys(uint32 k)
+{
+    int32 i = 0;
+    for (; i < 90 && !(lara()->flags & ITEM_FLAG_GRAVITY); i++) {
+        step(k);
+    }
+    for (; i < 180 && ((lara()->flags & ITEM_FLAG_GRAVITY) || lara()->state != Lara::STATE_STOP); i++) {
+        step(0);
+    }
+    return lara()->state == Lara::STATE_STOP && lara()->health > 0;
+}
+
 // Picked up: walked onto it, Action till she bends for it.
 static void holster();
 
@@ -4150,6 +4196,9 @@ static bool blockTry(int32 roomIndex, int32 x, int32 z, int32 floor, int32 varia
             for (int32 t = atoi(a); t > 0; t--) {
                 step(0);
             }
+        } else if (!strcmp(cmd, "jumpkeys") && n >= 2) {
+            if (!jumpKeys(parseBotKeys(a)))
+                return false;
         } else if (!strcmp(cmd, "face") && n >= 2) {
             if (!turnTo(int16(atoi(a) * 0x10000 / 360)))
                 return false;
@@ -4330,12 +4379,21 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             for (int32 i = atoi(b); i > 0; i--) {
                 step(k);
             }
+        } else if (!strcmp(cmd, "jumpkeys") && n >= 2) {
+            ok = jumpKeys(parseBotKeys(a));
+            if (!ok) {
+                fail("the jump didn't land her standing");
+            }
         } else if (!strcmp(cmd, "wait") && n >= 2) {
             for (int32 i = atoi(a); i > 0; i--) {
                 step(0);
             }
         } else if (!strcmp(cmd, "pickup") && n >= 2) {
             ok = pickup(atoi(a));
+        } else if (!strcmp(cmd, "pickupdrop") && n >= 2) {
+            // (none lying: taken already, with another from the same spot)
+            int32 index = droppedItem(atoi(a));
+            ok = index < 0 || pickup(index);
         } else if (!strcmp(cmd, "switch") && n >= 2) {
             ok = pullSwitch(atoi(a));
         } else if (!strcmp(cmd, "explain") && n >= 5) {
