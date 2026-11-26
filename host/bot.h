@@ -17,6 +17,7 @@
 //   switch ITEM                   stood at it and pulled it
 //   lever ITEM                    an underwater lever, swum to and pulled
 //   usehole ITEM                  its key or puzzle item put in, from the ring
+//   rush ROOM X Z [X Z ...]       a dash by running jumps (a timed door)
 //   collapse ITEM [DEG]           a break-away tile brought down (stepped onto heading DEG)
 //   timed ROOM X Z [MAXWAIT]      to that spot past swinging blades: each wait
 //                                 first tried, the one losing least health played
@@ -24,6 +25,7 @@
 //   swimto ROOM X Y Z             to a spot in the water
 //   swim X Y Z                    straight to a spot in the water (no planning)
 //   draw                          guns out
+//   weapon pistols|shotgun|magnums|uzis   that one taken from the ring
 //   endlevel ROOM X Z             to the level's end there, through its
 //                                 statistics and "Save Game?" to the next level
 //   use small|big                 a medipack from the ring (also used by
@@ -31,6 +33,7 @@
 //   safe ITEM [ROOM X Z]          that creature (awake) shot dead from a spot
 //                                 it can't reach, that one or the bot's pick
 //   shoot ITEM [TICKS]            shot at from where she stands till it's dead
+//   shootfrom ITEM ROOM X Z [X Z [X Z]]  shot at from the best of those spots
 //   fight [RANGE]                 guns drawn, every creature awake within
 //                                 RANGE (4096 if none) shot dead
 //   attempt ROOM X Z [TRIES]      the lines to `end` (keys, wait, face, goto)
@@ -333,6 +336,8 @@ static bool swordFalling()
     return false;
 }
 
+static bool gDashJump;      // a dash by running jumps (rush): over a timed door's stretch
+
 static bool goStraight(int32 x, int32 z, int32 radius, bool walk, int32 maxTicks = 30 * 120, bool wary = false)
 {
     int32 best = distTo(x, z), since = 0;
@@ -354,13 +359,17 @@ static bool goStraight(int32 x, int32 z, int32 radius, bool walk, int32 maxTicks
             return false;   // stuck
         }
         int16 d = int16(headingTo(x, z) - lara()->angle.y);
-        if (abs(d) > ANGLE(35))
+        if (abs(d) > ANGLE(35) && !(gDashJump && (lara()->state == Lara::STATE_RUN || lara()->state == Lara::STATE_JUMP)))
         {
+            // (a rush on the run turns running)
             if (!turnTo(headingTo(x, z), ANGLE(4)))
                 return false;
             continue;
         }
         uint32 k = IK_UP | (walk ? IK_L : 0);
+        if (gDashJump && dist > 1800 && abs(d) <= ANGLE(8) && lara()->state == Lara::STATE_RUN) {
+            k |= IK_A;  // running jumps: three fifths again as fast as a run
+        }
         if (d > ANGLE(2)) {
             k |= IK_RIGHT;
         } else if (d < -ANGLE(2)) {
@@ -2246,7 +2255,8 @@ static bool ringUse(InvSlot slot)
         step(0);
     }
     settle(60);
-    return inventory.counts[slot] < had;
+    // a weapon is taken in hand, not used up
+    return inventory.counts[slot] < had || (slot >= SLOT_PISTOLS && slot <= SLOT_AMMO_UZIS);
 }
 
 // A medipack used when she's low: a small one under 500, a large one under
@@ -3187,8 +3197,11 @@ static bool dash(Room* room, const int32* xz, int32 count, bool walk = false)
     int32 ticks = 0;
     int32 score = trial([&]() -> int32 {
         static bool tell = getenv("BOT_DASH") != NULL;     // debugging: where a dash or creep went
-        holster();
-        if (!settle() || !turnTo(headingTo(xz[0], xz[1]), ANGLE(2)))
+        if (!gDashJump) {
+            holster();
+        }
+        // a rush goes as she stands (a timer runs): turned roughly, off at once
+        if ((!gDashJump && !settle()) || !turnTo(headingTo(xz[0], xz[1]), gDashJump ? ANGLE(30) : ANGLE(2)))
         {
             if (tell) {
                 fprintf(stderr, "  dash: didn't stand turned: Lara at %d,%d state %d gun %d\n", lara()->pos.x, lara()->pos.z, lara()->state,
@@ -3209,6 +3222,8 @@ static bool dash(Room* room, const int32* xz, int32 count, bool walk = false)
                 fprintf(stderr, "  dash: spot %d at tick %d: Lara at %d,%d\n", k, gTick, lara()->pos.x, lara()->pos.z);
             }
         }
+        if (gDashJump)
+            return lara()->health > 0 ? lara()->health : -1;    // a rush ends on the run, at the last spot
         if (!settle())
             return -1;
         const Lara* l = lara();
@@ -3634,6 +3649,11 @@ static bool shootFromHere(ItemObj* foe)
             fail("died at the safe spot");
             return false;
         }
+        // shot at where she stands (Pierre, a gunman): a medipack while she has them
+        if (lara()->health < 400 && standing() && (inventory.counts[SLOT_MEDIKIT_SMALL] || inventory.counts[SLOT_MEDIKIT_BIG])) {
+            ringUse(inventory.counts[SLOT_MEDIKIT_SMALL] ? SLOT_MEDIKIT_SMALL : SLOT_MEDIKIT_BIG);
+            continue;
+        }
         quiet = (distTo(foe->pos.x, foe->pos.z) < 8192) ? 0 : quiet + 1;
         if (lure && quiet > 30 * 15)
         {
@@ -4003,7 +4023,7 @@ static bool expect(const char* what, int32 value)
 }
 
 // An attempt block (attempt ROOM X Z [TRIES] ... end): a few steps by hand
-// (keys, wait, face, goto) tried in trials, each `keys` line's ticks moved by
+// (keys, wait, face, goto, rush) tried in trials, each `keys` line's ticks moved by
 // up to three either way in all but the first try; the try that leaves her
 // standing on the sector at X, Z in ROOM with the most health, then the
 // fewest ticks, is played.
@@ -4044,6 +4064,18 @@ static bool blockTry(int32 roomIndex, int32 x, int32 z, int32 floor, int32 varia
             bool walk = !strcmp(d, "walk");
             int32 radius = atoi(walk ? e : d);
             if (!goTo(atoi(a), atoi(b), atoi(c), walk, radius > 0 ? radius : 96))
+                return false;
+        } else if (!strcmp(cmd, "rush") && n >= 4) {
+            // a rush's spots run straight, as the route command's (no trial of its own)
+            int32 xz[8];
+            int32 count = sscanf(gBlock[i], "%*s %*s %d %d %d %d %d %d", xz, xz + 1, xz + 2, xz + 3, xz + 4, xz + 5) / 2;
+            gDashJump = true;
+            bool ran = count > 0 && turnTo(headingTo(xz[0], xz[1]), ANGLE(30));
+            for (int32 k = 0; ran && k < count; k++) {
+                ran = goStraight(xz[k * 2], xz[k * 2 + 1], k == count - 1 ? 128 : 256, false, 30 * 20);
+            }
+            gDashJump = false;
+            if (!ran)
                 return false;
         } else {
             return false;
@@ -4142,9 +4174,9 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
         fprintf(stderr, "bot: can't open %s\n", routePath);
         return 2;
     }
-    printf("route %s from tick %d: medipacks %d big %d small, shotgun shells %d, magnum clips %d, uzi clips %d\n", routePath,
-           gTick, inventory.counts[SLOT_MEDIKIT_BIG], inventory.counts[SLOT_MEDIKIT_SMALL], inventory.counts[SLOT_AMMO_SHOTGUN],
-           inventory.counts[SLOT_AMMO_MAGNUMS], inventory.counts[SLOT_AMMO_UZIS]);
+    printf("route %s from tick %d: medipacks %d big %d small, shotgun shells %d, magnum shots %d, uzi shots %d\n", routePath,
+           gTick, inventory.counts[SLOT_MEDIKIT_BIG], inventory.counts[SLOT_MEDIKIT_SMALL], playersExtra[0].ammo[WEAPON_SHOTGUN] / 6,
+           playersExtra[0].ammo[WEAPON_MAGNUMS], playersExtra[0].ammo[WEAPON_UZIS]);
     char line[256];
     gLine = 0;
     bool levelEnded = false;
@@ -4428,9 +4460,9 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             cl.floor = lara()->pos.y;
             cl.room = lara()->room;
             ok = jumpTry(cl, jdx, jdz, gap, floor, atoi(b), atoi(c), n >= 5 && atoi(d));
-        } else if ((!strcmp(cmd, "dash") || !strcmp(cmd, "creep")) && n >= 4) {
+        } else if ((!strcmp(cmd, "dash") || !strcmp(cmd, "creep") || !strcmp(cmd, "rush")) && n >= 4) {
             // dash ROOM X Z [X Z ...]: a run that doesn't stop through those spots (over break-away tiles);
-            // creep: walked through them
+            // creep: walked through them; rush: by running jumps where the way is long and straight
             int32 xz[16], count = 0;
             const char* w[] = { b, c, d, e, a6, a7, a8 };
             for (int32 k = 0; k + 1 < n - 2 && k + 1 < int32(X_COUNT(w)) && count < 8; k += 2)
@@ -4439,7 +4471,9 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
                 xz[count * 2 + 1] = atoi(w[k + 1]);
                 count++;
             }
+            gDashJump = !strcmp(cmd, "rush");
             ok = dash(rooms + atoi(a), xz, count, !strcmp(cmd, "creep"));
+            gDashJump = false;
         } else if (!strcmp(cmd, "swim") && n >= 4) {
             // swim X Y Z: straight there in the water (no planning: past a creature, a hole)
             ok = swimTo(atoi(a), atoi(b), atoi(c), 200);
@@ -4548,6 +4582,42 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             if (!ok) {
                 fail(lara()->health > 0 ? "it's still alive" : "Lara died");
             }
+        } else if (!strcmp(cmd, "shootfrom") && n >= 5) {
+            // shootfrom ITEM ROOM X Z [X Z [X Z]]: shot at from each spot in a trial,
+            // the one that kills it soonest with the most health left played
+            ItemObj* foe = items + atoi(a);
+            int32 spots[6] = { atoi(c), atoi(d), atoi(e), atoi(a6), atoi(a7), atoi(a8) };
+            int32 count = (n - 3) / 2;
+            static uint32 keys[BOT_TRIAL_TICKS];
+            static uint32 best[BOT_TRIAL_TICKS];
+            int32 bestScore = -1, bestTicks = 0;
+            for (int32 k = 0; k < count && foe->health > 0; k++)
+            {
+                int32 ticks = 0;
+                int32 score = trial([&]() -> int32 {
+                    if (!goTo(atoi(b), spots[k * 2], spots[k * 2 + 1], false, 256))
+                        return -1;
+                    for (int32 i = 0; i < 30 * 60 && foe->health > 0 && lara()->health > 0; i++) {
+                        step(shootKeys(foe, i));
+                    }
+                    holster();
+                    return (foe->health <= 0 && lara()->health > 0) ? lara()->health * 4 - (gTick - gTrialStart[gDepth - 1]) / 30 : -1;
+                }, keys, &ticks);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestTicks = ticks;
+                    memcpy(best, keys, ticks * sizeof(uint32));
+                }
+            }
+            if (foe->health <= 0) {
+                ok = true;
+            } else if (bestScore < 0) {
+                fail("no spot shot it dead");
+                ok = false;
+            } else {
+                play(best, bestTicks);
+                ok = true;
+            }
         } else if (!strcmp(cmd, "hunt") && n >= 2) {
             // hunt ITEM: a creature that keeps off out of shot, shot from
             // the nearest place that sees it
@@ -4575,6 +4645,14 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
         } else if (!strcmp(cmd, "use") && n >= 2) {
             // use small|big: a medipack from the ring
             ok = ringUse(!strcmp(a, "big") ? SLOT_MEDIKIT_BIG : SLOT_MEDIKIT_SMALL);
+        } else if (!strcmp(cmd, "weapon") && n >= 2) {
+            // weapon pistols|shotgun|magnums|uzis: taken from the ring (and drawn)
+            InvSlot slot = !strcmp(a, "shotgun") ? SLOT_SHOTGUN : !strcmp(a, "magnums") ? SLOT_MAGNUMS :
+                           !strcmp(a, "uzis") ? SLOT_UZIS : SLOT_PISTOLS;
+            ok = ringUse(slot);
+            if (!ok) {
+                fail("couldn't take the weapon");
+            }
         } else if (!strcmp(cmd, "draw")) {
             ok = draw();
         } else if (!strcmp(cmd, "fight")) {

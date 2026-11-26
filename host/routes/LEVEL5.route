@@ -6,8 +6,7 @@ wait 30
 draw
 # the cave's pool: the crocodile (woken in the passage with the lion beyond
 # the water) shot from the north bank, where it swims within the guns' reach
-goto 4 80384 38400 256
-shoot 2 1200
+shootfrom 2 4 81408 38400 79360 38912 80384 38400
 # across the water: the lions fought from where they can't reach her (one
 # woken at the start, one by the building's right side)
 safe 5
@@ -48,3 +47,53 @@ pickup 85
 expect secrets 2
 traverse 88 62976 54800 180 right 61600 55397
 goto 32 60928 45568
+# up into the arena's seats: the lion and Pierre woken in the passage;
+# Pierre hunted till he runs off and goes, then the lions on the arena's
+# floor shot from the east seats
+draw
+goto 15 54784 47616
+hunt 81
+shoot 81 900
+safe 61 79 52736 41472
+safe 69 79 52736 41472
+# the lion woken at the arena's west side, fought as it comes
+goto 65 43520 54784
+fight 8192
+# the lion cages, down the ramp: the lioness at its foot; the lion further
+# in woken from the trigger nearest the ramp's foot and shot from there as it
+# comes; the two switches (the arena corner's gate; the cages' door, letting
+# out three more lionesses), which are shot from the far side of the pit in
+# the arena
+goto 25 35328 38400
+fight 8192
+creep 25 35328 39300
+creep 25 35383 38300
+shoot 1 900
+switch 25
+switch 26
+safe 62 0 47616 40448
+safe 63 0 47616 40448
+safe 68 0 47616 40448
+# the room of timed gates, down the slide behind the corner's gate: the pad
+# opens both gates for 19 seconds (a running start from its back edge, the
+# timer runs from her last tick on it); running jumps to the switch in the right
+# hand room (the third gate, in the left hand room, open 10 seconds), a roll,
+# running jumps out, along and in through the other gate and the third to the
+# switch that opens the way out; the small medipack, out by the inner pad
+attempt 23 27648 50688 12
+goto 60 31232 63300 walk 24
+face 0
+wait 10
+rush 60 33536 55552
+rush 36 34304 53248 35331 51700 35331 50300
+wait 6
+keys B 70
+keys R 2
+rush 22 34304 54528 30976 54528 30208 52224
+rush 23 30208 51200 29184 50688 27904 50688
+end
+switch 20
+pickup 18
+goto 22 31232 50688
+wait 30
+goto 60 35328 56832
