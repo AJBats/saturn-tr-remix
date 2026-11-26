@@ -1,0 +1,288 @@
+start LEVEL10A newgame
+# behind the waterfall: the switch there (a wooden door opens by the mine car)
+switch 10
+# by the mine car, the crate by the rock pile pulled out; the switch behind
+# the door it opened (another door opens behind the waterfall)
+pull 4 270 1
+switch 40
+# back behind the waterfall, through that door (the planner takes doors for
+# walls: crept through), the ledge over the lake, a jump to the ledge with
+# the barricades
+goto 12 53760 34304
+creep 12 53760 32300
+creep 12 53760 31000
+goto 7 53760 29900
+reach 6 55808 27136
+# the cave with the hanging cabin: its large medipack; the clips in the glass
+# booth, climbed into from its open east side (glass on the front)
+pickup 85
+goto 92 72192 34304
+goto 30 71168 34304
+pickup 29
+# the tyre cave: the crate under the hole in the ceiling, a running jump
+# from it onto the boarded hut's roof, down its broken corner, the tunnel up
+# to the switch (the boat crosses the lake)
+pull 32 90 1
+pull 32 180 2
+goto3 31 77312 -7680 25088
+hop 90.0 5 2 31 80384 25088
+goto 31 81408 24064
+goto 41 81408 22016
+switch 41
+# the boulder track: through its door, up out of the dip at the first
+# barricade (the side boulder rolls past ahead), hung from the ledge and
+# along past its pads, up, on to the first fuse
+goto 19 84480 29184
+creep 19 85504 29184
+creep 33 86528 29184
+creep 33 88000 29184
+face 90
+keys UP+B 40
+wait 30
+creep 33 89300 29184
+wait 150
+traverse 33 89300 28900 180 left 90900 28900 grab,up
+reach 33 93696 28160
+pickup 36
+# back: the ledge boulder set off from the track beside its path (it rolls
+# by), along the ledge, down the hole over the door, back to the tyre cave
+goto 33 93630 28127
+reach 33 91648 28160
+goto 33 91648 29500
+wait 200
+goto 35 84480 27136
+face 270
+keys UP 15
+wait 60
+goto 31 77312 29184
+# the barricade ledge again (its trigger shows the boat where it went), into
+# the lake, up beside the boat and onto it, a jump to the storeroom ledge
+goto 6 56832 27136
+swimto 4 49664 -4800 26300
+keys A+DOWN 40
+wait 30
+keys LEFT 37
+keys UP+B 100
+wait 60
+reach 3 46592 24064
+# the storeroom: its clips, the crates shifted, the switch behind them (the
+# mine car moves)
+pickup 8
+pull 6 90 1
+push 6 180 1
+pull 7 90 2
+pull 7 0 1
+switch 5
+# past the mine car: the Natla box pushed, the second fuse (the cowboy left
+# asleep), up onto the box: the uzi clips and the switch for the conveyor door
+push 11 90 2
+pickup 16
+pickup 14
+switch 13
+# all the way round to the conveyor: through its door, the clips and the
+# switch (the belt drops the third fuse)
+goto 12 53760 34304
+creep 12 53760 32300
+creep 12 53760 31000
+goto 7 53760 29900
+reach 6 55808 27136
+goto 45 76288 48128
+creep 45 76288 49664
+creep 89 76288 50688
+pickup 80
+switch 79
+wait 150
+pickup 42
+# the fuses in the booth (the cabin comes down); out its open side and past
+# the cabin (its trigger shows the pistols): the pistols
+goto 92 72192 34304
+goto 30 71168 34304
+usehole 28
+usehole 27
+usehole 26
+wait 300
+goto 30 71168 34304
+goto 92 72192 34304
+goto 93 68096 32256
+pickup 82
+# secret 1: onto the cabin roof, a jump into the opening west, up into the
+# passage, through its door; down the slope backwards to hang as the trapdoor
+# opens, dropped onto it once it shuts; up into the secret room
+weapon pistols
+goto3 30 68608 -8448 29184 400
+reach 32 63488 29184
+goto 101 62976 31232
+creep 101 62976 32256
+creep 101 62976 33280
+creep 103 62976 34304
+creep 103 62976 35400
+face 180
+keys DOWN+B 40
+keys B 160
+wait 60
+pickup 94
+pickup 95
+switch 97
+expect secrets 1
+# back over the trapdoor and up the slope, out to the cowboy's cave: woken by
+# a step in, fought from the doorway; his magnums
+goto 103 62976 37100
+face 180
+keys UP+A 3
+keys A 20
+wait 60
+goto 32 61952 29184
+goto 17 61952 51712
+weapon pistols
+goto 17 61952 52736
+goto 17 61952 50688
+fight 8192
+pickupdrop 86
+# the lava river: down to the crystal ledge, round the crystal to its edge,
+# hung, dropped and caught on the ledge under it: the small medipack
+goto 17 66750 57650
+creep 17 66750 58150
+face 180
+attempt 24 67072 57856
+keys DOWN+B 30
+wait 8
+keys B 40
+keys UP+B 40
+wait 40
+end
+pickup 20
+# along the lava river: the crevice west from the medipack pillar, down the
+# slope block and north onto the big one, the wall's top edge west to the
+# blocks, a running jump to the angled ledge over the lava, along it to its
+# end, dropped
+traverse 24 67072 57500 180 right 63488 57500 grab
+face 270
+keys UP 12
+wait 30
+face 180
+keys UP 10
+wait 30
+traverse 24 62320 56421 180 right 57800 56421 grab
+face 270
+keys UP 4
+keys UP+A 16
+keys A+B 10
+keys B 40
+keys B+RIGHT 640
+wait 50
+# up the passage and down to the lava falls: the block in the falls, the
+# pillars by running jumps from their back edges, into the opening
+goto 53 70144 64000
+reach 25 72192 59904
+reach 46 76288 58880
+hop 72.0 5 3 46 79360 59904
+hop 180.0 5 3 47 79360 56832
+# secret 2: the crate pushed ahead of the boulder (its pad is the square in
+# front of the crate), in beside it; the crate pulled aside, up into the room
+# above: its medipack and clips; along the passage and down to the track
+push 46 180 1
+wait 200
+goto 47 78336 53760
+expect secrets 2
+pull 46 270 1
+pickup 91
+pickup 90
+goto 99 87552 53760
+pickup 89
+pickup 88
+pickup 87
+# back up to the opening over the lava river, then pillar to pillar down it
+# by running jumps from their back edges, down off the last
+goto 47 79360 56832
+hop 0.0 5 3 46 79360 59904
+hop 108.0 5 3 46 82432 58880
+hop 72.0 5 3 46 85504 59904
+hop 72.0 5 3 46 88576 60928
+goto 48 91136 59904
+# down the slope to the ledge over the lava pool, a standing jump to grab
+# the far side; the TNT room's loose box pulled out and along under the high
+# opening in the next room, up through it
+goto 48 92672 59904
+face 0
+keys UP 20
+wait 60
+keys UP+A 3
+keys A+B 12
+keys B 30
+keys UP+B 40
+wait 100
+pull 47 270 1
+pull 47 180 1
+pull 47 270 5
+push 47 270 1
+push 47 180 1
+goto 50 83456 67072
+# up the rock slope; onto a side ledge of the four-sided lava pit (it sets
+# the boulder rolling into the pit), across; round the ledge over the lava
+# river to the switch that sets off the TNT, and its clips
+goto 55 82432 65024
+reach 55 75264 65024
+reach 56 73216 66048
+wait 240
+hop 247.5 5 3 56 70144 65024
+pickup 25
+switch 24
+# back over the pit (onto the side ledge, along it, across), down the rocks
+# to the TNT room, over the rubble the blast left
+goto 56 70144 65024
+reach 56 72192 66048
+creep 56 72838 65954
+reach 56 75264 65024
+goto 50 81408 68096
+goto 50 80384 69120
+reach 57 70656 70144
+# the skate park: the skater woken at its mouth and fought there; his uzis
+weapon magnums
+goto 58 70656 74240
+wait 200
+fight 16384
+expect kills 2
+pickupdrop 87
+# the skate park's three lots of clips; secret 3: down the water pit, through
+# its door (it opens as she comes): the medipacks and clips on the bottom
+pickup 51
+pickup 53
+pickup 52
+swimto 102 61440 8448 80384
+swim 57856 8448 80384
+expect secrets 3
+pickup 98
+pickup 99
+pickup 100
+# back out through the door, up the shaft beside it to the surface, out onto
+# the passage and down from its opening into the skate park; up the middle
+# ramp to the exit
+swim 57856 8448 80384
+swim 60928 8448 80384
+swimto 102 59904 7200 80384
+keys A+DOWN 40
+wait 30
+keys LEFT 24
+keys UP+B 100
+wait 60
+goto 105 60928 83456
+goto 58 63488 83456
+goto 58 70656 87552
+goto 59 70757 92651
+# the boulder slope: up its middle row (the first boulder set off and let by
+# from the row beside; the other two's pads are in the side rows), the top
+# boulder set off and let by, up into the opening it came from
+goto 60 70144 97792
+creep 60 67072 97792
+creep 60 67072 98816
+wait 150
+creep 60 67072 97792
+creep 60 60928 97792
+creep 60 59904 97792
+creep 60 60928 97792
+wait 200
+goto 61 56832 93184
+# the tall room: by jumps up its blocks and ledges to the block under the
+# opening, up into the sandy room
+reach 63 57856 90624
+hop 270.0 0 1 64 56832 90624
