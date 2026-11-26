@@ -17,10 +17,13 @@
 //   switch ITEM                   stood at it and pulled it
 //   lever ITEM                    an underwater lever, swum to and pulled
 //   usehole ITEM                  its key or puzzle item put in, from the ring
+//                                 (Midas's hand: a lead bar turned to gold)
 //   rush ROOM X Z [X Z ...]       a dash by running jumps (a timed door)
 //   collapse ITEM [DEG]           a break-away tile brought down (stepped onto heading DEG)
-//   timed ROOM X Z [MAXWAIT]      to that spot past swinging blades: each wait
-//                                 first tried, the one losing least health played
+//   timed ROOM X Z [MAXWAIT] [straight]  to that spot past swinging blades:
+//                                 each wait first tried, the one losing least
+//                                 health played (straight: run straight there,
+//                                 by running jumps where it's long)
 //   push|pull ITEM DEGREES TIMES  a movable block moved that way, a sector a time
 //   swimto ROOM X Y Z             to a spot in the water
 //   swim X Y Z                    straight to a spot in the water (no planning)
@@ -2679,7 +2682,7 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
             for (int32 t = 0; t < 90 && (lara()->pos.x >> 10) == a.sx && (lara()->pos.z >> 10) == a.sz; t++) {
                 step(IK_UP);
             }
-            if (!settle(450) && lara()->health > 0 && lara()->waterState == WATER_STATE_ABOVE) {     // (a long slope slides her a while; in water: planned on from there)
+            if (!settle(150) && lara()->health > 0 && lara()->waterState == WATER_STATE_ABOVE) {     // in water: planned on from there
                 fail("didn't come to rest after the drop");
                 return false;
             }
@@ -2911,11 +2914,15 @@ static bool pickup(int32 index)
     for (int32 i = 0; i < 60 && distTo(item->pos.x, item->pos.z) > 160; i++) {
         step(IK_UP | IK_L);
     }
+    if (lara()->extraL->weaponState == WEAPON_STATE_READY) {
+        holster();  // with guns out Action fires them
+    }
     settle();
-    for (int32 i = 0; i < 30 && lara()->state != Lara::STATE_PICKUP; i++) {
+    for (int32 i = 0; i < 30 && lara()->state != Lara::STATE_PICKUP && gSaveGame.pickups == before; i++) {
         step(IK_B);
     }
-    if (lara()->state != Lara::STATE_PICKUP) {
+    if (lara()->state != Lara::STATE_PICKUP && gSaveGame.pickups == before) {
+        // (the climb up to it can have Action held as she lands by it: picked up on the way)
         fail("Action didn't pick it up");
         return false;
     }
@@ -3064,10 +3071,15 @@ static bool useHole(int32 index)
 {
     ItemObj* hole = items + index;
     InvSlot slot;
+    // Midas's hand: a lead bar, from 620 off, facing it (within 512 of it she
+    // turns to gold)
+    bool midas = hole->type == ITEM_MIDAS_HAND;
     if (hole->type >= ITEM_KEYHOLE_1 && hole->type <= ITEM_KEYHOLE_4) {
         slot = InvSlot(SLOT_KEY_ITEM_1 + (hole->type - ITEM_KEYHOLE_1));
     } else if (hole->type >= ITEM_PUZZLEHOLE_1 && hole->type <= ITEM_PUZZLEHOLE_4) {
         slot = InvSlot(SLOT_PUZZLE_1 - (hole->type - ITEM_PUZZLEHOLE_1));
+    } else if (midas) {
+        slot = SLOT_LEADBAR;
     } else {
         fail("not a keyhole or a puzzle hole");
         return false;
@@ -3078,12 +3090,21 @@ static bool useHole(int32 index)
     }
     int32 had = inventory.counts[slot];
     int16 yaw = hole->angle.y;
-    int32 x = hole->pos.x + (sinRetail(yaw) * 400 >> FIXED_SHIFT);
-    int32 z = hole->pos.z + (cosRetail(yaw) * 400 >> FIXED_SHIFT);
-    gGoalFloorY = hole->pos.y;
-    bool there = goTo(int32(hole->room - rooms), x, z, false, 64);
-    gGoalFloorY = NO_GOAL_Y;
-    if (!there || !turnTo(yaw, ANGLE(3))) {
+    bool there = false;
+    for (int32 side = 0; side < (midas ? 4 : 1) && !there; side++)
+    {
+        // (Midas's hand: whichever side of it she can reach)
+        if (side) {
+            yaw += ANGLE_90;
+        }
+        int32 off = midas ? 620 : 400;
+        int32 x = hole->pos.x + (sinRetail(yaw) * off >> FIXED_SHIFT);
+        int32 z = hole->pos.z + (cosRetail(yaw) * off >> FIXED_SHIFT);
+        gGoalFloorY = midas ? NO_GOAL_Y : hole->pos.y;
+        there = goTo(int32(hole->room - rooms), x, z, false, midas ? 48 : 64);
+        gGoalFloorY = NO_GOAL_Y;
+    }
+    if (!there || !turnTo(midas ? int16(yaw + ANGLE_180) : yaw, ANGLE(3))) {
         fail("couldn't stand at the hole");
         return false;
     }
@@ -3259,7 +3280,7 @@ static bool dash(Room* room, const int32* xz, int32 count, bool walk = false)
 // To a spot past something that swings or sweeps (blades): stood still a
 // while first, each wait up to MAXWAIT tried; the one that gets her there
 // with the most health, then soonest, is played.
-static bool timed(int32 roomIndex, int32 x, int32 z, int32 maxWait)
+static bool timed(int32 roomIndex, int32 x, int32 z, int32 maxWait, bool straight)
 {
     static uint32 keys[BOT_TRIAL_TICKS];
     int32 bestScore = -1, bestTicks = 0;
@@ -3270,9 +3291,15 @@ static bool timed(int32 roomIndex, int32 x, int32 z, int32 maxWait)
             for (int32 i = 0; i < w; i++) {
                 step(0);
             }
-            if (!goTo(roomIndex, x, z, false, 160))
+            if (!straight) {
+                return goTo(roomIndex, x, z, false, 160) ? lara()->health : -1;
+            }
+            gDashJump = true;   // by running jumps where the way is long (a jump past both chomping blades)
+            bool ran = turnTo(headingTo(x, z), ANGLE(4)) && goStraight(x, z, 160, false);
+            gDashJump = false;
+            if (!ran || !settle())
                 return -1;
-            return lara()->health;
+            return lara()->health > 0 ? lara()->health : -1;
         }, keys, &ticks);
         if (score > bestScore || (score == bestScore && score >= 0 && ticks < bestTicks))
         {
@@ -4659,7 +4686,9 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             // swords ROOM X Z: to that spot through Damocles swords
             ok = swordsTo(atoi(a), atoi(b), atoi(c));
         } else if (!strcmp(cmd, "timed") && n >= 4) {
-            ok = timed(atoi(a), atoi(b), atoi(c), n >= 5 ? atoi(d) : 90);
+            // timed ROOM X Z [MAXWAIT] [straight]: straight, a run straight there, by running jumps where it's long
+            // (over break-away tiles the planner won't take)
+            ok = timed(atoi(a), atoi(b), atoi(c), n >= 5 ? atoi(d) : 90, n >= 6 && !strcmp(e, "straight"));
         } else if (!strcmp(cmd, "traverse") && n >= 8) {
             // traverse ROOM X Z DEG left|right TX TZ [up|grab|grab,up]: hung from the edge there and along it
             // (the last word: up, grab or grab,up)

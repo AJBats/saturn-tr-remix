@@ -58,6 +58,55 @@ hop 180.0 5 2 29 25088 40448
 hop 225.0 5 2 29 23040 38400
 hop 270.0 5 2 37 19968 37888
 hop 0.0 0 0 32 19968 40448
+# the large medipack on the tall stone block left of the switches (retail's
+# corner bug, as Stella gives it): back to the block, a running jump to the
+# north stack's middle ledge, at its corner by the tall block facing the
+# platform, jumps straight up till she's put up on top
+hop 180.0 0 0 37 19968 37888
+hop 270.0 5 2 36 16896 37888
+creep 36 17290 38600
+face 45
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+keys A 3
+wait 40
+pickup 87
 # the fire room: the leftmost switch down (its door); the gate under the
 # platform opened by the switch at the stairs' foot; the three rats in the
 # pool shot from its steps
@@ -89,10 +138,17 @@ keys UP 90
 goto 23 24064 70144
 end
 pickup 40
-# back across the pool and up its steps, the gorilla fought as it comes
+# back across the pool, up its steps (the top one climbed by hand), the
+# gorilla fought as it comes
 goto 21 26112 52736
+creep 21 26112 52300
+face 180
+keys UP 4
+wait 10
+keys A+B 30
+keys UP+B 40
+wait 60
 draw
-goto 21 26112 51712
 goto 21 24064 50688
 fight 8192
 # the spike room's door: switches one up, three and five down; behind the
@@ -195,3 +251,125 @@ hunt 102
 shoot 102 900
 hunt 103
 shoot 103 900
+# back across the gap south, the twisty passage up the ramps to the cave of
+# break-away tiles: a run onto them, turned off the second into the niche
+# beside it: the large medipack; a jump on past the third to the far floor;
+# down the long ramp (run onto it, its slide waited out) into the rooms over
+# the entrance pool: the lion
+# woken on its ledge, fought as it comes
+reach 45 50688 60928
+goto 57 51712 70144
+goto 57 54784 68096
+hop 135.0 2 0 60 54784 67072
+goto 60 54784 65024
+attempt 60 53760 62976 12
+creep 60 54784 65300
+face 180
+keys UP 22
+keys UP+RIGHT 24
+keys UP 6
+wait 30
+end
+pickup 122
+hop 157.5 2 0 60 54784 60928
+face 180
+keys UP 80
+wait 250
+goto 12 52736 43520
+draw
+wait 150
+fight 16384
+# the ledge over the gorillas' room: a gorilla shot from it (the other may
+# roam off to the temple, shot with the temple's creatures); a jump
+# to the croc cave's ledge (it wakes the crocodile), shot from the pool's far
+# side, drawn out of the water
+goto 3 62976 35328
+safe 9 3 62976 35328
+hop 90.0 0 0 17 66048 35328
+goto 17 68096 32256
+safe 27 8 80384 31232
+# up to the opening over the temple: its bats; across onto the roof: the
+# third lead bar; the lions and the gorillas woken there hunted down with
+# the magnums (they roam, or wait stuck in the pillared hall by the switch
+# room)
+goto 8 83456 33280
+draw
+fight 8192
+pickup 22
+goto 8 83456 32256
+wait 200
+fight 16384
+weapon magnums
+hunt 18
+shoot 18 900
+hunt 19
+shoot 19 900
+hunt 14
+shoot 14 900
+hunt 15
+shoot 15 900
+hunt 10
+shoot 10 900
+weapon pistols
+# the temple door's large medipack; the switch at the end of its low
+# passage (walked along its high side, up its step) opens the garden's gate;
+# back down to the room of blocks: its three gorillas
+pickup 16
+goto 78 89600 40448 300
+creep 78 89250 40300
+face 180
+keys UP+L 250
+keys UP+B 30
+wait 30
+switch 132
+creep 78 89250 37100
+face 0
+keys UP+L 260
+wait 10
+goto 5 73216 36352
+draw
+fight 8192
+# the garden: its two gorillas, the switch behind the small tree (the gate
+# on the left side); the corner past it (secret 3)
+goto 67 54784 52736
+draw
+fight 8192
+switch 127
+goto 71 65024 60928
+# the chomping blades: a run into the first one's sector starts them (and a
+# step back out of it), then, healed, a running jump past both and the
+# break-away tile between at the moment that gets her through: magnum clips,
+# small medipack, shotgun shells; back the same way
+use big 900
+use small 900
+face 270
+keys UP 11
+keys DOWN 30
+wait 30
+timed 2 60416 60928 150 straight
+pickup 8
+pickup 7
+creep 2 60500 59900
+pickup 6
+goto 2 60416 60928
+timed 71 65024 60928 150 straight
+# the garden roof's large medipack; on to Midas: the lead bars turned to gold
+pickup 129
+usehole 130
+usehole 130
+usehole 130
+# the switch room: switches one and five down, the rest up (the last door);
+# its lion, the balcony's shells, the gold bars in the alcoves' niches, the
+# way out through the door they open
+switch 81
+switch 83
+switch 84
+switch 85
+goto 39 23040 31232
+draw
+fight 8192
+pickup 93
+usehole 30
+usehole 31
+usehole 32
+goto 1 16896 19968
