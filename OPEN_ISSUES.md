@@ -260,6 +260,14 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Creatures and AI
 
+### 339. The shooting and the ground mutants were a one-mesh stand-in that never moved (Egypt's mummies, Atlantis)
+*Severity: gameplay · Confidence: confirmed (retail's object setup read; TRX the same) · Fix: small*
+
+- **Found 2026-11-26** by the playtest bot in Obelisk of Khamoon: the sitting room's mummy (item 70) stood still where it started, and 1,800 ticks of magnum fire from 640 away never hit it.
+- The level files give types 21 (the shooter) and 22 (the ground mutant: Egypt's mummies) a model of one mesh, radius 67, the PlayStation's the same. Retail's object setup copies object 20, the winged mutant, whole onto 21 and 22 (`0608a024`, `0608a058`: 0x34 bytes, before its initialiser `06030fc4` hides the wings, mesh bits 0xffe07fff); TRX's atlantean.c does the same. Ours drew and animated the stand-in: a small thing that stood still, its one sphere 168 above the floor seldom in a shot's path.
+- 30 creatures: Khamoon 3, Obelisk 9, Sanctuary 6, Atlantis 9, the Great Pyramid 3. They now walk, fight and draw 21 meshes each (the wings hidden); their cost on the Saturn is not measured yet.
+- `tools/pack_level.py` flagged nodes 0 and 2 of the stand-ins for head turns, which landed on other models' nodes (in Sanctuary, Atlantis and the Pyramid, the centaur's: its head turn read from the wrong node). Dropped: the winged mutant's flags serve all three.
+
 ## Level logic, traps and objects
 
 ### 316. Darts from an emitter facing +x start at the emitter, not 412 behind it

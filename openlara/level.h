@@ -162,6 +162,17 @@ void readLevel(const uint8* data)
         ASSERT(model->type < MAX_MODELS);
         models[model->type] = *model;
     }
+    // the shooting and the ground mutants are the winged one's model, wings
+    // hidden: the level files give them a one-mesh stand-in (retail's object
+    // setup copies object 20 whole onto 21 and 22, 0608a024 / 0608a058)
+    for (int32 type = ITEM_MUTANT_2; type <= ITEM_MUTANT_3; type++)
+    {
+        if (models[type].count && models[ITEM_MUTANT_1].count)
+        {
+            models[type] = models[ITEM_MUTANT_1];
+            models[type].type = uint8(type);
+        }
+    }
     level.models = models;
 
     // prepare meshes
