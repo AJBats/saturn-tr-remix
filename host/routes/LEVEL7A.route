@@ -132,3 +132,184 @@ hunt 29
 shoot 29 900
 pickup 33
 reach 26 60928 60416
+# the magnums in the alcove below the top ledge: her back to it, walked back
+# to the edge, a step forward and a back flip down into it (turned three
+# degrees off square: the flip's slower run along the wall lands her in the
+# opening, square on she meets its lip a tick early)
+goto 26 60928 60928 64
+attempt 25 64000 60928 12
+face 273
+keys DOWN+L 50
+wait 50
+keys UP+L 1
+wait 50
+keys DOWN+A 3
+wait 90
+end
+pickup 32
+# back up to the top ledge, a jump to the passage past the crevice, down to
+# the gray ledge (it wakes a crocodile in the room of slides below), down the
+# slides to the flat spot over the last one; the shotgun, on down to the
+# floor: the crocodiles fought as they come, the one in the passage behind
+# the slides woken; the large medipack in the room beyond (its rat comes)
+reach 26 60928 60928
+reach 27 62976 57856
+goto 29 62976 54784
+reach 32 62976 54784
+weapon shotgun
+goto 32 60928 52736
+fight 8192
+goto 32 59904 53760
+fight 8192
+safe 36
+pickup 40
+fight 8192
+safe 41
+# up to the switch over the slides: the corner blocks climbed (a jump up to
+# the ledge over the higher), a jump to the ledge over the slides' top, a
+# running jump to the corner ledge, a jump on along the wall, down to the
+# ledge under the crevice; along the crevice to the doorway, the switch (the
+# door beyond)
+goto 32 62976 47616
+creep 32 63300 47616
+face 90
+keys UP 4
+wait 10
+keys A+B 30
+keys UP+B 60
+wait 30
+hop 247.5 1 0 30 61952 47616
+hop 270.0 5 2 29 58880 47616
+hop 0.0 0 0 29 58880 50688
+hop 0.0 1 2 31 58880 52736
+traverse 31 58470 52736 270 left 58469 48640 grab,up
+switch 35
+# the spike pit beyond: a rat woken at its edge, shot from there; a jump past
+# the spikes into it wakes the other, fought; down the hole at the passage's
+# end into the mossy room: its rat, the next room's rat; up the ledges to the
+# switch in the alcove (the door to the first silver key); the key wakes
+# Pierre, hunted till he runs off
+goto 36 56832 48640
+draw
+shoot 43 600
+hop 225.0 0 0 36 55808 47616
+fight 8192
+shoot 44 600
+goto 41 55808 43520
+fight 8192
+goto 40 53760 41472
+fight 8192
+switch 51
+pickup 46
+hunt 49
+shoot 49 900
+# into the pool and through to the second silver key's room: the two
+# crocodiles of the main pool lured to its water and shot; the twisty tunnels
+# to the U-shaped tunnel off the main pool, secret 2 in its dip (magnum clips)
+goto 46 44544 41472
+safe 0 46 44544 41472
+safe 1 46 44544 41472
+pickup 92
+expect secrets 2
+# out at the walkway, up the pillar and over to the balcony, up to the switch
+# room: the cistern flooded
+goto 102 35328 59904
+goto3 102 36352 -4864 55808 300
+face 270
+keys UP+A 3
+keys A 40
+wait 40
+switch 11
+# back down to the flooded room (railings keep her off the water from the
+# ledge: down to the walkway) and through to the second key's room: its rats,
+# the ledges' medipacks and shells; the lever under the water (the small
+# door), the second silver key behind it; the right of the two locked doors
+goto 102 35328 55808
+pickup 54
+pickup 56
+pickup 55
+fight 8192
+hunt 57
+shoot 57 900
+hunt 58
+shoot 58 900
+lever 52
+pickup 61
+usehole 63
+# down the spike shaft to the small medipack and the gold key (a crocodile
+# comes into the tunnels), out to the walkway: the crocodile shot from there
+pickup 66
+pickup 67
+safe 65 102 35328 55808
+# secret 3, by the ornate balcony: the block on the step pushed along it,
+# into the room behind; under the balcony's overhang, her back to the slope,
+# a back flip onto it and a spring off it (Jump and Action held) to the
+# overhang's edge: two magnum clips and a large medipack
+push 93 90 1
+goto 81 43520 44544
+creep 81 43950 44544
+face 270
+keys DOWN+A 3
+keys A+B 60
+keys UP+B 90
+wait 100
+pickup 89
+pickup 90
+pickup 91
+# the two locked doors with the silver keys; up the crystal's pillar beyond,
+# a jump to the ledge over the door (the hang swings before she pulls up),
+# a jump to the gold keyhole's ledge (it wakes the gorilla there, fought);
+# the gold key in its lock (the door below, two lions), back to the ledge
+# over the door and down to the pillar: the lions shot from there
+usehole 17
+usehole 18
+goto3 14 38400 -7424 40448 300
+creep 14 38780 40448
+face 90
+keys UP+A 3
+keys UP+B 90
+wait 100
+reach 15 40448 37376
+safe 21
+usehole 20
+reach 15 40448 40448
+hop 270.0 0 0 14 38400 40448
+safe 72 14 38400 40448
+safe 71 14 38400 40448
+# through the gold door (by its middle: the frame catches a corner) to the
+# room of checkerboard floor; the block behind the switch at the back pulled
+# off the shaft twice, then out into the room from its side four times and
+# pushed back once: up by it to the balcony's large medipack; the magnum
+# clips along the balcony; down behind the angled block (two rats, and the
+# lions in their room wake), the rats fought; the lions hunted down into
+# their room, its switch for the door out; down the shaft where the block
+# stood: the level's end
+goto 14 40448 37888
+goto 61 40448 35328
+pull 69 270 2
+pull 69 0 1
+pull 69 0 1
+pull 69 0 1
+pull 69 0 1
+push 69 0 1
+pickup 80
+pickup 79
+pickup 78
+goto 65 34304 23040
+fight 8192
+hunt 81
+shoot 81 900
+hunt 82
+shoot 82 900
+hunt 84
+shoot 84 900
+hunt 85
+shoot 85 900
+hunt 86
+shoot 86 900
+expect kills 34
+switch 87
+goto 60 38400 22016
+face 90
+keys UP 40
+wait 300

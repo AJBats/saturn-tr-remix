@@ -886,22 +886,23 @@ static bool againstFlow(Room* from, int32 x, int32 y, int32 z, int32 dx, int32 d
     return vx * dx + vz * dz <= 0.5 * sqrt(vx * vx + vz * vz);
 }
 
-// moves that failed when tried, left out of the next plan (walks apart from
-// the rest: a climb that failed leaves the walk that way open)
+// moves that failed when tried, left out of the next plan (walks and ways
+// into the water apart from the rest: a climb that failed leaves the walk
+// that way open)
 struct Blocked
 {
     int16 sx, sz, dx, dz;
-    bool walk;
+    bool walk, water;
 };
 static Blocked gBlocked[64];
 static int32 gBlockedCount;
 
-static bool isBlocked(const Cell &a, int32 dx, int32 dz, bool walk = false)
+static bool isBlocked(const Cell &a, int32 dx, int32 dz, bool walk = false, bool water = false)
 {
     for (int32 i = 0; i < gBlockedCount; i++)
     {
         const Blocked &b = gBlocked[i];
-        if (b.sx == a.sx && b.sz == a.sz && b.dx == dx && b.dz == dz && b.walk == walk)
+        if (b.sx == a.sx && b.sz == a.sz && b.dx == dx && b.dz == dz && b.walk == walk && b.water == water)
             return true;
     }
     return false;
@@ -921,7 +922,7 @@ static bool failedSpot(int32 x, int32 z)
     return false;
 }
 
-static void block(const Cell &a, int32 dx, int32 dz, bool walk = false)
+static void block(const Cell &a, int32 dx, int32 dz, bool walk = false, bool water = false)
 {
     if (gBlockedCount < int32(X_COUNT(gBlocked)))
     {
@@ -931,6 +932,7 @@ static void block(const Cell &a, int32 dx, int32 dz, bool walk = false)
         b.dx = int16(dx);
         b.dz = int16(dz);
         b.walk = walk;
+        b.water = water;
     }
 }
 
@@ -1060,7 +1062,7 @@ static bool waterMoves(int32 c, int32 gsx, int32 gsz)
             for (int32 y = a.floor + 128; y <= a.floor + 4096 && !wet; y += 256) {
                 wet = waterAt(side.room, nx, y, nz, w);
             }
-            if (!wet || !w.air)
+            if (!wet || !w.air || isBlocked(a, dx, dz, false, true))
                 continue;
             if (w.top < a.floor - 64 || w.top > a.floor + 4096 || againstFlow(w.room, nx, w.bottom - 64, nz, dx, dz))
                 continue;
@@ -2574,6 +2576,8 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
             }
             if (lara()->waterState == WATER_STATE_ABOVE) {
                 fail("didn't get into the water");
+                block(a, dx, dz, false, true);  // (a railing along the edge): planned again without that way in
+                again = true;
                 return false;
             }
             again = true;
@@ -2885,6 +2889,27 @@ static bool pickup(int32 index)
         for (int32 i = 0; i < 180 && lara()->state != Lara::STATE_UW_TREAD; i++) {
             step(0);
         }
+        // over it, not before it (swum straight down onto it): levelled and
+        // turned the way it faces, as retail's pickup under water wants her
+        // within 45 degrees of its turn and level
+        for (int32 i = 0; i < 150 && gSaveGame.pickups == before; i++)
+        {
+            int16 d = int16(item->angle.y - lara()->angle.y);
+            uint32 k = IK_B;
+            if (lara()->angle.x > ANGLE(30)) {
+                k = IK_UP;
+            } else if (lara()->angle.x < -ANGLE(30)) {
+                k = IK_DOWN;
+            } else if (d > ANGLE(10)) {
+                k |= IK_RIGHT;
+            } else if (d < -ANGLE(10)) {
+                k |= IK_LEFT;
+            }
+            step(k);
+        }
+        for (int32 i = 0; i < 180 && lara()->state != Lara::STATE_UW_TREAD; i++) {
+            step(0);
+        }
         if (gSaveGame.pickups == before) {
             fail("couldn't pick it up under water");
             return false;
@@ -2979,17 +3004,24 @@ static bool pullLever(int32 index)
     gGoalY = NO_GOAL_Y;
     if (!there)
         return false;
+    // a lever just under the surface: she treads at the top over it (too
+    // near it for a dive), so down to its height (it's pulled under water)
+    int32 y = item->pos.y - 256;
+    bool shallow = lara()->waterState == WATER_STATE_SURFACE && y - lara()->pos.y <= 384;
+    if (shallow) {
+        y = item->pos.y + 64;
+    }
     // at rest in front of it: let the glide die, come back, till she stops close
     for (int32 tries = 0; tries < 6; tries++)
     {
         for (int32 i = 0; i < 60 && lara()->vSpeed > 0; i++) {
             step(0);
         }
-        int32 ddx = x - lara()->pos.x, ddy = item->pos.y - 256 - lara()->pos.y, ddz = z - lara()->pos.z;
+        int32 ddx = x - lara()->pos.x, ddy = y - lara()->pos.y, ddz = z - lara()->pos.z;
         int32 off = int32(sqrt(double(ddx) * ddx + double(ddy) * ddy + double(ddz) * ddz));
-        if (off < 320)
+        if (off < 320 && (!shallow || lara()->waterState == WATER_STATE_UNDER))
             break;
-        swimTo(x, item->pos.y - 256, z, 120);
+        swimTo(x, y, z, 120);
     }
     int32 state = item->state;
     for (int32 i = 0; i < 120; i++)
