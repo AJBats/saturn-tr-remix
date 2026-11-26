@@ -36,6 +36,13 @@
 //   end                           she stands on that sector (a move by hand)
 //   expect room ROOM | secrets N | pickups N | kills N | alive
 //                                 the run fails unless it is so
+//   hop DEG OFF MOVE ROOM X Z [glitch]
+//                                 a jump by hand onto that sector (see hopTry)
+//   reach ROOM X Z [glitch]       a way there by hops, searched; prints the
+//                                 hop lines it played; glitch: retail's wall
+//                                 glitch allowed (thrown up onto a floor)
+//   probe                         every hop from where she stands, and where
+//                                 each leaves her (writing a route by hand)
 
 #include <sys/mman.h>
 #include <sys/wait.h>
@@ -1417,6 +1424,8 @@ static bool goStraightAround(int32 x, int32 z, int32 radius, bool walk)
     return goStraight(x, z, radius, walk);
 }
 
+static void holster();
+
 static bool climbAt(int16 heading, int32 x, int32 z, int32 floor)
 {
     int32 bx = x - (sinRetail(heading) * 200 >> FIXED_SHIFT);
@@ -1424,6 +1433,9 @@ static bool climbAt(int16 heading, int32 x, int32 z, int32 floor)
     if (!goStraightAround(bx, bz, 64, true) || !settle() || !turnTo(heading, ANGLE(2))) {
         fail("couldn't stand at the climb");
         return false;
+    }
+    if (lara()->extraL->weaponState != WEAPON_STATE_FREE) {
+        holster();  // no climb or grab with her guns out
     }
     static uint32 keys[BOT_TRIAL_TICKS];
     for (int32 way = 0; way < 4; way++)
@@ -1669,6 +1681,291 @@ static bool leap(Room* room, int32 x, int32 z, int32 floor = NO_GOAL_Y)
     return true;
 }
 
+// A jump by hand from the sector she stands in: from a spot on the line
+// from its middle along `heading` (off 0: just short of its edge, 1: 300
+// back from there, 2: the middle; 3 and 4: off 0's spot 300 to the left or
+// right), turned to `heading`, then
+//   move 0: a standing jump forward, Action held (a grab)
+//   move 1: straight up, Action held
+//   move 2: a running jump (8 ticks' run), Action held
+//   move 3: a running jump (16 ticks' run), no grab
+//   move 4: move 3 with forward and Jump held till she lands
+// hanging, pulled up; where she comes to rest standing, or false (fallen
+// far, hurt to death, or not at rest in 300 ticks).
+static int32 gHopNudge[2];  // hop's tries: the spot moved forward, right of the line
+static bool gHopGlitch;     // hops may use retail's wall glitch (the route says so)
+
+static bool hopTry(int16 heading, int32 off, int32 move)
+{
+    const Lara* l = lara();
+    int32 cx = ((l->pos.x >> 10) << 10) + 512, cz = ((l->pos.z >> 10) << 10) + 512;
+    int32 dx = sinRetail(heading), dz = cosRetail(heading);
+    int32 tx = dx ? (512 << FIXED_SHIFT) / abs(dx) : 0x7FFFFFFF;
+    int32 tz = dz ? (512 << FIXED_SHIFT) / abs(dz) : 0x7FFFFFFF;
+    int32 edge = X_MIN(tx, tz) - 80;
+    int32 back = off == 1 ? 300 : off == 2 ? edge : 0;
+    int32 sx = cx + ((edge - back) * dx >> FIXED_SHIFT), sz = cz + ((edge - back) * dz >> FIXED_SHIFT);
+    if (off >= 3)
+    {
+        // 3, 4: just short of the edge, 300 to her left or right of the line
+        int32 side = off == 3 ? -300 : 300;
+        sx += side * dz >> FIXED_SHIFT;
+        sz -= side * dx >> FIXED_SHIFT;
+        if ((sx >> 10) != (cx >> 10) || (sz >> 10) != (cz >> 10))
+            return false;
+    }
+    sx += (gHopNudge[0] * dx + gHopNudge[1] * dz) >> FIXED_SHIFT;
+    sz += (gHopNudge[0] * dz - gHopNudge[1] * dx) >> FIXED_SHIFT;
+    if (!settle() || !goStraight(cx, cz, 64, true) || !settle() || !goStraight(sx, sz, 24, true) || !settle() ||
+        !turnTo(heading, ANGLE(1)))
+        return false;
+    int32 run = move == 2 ? 8 : move >= 3 ? 16 : 0;
+    uint32 grab = move >= 3 ? 0 : IK_B;
+    int32 rest = 0;
+    bool aloft = false;   // in the air once: the jump's keys let go
+    bool wasAir = false;
+    int32 lastY = l->pos.y;
+    for (int32 i = 0; i < 300; i++)
+    {
+        l = lara();
+        if (l->health <= 0)
+            return false;
+        if (wasAir && l->pos.y < lastY - 400 && !gHopGlitch)
+            return false;   // thrown up out of the air onto a floor far over her (retail's wall glitch): only if the route allows it
+        wasAir = (l->flags & ITEM_FLAG_GRAVITY) != 0;
+        lastY = l->pos.y;
+        if (wasAir) {
+            aloft = true;
+        }
+        if (aloft && standing() && l->hSpeed == 0) {
+            if (++rest >= 30)
+                return true;
+        } else {
+            rest = 0;
+        }
+        if (!aloft && i > run + 40)
+            return false;   // never left the ground
+        uint32 k;
+        if (l->state == Lara::STATE_HANG || l->state == Lara::STATE_HANG_UP) {
+            k = IK_UP | IK_B;
+        } else if (aloft) {
+            k = rest > 0 ? 0 : move == 4 ? (IK_UP | IK_A) : grab;
+        } else if (i < run) {
+            k = IK_UP;
+        } else {
+            k = (move == 1 ? 0 : IK_UP) | IK_A | grab;
+        }
+        step(k);
+    }
+    return false;
+}
+
+// Where a hop left her, packed in a trial's score: sector x, z (7 bits
+// each), height in 64ths (10 bits), health in tenths (4 bits).
+static int32 hopWhere()
+{
+    const Lara* l = lara();
+    return ((l->pos.x >> 10) & 127) << 23 | ((l->pos.z >> 10) & 127) << 16 | (((l->pos.y >> 6) + 512) & 1023) << 4 |
+           X_MIN(l->health / 100, 15);
+}
+
+#define HOP_HEADINGS 16
+#define HOP_SPOTS    5
+#define HOP_MOVES    5
+#define HOP_COUNT    (HOP_HEADINGS * HOP_SPOTS * HOP_MOVES)
+
+static void hopPlay(int32 code)
+{
+    hopTry(int16((code / (HOP_SPOTS * HOP_MOVES)) * (0x10000 / HOP_HEADINGS)), (code / HOP_MOVES) % HOP_SPOTS, code % HOP_MOVES);
+}
+
+static void hopPrint(const char* what, int32 code)
+{
+    int32 tenths = (code / (HOP_SPOTS * HOP_MOVES)) * 3600 / HOP_HEADINGS;    // degrees, to the tenth
+    printf("%s %d.%d %d %d", what, tenths / 10, tenths % 10, (code / HOP_MOVES) % HOP_SPOTS, code % HOP_MOVES);
+}
+
+// probe: every hop tried from where she stands, each place she comes to
+// rest listed once with the first hop that gets there (for writing a route
+// by hand).
+static void probe()
+{
+    static uint32 keys[BOT_TRIAL_TICKS];
+    static int32 seen[HOP_COUNT];
+    int32 count = 0;
+    const Lara* l0 = lara();
+    printf("  probe from room %d sector %d,%d floor %d:\n", int32(l0->room - rooms), l0->pos.x >> 10, l0->pos.z >> 10, l0->pos.y);
+    for (int32 code = 0; code < HOP_COUNT; code++)
+    {
+        int32 ticks = 0;
+        int32 score = trial([&]() -> int32 { return hopTry(int16((code / (HOP_SPOTS * HOP_MOVES)) * (0x10000 / HOP_HEADINGS)),
+                                                           (code / HOP_MOVES) % HOP_SPOTS, code % HOP_MOVES) ? hopWhere() : -1; },
+                            keys, &ticks);
+        if (score < 0)
+            continue;
+        int32 where = (score >> 4) & ~1;    // to 128ths
+        bool dup = false;
+        for (int32 i = 0; i < count && !dup; i++) {
+            dup = seen[i] == where;
+        }
+        if (dup)
+            continue;
+        seen[count++] = where;
+        hopPrint("    hop", code);
+        printf(": sector %d,%d floor ~%d health %d0%%\n", (where >> 19) & 127, (where >> 12) & 127, ((where & 1023) - 512) << 6,
+               score & 15);
+    }
+}
+
+// reach ROOM X Z: a way by hops (as probe tries them) from where she stands
+// to the sector at X, Z, at ROOM's floor there: searched breadth
+// first over the places hops leave her (each a sector and height), the
+// first found printed as hop lines and played.
+#define REACH_NODES 256
+static int32* gReachOut;    // a place's hops' outcomes, written by the trial that plays its way
+
+static bool reach(Room* room, int32 x, int32 z)
+{
+    struct Node { int32 where, parent, code, depth; };
+    static Node nodes[REACH_NODES];
+    static uint32 keys[BOT_TRIAL_TICKS];
+    static int32 path[16];
+    Spot to = spotAt(room, x, room->info->yTop + 1, z);     // the room's floor there, from its top
+    int32 rootY = lara()->pos.y, rootSX = lara()->pos.x >> 10, rootSZ = lara()->pos.z >> 10;
+    static bool gReachLog = getenv("BOT_REACH") != NULL;
+    int32 count = 1;
+    nodes[0].where = hopWhere() >> 5;
+    nodes[0].parent = -1;
+    nodes[0].code = -1;
+    nodes[0].depth = 0;
+    int32 found = -1;
+    for (int32 n = 0; n < count && found < 0; n++)
+    {
+        if (nodes[n].depth >= 6)
+            continue;
+        int32 len = 0;
+        for (int32 k = n; k > 0; k = nodes[k].parent) {
+            path[len++] = nodes[k].code;
+        }
+        // the place's way played once, every hop tried from there
+        if (!gReachOut) {
+            gReachOut = (int32*)mmap(NULL, HOP_COUNT * sizeof(int32), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+        }
+        for (int32 code = 0; code < HOP_COUNT; code++) {
+            gReachOut[code] = -1;
+        }
+        int32 ticks = 0;
+        trial([&]() -> int32 {
+            for (int32 i = len - 1; i >= 0; i--) {
+                hopPlay(path[i]);
+            }
+            int32 before = lara()->health;
+            for (int32 code = 0; code < HOP_COUNT; code++)
+            {
+                gReachOut[code] = trial([&]() -> int32 {
+                    if (!hopTry(int16((code / (HOP_SPOTS * HOP_MOVES)) * (0x10000 / HOP_HEADINGS)), (code / HOP_MOVES) % HOP_SPOTS,
+                                code % HOP_MOVES))
+                        return -1;
+                    if (lara()->health < before - 100)
+                        return -1;  // a fall that hurts: not a way
+                    return hopWhere();
+                }, NULL, NULL);
+            }
+            return 0;
+        }, keys, &ticks);
+        for (int32 code = 0; code < HOP_COUNT && found < 0 && count < REACH_NODES; code++)
+        {
+            int32 score = gReachOut[code];
+            if (score < 0)
+                continue;
+            int32 where = score >> 5;   // sector and height in 128ths
+            if ((((where << 1) & 1023) - 512) << 6 > rootY + 64)
+                continue;   // below where the search began: back down, not on the way up
+            int32 wsx = (where >> 18) & 127, wsz = (where >> 11) & 127;
+            if (wsx < X_MIN(rootSX, x >> 10) - 3 || wsx > X_MAX(rootSX, x >> 10) + 3 ||
+                wsz < X_MIN(rootSZ, z >> 10) - 3 || wsz > X_MAX(rootSZ, z >> 10) + 3)
+                continue;   // off away from the way there
+            bool dup = false;
+            for (int32 i = 0; i < count && !dup; i++) {
+                dup = nodes[i].where == where;
+            }
+            if (dup)
+                continue;
+            nodes[count].where = where;
+            nodes[count].parent = n;
+            nodes[count].code = code;
+            nodes[count].depth = nodes[n].depth + 1;
+            int32 wy = (((where << 1) & 1023) - 512) << 6;
+            if (gReachLog) {
+                printf("  reach: place %d: sector %d,%d floor ~%d from place %d by", count, (where >> 18) & 127, (where >> 11) & 127,
+                       wy, n);
+                hopPrint("", code);
+                printf("\n");
+            }
+            if (((where >> 18) & 127) == (x >> 10) && ((where >> 11) & 127) == (z >> 10) && abs(wy - to.floor) < 256) {
+                found = count;
+            }
+            count++;
+        }
+    }
+    printf("  reach: %d places\n", count);
+    if (found < 0) {
+        fail("no way by hops");
+        return false;
+    }
+    int32 len = 0;
+    for (int32 k = found; k > 0; k = nodes[k].parent) {
+        path[len++] = nodes[k].code;
+    }
+    for (int32 i = len - 1; i >= 0; i--)
+    {
+        hopPlay(path[i]);
+        const Lara* l = lara();
+        hopPrint("  reach: hop", path[i]);
+        printf(" %d %d %d\n", int32(l->room - rooms), ((l->pos.x >> 10) << 10) + 512, ((l->pos.z >> 10) << 10) + 512);
+    }
+    return true;
+}
+
+// hop DEGREES OFF MOVE ROOM X Z: that hop (as probe lists it) played, its
+// heading moved a degree or two and its spot a little if need be, till she
+// stands on the sector at X, Z (at ROOM's floor there).
+static bool hop(int16 heading, int32 off, int32 move, Room* room, int32 x, int32 z)
+{
+    static const int32 kTurn[] = { 0, -1, 1, -2, 2, -4, 4 };
+    static uint32 keys[BOT_TRIAL_TICKS];
+    Spot to = spotAt(room, x, room->info->yTop + 1, z);     // the room's floor there, from its top
+    // its spot moved up to 40 (a glitch's hop: 100) each way, in steps
+    int32 reachOff = gHopGlitch ? 100 : 40, stepOff = gHopGlitch ? 25 : 40;
+    int32 side = reachOff / stepOff * 2 + 1;
+    for (int32 t = 0; t < int32(X_COUNT(kTurn)) * side * side; t++)
+    {
+        int32 ticks = 0;
+        int32 n = t / X_COUNT(kTurn);
+        int16 h = int16(heading + kTurn[t % X_COUNT(kTurn)] * 0x10000 / 360);
+        // nearest first: 0, -s, +s, -2s, +2s... on each axis
+        int32 i = n % side, j = n / side;
+        gHopNudge[0] = ((i + 1) / 2) * stepOff * ((i & 1) ? -1 : 1);
+        gHopNudge[1] = ((j + 1) / 2) * stepOff * ((j & 1) ? -1 : 1);
+        int32 score = trial([&]() -> int32 {
+            if (!hopTry(h, off, move))
+                return -1;
+            const Lara* l = lara();
+            bool there = (l->pos.x >> 10) == (x >> 10) && (l->pos.z >> 10) == (z >> 10) && abs(l->pos.y - to.floor) < 768;
+            return there ? l->health : -1;
+        }, keys, &ticks);
+        if (score >= 0)
+        {
+            gHopNudge[0] = gHopNudge[1] = 0;
+            play(keys, ticks);
+            return true;
+        }
+    }
+    gHopNudge[0] = gHopNudge[1] = 0;
+    fail("no hop got there");
+    return false;
+}
+
 // Down a drop too deep to fall: stood at the edge with her back to it, a
 // step back with Action held hangs her from it, then let go. Stood off from
 // the sector's middle by off (toward the drop); her health at the bottom, or
@@ -1750,12 +2047,14 @@ static int32 hangDrop(const Cell &a, int32 dx, int32 dz, int32 floor)
 // heading, hung from it (her back to the drop, a step back with Action held;
 // or, grab, facing the wall under it, a jump up with Action held), left or
 // right with Action till she's within 64 of tx, tz, then let go (or, up,
-// pulled up there). True once she stands again.
+// pulled up at the first stop within 400 of it where she can). True once she
+// stands again.
 static bool goTo(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius);
 
-static bool traverse(int32 roomIndex, int32 x, int32 z, int16 heading, bool left, int32 tx, int32 tz, bool up, bool grab)
+static bool traverseTry(int32 roomIndex, int32 x, int32 z, int16 heading, bool left, int32 tx, int32 tz, bool up, bool grab)
 {
-    if (!goTo(roomIndex, x, z, true, 48) || !settle() || !turnTo(heading, ANGLE(2))) {
+    // stood within 16 of the spot: where she grabs sets where her shimmies stop
+    if (!goTo(roomIndex, x, z, true, 48) || !settle() || !goStraight(x, z, 16, true) || !settle() || !turnTo(heading, ANGLE(2))) {
         fail("couldn't stand at the edge to traverse");
         return false;
     }
@@ -1767,6 +2066,8 @@ static bool traverse(int32 roomIndex, int32 x, int32 z, int16 heading, bool left
         return false;
     }
     int32 best = distTo(tx, tz), since = 0;
+    int32 triedX = 0x7FFFFFFF, triedZ = 0;
+    static uint32 upKeys[BOT_TRIAL_TICKS];
     for (int32 i = 0; i < 30 * 60; i++)
     {
         int32 st = lara()->state;
@@ -1777,6 +2078,30 @@ static bool traverse(int32 roomIndex, int32 x, int32 z, int16 heading, bool left
         int32 d = distTo(tx, tz);
         if (d < 64)
             break;
+        if (up && d < 400 && abs(lara()->pos.x - triedX) + abs(lara()->pos.z - triedZ) > 100)
+        {
+            // near: at each stop between her shimmies, a pull-up tried
+            for (int32 k = 0; k < 30 && lara()->state != Lara::STATE_HANG; k++) {
+                step(IK_B);
+            }
+            triedX = lara()->pos.x;
+            triedZ = lara()->pos.z;
+            int32 ticks = 0;
+            int32 score = trial([&]() -> int32 {
+                for (int32 k = 0; k < 150 && !(standing() && lara()->hSpeed == 0); k++) {
+                    step(IK_UP | IK_B);
+                }
+                return (standing() && lara()->health > 0) ? lara()->health : -1;
+            }, upKeys, &ticks);
+            if (score >= 0)
+            {
+                play(upKeys, ticks);
+                return true;
+            }
+            best = distTo(tx, tz);
+            since = 0;
+            continue;
+        }
         if (d < best - 8) {
             best = d;
             since = 0;
@@ -1798,6 +2123,34 @@ static bool traverse(int32 roomIndex, int32 x, int32 z, int16 heading, bool left
         return false;
     }
     return true;
+}
+
+// The traverse tried stood at the spot, then a little off it each way (the
+// grab, and where her shimmies stop, shift with it), the first that works
+// played.
+static bool traverse(int32 roomIndex, int32 x, int32 z, int16 heading, bool left, int32 tx, int32 tz, bool up, bool grab)
+{
+    static const int16 kAlong[] = { 0, -100, 100, -200, 200, -300, 300 };     // along the edge
+    static const int16 kOut[] = { 0, -50, 50 };                                 // to and from it
+    static uint32 keys[BOT_TRIAL_TICKS];
+    int32 ax = cosRetail(heading), az = -sinRetail(heading);    // along: to her right
+    int32 ox = sinRetail(heading), oz = cosRetail(heading);     // out: the way she faces
+    for (int32 i = 0; i < int32(X_COUNT(kAlong) * X_COUNT(kOut)); i++)
+    {
+        int32 ticks = 0;
+        int32 a = kAlong[i % X_COUNT(kAlong)], o = kOut[i / X_COUNT(kAlong)];
+        int32 sx = x + ((a * ax + o * ox) >> FIXED_SHIFT), sz = z + ((a * az + o * oz) >> FIXED_SHIFT);
+        int32 score = trial([&]() -> int32 {
+            return traverseTry(roomIndex, sx, sz, heading, left, tx, tz, up, grab) ? lara()->health : -1;
+        }, keys, &ticks);
+        if (score >= 0)
+        {
+            play(keys, ticks);
+            return true;
+        }
+    }
+    fail("no traverse got there");
+    return false;
 }
 
 // An item of the ring used, as a player does it: START opens the ring, left
@@ -4029,6 +4382,19 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
                 count++;
             }
             ok = dash(rooms + atoi(a), xz, count, !strcmp(cmd, "creep"));
+        } else if (!strcmp(cmd, "probe")) {
+            probe();
+        } else if (!strcmp(cmd, "reach") && n >= 4) {
+            // reach ROOM X Z [glitch]: a way there by hops, searched (prints the hop lines it
+            // plays); glitch: hops thrown up a wall (retail's wall glitch) count too
+            gHopGlitch = n >= 5 && !strcmp(d, "glitch");
+            ok = reach(rooms + atoi(a), atoi(b), atoi(c));
+            gHopGlitch = false;
+        } else if (!strcmp(cmd, "hop") && n >= 7) {
+            // hop DEGREES OFF MOVE ROOM X Z [glitch]: a jump by hand (probe lists them) onto that sector
+            gHopGlitch = n >= 8 && !strcmp(a7, "glitch");
+            ok = hop(int16(int32(atof(a) * 0x10000 / 360 + 0.5)), atoi(b), atoi(c), rooms + atoi(d), atoi(e), atoi(a6));
+            gHopGlitch = false;
         } else if (!strcmp(cmd, "leap") && n >= 4) {
             // leap ROOM X Z [FLOOR]: a jump from her sector to that spot, at any heading
             ok = leap(rooms + atoi(a), atoi(b), atoi(c), n >= 5 ? atoi(d) : NO_GOAL_Y);

@@ -1,7 +1,5 @@
-# Lost Valley at 100%, in progress (Stella: 16 pickups with the 3 cogs and the
-# shotgun, 5 secrets, 13 kills). All 13 kills; left: secrets 1 (the building's
-# roof by standing jumps up the angled rocks) and 3 (the crevice traverse in
-# front of the double falls), their 6 pickups.
+# Lost Valley at 100% (Stella: 16 pickups with the 3 cogs and the shotgun, 5
+# secrets, 13 kills).
 start LEVEL3A newgame
 wait 30
 # the wolves at the pool below the falls (shot as they come up)
@@ -31,6 +29,23 @@ fight 8192
 hunt 32
 # the temple: the cog under water
 pickup 40
+# secret 1, the temple's roof (magnum clips, large medipack, Uzi clips,
+# shells). Stella climbs the rocks by the north wall with standing jumps; the
+# hop search finds no way up them yet, so from the low block by the temple's
+# corner a running jump into its wall throws her up onto the roof's end
+# (retail's wall glitch: retail plays the same, checked in a retail run).
+# Off the roof's far end at a run: the slope below slides her to the ground
+goto3 62 65024 3072 8704
+hop 112.5 0 3 65 67072 7680 glitch
+pickup 59
+pickup 58
+pickup 60
+pickup 61
+expect secrets 1
+goto3 66 66560 -1536 15400 walk
+face 0
+keys UP 20
+wait 150
 # out, across the valley to the well-lit opening with the low block, along
 # the passage past the save crystal to the broken bridge, the running jump
 # across it: the cog on the platform where it meets the wall
@@ -44,7 +59,26 @@ pickup 53
 pickup 33
 # secret 2: the shells in the opening right of the double waterfalls
 pickup 31
-expect secrets 1
+expect secrets 2
+# secret 3: up the rocks between the falls (standing jumps up the slopes'
+# sides, one to grab the high rock, one forward and right onto the flat ledge
+# by the wall: searched), a jump up to grab the crevice, along it right in
+# front of the falls till the cave's mouth is tall enough to pull up into
+# (where she grabs sets where her shimmies stop): the little room at its back
+# (magnum clips, shells)
+goto 59 43520 5632
+reach 59 43520 3584
+traverse 59 43550 3200 180 right 40850 3173 grab,up
+pickup 62
+pickup 63
+expect secrets 3
+# out of the cave's mouth into the pool below, up and out onto the valley floor
+goto 89 40860 1536 walk 32
+face 0
+keys UP 30
+wait 60
+keys DOWN+A 40
+goto 31 40448 4608
 # back past the skeleton to the start, upstream bank to bank (the stream
 # carries her over the falls: never swum against) to the wooden bridge: the
 # three cogs in the machine, its left switch (the gate downstream turns the
