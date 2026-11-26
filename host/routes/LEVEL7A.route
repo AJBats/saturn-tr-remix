@@ -1,0 +1,134 @@
+# The Cistern at 100%, in progress (Stella: 34 kills, 28 pickups with five
+# keys, 3 secrets).
+# tools/levelmap.py draws the level.
+start LEVEL7A newgame
+# down into the first room: its rat; the block pushed twice into the next
+# room and once under the switch (the trapdoor and the silver door): the two
+# rats let in, the large medipack behind the silver door
+goto 5 46592 75264
+draw
+fight 8192
+push 7 180 2
+push 7 270 1
+switch 5
+draw
+fight 8192
+pickup 107
+# down through the trapdoor to the ledge over the main room: the rats below
+# (woken on the way down) and the ledge with steps' rat
+goto 7 45568 67072
+goto 99 45568 66048
+draw
+fight 8192
+goto 99 40448 65024
+draw
+fight 8192
+# the crevice in the ledge over the steps: a jump up to grab it, along it to
+# the block with shotgun shells; round the corner the next crevice, along it
+# to the walkway below
+creep 99 40448 65400
+face 0
+keys UP 3
+wait 10
+keys A+B 30
+keys B 20
+keys B+LEFT 760
+wait 40
+pickup 99
+creep 100 33910 64800
+face 270
+keys UP 3
+wait 10
+keys A+B 30
+keys B 20
+keys B+LEFT 610
+wait 40
+# along the walkway to the square pillar at its corner, a jump from its top
+# onto the high balcony (Jump held, no grab: a grab leaves her hanging under
+# its railing)
+goto3 102 36352 -4864 55808 300
+face 270
+keys UP+A 3
+keys A 40
+wait 40
+# up the stairs into the room of the cistern's switch (Pierre goes); up the
+# arches to the large medipack and shells, the inverted arch's small
+# medipack; secret 1 above it: shells three blocks up, the slide down off
+# them, a jump at its end to grab the ledge with two more boxes
+goto 9 25088 59392
+draw
+hunt 12
+shoot 12 900
+reach 3 26112 54784
+pickup 2
+pickup 3
+pickup 4
+pickup 95
+attempt 86 22016 64000 12
+face 270
+keys UP 46
+keys A+B 40
+keys UP+B 40
+end
+pickup 96
+pickup 94
+# down the chute off the ledge, back into the switch room
+goto 86 22016 64000
+face 90
+keys UP 12
+wait 300
+# across the grating's hole (the two rats in the water under it wake), shot
+# through it
+goto 9 24064 56832
+hop 90.0 0 0 9 26112 56832
+wait 60
+draw
+fight 8192
+hunt 13
+shoot 13 900
+hunt 14
+shoot 14 900
+# down into the water and through the tunnel to the room beyond, out by the
+# stairs' foot (the rat in its water fought), up to the first rusty key
+swimto 18 26962 -5800 67418
+goto 19 27136 68096
+draw
+fight 8192
+pickup 24
+# the pit beyond the doorway: its two rats shot from the doorsill's edge;
+# hung from the doorsill, along the crevice clear of the pit's deep end and
+# dropped; run onto the ramp at the room's far end, slid down into the main
+# room
+goto 22 28160 64000
+creep 22 28560 64000
+draw
+wait 30
+shoot 30 900
+shoot 31 900
+traverse 22 28450 64000 270 left 28773 61800
+goto 23 29184 58880
+face 180
+keys UP 20
+wait 120
+# a jump to the walkway's pillar, climbed from it onto the long L-shaped
+# ledge, along it to the second rusty key; across to the left of the two
+# locked doors on the west wall
+reach 102 33280 59904
+creep 102 33280 61100
+face 0
+keys UP+B 90
+wait 30
+pickup 97
+usehole 26
+# the room of tiered ledges: the two gorillas woken past the door, shot from
+# the ledge over it; a jump to the next ledge wakes Pierre in the room
+# below, hunted till he runs off; the third ledge's large medipack; up to
+# the highest ledge
+goto 21 52736 59904
+safe 27
+safe 28
+reach 24 54784 59904
+hunt 29
+shoot 29 900
+pickup 33
+reach 26 60928 60416

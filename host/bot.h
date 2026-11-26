@@ -3864,22 +3864,32 @@ static bool hunt(ItemObj* foe)
     static int32 path[1024];
     obstaclesFind();
     sectorPath(int32(lara()->room - rooms), -0x400000, -0x400000, path, X_COUNT(path));
-    int32 best = -1;
-    for (int32 i = 0; i < gCellsCount; i++)
+    // from a sector's middle; where none sees it, from nearer a sector's
+    // edges (a creature in the water under a grating is seen only from just
+    // off the grating's hole)
+    static const int16 kOff[][2] = { { 0, 0 },     { 192, 0 },   { -192, 0 },  { 0, 192 },    { 0, -192 },
+                                     { 384, 0 },   { -384, 0 },  { 0, 384 },   { 0, -384 },   { 384, 384 },
+                                     { -384, 384 }, { 384, -384 }, { -384, -384 } };
+    int32 best = -1, bestOff = 0;
+    for (int32 o = 0; o < int32(X_COUNT(kOff)) && best < 0; o++)
     {
-        const Cell &q = gCells[i];
-        if (q.water || q.cost == 0x7FFFFFFF || (best >= 0 && q.cost >= gCells[best].cost))
-            continue;
-        Location from;
-        from.pos = _vec3i(cellX(q), q.floor - LARA_AIM_HEIGHT, cellZ(q));
-        from.room = q.room->getRoom(from.pos.x, from.pos.y, from.pos.z);
-        vec3i d = to.pos - from.pos;
-        int32 flat = phd_sqrt(X_SQR(d.x) + X_SQR(d.z));
-        if (X_SQR(flat) + X_SQR(d.y) > X_SQR(8192 - 512) || abs(d.y) * 4 > flat * 7)
-            continue;
-        Location seen = to;
-        if (trace(from, seen)) {
-            best = i;
+        for (int32 i = 0; i < gCellsCount; i++)
+        {
+            const Cell &q = gCells[i];
+            if (q.water || q.cost == 0x7FFFFFFF || (best >= 0 && q.cost >= gCells[best].cost))
+                continue;
+            Location from;
+            from.pos = _vec3i(cellX(q) + kOff[o][0], q.floor - LARA_AIM_HEIGHT, cellZ(q) + kOff[o][1]);
+            from.room = q.room->getRoom(from.pos.x, from.pos.y, from.pos.z);
+            vec3i d = to.pos - from.pos;
+            int32 flat = phd_sqrt(X_SQR(d.x) + X_SQR(d.z));
+            if (X_SQR(flat) + X_SQR(d.y) > X_SQR(8192 - 512) || abs(d.y) * 4 > flat * 7)
+                continue;
+            Location seen = to;
+            if (trace(from, seen)) {
+                best = i;
+                bestOff = o;
+            }
         }
     }
     if (best < 0) {
@@ -3887,8 +3897,9 @@ static bool hunt(ItemObj* foe)
         return false;
     }
     const Cell spot = gCells[best];
-    printf("  hunt %d from %d,%d floor %d room %d\n", int32(foe - items), cellX(spot), cellZ(spot), spot.floor, int32(spot.room - rooms));
-    if (!goTo(int32(spot.room - rooms), cellX(spot), cellZ(spot), false, 128))
+    int32 sx = cellX(spot) + kOff[bestOff][0], sz = cellZ(spot) + kOff[bestOff][1];
+    printf("  hunt %d from %d,%d floor %d room %d\n", int32(foe - items), sx, sz, spot.floor, int32(spot.room - rooms));
+    if (!goTo(int32(spot.room - rooms), sx, sz, false, bestOff ? 48 : 128))
         return false;
     gKeepsOff = NULL;
     return shootFromHere(foe);
