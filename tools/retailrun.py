@@ -63,6 +63,10 @@ FILMS = (6, 12, 17, 19)     # the host's cutscene levels (LVL_TR1_CUT_1..4)
 # can be followed past them: (address, bytes, why)
 PATCHES = [
     (0x0603047C, bytes([0x40, 0x00]), 'dart emitter: darts from one facing +x start 412 behind it, as on PC (retail tests 0x3fec)'),
+    # GetSpheres' joint loop: "tst r9,r9 / bt past the turns / nop / nop" over "mov #0x1c,r1 /
+    # and r8,r1 / tst r1,r1 / bt"; r9 is item->data, and each turn tests its own flag after
+    (0x0602E666, bytes([0x29, 0x98, 0x89, 0x18, 0x00, 0x09, 0x00, 0x09]),
+     'a creature with no AI slot turns no head or neck sphere, as TRX (retail reads the turns from address 0; issue 336)'),
 ]
 TITLE_TO_NEW_GAME = ['2400', '+start', '2700', '+start', '3600', '+a', '4100', '+start', '4400', '+a', '4600', '+a',
                      '5000', '+start']
