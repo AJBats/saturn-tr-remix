@@ -144,10 +144,10 @@ hop 225.0 1 0 26 30208 48640
 goto3 54 30208 -11520 53760
 draw
 fight 16384
-# along the aqueduct's walkway: its two crocodiles shot from it, drawn out of
-# the water
+# along the aqueduct's walkway: its two crocodiles shot from its west end,
+# drawn out of the water
 goto3 47 45568 -11008 61952
-safe 116 47 45568 61952
+safe 116 47 32256 61952
 safe 106 47 32256 61952
 # secret 1: through the tunnel at the aqueduct's end to the cave, up onto
 # its rocks (a jump to grab), on by hops: magnum clips, small medipack

@@ -2679,7 +2679,7 @@ static bool goToOnce(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius,
             for (int32 t = 0; t < 90 && (lara()->pos.x >> 10) == a.sx && (lara()->pos.z >> 10) == a.sz; t++) {
                 step(IK_UP);
             }
-            if (!settle(150) && lara()->health > 0 && lara()->waterState == WATER_STATE_ABOVE) {     // in water: planned on from there
+            if (!settle(450) && lara()->health > 0 && lara()->waterState == WATER_STATE_ABOVE) {     // (a long slope slides her a while; in water: planned on from there)
                 fail("didn't come to rest after the drop");
                 return false;
             }
@@ -3569,6 +3569,9 @@ static uint32 shootKeys(ItemObj* foe, int32 i)
     bool aimed = (e->armR.aim || e->armL.aim) && target && target->health > 0;
     if (e->weaponState == WEAPON_STATE_READY && distTo(foe->pos.x, foe->pos.z) < 8192 && (aimed || (i & 15) < 12)) {
         k |= IK_B;
+    }
+    if (!aimed && distTo(foe->pos.x, foe->pos.z) < 512 && foe->pos.y < lara()->pos.y - 400) {
+        k = IK_DOWN | IK_L;     // over her head (a bat biting) the guns can't reach it: walked back from under it
     }
     return k;
 }
