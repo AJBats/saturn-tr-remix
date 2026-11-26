@@ -140,9 +140,14 @@ static void step(uint32 k)
         for (const char* w = getenv("WATCH"); w && *w; w = strchr(w, ',') ? strchr(w, ',') + 1 : "")
         {
             const ItemObj* item = items + atoi(w);
-            printf("     item %3d: room %3d pos %6d %6d %6d state %2d health %d flags %04x\n", atoi(w),
+            printf("     item %3d: room %3d pos %6d %6d %6d state %2d health %d flags %04x", atoi(w),
                    item->room ? int32(item->room - rooms) : -1, item->pos.x, item->pos.y, item->pos.z, item->state, item->health,
                    item->flags);
+            if (item->extraE && item->type != ITEM_LARA) {
+                const Enemy* e = (const Enemy*)item;
+                printf(" mood %d target %d %d %d", e->mood, item->extraE->waypointX, item->extraE->waypointY, item->extraE->waypointZ);
+            }
+            printf("\n");
         }
     }
 }
@@ -1821,9 +1826,11 @@ static void probe()
 
 // reach ROOM X Z: a way by hops (as probe tries them) from where she stands
 // to the sector at X, Z, at ROOM's floor there: searched breadth
-// first over the places hops leave her (each a sector and height), the
-// first found printed as hop lines and played.
+// first over the places hops leave her (each a sector and height), till one
+// is that sector or one the planner finds a way on from; the hops printed
+// as hop lines and played, then the planner's way.
 #define REACH_NODES 256
+static bool goTo(int32 roomIndex, int32 x, int32 z, bool walk, int32 radius);
 static int32* gReachOut;    // a place's hops' outcomes, written by the trial that plays its way
 
 static bool reach(Room* room, int32 x, int32 z)
@@ -1841,6 +1848,32 @@ static bool reach(Room* room, int32 x, int32 z)
     nodes[0].code = -1;
     nodes[0].depth = 0;
     int32 found = -1;
+    bool walkOn = false;    // the planner takes her the rest of the way from the place found
+    int32 targetRoom = int32(room - rooms);
+    static int32 planBuf[1024];
+    auto plannable = [&]() -> bool {
+        gGoalFloorY = to.floor;
+        bool ok = sectorPath(targetRoom, x, z, planBuf, X_COUNT(planBuf)) > 0;
+        gGoalFloorY = NO_GOAL_Y;
+        return ok;
+    };
+    // the planner's way there played out in a trial: what it plans it can't
+    // always do (a jump it misjudges)
+    auto walksThere = [&](const int32* way, int32 wayLen) -> bool {
+        return trial([&]() -> int32 {
+            for (int32 i = wayLen - 1; i >= 0; i--) {
+                hopPlay(way[i]);
+            }
+            gGoalFloorY = to.floor;
+            bool ok = goTo(targetRoom, x, z, false, 96);
+            gGoalFloorY = NO_GOAL_Y;
+            return ok ? 1 : -1;
+        }, NULL, NULL) > 0;
+    };
+    if (plannable() && walksThere(path, 0)) {
+        found = 0;
+        walkOn = true;
+    }
     for (int32 n = 0; n < count && found < 0; n++)
     {
         if (nodes[n].depth >= 6)
@@ -1851,10 +1884,12 @@ static bool reach(Room* room, int32 x, int32 z)
         }
         // the place's way played once, every hop tried from there
         if (!gReachOut) {
-            gReachOut = (int32*)mmap(NULL, HOP_COUNT * sizeof(int32), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+            gReachOut = (int32*)mmap(NULL, 2 * HOP_COUNT * sizeof(int32), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
         }
+        int32* walks = gReachOut + HOP_COUNT;   // the planner's way on from there
         for (int32 code = 0; code < HOP_COUNT; code++) {
             gReachOut[code] = -1;
+            walks[code] = 0;
         }
         int32 ticks = 0;
         trial([&]() -> int32 {
@@ -1870,6 +1905,7 @@ static bool reach(Room* room, int32 x, int32 z)
                         return -1;
                     if (lara()->health < before - 100)
                         return -1;  // a fall that hurts: not a way
+                    walks[code] = plannable();
                     return hopWhere();
                 }, NULL, NULL);
             }
@@ -1881,8 +1917,8 @@ static bool reach(Room* room, int32 x, int32 z)
             if (score < 0)
                 continue;
             int32 where = score >> 5;   // sector and height in 128ths
-            if ((((where << 1) & 1023) - 512) << 6 > rootY + 64)
-                continue;   // below where the search began: back down, not on the way up
+            if ((((where << 1) & 1023) - 512) << 6 > X_MAX(rootY, to.floor) + 64)
+                continue;   // below both where the search began and the goal: not on the way
             int32 wsx = (where >> 18) & 127, wsz = (where >> 11) & 127;
             if (wsx < X_MIN(rootSX, x >> 10) - 3 || wsx > X_MAX(rootSX, x >> 10) + 3 ||
                 wsz < X_MIN(rootSZ, z >> 10) - 3 || wsz > X_MAX(rootSZ, z >> 10) + 3)
@@ -1906,6 +1942,18 @@ static bool reach(Room* room, int32 x, int32 z)
             }
             if (((where >> 18) & 127) == (x >> 10) && ((where >> 11) & 127) == (z >> 10) && abs(wy - to.floor) < 256) {
                 found = count;
+            } else if (walks[code])
+            {
+                int32 wayLen = 0;
+                static int32 way[16];
+                way[wayLen++] = code;
+                for (int32 k = n; k > 0; k = nodes[k].parent) {
+                    way[wayLen++] = nodes[k].code;
+                }
+                if (walksThere(way, wayLen)) {
+                    found = count;
+                    walkOn = true;
+                }
             }
             count++;
         }
@@ -1925,6 +1973,14 @@ static bool reach(Room* room, int32 x, int32 z)
         const Lara* l = lara();
         hopPrint("  reach: hop", path[i]);
         printf(" %d %d %d\n", int32(l->room - rooms), ((l->pos.x >> 10) << 10) + 512, ((l->pos.z >> 10) << 10) + 512);
+    }
+    if (walkOn)
+    {
+        printf("  reach: on by the planner\n");
+        gGoalFloorY = to.floor;
+        bool ok = goTo(targetRoom, x, z, false, 96);
+        gGoalFloorY = NO_GOAL_Y;
+        return ok;
     }
     return true;
 }

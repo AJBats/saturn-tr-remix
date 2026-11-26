@@ -1,7 +1,50 @@
-# The Colosseum at 100%, not begun (Stella: 26 kills, 14 pickups with the
-# magnums and the key, 3 secrets): the levels before it come first. Notes for
-# it: the crocodile in the cave's pool is shot from its edge (it stays in the
-# water); the lions outside the building cost a lot in the open.
+# The Colosseum at 100%, in progress (Stella: 26 kills, 14 pickups with the
+# magnums and the key, 3 secrets).
 # tools/levelmap.py draws the level.
 start LEVEL5 newgame
 wait 30
+draw
+# the cave's pool: the crocodile (woken in the passage with the lion beyond
+# the water) shot from the north bank, where it swims within the guns' reach
+goto 4 80384 38400 256
+shoot 2 1200
+# across the water: the lions fought from where they can't reach her (one
+# woken at the start, one by the building's right side)
+safe 5
+goto 8 70144 40448
+safe 4
+# the building's left stairs: the lion that charges down them; the ledge
+# round the building (up the rocks at its back), its far side's large medipack
+goto 30 64000 44544
+safe 13
+pickup 6
+# secret 1: along the lower ledge to the low block at the building's back, a
+# jump up from it to grab the upper ledge, round to the front, a running jump
+# over its gap, a standing jump to the flat rock off its end; down the rocks
+# and over to the rectangular cave in the far wall (searched): shells
+goto3 9 60928 -3328 40448
+hop 90.0 0 1 11 61952 40448
+goto3 12 67072 -5120 47616
+leap 12 67072 50688
+goto3 12 67072 -5120 51712
+hop 22.5 2 0 12 68096 52736
+reach 62 79360 49664
+pickup 60
+# back over the rocks to the well-lit cave (searched): the two crocodiles in
+# its pit shot as she comes, the small medipack on the pit's floor
+reach 2 70144 54784
+goto 2 66048 56320
+shoot 82 900
+shoot 83 900
+pickup 84
+# secret 2: out of the pit onto the corner ledge, a jump up to grab the
+# crevice in the wall over it, along it right to the cave's mouth: shells.
+# Back out hanging from the mouth, on along the crevice to its end, dropped
+# to the far side; through the tunnel and down the hole into the building
+# beyond the gate
+goto3 2 67072 -2304 55808
+traverse 2 67072 55420 180 right 62976 55420 grab,up
+pickup 85
+expect secrets 2
+traverse 88 62976 54800 180 right 61600 55397
+goto 32 60928 45568
