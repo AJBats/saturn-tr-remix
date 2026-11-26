@@ -1,7 +1,7 @@
 # St. Francis' Folly at 100%, in progress (Stella: 23 kills, 19 pickups with
-# the 4 keys, 4 secrets). Played to its end: 14 kills, 17 pickups, secrets
-# 1-3. Left: secret 4 (the tall room's pressure pad and timed door: large
-# medipack, magnum clips) and 9 of the tall room's bats, which keep off her.
+# the 4 keys, 4 secrets). Played to its end: 16 kills, all 19 pickups and 4
+# secrets. Left: 7 of the tall room's bats (their triggers: room 20 by the
+# Thor switch and its west side, room 21's north ledge, room 23's west ledge).
 # tools/levelmap.py draws the level.
 start LEVEL4 newgame
 wait 30
@@ -137,6 +137,32 @@ fight 8192
 goto3 18 38400 11520 42496
 fight 8192
 switch 49
+# secret 4: onto the pressure pad across the gap (it opens the timed door at
+# the bottom, held open a while once she steps off), facing north on its back
+# edge: two hops back with Action held hang her from the ledge's edge; let
+# go, Roll held as she lands on the ledge below (she comes up facing back),
+# a run off it, Roll held again as she lands on the long ledge, a run along
+# it and off its end through the door (large medipack, magnum clips)
+goto 20 43520 41050 walk 16
+face 0
+attempt 60 43520 47616 24
+keys DOWN+B 2
+wait 30
+keys DOWN+B 2
+keys B 40
+keys R 45
+wait 18
+keys UP 48
+keys R 30
+wait 15
+keys UP 300
+end
+pickup 105
+pickup 106
+expect secrets 4
+# out: the door opens again as she steps up to it
+goto 60 43520 46592
+wait 60
 switch 9
 # the bottom: the Atlas switch (opens the Atlas door on the fourth level)
 switch 79
@@ -198,10 +224,13 @@ pickup 21
 pickup 89
 # the Damocles room (its door on the second level): through the swords' hall
 # to the chamber's Damocles key, the platform above's shells and small
-# medipack; back out through the hall (the swords fall where she was)
+# medipack; back out through the hall (the swords fall where she was). The
+# lions and Pierre are awake at the bottom by now: left be on the way
 goto 25 55808 39424
 timed 24 48640 39424 120
+ignore on
 goto 3 36352 45568
+ignore off
 swords 19 33792 45568
 swords 38 22016 45568
 pickup 71
