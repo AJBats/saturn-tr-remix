@@ -1,0 +1,277 @@
+start LEVEL8C newgame
+lures eager
+# the two lots of clips in the corners at the foot of the stairs; up the
+# long staircase (two mutants come down it, fought), the top room's clips
+pickup 59
+pickup 60
+pickup 8
+# up the blocks into the sphinx cave (a mutant on its back, fought) and down
+# to the floor: clips between the paws and by the west wall
+pickup 3
+pickup 4
+# to the sandy slope south of the cave: by hops onto the second tallest
+# pillar, a running jump to the tallest, up to the jutting ledge; past the
+# crystal, the jaws timed: the small medipack; along the path to the switch
+# (the gold door opens; a winged mutant flies in, shot from the switch); a
+# jump down to the ledge below: the large medipack
+reach 13 50688 34304
+hop 315.0 5 2 14 48640 36352
+reach 15 49664 36352
+goto 15 52300 36352
+timed 15 52736 33280
+pickup 35
+switch 29
+weapon magnums
+shoot 23 1200
+pickup 32
+# back past the jaws (timed) to the jutting ledge, down onto the tallest
+# pillar, the ledge beside it, and down the slope to the cave floor; by hops
+# up the east wall's ledges to the clips at its south end
+goto 15 43520 33280
+goto 15 52736 33280
+timed 15 52300 36352
+goto 15 49664 36352
+goto 14 48640 36352
+hop 202.5 1 0 14 47616 33280
+goto 0 45568 48128
+reach 8 54784 56832
+pickup 20
+# on up the wall's ledges: clips on the block at the top; along the wall to
+# the switch (the carved stone door below opens, a winged mutant flies in)
+reach 9 57856 48640
+pickup 22
+reach 9 54784 56832
+switch 21
+weapon magnums
+shoot 31 1200
+# a running jump north-west off the switch's ledge to the small ledge on the
+# wall: the shells (taken by hand: the planner has no cell on so small a
+# ledge); a running jump west to grab the thin ledge, pulled up: more shells
+creep 9 55180 56400
+face 313
+keys UP 4
+keys UP+A 20
+keys A+B 10
+keys B 20
+keys UP+B 60
+wait 60
+keys B 40
+wait 40
+creep 11 53150 58880
+face 270
+keys UP 4
+keys UP+A 16
+keys A+B 10
+keys B 30
+keys UP+B 60
+wait 120
+pickup 24
+# a standing jump west to grab the next ledge, pulled up; from its back edge
+# a running jump toward the sphinx to grab the invisible platform: secret 1,
+# the Uzis (their clips lie on them: taken first); the two winged mutants
+# that fly in, shot with the Uzis
+creep 11 49000 58880
+creep 11 48230 58880
+face 270
+keys UP+A 3
+keys A+B 10
+keys B 30
+keys UP+B 60
+wait 120
+creep 11 45800 59250
+face 180
+keys UP 4
+keys UP+A 16
+keys A+B 10
+keys B 30
+keys UP+B 60
+wait 120
+pickup 12
+pickup 10
+expect secrets 1
+weapon uzis
+shoot 33 900
+shoot 34 900
+# a running jump from the platform's back edge to grab the wall ledge again;
+# west along the lower ledges, up into the dark passage, a jump to the flat
+# spot and up the rocks to the gold door (the first switch opened it)
+creep 3 45300 54400
+face 0
+keys UP 4
+keys UP+A 16
+keys A+B 10
+keys B 30
+keys UP+B 60
+wait 120
+goto 10 38400 59904
+reach 11 36352 57856
+reach 12 35328 56832
+reach 12 34304 54784
+# through the gold door: the bright block pushed through the wall, up onto
+# it and the ledge (the centaur inside wakes), fought in its room (Uzis):
+# the small medipack and the Ankh
+push 66 180 1
+goto 59 29184 54784
+weapon uzis
+goto 16 27136 55808
+fight 8192
+pickup 39
+pickup 37
+# out through the gold door and onto the ramp at its east side (its top
+# wakes the mutant on the sphinx's back; to its west the ceiling is too low),
+# slid down: the mutant shot from the ramp's foot; the large medipack
+goto 58 33280 54784
+creep 12 34097 54784
+creep 12 34700 54700
+face 180
+keys UP 8
+wait 60
+weapon uzis
+safe 5
+pickup 27
+# by the carved stone door into the side area: from the corridor's end,
+# turned round, a step back onto the slope above the pool, slid down
+# backwards and caught at its end, along it hanging and dropped onto the
+# ledge: clips; on up the steps to the second pool: the gold key
+goto 35 37376 36352
+face 0
+keys DOWN 6
+keys B 60
+keys B+LEFT 150
+keys B 10
+wait 80
+pickup 46
+pickup 40
+# up the steps to the ramp; slid down it facing forward, a jump at its foot
+# to grab the bridge, pulled up; the gold key in its lock (the door at its
+# far end opens, the centaur beyond wakes), fought on the bridge and in its
+# room (Uzis): the small medipack and the second Ankh
+goto3 38 34304 -4096 40448
+face 270
+keys UP 5
+wait 70
+keys A+B 10
+keys B 30
+keys UP+B 60
+wait 100
+usehole 47
+weapon uzis
+fight 8192
+goto 40 28160 34304
+fight 8192
+pickup 51
+pickup 49
+# back to the sphinx cave
+goto 0 45568 48128
+# up the sphinx: onto its back; from the angled block on it a running jump
+# to grab the back of its head, pulled up; to the top of the head: an Ankh
+# in its socket; down to the ledge on the far side: the second (the door
+# between the paws opens)
+reach 1 41472 48640
+goto3 1 38400 -7936 46592
+creep 1 37950 46592
+face 90
+keys UP 4
+keys UP+A 16
+keys A+B 10
+keys B 30
+keys UP+B 60
+wait 200
+reach 3 42496 48640
+usehole 11
+usehole 9
+# down to the cave floor, through the door between the paws and down the
+# shaft into the flooded hall under the sphinx: the Uzi clips between the
+# statues, the shells on Horus's lap; the lever in the tunnel by Set's feet
+# (the hall half drains, the current carries her off)
+goto 0 45568 48128
+goto 0 44544 48640
+face 270
+keys UP 30
+wait 300
+pickup 19
+pickup 18
+lever 16
+# out of the current's channel onto the lowest pillar; a standing jump to
+# grab the taller one, a running jump to grab the foot of the stairs; up to
+# the walkway's end (a winged mutant rises beyond the doorway), down the
+# slope beyond, the mutant shot there
+goto 52 21504 51712
+reach 52 21504 50688
+creep 52 22430 50260
+face 165
+keys UP+A 3
+keys A+B 20
+keys B 20
+keys UP+B 60
+wait 120
+creep 52 23450 48400
+face 258
+keys UP 4
+keys UP+A 16
+keys A+B 10
+keys B 30
+keys UP+B 60
+wait 120
+goto 52 25088 44544
+face 90
+keys UP 30
+wait 90
+weapon uzis
+shoot 41 1800
+# the hang-drop to the small ledge below, a running jump to grab Set's
+# head, up onto it; round to its south side and a run into the ear (the
+# large medipack is inside it; a walk stops short of reach), Action
+goto 21 28160 46592
+face 180
+keys DOWN+B 40
+wait 80
+creep 22 28000 47200
+face 0
+keys UP 4
+keys UP+A 16
+keys A+B 10
+keys B 30
+keys UP+B 60
+wait 120
+goto 22 28672 51712
+goto 22 28160 52600
+face 180
+keys UP 10
+wait 30
+keys B 40
+wait 30
+expect pickups 23
+# clear of the ear, down Set by hops to his knee; the switch on his arm (the
+# door under Horus opens)
+goto 22 29184 52736
+reach 55 29184 49664
+switch 17
+# the clips up past Horus and the Scarab at the hallway's end (taking it
+# opens the gate there: two mutants and a centaur come out)
+pickup 44
+pickup 45
+pickup 53
+# the two mutants met with the shotgun halfway down the hallway
+weapon shotgun
+goto 44 24064 44544
+fight 8192
+# the centaur: out of sight down the hallway till it's far up the stairs,
+# out to the stairs' foot, and shot jumping side to side (Stella's way: its
+# rockets fly to where she was)
+goto 44 25600 44544
+weapon uzis
+untilfar 63 16000 18432 46592 9000
+ignore on
+goto 56 18432 46592
+ignore off
+dodge 63 6000
+# the Scarab in its lock opens the other gate: the large medipack and clips
+# behind it, down the ramp to Larson (he comes out as she drops in); the Scion
+usehole 58
+pickup 65
+pickup 64
+weapon uzis
+goto 61 25088 54784
+fight 8192
+pickup 71

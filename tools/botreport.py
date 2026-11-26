@@ -29,6 +29,7 @@ LEVELS = [
     ('LEVEL7B.route', 'Tomb of Tihocan', (17, 26, 2)),
     ('LEVEL8A.route', 'City of Khamoon', (15, 24, 3)),     # Stella's 14 kills: the consoles add a mummy
     ('LEVEL8B.route', 'Obelisk of Khamoon', (16, 38, 3)),
+    ('LEVEL8C.route', 'Sanctuary of the Scion', (15, 29, 1)),
 ]
 
 

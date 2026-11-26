@@ -43,6 +43,8 @@
 //                                 it can't reach, that one or the bot's pick
 //   shoot ITEM [TICKS]            shot at from where she stands till it's dead
 //   shootfrom ITEM ROOM X Z [X Z [X Z]]  shot at from the best of those spots
+//   dodge ITEM [TICKS]            shot at, her jumping side to side facing it
+//                                 (a centaur's rockets fly to where she was)
 //   fight [RANGE]                 guns drawn, every creature awake within
 //                                 RANGE (4096 if none) shot dead
 //   lures eager|far               from here on `safe` lures a creature also when
@@ -53,6 +55,8 @@
 //   end                           she stands on that sector (a move by hand)
 //   expect room ROOM | secrets N | pickups N | kills N | alive
 //                                 the run fails unless it is so
+//   untilfar ITEM DIST X Z [MAXTICKS]  no key held till that creature is DIST
+//                                 or more from (X, Z) (out of sight of a dash)
 //   hop DEG OFF MOVE ROOM X Z [glitch]
 //                                 a jump by hand onto that sector (see hopTry)
 //   reach ROOM X Z [glitch]       a way there by hops, searched; prints the
@@ -135,10 +139,10 @@ static void step(uint32 k)
         const Lara* l = players[0];
         const ExtraInfoLara* e = l->extraL;
         printf("  tick %5d keys %04x room %3d pos %6d %6d %6d yaw %5d pitch %6d state %2d anim %3d:%d speed %3d vspeed %3d water %d "
-               "health %4d gun %d/%d target %d aim %d arm %d:%d\n",
+               "health %4d gun %d/%d target %d aim %d arm %d:%d flipped %d\n",
                gTick, k, int32(l->room - rooms), l->pos.x, l->pos.y, l->pos.z, uint16(l->angle.y), l->angle.x, l->state, l->animIndex,
                l->frameIndex, l->hSpeed, l->vSpeed, l->waterState, l->health, e->weapon, e->weaponState,
-               e->armR.target ? int32(e->armR.target - items) : -1, e->armR.aim, e->armR.animIndex, e->armR.frameIndex);
+               e->armR.target ? int32(e->armR.target - items) : -1, e->armR.aim, e->armR.animIndex, e->armR.frameIndex, gSaveGame.flipped);
         if (l->state == Lara::STATE_HANG || getenv("BOT_CINFO")) {
             printf("     hang: front %d/%d left %d/%d right %d/%d mid %d/%d static %d type %d\n", cinfo.f.floor, cinfo.f.ceiling,
                    cinfo.l.floor, cinfo.l.ceiling, cinfo.r.floor, cinfo.r.ceiling, cinfo.m.floor, cinfo.m.ceiling, cinfo.staticHit,
@@ -488,8 +492,73 @@ static Trap gTraps[256];
 static int32 gTrapsCount;
 static bool gWalkSpikes;    // a walk through spikes (slow: they don't hurt), as a route asks
 
+// Lava floors (the floor data's lava function: death on touching it), by world
+// sector, the floor's height there; read once a level.
+#define BOT_LAVA_SECTORS 160
+static int16 gLavaTop[BOT_LAVA_SECTORS][BOT_LAVA_SECTORS];
+static int32 gLavaLevel = -1;
+
+static void lavaFind()
+{
+    if (gLavaLevel == int32(gLevelID))
+        return;
+    gLavaLevel = int32(gLevelID);
+    for (int32 x = 0; x < BOT_LAVA_SECTORS; x++) {
+        for (int32 z = 0; z < BOT_LAVA_SECTORS; z++) {
+            gLavaTop[x][z] = int16(-32768);
+        }
+    }
+    for (int32 r = 0; r < level.roomsCount; r++)
+    {
+        const RoomInfo* info = rooms[r].info;
+        for (int32 i = 0; i < info->xSectors; i++)
+        {
+            for (int32 j = 0; j < info->zSectors; j++)
+            {
+                const Sector &sc = rooms[r].sectors[i * info->zSectors + j];
+                if (!sc.floorIndex || sc.roomBelow != NO_ROOM)
+                    continue;
+                const FloorData* fd = level.floors + sc.floorIndex;
+                bool lava = false;
+                for (int32 n = 0; n < 32; n++)
+                {
+                    uint16 cmd = *fd++;
+                    int32 type = FD_FLOOR_TYPE(cmd);
+                    if (type == FLOOR_TYPE_LAVA) {
+                        lava = true;
+                    } else if (type == FLOOR_TYPE_TRIGGER) {
+                        fd++;
+                        uint16 action;
+                        do {
+                            action = *fd++;
+                            if (FD_ACTION(action) == TRIGGER_ACTION_ACTIVATE_CAMERA)
+                                action = *fd++;
+                        } while (!FD_END(action));
+                    } else {
+                        fd++;   // a portal, floor or ceiling slope: one word
+                    }
+                    if (FD_END(cmd))
+                        break;
+                }
+                int32 sx = ((info->x << 8) >> 10) + i, sz = ((info->z << 8) >> 10) + j;
+                if (lava && sx >= 0 && sz >= 0 && sx < BOT_LAVA_SECTORS && sz < BOT_LAVA_SECTORS) {
+                    gLavaTop[sx][sz] = int16(sc.floor * 256);
+                }
+            }
+        }
+    }
+}
+
+static bool lavaAt(int32 sx, int32 sz, int32 floor)
+{
+    return sx >= 0 && sz >= 0 && sx < BOT_LAVA_SECTORS && sz < BOT_LAVA_SECTORS && gLavaTop[sx][sz] != -32768 &&
+           abs(gLavaTop[sx][sz] - floor) < 128;
+}
+
 static bool trapAt(int32 sx, int32 sz, int32 floor)
 {
+    if (lavaAt(sx, sz, floor))
+        return true;
     for (int32 i = 0; i < gTrapsCount; i++)
     {
         const Trap &t = gTraps[i];
@@ -513,6 +582,7 @@ static bool inObstacle(const Obstacle &o, int32 x, int32 floor, int32 z)
 
 static void obstaclesFind()
 {
+    lavaFind();
     gTrapsCount = 0;
     for (int32 i = 0; i < level.itemsCount && gTrapsCount < int32(X_COUNT(gTraps)); i++)
     {
@@ -3684,6 +3754,56 @@ static uint32 shootKeys(ItemObj* foe, int32 i)
     return k;
 }
 
+// Shot at while she jumps side to side facing it, as Stella fights the
+// centaur: a rocket flies to where she was when it fired. Turned to it
+// between jumps; a jump that met a wall (straight up) sends the next one the
+// other way. Only an aimed gun fires (the uzis' ammo is short).
+static bool dodge(ItemObj* foe, int32 most)
+{
+    bool left = true;
+    int32 was = -1;
+    for (int32 i = 0; i < most && foe->health > 0 && lara()->health > 0; i++)
+    {
+        const Lara* l = lara();
+        const ExtraInfoLara* e = l->extraL;
+        if (l->state != was) {
+            if (l->state == Lara::STATE_JUMP_LEFT) {
+                left = false;
+            } else if (l->state == Lara::STATE_JUMP_RIGHT) {
+                left = true;
+            } else if (l->state == Lara::STATE_JUMP_UP) {
+                left = !left;
+            }
+            was = l->state;
+        }
+        if (e->weaponState == WEAPON_STATE_FREE) {
+            step((i & 1) ? 0 : IK_C);
+            continue;
+        }
+        uint32 k = 0;
+        bool aimed = (e->armR.aim || e->armL.aim) && e->armR.target == foe;
+        if (e->weaponState == WEAPON_STATE_READY && aimed) {
+            k |= IK_B;
+        }
+        bool turning = l->state == Lara::STATE_TURN_LEFT || l->state == Lara::STATE_TURN_RIGHT || l->state == Lara::STATE_TURN_FAST;
+        if (l->state == Lara::STATE_STOP || turning) {
+            int16 d = int16(headingTo(foe->pos.x, foe->pos.z) - l->angle.y);
+            if (abs(d) > ANGLE(turning ? 8 : 20)) {
+                k |= d > 0 ? IK_RIGHT : IK_LEFT;
+            } else if (l->state == Lara::STATE_STOP && distTo(foe->pos.x, foe->pos.z) < 8192) {
+                k |= IK_A | (left ? IK_LEFT : IK_RIGHT);
+            }
+        } else if (l->state == Lara::STATE_COMPRESS) {
+            k |= IK_A | (left ? IK_LEFT : IK_RIGHT);    // the jump's way is read as she crouches
+        }
+        step(k);
+    }
+    for (int32 i = 0; i < 60 && !standing(); i++) {
+        step(0);
+    }
+    return foe->health <= 0;
+}
+
 static void holster()
 {
     for (int32 i = 0; i < 60 && lara()->extraL->weaponState != WEAPON_STATE_FREE; i++) {
@@ -4750,6 +4870,14 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             if (!ok) {
                 fail(lara()->health > 0 ? "it's still alive" : "Lara died");
             }
+        } else if (!strcmp(cmd, "dodge") && n >= 2) {
+            // dodge ITEM [TICKS]: shot at, her jumping side to side facing it
+            ItemObj* foe = items + atoi(a);
+            ok = dodge(foe, n >= 3 ? atoi(b) : 30 * 120);
+            holster();
+            if (!ok) {
+                fail(lara()->health > 0 ? "it's still alive" : "Lara died");
+            }
         } else if (!strcmp(cmd, "shootfrom") && n >= 5) {
             // shootfrom ITEM ROOM X Z [X Z [X Z]]: shot at from each spot in a trial,
             // the one that kills it soonest with the most health left played
@@ -4846,6 +4974,20 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             ok = item->state == atoi(b);
             if (!ok) {
                 fail("the item never came to that state");
+            }
+        } else if (!strcmp(cmd, "untilfar") && n >= 5) {
+            // untilfar ITEM DIST X Z [MAXTICKS]: no key held till that
+            // creature is DIST or more from (X, Z) (wandered off up a stair:
+            // then her dash past where it would see her)
+            const ItemObj* item = items + atoi(a);
+            int32 most = n >= 6 ? atoi(e) : 30 * 120;
+            int32 i = 0;
+            for (; i < most && item->health > 0 && hypot(double(item->pos.x - atoi(c)), double(item->pos.z - atoi(d))) < atoi(b); i++) {
+                step(0);
+            }
+            ok = i < most;
+            if (!ok) {
+                fail("it never went that far off");
             }
         } else if (!strcmp(cmd, "replay") && n >= 2) {
             // replay FILE [TICKS]: a tick replay's pad played as it is (to
