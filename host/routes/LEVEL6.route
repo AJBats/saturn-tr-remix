@@ -1,0 +1,197 @@
+# Palace Midas at 100%, in progress (Stella: 43 kills, 23 pickups with the
+# three lead bars, 3 secrets; the Saturn level lays out 22 pickups).
+# tools/levelmap.py draws the level.
+start LEVEL6 newgame
+# up the flooded passage into the dolphins' pool; out of it, guns out
+swimto 10 50688 -1900 40448
+goto 11 50688 42496
+draw
+# the crocodile in the hall past the pool's north door (woken at the door)
+goto 11 53760 35328
+goto 11 53760 34304
+fight 8192
+# the long passage to the alcoves under the aqueduct: the two lions (each
+# woken by its own row of the floor) fought with the shotgun
+goto 44 38400 56832
+weapon shotgun
+goto 44 38400 57856
+fight 8192
+goto 44 37376 57856
+fight 8192
+weapon pistols
+# the four bats at the dark end, its small medipack
+goto 30 32256 58880
+fight 8192
+pickup 78
+# the gorilla in the alley behind the building, its two magnum clips
+goto 44 50688 59904
+fight 8192
+pickup 100
+pickup 101
+# up the stairs to the room of pillars and five switches: its three gorillas
+goto 29 30208 41472
+fight 8192
+# any gorilla that kept off, hunted
+hunt 71
+shoot 71 900
+hunt 72
+shoot 72 900
+hunt 73
+shoot 73 900
+# the ledge over the fire room's door: up the step of the stone stack south
+# of the switches, a running jump to the nearest pillar, a jump to grab the
+# ledge, along it, a running jump to grab the far ledge: magnum clips, small
+# medipack
+goto3 34 19968 -6144 48640
+hop 112.5 5 2 29 23040 47616
+hop 0.0 0 0 38 23040 49664
+goto3 38 25088 -7424 49664
+hop 90.0 5 2 38 29184 49664
+pickup 91
+pickup 90
+# down and round the four pillars to the block by the north stone stack,
+# a jump from it onto the switch platform
+goto3 34 19968 -6144 48640
+hop 112.5 5 2 29 23040 47616
+hop 146.0 5 2 29 25088 44544
+hop 180.0 5 2 29 25088 40448
+hop 225.0 5 2 29 23040 38400
+hop 270.0 5 2 37 19968 37888
+hop 0.0 0 0 32 19968 40448
+# the fire room: the leftmost switch down (its door); the gate under the
+# platform opened by the switch at the stairs' foot; the three rats in the
+# pool shot from its steps
+switch 81
+switch 86
+goto 21 24064 50688
+draw
+goto 21 26112 52736
+goto 21 26112 54784
+fight 8192
+# the pad that puts the flames out for 11 seconds, then running jumps from
+# pillar to pillar, turning on each, the last caught by its edge: the first
+# lead bar (it wakes a gorilla by the switch room's gate)
+goto 21 24064 52736
+creep 21 24064 53350
+attempt 23 24064 70144 12
+face 0
+keys UP 26
+keys UP+A 45
+keys UP+A+RIGHT 14
+keys UP+A 38
+keys UP+A+LEFT 30
+keys UP+A 20
+keys UP+A+RIGHT 10
+keys UP+A 4
+keys UP+B 50
+keys UP+B 20
+keys UP 90
+goto 23 24064 70144
+end
+pickup 40
+# back across the pool and up its steps, the gorilla fought as it comes
+goto 21 26112 52736
+draw
+goto 21 26112 51712
+goto 21 24064 50688
+fight 8192
+# the spike room's door: switches one up, three and five down; behind the
+# ramp past its spikes, the block pulled twice and the switch behind it
+# (the room's pillars rise)
+switch 81
+switch 83
+switch 84
+pull 96 270 2
+switch 95
+# up the ramp's stairs to the opening: a jump to the nearest raised pillar,
+# running jumps round them to the one by the small room; a jump into its
+# doorway (the gorilla wakes), a back flip out onto the pillar, the gorilla
+# shot from there; back in, the second lead bar. Out: a back flip from the
+# doorway's edge, a jump down past the spikes, back to the switches
+goto3 41 40448 -6400 35328
+hop 270.0 0 0 27 38400 35328
+hop 18.4 5 2 27 39424 38400
+hop 288.4 5 2 27 36352 39424
+hop 251.6 5 2 27 33280 38400
+hop 180.0 5 2 27 33280 35328
+hop 198.4 5 2 27 32256 32256
+hop 180.0 0 0 28 32256 30208
+keys DOWN+A 30
+wait 30
+safe 67 27 32256 32256
+hop 180.0 0 0 28 32256 30208
+pickup 66
+goto 28 32256 30208
+creep 28 32256 30620
+face 180
+keys DOWN+A 30
+wait 30
+hop 135.0 0 0 27 33280 31232
+# the sand room's door: switch five down, five up; the block in the room
+# under its stairs pulled once (the ceiling falls, sand fills the room)
+switch 84
+switch 85
+pull 123 90 1
+# up the stairs to the opening over the sand: a jump to the flat spot, a
+# running jump to grab the broken pillar, another to grab the sandy ledge's
+# high end, a jump into the doorway high in the far wall; up the rocks to
+# the doorway over the aqueduct: its two bats and two gorillas shot from there
+goto3 77 40448 -8448 48640
+hop 292.5 1 0 25 38400 49664
+hop 247.5 5 2 26 35328 48640
+hop 284.0 5 2 26 31232 49664
+hop 225.0 1 0 26 30208 48640
+goto3 54 30208 -11520 53760
+draw
+fight 16384
+# along the aqueduct's walkway: its two crocodiles shot from it, drawn out of
+# the water
+goto3 47 45568 -11008 61952
+safe 116 47 45568 61952
+safe 106 47 32256 61952
+# secret 1: through the tunnel at the aqueduct's end to the cave, up onto
+# its rocks (a jump to grab), on by hops: magnum clips, small medipack
+goto3 59 57856 -11264 59904
+creep 59 57856 60250
+face 0
+keys UP 4
+wait 10
+keys A+B 30
+keys UP+B 40
+wait 60
+reach 59 53760 67072
+pickup 118
+pickup 117
+# secret 2: back along the walkway, down the hole by the doorway: small
+# medipack, shotgun shells, uzi clips (the last of three at one spot first)
+goto3 47 45568 -11008 61952
+goto3 47 32256 -11008 56832
+pickup 114
+pickup 113
+pickup 112
+# out of the hole into the dark room of alcoves: its small medipack, the
+# gorilla fought as it comes
+hop 270.0 2 0 53 30208 55808
+draw
+pickup 80
+fight 8192
+# across into the building over the lion room: its two gorillas
+reach 45 34304 61952
+goto 45 42496 60928
+fight 8192
+# the crevice over the gap: a running jump to grab its west end, along it
+# hanging to the flat block at its east end (dropped onto): its two bats
+goto 45 43520 60928
+creep 45 43520 61300
+face 180
+keys UP 12
+keys UP+A 6
+keys A+B 40
+keys B 20
+keys B+LEFT 800
+wait 40
+fight 8192
+hunt 102
+shoot 102 900
+hunt 103
+shoot 103 900

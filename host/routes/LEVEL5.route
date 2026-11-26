@@ -1,5 +1,5 @@
-# The Colosseum at 100%, in progress (Stella: 26 kills, 14 pickups with the
-# magnums and the key, 3 secrets).
+# The Colosseum at 100% (Stella: 26 kills, 14 pickups with the magnums and
+# the key, 3 secrets; the bat by the dark ramp has no trigger and never wakes).
 # tools/levelmap.py draws the level.
 start LEVEL5 newgame
 wait 30
@@ -32,7 +32,7 @@ pickup 60
 # back over the rocks to the well-lit cave (searched): the two crocodiles in
 # its pit shot as she comes, the small medipack on the pit's floor
 reach 2 70144 54784
-goto 2 66048 56320
+goto 87 66048 56832
 shoot 82 900
 shoot 83 900
 pickup 84
@@ -49,13 +49,13 @@ traverse 88 62976 54800 180 right 61600 55397
 goto 32 60928 45568
 # up into the arena's seats: the lion and Pierre woken in the passage;
 # Pierre hunted till he runs off and goes, then the lions on the arena's
-# floor shot from the east seats
+# floor shot from the east seats (the second from wherever it can't reach her)
 draw
 goto 15 54784 47616
 hunt 81
 shoot 81 900
 safe 61 79 52736 41472
-safe 69 79 52736 41472
+safe 69
 # the lion woken at the arena's west side, fought as it comes
 goto 65 43520 54784
 fight 8192
@@ -63,8 +63,11 @@ fight 8192
 # in woken from the trigger nearest the ramp's foot and shot from there as it
 # comes; the two switches (the arena corner's gate; the cages' door, letting
 # out three more lionesses), which are shot from the far side of the pit in
-# the arena
+# the arena (healed first if she's hurt, the shotgun at the ramp's foot:
+# the lions bite hard down there)
+use big 800
 goto 25 35328 38400
+weapon shotgun
 fight 8192
 creep 25 35328 39300
 creep 25 35383 38300
@@ -97,3 +100,93 @@ pickup 18
 goto 22 31232 50688
 wait 30
 goto 60 35328 56832
+# the rock pile's shells: up through the spike pit's tunnel to the rocks over
+# the arena, on by hops
+goto 19 44544 56832
+reach 19 45568 62976
+pickup 16
+# the balcony room by the jumps over the rocks: its two gorillas fought from
+# the balcony; the grey block pulled out twice, the small medipack behind it,
+# the switch (the south-west corner room's door)
+reach 24 36352 50176
+fight 8192
+pull 11 0 2
+pickup 7
+switch 12
+# the south-west corner room: the two bats in its anteroom; on past the
+# boulder (a pad wakes Pierre) to the switch at the top of the ramp (the
+# north-west corner room's door); the lion woken on the way, down the dark
+# ramp into the anteroom: the lion shot from there, Pierre hunted till he goes
+goto 71 57344 65024
+fight 8192
+goto 42 59904 65024
+reach 44 57856 71680
+switch 41
+goto 44 55808 71168
+goto 44 55808 69632
+face 180
+keys UP 30
+wait 60
+safe 76
+hunt 77
+shoot 77 900
+# the north-west corner room: the two bats in its anteroom
+goto 76 55808 34304
+fight 8192
+# secret 3: a running jump over the pad by the first pillar (it opens the
+# door above for six seconds) onto the low platform, then Jump held: a side
+# flip right, a back flip, a side flip left and a jump forward up the
+# platforms to the door's ledge: the magnums, two large medipacks, uzi clips
+goto 46 58470 23900
+attempt 51 58880 16896 12
+creep 46 58490 24400
+creep 46 58490 23950
+face 180
+keys UP 12
+keys UP+A 6
+keys A 28
+keys RIGHT+A 32
+keys DOWN+A 32
+keys LEFT+A 32
+keys UP+A 32
+goto 51 58880 16896
+end
+pickup 43
+pickup 46
+pickup 45
+pickup 44
+expect secrets 3
+# a running jump to the switch's platform (the north-east corner room's
+# door), down by the platforms
+reach 50 55808 20992
+switch 42
+goto 45 56832 25600
+# the north-east corner room: the switch (the balcony room's back door); the
+# pool's passage to the small medipack; the block pushed twice and pulled
+# once from its side: the rusty key (it wakes the gorilla in the arena)
+switch 49
+pickup 52
+push 51 180 2
+pull 51 270 1
+pickup 50
+# back through the pool: the gorilla lured and shot from where it can't reach her
+goto 52 29184 32256
+safe 66
+# the balcony room's back room, its small medipack (two more gorillas in the
+# arena); the key in the gate's lock, the gorillas hunted
+pickup 53
+usehole 23
+weapon shotgun
+hunt 65
+shoot 65 900
+hunt 64
+shoot 64 900
+# down the water behind the gate to the small room over the flooded passage:
+# its switch (the gate at the tunnel's end), the crocodile shot from there
+# as it comes (lured from the water if it hangs back); through the tunnel to
+# the level's end
+switch 38
+safe 33 40 35328 65024
+expect kills 26
+swimto 58 35328 -1000 86528
+endlevel 58 35328 87552

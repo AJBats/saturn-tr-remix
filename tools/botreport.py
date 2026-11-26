@@ -24,6 +24,7 @@ LEVELS = [
     ('LEVEL3B.route', 'Tomb of Qualopec', (8, 8, 3)),     # 7 and the mummy
     ('LEVEL4.route', "St. Francis' Folly", (23, 19, 4)),
     ('LEVEL5.route', 'Colosseum', (26, 14, 3)),
+    ('LEVEL6.route', 'Palace Midas', (43, 22, 3)),     # Stella's 23 pickups: the Saturn level lays out 22
 ]
 
 

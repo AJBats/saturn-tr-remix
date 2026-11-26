@@ -28,7 +28,8 @@
 //   weapon pistols|shotgun|magnums|uzis   that one taken from the ring
 //   endlevel ROOM X Z             to the level's end there, through its
 //                                 statistics and "Save Game?" to the next level
-//   use small|big                 a medipack from the ring (also used by
+//   use small|big [BELOW]         a medipack from the ring, if her health is
+//                                 under BELOW (they're also used by
 //                                 themselves when she's low)
 //   safe ITEM [ROOM X Z]          that creature (awake) shot dead from a spot
 //                                 it can't reach, that one or the bot's pick
@@ -36,7 +37,7 @@
 //   shootfrom ITEM ROOM X Z [X Z [X Z]]  shot at from the best of those spots
 //   fight [RANGE]                 guns drawn, every creature awake within
 //                                 RANGE (4096 if none) shot dead
-//   attempt ROOM X Z [TRIES]      the lines to `end` (keys, wait, face, goto)
+//   attempt ROOM X Z [TRIES]      the lines to `end` (keys, wait, face, goto, creep, rush)
 //   ...                           tried with their keys' ticks varied, till
 //   end                           she stands on that sector (a move by hand)
 //   expect room ROOM | secrets N | pickups N | kills N | alive
@@ -173,7 +174,15 @@ template <class F> int32 trial(F f, uint32* keys, int32* ticks)
     }
     TrialOut* out = gTrialOut[gDepth];
     fflush(stdout);
-    pid_t pid = fork();
+    pid_t pid;
+    // a fork refused is waited out, never taken for a failed try
+    for (int32 wait = 0; (pid = fork()) < 0; wait++)
+    {
+        if (wait % 50 == 0) {
+            fprintf(stderr, "bot: fork refused at tick %d, waiting\n", gTick);
+        }
+        usleep(100000);
+    }
     if (pid == 0)
     {
         int32 start = gTick;
@@ -289,6 +298,7 @@ static bool settle(int32 maxTicks = 90)
 // Turned on the spot to within tol of heading.
 static bool turnTo(int16 heading, int32 tol = ANGLE(2))
 {
+    int32 flips = 0, lastSign = 0;
     for (int32 tries = 0; tries < 40; tries++)
     {
         if (!settle())
@@ -296,6 +306,10 @@ static bool turnTo(int16 heading, int32 tol = ANGLE(2))
         int16 d = int16(heading - lara()->angle.y);
         if (abs(d) <= tol)
             return true;
+        int32 sign = d > 0 ? 1 : -1;
+        if (lastSign && sign != lastSign && ++flips >= 4)
+            return false;   // each turn overshoots the other way (guns out she turns fast): no nearer
+        lastSign = sign;
         uint32 k = (d > 0) ? IK_RIGHT : IK_LEFT;
         if (abs(d) > ANGLE(20))
         {
@@ -361,8 +375,9 @@ static bool goStraight(int32 x, int32 z, int32 radius, bool walk, int32 maxTicks
         int16 d = int16(headingTo(x, z) - lara()->angle.y);
         if (abs(d) > ANGLE(35) && !(gDashJump && (lara()->state == Lara::STATE_RUN || lara()->state == Lara::STATE_JUMP)))
         {
-            // (a rush on the run turns running)
-            if (!turnTo(headingTo(x, z), ANGLE(4)))
+            // (a rush on the run turns running; a turn that can't come within
+            // 4 degrees, near enough to run and steer)
+            if (!turnTo(headingTo(x, z), ANGLE(4)) && !turnTo(headingTo(x, z), ANGLE(30)))
                 return false;
             continue;
         }
@@ -1700,7 +1715,8 @@ static bool leap(Room* room, int32 x, int32 z, int32 floor = NO_GOAL_Y)
 // A jump by hand from the sector she stands in: from a spot on the line
 // from its middle along `heading` (off 0: just short of its edge, 1: 300
 // back from there, 2: the middle; 3 and 4: off 0's spot 300 to the left or
-// right), turned to `heading`, then
+// right; 5: just short of the edge behind her, a running jump's run-up),
+// turned to `heading`, then
 //   move 0: a standing jump forward, Action held (a grab)
 //   move 1: straight up, Action held
 //   move 2: a running jump (8 ticks' run), Action held
@@ -1719,9 +1735,9 @@ static bool hopTry(int16 heading, int32 off, int32 move)
     int32 tx = dx ? (512 << FIXED_SHIFT) / abs(dx) : 0x7FFFFFFF;
     int32 tz = dz ? (512 << FIXED_SHIFT) / abs(dz) : 0x7FFFFFFF;
     int32 edge = X_MIN(tx, tz) - 80;
-    int32 back = off == 1 ? 300 : off == 2 ? edge : 0;
+    int32 back = off == 1 ? 300 : off == 2 ? edge : off == 5 ? 2 * edge : 0;
     int32 sx = cx + ((edge - back) * dx >> FIXED_SHIFT), sz = cz + ((edge - back) * dz >> FIXED_SHIFT);
-    if (off >= 3)
+    if (off == 3 || off == 4)
     {
         // 3, 4: just short of the edge, 300 to her left or right of the line
         int32 side = off == 3 ? -300 : 300;
@@ -1786,13 +1802,13 @@ static int32 hopWhere()
 }
 
 #define HOP_HEADINGS 16
-#define HOP_SPOTS    5
+#define HOP_SPOTS    5      // probe and reach leave spot 5 out (a hop line can name it)
 #define HOP_MOVES    5
 #define HOP_COUNT    (HOP_HEADINGS * HOP_SPOTS * HOP_MOVES)
 
-static void hopPlay(int32 code)
+static bool hopPlay(int32 code)
 {
-    hopTry(int16((code / (HOP_SPOTS * HOP_MOVES)) * (0x10000 / HOP_HEADINGS)), (code / HOP_MOVES) % HOP_SPOTS, code % HOP_MOVES);
+    return hopTry(int16((code / (HOP_SPOTS * HOP_MOVES)) * (0x10000 / HOP_HEADINGS)), (code / HOP_MOVES) % HOP_SPOTS, code % HOP_MOVES);
 }
 
 static void hopPrint(const char* what, int32 code)
@@ -1814,8 +1830,7 @@ static void probe()
     for (int32 code = 0; code < HOP_COUNT; code++)
     {
         int32 ticks = 0;
-        int32 score = trial([&]() -> int32 { return hopTry(int16((code / (HOP_SPOTS * HOP_MOVES)) * (0x10000 / HOP_HEADINGS)),
-                                                           (code / HOP_MOVES) % HOP_SPOTS, code % HOP_MOVES) ? hopWhere() : -1; },
+        int32 score = trial([&]() -> int32 { return hopPlay(code) ? hopWhere() : -1; },
                             keys, &ticks);
         if (score < 0)
             continue;
@@ -1909,8 +1924,7 @@ static bool reach(Room* room, int32 x, int32 z)
             for (int32 code = 0; code < HOP_COUNT; code++)
             {
                 gReachOut[code] = trial([&]() -> int32 {
-                    if (!hopTry(int16((code / (HOP_SPOTS * HOP_MOVES)) * (0x10000 / HOP_HEADINGS)), (code / HOP_MOVES) % HOP_SPOTS,
-                                code % HOP_MOVES))
+                    if (!hopPlay(code))
                         return -1;
                     if (lara()->health < before - 100)
                         return -1;  // a fall that hurts: not a way
@@ -3566,9 +3580,10 @@ static void holster()
     }
 }
 
-// The sector of its zone nearest her by the planner's way, on the ground:
-// where she stands to be in its reach (false if none).
-static bool lureSpot(ItemObj* foe, int32 &room, int32 &x, int32 &z)
+// The sector of its zone nearest her by the planner's way, on the ground
+// (in the water for a creature of the water, y the depth she swims at): where
+// she goes to be in its reach (false if none).
+static bool lureSpot(ItemObj* foe, int32 &room, int32 &x, int32 &z, int32 &y)
 {
     if (!foe->extraE)
         return false;   // no AI slot: it comes to nothing
@@ -3578,11 +3593,12 @@ static bool lureSpot(ItemObj* foe, int32 &room, int32 &x, int32 &z)
     static int32 path[1024];
     obstaclesFind();
     sectorPath(int32(lara()->room - rooms), -0x400000, -0x400000, path, X_COUNT(path));
+    bool swims = foe->type == ITEM_CROCODILE_WATER || foe->type == ITEM_RAT_WATER;
     int32 best = -1;
     for (int32 i = 0; i < gCellsCount; i++)
     {
         const Cell &c = gCells[i];
-        if (c.water || c.cost == 0x7FFFFFFF)
+        if (c.water != swims || c.cost == 0x7FFFFFFF)
             continue;
         uint16 box = c.room->getSector(cellX(c), cellZ(c))->boxIndex;
         if (box == NO_BOX || zones[box] != zone || (level.boxes[box].overlap & nav.mask))
@@ -3595,6 +3611,7 @@ static bool lureSpot(ItemObj* foe, int32 &room, int32 &x, int32 &z)
     room = int32(gCells[best].room - rooms);
     x = cellX(gCells[best]);
     z = cellZ(gCells[best]);
+    y = swims ? X_MIN(gCells[best].top + 300, gCells[best].floor - 200) : NO_GOAL_Y;
     return true;
 }
 
@@ -3602,23 +3619,25 @@ static bool lureSpot(ItemObj* foe, int32 &room, int32 &x, int32 &z)
 // within near. Its score: her health, with 32 for each hit on it; < 0 if she
 // didn't get back, it wasn't hit, or it cost her more than a fifth of her
 // health (a bite: the next lure is safer).
-static int32 lureTry(ItemObj* foe, int32 lroom, int32 lx, int32 lz, int32 sroom, int32 sx, int32 sz, int32 near)
+static int32 lureTry(ItemObj* foe, int32 lroom, int32 lx, int32 ly, int32 lz, int32 sroom, int32 sx, int32 sz, int32 near)
 {
     int32 hp = foe->health, health = lara()->health;
     holster();
     gFleeing = true;
+    gGoalY = ly;    // in the water, the depth she waits at
     bool ok = goTo(lroom, lx, lz, false, 256);
+    gGoalY = NO_GOAL_Y;
     for (int32 i = 0; ok && i < 30 * 60 && foe->health > 0 && distTo(foe->pos.x, foe->pos.z) >= near; i++)
     {
         if (lara()->health <= 0)
             return -1;
-        step(shootKeys(foe, i));
+        step(ly == NO_GOAL_Y ? shootKeys(foe, i) : 0);
     }
     holster();
     ok = ok && goTo(sroom, sx, sz, false, 256);
     gFleeing = false;
-    for (int32 i = 0; ok && i < 150; i++) {
-        step(shootKeys(foe, i));
+    for (int32 i = 0; ok && i < (ly == NO_GOAL_Y ? 150 : 450); i++) {
+        step(shootKeys(foe, i));    // (one of the water comes on after her a while)
     }
     int32 hits = hp - X_MAX(foe->health, 0);
     if (!ok || lara()->health <= 0 || hits <= 0 || health - lara()->health > 200)
@@ -3635,13 +3654,16 @@ static bool shootFromHere(ItemObj* foe)
 {
     int32 t0 = gTick;
     int32 sroom = int32(lara()->room - rooms), sx = lara()->pos.x, sz = lara()->pos.z;
-    int32 lroom = 0, lx = 0, lz = 0;
-    bool lure = lureSpot(foe, lroom, lx, lz);
+    int32 lroom = 0, lx = 0, ly = NO_GOAL_Y, lz = 0;
+    bool lure = lureSpot(foe, lroom, lx, lz, ly);
     if (lure) {
         printf("  lure spot: %d,%d room %d\n", lx, lz, lroom);
     }
     static uint32 keys[BOT_TRIAL_TICKS];
-    static const int32 kNear[] = { 8192, 6144, 4096 };
+    // how near it may come before she's back: one of the water is fast there
+    // (in and straight out again is tried first)
+    static const int32 kNear[] = { 8192, 6144, 4096 }, kNearSwim[] = { 1 << 20, 12288, 8192 };
+    const int32* nears = ly == NO_GOAL_Y ? kNear : kNearSwim;
     int32 quiet = 0;
     for (int32 i = 0; gTick - t0 < 30 * 60 * 40 && foe->health > 0; i++)
     {
@@ -3661,8 +3683,8 @@ static bool shootFromHere(ItemObj* foe)
             int32 best = -1, bestNear = 0;
             for (int32 n = 0; n < int32(X_COUNT(kNear)); n++)
             {
-                int32 near = kNear[n];
-                int32 score = trial([&]() { return lureTry(foe, lroom, lx, lz, sroom, sx, sz, near); }, NULL, NULL);
+                int32 near = nears[n];
+                int32 score = trial([&]() { return lureTry(foe, lroom, lx, ly, lz, sroom, sx, sz, near); }, NULL, NULL);
                 if (score > best) {
                     best = score;
                     bestNear = near;
@@ -3671,7 +3693,7 @@ static bool shootFromHere(ItemObj* foe)
             if (best >= 0)
             {
                 int32 ticks = 0, hp = foe->health;
-                trial([&]() { return lureTry(foe, lroom, lx, lz, sroom, sx, sz, bestNear); }, keys, &ticks);
+                trial([&]() { return lureTry(foe, lroom, lx, ly, lz, sroom, sx, sz, bestNear); }, keys, &ticks);
                 play(keys, ticks);
                 printf("  lure: back as it came within %d, %d hits on it, her health %d\n", bestNear, hp - X_MAX(foe->health, 0),
                        lara()->health);
@@ -4023,7 +4045,7 @@ static bool expect(const char* what, int32 value)
 }
 
 // An attempt block (attempt ROOM X Z [TRIES] ... end): a few steps by hand
-// (keys, wait, face, goto, rush) tried in trials, each `keys` line's ticks moved by
+// (keys, wait, face, goto, creep, rush) tried in trials, each `keys` line's ticks moved by
 // up to three either way in all but the first try; the try that leaves her
 // standing on the sector at X, Z in ROOM with the most health, then the
 // fewest ticks, is played.
@@ -4064,6 +4086,10 @@ static bool blockTry(int32 roomIndex, int32 x, int32 z, int32 floor, int32 varia
             bool walk = !strcmp(d, "walk");
             int32 radius = atoi(walk ? e : d);
             if (!goTo(atoi(a), atoi(b), atoi(c), walk, radius > 0 ? radius : 96))
+                return false;
+        } else if (!strcmp(cmd, "creep") && n >= 4) {
+            // creep ROOM X Z: walked straight to within 24 of the spot (a hand move's start)
+            if (!goStraight(atoi(b), atoi(c), 24, true) || !settle())
                 return false;
         } else if (!strcmp(cmd, "rush") && n >= 4) {
             // a rush's spots run straight, as the route command's (no trial of its own)
@@ -4643,8 +4669,8 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
         } else if (!strcmp(cmd, "lever") && n >= 2) {
             ok = pullLever(atoi(a));
         } else if (!strcmp(cmd, "use") && n >= 2) {
-            // use small|big: a medipack from the ring
-            ok = ringUse(!strcmp(a, "big") ? SLOT_MEDIKIT_BIG : SLOT_MEDIKIT_SMALL);
+            // use small|big [BELOW]: a medipack from the ring (if her health is under BELOW)
+            ok = (n >= 3 && lara()->health >= atoi(b)) || ringUse(!strcmp(a, "big") ? SLOT_MEDIKIT_BIG : SLOT_MEDIKIT_SMALL);
         } else if (!strcmp(cmd, "weapon") && n >= 2) {
             // weapon pistols|shotgun|magnums|uzis: taken from the ring (and drawn)
             InvSlot slot = !strcmp(a, "shotgun") ? SLOT_SHOTGUN : !strcmp(a, "magnums") ? SLOT_MAGNUMS :
