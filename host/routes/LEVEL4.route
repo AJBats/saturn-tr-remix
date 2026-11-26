@@ -1,8 +1,5 @@
-# St. Francis' Folly at 100%, in progress (Stella: 23 kills, 19 pickups with
-# the 4 keys, 4 secrets). Played to its end: 16 kills, all 19 pickups and 4
-# secrets. Left: 7 of the tall room's bats (their triggers: room 20 by the
-# Thor switch and its west side, room 21's north ledge, room 23's west ledge).
-# tools/levelmap.py draws the level.
+# St. Francis' Folly at 100% (Stella: 23 kills, 19 pickups with the 4 keys,
+# 4 secrets). tools/levelmap.py draws the level.
 start LEVEL4 newgame
 wait 30
 draw
@@ -143,6 +140,13 @@ switch 49
 # go, Roll held as she lands on the ledge below (she comes up facing back),
 # a run off it, Roll held again as she lands on the long ledge, a run along
 # it and off its end through the door (large medipack, magnum clips)
+# (first across the little square opening by the switch: two bats wake in
+# the dark overhead and follow her to the pad, where they're shot)
+goto 20 38400 41472
+goto 20 43520 41050 walk 16
+draw
+shoot 26
+shoot 28
 goto 20 43520 41050 walk 16
 face 0
 attempt 60 43520 47616 24
@@ -171,10 +175,24 @@ switch 79
 pickup 10
 # the large medipack on the ledge over the Damocles door
 pickup 58
+# the third level's west ledge: two bats wake as she steps on it
+goto 23 35328 38400
+draw
+shoot 59 600
+shoot 60 600
 # up the central structure to the fourth level: the Damocles switch (opens
 # the Damocles door on the second), the small medipack across the gap
 switch 51
+# the fourth level's north ledge: two bats wake as she steps on it; back by
+# hops (searched: the planner finds no way off it)
+goto 21 38912 37376
+shoot 54 600
+shoot 55 600
+reach 21 39936 42496
 pickup 53
+# the fifth level's west side: the last bat wakes there
+goto 20 35328 39936
+shoot 50 600
 # the Neptune room through the door at the top: down the pool with the
 # current, the lever in the alcove off the passage (opens the gate, stops the
 # current), the Neptune key past the gate

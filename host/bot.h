@@ -30,6 +30,7 @@
 //                                 themselves when she's low)
 //   safe ITEM [ROOM X Z]          that creature (awake) shot dead from a spot
 //                                 it can't reach, that one or the bot's pick
+//   shoot ITEM [TICKS]            shot at from where she stands till it's dead
 //   fight [RANGE]                 guns drawn, every creature awake within
 //                                 RANGE (4096 if none) shot dead
 //   attempt ROOM X Z [TRIES]      the lines to `end` (keys, wait, face, goto)
@@ -4477,6 +4478,19 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
                 ok = ok && shootFromHere(foe);
             } else {
                 ok = fightFromSafety(foe, 8192);
+            }
+        } else if (!strcmp(cmd, "shoot") && n >= 2) {
+            // shoot ITEM [TICKS]: from where she stands, turned to it and shot
+            // whenever it's near, till it's dead (a bat that comes to her)
+            ItemObj* foe = items + atoi(a);
+            int32 most = n >= 3 ? atoi(b) : 30 * 60;
+            for (int32 i = 0; i < most && foe->health > 0 && lara()->health > 0; i++) {
+                step(shootKeys(foe, i));
+            }
+            holster();
+            ok = foe->health <= 0;
+            if (!ok) {
+                fail(lara()->health > 0 ? "it's still alive" : "Lara died");
             }
         } else if (!strcmp(cmd, "hunt") && n >= 2) {
             // hunt ITEM: a creature that keeps off out of shot, shot from
