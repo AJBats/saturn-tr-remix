@@ -1,0 +1,249 @@
+start LEVEL8B newgame
+# a creature at a safe spot lured when it runs from her or stays out of her
+# aim (under a ledge: the guns can't aim that steeply), not only when far off
+lures eager
+# along the passage to the room of four blocks (the gold door high on its
+# south wall); the rightmost block pulled out twice: the panther in the hall
+# behind it, the small medipack at the hall's end
+goto 39 59904 56832
+pull 42 270 2
+goto 68 65024 54784
+safe 85
+pickup 86
+# the next block pulled out once (its place is the third block's way out):
+# the hall's other panther
+goto 39 62976 57856
+pull 41 270 1
+goto 68 65024 57856
+goto 68 67072 57856
+safe 87
+# the third block pulled out twice; hung from the hole in the passage's
+# floor (the panther below wakes), pulled up; magnums out, down the hole and
+# the angled block, the panther fought below (from the edge it comes too
+# near under her to aim at)
+pull 40 180 2
+goto 73 61952 61952
+face 180
+keys DOWN+B 40
+keys UP+B 90
+wait 100
+weapon magnums
+goto 73 61952 61952
+goto 74 61952 64512
+fight 8192
+# its room: the switch (the door above), the steps' small medipack, up the
+# ledges to the highest carved block, a running jump from its far edge to
+# the doorway over the hole; the clips behind the door, down the hole
+switch 93
+pickup 95
+reach 75 70144 66048
+reach 75 66048 62976
+hop 247.5 5 2 76 62976 61952
+pickup 97
+# the leftmost block pulled out twice; down the water and up into the pool
+# room, out onto the north side of the ring of blocks: the crocodile inside
+# shot from there; the sapphire key on a corner ledge, clips and a small
+# medipack on the bottom; back the same way, the key in the passage's
+# keyhole (it opens the door to the column room and the gold door)
+pull 39 180 2
+swimto 70 57856 300 67800
+goto 72 57856 69120
+safe 89 72 57856 69120
+pickup 88
+pickup 90
+pickup 91
+usehole 34
+# the rightmost block pushed under the gold door, up through it and the
+# stairs to the sitting room: its mummy, the switch in the left window (the
+# bridge to the Eye of Horus)
+push 42 270 1
+push 42 180 2
+goto 60 60928 51200
+weapon magnums
+goto 60 62976 50688
+fight 8192
+switch 69
+# out by the right window onto the bridge: the Eye of Horus from the column;
+# down into the pool: clips on the bottom; out onto the column's ledge from
+# its south side: the shotgun shells
+pickup 15
+pickup 67
+swimto 56 50688 600 54900
+goto 36 50688 55808
+pickup 37
+# through the door at the right of the south wall's alcoves, down the ramp
+# to the doorway over the tall room (crossing the ramp wakes two panthers),
+# both shot from the doorway (a step too high for them)
+goto 54 47616 62976
+safe 63 54 47616 62976
+safe 64 54 47616 62976
+# up the tall room's ledges to the large medipack
+pickup 62
+# hung from the doorway over the long ramp (the two mummies below wake),
+# pulled up (a short pull: held on, she walks off the ledge into the tall
+# room), both shot from the doorway
+goto 51 46592 65024
+face 90
+keys DOWN+B 40
+keys UP+B 10
+wait 100
+safe 65 51 46592 65024
+safe 66 51 46592 65024
+# on up the tall room: the square ledges, the block at the top of the steps,
+# a step down and up onto the ledge at the stairs' doorway (the mummy at the
+# stairs' top wakes), shot from the step below (the pistols: magnums are out)
+reach 47 50688 68096
+reach 47 46592 68096
+goto 47 45568 66048
+reach 46 45568 65024
+safe 57 47 45568 66048
+# down the stairs: the switch on the ivy ledge (the bridge to the Ankh); the
+# fenced ledge below: a small medipack and two lots of clips
+switch 61
+pickup 49
+pickup 50
+pickup 51
+# up the stairs and down the hole by the windows, sliding into the room of
+# slides: its switch (the slide to steps; it wakes the panther next door)
+# from the raised alcove, the panther shot from there; its clips next door
+switch 35
+safe 60 35 43520 56832
+pickup 59
+# up the steps: the shotgun shells on the ledge beside them; under the low
+# ceiling, through the doorway to the column room's stairs: the large
+# medipack halfway up, the switch at the top (the middle slide to steps)
+pickup 31
+goto 31 42496 58880
+goto 31 44544 58880
+goto 16 45568 58880
+pickup 14
+switch 13
+# down to the ledge and through the north door into the sarcophagus room,
+# over the steps to the lowest block: hung from it (the two mummies below
+# wake), pulled up, both shot from there
+goto 30 53760 47616
+face 0
+keys DOWN+B 40
+keys UP+B 10
+wait 100
+safe 101 30 53760 47616
+safe 102 30 53760 47616
+# up the blocks to the east ledge, hung from it and along under the tan
+# block, up to the pillar's ledge: secret 1 behind the pillar, a large
+# medipack and clips; over the high ledges to the long one's end: shells
+reach 45 53760 50688
+traverse 45 53350 49664 90 right 53350 47616 up
+reach 79 53760 46592
+pickup 99
+pickup 100
+expect secrets 1
+pickup 98
+# back over the ledges, down to the flat spot and the block below, along the
+# crevice hanging and dropped to the west ledge, along its edge hanging and
+# dropped to the corner ledge; a running jump (from the back edge) to the
+# doorway's block: the switch on the fenced ledge beyond (the bridge to the
+# Scarab)
+reach 45 49664 44544
+reach 30 50688 44544
+traverse 30 50400 44900 180 right 45600 45150
+traverse 30 45850 45700 270 right 46180 50700
+hop 90.0 5 2 30 49664 50688
+switch 36
+# back past the save crystal (it stands in the middle of the doorway's
+# block) and a running jump to the corner ledge; down to the floor, up the
+# blocks and out by the north door: the Scarab from the column, the Ankh on
+# its far side
+goto 77 49664 51712
+creep 30 49300 51050
+creep 30 50050 51050
+attempt 30 46592 50688 16
+face 270
+keys UP 14
+keys UP+A 3
+keys UP 30
+wait 80
+end
+goto 83 50688 47616
+goto 45 49664 50688
+pickup 16
+pickup 18
+# from the Ankh back to the room of slides by its low doorway; up the block
+# steps (the middle slide) to the top
+goto 16 45568 58880
+goto 31 44544 58880
+goto 37 41472 52736
+# a running jump west (Jump held till she leaves the ground) to the narrow
+# crevice, along it hanging, dropped onto the golden blocks: the switch in
+# the room beyond (the upper slide to steps)
+creep 37 41900 52700
+face 270
+keys UP 4
+keys UP+A+B 16
+keys A+B 8
+keys B 46
+keys B+RIGHT 600
+wait 80
+switch 38
+# up the upper steps (the mummy above wakes), shot from two steps down as
+# it comes (it's lured: from below it's out of sight)
+goto 37 37376 52736
+safe 48 37 37376 54272
+# the highest room: the small medipack behind the ornament, the switches
+# (the bridge to the Seal of Anubis, the gold door)
+pickup 47
+switch 46
+switch 45
+# through the gold door and down the wide stairs to the ivy ledge; past the
+# painted columns along the walkway's edge to the ledge that juts out: a
+# running jump (no grab) to the obelisk, secret 2: a small medipack and Uzi
+# clips; a running jump down to the ornament's pillar, secret 3: a large
+# medipack and two lots of Uzi clips (walked round the ornament to them);
+# down to the bridges: the Seal of Anubis
+goto 49 46592 61952
+creep 49 46900 61500
+creep 49 49000 61500
+creep 49 49664 61500
+creep 42 49664 60900
+hop 180.0 5 3 42 49664 56832
+expect secrets 2
+pickup 53
+pickup 52
+hop 157.5 5 3 42 51712 52736
+expect secrets 3
+creep 42 51350 52600
+pickup 56
+pickup 55
+pickup 54
+pickup 17
+# through the underwater door (the four artifacts opened it): the long
+# passage's pickups, the pool's three on its bottom
+pickup 81
+pickup 82
+pickup 80
+pickup 79
+pickup 77
+pickup 78
+# the pool room's mummy, awake (it waits by the pool's west side): up at
+# the opening's east end, out and up into the raised alcove (fought if it
+# comes), shot from there; the alcove's two lots of clips
+swim 38400 200 43400
+swimto 62 38400 -700 43150
+goto 59 37376 39424
+safe 73 59 37376 39424
+pickup 71
+pickup 72
+# along the hall to the sandy room's doorway (its mummy wakes), shot from
+# there (magnums: lured with the pistols it takes hours); the large medipack
+# beside the sand pile; on to the sphinx: the shells between its paws
+weapon magnums
+goto 67 34304 34304
+safe 84 67 34304 34304
+pickup 83
+pickup 10
+# the four artifacts in the obelisk's sides (the exit opens); out past the
+# sphinx
+usehole 4
+usehole 5
+usehole 7
+usehole 6
+endlevel 9 24064 20992

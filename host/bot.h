@@ -45,6 +45,9 @@
 //   shootfrom ITEM ROOM X Z [X Z [X Z]]  shot at from the best of those spots
 //   fight [RANGE]                 guns drawn, every creature awake within
 //                                 RANGE (4096 if none) shot dead
+//   lures eager|far               from here on `safe` lures a creature also when
+//                                 it runs from her or stays out of her aim (far:
+//                                 only when it's far off, as before)
 //   attempt ROOM X Z [TRIES]      the lines to `end` (keys, wait, face, goto, creep, rush)
 //   ...                           tried with their keys' ticks varied, till
 //   end                           she stands on that sector (a move by hand)
@@ -65,7 +68,7 @@
 
 namespace bot {
 
-#define BOT_MAX_TICKS   (30 * 60 * 60 * 8)  // eight hours of play, the whole game
+#define BOT_MAX_TICKS   (30 * 60 * 60 * 16) // sixteen hours of play: the whole game at the bot's pace
 #define BOT_TRIAL_TICKS 8192
 
 static uint32 gLog[BOT_MAX_TICKS];  // the run's keys, by tick
@@ -3756,8 +3759,12 @@ static int32 lureTry(ItemObj* foe, int32 lroom, int32 lx, int32 ly, int32 lz, in
 // Stood where it can't reach her: turned to it and shot whenever it's near,
 // up to 40 minutes. A creature hit while she's out of its zone runs from her
 // till she's in it again (retail's Creature_Mood: escape, then attack only
-// when she's in its zone), so after 15 quiet seconds she lures it (lureTry,
-// the nearest it may come tried three ways, the best played).
+// when she's in its zone), so after 15 quiet seconds (it far off; with
+// `lures eager`, also running from her out of her aim, or out of her aim 45
+// seconds: under her, too steep for the guns) she lures it (lureTry, the
+// nearest it may come tried three ways, the best played).
+static bool gLuresEager;    // the route said `lures eager` (the levels before it keep the far-off rule alone)
+
 static bool shootFromHere(ItemObj* foe)
 {
     int32 t0 = gTick;
@@ -3772,7 +3779,7 @@ static bool shootFromHere(ItemObj* foe)
     // (in and straight out again is tried first)
     static const int32 kNear[] = { 8192, 6144, 4096 }, kNearSwim[] = { 1 << 20, 12288, 8192 };
     const int32* nears = ly == NO_GOAL_Y ? kNear : kNearSwim;
-    int32 quiet = 0;
+    int32 quiet = 0, unaimed = 0;
     for (int32 i = 0; gTick - t0 < 30 * 60 * 40 && foe->health > 0; i++)
     {
         if (lara()->health <= 0) {
@@ -3784,7 +3791,11 @@ static bool shootFromHere(ItemObj* foe)
             ringUse(inventory.counts[SLOT_MEDIKIT_SMALL] ? SLOT_MEDIKIT_SMALL : SLOT_MEDIKIT_BIG);
             continue;
         }
-        quiet = (distTo(foe->pos.x, foe->pos.z) < 8192) ? 0 : quiet + 1;
+        const ExtraInfoLara* e = lara()->extraL;
+        bool aimed = (e->armR.aim || e->armL.aim) && e->armR.target == foe;
+        unaimed = aimed ? 0 : unaimed + 1;
+        bool away = distTo(foe->pos.x, foe->pos.z) >= 8192 || (gLuresEager && ((foe->mood == MOOD_ESCAPE && !aimed) || unaimed > 30 * 45));
+        quiet = away ? quiet + 1 : 0;
         if (lure && quiet > 30 * 15)
         {
             quiet = 0;
@@ -4783,6 +4794,9 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
         } else if (!strcmp(cmd, "ignore") && n >= 2) {
             // ignore on|off: creatures left alone (not fought) from here till off
             gFleeing = !strcmp(a, "on");
+        } else if (!strcmp(cmd, "lures") && n >= 2) {
+            // lures eager|far: when `safe` lures a creature (shootFromHere)
+            gLuresEager = !strcmp(a, "eager");
         } else if (!strcmp(cmd, "swords") && n >= 4) {
             // swords ROOM X Z: to that spot through Damocles swords
             ok = swordsTo(atoi(a), atoi(b), atoi(c));

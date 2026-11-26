@@ -28,6 +28,7 @@ LEVELS = [
     ('LEVEL7A.route', 'The Cistern', (34, 27, 3)),     # Stella's 28 items: the Saturn level lays out 27
     ('LEVEL7B.route', 'Tomb of Tihocan', (17, 26, 2)),
     ('LEVEL8A.route', 'City of Khamoon', (15, 24, 3)),     # Stella's 14 kills: the consoles add a mummy
+    ('LEVEL8B.route', 'Obelisk of Khamoon', (16, 38, 3)),
 ]
 
 
