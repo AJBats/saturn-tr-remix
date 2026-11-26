@@ -1794,7 +1794,7 @@ struct ItemObj
     uint8 goalState;
     uint8 waterState;
 
-    uint16 headOffset; // enemies only
+    uint16 headOffset; // enemies: the head forward of the pivot; other objects keep state here (see each)
     union {
         uint16 gymTimer;   // lara only
         uint16 aggression; // enemies only

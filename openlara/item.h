@@ -1311,6 +1311,7 @@ ItemObj::ItemObj(Room* room)
     extra       = NULL;
     health      = NOT_ENEMY;
     timer       = 0;    // as retail's InitialiseItem: the slot's item of the last level may have left one
+    headOffset  = 0;    // a flame emitter's flame, lava's stop (retail's data, cleared there too)
     hitMask     = 0;
     visibleMask = 0xFFFFFFFF;
 
