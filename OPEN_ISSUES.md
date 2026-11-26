@@ -260,14 +260,6 @@ shimmers shrink; 286 low detail for a frame after the inventory.
 
 ## Creatures and AI
 
-### 339. The shooting and the ground mutants were a one-mesh stand-in that never moved (Egypt's mummies, Atlantis)
-*Severity: gameplay · Confidence: confirmed (retail's object setup read; TRX the same) · Fix: small*
-
-- **Found 2026-11-26** by the playtest bot in Obelisk of Khamoon: the sitting room's mummy (item 70) stood still where it started, and 1,800 ticks of magnum fire from 640 away never hit it.
-- The level files give types 21 (the shooter) and 22 (the ground mutant: Egypt's mummies) a model of one mesh, radius 67, the PlayStation's the same. Retail's object setup copies object 20, the winged mutant, whole onto 21 and 22 (`0608a024`, `0608a058`: 0x34 bytes, before its initialiser `06030fc4` hides the wings, mesh bits 0xffe07fff); TRX's atlantean.c does the same. Ours drew and animated the stand-in: a small thing that stood still, its one sphere 168 above the floor seldom in a shot's path.
-- 30 creatures: Khamoon 3, Obelisk 9, Sanctuary 6, Atlantis 9, the Great Pyramid 3. They now walk, fight and draw 21 meshes each (the wings hidden); their cost on the Saturn is not measured yet.
-- `tools/pack_level.py` flagged nodes 0 and 2 of the stand-ins for head turns, which landed on other models' nodes (in Sanctuary, Atlantis and the Pyramid, the centaur's: its head turn read from the wrong node). Dropped: the winged mutant's flags serve all three.
-
 ## Level logic, traps and objects
 
 ### 316. Darts from an emitter facing +x start at the emitter, not 412 behind it
@@ -956,6 +948,16 @@ word. Of the same kind and already open: 264, 265, 266.
 Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each): 88 keep the torso's no-turn walk; 99 fix the gorilla's sidestep as TRX; 11 keep the combat camera's stale distance; 139 the Saturn's 150 hits; 179 pan smoothly as TRX; 183 neither the loop restart nor the octave-down loops; 253 keep the shimmers.
 
 ## Closed
+
+### 339. The shooting and the ground mutants were a one-mesh stand-in that never moved (Egypt's mummies, Atlantis)
+*Closed 2026-11-26: 60ff8f2. readLevel copies the winged mutant's model onto types 21 and 22 when both are loaded, as retail's object setup does; the packer no longer flags the stand-ins' nodes. The playtest bot's Khamoon route plays the walking mummies at 100%.*
+
+*Severity: gameplay · Confidence: confirmed (retail's object setup read; TRX the same) · Fix: small*
+
+- **Found 2026-11-26** by the playtest bot in Obelisk of Khamoon: the sitting room's mummy (item 70) stood still where it started, and 1,800 ticks of magnum fire from 640 away never hit it.
+- The level files give types 21 (the shooter) and 22 (the ground mutant: Egypt's mummies) a model of one mesh, radius 67, the PlayStation's the same. Retail's object setup copies object 20, the winged mutant, whole onto 21 and 22 (`0608a024`, `0608a058`: 0x34 bytes, before its initialiser `06030fc4` hides the wings, mesh bits 0xffe07fff); TRX's atlantean.c does the same. Ours drew and animated the stand-in: a small thing that stood still, its one sphere 168 above the floor seldom in a shot's path.
+- 30 creatures: Khamoon 3, Obelisk 9, Sanctuary 6, Atlantis 9, the Great Pyramid 3. They now walk, fight and draw 21 meshes each (the wings hidden); their cost on the Saturn is not measured yet.
+- `tools/pack_level.py` flagged nodes 0 and 2 of the stand-ins for head turns, which landed on other models' nodes (in Sanctuary, Atlantis and the Pyramid, the centaur's: its head turn read from the wrong node). Dropped: the winged mutant's flags serve all three.
 
 ### 338. A random number drawn twice where retail draws it once (Larson's hit, the lightning)
 *Closed 2026-11-25. Each of the three draws is made once into a variable before the clamp. Lara and the seed match retail through Larson's hits (1,283 records). Both attract demos still match retail.*

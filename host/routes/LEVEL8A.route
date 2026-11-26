@@ -1,0 +1,202 @@
+# The City of Khamoon at 100% (Stella: 14 kills, 15 on the consoles; 24
+# items with 2 keys; 3 secrets).
+start LEVEL8A newgame
+# down from the ledge into the alcove: its switch (the trench's door); the
+# carved block pulled out three times: magnum clips and a small medipack
+switch 27
+pull 9 90 3
+pickup 11
+pickup 10
+# the ledge's block pulled along and over the first into the room, pushed
+# beside the tall pillar; up the block and the pillar, along the crevice into
+# the cave's opening: the panther shot from there; the ledge over the opening:
+# the magnums and a small medipack
+pull 1 90 1
+pull 1 0 1
+pull 1 0 1
+pull 1 0 1
+push 1 0 1
+hop 0.0 0 0 3 26112 18944
+hop 247.5 1 2 2 25088 18944
+traverse 2 25088 19340 0 right 27136 19355 grab,up
+safe 5 5 26800 19555
+pickup 7
+pickup 6
+# the block by the opening over the sphinx (it wakes the first mummy),
+# hunted; the pool's two magnum clips, the pillar's shells; up the block
+# between the paws to the chest, round to the back of the head, up into its
+# alcove: shells and the sapphire key
+goto 6 25088 25088
+hunt 20
+shoot 20 900
+pickup 3
+pickup 4
+pickup 21
+goto 12 31232 33280
+reach 13 30208 35328
+reach 13 29184 37376
+creep 13 29500 37200
+face 90
+keys UP 4
+wait 10
+keys A+B 30
+keys UP+B 90
+wait 100
+pickup 23
+pickup 22
+# out of the alcove behind the head, hung from its block's edge and dropped
+# to the ground; the block between the paws pulled out: the sapphire key in
+# the small door behind it
+creep 14 30000 37150
+face 270
+keys UP 20
+wait 40
+creep 13 28780 37300
+face 90
+keys DOWN+B 40
+wait 60
+pull 12 180 1
+usehole 13
+# the statue room: its first block's small medipack, the panther shot from
+# the next block; the sloping hall's panther, fought there (magnums); the
+# pool room's crocodile hunted from the room's floor; the long passage's
+# large medipack; secret 1, past the pillar in the sandy room's corner: a
+# large medipack and magnum clips
+pickup 72
+goto 48 34304 46592
+safe 71 48 34304 46592
+weapon magnums
+goto 56 38400 42496
+fight 8192
+goto 28 43520 34304
+hunt 63
+shoot 63 900
+pickup 38
+pickup 49
+pickup 48
+expect secrets 1
+# the boulder tripped now (it would meet her later): a run onto the ramp's
+# pad, veered off its side
+goto 42 52736 28160
+face 270
+keys UP 14
+keys UP+RIGHT 24
+wait 150
+# under water to the lever (the door on), straight out onto the walkway by
+# the door: the pool's crocodile shot from there; the tall room's block
+# pulled twice toward the steps, up to the switch over them (a gold ledge
+# out over the pool room); the block pushed on, pulled from its side and
+# pushed again: a running jump from it to the ledge by the second block;
+# that block pushed in (a lying mummy beyond, shot from the passage), the
+# switch inside (the trapdoor over the gold ledge)
+lever 46
+swim 46592 300 28160
+goto 19 45568 28160
+safe 8 19 45568 28160
+pull 28 270 2
+switch 31
+push 28 270 2
+pull 28 0 1
+push 28 0 1
+reach 18 41472 28160
+hop 0.0 5 2 20 41472 31232
+push 30 90 1
+goto 20 42496 33280
+draw
+shoot 33 600
+switch 32
+# the second block pushed on, up it, a running jump to the gold ledge, up
+# through the open trapdoor: the switch (the cat temple's trapdoor)
+push 30 90 1
+reach 20 44544 31232
+reach 24 44544 28160
+switch 36
+# out over the cat temple: the L-shaped ledge, a running jump to the sloped
+# ledge, the clips by its pillar; down the long slope: the small medipack;
+# a running jump to the overhang's middle block wakes the second crocodile
+# below, shot from there as it comes (from the ledges it wanders too far
+# under them to aim at); over to the temple's roof: its clips; secret 2: a
+# running jump to the ledge over the ramp, the Uzi clips
+reach 44 48640 31232
+reach 44 52736 30208
+pickup 65
+pickup 51
+reach 41 53760 29184
+safe 64 41 53760 29184
+reach 41 53760 25088
+pickup 53
+reach 41 48640 29184
+pickup 52
+expect secrets 2
+# into the cat temple: down its east step, south into the low row of
+# alcoves over the hall: the clips; the switch in the west alcove (the
+# trapdoor over the hall: light)
+goto 16 55808 28160
+goto 16 55808 29184
+pickup 84
+switch 25
+# the two panthers in the room under the hall, shot from the hall's narrow
+# ledge; the clips in the alcove behind the cat statue
+safe 87 54 53760 30208
+safe 88 54 53760 30208
+pickup 26
+# back to the switch, pulled again: the hall back as it was before it, dark
+# (the Saturn's lit hall, room 60, lacks the trigger of secret 3 that room 54
+# and the PlayStation's room 60 have; the lit hall comes back only by the
+# switch, the room 16 and 65 steps on the way in turning it on)
+goto 16 55808 28160
+goto 16 55808 29184
+switch 25
+# down past the step and the ledge into the room under the hall (magnums
+# out): crossing it opens the door on the right, two panthers fought as they
+# come; the large medipack at the end of their corridor
+goto 54 53760 30208 300
+weapon magnums
+goto 55 53760 33280
+fight 8192
+fight 8192
+safe 67
+safe 68
+pickup 69
+# onto the carved block by the right wall, up to the ledge, over the bridge
+# to the platform round the pillar: two more panthers out of the other door,
+# shot from the block (from the platform they're far off: minutes and a
+# thousand magnum shots)
+goto 55 55808 38400
+reach 55 55808 39424
+reach 54 54784 39424
+goto3 54 54784 4096 35328
+safe 91 55 55808 39424
+safe 92 55 55808 39424
+# up and over the bridge again; from the platform a running jump to the
+# ledge with the cat statue: secret 3 in the alcove behind it, the shotgun
+# shells; the small medipack in the panthers' passage
+reach 54 54784 39424
+goto3 54 54784 4096 35328
+reach 54 57856 30208
+pickup 85
+expect secrets 3
+goto 59 47616 37376
+pickup 93
+# up by the block to the ledge and into the winding passage: the mummy
+# where it opens into the sandy room, shot from there
+goto 55 55808 38400
+reach 55 55808 39424
+reach 54 54784 39424
+goto 35 46592 40448
+draw
+shoot 44 900
+# the second sapphire key in the room above; on over the statue room's
+# ledges: the clips; the switch in the alcove across (sand into the key room)
+pickup 39
+pickup 78
+switch 77
+# back to the key room's opening: a safety drop (dropped straight in, the
+# slide down costs half her health), down the slope into the sandy room, up
+# the next slope to the gold doors
+goto 51 40448 45300
+face 0
+keys DOWN+B 40
+wait 150
+usehole 76
+endlevel 49 41472 49664
