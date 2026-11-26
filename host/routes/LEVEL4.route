@@ -1,7 +1,7 @@
 # St. Francis' Folly at 100%, in progress (Stella: 23 kills, 19 pickups with
-# the 4 keys, 4 secrets). Played to its end: 14 kills, 12 pickups. Left: the
-# four secrets (their 7 pickups: see their notes) and 9 of the tall room's
-# bats, which keep off her.
+# the 4 keys, 4 secrets). Played to its end: 14 kills, 17 pickups, secrets
+# 1-3. Left: secret 4 (the tall room's pressure pad and timed door: large
+# medipack, magnum clips) and 9 of the tall room's bats, which keep off her.
 # tools/levelmap.py draws the level.
 start LEVEL4 newgame
 wait 30
@@ -39,8 +39,38 @@ goto 0 34304 36352
 leap 0 34304 38400
 leap 1 31232 38400
 leap 1 31232 35328 -3328
-# (secret 1, the angled blocks' jump combination in the room through that
-# doorway, not yet: the backflip off block B misses the ledge so far)
+# secret 1, the room through that doorway: in the doorway facing the angled
+# block on the left, walked up to it, a hop back; Jump and forward with
+# Action held, forward let go: onto the block, a backflip off it onto the one
+# behind, which turns her and jumps her to grab the middle level's ledge.
+# There, her back to the taller block, the same onto the lower one: up to the
+# top (large medipack, shells; the break-away tiles in the corner left be)
+goto3 59 30200 -3328 34300 walk 32
+attempt 56 29184 32256 12
+goto 59 30400 33740 walk 24
+face 90
+keys UP+L 30
+wait 15
+keys DOWN 2
+wait 30
+keys UP+A+B 14
+keys A+B 80
+keys UP+B 140
+end
+attempt 52 30208 32256 12
+goto 56 28800 32256 walk 24
+face 90
+keys DOWN 2
+wait 30
+keys UP+A+B 14
+keys A+B 80
+keys UP+B 110
+keys B 30
+end
+pickup 99
+pickup 98
+expect secrets 1
+goto3 59 30200 -3328 35300
 # back over the pillars to the tall one with the large medipack, a running
 # jump onto the north wall's ledges, along them west and down the west
 # wall's to the balcony door (open: the omega block and the gorilla switch)
@@ -55,16 +85,41 @@ leap 1 28160 43520 -3072
 leap 1 25088 43520 -3072
 leap 1 25088 41472 -3072
 goto 1 25088 38400
-# through the door and down the hall to the top of the long slide: off it
-# into the water below (secret 2, a jump off the slide's end into an opening
-# over the water, not yet); out to the switch room's ledge leaving the
-# crocodile be (secret 3, swum to under the switch room before the water's
-# drained, not yet); the switch drains it, the crocodile fought on the floor
+# through the door and down the hall to the top of the long slide. Secret 2:
+# down it backwards (a hop back onto it), Action held at its end: she hangs
+# from it, pulls up, slips off; Jump held as she lands on the short slope
+# below backflips her into the opening over the water (small medipack, the
+# shotgun or shells)
 goto 6 23040 34304
-face 90
-keys UP 20
-wait 400
+attempt 11 38400 34304 12
+goto 6 23035 34338 walk 24
+face 270
+keys DOWN 2
+wait 220
+keys B 60
+keys UP+B 76
+wait 12
+keys A 80
+wait 60
+end
+pickup 16
+pickup 17
+expect secrets 2
+# secret 3, before the water's drained: through the switch room into the
+# water off its far ledge (the crocodile left be), back under the switch room
+# low, up through the hole in the ceiling into the little room (the shotgun or
+# shells); back to the switch room. The switch drains the water, the crocodile
+# fought on the floor
 ignore on
+goto 13 43008 34304 256
+goto 14 46592 34304
+face 90
+keys UP 15
+wait 40
+swim 41472 12400 34304
+swim 41472 10900 34304
+pickup 22
+expect secrets 3
 goto 13 43008 34304 256
 ignore off
 switch 18

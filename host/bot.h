@@ -22,6 +22,7 @@
 //                                 first tried, the one losing least health played
 //   push|pull ITEM DEGREES TIMES  a movable block moved that way, a sector a time
 //   swimto ROOM X Y Z             to a spot in the water
+//   swim X Y Z                    straight to a spot in the water (no planning)
 //   draw                          guns out
 //   endlevel ROOM X Z             to the level's end there, through its
 //                                 statistics and "Save Game?" to the next level
@@ -4382,6 +4383,12 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
                 count++;
             }
             ok = dash(rooms + atoi(a), xz, count, !strcmp(cmd, "creep"));
+        } else if (!strcmp(cmd, "swim") && n >= 4) {
+            // swim X Y Z: straight there in the water (no planning: past a creature, a hole)
+            ok = swimTo(atoi(a), atoi(b), atoi(c), 200);
+            if (!ok) {
+                fail("couldn't swim straight there");
+            }
         } else if (!strcmp(cmd, "probe")) {
             probe();
         } else if (!strcmp(cmd, "reach") && n >= 4) {
