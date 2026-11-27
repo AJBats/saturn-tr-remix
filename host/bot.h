@@ -47,6 +47,9 @@
 //                                 (a centaur's rockets fly to where she was)
 //   fight [RANGE]                 guns drawn, every creature awake within
 //                                 RANGE (4096 if none) shot dead
+//   aimedfire on|off              from here on `fight` fires only with a gun
+//                                 aimed (a flier out of aim no longer empties
+//                                 the guns into the air)
 //   lures eager|far               from here on `safe` lures a creature also when
 //                                 it runs from her or stays out of her aim (far:
 //                                 only when it's far off, as before)
@@ -3625,6 +3628,8 @@ static bool clearBehind(int32 dist)
 // held while she aims at it; a target she can't aim at for a while let go
 // (Action released a tick), so she takes the best in front. Till none is
 // left within range.
+static bool gAimedFire;     // the route said `aimedfire on`: fights fire only aimed
+
 struct FightStyle
 {
     int32 deadband;     // turned toward the foe past this
@@ -3712,7 +3717,8 @@ static bool fight(const FightStyle &st, int32 range = 4096, int32 maxTicks = 30 
         // Action is held): let go a moment for a new target
         bool aimed = e->armR.aim || e->armL.aim;
         unaimed = (target && (!aimed || target->health <= 0)) ? unaimed + 1 : 0;
-        if (e->weaponState == WEAPON_STATE_READY && unaimed < st.letGo) {
+        if (e->weaponState == WEAPON_STATE_READY && unaimed < st.letGo &&
+            (!gAimedFire || (target && aimed && target->health > 0))) {
             k |= IK_B;
         } else if (unaimed >= st.letGo) {
             unaimed = 0;    // let go a tick: a new target
@@ -4923,6 +4929,8 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
         } else if (!strcmp(cmd, "ignore") && n >= 2) {
             // ignore on|off: creatures left alone (not fought) from here till off
             gFleeing = !strcmp(a, "on");
+        } else if (!strcmp(cmd, "aimedfire") && n >= 2) {
+            gAimedFire = !strcmp(a, "on");
         } else if (!strcmp(cmd, "lures") && n >= 2) {
             // lures eager|far: when `safe` lures a creature (shootFromHere)
             gLuresEager = !strcmp(a, "eager");

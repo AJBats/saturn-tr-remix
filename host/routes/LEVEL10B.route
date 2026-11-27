@@ -1,0 +1,292 @@
+start LEVEL10B newgame
+# fights fire only with a gun aimed (the fliers here otherwise empty the guns
+# into the air while they keep out of aim)
+aimedfire on
+# the incubator hall: the clips by the door wake three eggs, each hatching as
+# she nears it; each mutant fought as it comes; the clips at the far end
+weapon magnums
+goto 12 58368 17408
+fight 8192
+goto 9 58368 21504
+fight 8192
+goto 9 60416 24064
+fight 8192
+goto 9 59904 31744
+fight 8192
+pickup 29
+# through the west door (it opens as she steps into it), up the stairs onto
+# the see-through floor: the small medipack
+goto 9 55808 35940 200
+wait 30
+creep 9 55808 36352
+creep 22 54784 36352
+goto 7 56832 33280
+pickup 20
+# the shells on the walkway (the eggs below wake, a flier hatches), the
+# switch in the corner (a door opens), the switch behind it (the east door
+# and another egg)
+weapon magnums
+pickup 19
+fight 8192
+wait 100
+fight 8192
+switch 15
+switch 16
+fight 8192
+wait 100
+fight 8192
+# near the last two eggs, each fought as it hatches; down the east stairs:
+# the switch for the middle door
+goto 7 56832 24576
+fight 8192
+wait 100
+fight 8192
+goto 7 61952 30720
+wait 150
+fight 8192
+wait 100
+fight 8192
+switch 35
+# through the doors at the stairs' foot and the middle door (the planner
+# takes doors for walls: crept through) to the ledge over the lava pool; the
+# flier that comes down
+weapon uzis
+goto 11 66048 36352
+creep 11 65024 36352
+creep 9 63488 36352
+goto 9 59904 35328
+creep 9 59904 36352
+creep 6 59904 37376
+goto 6 59904 41472
+fight 16384
+wait 150
+fight 16384
+# secret 1: hung from the ledge's edge, dropped and caught on the ledge
+# below; the passage behind it: the medipack and clips; on to the bridge
+goto 6 59904 41472
+creep 6 59904 41750
+face 180
+attempt 5 59904 41472
+keys DOWN+B 30
+wait 8
+keys B 40
+keys UP+B 40
+wait 40
+end
+pickup 186
+pickup 187
+pickup 188
+expect secrets 1
+goto 13 68096 45568
+# the bridge room: a standing jump from the bridge to the crevice in the
+# wall, dropped and caught on the doorway under it; the switch along that
+# tunnel (the red door), back round the low tunnel to the opening over the
+# bridge: its clips
+creep 13 68400 45568
+face 90
+attempt 15 70144 45568
+keys UP+A+B 10
+keys B 40
+wait 8
+keys B 40
+keys UP+B 40
+wait 40
+end
+switch 44
+goto 16 73216 43520
+creep 16 72192 43520
+creep 16 70900 43520
+face 270
+keys UP+B 40
+wait 30
+pickup 41
+pickup 40
+# down to the bridge, across its gap (the egg in the pit hatches and is
+# fought), through the red door to the pool under the pyramid; a running
+# jump from the doorway to the tall block
+reach 13 68096 43520
+reach 13 68096 49664
+goto 20 65024 57856
+reach 20 61952 57856
+# a running jump onto the pyramid's first flat spot (it sets a boulder
+# rolling) and straight on with a standing jump to the next (it rolls by);
+# a jump onto the slope, sliding to the flat spot over the second spike pit
+# (another boulder) and at once a jump to the one beside it
+creep 20 62117 58253
+face 203
+keys UP 6
+jumpkeys UP+A
+jumpkeys UP+A
+wait 30
+creep 20 59743 53693
+face 252
+jumpkeys UP+A
+face 230
+jumpkeys UP+A
+wait 60
+# secret 2: flat spot to flat spot up the pyramid to the opening at its top
+# corner: the medipack and clips
+hop 225.0 2 0 20 55808 53760
+hop 135.0 2 0 20 56832 52736
+hop 225.0 2 0 20 55808 51712
+hop 225.0 2 0 20 54784 50688
+reach 97 53760 50688
+pickup 183
+pickup 184
+pickup 185
+expect secrets 2
+# down to the flat spot by the red door, a running jump over the pool to
+# the low step, the blocks: the large medipack, the room at the top: its
+# clips and the switch (lava fills the next room's chutes)
+goto 20 54784 56832
+hop 0.0 3 2 20 54784 61952
+reach 20 58880 61952
+pickup 54
+reach 20 61952 61952
+pickup 58
+pickup 57
+switch 56
+# the timed run: the lever under the water (the red door opens for 47
+# seconds), out onto the ledge at the water's edge, up the tall block, the
+# flat spots again (the boulders are gone) to the one by the door, through
+lever 55
+goto 20 61952 59136 300
+attempt 20 61952 57856
+keys UP 20
+keys A+B 10
+keys B 30
+keys UP+B 40
+wait 10
+end
+face 200
+keys UP 6
+jumpkeys UP+A
+jumpkeys UP+A
+creep 20 59743 53693
+face 252
+jumpkeys UP+A
+wait 100
+face 285
+keys UP 4
+jumpkeys UP+A
+wait 20
+creep 20 54784 57856
+creep 18 53760 57856
+# over the lava room to the passage up to the pool: its shells, the lever
+# for its door, through to the ledges over the lava pool: two lots of clips
+# on the first (the flier fought there), two on the next
+goto 27 42496 58880
+pickup 63
+lever 62
+pickup 6
+pickup 3
+fight 16384
+wait 150
+fight 16384
+pickup 5
+pickup 2
+# the switch room: the small medipack under the water, the clips on the
+# ramp, the two switches for two of the underwater doors
+pickup 146
+pickup 163
+pickup 161
+switch 150
+switch 148
+weapon uzis
+# the third door's switch (an egg wakes): hatched from as far off as it
+# hatches at, fought with the shotgun
+switch 151
+weapon shotgun
+goto 78 49664 41472
+fight 8192
+wait 60
+fight 8192
+# the switch for another egg, hatched from its far edge
+switch 147
+weapon uzis
+goto 78 45824 42496
+fight 8192
+wait 60
+fight 8192
+# the switch for the last two (the near one hatches at once), the far one
+# hatched from its far corner
+weapon uzis
+switch 149
+fight 8192
+wait 60
+fight 8192
+goto 78 43520 41600
+fight 8192
+wait 60
+fight 8192
+expect kills 13
+# through the underwater doors to the fleshy hallway: the switch for the
+# door, its clips (a boulder rolls down and blocks the way out); squeezed
+# past the boulder by side jumps along the wall
+switch 65
+pickup 68
+pickup 67
+wait 150
+goto 34 56832 36352
+creep 34 56832 36700
+face 0
+attempt 25 59904 36352
+keys A+RIGHT 25
+keys A+RIGHT 25
+keys A+RIGHT 25
+keys A+RIGHT 25
+end
+# out on the ledges over the lava pool again: the flier, a jump to the next
+weapon uzis
+goto 35 60928 41472
+fight 16384
+wait 150
+fight 16384
+reach 37 64000 44544
+# the spike trench room: each egg hatched by a step in and its flier fought
+# from the doorway (backing off there never slides her into the trench); a
+# slide down the near slope and a jump at its foot over the spikes; the
+# clips, shells and medipack at the top
+weapon uzis
+goto 38 65024 45750
+goto 38 65024 44800
+face 0
+wait 30
+fight 16384
+wait 100
+fight 16384
+goto 38 65024 46750
+goto 38 65024 44800
+face 0
+wait 30
+fight 16384
+wait 100
+fight 16384
+expect kills 16
+goto 38 64000 46592
+face 0
+keys UP 12
+wait 55
+jumpkeys UP+A
+wait 40
+pickup 81
+pickup 80
+pickup 79
+pickup 78
+# the fleshy bridge room: up the entry ledge to the bridge's east end (a
+# flier rises), fought there; the clips beside it
+weapon uzis
+goto 40 61952 60928
+fight 16384
+wait 150
+fight 16384
+pickup 90
+# back to the entry ledge, a jump to the ledge left of it, a jump to the
+# square ledge before the incubator (its egg hatches, the flier fought from
+# the passage's mouth), the clips along the passage
+reach 40 58880 55808
+reach 40 56832 56832
+fight 8192
+wait 100
+fight 8192
+pickup 94
