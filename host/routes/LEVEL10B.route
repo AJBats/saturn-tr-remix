@@ -290,3 +290,37 @@ fight 8192
 wait 100
 fight 8192
 pickup 94
+# from the passage's higher opening a running jump to the bridge's tan
+# ledge; the two mutants in the cave across the lava shot from safe spots
+goto 40 54784 55808
+hop 15 5 4 40 55808 59904
+weapon uzis
+safe 165
+safe 166
+# over to the walkway on the lava's far side: its two lots of clips, up to
+# the switch (a hidden door opens); back over the gap; the block pulled off
+# the door
+reach 40 57856 65024
+pickup 93
+pickup 91
+switch 83
+reach 40 52736 65024
+pull 86 90 1
+# round the block, through the door, past the chomping blades, a jump to the
+# cave the mutants were in, up it: the small medipack and clips
+creep 40 51712 65024
+creep 40 50688 65024
+creep 40 50688 66048
+creep 69 49664 66048
+goto 69 47616 60928
+timed 40 50688 60416 straight
+reach 40 50688 56832
+pickup 167
+pickup 168
+# out on a ledge of the tall lava room: the flier, a jump to the next ledge
+weapon uzis
+goto 3 56832 49664
+fight 16384
+wait 150
+fight 16384
+reach 42 53760 47616
