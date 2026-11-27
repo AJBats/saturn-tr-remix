@@ -266,9 +266,10 @@ wait 40
 pickup 128
 pickup 127
 pickup 126
-# the secret's trigger: in retail's data it names the level's first
-# secret (found already), so it doesn't count (TRX patches it to the third)
+# the secret's trigger (retail's data names the first secret on it; the
+# packer renumbers it to the third, as TRX does)
 goto 64 69120 51712
+expect secrets 3
 # a swan dive from the opening into the tiny pool; the clips on its floor;
 # the passage on to the four clips
 goto 64 68096 51712

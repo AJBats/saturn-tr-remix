@@ -336,6 +336,37 @@ def close_gaps(lvl):
         room.triangles.append((*at, texture))
 
 
+# Retail data bugs in the levels' triggers, fixed as TRX's injections fix them: room, sector (x, z), the action,
+# its parameter in the data and the right one.
+TRIGGER_FIXES = {
+    "LEVEL10C": [(64, 2, 1, 10, 0, 2)],     # secret 3's trigger names the first secret (TRX pyramid_fd.bin)
+}
+
+
+def fix_triggers(lvl):
+    for index, x, z, action, old, new in TRIGGER_FIXES.get(lvl.name, ()):
+        room = lvl.rooms[index]
+        at = room.sectors[x * room.z_sectors + z][0]
+        place = None
+        while at and place is None:
+            func = lvl.floors[at]
+            kind = func & 0x1F
+            at += 2 if kind in (1, 2, 3, 4) else 1     # portal, slants: one word; a trigger: its timer word
+            while kind == 4:
+                cmd = lvl.floors[at]
+                if cmd >> 10 & 0x1F == action and cmd & 0x3FF == old:
+                    place = at
+                    break
+                at += 2 if cmd >> 10 & 0x1F == 1 else 1     # a camera takes a second word
+                if lvl.floors[at - 1] & 0x8000:
+                    break
+            if func & 0x8000:
+                at = 0
+        if place is None:
+            raise ValueError(f"{lvl.name}: room {index} sector {x},{z} has no action {action} ({old}) to fix")
+        lvl.floors[place] = lvl.floors[place] & ~0x3FF | new
+
+
 def take_water(lvl):
     """Water's sparkle quads out of the rooms, with the vertices only they used: flat, a sector each, of
     an animated texture mostly empty. Left in each room as room.water, for the shimmers, and the texture's
@@ -1639,6 +1670,7 @@ def write_mesh_record(out, name, center, radius, vertices, normals, intensities,
 def main():
     data_dir, name, out_path = sys.argv[1:4]
     lvl = trsat.load(data_dir, name)
+    fix_triggers(lvl)
     borrow_title_glyphs(lvl, data_dir)
     read_camera_frames(lvl, data_dir)
     spec = os.environ.get("LARA_START")
