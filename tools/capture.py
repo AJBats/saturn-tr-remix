@@ -99,9 +99,10 @@ class Mednafen:
     """A Mednafen of our own, driven through its automation files in
     build/NAME_ipc, its settings in build/NAME_home."""
 
-    def __init__(self, cue, name='capture', sound=None):
+    def __init__(self, cue, name='capture', sound=None, fast=False):
         # sound: a WAV file the game's sound is recorded to, from boot on, at
-        # full level (the speakers get none)
+        # full level (the speakers get none); fast: no wait for real time
+        # (without sound only)
         exe = None
         for rel in ('mednafen_debug.exe', 'src/mednafen.exe', 'mednafen_gcc494.exe'):
             path = os.path.join(ROOT, 'tools/mednafen', rel)
@@ -136,6 +137,8 @@ class Mednafen:
         stderr_path = os.path.join(ROOT, f'build/{name}_stderr.txt')
         with open(stderr_path, 'w') as stderr:
             audio = ['--sound', '1', '--sound.volume', '0', '--soundrecord', sound] if sound else ['--sound', '0']
+            if fast and not sound:
+                audio += ['-nothrottle', '1']
             self.proc = subprocess.Popen([exe] + audio + ['-cd.image_memcache', '1', '--automation', self.ipc, cue],
                                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                          stderr=stderr, env=env)
@@ -175,7 +178,7 @@ class Mednafen:
             reply = self.ack()
             if reply and reply != before and expect in reply:
                 return reply
-            time.sleep(0.05)
+            time.sleep(0.005)
         sys.exit(f'{cmd}: no reply with "{expect}" (last: {self.ack()})')
 
     def read(self, address, size):
@@ -186,10 +189,10 @@ class Mednafen:
             if os.path.exists(part):
                 os.remove(part)
             self.send(f'dump_mem_bin {at:x} {n:x} {part.replace(os.sep, "/")}', 'dump_mem_bin', 30)
-            for _ in range(50):
+            for _ in range(500):
                 if os.path.exists(part) and os.path.getsize(part) == n:
                     break
-                time.sleep(0.05)
+                time.sleep(0.005)
             with open(part, 'rb') as f:
                 data += f.read()
         return data
