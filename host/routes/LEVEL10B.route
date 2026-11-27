@@ -411,10 +411,13 @@ wait 20
 goto 84 57856 56832
 switch 106
 goto 47 49664 54784
-# the incubator room: the clips by the door on the right (those on the
-# left lie inside the reach of the incubator over them: out of reach); the
-# centaur's egg hatched by a step onto the far row, fought backing off with
-# the shotgun
+# the incubator room: a step past the entry door's row shuts it (open, its
+# leaves block the clips beside it), the four clips; the centaur's egg
+# hatched by a step onto the far row, fought backing off with the shotgun
+goto 73 48640 59904
+wait 90
+pickup 141
+pickup 138
 pickup 140
 pickup 139
 weapon shotgun
