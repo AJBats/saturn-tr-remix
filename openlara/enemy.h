@@ -4140,8 +4140,12 @@ struct Adam : Enemy
 
         if (health <= 0)
         {
-            if (state != STATE_DEATH) {     // its fall, picked here as AbortionControl's
+            if (state != STATE_DEATH)       // its fall, picked here as AbortionControl's
+            {
                 animSet(level.models[type].animIndex + ANIM_DEATH, true);
+                // retail sets the state itself: the death animation's own is
+                // 0, and taken from it the fall began again every tick
+                state = goalState = STATE_DEATH;
             }
             return goalState;
         }
