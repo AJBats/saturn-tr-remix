@@ -817,10 +817,12 @@ int main(int argc, char** argv)
         {
             ReplayRec r;
             replayRecord(r, tick);
-            // (inv: the inventory is open after it; tools/retailrun.py follows retail's apart)
-            printf("rec %d level %d room %d pos %d %d %d yaw %d anim %d frame %d health %d seed %08x items %08x inv %d\n",
+            // (inv: the inventory is open after it; tools/retailrun.py follows retail's apart; the
+            // level's statistics so far after it)
+            printf("rec %d level %d room %d pos %d %d %d yaw %d anim %d frame %d health %d seed %08x items %08x inv %d "
+                   "kills %d pickups %d secrets %02x\n",
                    r.tick, r.level, r.room, r.x, r.y, r.z, r.yaw, r.anim, r.frame, r.health, r.seed, r.items,
-                   inventory.state != INV_STATE_NONE);
+                   inventory.state != INV_STATE_NONE, gSaveGame.kills, gSaveGame.pickups, gSaveGame.secrets);
         }
 
         // ARMS=FIRST: from that tick on, her arms after each tick (as retail's

@@ -27,9 +27,12 @@
 !   +32  in an opening (long): set by its first entry read; the next game tick
 !        then moves the script past the opening's end (a menu that shuts on its
 !        last press leaves the gap after it unread)
+!   +36  the driver's alone: where in the whole script the script's first entry
+!        is (it moves the script back as the position goes on; kept in a save state)
 ! A ring entry: index (long), seed (long), level (long), 0 or a watched creature's
 ! mood (long), the item (72 bytes), then for a creature its maximum turn and its
-! target's x and z less its own (halfwords), pad (2)
+! target's x and z less its own, for Lara the level's kills, secrets (bits) and
+! pickups so far (halfwords), pad (2)
 ! Only r0-r7 are used: the caller keeps the rest.
 
     .section .text
@@ -61,7 +64,9 @@ armed:
     bt      script
     mov.l   save,r2
     cmp/eq  r2,r0
-    bf      out
+    bt      script
+    bra     out
+    nop
 script:
     ! an inventory frame: the script's next entry, if this opening has one
     mov.l   @(20,r1),r4
@@ -167,7 +172,7 @@ copy:
     ! target less its position (in the pad), from its creature block (item +0x2c)
     mov.l   @(28,r1),r0
     tst     r0,r0
-    bt      nocreature
+    bt      tally
     add     #-72,r6
     mov.l   @(44,r6),r4
     tst     r4,r4
@@ -183,6 +188,18 @@ copy:
     mov.l   @(60,r4),r0
     mov.l   @(56,r6),r2
     sub     r2,r0
+    mov.w   r0,@(4,r7)
+    bra     nocreature
+    nop
+tally:
+    ! Lara's entry: the level's kills, secrets (bits) and pickups so far, there
+    mov.l   kills,r4
+    mov.w   @(2,r4),r0      ! the long's low half
+    mov.w   r0,@(0,r7)
+    mov.w   @(4,r4),r0
+    mov.w   r0,@(2,r7)
+    mov.b   @(8,r4),r0
+    extu.b  r0,r0
     mov.w   r0,@(4,r7)
 nocreature:
     ! the tick table's entry
@@ -215,9 +232,10 @@ level:  .long 0x06060cb4
 lara:   .long 0x060a00e4
 itemsp: .long 0x06072bdc    ! the items' base
 pad:    .long 0x0606e404
+kills:  .long 0x06092488    ! then secrets (+4) and pickups (+8)
 through: .long 0x20000000
 mask:   .word 255
 window: .word 4095
     .align 2
     .global vars
-vars:   .long 0, 0, 0, 0, -1, 0, 0, 0, 0
+vars:   .long 0, 0, 0, 0, -1, 0, 0, 0, 0, 0

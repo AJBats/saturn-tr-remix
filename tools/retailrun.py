@@ -2,24 +2,36 @@
 a tick at a time, beside the host build playing it: the first tick where Lara or the
 control seed part, or that they ran alike.
 
-    python -I tools/retailrun.py REPLAY OUT.txt [--ticks N] [--items N]
+    python -I tools/retailrun.py REPLAY OUT.txt [--ticks N] [--items N] [--go-on]
 
 OUT.txt gets retail's records as host/host.cpp's REC lines (tools/recdiff.py compares two
-such files); OUT_host.txt the host's for the same ticks.
+such files, tools/retaildiff.py sorts their differences by what they do to play);
+OUT_host.txt the host's for the same ticks.
 
 Retail's S_UpdateInput, called once a tick by ControlPhase, reaches the pad scan through
 the pool word at 0x06037644; that word is turned to tools/retailpad.s (assembled with the
 pinned toolchain) at STUB. For a game tick it feeds pad 1 from the tick table, one entry a
-tick, and keeps Lara's item and the seed in a ring; for a frame of the inventory's own loop
-(retail's ring is modal, an input a frame and its animation by the vblanks gone) it feeds
-the inventory script (so does the level's statistics screen). The host runs the inventory
-and the statistics as ticks with the game held: those ticks leave the tick table, and their
-presses, spaced out, make the script; a run of routes chained (host/bot.h) is followed from
-level to level, past the in-game films and movies between them (retail plays those in loops
-of their own: the host's film ticks leave the table too). Armed at the first ControlPhase of the replay's level, reached from boot by
-the title's menus (a new game: the Caves only, so far). --items N holds the game before the tick after the replay's last and
-prints N items. build/retail_clean_sav holds retail's backup memory files from a clean boot (a run's
-Mednafen home's sav/ before any run saved a game): each run starts from them."""
+tick, and keeps Lara's item, the control seed and the level's statistics so far in a ring;
+for a frame of the inventory's own loop (retail's ring is modal, an input a frame and its
+animation by the vblanks gone) it feeds the inventory script (so do the level's statistics
+screen and "Save Game?"). The host runs the inventory and the statistics as ticks with the
+game held: those ticks leave the tick table, and their presses, spaced out, make the
+script; a run of routes chained (host/bot.h) is followed from level to level, past the
+in-game films and movies between them (retail plays those in loops of their own: the
+host's film ticks leave the table too). The tick table is a window the driver keeps filled
+ahead, the script a part of it the driver moves on. Armed at the first ControlPhase of the
+replay's level, reached from boot by the title's menus (a new game: the Caves only, so
+far). --items N holds the game before the tick after the replay's last and prints N items.
+build/retail_clean_sav holds retail's backup memory files from a clean boot (a run's
+Mednafen home's sav/ before any run saved a game): each run starts from them.
+
+Mednafen runs as fast as it can. A run stops a few ticks past the first record that
+differs; with --go-on it plays on, and stops once retail is lost: in another level than
+the host's for LOST ticks (a level it didn't finish), or with no game tick for six minutes.
+--save-every N saves a state every N game ticks (build/bot/rNAME_TICK.mcs), to resume from
+(a state holds the stub as the run assembled it: one from before a change to retailpad.s
+doesn't resume).
+"""
 import argparse
 import os
 import re
@@ -27,6 +39,8 @@ import shutil
 import struct
 import subprocess
 import sys
+import time
+from array import array
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.join(ROOT, 'tools')
@@ -35,6 +49,7 @@ from capture import Mednafen  # noqa: E402
 
 CUE = ROOT + '/external_resources/tomb_raider_usa/Tomb Raider (USA).cue'
 BIN = ROOT + '/toolchain/gcc-14.2.0/sh2eb-elf/bin/'
+HOST = os.environ.get('HOST_LOGIC', 'build/host/logic')
 # Low work RAM retail leaves alone: its bottom. The inventory ring, opened in a
 # level, writes 0x00200000..0x00200100; a level's data fills it from higher up
 # down (the Caves from 0x00245d10, Lost Valley lower: it wrote over a tick
@@ -54,11 +69,16 @@ LEVEL = 0x06060CB4
 ENTRY = 96
 NOTHING = 0xFFFF
 OPEN_WAIT, PRESS_GAP = 40, 30   # inventory frames before the first press, between presses
+LOST = 900              # game ticks in another level than the host's: retail is lost
 
 PAD = {'UP': 0x1000, 'DOWN': 0x2000, 'LEFT': 0x4000, 'RIGHT': 0x8000, 'START': 0x0800, 'A': 0x0400, 'C': 0x0200,
        'B': 0x0100, 'R': 0x0080, 'X': 0x0040, 'Y': 0x0020, 'Z': 0x0010, 'L': 0x0008}
 LEVELS = {'LEVEL1': 1, 'LEVEL2': 2, 'LEVEL3A': 3, 'LEVEL3B': 4}
 FILMS = (6, 12, 17, 19)     # the host's cutscene levels (LVL_TR1_CUT_1..4)
+# retail's level numbers (PC TR1's: the gym 0, the levels 1..15, the cutscenes 16..19) by the host's
+# (common.h LevelID: the title 0, the gym 1, the cutscenes among the levels)
+RETAIL_LEVEL = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 16, 7: 5, 8: 6, 9: 7, 10: 8, 11: 9, 12: 17, 13: 10, 14: 11, 15: 12,
+                16: 13, 17: 18, 18: 14, 19: 19, 20: 15}
 # Retail's own bugs we keep the fixed way (PC TR1, TRX), patched out of retail so a run
 # can be followed past them: (address, bytes, why)
 PATCHES = [
@@ -67,11 +87,50 @@ PATCHES = [
     # and r8,r1 / tst r1,r1 / bt"; r9 is item->data, and each turn tests its own flag after
     (0x0602E666, bytes([0x29, 0x98, 0x89, 0x18, 0x00, 0x09, 0x00, 0x09]),
      'a creature with no AI slot turns no head or neck sphere, as TRX (retail reads the turns from address 0; issue 336)'),
+    # ApeVault: "mov.w @r7,r0 / nop / nop" over "mov r8,r1 / add #0x28,r1 / mov.w @r1,r0"; r7 is the
+    # creature's flags, r8 the item
+    (0x060295B4, bytes([0x60, 0x71, 0x00, 0x09, 0x00, 0x09]),
+     "the gorilla's turn back after a left sidestep tests its own flag, as TRX (retail tests the item's flags; issue 99)"),
 ]
 TITLE_TO_NEW_GAME = ['2400', '+start', '2700', '+start', '3600', '+a', '4100', '+start', '4400', '+a', '4600', '+a',
                      '5000', '+start']
 ITEMS = 0x06072BDC     # the items' base (a pointer)
 FIELDS = ('room', 'x', 'y', 'z', 'yaw', 'anim', 'frame', 'health', 'seed')
+HOST_FIELDS = ('level', 'room', 'x', 'y', 'z', 'yaw', 'anim', 'frame', 'health', 'seed', 'items', 'inv', 'kills',
+               'pickups', 'secrets')
+RETAIL_FIELDS = ('level', 'room', 'x', 'y', 'z', 'yaw', 'anim', 'frame', 'health', 'seed', 'state', 'goal', 'kills',
+                 'pickups', 'secrets')
+WATCH_FIELDS = ('mood', 'maxturn', 'tdx', 'tdz')
+
+
+class Records:
+    """Records by tick, kept compact (a whole chained run is over a million ticks)."""
+
+    def __init__(self, names):
+        self.cols = {k: array('I' if k in ('seed', 'items', 'mood') else 'i') for k in names}
+        self.have = bytearray()
+
+    def __setitem__(self, t, rec):
+        if t >= len(self.have):
+            add = t + 1 - len(self.have) + 4096
+            for c in self.cols.values():
+                c.frombytes(bytes(add * c.itemsize))
+            self.have.extend(bytes(add))
+        for k, v in rec.items():
+            self.cols[k][t] = v
+        self.have[t] = 1
+
+    def __contains__(self, t):
+        return 0 <= t < len(self.have) and self.have[t]
+
+    def __getitem__(self, t):
+        return {k: c[t] for k, c in self.cols.items()}
+
+    def __iter__(self):
+        return (t for t, h in enumerate(self.have) if h)
+
+    def __len__(self):
+        return self.have.count(1)
 
 
 def read_replay(path):
@@ -93,21 +152,26 @@ def read_replay(path):
     return level, keys
 
 
-def host_records(replay, ticks):
-    """The host's record after each tick: {tick: dict}, inv the inventory open after it."""
+def host_records(replay, ticks, path):
+    """The host's record after each tick (written to path as it prints them); inv: the
+    inventory open after it."""
     rel = os.path.relpath(replay, ROOT).replace('\\', '/')
     env = dict(os.environ, REPLAY=rel, REC='1', MSYS_NO_PATHCONV='1', WSLENV='REPLAY:REC')
-    out = subprocess.run(['wsl.exe', '-d', 'Ubuntu-24.04', '--cd', ROOT.replace('\\', '/'), '--', 'qemu-ppc',
-                          'build/host/logic', 'build/data', '-', str(ticks)], env=env, capture_output=True, text=True)
+    with open(path, 'w') as f:
+        out = subprocess.run(['wsl.exe', '-d', 'Ubuntu-24.04', '--cd', ROOT.replace('\\', '/'), '--', 'qemu-ppc',
+                              HOST, 'build/data', '-', str(ticks)], env=env, stdout=f, stderr=subprocess.PIPE, text=True)
     if out.returncode:
         sys.exit(f'host: {out.stderr.strip()}')
-    recs = {}
-    for line in out.stdout.splitlines():
+    recs = Records(HOST_FIELDS)
+    for line in open(path):
         w = line.split()
         if w and w[0] == 'rec':
-            recs[int(w[1])] = dict(level=int(w[3]), room=int(w[5]), x=int(w[7]), y=int(w[8]), z=int(w[9]), yaw=int(w[11]),
-                                   anim=int(w[13]), frame=int(w[15]), health=int(w[17]), seed=int(w[19], 16),
-                                   inv=int(w[23]) if len(w) > 23 else 0)
+            # rec T level L room R pos X Y Z yaw A anim N frame F health H seed S items I inv V
+            # kills K pickups P secrets B
+            recs[int(w[1])] = dict(level=int(w[3]), room=int(w[5]), x=int(w[7]), y=int(w[8]), z=int(w[9]),
+                                   yaw=int(w[11]), anim=int(w[13]), frame=int(w[15]), health=int(w[17]),
+                                   seed=int(w[19], 16), items=int(w[21], 16), inv=int(w[23]), kills=int(w[25]),
+                                   pickups=int(w[27]), secrets=int(w[29], 16))
     return recs
 
 
@@ -117,8 +181,8 @@ def split_inventory(keys, host):
     press that shuts it (the host's tick that shuts it is also a game tick) goes to the
     script too, the tick's own entry left with nothing held (keys is changed). A film
     between levels is no game tick (retail plays it in a loop of its own, the pad
-    unread by the stub); the statistics and "Save Game?" after it are a stay from their
-    first tick."""
+    unread by the stub) but its first, the level's end; the statistics and "Save
+    Game?" after it are a stay from their first tick."""
     def staying(t):
         return t > 0 and host[t]['inv'] and (host[t - 1]['inv'] or host[t]['level'] in FILMS)
 
@@ -126,6 +190,11 @@ def split_inventory(keys, host):
     t = 0
     while t < len(keys):
         if host[t]['level'] in FILMS and not host[t]['inv']:
+            # but the film's first tick: the level's end, where retail reads the pad
+            # once more before it ends the level (as at a level's end before its
+            # statistics, the host's tick that opens them)
+            if t > 0 and host[t - 1]['level'] not in FILMS:
+                kept.append(t)
             t += 1
             continue
         if staying(t):
@@ -179,8 +248,9 @@ def rec_line(t, r):
     extra = f' state {r["state"]} goal {r["goal"]}' if 'state' in r else ''
     if 'mood' in r:
         extra += f' mood {r["mood"]} maxturn {r["maxturn"]} target {r["x"] + r["tdx"]} {r["z"] + r["tdz"]}'
+    stats = f' kills {r["kills"]} pickups {r["pickups"]} secrets {r["secrets"]:02x}' if 'kills' in r else ''
     return (f'rec {t} level {r["level"]} room {r["room"]} pos {r["x"]} {r["y"]} {r["z"]} yaw {r["yaw"]} anim {r["anim"]} '
-            f'frame {r["frame"]} health {r["health"]} seed {r["seed"]:08x}{extra}\n')
+            f'frame {r["frame"]} health {r["health"]} seed {r["seed"]:08x}{stats}{extra}\n')
 
 
 class Window:
@@ -210,6 +280,34 @@ class Window:
             self.written += n
 
 
+class Script:
+    """The inventory script in retail's memory: the whole script's part from `base` on
+    (the stub's position counts from there, the stub's +36 keeps it), moved on once the
+    position is half way through it."""
+
+    def __init__(self, entries, vars_off):
+        self.entries = entries
+        self.vars = STUB + vars_off
+        self.base = 0
+
+    def part(self):
+        return b''.join(struct.pack('>H', k) for k in self.entries[self.base:self.base + MAX_SCRIPT])
+
+    def write(self, m):
+        poke(m, SCRIPT, self.part())
+        poke(m, self.vars + 36, struct.pack('>I', self.base))
+
+    def follow(self, m):
+        pos = m.word(self.vars + 24)
+        if pos > MAX_SCRIPT // 2:
+            self.base += pos
+            self.write(m)
+            poke(m, self.vars + 24, struct.pack('>I', 0))
+
+    def position(self, m):
+        return self.base + m.word(self.vars + 24)
+
+
 def arm(m, want, window, script, code, vars_off, stop, watch):
     """Retail run from its title to the level's first game tick, then the stub, its
     tables and the patches poked in and the pad scan pointed at the stub."""
@@ -225,10 +323,10 @@ def arm(m, want, window, script, code, vars_off, stop, watch):
             break
     m.send('breakpoint_clear', 'breakpoint', 10)
     window.fill(m, 0)
-    poke(m, SCRIPT, b''.join(struct.pack('>H', k) for k in script))
     poke(m, RING, bytes(RING_SIZE * ENTRY))
     poke(m, STUB, code)
-    poke(m, STUB + vars_off, struct.pack('>9I', 1, 0, TABLE, RING, stop, SCRIPT, 0, watch, 0))
+    poke(m, STUB + vars_off, struct.pack('>10I', 1, 0, TABLE, RING, stop, SCRIPT, 0, watch, 0, 0))
+    script.write(m)
     for addr, data, why in PATCHES:
         poke(m, addr, data)
     poke(m, POOL, struct.pack('>I', STUB))
@@ -236,25 +334,56 @@ def arm(m, want, window, script, code, vars_off, stop, watch):
 
 def differs(recs, host, kept, i):
     """Retail's record i against the host's, but for the first of a level: retail's is
-    the new level as it loads, the host's the old one's last tick (the host numbers the
-    levels one on). Straight after a stay in the ring only the seed: a ring a hole opens
-    is retail's from inside the tick, and the key it gives is used before that tick ends;
-    the host's ring takes ticks and uses it as the ring shuts."""
+    the new level as it loads, the host's the old one's last tick (levels numbered as
+    RETAIL_LEVEL maps them). Straight after a stay in the ring only the seed: a ring a
+    hole opens is retail's from inside the tick, and the key it gives is used before
+    that tick ends; the host's ring takes ticks and uses it as the ring shuts."""
     if not 1 <= i < len(kept):
         return False
     h = host[kept[i] - 1]
-    if recs[i]['level'] + 1 != h['level']:
+    r = recs[i]
+    if r['level'] != RETAIL_LEVEL.get(h['level']):
         return False
     if h['inv']:
-        return recs[i]['seed'] != h['seed']
-    return any(recs[i][k] != h[k] for k in FIELDS)
+        return r['seed'] != h['seed']
+    return any(r[k] != h[k] for k in FIELDS)
+
+
+def held_report(m, args, index, script, code, vars_off, window):
+    """Where retail is held when no game tick comes: a picture, ours intact or not,
+    the RAM free about it, the master's PC."""
+    shot = os.path.splitext(args.out)[0] + '_held.png'
+    m.send(f'screenshot {shot.replace(os.sep, "/")}', 'screenshot', 30)
+    print(f'  no game tick since tick {index} (script at {script.position(m)} of {len(script.entries)}, '
+          f'picture {shot}): stopped', flush=True)
+    stub = m.read(STUB, vars_off)      # its code (its vars change as it runs)
+    print(f'    the stub {"intact" if stub == code[:vars_off] else "WRITTEN OVER"}; the table window '
+          f'{"intact" if m.read(TABLE, WINDOW * 2) == bytes(window.mem) else "WRITTEN OVER"}; the script '
+          f'{"intact" if m.read(SCRIPT, len(script.part())) == script.part() else "WRITTEN OVER"}', flush=True)
+    low = m.read(0x00200000, 0x50000)
+    spans, start = [], None
+    for at in range(0, len(low), 256):
+        ours = STUB - 0x00200000 <= at < OURS_END - 0x00200000
+        busy = any(low[at:at + 256]) and not ours
+        if busy and start is None:
+            start = at
+        elif not busy and start is not None:
+            spans.append((start, at))
+            start = None
+    print('    low work RAM in use outside ours: ' + ', '.join(f'{0x00200000 + a:08x}..{0x00200000 + b:08x}' for a, b in spans[:12]), flush=True)
+    for _ in range(4):
+        regs = m.send('dump_regs', 'R0=', 10)
+        pc = re.search(r'PC=([0-9A-Fa-f]{8})', regs)
+        pr = re.search(r'PR=([0-9A-Fa-f]{8})', regs)
+        print(f'    held at PC {pc.group(1) if pc else "?"} PR {pr.group(1) if pr else "?"}', flush=True)
+        m.send('frame_advance 7', 'done frame_advance', 60)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('replay')
     ap.add_argument('out')
-    ap.add_argument('--max-vblanks', type=int, default=400000)
+    ap.add_argument('--max-vblanks', type=int, default=4000000)
     ap.add_argument('--ticks', type=int, default=0)
     ap.add_argument('--items', type=int, default=0, help='at the end, this many items printed (raw)')
     ap.add_argument('--watch', type=int, default=0, help="this item in the ring instead of Lara's (no comparison)")
@@ -262,6 +391,8 @@ def main():
     ap.add_argument('--save-at', type=int, default=0, help='a save state once retail reaches this game tick (to --state)')
     ap.add_argument('--state', help='the save state file: written with --save-at, else loaded to start there (a replay that runs the same to its tick)')
     ap.add_argument('--from', dest='start', help='a save state to start from while --save-at writes --state')
+    ap.add_argument('--go-on', action='store_true', help='on past differences, till retail is lost')
+    ap.add_argument('--save-every', type=int, default=0, help='a save state every N game ticks (build/bot/rNAME_TICK.mcs)')
     args = ap.parse_args()
     level, keys = read_replay(args.replay)
     if args.ticks:
@@ -269,11 +400,12 @@ def main():
     want = LEVELS[level]
     if want != 1:
         sys.exit('only a new game into the Caves so far')
-    host = host_records(args.replay, len(keys))
-    kept, script = split_inventory(keys, host)
-    if len(script) > MAX_SCRIPT:
-        sys.exit('too many inventory frames for the script')
+    t0 = time.time()
+    host = host_records(args.replay, len(keys), os.path.splitext(args.out)[0] + '_hostrun.txt')
+    kept, script_entries = split_inventory(keys, host)
+    print(f'host: {len(keys)} ticks in {time.time() - t0:.0f} s', flush=True)
     code, vars_off = assemble(args.name)
+    script = Script(script_entries, vars_off)
     # retail's backup memory as it boots clean: a run that went astray at a
     # "Save Game?" prompt leaves a save there, and with one the title's
     # menus take other presses
@@ -283,11 +415,12 @@ def main():
         os.makedirs(sav, exist_ok=True)
         for f in os.listdir(clean):
             shutil.copyfile(os.path.join(clean, f), os.path.join(sav, f))
-    m = Mednafen(CUE, args.name)
-    recs = {}
+    m = Mednafen(CUE, args.name, fast=True)
+    recs = Records(RETAIL_FIELDS + (WATCH_FIELDS if args.watch else ()))
     window = Window(keys, kept)
     load = args.start or (args.state if not args.save_at else None)
     resume = bool(load)
+    t0 = time.time()
     try:
         m.send('deterministic', 'deterministic', 10)
         if resume:
@@ -296,29 +429,36 @@ def main():
             poke(m, STUB + vars_off + 28, struct.pack('>I', args.watch))
             # no hold left over from the state (one saved held before a tick)
             poke(m, STUB + vars_off + 16, struct.pack('>I', len(kept) if args.items else 0xFFFFFFFF))
-            # this replay's tables (one that runs as the state's did up to its
-            # tick but parts later, a bot run after a fix, resumes too)
-            poke(m, SCRIPT, b''.join(struct.pack('>H', k) for k in script))
+            # this replay's tables (one that runs as the state's did up to its tick
+            # but parts later, a bot run after a fix, resumes too): the script from
+            # where the state's run had moved it to (none in a state from before)
+            script.base = m.word(STUB + vars_off + 36)
+            script.write(m)
             window.fill(m, m.word(STUB + vars_off + 4))
             print(f'resumed at game tick {m.word(STUB + vars_off + 4)}', flush=True)
         if not resume:
             arm(m, want, window, script, code, vars_off, len(kept) if args.items else 0xFFFFFFFF, args.watch)
         print(f'armed at vblank {m.send("status", "status", 10).split("frame=")[1].split()[0]}: {len(keys)} ticks, '
-              f'{len(keys) - len(kept)} of them in the inventory ({script.count(0)} stays)', flush=True)
+              f'{len(keys) - len(kept)} of them in the inventory ({script_entries.count(0)} stays)', flush=True)
         # (a resumed run's ring still holds the records from before the state:
         # perhaps another item's, a --watch run's; only those from here on)
         since = m.word(STUB + vars_off + 4) if resume else 0
         saved = False
+        next_save = (since // args.save_every + 1) * args.save_every if args.save_every else 0
         vblanks = 0
         # the game runs a tick in two vblanks at most: the ring holds 512 vblanks' worth
         step = 300      # (with --items the game holds before the tick after the last: no overshoot)
         last, still = -1, 0
         part = None     # the first record that differs: the run stops a few ticks on
+        checked = since     # records before it compared
+        astray = 0      # game ticks in a row in another level than the host's
+        level_now = None
         while vblanks < args.max_vblanks:
             m.send(f'frame_advance {step}', 'done frame_advance', 600)
             vblanks += step
             index = m.word(STUB + vars_off + 4)
             window.fill(m, index)
+            script.follow(m)
             ring = m.read(RING, RING_SIZE * ENTRY)
             for e in range(RING_SIZE):
                 b = ring[e * ENTRY:(e + 1) * ENTRY]
@@ -330,20 +470,51 @@ def main():
                 hp, = struct.unpack('>h', item[0x22:0x24])
                 x, y, z = struct.unpack('>3i', item[0x30:0x3C])
                 yaw, = struct.unpack('>H', item[0x3E:0x40])
-                recs[i] = dict(level=lvl, room=room, x=x, y=y, z=z, yaw=yaw, anim=anim, frame=frame, health=hp, seed=seed,
-                               state=state, goal=goal)
+                rec = dict(level=lvl, room=room, x=x, y=y, z=z, yaw=yaw, anim=anim, frame=frame, health=hp, seed=seed,
+                           state=state, goal=goal)
                 if args.watch:
                     mood, = struct.unpack('>I', b[12:16])
                     turn, tdx, tdz = struct.unpack('>3h', b[88:94])
-                    recs[i].update(mood=mood, maxturn=turn, tdx=tdx, tdz=tdz)
-                if part is None and not args.watch and differs(recs, host, kept, i):
+                    rec.update(mood=mood, maxturn=turn, tdx=tdx, tdz=tdz, kills=0, pickups=0, secrets=0)
+                else:
+                    kills, secrets, pickups = struct.unpack('>3H', b[88:94])
+                    rec.update(kills=kills, pickups=pickups, secrets=secrets)
+                recs[i] = rec
+            # the records read, in order, up to the first not read yet (one the ring
+            # lost is passed once it can't come any more)
+            checked = max(checked, index - RING_SIZE)
+            while checked < index and (checked in recs or checked < 1):
+                i = checked
+                checked += 1
+                if i < 1 or i >= len(kept) or args.watch:
+                    continue
+                r = recs[i]
+                if r['level'] != level_now:
+                    level_now = r['level']
+                    print(f'  game tick {i} (host {kept[i] - 1}): retail level {level_now} '
+                          f'(vblank {vblanks}, {time.time() - t0:.0f} s)', flush=True)
+                h = host[kept[i] - 1]
+                astray = astray + 1 if r['level'] != RETAIL_LEVEL.get(h['level']) and h['level'] not in FILMS else 0
+                if part is None and differs(recs, host, kept, i):
                     part = i
-                    print(f"  parted at the host's tick {kept[i] - 1}: on to a few ticks past it", flush=True)
+                    print(f"  parted at the host's tick {kept[i] - 1}" +
+                          (': on, till lost' if args.go_on else ': on to a few ticks past it'), flush=True)
             if args.save_at and not saved and index >= args.save_at:
                 m.send(f'save_state {os.path.abspath(args.state).replace(os.sep, "/")}', 'ok save_state', 120)
                 print(f'  saved the state at game tick {index}: {args.state}', flush=True)
                 saved = True
-            if index >= len(kept) or (part is not None and index > part + 8):
+            if next_save and index >= next_save:
+                path = os.path.join(ROOT, f'build/bot/r{args.name}_{index}.mcs')
+                m.send(f'save_state {path.replace(os.sep, "/")}', 'ok save_state', 120)
+                print(f'  saved a state at game tick {index}: {path}', flush=True)
+                next_save = (index // args.save_every + 1) * args.save_every
+            if index >= len(kept):
+                break
+            if part is not None and not args.go_on and index > part + 8:
+                break
+            if astray >= LOST:
+                print(f'  LOST: retail in another level than the host\'s for {astray} game ticks (to game tick '
+                      f'{checked - 1}): stopped', flush=True)
                 break
             # no game tick for six minutes: held somewhere the replay doesn't
             # lead it out of (a level's load, its in-game film and a movie between
@@ -351,54 +522,11 @@ def main():
             still = still + 1 if index == last else 0
             last = index
             if still >= 72 and not args.items:
-                shot = os.path.splitext(args.out)[0] + '_held.png'
-                m.send(f'screenshot {shot.replace(os.sep, "/")}', 'screenshot', 30)
-                print(f'  no game tick since tick {index} (script at {m.word(STUB + vars_off + 24)} of {len(script)}, '
-                      f'picture {shot}): stopped', flush=True)
-                # ours still in place? (the game may have written over low work RAM)
-                stub = m.read(STUB, vars_off)      # its code (its vars change as it runs)
-                print(f'    the stub {"intact" if stub == code[:vars_off] else "WRITTEN OVER"}; the table window '
-                      f'{"intact" if m.read(TABLE, WINDOW * 2) == bytes(window.mem) else "WRITTEN OVER"}; the script '
-                      f'{"intact" if m.read(SCRIPT, len(script) * 2) == b"".join(struct.pack(">H", k) for k in script) else "WRITTEN OVER"}',
-                      flush=True)
-                low = m.read(0x00200000, 0x50000)
-                spans, start = [], None
-                for at in range(0, len(low), 256):
-                    ours = STUB - 0x00200000 <= at < OURS_END - 0x00200000
-                    busy = any(low[at:at + 256]) and not ours
-                    if busy and start is None:
-                        start = at
-                    elif not busy and start is not None:
-                        spans.append((start, at))
-                        start = None
-                print('    low work RAM in use outside ours: ' + ', '.join(f'{0x00200000 + a:08x}..{0x00200000 + b:08x}' for a, b in spans[:12]), flush=True)
-                # room elsewhere: runs of zeros of 16 KB or more in work RAM low
-                # and high and in sound RAM
-                for base, size in ((0x00200000, 0x100000), (0x06000000, 0x100000), (0x25A00000, 0x80000)):
-                    mem = m.read(base, size)
-                    runs, start = [], None
-                    for at in range(0, size, 1024):
-                        zero = not any(mem[at:at + 1024])
-                        if zero and start is None:
-                            start = at
-                        elif not zero and start is not None:
-                            if at - start >= 0x4000:
-                                runs.append((start, at))
-                            start = None
-                    if start is not None and size - start >= 0x4000:
-                        runs.append((start, size))
-                    print(f'    zero runs from {base:08x}: ' + ', '.join(f'{base + a:08x}..{base + b:08x}' for a, b in runs[:16]),
-                          flush=True)
-                # where it is held: the master's PC and PR a few frames apart
-                for _ in range(4):
-                    regs = m.send('dump_regs', 'R0=', 10)
-                    pc = re.search(r'PC=([0-9A-Fa-f]{8})', regs)
-                    pr = re.search(r'PR=([0-9A-Fa-f]{8})', regs)
-                    print(f'    held at PC {pc.group(1) if pc else "?"} PR {pr.group(1) if pr else "?"}', flush=True)
-                    m.send('frame_advance 7', 'done frame_advance', 60)
+                held_report(m, args, index, script, code, vars_off, window)
                 break
-            if vblanks % 6000 == 0:
-                print(f'  vblank {vblanks}: tick {index}', flush=True)
+            if vblanks % 36000 == 0:
+                print(f'  vblank {vblanks}: tick {index} ({vblanks / (time.time() - t0):.0f} vblanks a second)',
+                      flush=True)
         if args.items:
             # held before the tick after the table's last: the items as they stand after it
             base = m.word(ITEMS)
@@ -419,7 +547,7 @@ def main():
     # retail uses a medipack in the tick that opened it, the host as the inventory shuts.)
     first = None
     with open(args.out, 'w') as f, open(os.path.splitext(args.out)[0] + '_host.txt', 'w') as fh:
-        for i in sorted(recs):
+        for i in recs:
             if i < 1 or i >= len(kept):
                 continue
             t = kept[i] - 1
@@ -427,7 +555,7 @@ def main():
             fh.write(rec_line(t, host[t]))
             if first is None and differs(recs, host, kept, i):
                 first = i
-    print(f'{len(recs)} records of {len(kept)} game ticks -> {args.out}')
+    print(f'{len(recs)} records of {len(kept)} game ticks -> {args.out} ({time.time() - t0:.0f} s)')
     if args.watch:
         print(f'item {args.watch} recorded, not compared (host: WATCH={args.watch} EVERY=1)')
         return 0
