@@ -233,9 +233,12 @@ void verticesDrawsSet(const DrawScene* draws, uint32_t count, const DrawXform* x
     gDraws = draws;
     gDrawCount = count;
     // the draws' jobs: where each one's vertices go, its mesh's parts or its
-    // shadow's slot's
+    // shadow's slot's; a draw whose vertices don't fit in what's left of
+    // gMeshOut gets none, and is left out of the frame (a scene of many
+    // meshes: 256 draws can hold more vertices than the master's)
     int32_t jobs = 0, predicted = 0, faces = 0;
     Vertex* out = gMeshVertices;
+    Vertex* const end = gMeshVertices + MAX_MESH_VERTICES;
     const MeshParts* shadow = gShadowParts;
     for (uint32_t i = 0; i < count && jobs < MAX_DRAWS; i++)
     {
@@ -249,12 +252,15 @@ void verticesDrawsSet(const DrawScene* draws, uint32_t count, const DrawXform* x
         } else {
             continue;
         }
+        int32_t vertices = (parts->count + 3) & ~3;
+        if (vertices > end - out)
+            continue;
         gJobOfDraw[i] = jobs;
         MeshJob &job = gJobs[jobs++];
         job.out = out;
         job.parts = parts;
         job.xform = xforms + i;
-        out += (parts->count + 3) & ~3;
+        out += vertices;
         predicted += parts->price;
         faces += parts->faces;
     }

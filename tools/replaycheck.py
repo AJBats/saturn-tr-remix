@@ -116,6 +116,9 @@ def main():
     ap.add_argument('--name', default='replaycheck', help='its Mednafen (build/NAME_home): another name runs beside it')
     ap.add_argument('--after', type=int, default=3600, help='vertical blanks run on after the last tick')
     ap.add_argument('--shot-every', type=int, default=300, help='vertical blanks between pictures after the last tick')
+    ap.add_argument('--save-at', type=int, default=0, help='a save state (to --state) once the game reaches this tick, '
+                    'and the run stops there')
+    ap.add_argument('--state', help='the save state --save-at writes')
     a = ap.parse_args()
     build = os.path.abspath(a.build)
     if a.make:
@@ -147,7 +150,7 @@ def main():
     pending = {}            # tick: Counter of its records read
     final = first_tick      # ticks before it are settled
     newest = -1
-    started = False
+    started = saved = False
     frame = reads = 0
     stats = Counter()
     part = None
@@ -217,6 +220,12 @@ def main():
                 m.send(f'screenshot {shot}', 'screenshot', 30)
                 stills += 1
             settle(min(newest - RING + 1, last + 1))
+            if a.save_at and newest >= a.save_at:
+                state = os.path.abspath(a.state).replace(os.sep, '/')
+                m.send(f'save_state {state}', 'ok save_state', 120)
+                print(f'saved the state at tick {newest} (vertical blank {frame}): {state}', flush=True)
+                saved = True
+                break
             if part is not None and final > part + 300:
                 break
             if since_tick >= STUCK:
@@ -244,8 +253,11 @@ def main():
     if part is not None:
         print(f'PARTED at tick {part} ({stats["differ"]} more ticks differ after it)')
         return 1
-    if final <= last:
+    if final <= last and not saved:
         return 1
+    if saved:
+        print("ALIKE to there: every tick compared matches the host's")
+        return 0
     print('ALIKE: every tick compared matches the host\'s')
     return 0
 

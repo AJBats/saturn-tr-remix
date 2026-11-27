@@ -684,7 +684,7 @@ static uint32_t slaveShare(int32_t &part)
     for (uint32_t i = 0; i < items; i++)
     {
         slaveItems += gPoseSlave[i];
-        if (gPoseSlave[i] && poseDraws(i) && part == verticesJobs()) {
+        if (gPoseSlave[i] && poseDraws(i) && part == verticesJobs() && verticesJobOfDraw(poseFirstDraw(i)) >= 0) {
             part = verticesJobOfDraw(poseFirstDraw(i));
         }
     }
@@ -851,6 +851,8 @@ static FrameTimes stagesTogether(const FrameCalls* calls, const FrameDraws* give
             }
             continue;
         }
+        if (posed && verticesJobOfDraw(i) < 0)
+            continue;   // its vertices past gMeshOut's end (verticesDrawsSet)
         const Vertex* vertices = verticesDraw(i, s.masterWait);
         const FaceSet* set = d.type == DRAW_SHADOW ? facesShadow()
                                                    : (const FaceSet*)(sets + ((const uint32_t*)sets)[d.mesh]);

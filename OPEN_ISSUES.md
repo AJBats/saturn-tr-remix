@@ -43,7 +43,7 @@ free number. A fixed issue moves to "Closed" at the bottom, with its commit.
 | 174-195 | Audio |
 | 196-204 | Numeric primitives and timing |
 | 205-218 | Scene look: lighting and effects |
-| 219-247, 251-255 | Rendering: the new renderer's open work |
+| 219-247, 251-255, 342 | Rendering: the new renderer's open work |
 | 273-279 | Production code: clean-up |
 
 The section at the very end lists the issues that need a decision first.
@@ -876,6 +876,13 @@ over 14.6, at most 188 · Fix: medium, parked*
 - Measured 2026-11-18 with issue 118's spray (Saturn, Lost Valley room 56, 7 frames each, waterfall 50 off and on, about 11 splashes alive): master draw list +0.43 ms, draws +0.15, objects +0.13, item +0.13; slave update +0.40. Nothing in VDP1's share or the flush grew.
 - The spray has no path of its own: each splash is an `ITEM_SPLASH` `SpriteEffect` drawn by `ItemObj::draw` -> `drawSprite` -> `renderSprite`, the path every ricochet, blood spurt, bubble, smoke puff, twinkle and water-entry splash takes. A cheaper path pays for all of them.
 - Not traced. One difference worth checking: retail keeps these in its own effects list (TR1X `Effect_Create`), while OpenLara makes each a full item (room links, a virtual update, the item lists the draw walks).
+
+### 342. The Colosseum's busy views hold more mesh vertices than the master's budget
+*Kind: speed and memory - Size: 2,944 vertices wanted of 2,816 (Mednafen, the Colosseum's room 72, the bot's whole run at tick 298,389) - Fix: a performance pass, later (the user, 2026-11-27)*
+
+- Found 2026-11-27 by the bot's whole run played on a replay build in Mednafen: the game froze in the Colosseum, the watchdog's screen up, the master in `meshProjectAsm` with a count of 0x20000200.
+- Each mesh draw's vertices go one after another in `gMeshOut` (`vertices.cpp`, `MASTER_VERTICES + 3 * MAX_DRAWS`, 2,816). The draw list caps the draws at 256 but not their vertices: that view's 218 mesh draws wanted 2,944, ran on over `gJobOfDraw`, and a job index read from the vertices there sent the projection to an empty job.
+- The crash is fixed (git log: "A mesh draw that would overrun gMeshOut is left out of the frame"): a draw whose vertices don't fit in what's left is left out of that frame (its meshes not drawn there). Open: the Colosseum's views brought within the budget (fewer or lighter meshes there), or the budget raised, which costs high work RAM.
 
 ## Production code: clean-up
 
