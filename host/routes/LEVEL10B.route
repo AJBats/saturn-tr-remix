@@ -324,3 +324,87 @@ fight 16384
 wait 150
 fight 16384
 reach 42 53760 47616
+# the pillar room: in along the ledge, a jump to the walkway's far end, the
+# switch past it (the pillars change); pillar to pillar to the doorway on
+# the far side: its switch (they change back); pillar to pillar to the exit
+creep 42 52736 47616
+creep 42 51712 47616
+creep 42 50688 47616
+reach 87 50688 40448
+switch 170
+reach 87 50688 45568
+hop 270.0 0 0 87 47616 45568
+reach 87 45568 39424
+switch 171
+reach 87 44544 41472
+reach 87 43520 44544
+hop 247.5 1 0 87 41472 43520
+hop 247.5 5 2 87 39424 42496
+# the fleshy ramp: its three mutants woken at its foot, fought from the
+# hallway behind it
+weapon uzis
+goto 91 38400 37376
+goto 92 38400 38400
+fight 16384
+wait 100
+fight 16384
+wait 100
+fight 16384
+expect kills 24
+# secret 3: the plain tile in the hallway opens a door at the ramp's top for
+# 26 seconds: up the ramp and through it: medipack, clips, shells
+goto 92 38400 39424
+goto 91 51712 36352
+creep 91 51712 35328
+creep 100 51712 34304
+pickup 191
+pickup 190
+pickup 189
+expect secrets 3
+# out of the secret room, through the red door (not the switch past it: it
+# lets in lava), up through the opening in the ceiling by the door, out on
+# the tall room's ledge, a jump to the next: its clips (a mutant comes out),
+# fought there
+goto 100 51712 33792
+creep 91 51712 35328
+creep 91 51712 36352
+goto 70 58368 36352
+creep 70 58880 36352
+creep 71 59904 36352
+reach 44 59904 37376
+reach 45 62464 43520
+weapon uzis
+pickup 96
+fight 16384
+wait 100
+fight 16384
+# the ramp with darts, blades and a boulder: from beside its foot, clear of
+# the dart pipe and the blades, a climb onto it sets the boulder rolling, a
+# jump back at once lets it by (it stops the blades); up the ramp
+goto 93 61952 55808
+creep 93 62250 55500
+face 180
+keys UP+B 29
+wait 2
+keys A+DOWN 12
+wait 120
+goto 93 60928 54784
+# the thrones: round behind them to the right-hand trapdoor's switch, down
+# through it (a fall that hurts); a short jump over the lava pit (a boulder
+# rolls down at her), a jump back at once (it drops into the pit), over
+# again; up through the opening to the switch for the red door between the
+# trapdoors; to that door
+switch 105
+wait 60
+creep 80 49900 55808
+face 90
+jumpkeys UP+A
+jumpkeys A+DOWN
+wait 120
+creep 80 49900 55808
+face 90
+jumpkeys UP+A
+wait 20
+goto 84 57856 56832
+switch 106
+goto 47 49664 54784
