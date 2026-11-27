@@ -32,6 +32,7 @@ LEVELS = [
     ('LEVEL8C.route', 'Sanctuary of the Scion', (15, 29, 1)),
     ('LEVEL10A.route', "Natla's Mines", (3, 30, 3)),
     ('LEVEL10B.route', 'Atlantis', (32, 50, 3)),     # 53 pickups laid out: TRX counts 3 out of reach (92 in a wall, 181/182 behind a door nothing opens)
+    ('LEVEL10C.route', 'The Great Pyramid', (6, 31, 3)),     # secret 3's trigger (room 64) names the first secret in retail's data; TRX patches it to the third
 ]
 
 

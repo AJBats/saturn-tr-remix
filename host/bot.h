@@ -167,9 +167,9 @@ static void step(uint32 k)
         for (const char* w = getenv("WATCH"); w && *w; w = strchr(w, ',') ? strchr(w, ',') + 1 : "")
         {
             const ItemObj* item = items + atoi(w);
-            printf("     item %3d: room %3d pos %6d %6d %6d state %2d health %d flags %04x", atoi(w),
-                   item->room ? int32(item->room - rooms) : -1, item->pos.x, item->pos.y, item->pos.z, item->state, item->health,
-                   item->flags);
+            printf("     item %3d: room %3d pos %6d %6d %6d state %2d frame %4d health %d flags %04x", atoi(w),
+                   item->room ? int32(item->room - rooms) : -1, item->pos.x, item->pos.y, item->pos.z, item->state,
+                   item->frameIndex, item->health, item->flags);
             if (item->extraE && item->type != ITEM_LARA) {
                 const Enemy* e = (const Enemy*)item;
                 printf(" mood %d target %d %d %d", e->mood, item->extraE->waypointX, item->extraE->waypointY, item->extraE->waypointZ);

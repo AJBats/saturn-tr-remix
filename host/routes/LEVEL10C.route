@@ -133,7 +133,7 @@ wait 40
 # through the doorway: the clips; down the slope's right side (the boulder
 # rolls down the left into the trench under the blade), past the swinging
 # blade over the trench, walked through the spikes, between the lava pits,
-# over the break-away tiles by searched jumps
+# over the break-away tiles by two jumps
 pickup 37
 creep 21 48640 24300
 face 0
@@ -144,7 +144,9 @@ wait 200
 timed 21 46592 29184
 goto 22 47616 33280 spikes
 goto 22 46080 35328 spikes
-reach 22 38400 35328
+hop 247.5 0 2 22 42496 33280
+hop 315.0 1 2 22 39424 35328
+goto 22 38400 35328
 # secret 2: from the ledge a jump to the hidden crevice along the wall over
 # the lava pool, along it to the far ledge: three large medipacks, clips
 goto 23 37376 34816
@@ -179,3 +181,175 @@ keys B 40
 keys B+RIGHT 700
 keys A+RIGHT 70
 wait 200
+# up and down the slope past the swinging blade into the alcove (the
+# boulder set off rolls down behind her); the small medipack by it
+hop 135.0 2 2 25 29184 41472
+race 25 30208 41472 30208 44032 31232 45568
+wait 150
+hop 247.5 1 0 25 30208 44544
+pickup 64
+reach 26 31232 45568
+# the blade slope: with her back to it by the wall, a slide down it
+# backwards, caught at its end (the blade misses, the boulder rolls over
+# her); pulled up and a jump at once flips her back over the pit
+goto 26 32256 45568
+creep 26 32600 45568
+face 0
+keys DOWN+B 80
+keys B 120
+keys UP+B 74
+keys A 12
+wait 60
+# the lava flows: a step off into the corridor, the small medipack; then a
+# run along the corridor's south side (the flow from the north and the one
+# from the south both miss her there) to the door's switch
+face 90
+keys UP 12
+wait 40
+goto 19 38400 39424
+pickup 21
+creep 19 38050 39600
+face 90
+keys UP 50
+switch 20
+# the clips at the passage's end; back to the lava pit's edge (the boulder
+# from above flies over her), a standing jump to its far edge, hung there
+# while the second boulder rolls past, pulled up
+pickup 119
+goto 57 43520 45568
+creep 57 43520 45950
+face 0
+wait 150
+keys UP+A+B 6
+keys A+B 10
+keys B 120
+keys UP+B 40
+wait 40
+# the torch pillars: a running jump up the ramp, over the first flame, to
+# grab the next ramp's edge; a standing jump over the sunken burner; a
+# running jump over the third flame to the far ramp's edge. Each off the
+# middle line, but well in from the side (at a ledge's side she can't hang)
+goto 27 46592 51712
+creep 27 45300 51350
+face 90
+keys UP 38
+keys UP+A+B 6
+keys A+B 10
+keys B 60
+keys UP+B 40
+wait 40
+creep 27 51050 51350
+face 90
+keys UP+A 4
+keys A 40
+wait 40
+creep 27 52350 51500
+face 90
+keys UP 20
+keys UP+A+B 6
+keys A+B 10
+keys B 60
+keys UP+B 40
+wait 40
+# the slope down to the shaft; a running jump onto the break-away tile
+# under the blade (between the blade's sweeps), landing on the run, and on
+# at once with a running jump into the opening beyond: secret 3's room
+goto 29 61952 51712
+creep 29 61300 51300
+face 90
+wait 47
+keys UP 17
+keys UP+A 6
+keys UP 44
+keys UP+A+B 60
+wait 40
+pickup 128
+pickup 127
+pickup 126
+# the secret's trigger: in retail's data it names the level's first
+# secret (found already), so it doesn't count (TRX patches it to the third)
+goto 64 69120 51712
+# a swan dive from the opening into the tiny pool; the clips on its floor;
+# the passage on to the four clips
+goto 64 68096 51712
+creep 64 67700 51712
+face 270
+keys UP+A+L 6
+keys A+L 10
+wait 150
+swim 66048 12300 50688
+pickup 80
+pickup 83
+pickup 81
+pickup 85
+pickup 84
+# Natla: winged, shot from the nearest place in reach till she falls; the
+# six clips in the tunnel while she lies (she's fought, and dies, on the way)
+weapon uzis
+goto 34 64512 63488
+hunt 101
+pickup 100
+pickup 98
+pickup 97
+pickup 99
+pickup 96
+pickup 95
+wait 60
+expect kills 6
+# the escape: onto the low pillar past the rock pile (the planner's jumps),
+# a running jump to the next, a standing jump to the one under the opening
+# in the sloped wall, and up into it
+goto 34 50688 66048
+reach 34 51712 74240
+creep 34 51500 73850
+face 350
+keys UP 16
+keys UP+A+B 6
+keys A+B 10
+keys B 30
+wait 30
+creep 34 50950 77650
+face 27
+keys UP+A 4
+keys A 10
+wait 50
+goto 35 51712 80384
+# up the passage and round, down through its hole onto a high pillar;
+# running jumps to the next two, and one to grab the pillar under the
+# second opening
+goto 35 56832 76288
+creep 35 56900 76650
+face 164
+keys UP 16
+keys UP+A+B 6
+keys A+B 10
+keys B 30
+wait 30
+creep 35 57900 73600
+face 164
+keys UP 16
+keys UP+A+B 6
+keys A+B 10
+keys B 30
+wait 30
+creep 35 58500 70100
+face 104
+keys UP 16
+keys UP+A+B 6
+keys A+B 10
+keys B 40
+keys UP+B 40
+wait 40
+# up into it, along the passage and down its hole onto the highest pillar;
+# a running jump to the gold ledge, up into the opening over it, the ramp
+goto 44 61952 68096
+goto 46 53760 72192
+creep 46 54150 72192
+face 270
+keys UP 14
+keys UP+A+B 6
+keys A+B 10
+keys B 30
+wait 30
+goto 59 47616 72192
+endlevel 66 27136 72192
