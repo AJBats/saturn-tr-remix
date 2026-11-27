@@ -132,9 +132,10 @@ static void step(uint32 k)
             longjmp(gLevelEndJump, 1);
     }
     // BOT_TRACE=N: Lara every N ticks, her guns, the creatures awake, and
-    // WATCH=ITEM,ITEM... those items
+    // WATCH=ITEM,ITEM... those items (BOT_TRACE_FROM=TICK: from that tick on)
     static int32 every = getenv("BOT_TRACE") ? atoi(getenv("BOT_TRACE")) : 0;
-    if (every && gTick % every == 0 && players[0])
+    static int32 traceFrom = getenv("BOT_TRACE_FROM") ? atoi(getenv("BOT_TRACE_FROM")) : 0;
+    if (every && gTick % every == 0 && gTick >= traceFrom && players[0])
     {
         const Lara* l = players[0];
         const ExtraInfoLara* e = l->extraL;
