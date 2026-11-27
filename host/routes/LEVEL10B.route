@@ -408,3 +408,43 @@ wait 20
 goto 84 57856 56832
 switch 106
 goto 47 49664 54784
+# the incubator room: the clips by the door on the right (those on the
+# left lie inside the reach of the incubator over them: out of reach); the
+# centaur's egg hatched by a step onto the far row, fought backing off with
+# the shotgun
+pickup 140
+pickup 139
+weapon shotgun
+goto 73 48640 64800
+goto 73 48640 59904
+dodge 203 4000
+# the egg overhead woken by a step by the switch, hatched from the fleshy
+# ramp and fought; the switch (the exit opens, the other egg wakes),
+# hatched from the other ramp and fought
+weapon uzis
+goto 73 46592 66048
+goto 73 46592 61952
+fight 16384
+wait 100
+fight 16384
+switch 136
+goto 73 46592 63488
+fight 16384
+wait 100
+fight 16384
+expect kills 28
+# out through the exit door, past the save crystal in the passage along its
+# edge (the incubators' machines block the rows beside), healed, down the
+# steep slope into the double's cave: its two mutants fought
+use big 900
+weapon uzis
+creep 73 46592 62976
+creep 73 46000 63380
+creep 73 45150 63380
+face 270
+keys UP 30
+wait 60
+fight 16384
+wait 100
+fight 16384
+expect kills 30
