@@ -445,7 +445,7 @@ struct ReplayRun
     int32 first;
     uint32 keys;
 };
-static ReplayRun gReplay[65536];
+static ReplayRun gReplay[1 << 20];
 static int32 gReplayRuns = -1;      // none read
 static int32 gReplayEnd;            // the tick after its last
 static char gReplayLevel[32];

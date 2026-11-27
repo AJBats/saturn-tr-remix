@@ -32,20 +32,36 @@ struct ReplayCursor
     uint32 at;          // the pair holding tick first..
     uint32 first;
 };
-static ReplayCursor gReplayMaster, gReplaySlave;
+ReplayCursor gReplayMaster, gReplaySlave;
 static uint32 gReplayTick;      // the master's: the tick this frame updates
 static uint32 gReplayNext;      // the tick of the slave's update a frame ahead
 ReplayRec gReplayRing[64];      // the game after each tick, at gReplayRing[tick & 63]
 
+#ifdef REPLAY_WINDOW
+// A replay too long to compile in: pair p at pair p % REPLAY_WINDOW of
+// kReplay, the pairs from the master's cursor on kept written by the test's
+// driver (tools/replaycheck.py), read uncached.
+static uint32 replayWord(uint32 i)
+{
+    return *(volatile uint16*)uncached(&kReplay[i % (REPLAY_WINDOW * 2)]);
+}
+#else
+static uint32 replayWord(uint32 i)
+{
+    return kReplay[i];
+}
+#endif
+
 // A tick's keys; each CPU asks for ticks in order.
 static uint32 replayKeys(ReplayCursor &c, uint32 tick)
 {
-    while (kReplay[c.at] && tick >= c.first + kReplay[c.at])
+    uint32 ticks;
+    while ((ticks = replayWord(c.at * 2)) && tick >= c.first + ticks)
     {
-        c.first += kReplay[c.at];
-        c.at += 2;
+        c.first += ticks;
+        c.at++;
     }
-    return kReplay[c.at] ? kReplay[c.at + 1] : 0;
+    return ticks ? replayWord(c.at * 2 + 1) : 0;
 }
 
 static LevelID replayLevel()
@@ -174,6 +190,7 @@ static void frameUpdate(int32 delta, uint32 tick)
 #ifdef TICK_REPLAY
     replayRecord(gReplayRing[gReplayTick & 63], gReplayTick);
     gReplayNext = gReplayTick + 1;
+    gReplaySlave = gReplayMaster;   // its tick is past the master's: the pairs a window keeps
 #endif
     gNextHanded = gameInPlay();
     if (gNextHanded && !done) {
