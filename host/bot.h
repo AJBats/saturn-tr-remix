@@ -49,6 +49,8 @@
 //                                 (a centaur's rockets fly to where she was)
 //   fight [RANGE]                 guns drawn, every creature awake within
 //                                 RANGE (4096 if none) shot dead
+//   kite ITEM X0 Z0 X1 Z1 [NEAR]  shot at from afar: nearer than NEAR (3584) she
+//                                 runs to the box's corner farthest from it
 //   aimedfire on|off              from here on `fight` fires only with a gun
 //                                 aimed (a flier out of aim no longer empties
 //                                 the guns into the air)
@@ -3845,6 +3847,71 @@ static bool dodge(ItemObj* foe, int32 most)
     return foe->health <= 0;
 }
 
+// Shot at from as far off as a box lets her keep (the Great Pyramid's
+// mutant: slow, a grab that kills up close): nearer than `near` she runs to
+// the box's corner farthest from it, else turns to it and fires aimed.
+static bool kite(ItemObj* foe, int32 x0, int32 z0, int32 x1, int32 z1, int32 near, int32 most)
+{
+    int32 tx = 0, tz = 0;
+    bool fleeing = false;
+    for (int32 i = 0; i < most && foe->health > 0 && lara()->health > 0; i++)
+    {
+        const Lara* l = lara();
+        const ExtraInfoLara* e = l->extraL;
+        int32 d = distTo(foe->pos.x, foe->pos.z);
+        if (!fleeing && d < near)
+        {
+            double best = -1;
+            for (int32 c = 0; c < 4; c++)
+            {
+                int32 cx = (c & 1) ? x1 : x0, cz = (c & 2) ? z1 : z0;
+                double dd = hypot(double(cx - foe->pos.x), double(cz - foe->pos.z));
+                if (dd > best) {
+                    best = dd;
+                    tx = cx;
+                    tz = cz;
+                }
+            }
+            fleeing = true;
+        }
+        if (fleeing)
+        {
+            if (distTo(tx, tz) < 300)
+            {
+                fleeing = false;
+                continue;
+            }
+            int16 err = int16(headingTo(tx, tz) - l->angle.y);
+            uint32 k = abs(err) > ANGLE(60) ? 0 : IK_UP;
+            if (err > ANGLE(10)) {
+                k |= IK_RIGHT;
+            } else if (err < -ANGLE(10)) {
+                k |= IK_LEFT;
+            }
+            step(k);
+            continue;
+        }
+        if (e->weaponState == WEAPON_STATE_FREE)
+        {
+            step((i & 1) ? 0 : IK_C);
+            continue;
+        }
+        uint32 k = 0;
+        int16 dh = int16(headingTo(foe->pos.x, foe->pos.z) - l->angle.y);
+        if (dh > ANGLE(8)) {
+            k |= IK_RIGHT;
+        } else if (dh < -ANGLE(8)) {
+            k |= IK_LEFT;
+        }
+        bool aimed = (e->armR.aim || e->armL.aim) && e->armR.target == foe;
+        if (e->weaponState == WEAPON_STATE_READY && aimed) {
+            k |= IK_B;
+        }
+        step(k);
+    }
+    return foe->health <= 0;
+}
+
 static void holster()
 {
     for (int32 i = 0; i < 60 && lara()->extraL->weaponState != WEAPON_STATE_FREE; i++) {
@@ -4989,6 +5056,12 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
         } else if (!strcmp(cmd, "ignore") && n >= 2) {
             // ignore on|off: creatures left alone (not fought) from here till off
             gFleeing = !strcmp(a, "on");
+        } else if (!strcmp(cmd, "kite") && n >= 6) {
+            // kite ITEM X0 Z0 X1 Z1 [NEAR]: shot at, run from to the box's far corner when nearer than NEAR (3584)
+            ok = kite(items + atoi(a), atoi(b), atoi(c), atoi(d), atoi(e), n >= 7 ? atoi(a6) : 3584, 30 * 300);
+            if (!ok) {
+                fail(lara()->health > 0 ? "it's still alive" : "Lara died");
+            }
         } else if (!strcmp(cmd, "aimedfire") && n >= 2) {
             gAimedFire = !strcmp(a, "on");
         } else if (!strcmp(cmd, "lures") && n >= 2) {

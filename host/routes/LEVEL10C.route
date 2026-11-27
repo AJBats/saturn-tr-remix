@@ -1,0 +1,181 @@
+start LEVEL10C newgame
+# fights fire only with a gun aimed (set at Atlantis's start too)
+aimedfire on
+# the great mutant, hatched as she arrives: shot from as far off as the
+# platform lets her keep, run to its far corner whenever it comes near (its
+# grab kills); its fall played out (it bursts and the exit door opens); the
+# clips in the platform's corners
+weapon uzis
+kite 129 58800 8700 65000 14800 3584
+expect kills 1
+wait 600
+pickup 89
+pickup 88
+pickup 91
+pickup 90
+pickup 92
+pickup 93
+# out of the exit door, down the passages: the far block pushed three times
+# along its passage, the alcove's block once from behind; a jump from it up
+# into the hallway above
+goto 36 64000 11776
+creep 36 65024 11776
+creep 48 66048 11776
+push 5 90 3
+push 4 270 1
+reach 9 69120 24064
+# over the break-away tile and through the chomping blades as they open
+goto 9 69120 24576 128
+face 0
+wait 18
+keys UP 60
+keys UP 30
+wait 10
+# the grey-and-white hallway's block pushed once; round by the ramp, over
+# it, pushed twice to under the high switch; on it, the switch (the red door)
+push 9 180 1
+goto 15 61952 29184
+face 270
+keys UP+B 30
+wait 40
+goto 15 59904 29184
+push 9 90 2
+switch 7
+# the tan slope: flat spot to flat spot to the one that raises the
+# drawbridge (for 40 s), back over them onto it, along it into the cave:
+# secret 1, its medipack, magnum clips and shells
+goto 17 62976 25088
+reach 18 60928 23040
+reach 18 58880 23040
+reach 18 55808 23040
+reach 18 62976 19456
+pickup 122
+pickup 124
+pickup 123
+expect secrets 1
+# the cave's switch twice (one section of the bridge stays up); back over
+# it, a running jump over the rest to the entrance; the flat spots again to
+# the far side's last, over to the tunnel
+switch 125
+wait 60
+switch 125
+wait 60
+reach 18 62976 20480
+reach 18 62976 24064
+reach 38 53760 18944
+# the boulder tunnel: the first boulder set off by a step back onto its
+# trigger and dodged in the doorway; up its slope; the second set off the
+# same way, dodged round the corner below; up to the top
+goto 38 54272 17920
+creep 38 55200 17920
+face 270
+keys DOWN 6
+race 38 53760 17920 53760 18944
+wait 200
+goto 38 64000 17920
+goto 61 64000 16896
+wait 10
+goto 61 62976 15872
+creep 61 61500 15872
+face 90
+keys DOWN 2
+race 61 63300 15872 63950 17300
+wait 200
+goto 60 53760 15872
+wait 10
+# the passage to the Scion: its break-away tile walked onto and jumped back
+# from (it drops), hung from the hole's edge, dropped into the Scion's room
+goto 47 52736 8704
+creep 47 52380 8704
+creep 47 52150 8704
+keys A+DOWN 10
+wait 80
+creep 47 52350 8704
+face 90
+keys DOWN+B 30
+wait 80
+# the Scion shot (it counts as a kill; the door opposite opens, tremors
+# start)
+weapon uzis
+shoot 105
+wait 60
+expect kills 2
+# a step into that doorway wakes the walkway mutants: fought from it
+goto 50 49664 11776
+fight 16384
+wait 100
+fight 16384
+wait 100
+fight 16384
+expect kills 4
+# over the bridge, the third woken in the fleshy hallway, fought from the
+# bridge
+goto 53 43520 11776
+goto 54 45568 11776
+fight 16384
+wait 100
+fight 16384
+expect kills 5
+# the gauntlet: down through the opening onto the ledge over the lava; a
+# running jump to grab the crevice in the far wall, along it under the
+# darts, dropped onto the slope at its end and back-flipped onto the floor
+goto 54 46592 16896
+creep 20 46950 16896
+face 270
+keys UP 6
+keys UP+A 12
+keys A+B 15
+keys B 40
+keys B+RIGHT 600
+wait 4
+keys A+DOWN 12
+wait 40
+# through the doorway: the clips; down the slope's right side (the boulder
+# rolls down the left into the trench under the blade), past the swinging
+# blade over the trench, walked through the spikes, between the lava pits,
+# over the break-away tiles by searched jumps
+pickup 37
+creep 21 48640 24300
+face 0
+keys UP 25
+wait 100
+keys UP 15
+wait 200
+timed 21 46592 29184
+goto 22 47616 33280 spikes
+goto 22 46080 35328 spikes
+reach 22 38400 35328
+# secret 2: from the ledge a jump to the hidden crevice along the wall over
+# the lava pool, along it to the far ledge: three large medipacks, clips
+goto 23 37376 34816
+creep 23 36950 34500
+face 207
+keys UP+A+B 6
+keys A+B 10
+keys B 40
+keys B+RIGHT 900
+keys B 5
+wait 40
+pickup 51
+pickup 49
+pickup 52
+pickup 50
+expect secrets 2
+# down from the secret: a standing jump onto the sloped pillar, Jump held,
+# flips her back onto the save crystal's block; a jump to grab the crevice
+# to the west, along it north over the trap tiles to its end; let go, side
+# flips north at once (the boulder set off rolls past her into the pit)
+goto 23 29184 34816
+creep 23 29450 34816
+face 90
+keys UP+A 4
+keys A 60
+wait 60
+creep 24 28850 34917
+face 270
+keys UP+A 4
+keys A+B 10
+keys B 40
+keys B+RIGHT 700
+keys A+RIGHT 70
+wait 200
