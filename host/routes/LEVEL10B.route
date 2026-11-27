@@ -14,6 +14,7 @@ fight 8192
 goto 9 59904 31744
 fight 8192
 pickup 29
+pickup 37
 # through the west door (it opens as she steps into it), up the stairs onto
 # the see-through floor: the small medipack
 goto 9 55808 35940 200
@@ -106,7 +107,7 @@ pickup 40
 # jump from the doorway to the tall block
 reach 13 68096 43520
 reach 13 68096 49664
-goto 20 65024 57856
+goto 17 66048 57856
 reach 20 61952 57856
 # a running jump onto the pyramid's first flat spot (it sets a boulder
 # rolling) and straight on with a standing jump to the next (it rolls by);
@@ -373,6 +374,8 @@ creep 70 58880 36352
 creep 71 59904 36352
 reach 44 59904 37376
 reach 45 62464 43520
+pickup 11
+pickup 10
 weapon uzis
 pickup 96
 fight 16384
@@ -448,3 +451,58 @@ fight 16384
 wait 100
 fight 16384
 expect kills 30
+# the double: on the east platform the switch (the trapdoor over its lava
+# pit opens for 40 s); a jump to the low block, the tall pillar, a running
+# jump to grab the west platform, along it to the spot that mirrors the
+# trapdoor: the double, matching her, steps onto it and falls (the door
+# opens)
+reach 10 41472 57856
+switch 30
+reach 10 35328 56832
+hop 337.5 1 0 10 34304 58880
+face 350
+keys UP 4
+keys UP+A 12
+keys A+B 15
+keys B 40
+keys UP+B 40
+wait 10
+creep 10 33280 64000
+wait 90
+# down, round onto the east platform again, through the door: the clips up
+# the fleshy hallway; the centaur woken at the bend, fought backing down the
+# hallway with side jumps; the bend's clips, the mutant by the lava drop
+goto 10 37376 61952
+reach 10 41472 57856
+creep 10 40448 56832
+creep 55 40448 55808
+pickup 123
+use big 900
+weapon magnums
+goto 53 40448 46592
+goto 55 40448 51712
+dodge 115 4000
+expect kills 31
+pickup 117
+weapon magnums
+goto 53 42496 45568
+goto 53 39424 45568
+dodge 121 3000
+expect kills 32
+# the drawbridge: the clips by the bridge's switch; the door's switch (it
+# opens for 46 s), round the walkway on the run to the bridge's switch (it
+# rises for 16 s), back round and over it, through the door
+pickup 116
+switch 113
+race 54 50688 39700 50200 39424 44000 39424 43520 39900 43520 51200 44000 51712 50200 51712 50688 51000
+switch 114
+race 54 50688 51200 50200 51712 44000 51712 43520 51200 43520 46000 44000 45568 48640 45568
+# the Scion's room: its clips; up the ramp beside the pedestal, the Scion
+# taken (the level's end)
+pickup 112
+pickup 111
+goto 50 52736 46592
+creep 50 52736 46100
+face 180
+keys B 60
+wait 200

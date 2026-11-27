@@ -24,6 +24,8 @@
 //   usehole ITEM                  its key or puzzle item put in, from the ring
 //                                 (Midas's hand: a lead bar turned to gold)
 //   rush ROOM X Z [X Z ...]       a dash by running jumps (a timed door)
+//   race ROOM X Z [X Z ...]       run through up to 8 spots turning on the
+//                                 run (two timed switches far apart)
 //   collapse ITEM [DEG]           a break-away tile brought down (stepped onto heading DEG)
 //   timed ROOM X Z [MAXWAIT] [straight]  to that spot past swinging blades:
 //                                 each wait first tried, the one losing least
@@ -3379,6 +3381,38 @@ static bool collapse(int32 index, int32 deg)
 // stood, then forward held through them all; true once she stands at the
 // last on its floor. walk: walked instead, spot to spot close (round a
 // boulder resting in a corridor's turn, where the planner sees no way).
+// A race through spots (two timed switches far apart): run on without a stop,
+// turned on the run toward the next spot from 400 short of each, so a corner
+// costs little speed; no trial, played as it goes. True once at the last.
+static bool race(const int32* xz, int32 count)
+{
+    holster();
+    if (!turnTo(headingTo(xz[0], xz[1]), ANGLE(5)))
+        return false;
+    int32 k = 0;
+    for (int32 i = 0; i < 30 * 60 && k < count && lara()->health > 0; i++)
+    {
+        const Lara* l = lara();
+        if (distTo(xz[k * 2], xz[k * 2 + 1]) < (k == count - 1 ? 200 : 400))
+        {
+            k++;
+            continue;
+        }
+        int16 err = int16(headingTo(xz[k * 2], xz[k * 2 + 1]) - l->angle.y);
+        uint32 keys = IK_UP;
+        if (err > ANGLE(3)) {
+            keys |= IK_RIGHT;
+        } else if (err < -ANGLE(3)) {
+            keys |= IK_LEFT;
+        }
+        step(keys);
+    }
+    for (int32 i = 0; i < 40 && !(standing() && lara()->hSpeed == 0); i++) {
+        step(0);
+    }
+    return k >= count && lara()->health > 0;
+}
+
 static bool dash(Room* room, const int32* xz, int32 count, bool walk = false)
 {
     static uint32 keys[BOT_TRIAL_TICKS];
@@ -4755,20 +4789,46 @@ static int32 run(const char* routePaths, const char* outPath, const char* levelN
             cl.floor = lara()->pos.y;
             cl.room = lara()->room;
             ok = jumpTry(cl, jdx, jdz, gap, floor, atoi(b), atoi(c), n >= 5 && atoi(d));
-        } else if ((!strcmp(cmd, "dash") || !strcmp(cmd, "creep") || !strcmp(cmd, "rush")) && n >= 4) {
+        } else if ((!strcmp(cmd, "dash") || !strcmp(cmd, "creep") || !strcmp(cmd, "rush") || !strcmp(cmd, "race")) && n >= 4) {
             // dash ROOM X Z [X Z ...]: a run that doesn't stop through those spots (over break-away tiles);
             // creep: walked through them; rush: by running jumps where the way is long and straight
+            // up to 8 spots read from the whole line (past the room); a creep
+            // keeps to its first 3, as it always has
             int32 xz[16], count = 0;
-            const char* w[] = { b, c, d, e, a6, a7, a8 };
-            for (int32 k = 0; k + 1 < n - 2 && k + 1 < int32(X_COUNT(w)) && count < 8; k += 2)
+            const int32 most = !strcmp(cmd, "creep") ? 3 : 8;
+            const char* q = line;
+            for (int32 skip = 0; skip < 2; skip++)
             {
-                xz[count * 2] = atoi(w[k]);
-                xz[count * 2 + 1] = atoi(w[k + 1]);
-                count++;
+                while (*q == ' ' || *q == '	')
+                    q++;
+                while (*q && *q != ' ' && *q != '	')
+                    q++;
             }
-            gDashJump = !strcmp(cmd, "rush");
-            ok = dash(rooms + atoi(a), xz, count, !strcmp(cmd, "creep"));
-            gDashJump = false;
+            for (int32 v[2]; count < most && sscanf(q, "%d %d", v, v + 1) == 2; count++)
+            {
+                xz[count * 2] = v[0];
+                xz[count * 2 + 1] = v[1];
+                for (int32 skip = 0; skip < 2; skip++)
+                {
+                    while (*q == ' ' || *q == '	')
+                        q++;
+                    while (*q && *q != ' ' && *q != '	')
+                        q++;
+                }
+            }
+            if (!strcmp(cmd, "race"))
+            {
+                ok = race(xz, count);
+                if (!ok) {
+                    fail("the race didn't get there");
+                }
+            }
+            else
+            {
+                gDashJump = !strcmp(cmd, "rush");
+                ok = dash(rooms + atoi(a), xz, count, !strcmp(cmd, "creep"));
+                gDashJump = false;
+            }
         } else if (!strcmp(cmd, "swim") && n >= 4) {
             // swim X Y Z: straight there in the water (no planning: past a creature, a hole)
             ok = swimTo(atoi(a), atoi(b), atoi(c), 200);
