@@ -286,3 +286,69 @@ goto 61 56832 93184
 # opening, up into the sandy room
 reach 63 57856 90624
 hop 270.0 0 1 64 56832 90624
+# the sandy rooms' blocks (Stella's diagram): the first pushed twice into the
+# next room; up through the opening in the ceiling beside it; the block up
+# there pulled once and pushed once beside that opening; through where it
+# stood, down the far opening: the block there pulled once; back up that
+# opening, down the first; the first block pushed once more: its switch
+# (gold door D)
+push 61 0 2
+goto 64 58880 92672
+hop 270.0 0 1 65 57856 92672
+pull 63 180 1
+push 63 90 1
+goto 64 57856 96768
+pull 60 0 1
+goto 64 58880 96768
+hop 270.0 0 1 65 57856 96768
+goto 64 57856 92672
+push 61 0 1
+switch 59
+# up again, through gold door D (the planner takes doors for walls: crept
+# through), along the passage and down the steps: the block there pushed
+# aside, into the hallway: the switch in its alcove (gold door E)
+goto 64 58880 92672
+hop 270.0 0 1 65 57856 92672
+goto 65 57856 96768
+creep 65 56832 96768
+creep 65 55808 96768
+goto 81 55808 100864
+goto 74 51712 100864
+push 77 270 1
+goto 67 50688 98816
+switch 66
+# back round to gold door E, past the save crystal in its doorway: the bald
+# man wakes as she steps out, fought from there; his shotgun
+goto 64 55808 93696
+creep 64 55500 94050
+weapon magnums
+creep 68 53760 94050
+fight 16384
+wait 100
+fight 16384
+expect kills 3
+pickupdrop 85
+# onto the ledge over the pyramid's door, by standing jumps up the flat spots
+# to the top, a jump south, the slide down its side onto the ledge by the
+# cave: the switch there (the gold door to the key opens)
+goto 72 37376 92672
+reach 78 36352 92672
+reach 76 34304 89600
+reach 76 33280 90624
+hop 225.0 2 0 76 32256 89600
+hop 225.0 2 0 76 31232 88576
+hop 225.0 2 0 79 30208 87552
+hop 180.0 0 0 76 34304 85504
+switch 72
+# down, through that gold door (crept): the uzi clips, the large medipack,
+# the key; the key in the pyramid door, in
+goto 72 37376 92672
+goto 68 49664 92672
+creep 68 50688 92672
+creep 68 50688 91648
+pickup 67
+pickup 68
+pickup 71
+goto 72 35328 92672
+usehole 76
+endlevel 82 32256 92672
