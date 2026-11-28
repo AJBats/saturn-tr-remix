@@ -956,6 +956,14 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 346. A wall the water current pushes Lara at doesn't tip her past the swim's pitch limit
+*Closed 2026-11-27: git log: "A water current's wall tips Lara after the swim's pitch clamp". updateFlow runs after LaraUnderWater's clamps, as retail's LaraWaterCurrent (06022150) does. Lara matches retail through the dive into the Folly's pool (143 ticks more).*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen, breakpoints in LaraUnderWater 06021ab8) · Fix: trivial*
+
+- **Found 2026-11-27** by the bot's chained run played by retail: Lara diving down the Folly's current (the host's tick 185,378) against a wall: retail's pitch went 2 degrees past -100 and its move took her a unit further.
+- Retail's LaraUnderWater: the state's control, the roll's decay, the pitch and roll clamps, then LaraWaterCurrent (its pull, then a collision whose front wall tips her pitch 2 degrees), then AnimateLara and the move. Ours ran the current before the clamps, which took its tip back.
+
 ### 345. Lara's health stops at 0 when she dies, where retail's is -1
 *Closed 2026-11-27: git log: "Retail's creature fixes from the Folly". Hits subtract as retail's do (below 0 too); dead, her update sets -1 (retail's LaraControl, 06020144), and the underwater death sets health and air to -1 (retail's LaraColUWDeath). Lara matches retail through her death in the Folly's croc room (the bot's replay played by retail).*
 

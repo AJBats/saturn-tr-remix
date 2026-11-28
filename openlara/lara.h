@@ -3045,12 +3045,13 @@ struct Lara : ItemObj
 
                 updateState();
 
-        updateFlow();
-
         angle.z = angleDec(angle.z, ANGLE(2));
 
         angle.x = X_CLAMP(angle.x, -18200, 18200);     // 100 degrees, retail's LaraUnderWater (06021ab8)
         angle.z = X_CLAMP(angle.z, ANGLE(-22), ANGLE(22));
+
+        // after the clamps: a wall the current pushes her at tips her past them
+        updateFlow();
 
         int32 sx, cx;
         int32 sy, cy;
