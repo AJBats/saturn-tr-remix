@@ -109,20 +109,20 @@ wait 40
 pickup 87
 # the fire room: the leftmost switch down (its door); the gate under the
 # platform opened by the switch at the stairs' foot; the three rats in the
-# pool shot from its steps
+# pool shot from its steps (the far end of the pool within reach)
 switch 81
 switch 86
 goto 21 24064 50688
 draw
 goto 21 26112 52736
 goto 21 26112 54784
-fight 8192
+fight 16384
 # the pad that puts the flames out for 11 seconds, then running jumps from
 # pillar to pillar, turning on each, the last caught by its edge: the first
 # lead bar (it wakes a gorilla by the switch room's gate)
 goto 21 24064 52736
 creep 21 24064 53350
-attempt 23 24064 70144 12
+attempt 23 24064 70144 24
 face 0
 keys UP 26
 keys UP+A 45
@@ -201,12 +201,13 @@ goto3 54 30208 -11520 53760
 draw
 fight 16384
 # along the aqueduct's walkway: its two crocodiles shot from its west end,
-# drawn out of the water
+# drawn out of the water (the second from two sectors further east)
 goto3 47 45568 -11008 61952
 safe 116 47 32256 61952
-safe 106 47 32256 61952
+safe 106 47 34304 61952
 # secret 1: through the tunnel at the aqueduct's end to the cave, up onto
-# its rocks (a jump to grab), on by hops: magnum clips, small medipack
+# its rocks (a jump to grab), on by hops: magnum clips and a small medipack
+# on one spot, one pick-up
 goto3 59 57856 -11264 59904
 creep 59 57856 60250
 face 0
@@ -217,14 +218,11 @@ keys UP+B 40
 wait 60
 reach 59 53760 67072
 pickup 118
-pickup 117
 # secret 2: back along the walkway, down the hole by the doorway: small
-# medipack, shotgun shells, uzi clips (the last of three at one spot first)
+# medipack, shotgun shells, uzi clips, all three on one spot: one pick-up
 goto3 47 45568 -11008 61952
 goto3 47 32256 -11008 56832
 pickup 114
-pickup 113
-pickup 112
 # out of the hole into the dark room of alcoves: its small medipack, the
 # gorilla fought as it comes
 hop 270.0 2 0 53 30208 55808
@@ -282,12 +280,15 @@ fight 16384
 # the ledge over the gorillas' room: a gorilla shot from it (the other may
 # roam off to the temple, shot with the temple's creatures); a jump
 # to the croc cave's ledge (it wakes the crocodile), shot from the pool's far
-# side, drawn out of the water
+# side, drawn out of the water (lured even while it keeps under, out of
+# her aim)
 goto 3 62976 35328
 safe 9 3 62976 35328
 hop 90.0 0 0 17 66048 35328
 goto 17 68096 32256
+lures eager
 safe 27 8 80384 31232
+lures far
 # up to the opening over the temple: its bats; across onto the roof: the
 # third lead bar; the lions and the gorillas woken there hunted down with
 # the magnums (they roam, or wait stuck in the pillared hall by the switch
@@ -311,6 +312,7 @@ shoot 15 900
 hunt 10
 shoot 10 900
 weapon pistols
+fight 16384
 # the temple door's large medipack; the switch at the end of its low
 # passage (walked along its high side, up its step) opens the garden's gate;
 # back down to the room of blocks: its three gorillas
