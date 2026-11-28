@@ -956,6 +956,14 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 355. The gorilla's zone list reads the normal and flipped ground zones, where retail's reads the flipped twice
+*Closed 2026-11-28: git log: "A gorilla's zone list reads the flipped ground zones twice, as retail's". Nav::init takes a 512-step walker's list from the flipped zone 2 table for both tests, as retail's CreateZone (060233c4) does. Its pointers for that branch are both the second of the pair (06089394), a retail slip, kept. Other walkers and flyers read the normal and flipped tables, as before.*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; CalculateTarget's LOT read: zone count 308, ours 332) · Fix: trivial*
+
+- **Found 2026-11-28** by the bot's chained run played by retail: the gorilla in Palace Midas' alley woke and picked a random box to head for (the host's tick 337,197). The same random number took box 402 from retail's 308-box list and box 378 from our 332-box list. Ours then drew numbers for a path target that retail's didn't, and the seeds parted.
+- The two lists differ only in levels whose flipped rooms change the zones. The Folly and the Colosseum play the same either way (checked tick by tick).
+
 ### 354. A level that starts Lara in water drops her in, where retail starts her treading
 *Closed 2026-11-28: git log: "Lara starts a level in water treading, as retail's". Lara's constructor puts her under water, still, in the tread (anim 108) when her room is water, as retail's InitialiseLara (060209a4). Ours started her standing, and her first tick took the fall into water (anim 112, pitch -45, the splash).*
 

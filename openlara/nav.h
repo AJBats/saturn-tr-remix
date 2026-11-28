@@ -28,7 +28,10 @@ void Nav::init(uint32 boxIndex)
         cells[i].weight = 0;
     }
 
-    const uint16* defZones = level.zones[0][zoneType];
+    // retail's CreateZone (060233c4) takes a walker with a 512 step (the
+    // gorilla) through the flipped ground zones for both lists, a slip in its
+    // table pointers
+    const uint16* defZones = level.zones[zoneType == ZONE_GROUND_2][zoneType];
     const uint16* altZones = level.zones[1][zoneType];
 
     uint16 defZone = defZones[boxIndex];
