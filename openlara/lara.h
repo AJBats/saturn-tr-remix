@@ -2605,8 +2605,8 @@ struct Lara : ItemObj
 
     C_HANDLER( STATE_DEATH_UW )
     {
-        health = 0;
-        oxygen = 0;
+        health = -1;        // as retail's LaraColUWDeath
+        oxygen = -1;
 
         int16 waterLevel = getWaterLevel();
         if (waterLevel != WALL && waterLevel < pos.y - LARA_RADIUS) {
@@ -3946,7 +3946,7 @@ struct Lara : ItemObj
 
         osJoyVibrate(0, 0xFF, 0xFF);
         extraL->healthTimer = 40;
-        health = X_MAX(0, health - damage);
+        health -= damage;   // below 0 too, as retail's; LaraControl makes it -1
     }
 
     virtual void update()
@@ -3967,8 +3967,9 @@ struct Lara : ItemObj
         }
         else
         {
+            health = -1;            // retail's LaraControl (06020144): dead is -1
             if (deathCount == 0) {
-                sndStopTrack();     // the music stops as she dies (retail's LaraControl, 06020144)
+                sndStopTrack();     // the music stops as she dies
             }
             if ((++deathCount > 300 || (deathCount > 60 && (gDemo ? input : keys))) && (gBrightness == 0))
             {

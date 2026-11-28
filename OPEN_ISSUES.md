@@ -956,6 +956,47 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 345. Lara's health stops at 0 when she dies, where retail's is -1
+*Closed 2026-11-27: git log: "Retail's creature fixes from the Folly". Hits subtract as retail's do (below 0 too); dead, her update sets -1 (retail's LaraControl, 06020144), and the underwater death sets health and air to -1 (retail's LaraColUWDeath). Lara matches retail through her death in the Folly's croc room (the bot's replay played by retail).*
+
+*Severity: subtle · Confidence: confirmed (retail run in Mednafen; LaraControl read) · Fix: trivial*
+
+- **Found 2026-11-27** by the bot's chained run played by retail: Lara killed by the Folly's crocodile, her health -1 in retail and 0 in ours, all else alike.
+
+### 344. A flyer's attack aims at Lara's head even when she's in water
+*Closed 2026-11-27: git log: "Retail's creature fixes from the Folly". The frame's top is added to the target only while she's out of water, as retail's CreatureMood (lara.water_status, 06094476). The Folly's crocodile matches retail through its fight (10,680 ticks).*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; CreatureMood read) · Fix: trivial*
+
+- **Found 2026-11-27** by the bot's chained run played by retail: in the Folly's croc room (the host's tick 162,473) retail's crocodile, rising to Lara swimming, stopped at her height; ours rose 413 higher (her frame's top) and bit a tick later.
+- Retail's attack mood sets a flyer's target to Lara's position and adds her best frame's top only when `lara.water_status` is 0. The crocodile is the flyer that meets her in water.
+
+### 343. The water crocodile turns twice when a wall pushes it
+*Closed 2026-11-27: git log: "Retail's creature fixes from the Folly". Its turn made, it gives the move no turn, as retail's AlligatorControl (06011698), which calls CreatureTurn and then CreatureAnimation with 0. The Folly's crocodile matches retail (7,479 ticks watched).*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; AlligatorControl read) · Fix: trivial*
+
+- **Found 2026-11-27** by the bot's chained run played by retail: in the Folly (the host's tick 161,239) the crocodile swimming along a wall turned 6 degrees a tick in ours, 3 in retail.
+- CreatureAnimation turns a creature again by the turn it's given when the wall pushes it (ours: "turns twice as fast against a wall"); every other control passes its turn, the alligator and the torso pass 0 (the torso already turns by its own code).
+
+### 341. A creature taken out of the game stays Lara's target (Pierre vanishing, the exploding mutants)
+*Closed 2026-11-27: git log: "Retail's creature fixes from the Folly". untarget() as retail's KillItem: Pierre's removal and the exploding deaths (the winged mutants, the centaurs, the torso) let go of Lara's target. Lara and the seed match retail through 670 ticks of the Folly's Pierre fight (a retail run from a state).*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; Random_GetControl's callers) · Fix: small*
+
+- **Found 2026-11-27** by the bot's chained run played by retail, the first compared past Qualopec: in the Folly's gorilla room (the host's tick 154,326), once Pierre had vanished, retail's Lara fired both pistols straight ahead (FireWeapon's two draws a shot) and ours held her guns down.
+- Retail's KillItem (`0601a764`) clears `lara.target` when the item it takes out is Lara's target; with Action held and no target, retail's pistols come up and fire ahead. Ours removed Pierre without it, and her arms stayed on a target that was gone.
+- Retail's KillItem callers that can be her target: PierreControl (twice), CentaurControl, the flyers (winged mutants), the torso (AbortionControl).
+
+### 340. Pierre running off draws random numbers retail doesn't (his mood)
+*Closed 2026-11-27: git log: "Retail's creature fixes from the Folly". Once he runs, his target info has Lara out of his zone and him hit before the mood is chosen, as retail's PierreControl; the mood is no longer forced to escape after it. The seed matches retail through his run-off and vanishing.*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; PierreControl read) · Fix: small*
+
+- **Found 2026-11-27** by the bot's chained run played by retail: in the Folly's gorilla room (the host's tick 154,232), once Pierre was shot down to 40 and ran, ours drew two random numbers a tick and retail one.
+- Retail's PierreControl (`06028ef0`), with his flags counting (running off), sets the AI info's enemy zone to -1 and `hit_status` before CreatureMood: in escape his mood never draws for recovering (Lara never in his zone), and from attack or stalk it turns to escape as any hit creature's does. Ours set the mood to escape after the mood update, which had drawn as if Lara were in reach.
+- With these five, the bot's Folly route shoots the two bats by the pad facing west and fights the lions from the swords' end before going down (the changes reach the creatures' random numbers); the later levels' routes are being played again.
+
 ### 339. The shooting and the ground mutants were a one-mesh stand-in that never moved (Egypt's mummies, Atlantis)
 *Closed 2026-11-26: 60ff8f2. readLevel copies the winged mutant's model onto types 21 and 22 when both are loaded, as retail's object setup does; the packer no longer flags the stand-ins' nodes. The playtest bot's Khamoon route plays the walking mummies at 100%.*
 

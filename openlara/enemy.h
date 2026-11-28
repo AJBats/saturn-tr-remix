@@ -13,6 +13,19 @@
 // is more than room faces want it than they do.
 #define enemiesExtra    ((ExtraInfoEnemy*)(LOW_RAM_TOP - ENEMIES_EXTRA_BYTES))
 
+// A creature taken out of the game is no longer Lara's target: her guns look
+// for another, or aim ahead (retail's KillItem, 0601a764)
+static void untarget(const ItemObj* item)
+{
+    ExtraInfoLara &lara = playersExtra[0];
+    if (lara.armR.target == item) {
+        lara.armR.target = NULL;
+    }
+    if (lara.armL.target == item) {
+        lara.armL.target = NULL;
+    }
+}
+
 enum AggressionLevel
 {
     AGGRESSION_LVL_1   = 0x400,
@@ -197,6 +210,14 @@ struct Enemy : ItemObj
         tinfo.behind = abs(int16(rot - tinfo.target->angle.y + ANGLE_180)) < ANGLE_90;
         tinfo.canAttack = tinfo.front && (abs(tinfo.target->pos.y - pos.y) < 256);
         tinfo.rotHead = tinfo.front ? tinfo.angle : 0;
+
+        // Pierre running off: Lara never in his zone and him hit, for his mood
+        // (retail's PierreControl, 06028ef0, before its CreatureMood)
+        if (type == ITEM_PIERRE && turnSpeed)
+        {
+            tinfo.zoneIndexTarget = 0xFFFF;
+            flags |= ITEM_FLAG_INJURED;
+        }
     }
 
     // my box was reached only through blocked boxes in the latest search
@@ -306,8 +327,10 @@ struct Enemy : ItemObj
         extraE->nav.pos = tinfo.target->pos;
         extraE->nav.nextBox = tinfo.boxIndexTarget;
 
-        if (extraE->nav.zoneType == ZONE_FLY) {
-            extraE->nav.pos.y += tinfo.target->getFrame()->box.minY; // attack Laras head
+        // a flyer goes for her head, but in water for her middle (retail's
+        // CreatureMood: the frame's top only while lara.water_status is 0)
+        if (extraE->nav.zoneType == ZONE_FLY && tinfo.target->waterState == WATER_STATE_ABOVE) {
+            extraE->nav.pos.y += tinfo.target->getFrame()->box.minY;
         }
     }
 
@@ -1725,8 +1748,10 @@ struct Crocodile : Enemy
     {
         if (type == ITEM_CROCODILE_WATER)
         {
-            // dead it's update()'s
+            // dead it's update()'s; its turn made, a wall's push turns it no
+            // more (retail's AlligatorControl gives CreatureAnimation no turn)
             extraE->maxTurn = ANGLE(3);
+            tinfo.turn = 0;
 
             int32 goal = goalState;
             if (state == STATE_SWIM)
@@ -2952,6 +2977,7 @@ struct Pierre : Larson
 
     void remove()
     {
+        untarget(this);
         health = NOT_ENEMY;
         flags &= ~ITEM_FLAG_STATUS;
         flags |= ITEM_FLAG_STATUS_INVISIBLE;
@@ -3033,10 +3059,6 @@ struct Pierre : Larson
                 drop(ITEM_KEY_ITEM_1);
             }
             return goalState;
-        }
-
-        if (turnSpeed) {
-            mood = MOOD_ESCAPE;
         }
 
         return updatePerson(DAMAGE, true);
@@ -3477,6 +3499,7 @@ struct Mutant : Gunman
             if (explodingDeath(this, 0xFFFFFFFF, 100))
             {
                 soundPlay(SND_MUTANT_DEATH, &pos);
+                untarget(this);
                 health = NOT_ENEMY;
                 flags &= ~ITEM_FLAG_STATUS;
                 flags |= ITEM_FLAG_STATUS_INVISIBLE;
@@ -3706,6 +3729,7 @@ struct Centaur : Gunman
     {
         soundPlay(SND_MUTANT_DEATH, &pos);
         explodingDeath(this, 0xFFFFFFFF, 100);
+        untarget(this);
         flags &= ~ITEM_FLAG_STATUS;
         flags |= ITEM_FLAG_STATUS_INVISIBLE;
     }
@@ -4130,6 +4154,7 @@ struct Adam : Enemy
         explodingDeath(this, 0xFFFFFFFF, 250);
         room->getSector(pos.x, pos.z)->getFloor(pos.x, pos.y, pos.z);
         checkTrigger(gLastFloorData, NULL);
+        untarget(this);
         flags &= ~ITEM_FLAG_STATUS;
         flags |= ITEM_FLAG_STATUS_INVISIBLE;
     }

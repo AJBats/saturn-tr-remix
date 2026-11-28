@@ -141,8 +141,13 @@ switch 49
 # a run off it, Roll held again as she lands on the long ledge, a run along
 # it and off its end through the door (large medipack, magnum clips)
 # (first across the little square opening by the switch: two bats wake in
-# the dark overhead and follow her to the pad, where they're shot)
+# the dark overhead and come down to her: shot before the jumps to the pad,
+# facing west, so that she can back away east from one over her head)
 goto 20 38400 41472
+face 270
+draw
+shoot 26
+shoot 28
 goto 20 43520 41050 walk 16
 draw
 shoot 26
@@ -259,11 +264,14 @@ swords 19 25088 45312
 swords 19 27136 45036
 swords 19 30208 45568
 swords 3 36352 45568
-# down by the near way to the bottom, the lions fought there as they come (on
+# the lions woken below fought from the swords' end as they come up, then
+# down by the near way to the bottom, the rest fought there as they come (on
 # the far way they caught her at a climb), Pierre driven off again; the four
 # keys in their holes on the west wall (the bars over the exit go aside), out
 # along the corridor from the east (the open door's panel lies across its
 # mouth from the north)
+draw
+fight 8192
 goto 42 37888 41984 384
 fight 8192
 goto 42 38400 41472
