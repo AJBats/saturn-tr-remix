@@ -49,13 +49,15 @@ traverse 88 62976 54800 180 right 61600 55397
 goto 32 60928 45568
 # up into the arena's seats: the lion and Pierre woken in the passage;
 # Pierre hunted till he runs off and goes, then the lions on the arena's
-# floor shot from the east seats (the second from wherever it can't reach her)
+# floor shot from the east seats (both from the same spot: from the bot's own
+# pick, room 83 over the arena's west side, the second may wander out of its
+# sight)
 draw
 goto 15 54784 47616
 hunt 81
 shoot 81 900
 safe 61 79 52736 41472
-safe 69
+safe 69 79 52736 41472
 # the lion woken at the arena's west side, fought as it comes
 goto 65 43520 54784
 fight 8192
@@ -115,19 +117,24 @@ pickup 7
 switch 12
 # the south-west corner room: the two bats in its anteroom; on past the
 # boulder (a pad wakes Pierre) to the switch at the top of the ramp (the
-# north-west corner room's door); the lion woken on the way, down the dark
-# ramp into the anteroom: the lion shot from there, Pierre hunted till he goes
+# north-west corner room's door: the hops the search found, played as
+# lines, the search failing from a few units aside); the lion woken on the
+# way, down the dark ramp into the anteroom: the lion fought as it comes,
+# Pierre hunted till he goes
 goto 71 57344 65024
 fight 8192
 goto 42 59904 65024
-reach 44 57856 71680
+hop 0.0 3 2 43 59904 68096
+hop 0.0 0 4 43 59904 74240
+hop 225.0 1 2 44 55808 74240
+hop 135.0 0 0 44 57856 72192
 switch 41
 goto 44 55808 71168
 goto 44 55808 69632
 face 180
 keys UP 30
 wait 60
-safe 76
+fight 8192
 hunt 77
 shoot 77 900
 # the north-west corner room: the two bats in its anteroom
@@ -137,6 +144,7 @@ fight 8192
 # door above for six seconds) onto the low platform, then Jump held: a side
 # flip right, a back flip, a side flip left and a jump forward up the
 # platforms to the door's ledge: the magnums, two large medipacks, uzi clips
+# (a medipack on the clips' spot: one pick-up takes both, as retail's)
 goto 46 58470 23900
 attempt 51 58880 16896 12
 creep 46 58490 24400
@@ -154,7 +162,6 @@ end
 pickup 43
 pickup 46
 pickup 45
-pickup 44
 expect secrets 3
 # a running jump to the switch's platform (the north-east corner room's
 # door), down by the platforms
@@ -173,14 +180,13 @@ pickup 50
 goto 52 29184 32256
 safe 66
 # the balcony room's back room, its small medipack (two more gorillas in the
-# arena); the key in the gate's lock, the gorillas hunted
+# arena); the key in the gate's lock, the gorillas shot from the east seats
+# (hunted, one leads her down into the flooded passages)
 pickup 53
 usehole 23
 weapon shotgun
-hunt 65
-shoot 65 900
-hunt 64
-shoot 64 900
+safe 65 79 52736 41472
+safe 64 79 52736 41472
 # down the water behind the gate to the small room over the flooded passage:
 # its switch (the gate at the tunnel's end), the crocodile shot from there
 # as it comes (lured from the water if it hangs back); through the tunnel to
