@@ -961,7 +961,7 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 *Severity: visible · Confidence: confirmed (retail run in Mednafen; InitialiseLara read) · Fix: trivial*
 
-- **Found 2026-11-28** by the bot's chained run played by retail: the first tick of Palace Midas, which starts in its flooded passage. Retail's Lara was treading (anim 108, frame 1736), ours falling in (anim 112). They drifted apart and Lara drowned in one of them. With the fix, ours plays the start as retail does to the end of the retail record.
+- **Found 2026-11-28** by the bot's chained run played by retail: the first tick of Palace Midas, which starts in its flooded passage. Retail's Lara was treading (anim 108, frame 1736), ours falling in (anim 112). They drifted apart, and Lara died in one of them. With the fix, ours plays the start as retail does to the end of the retail record.
 
 ### 353. The water crocodile's top is zeroed for its own climb only, where retail's zeroing stays in the level's frames
 *Closed 2026-11-28: git log: "The water crocodile's zeroed top stays in its keyframe, as retail's". In the swim branch of updateLocation the water crocodile's top is zeroed, and on a keyframe (no blend) that keyframe's box in the level's frames is zeroed too. Everything that reads it later (Lara's aim point, the collision box) sees it. A creature's top is now its blended bounds (retail's GetBoundsAccurate), not the nearest keyframe's.*
