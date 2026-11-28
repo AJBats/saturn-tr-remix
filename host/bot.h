@@ -2972,9 +2972,30 @@ static bool pickupRaised(ItemObj* item, int32 floor)
     return true;
 }
 
+// taken already: picked up with another on its spot (one pick-up takes all
+// the items there, as retail's)
+static bool takenWithSpot(const ItemObj* item)
+{
+    if (!item->room || (item->flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE)
+        return false;
+    for (int32 i = 0; i < level.itemsCount; i++)
+    {
+        const ItemObj* other = items + i;
+        if (other != item && other->room && other->pos == item->pos &&
+            (other->flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INVISIBLE) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool pickup(int32 index)
 {
     ItemObj* item = items + index;
+    if (takenWithSpot(item)) {
+        printf("  pickup: item %d went with the one on its spot\n", index);
+        return true;
+    }
     if (!item->room || (item->flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INVISIBLE) {
         fail("no such item to pick up");
         return false;
