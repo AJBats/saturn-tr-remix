@@ -656,9 +656,8 @@ struct Enemy : ItemObj
         const vec3i old = tinfo.pos;
         const uint16* zones = getZones();
 
-        // its top (the water crocodile's at its origin: retail zeroes the
-        // alligator's frame bounds as it flies, and they stay so)
-        int32 top = (type == ITEM_CROCODILE_WATER) ? 0 : getFrame()->box.minY;
+        // its top, from its bounds between keyframes (retail's GetBoundsAccurate)
+        int32 top = getBoundingBox(true).minY;
         int32 y = pos.y + top;
         int32 boxHeight = (tinfo.boxIndex == NO_BOX) ? roomFloor : level.boxes[tinfo.boxIndex].floor;
 
@@ -823,6 +822,18 @@ struct Enemy : ItemObj
             else
             {
                 int32 ceiling = s->getCeiling(pos.x, y, pos.z);
+                // retail zeroes the water crocodile's top through the pointer
+                // GetBoundsAccurate gave it: on a keyframe that is the level's
+                // own frame, which stays so (Lara aims at it, collides with it)
+                if (type == ITEM_CROCODILE_WATER)
+                {
+                    top = 0;
+                    const AnimFrame *frameA, *frameB;
+                    int32 frameRate;
+                    if (!getFrames(frameA, frameB, frameRate)) {
+                        ((AnimFrame*)frameA)->box.minY = 0;
+                    }
+                }
                 if (pos.y + top + dy < ceiling)
                 {
                     if (pos.y + top < ceiling)

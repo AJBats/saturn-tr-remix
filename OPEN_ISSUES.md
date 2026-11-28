@@ -956,6 +956,14 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 353. The water crocodile's top is zeroed for its own climb only, where retail's zeroing stays in the level's frames
+*Closed 2026-11-28: git log: "The water crocodile's zeroed top stays in its keyframe, as retail's". In the swim branch of updateLocation the water crocodile's top is zeroed, and on a keyframe (no blend) that keyframe's box in the level's frames is zeroed too. Everything that reads it later (Lara's aim point, the collision box) sees it. A creature's top is now its blended bounds (retail's GetBoundsAccurate), not the nearest keyframe's.*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; a write watchpoint on the frame word caught CreatureAnimation, 0600bd0a, writing 0) · Fix: trivial*
+
+- **Found 2026-11-28** by the bot's chained run played by retail: Lara aiming at the Colosseum's water crocodile (the host's tick 328,634). Retail's aim point was 157 units lower than ours, because its keyframe's top was 0, not -235. Its line of sight was blocked, it lost the lock, and it shot 4 ticks later; the seeds parted.
+- Retail's CreatureAnimation (0600b000) writes `bounds->min.y = 0` for the alligator into the pointer GetBoundsAccurate returned: the frame itself on a keyframe, a scratch copy between them. A TR1 bug, kept: ours now plays the whole Colosseum as retail does.
+
 ### 352. Two pickups on one spot take two pick-ups, where retail's one takes both
 *Closed 2026-11-28: git log: "A picked-up item keeps its link: one pick-up takes all on the spot". Room::remove unlinks an item without clearing its own next link, as retail's RemoveDrawnItem (0601aadc), so Lara's collision walk goes on past a picked-up item to the rest of the room's list.*
 
