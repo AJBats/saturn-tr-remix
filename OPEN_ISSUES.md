@@ -956,6 +956,13 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 354. A level that starts Lara in water drops her in, where retail starts her treading
+*Closed 2026-11-28: git log: "Lara starts a level in water treading, as retail's". Lara's constructor puts her under water, still, in the tread (anim 108) when her room is water, as retail's InitialiseLara (060209a4). Ours started her standing, and her first tick took the fall into water (anim 112, pitch -45, the splash).*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; InitialiseLara read) · Fix: trivial*
+
+- **Found 2026-11-28** by the bot's chained run played by retail: the first tick of Palace Midas, which starts in its flooded passage. Retail's Lara was treading (anim 108, frame 1736), ours falling in (anim 112). They drifted apart and Lara drowned in one of them. With the fix, ours plays the start as retail does to the end of the retail record.
+
 ### 353. The water crocodile's top is zeroed for its own climb only, where retail's zeroing stays in the level's frames
 *Closed 2026-11-28: git log: "The water crocodile's zeroed top stays in its keyframe, as retail's". In the swim branch of updateLocation the water crocodile's top is zeroed, and on a keyframe (no blend) that keyframe's box in the level's frames is zeroed too. Everything that reads it later (Lara's aim point, the collision box) sees it. A creature's top is now its blended bounds (retail's GetBoundsAccurate), not the nearest keyframe's.*
 

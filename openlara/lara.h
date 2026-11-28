@@ -2755,6 +2755,15 @@ struct Lara : ItemObj
 
         animSet(ANIM_STAND, true, 0);
 
+        // in water from the start: under it, treading (retail's InitialiseLara,
+        // 060209a4), not falling in on her first tick
+        if (ROOM_FLAG_WATER(room->info->flags))
+        {
+            waterState = WATER_STATE_UNDER;
+            vSpeed = 0;
+            animSet(ANIM_UNDERWATER, true, 0);  // its state is the tread
+        }
+
         health = LARA_MAX_HEALTH;
         oxygen = LARA_MAX_OXYGEN;
 
