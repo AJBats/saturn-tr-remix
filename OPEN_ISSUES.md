@@ -956,6 +956,14 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 349. Pierre's nerve counts his hits, where retail's counts ticks
+*Closed 2026-11-28: git log: "Pierre's nerve counts ticks, as retail's". At 40 health or less he's held at 40 and his count goes on a tick at the top of his control, not at each hit; out of the camera's sight it only checks, as retail's PierreControl (06028ef0). A kill counts only for a hit that takes a creature from alive to 0, as retail's HitTarget (0601fff4). The Folly matches retail on every tick to its end.*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; Random_GetControl callers, PierreControl read) · Fix: trivial*
+
+- **Found 2026-11-28** by the bot's chained run played by retail: at the Folly's end (the host's tick 213,930) ours removed the running Pierre, two pistol hits in one tick having added 2 to his count. Retail's Pierre ran on to the level's end, his mood drawing a random number each tick, so the seeds parted; the Colosseum then played differently (Lara died there in retail).
+- From retail's code (not yet seen in a run): his health is held at 40 only in his own control, so two hits inside one tick can take him to 0 or below and count a kill (two magnum shots: 40, 19, -2). Ours now does the same.
+
 ### 348. A Damocles sword's spin is rounded down, where retail rounds toward zero
 *Closed 2026-11-28: git log: "A Damocles sword spins as retail's, rounded toward zero". The spin is `(random - 0x4000) / 16`, as retail's DamoclesSwordInitialise (0603001c). Lara matches retail past the swords room (the bot's Folly replay played by retail).*
 

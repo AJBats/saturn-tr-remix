@@ -153,6 +153,15 @@ struct Enemy : ItemObj
 
     void updateTargetInfo()
     {
+        // Pierre till his trigger has spent itself: held at 40 health, his
+        // nerve a tick further gone each tick he's there (retail's
+        // PierreControl, 06028ef0, before its death check)
+        if (type == ITEM_PIERRE && !(flags & ITEM_FLAG_ONCE) && health <= 40)
+        {
+            health = 40;
+            turnSpeed++;
+        }
+
         tinfo.target = getLara(pos);
 
         tinfo.tilt = 0;
@@ -877,7 +886,9 @@ struct Enemy : ItemObj
 
     virtual void hit(int32 damage, const vec3i &point, int32 soundId)
     {
-        ASSERT(health > 0);
+        // a kill for the hit that takes it from alive to 0 (Pierre, held at
+        // 40 by his own control, can be below it inside a tick)
+        const bool alive = health > 0;
 
         health -= damage;
 
@@ -886,7 +897,7 @@ struct Enemy : ItemObj
             if (soundId) {
                 soundPlay(soundId, &pos);
             }
-        } else {
+        } else if (alive) {
             gSaveGame.kills++;
         #ifdef HIDE_CORPSES
             corpseTimer = HIDE_CORPSES;
@@ -2965,7 +2976,6 @@ struct Pierre : Larson
     enum {
         DAMAGE = 50,
         ANIM_DEATH = 12,
-        HEALTH_RUN = 40,
         DISAPPEAR = 10
     };
 
@@ -3027,7 +3037,7 @@ struct Pierre : Larson
             {
                 turnSpeed = 1;
             }
-            else if (++turnSpeed > DISAPPEAR)
+            else if (turnSpeed > DISAPPEAR)
             {
                 remove();
                 return;
@@ -3036,16 +3046,6 @@ struct Pierre : Larson
 
         if (getWaterLevel() != WALL) {
             remove();
-        }
-    }
-
-    virtual void hit(int32 damage, const vec3i &point, int32 soundId)
-    {
-        Enemy::hit(damage, point, soundId);
-
-        if (!(flags & ITEM_FLAG_ONCE) && health <= HEALTH_RUN) {
-            health = HEALTH_RUN;
-            turnSpeed++;
         }
     }
 
