@@ -338,11 +338,12 @@ struct Lara : ItemObj
         if (health <= 0)
             return;
 
-        Room** adjRoom = room->getAdjRooms();
-        while (*adjRoom)
+        Room* adjRooms[MAX_ROOM_LIST];
+        int32 adjCount = room->getAdjRooms(adjRooms);
+        for (int32 r = 0; r < adjCount; r++)
         {
-            ItemObj* item = (*adjRoom++)->firstItem;
-            
+            ItemObj* item = adjRooms[r]->firstItem;
+
             while (item)
             {
                 if ((item->flags & ITEM_FLAG_STATUS) != ITEM_FLAG_STATUS_INVISIBLE)
@@ -373,10 +374,11 @@ struct Lara : ItemObj
     // as it shuts, before the tick after steps her on.
     void useChosenAtHole()
     {
-        Room** adjRoom = room->getAdjRooms();
-        while (*adjRoom)
+        Room* adjRooms[MAX_ROOM_LIST];
+        int32 adjCount = room->getAdjRooms(adjRooms);
+        for (int32 r = 0; r < adjCount; r++)
         {
-            for (ItemObj* item = (*adjRoom++)->firstItem; item; item = item->nextItem)
+            for (ItemObj* item = adjRooms[r]->firstItem; item; item = item->nextItem)
             {
                 bool hole = (item->type >= ITEM_KEYHOLE_1 && item->type <= ITEM_KEYHOLE_4) ||
                             (item->type >= ITEM_PUZZLEHOLE_1 && item->type <= ITEM_PUZZLEHOLE_4) || item->type == ITEM_MIDAS_HAND;

@@ -1025,7 +1025,7 @@ struct Room {
 
     Room** addNearRoom(Room** list, int32 x, int32 y, int32 z);
     Room** getNearRooms(const vec3i &pos, int32 radius, int32 height);
-    Room** getAdjRooms();
+    int32 getAdjRooms(Room** list);
 };
 
 enum NodeFlag {

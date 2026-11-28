@@ -956,6 +956,14 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 351. A creature's push makes Lara skip the creatures in the rooms after it
+*Closed 2026-11-28: git log: "A push leaves Lara's list of rooms to collide with whole". The rooms she collides with (hers and those through its portals) go into a list of the caller's own; the shared roomsList, which the push's statics check refills, is no longer walked. As retail's LaraBaddieCollision (0600e9ac), which keeps its own.*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; TestCollision 0602e398 called for both lionesses, ours one) · Fix: trivial*
+
+- **Found 2026-11-28** by the bot's chained run played by retail: two lionesses pouncing at Lara in the Colosseum's arena (the host's tick 262,591). Retail hit her with both; ours never tested the second, because the first's push (collideRoom, then collideStatic's getNearRooms) had overwritten the list of rooms the loop was walking. An OpenLara bug: the second creature's pounce and push came 2 ticks late, and Lara lived where retail's died.
+- Ours now plays that pad as retail does through the fight (Lara dies to the second pounce in both).
+
 ### 350. The gorilla's and the torso's 45 degrees are 8192, where retail's are 8190
 *Closed 2026-11-28: git log: "The gorilla and the torso turn at retail's 45 degrees". Their tests use ANGLE(45), 45 x 182 = 8190, as retail's ApeControl (060296b8: -0x1ffd..0x1ffd) and Abortion (06024b34: 0x1ffe) do. Retail's CreatureAnimation, CreatureAIInfo, the flyers' shots and the crocodile use the exact 0x2000 and 0x4000, as ours already did.*
 

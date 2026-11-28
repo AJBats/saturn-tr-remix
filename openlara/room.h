@@ -421,18 +421,17 @@ Room** Room::getNearRooms(const vec3i &pos, int32 radius, int32 height)
     return roomsList;
 }
 
-Room** Room::getAdjRooms()
+// this room and those through its portals, into the caller's list
+// (MAX_ROOM_LIST): a push met on the way collides her with the room, whose
+// statics take roomsList (retail's LaraBaddieCollision keeps its own)
+int32 Room::getAdjRooms(Room** list)
 {
-    Room** list = roomsList;
-
-    *list++ = this;
+    list[0] = this;
     for (int32 i = 0; i < info->portalsCount; i++)
     {
-        *list++ = rooms + data.portals[i].roomIndex;
+        list[i + 1] = rooms + data.portals[i].roomIndex;
     }
-    *list++ = NULL;
-
-    return roomsList;
+    return info->portalsCount + 1;
 }
 
 // The room's sectors made a copy that can change, from the pool, once;
