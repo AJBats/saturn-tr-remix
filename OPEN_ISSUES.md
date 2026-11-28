@@ -956,6 +956,14 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 347. A water current's sink trigger always takes the new sink, where retail keeps the first for the same box
+*Closed 2026-11-27: git log: "A sink in the box Lara is led to already leaves the current's target". updateFlow takes a new sink's place only when its box differs from the one she's led to, as retail's TO_SINK compares lara.LOT.required_box. With 346, Lara matches retail on every tick of the Folly the bot's replay plays (153,662 to 187,334).*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; LaraWaterCurrent's CalculateTarget read at 060221b2) · Fix: trivial*
+
+- **Found 2026-11-27** by the bot's chained run played by retail: down the Folly's current (the host's tick 185,521) retail's current pulled Lara toward (37888, 29952, 51712), ours toward (37888, 29696, 53760), another sink in the same box: she passed its trigger, and ours switched.
+- Retail's TO_SINK sets the LOT's target to the camera's place only if `required_box` differs from the camera's flags (its box); the strength is taken from each trigger.
+
 ### 346. A wall the water current pushes Lara at doesn't tip her past the swim's pitch limit
 *Closed 2026-11-27: git log: "A water current's wall tips Lara after the swim's pitch clamp". updateFlow runs after LaraUnderWater's clamps, as retail's LaraWaterCurrent (06022150) does. Lara matches retail through the dive into the Folly's pool (143 ticks more).*
 

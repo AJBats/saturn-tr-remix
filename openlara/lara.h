@@ -2997,7 +2997,9 @@ struct Lara : ItemObj
 
         uint32 boxIndex = room->getSector(pos.x, pos.z)->boxIndex;
         Nav &nav = extraL->nav;
-        if (extraL->navSink != sink)
+        // a sink in the box she's led to already leaves her led to the first
+        // (retail's TO_SINK takes a sink's place only for another box)
+        if (!extraL->navSink || extraL->navSink->flags != sink->flags)
         {
             if (boxIndex == NO_BOX)
                 return;
