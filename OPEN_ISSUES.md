@@ -956,6 +956,14 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 348. A Damocles sword's spin is rounded down, where retail rounds toward zero
+*Closed 2026-11-28: git log: "A Damocles sword spins as retail's, rounded toward zero". The spin is `(random - 0x4000) / 16`, as retail's DamoclesSwordInitialise (0603001c). Lara matches retail past the swords room (the bot's Folly replay played by retail).*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; ItemPushLara 0600edf8 hit, the swords read from a state) · Fix: trivial*
+
+- **Found 2026-11-28** by the bot's chained run played by retail: running through the Folly's swords room (the host's tick 204,550), retail's Lara was stopped by a fallen sword (item 47) that ours ran past.
+- The sword spins while it hangs, by a turn drawn at the level's start. For a negative draw ours was one less (-402, retail -401), so after the wait the sword lay at another heading (29699, retail 31756) and its box missed her.
+
 ### 347. A water current's sink trigger always takes the new sink, where retail keeps the first for the same box
 *Closed 2026-11-27: git log: "A sink in the box Lara is led to already leaves the current's target". updateFlow takes a new sink's place only when its box differs from the one she's led to, as retail's TO_SINK compares lara.LOT.required_box. With 346, Lara matches retail on every tick of the Folly the bot's replay plays (153,662 to 187,334).*
 

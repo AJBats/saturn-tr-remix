@@ -1990,8 +1990,9 @@ struct TrapSword : Object
 {
     TrapSword(Room* room) : Object(room)
     {
+        // (retail's DamoclesSwordInitialise, 0603001c: the spin rounded toward zero)
         angle.y = rand_logic();
-        turnSpeed = (rand_logic() - 0x4000) >> 4;
+        turnSpeed = (rand_logic() - 0x4000) / 16;
         vSpeed = 50;
         updateRoom();
     }
