@@ -91,6 +91,9 @@ PATCHES = [
     # creature's flags, r8 the item
     (0x060295B4, bytes([0x60, 0x71, 0x00, 0x09, 0x00, 0x09]),
      "the gorilla's turn back after a left sidestep tests its own flag, as TRX (retail tests the item's flags; issue 99)"),
+    # ApeControl's stop state makes the same turn back: the same three instructions, r7 and r8 as there
+    (0x06029806, bytes([0x60, 0x71, 0x00, 0x09, 0x00, 0x09]),
+     "the same in the gorilla's stop state (ApeControl), as TRX (issue 99)"),
 ]
 TITLE_TO_NEW_GAME = ['2400', '+start', '2700', '+start', '3600', '+a', '4100', '+start', '4400', '+a', '4600', '+a',
                      '5000', '+start']
@@ -435,6 +438,9 @@ def main():
             script.base = m.word(STUB + vars_off + 36)
             script.write(m)
             window.fill(m, m.word(STUB + vars_off + 4))
+            # the patches as they are now (a state keeps those of the run that saved it)
+            for addr, data, why in PATCHES:
+                poke(m, addr, data)
             print(f'resumed at game tick {m.word(STUB + vars_off + 4)}', flush=True)
         if not resume:
             arm(m, want, window, script, code, vars_off, len(kept) if args.items else 0xFFFFFFFF, args.watch)
