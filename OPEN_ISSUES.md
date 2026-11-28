@@ -956,6 +956,13 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 356. A dead water rat keeps its AI slot, where retail's frees it as its death plays out
+*Closed 2026-11-28: git log: "A dead water rat frees its AI slot, as retail's". In Rat::update's dead water branch the head eases back. Once the death animation deactivates it, it stops being solid and a target, and its slot is freed and it leaves the active list, as retail's VoleControl (0602bd64). In the Cistern it is set active again (retail's own case, to float as the water changes).*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; the baddie slots read before the trigger) · Fix: trivial*
+
+- **Found 2026-11-28** by the bot's chained run played by retail: in Palace Midas a trigger wakes six creatures at once (the host's tick 369,826). Retail's eight AI slots held only the gorilla already awake, so all six got one. Ours still held three for the water rats shot dead in the fire room's pool, so a gorilla and a crocodile were left waiting. Their missing mood draws parted the seeds, then the kills.
+
 ### 355. The gorilla's zone list reads the normal and flipped ground zones, where retail's reads the flipped twice
 *Closed 2026-11-28: git log: "A gorilla's zone list reads the flipped ground zones twice, as retail's". Nav::init takes a 512-step walker's list from the flipped zone 2 table for both tests, as retail's CreateZone (060233c4) does. Its pointers for that branch are both the second of the pair (06089394), a retail slip, kept. Other walkers and flyers read the normal and flipped tables, as before.*
 

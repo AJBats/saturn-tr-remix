@@ -2284,7 +2284,24 @@ struct Rat : Enemy
             if (state != STATE_SWIM_DEATH) {
                 animSet(level.models[type].animIndex + ANIM_DEATH_WATER, true);
             }
+            if (extraE) {
+                extraE->rotHead = angleLerp(extraE->rotHead, 0, ANGLE(5));
+            }
             animProcess();
+            // its death played out: not solid, not a target, its AI slot
+            // freed (retail's VoleControl, 0602bd64); in the Cistern it stays
+            // active, to float with the water as it changes
+            if ((flags & ITEM_FLAG_STATUS) == ITEM_FLAG_STATUS_INACTIVE)
+            {
+                flags &= ~ITEM_FLAG_COLLISION;
+                health = NOT_ENEMY;
+                if (gLevelID == LVL_TR1_7A) {
+                    flags = (flags & ~ITEM_FLAG_STATUS) | ITEM_FLAG_STATUS_ACTIVE;
+                } else {
+                    disable();
+                    deactivate();
+                }
+            }
             if (getWaterLevel() == WALL)
             {
                 type = ITEM_RAT_LAND;
