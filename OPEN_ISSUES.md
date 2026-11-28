@@ -956,6 +956,14 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 352. Two pickups on one spot take two pick-ups, where retail's one takes both
+*Closed 2026-11-28: git log: "A picked-up item keeps its link: one pick-up takes all on the spot". Room::remove unlinks an item without clearing its own next link, as retail's RemoveDrawnItem (0601aadc), so Lara's collision walk goes on past a picked-up item to the rest of the room's list.*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; the level's statistics in the ring) · Fix: trivial*
+
+- **Found 2026-11-28** by the bot's chained run played by retail: the Colosseum's secret room has uzi clips and a large medipack on one spot (items 46 and 44). Retail's one pick-up (the host's tick 288,708) took both; ours took the clips, and the walk stopped there, the medipack left for a second pick-up.
+- Ours now plays that pad as retail does to the end of the retail record.
+
 ### 351. A creature's push makes Lara skip the creatures in the rooms after it
 *Closed 2026-11-28: git log: "A push leaves Lara's list of rooms to collide with whole". The rooms she collides with (hers and those through its portals) go into a list of the caller's own; the shared roomsList, which the push's statics check refills, is no longer walked. As retail's LaraBaddieCollision (0600e9ac), which keeps its own.*
 

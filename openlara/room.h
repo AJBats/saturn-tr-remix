@@ -453,13 +453,14 @@ bool Room::modify()
 
 void Room::add(ItemObj* item)
 {
-    ASSERT(item && item->nextItem == NULL);
-
     item->room = this;
     item->nextItem = firstItem;
     firstItem = item;
 }
 
+// unlinked, its own link kept: a walk of the list standing on it goes on to
+// the item after (retail's RemoveDrawnItem, 0601aadc; two pickups on one spot
+// both taken by one pick-up)
 void Room::remove(ItemObj* item)
 {
     ASSERT(item && item->room == this);
@@ -473,8 +474,6 @@ void Room::remove(ItemObj* item)
 
         if (curr == item)
         {
-            item->nextItem = NULL;
-
             if (prev) {
                 prev->nextItem = next;
             } else {
