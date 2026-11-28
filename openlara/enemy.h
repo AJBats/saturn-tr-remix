@@ -210,10 +210,12 @@ struct Enemy : ItemObj
 
                 int16 rot = phd_atan(dz, dx);
 
-        // retail's CreatureAIInfo (06009950): the squared distance, far past
-        // 32000 either way; "Lara faces me" the turn between them wrapped
-        tinfo.dist2 = (abs(dx) > 32000 || abs(dz) > 32000) ? 0x7FFFFFFF : dx * dx + dz * dz;
-        tinfo.dist = phd_sqrt(tinfo.dist2);
+        // retail's CreatureAIInfo (06009950): the squared distance in 32 bits,
+        // wrapping past 46340 apart (a far creature reads as near: retail's
+        // signed compares, so the root of a wrapped one is 0); "Lara faces me"
+        // the turn between them wrapped
+        tinfo.dist2 = int32(uint32(dx) * uint32(dx) + uint32(dz) * uint32(dz));
+        tinfo.dist = (tinfo.dist2 < 0) ? 0 : phd_sqrt(tinfo.dist2);
         tinfo.angle = rot - angle.y;
         tinfo.front = abs(tinfo.angle) < ANGLE_90;
         tinfo.behind = abs(int16(rot - tinfo.target->angle.y + ANGLE_180)) < ANGLE_90;

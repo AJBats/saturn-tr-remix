@@ -956,6 +956,14 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 357. A creature far from Lara reads her as far, where retail's squared distance wraps and reads her as near
+*Closed 2026-11-28: git log: "A creature's squared distance to Lara wraps in 32 bits, as retail's". tinfo.dist2 is dx² + dz² in 32 bits with no clamp, as retail's CreatureAIInfo (06009950: two mul.l, an add). Ours set 0x7FFFFFFF past 32000 apart (the PC's clamp). Past about 46340 apart the sum wraps, often negative, and retail's signed compares then read Lara as near. tinfo.dist is 0 for a wrapped value, so the host's root compares fall the same way.*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; CreatureAIInfo disassembled; the gorilla's flags, mood and path read) · Fix: trivial*
+
+- **Found 2026-11-28** by the bot's chained run played by retail: Palace Midas, Lara on the temple roof, a gorilla 51,000 units away (the host's tick 417,314). In retail it went from bored straight to attack ("near") and set its close-range flag. Ours went to stalk, a tick behind on its path, and the seeds parted 57 ticks later.
+- Between 32000 and 46340 apart retail's value is the true square, where ours was the clamp. That is fixed too.
+
 ### 356. A dead water rat keeps its AI slot, where retail's frees it as its death plays out
 *Closed 2026-11-28: git log: "A dead water rat frees its AI slot, as retail's". In Rat::update's dead water branch the head eases back. Once the death animation deactivates it, it stops being solid and a target, and its slot is freed and it leaves the active list, as retail's VoleControl (0602bd64). In the Cistern it is set active again (retail's own case, to float as the water changes).*
 
