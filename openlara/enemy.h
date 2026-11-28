@@ -2163,7 +2163,7 @@ struct Gorilla : Enemy
             {
                 extraE->maxTurn = ENEMY_TURN_5;
 
-                if (!turnSpeed && abs(tinfo.angle) < ANGLE_45)
+                if (!turnSpeed && abs(tinfo.angle) < ANGLE(45))
                     return STATE_STOP;
                 if (tinfo.front && (hitMask & HIT_MASK))
                 {
@@ -4210,9 +4210,9 @@ struct Adam : Enemy
                 if (lara->health <= 0)
                     break;
                 turnSpeed = 0;
-                if (turn > ANGLE_45)
+                if (turn > ANGLE(45))
                     return STATE_TURN_R;
-                if (turn < -ANGLE_45)
+                if (turn < -ANGLE(45))
                     return STATE_TURN_L;
                 if (tinfo.dist >= DIST_ATTACK)
                     return STATE_FORWARD;
@@ -4227,7 +4227,7 @@ struct Adam : Enemy
             {
                 // never turns: retail adds the turn to the goal state, not to
                 // the yaw (a TR1 bug, the Saturn's too), so it stops to turn
-                if (abs(turn) > ANGLE_45 || tinfo.dist < DIST_ATTACK)
+                if (abs(turn) > ANGLE(45) || tinfo.dist < DIST_ATTACK)
                     return STATE_STOP;
                 break;
             }
@@ -4237,7 +4237,7 @@ struct Adam : Enemy
                 if (anim == ANIM_TURN_L && frame >= 14 && frame <= 22) {
                     angle.y -= ANGLE(9);
                 }
-                if (turn > -ANGLE_45)
+                if (turn > -ANGLE(45))
                     return STATE_STOP;
                 break;
             }
@@ -4247,7 +4247,7 @@ struct Adam : Enemy
                 if (anim == ANIM_TURN_R && frame >= 17 && frame <= 22) {
                     angle.y += ANGLE(14);
                 }
-                if (turn < ANGLE_45)
+                if (turn < ANGLE(45))
                     return STATE_STOP;
                 break;
             }

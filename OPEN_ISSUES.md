@@ -956,6 +956,14 @@ Decided 2026-11-18 (the user, all as suggested, with what TRX does beside each):
 
 ## Closed
 
+### 350. The gorilla's and the torso's 45 degrees are 8192, where retail's are 8190
+*Closed 2026-11-28: git log: "The gorilla and the torso turn at retail's 45 degrees". Their tests use ANGLE(45), 45 x 182 = 8190, as retail's ApeControl (060296b8: -0x1ffd..0x1ffd) and Abortion (06024b34: 0x1ffe) do. Retail's CreatureAnimation, CreatureAIInfo, the flyers' shots and the crocodile use the exact 0x2000 and 0x4000, as ours already did.*
+
+*Severity: visible · Confidence: confirmed (retail run in Mednafen; Random_GetControl callers, ApeControl's constants) · Fix: trivial*
+
+- **Found 2026-11-28** by the bot's chained run played by retail: in the Colosseum (the host's tick 244,383) the gorilla running at Lara was 8190 off her bearing. Retail ran on and drew a number for a jump or a warning; ours stopped. The seeds parted, and on the same pad retail's Lara died to the lion 2,400 ticks later where ours lived.
+- With the fix our host plays that pad as retail does to her death (the whole retail record, 45,289 ticks).
+
 ### 349. Pierre's nerve counts his hits, where retail's counts ticks
 *Closed 2026-11-28: git log: "Pierre's nerve counts ticks, as retail's". At 40 health or less he's held at 40 and his count goes on a tick at the top of his control, not at each hit; out of the camera's sight it only checks, as retail's PierreControl (06028ef0). A kill counts only for a hit that takes a creature from alive to 0, as retail's HitTarget (0601fff4). The Folly matches retail on every tick to its end.*
 
